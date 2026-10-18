@@ -1,6 +1,6 @@
 # Views — area guide
 
-The SwiftUI view layer of the project window and the app's other windows: the window family (`ProjectWindow` and the columns and modifiers split out of it), the four personas, the binder tree (the window's one subject-picker), the centre column's routes, the right column's panes and inspectors, the review queue and board, the statement panes, the editorial letter, Publish's centre and desk, the translation surfaces, History and rewind, and the register's surfaces (admission, People & Devices, the posture). The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49, 51, 52 and 55. The why behind every rule below, and the history of each, is in `docs/history/views.md`.
+The SwiftUI view layer of the project window and the app's other windows. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49, 51, 52 and 55. The why behind each rule is in `docs/history/views.md`.
 
 ## Map
 
@@ -10,9 +10,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectWindow.swift` — the root view: `body` (at the Release type-check ceiling), the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`, `pressPaletteWallDoor`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute` and `CentreCover`, and `ProjectWindow.centreRoute(…)`: what the centre column shows, as one exhaustive value (tripwires 6, 27, 30).
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount (with `CanvasReadOnlyNotice` in a top `.safeAreaInset` over a refused layout file), `manuscriptEditor` (the `EditorHost` + altitude + one cover `ZStack`), the board's open-notes counts and `refreshOpenNotes` (tripwires 2, 6, 30).
-- `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute` → canvas / Collection piece / `InspectorView`), hidden arm, and the services it injects into its environment.
+- `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute`), hidden arm, and its environment's services.
 - `PaletteWallState.swift` — the wall's window state as one value (`showsWall`, `travelPending`, the inspector stash) with its three folds as mutating methods.
-- `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows (preview resolution, picked publication, selected proposal, selected round) and every rule for changing it as a named method (`show(proposal:)`, `show(round:)`, `clearDecisions()`, `publishSelection(after:)`, `adoptVerbAnswer(_:)`).
+- `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift` — the window's one sheet enum.
 - `WindowFlashes.swift` / `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
@@ -58,7 +58,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.
 - `TreeSectionDerivation.swift` — pure derivations: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
-- `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (`routeExternalDrop`, `refuseDrop`).
+- `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (the `route…Drop` family, e.g. `routeExternalDrop`).
 - `DropIntent.swift` — top/middle/bottom drop position → structural action.
 - `DropClassification.swift` — one dropped `NSItemProvider`: file URL over image data.
 - `ResearchTree.swift` — the recursive research node (`ResearchTreeNode`, `ResearchTreeActions`, `ResearchSelectionSync`).
@@ -150,7 +150,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
 - `Maugham/Views/Publish/ExportsListView.swift` — the tree's Exports footer.
 - `Maugham/Views/Publish/InspectorPublishSection.swift` — per-piece publish overrides in the inspector.
-- `Maugham/Views/Publish/PublishStatusPill.swift` — the compile-in-progress pill.
+- `Maugham/Views/Publish/PublishStatusPill.swift` — the compiling pill.
 
 ### Translation
 - `TranslationReviewPane.swift` — the translation pane (⌘⌥L): queries, spot-check (Gloss / Ask the Collator).
@@ -218,7 +218,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **When `ProjectWindow.body` hits "unable to type-check this expression in reasonable time", extract a `ViewModifier`**: the body is at the Release type-check ceiling, so window behaviour lives in modifiers and a column arm is a call.
 - **A census reading "the window's code" reads the family BY TYPE**: `SourceTree.windowFamilyTypes` names the members, so moving a modifier between files never shrinks what a census reads; a member nothing declares throws. Absence checks still widen to the directory.
 - **`CentreColumn` and `RightColumn` are mounted once each, as the content and detail columns' roots**, so `EditorHost` and the canvas keep their identities across every route change.
-- **Every `@State` a column writes arrives as a `Binding`, every value it reads as a value, every verb as a closure** (tripwire 2: a copy drifts). `CentreColumn` owns one piece of state, the board's open-notes counts.
+- **A column reads values and takes verbs as closures**; `CentreColumn` owns one piece of state, the board's open-notes counts.
 - **`canvasModel` is a `let`, and nothing in the window or columns reads `.scene`** (tripwire 30): `CanvasModel` rewrites its scene on every drag frame. `RegionInspectorPane` resolves the region one leaf down.
 - **The window's stores and `claude` services are the session's**: it gives its lease back in `.onDisappear`, and `CompilerRunModifier` runs `roster.shutdownAll()`, pipeline first; a merely released session is a live, billing process.
 - **The `NavigationSplitView`'s `columnVisibility:` is written by `CanvasCollapseModifier` and `PersonaModifier` and nothing else.** `.detailOnly` hides the canvas, which is the CONTENT column.
@@ -239,8 +239,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Personas
 - **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — the centre question is `centresTheCanvas` / `showsManuscriptDocuments`, the wall `showsPaletteWall`, Exports `showsExports`, Publish `previewsThePublishedBook`, Review's read-only centre `editsResearchInTheCentre`: `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
-- **The window's persona is written only from the closed set of decision sites** (`ManuscriptNavigation.go`, `PersonaModifier`, `CanvasClaudeArrivalModifier`, `TreeTravelModifier`, the model's own init): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`. A new site is added to `personaDecisionSites` by name.
-- **A writer-initiated persona switch has one path**: `PersonaBar` posts `.maughamSetPersona` exactly as ⌘1–4 do, and `PersonaModifier` handles it. `PersonaBar` holds no mutation logic.
+- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`'s `pressPaletteWallDoor`, `CanvasClaudeArrivalModifier`, `TreeTravel`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`. A new site is added to `personaDecisionSites` by name.
 - **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2). `CanvasClaudeArrivalModifier.show` does not record the departing segment (a look is not a choice); `ManuscriptNavigation.go` does.
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
@@ -332,7 +331,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`.maughamAdmissionRequested` may raise a sheet; `.maughamAdmissionSettled` must never** — two events, never one with a flag.
 - **A vanished request takes its sheet down**; pressing Admit on a settled record would relabel it.
 - **`AdmissionDecision.refusal(_:)` is the one place a `RegistryAdmissionError` becomes a sentence**, exhaustive with no `default`.
-- **A refused verb keeps its disabled button with the reason in tooltip and `accessibilityHint`**; a root's row draws no Revoke at all. Only the root that admitted a person may revoke or rename them; Merge is disabled on a Mac with no root of its own; Forget This Person Key is drawn only where `Person.mayForgetPersonKey`.
+- **A refused verb keeps its disabled button with the reason in tooltip and `accessibilityHint`**; a root's row draws no Revoke at all.
+- **Only the root that admitted a person may revoke or rename them.**
+- **Merge is disabled on a Mac with no root of its own; Forget This Person Key is drawn only where `Person.mayForgetPersonKey`.**
 - **An adopted root is drawn as *merged*, never also as a claimant; a record outside the chain is never named.**
 - **A multi-record group compares `PermitWords` sentences for display, never rungs.**
 - **`ClaimDecision.offer` answers nil unless this Mac has no root, the book has one, and this Mac can sign and write the registry.**
@@ -353,12 +354,16 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash), because `runRequested` refuses in silence while the document is not open.
 - **`refreshOpenNotes` is the one writer of the open-notes counts**, from the board's `.task` and `.maughamAnnotationsChanged`, never a body, reading the aggregation once.
 - **The per-piece pass-state writers are the files in `PersonaPaneRegistryTests.passStateWritingFiles`** (`InspectorView.swift`, `PieceInspector.swift`, `type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
-- **`StatusSwatch` is the one place a status becomes a colour.**
+- **`StatusSwatch` is the one place a status becomes a colour.** `StructureItem.status` is a legacy read fallback, never written.
+- **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
+- **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
 - **A bulk verb reaches exactly where the row's own verb reaches**: a stale suggestion and a `.query` are out of accept. The executor opens no undo group (ADR 0023) and collects refusals into one alert.
 - **Bulk is document scope only**; project scope reads `listAnnotationsAcrossProject` and refreshes on `noteChanged()`, the document's `annotationsVersion` and `.maughamAnnotationsChanged`.
 - **In project scope, travel writes only `selectedSubject`** (`AnnotationScopeTests`).
 - **Queue order is `AnnotationQueueOrder.sorted`, pane-side**; it does not change the deriver's projection.
+- **Pane-side filters (triage, author) apply after `AnnotationFilter`**, whose shape reaches MCP and never widens.
 - **The pass filter defaults to following the active pass, a fallback not a write**; a retired pass's selection heals to All Passes.
+- **A selected pass also shows every unstamped note and every note in the coach's lane** (`ReviewPass.coachPreset.id`, never `effectiveCoach`).
 - **The nudge keys on the RECORDED active pass and takes no filter argument**, document scope only.
 - **A held triage mark is checked and disabled**; re-applying appends an op whose ⌘Z undoes nothing visible.
 - **Four resolutions — Accept / Reject… / Stet / Archive — with Stet offered wherever Archive is; triage is a mark, not a resolution.** `AnnotationRow.showsReopen` is an exhaustive switch, so a new status must decide.
@@ -373,7 +378,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The rulings verbs take `kind` undefaulted, before scope**: a brief and the craft intent share `.project` scope.
 - **"Carries rulings" and "is the bible" are separate questions** (`StatementEssay.carriesRulings`, `BibleStratum.belongsTo`).
 - **`liveParagraphIds == nil` is UNKNOWN and manufactures no orphan**; the `.task` resolving it is keyed on the directive ids AND the open documents' paragraph sequences.
+- **`RulingsStratum.partition` returns plain `[Ruling]`**, so a row re-derives its index in the ORIGINAL array before `revoke(_:at:)`/`edit`.
 - **A proposal slot is read in a `.task` and on `.maughamStatementProposalsChanged`**; Adopt writes into the pane's live `Document` when one is bound.
+- **The statement host is not remounted on a scope change, so every `@State` on it outlives one**: clear per-scope state in `reconcile`/`leave()`.
+- **A picture dropped into a scope with no statement leaves the empty draft showing until the pane is next opened there**; never bind the pane to close that gap, because the next keystroke would `setFullText` over the ref.
 - **Visual language takes pictures; intent does not** (`StatementImageIngestTests.test_intentTakesNoPicturesAtAll`). The drop target is a well BESIDE the editor, never over it.
 - **A finished ingest names its destination** (`ProjectStore.appendToStatement` on the returned `Statement`); it never reads view state to find one.
 - **A ruling is written FIRST, then the annotation op**, so a refusal cannot settle a note whose decision was lost (`QueryRuling`, `FirstReaderRuling`, `QueueLedgerVerbs`).
@@ -399,17 +407,23 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **An unreadable catalog is never presented as empty**: its own notice names the file (RULING-7). The notice banner takes no hits.
 - **`PublishPreviewResolver.readablePDFs` is both the picker's rows and the drawn book**; the pick is never persisted.
 - **`PublishPreviewModifier` is the resolution's only writer.**
-- **A proposal is a VALUE read once**, cleared on any persona change.
+- **A proposal is a VALUE read once**, cleared on any persona change *before* `PublishPreviewModifier`'s `previewsThePublishedBook` guard, so leaving Publish clears it.
 - **The desk has no empty state**: the Design row's Run must always be reachable. A language row is `EditionStatus.LanguageRow`, the derivation `translation_status` reports.
 - **Name, Add Language and Rename are asks of one sheet**; adding a language the book has says so and stops.
-- **Every desk refusal folds into one `notice`** (`DepartmentPaneTests.test_theDeskCarriesOneMessageChannelAndNotTwo`).
+- **Every desk refusal folds into one `notice`** (`DepartmentRunTests.test_theDeskCarriesOneMessageChannelAndNotTwo`).
 - **The desk's run gate reads the pipeline first** (`DepartmentRunSession.read`); a round's leg never joins `ReloadKey`.
 - **An unlisted language's first Run asks for a name.**
+- **The desk runs the OPEN document only** (`DepartmentRunTarget`); Run Whole Book uses the row's own `scopedDocumentIds`.
+- **A language tag is lowercased before it is judged, unioned or sent**: `ES` beside `es` would draw one edition as two rows.
+- **Desk pre-flight asks the briefing's own gates** (`PublishStarter.isInitialized`, `publishablePieces()`), never a second disk probe.
+- **A refused desk verb is disabled with its reason, except Show, which hides.**
 - **Gate refusals are read from the error types, never recomposed** (`DesignGate.refusalSentence`); Finalize confirms; nothing on the gate reaches `NSUndoManager` (`DesignGateTests.test_nothingAboutTheGatesVerbsReachesTheUndoManager`).
 - **A verb answering from a `Task` updates the surface only if the same proposal / round is still on it** (`PublishCentreModel.adoptVerbAnswer`).
 - **The round report is pure rows and copy; the host does all disk work in `.task`.** Its verbs are closures on `TranslationRoundActions` with a standing `notWired` refusal; count them on the type.
+- **The report's `onReveal` clears the round selection itself**: the round arm is not project-level, so no subject change does.
+- **The report host takes its window**: a nil-window subscription never fires (`MaughamEvent.isLive(nil)` is false).
 - **A skipped leg and a failed query read are drawn as themselves**, never as good news (RULING-7).
-- **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`).
+- **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`); a verb posts `.maughamDesignProposalsChanged` so the desk re-derives.
 - **A dismissed departure is a separate fact from the pipeline's outcome.**
 - **The reveal waits for the translated surface between its two posts**, and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
@@ -485,8 +499,8 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 
 ## Pointers
 - `docs/history/views.md` — the old guide, word for word: every rule's why and where it came from.
-- ADR 0005 (right-pane mode swap) as amended by ADR 0025 (persona shell); ADR 0021 (scoped window events); ADR 0023 (undo conventions); ADR 0031 (the persona is an input to the run); ADR 0032 (the signed op log; its addenda for the posture and register surfaces); ADR 0030 (the department desk, the round report, the reveal).
+- ADR 0005 as amended by ADR 0025 (personas); ADR 0021 (window events); ADR 0023 (undo); ADR 0030 (the department desk, the round report, the reveal); ADR 0031; ADR 0032 (posture and register surfaces).
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49, 51, 52, 55.
 - Specs: `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
-- Neighbouring guides: `Maugham/Editor/AREA.md` (the editor, two editors in one window), `Maugham/Canvas/AREA.md` (the canvas and its inspectors), `Maugham/Stores/AREA.md` (stores, sessions, the typed mover), `Maugham/OpLog/AREA.md` (load, recovery, the permit), `Maugham/Compiler/AREA.md` (runs, the pipeline), `Maugham/Publish/AREA.md`.
+- Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.
 - Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `PersonaPaneRegistryTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests` (both rewind entry points reach one modal), and the Views censuses in `TripwireGrepTests`.

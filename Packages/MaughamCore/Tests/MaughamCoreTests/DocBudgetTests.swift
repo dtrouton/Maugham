@@ -16,7 +16,7 @@ final class DocBudgetTests: XCTestCase {
         "docs/INDEX.md": 417,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session; +15: the docs/history line (plan 5)
         "Maugham/Canvas/AREA.md": 7_952,  // plan 5: re-templated, +271 review fixes (47,971 → 7,681 → this; tripwire 33, split bullets, narrative-only rules); the narrative is in docs/history/canvas.md
         "Maugham/OpLog/AREA.md": 7_987,  // plan 5: re-templated (30,412 → this), +228 review fixes (each tripwire names its census, the load's suspension points); the narrative is in docs/history/oplog.md
-        "Maugham/Views/AREA.md": 7_872,  // plan 5: re-templated (28,289 → this); the narrative is in docs/history/views.md
+        "Maugham/Views/AREA.md": 7_987,  // plan 5: re-templated, +115 review fixes (28,289 → 7,872 → this; queue filters, Publish ordering, statement host, desk rules); the narrative is in docs/history/views.md
         "Maugham/Compiler/AREA.md": 7_741,  // plan 5: re-templated (23,782 → this); the narrative is in docs/history/compiler.md
         "Maugham/Stores/AREA.md": 16_389,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17; +275 at the foundations merge: main's additions since the plans branched and the Project sessions row
         "Maugham/MCP/AREA.md": 8_687,  // + residue from CLAUDE.md, 2026-10-17; +16: the bump-the-catalogue-heading step; +95: main's #44 refused-layout text, merged at the foundations integration
