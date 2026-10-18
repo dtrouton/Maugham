@@ -164,7 +164,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_headerState_running() {
         let since = Date(timeIntervalSince1970: 1_000)
         let state = DiagnosticsPane.headerState(
-            runState: .running(docId: "d1", checking: counts(new: 14, revised: 0)),
+            runState: .running(docId: "d1", kind: .check, checking: counts(new: 14, revised: 0)),
             lastRun: nil, noteCount: 0, docId: "d1",
             runStartedAt: since, runProgress: RunProgress(thinkingTokens: 500, at: since))
         XCTAssertEqual(state, .running(checking: counts(new: 14, revised: 0), since: since,
@@ -267,15 +267,80 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_headerState_runningAnotherDocFallsThroughToLastRun() {
         let run = makeRun()
         let state = DiagnosticsPane.headerState(
-            runState: .running(docId: "other-doc", checking: counts(new: 2, revised: 0)),
+            runState: .running(docId: "other-doc", kind: .check, checking: counts(new: 2, revised: 0)),
             lastRun: run, noteCount: 0, docId: "d1")
         XCTAssertEqual(state, .clean(lastRun: run))
+    }
+
+    // MARK: - Each loop shows its own run (#77 F7)
+
+    /// **A ROUND on this piece is not a check** (#77 F7, the controller's
+    /// symmetric half of Denver's ruling). The header keeps its own state —
+    /// the last check — and says one line about the round holding the
+    /// window's one session.
+    func test_theDiagnosticsHeaderSaysReviewsRoundIsRunning() {
+        let run = makeRun()
+        let round = CompilerOrchestrator.RunState.running(
+            docId: "d1", kind: .round, checking: counts(new: 9, revised: 0))
+        let state = DiagnosticsPane.headerState(
+            runState: round, lastRun: run, noteCount: 0, docId: "d1")
+        XCTAssertEqual(state, .clean(lastRun: run),
+                       "a round's run must not read as this pane's check")
+        XCTAssertEqual(DiagnosticsPane.otherLoopLine(runState: round, docId: "d1"),
+                       "Review's round is running \u{2014} \u{2318}R waits until it finishes.")
+        XCTAssertEqual(DiagnosticsPane.reviewsRoundIsRunningLine,
+                       "Review's round is running \u{2014} \u{2318}R waits until it finishes.")
+        XCTAssertTrue(DiagnosticsPane.offersCancel(
+            state: state, otherLoopLine: DiagnosticsPane.otherLoopLine(runState: round, docId: "d1")),
+            "the writer may stop Review's round from here (#77 F7 review ruling)")
+        XCTAssertFalse(DiagnosticsPane.offersCancel(state: state, otherLoopLine: nil),
+                       "control: a header with no run in flight offers no Cancel")
+        XCTAssertTrue(DiagnosticsPane.offersCancel(
+            state: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil),
+            otherLoopLine: nil), "control: the pane's own check still offers Cancel")
+        XCTAssertNil(DiagnosticsPane.otherLoopLine(
+            runState: .running(docId: "d1", kind: .check, checking: counts(new: 1, revised: 0)),
+            docId: "d1"), "the pane's own check draws its own line, not the other loop's")
+        XCTAssertNil(DiagnosticsPane.otherLoopLine(runState: .idle, docId: "d1"))
+    }
+
+    /// **The other loop's line is WINDOW-wide** (#77 F7 review ruling): the
+    /// session is the window's, so ⌘R on this document is refused while a
+    /// round reads another one. The pane's OWN check still matches by document.
+    func test_theHeaderNamesReviewsRoundOnAnyDocument() {
+        let roundOnA = CompilerOrchestrator.RunState.running(
+            docId: "doc-a", kind: .round, checking: counts(new: 3, revised: 0))
+        XCTAssertEqual(DiagnosticsPane.otherLoopLine(runState: roundOnA, docId: "doc-b"),
+                       "Review's round is running \u{2014} \u{2318}R waits until it finishes.")
+        let run = makeRun()
+        let checkOnA = CompilerOrchestrator.RunState.running(
+            docId: "doc-a", kind: .check, checking: counts(new: 3, revised: 0))
+        XCTAssertEqual(
+            DiagnosticsPane.headerState(runState: checkOnA, lastRun: run,
+                                        noteCount: 0, docId: "doc-b"),
+            .clean(lastRun: run),
+            "control: the pane's OWN check still matches by document")
+        XCTAssertNil(DiagnosticsPane.otherLoopLine(runState: checkOnA, docId: "doc-b"))
+    }
+
+    /// **A round that died is Review's failure, not a check's** (#77 F7).
+    func test_aRoundsFailureIsNotACheckFailure() {
+        let run = makeRun()
+        let state = DiagnosticsPane.headerState(
+            runState: .failed(docId: "d1", kind: .round, failure: .timedOut(), at: Date()),
+            lastRun: run, noteCount: 2, docId: "d1")
+        XCTAssertEqual(state, .idle(lastRun: run))
+        let nothing = DiagnosticsPane.headerState(
+            runState: .nothingNew(docId: "d1", kind: .round, at: Date()),
+            lastRun: run, noteCount: 2, docId: "d1")
+        XCTAssertEqual(nothing, .idle(lastRun: run),
+                       "a round over an empty piece is not 'Nothing new since the last check.'")
     }
 
     func test_headerState_nothingNew() {
         let at = Date()
         let state = DiagnosticsPane.headerState(
-            runState: .nothingNew(docId: "d1", at: at), lastRun: makeRun(),
+            runState: .nothingNew(docId: "d1", kind: .check, at: at), lastRun: makeRun(),
             noteCount: 3, docId: "d1")
         XCTAssertEqual(state, .nothingNew(at: at))
     }
@@ -286,7 +351,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_headerState_nothingNewForAnotherDocFallsThroughToLastRun() {
         let run = makeRun()
         let state = DiagnosticsPane.headerState(
-            runState: .nothingNew(docId: "other-doc", at: Date()), lastRun: run,
+            runState: .nothingNew(docId: "other-doc", kind: .check, at: Date()), lastRun: run,
             noteCount: 0, docId: "d1")
         XCTAssertEqual(state, .clean(lastRun: run),
             "another document's empty delta must not speak for this one")
@@ -298,7 +363,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_headerState_failedForAnotherDocFallsThroughToLastRun() {
         let run = makeRun()
         let state = DiagnosticsPane.headerState(
-            runState: .failed(docId: "doc-a", failure: .cliNotFound, at: Date()),
+            runState: .failed(docId: "doc-a", kind: .check, failure: .cliNotFound, at: Date()),
             lastRun: run, noteCount: 2, docId: "doc-b")
         XCTAssertEqual(state, .idle(lastRun: run),
             "a failure belongs to the document it was raised on")
@@ -312,7 +377,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_headerState_failedWithHonestCopy() {
         let at = Date()
         let state = DiagnosticsPane.headerState(
-            runState: .failed(docId: "d1", failure: .cliNotFound, at: at),
+            runState: .failed(docId: "d1", kind: .check, failure: .cliNotFound, at: at),
             lastRun: nil, noteCount: 0, docId: "d1")
         XCTAssertEqual(state, .failed(.cliNotFound, at: at))
 
@@ -467,7 +532,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let previewed = makeRun(clauseStatuses: [makeClause("Cold.", "strains")])
 
         let state = DiagnosticsPane.headerState(
-            runState: .running(docId: "doc-1", checking: counts(new: 1, revised: 0)),
+            runState: .running(docId: "doc-1", kind: .check, checking: counts(new: 1, revised: 0)),
             lastRun: previewed, noteCount: 1, docId: "doc-1")
 
         XCTAssertEqual(state,

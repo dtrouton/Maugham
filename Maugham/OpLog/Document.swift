@@ -479,11 +479,17 @@ public final class Document {
     /// the compensating op before it was written (`refusingLoudly`).
     internal enum UndoDecline: Hashable, CaseIterable {
         case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
+        /// The reject, archive and pane-Reopen undos' drift declines (#51).
+        case reject, archive, reopen
         /// A task op this Mac's permit refuses (P3c Task 8's task door).
         case taskNotPermitted
         /// A restore this Mac's permit refuses (P3c whole-branch fix wave,
         /// C1's restore door) — a History restore's ⌘Z or ⇧⌘Z after a demotion.
         case restoreNotPermitted
+        /// A suggestion's accept or revert this Mac may not write right now
+        /// (#79) — a yield (Edit Anyway lifts it) or a demotion, so it names
+        /// neither "no longer" nor a restore.
+        case suggestionNotPermitted
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -498,6 +504,12 @@ public final class Document {
                 "Couldn't undo accepting \(count) notes — they changed on another device."
             case .stet:
                 "Couldn't undo stetting \(count) notes — they changed on another device."
+            case .reject:
+                "Couldn't undo rejecting \(count) notes — they changed on another device."
+            case .archive:
+                "Couldn't undo archiving \(count) notes — they changed on another device."
+            case .reopen:
+                "Couldn't undo reopening \(count) notes — they changed on another device."
             case .triage:
                 "Couldn't undo \(count) triage marks — they changed on another device."
             case .stetRestore:
@@ -508,6 +520,8 @@ public final class Document {
                 "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
             case .restoreNotPermitted:
                 "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
+            case .suggestionNotPermitted:
+                "Couldn't undo \(count) suggestions — this Mac can't change this piece's text right now."
             }
         }
 
@@ -519,6 +533,12 @@ public final class Document {
                 "Couldn't undo accepting the note — it changed on another device."
             case .stet:
                 "Couldn't undo stetting the note — it changed on another device."
+            case .reject:
+                "Couldn't undo rejecting the note — it changed on another device."
+            case .archive:
+                "Couldn't undo archiving the note — it changed on another device."
+            case .reopen:
+                "Couldn't undo reopening the note — it changed on another device."
             case .triage:
                 "Couldn't undo the triage mark — it changed on another device."
             case .stetRestore:
@@ -529,6 +549,8 @@ public final class Document {
                 "Couldn't change that task — this Mac can no longer file tasks in this piece."
             case .restoreNotPermitted:
                 "Couldn't undo the restore — this Mac can no longer change this piece's text."
+            case .suggestionNotPermitted:
+                "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
             }
         }
     }

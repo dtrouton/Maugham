@@ -543,13 +543,30 @@
   }
  },
  {
+  "claim_id": "M5-AN-062",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The Edit menu read 'Undo Reject Annotation' and the writer's expectation came from that wording. WHY_IT_VIOLATED: the undo dispatched on whatever the note had become rather than on the reject it named, so over a note archived since it undid an ARCHIVE, and over a note withdrawn since it RESTORED a deletion — an outcome unlike the one the label promised, and silent. As of the fix the undo acts only on the resolution it wrote and says so when that resolution is gone; the pane Reopen's undo is held to the same rule from the other side. M5-AN-019's and M5-AN-060's shape at the remaining two resolutions and the Reopen.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z on a menu item naming the act",
+  "call_path": "AnnotationsPane row → Reject / Archive (or Reopen) → Document.rejectAnnotation / archiveAnnotation / reopenAnnotation(id:undoManager:) → OpUndoRegistrar.register → ⌘Z → the closure's status re-check → Document.declineUndo(.reject / .archive / .reopen) → one Document.notifyWriter at the hop → RewindModifier's toast",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "15724bca",
+   "date": "2026-10-17",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; issue #51 scoped it",
+   "pinned_by": "MaughamTests/AnnotationResolutionUndoDriftTests.swift (drifted reject/archive/Reopen each decline with nothing appended; Undo Reject never reopens an archive nor resurrects a withdrawn note; three silent controls)",
+   "note": "reopenAnnotation(id:) is deliberately unchanged (M5-AN-034); the guard is the undo's"
+  }
+ },
+ {
   "_summary": {
-   "reached": 24,
-   "complies": 24,
+   "reached": 25,
+   "complies": 25,
    "violates": 0,
    "no_ruling": 36,
-   "total": 60,
-   "coverage": "40%",
+   "total": 61,
+   "coverage": "41%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -561,7 +578,8 @@
      "M5-AN-036",
      "M5-AN-059",
      "M5-AN-060",
-     "M5-AN-061"
+     "M5-AN-061",
+     "M5-AN-062"
     ],
     "RULING-24": [
      "M5-AN-021"

@@ -101,7 +101,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// cockpit claim it is being checked and refuse its own Run button.
     func test_anotherDocumentsRunLeavesThisCockpitIdle() {
         let elsewhere = CompilerOrchestrator.RunState.running(
-            docId: "ch-2", checking: CompilerOrchestrator.DeltaCounts(new: 4, revised: 1))
+            docId: "ch-2", kind: .round, checking: CompilerOrchestrator.DeltaCounts(new: 4, revised: 1))
 
         XCTAssertEqual(
             ReviewRoundCockpit.phase(runState: elsewhere, docId: "ch-1"), .idle,
@@ -109,11 +109,98 @@ final class ReviewRoundCockpitTests: XCTestCase {
             + "run state is per window, the cockpit is per document")
     }
 
+    // MARK: - Each loop shows its own run (#77 F7)
+
+    /// **A CHECK on this piece is not a round** (#77 F7). The run state is per
+    /// window and one session serves both loops, so before the run state said
+    /// which kind of run it was, ⌘R in Author made this cockpit read
+    /// "running" with the check's counts — a round nobody pressed Run for.
+    func test_theCockpitDoesNotShowAChecksRunAsARound() {
+        let check = CompilerOrchestrator.RunState.running(
+            docId: "ch-1", kind: .check,
+            checking: CompilerOrchestrator.DeltaCounts(new: 4, revised: 1))
+        let phase = ReviewRoundCockpit.phase(runState: check, docId: "ch-1")
+        XCTAssertNotEqual(phase, .running(CompilerOrchestrator.DeltaCounts(new: 4, revised: 1)),
+                          "a check's run must never read as this cockpit's round")
+        XCTAssertNil(
+            ReviewRoundCockpit.statusLine(phase: phase, reportLine: nil,
+                                          runSince: nil, runProgress: nil),
+            "the cockpit keeps its OWN status line \u{2014} no check counts drawn as a round's")
+    }
+
+    /// **The ruling's sentence, verbatim** (Denver, 2026-10-17): the cockpit
+    /// shows its own state plus one line naming the other loop's run, and its
+    /// Run stays refused while that run holds the window's one session.
+    func test_theCockpitSaysAuthorsCheckIsRunning() {
+        let check = CompilerOrchestrator.RunState.running(
+            docId: "ch-1", kind: .check,
+            checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
+        let phase = ReviewRoundCockpit.phase(runState: check, docId: "ch-1")
+        XCTAssertEqual(phase, .authorsCheckIsRunning)
+        XCTAssertEqual(ReviewRoundCockpit.otherLoopLine(phase: phase),
+                       "Author's check is running \u{2014} Run waits until it finishes.")
+        XCTAssertEqual(ReviewRoundCockpit.authorsCheckIsRunningLine,
+                       "Author's check is running \u{2014} Run waits until it finishes.")
+        XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phase),
+                      "Run stays refused while the window's one session is the check's")
+        XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phase),
+                      "the writer may stop Author's check from here rather than being "
+                      + "stranded in the wrong tab (#77 F7 review ruling)")
+        XCTAssertEqual(
+            ReviewRoundCockpit.statusLine(phase: phase, reportLine: "Read in 4m 12s.",
+                                          runSince: nil, runProgress: nil),
+            "Read in 4m 12s.",
+            "the cockpit's own state stays under the line")
+        // Its own round still reads as its own, with no other-loop line.
+        let round = ReviewRoundCockpit.phase(
+            runState: .running(docId: "ch-1", kind: .round,
+                               checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)),
+            docId: "ch-1")
+        XCTAssertNil(ReviewRoundCockpit.otherLoopLine(phase: round))
+        XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: round))
+        XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: round))
+        XCTAssertNil(ReviewRoundCockpit.otherLoopLine(phase: .idle))
+        XCTAssertFalse(ReviewRoundCockpit.refusesRun(phase: .idle))
+    }
+
+    /// **The other loop's line is WINDOW-wide** (#77 F7 review ruling). The
+    /// session is the window's, so Run on chapter 2 is refused while a check
+    /// reads chapter 1 — and an idle strip whose Run refuses on press is the
+    /// dead control RULING-35 forbids. The loop's OWN running state still
+    /// matches by document.
+    func test_theCockpitNamesAuthorsCheckOnAnyDocument() {
+        let checkOnA = CompilerOrchestrator.RunState.running(
+            docId: "ch-a", kind: .check,
+            checking: CompilerOrchestrator.DeltaCounts(new: 2, revised: 0))
+        let phaseOnB = ReviewRoundCockpit.phase(runState: checkOnA, docId: "ch-b")
+        XCTAssertEqual(phaseOnB, .authorsCheckIsRunning)
+        XCTAssertEqual(ReviewRoundCockpit.otherLoopLine(phase: phaseOnB),
+                       "Author's check is running \u{2014} Run waits until it finishes.")
+        XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phaseOnB))
+        XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phaseOnB))
+
+        let roundOnA = CompilerOrchestrator.RunState.running(
+            docId: "ch-a", kind: .round,
+            checking: CompilerOrchestrator.DeltaCounts(new: 2, revised: 0))
+        XCTAssertEqual(ReviewRoundCockpit.phase(runState: roundOnA, docId: "ch-b"), .idle,
+                       "control: the cockpit's OWN round still matches by document")
+    }
+
+    /// **A check that died is Author's failure, not a round's** (#77 F7): the
+    /// red line here says a ROUND did not answer, and the remedy it implies —
+    /// press Run — answers a different loop's death.
+    func test_aChecksFailureIsNotARoundFailure() {
+        let phase = ReviewRoundCockpit.phase(
+            runState: .failed(docId: "ch-1", kind: .check, failure: .timedOut(), at: Date()),
+            docId: "ch-1")
+        XCTAssertEqual(phase, .idle)
+    }
+
     func test_thePhaseCarriesThisDocumentsDelta() {
         let counts = CompilerOrchestrator.DeltaCounts(new: 4, revised: 1)
         XCTAssertEqual(
             ReviewRoundCockpit.phase(
-                runState: .running(docId: "ch-1", checking: counts), docId: "ch-1"),
+                runState: .running(docId: "ch-1", kind: .round, checking: counts), docId: "ch-1"),
             .running(counts))
     }
 
@@ -168,7 +255,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_aRunThatFoundNothingNewReadsIdle() {
         for state: CompilerOrchestrator.RunState in [
             .idle,
-            .nothingNew(docId: "ch-1", at: Date()),
+            .nothingNew(docId: "ch-1", kind: .round, at: Date()),
         ] {
             XCTAssertEqual(ReviewRoundCockpit.phase(runState: state, docId: "ch-1"), .idle,
                            "\(state) is not a run in flight and not a failure")
@@ -195,7 +282,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         ] {
             XCTAssertEqual(
                 ReviewRoundCockpit.phase(
-                    runState: .failed(docId: "ch-1", failure: failure, at: at),
+                    runState: .failed(docId: "ch-1", kind: .round, failure: failure, at: at),
                     docId: "ch-1"),
                 .failed(failure, at: at),
                 "a run that ended without an answer must reach the strip as a "
@@ -213,7 +300,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_anotherDocumentsFailureLeavesThisCockpitIdle() {
         XCTAssertEqual(
             ReviewRoundCockpit.phase(
-                runState: .failed(docId: "ch-2", failure: .timedOut(), at: Date()),
+                runState: .failed(docId: "ch-2", kind: .round, failure: .timedOut(), at: Date()),
                 docId: "ch-1"),
             .idle,
             "a failure on ANOTHER document must leave this cockpit idle")

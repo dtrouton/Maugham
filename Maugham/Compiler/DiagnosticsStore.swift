@@ -995,7 +995,25 @@ final class DiagnosticsStore {
         }
     }
 
+    /// **No preview reaches disk, from either slot, whoever is writing**
+    /// (#77 F7 review). A preview lives in memory only (`preview`'s own
+    /// rule), but every writer here persists the WHOLE file — so a write to
+    /// one slot while the other is streaming (`dismiss` of a check note
+    /// mid-round, `advanceMarker`, `replace` of the other verb) carried that
+    /// half-report to disk, where `discardPreview`'s re-read, or the next
+    /// launch, took it for the standing answer. So the file is always written
+    /// with each previewing slot's FINISHED answer in it
+    /// (`finishedBeforePreview`, nil for a cold slot), and the in-memory
+    /// preview is left exactly as it was. One door, so no future writer has
+    /// to remember the rule.
     private func persist(docId: String, content: FileContent) {
+        var content = content
+        for kind in RunKind.allCases {
+            let key = SlotKey(docId: docId, kind: kind)
+            if previewing.contains(key) {
+                content[kind] = finishedBeforePreview[key]
+            }
+        }
         let url = Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

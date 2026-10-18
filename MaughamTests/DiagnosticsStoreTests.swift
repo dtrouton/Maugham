@@ -1634,6 +1634,67 @@ final class DiagnosticsStoreTests: XCTestCase {
                        "and the round BEFORE it is still the one that finished")
     }
 
+    /// **A write in one slot never carries the other slot's preview to disk**
+    /// (#77 F7 review). Since the Diagnostics pane stopped withholding its
+    /// fates during a ROUND, a check note answered mid-round reaches
+    /// `dismiss`, which persists the whole file — round slot included, and the
+    /// round slot is that round's streaming half-report. A cancel then re-reads
+    /// the file in `discardPreview` and the half-report becomes the standing
+    /// round: the cockpit, the letter, `standingRound`, the ring and "since
+    /// last round" all describe a round that never finished.
+    func test_dismissingACheckNoteMidRoundLeavesTheFinishedRoundStanding() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docDismissMidRound"
+
+        let round = makeRound(round: 2)
+        store.replace(run: round, diagnostics: [], docId: docId)
+        let check = makeCheck()
+        let note = makeDiagnostic(docId: docId, runId: check.id, body: "the check's")
+        store.replace(run: check, diagnostics: [note], docId: docId)
+
+        store.preview(run: makeRound(round: 3), diagnostics: [], docId: docId)
+        store.dismiss(note.id, docId: docId)
+        store.discardPreview(docId: docId, kind: .round)
+
+        XCTAssertEqual(store.lastRound(docId: docId), round,
+                       "a cancelled round's half-report came back as the standing round")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.runId, round.id)
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in nil }).map(\.body), [],
+            "control: the dismissal itself still landed")
+    }
+
+    /// The same rule read off the FILE: a quit mid-round reads whatever the
+    /// last write left, so no preview may be in it whichever slot was written.
+    func test_noWriteCarriesAPreviewToDisk() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        let docId = "docPreviewOnDisk"
+
+        let round = makeRound(round: 2)
+        store.replace(run: round, diagnostics: [], docId: docId)
+        let check = makeCheck()
+        let note = makeDiagnostic(docId: docId, runId: check.id)
+        store.replace(run: check, diagnostics: [note], docId: docId)
+
+        let streaming = makeRound(round: 3)
+        store.preview(run: streaming, diagnostics: [], docId: docId)
+        store.dismiss(note.id, docId: docId)
+
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(onDisk.contains(streaming.id),
+                       "the streaming round's half-report reached the sidecar")
+        XCTAssertTrue(onDisk.contains(round.id),
+                      "the finished round is what the file says stands")
+
+        let relaunched = DiagnosticsStore(projectRoot: project, device: device)
+        relaunched.load(docId: docId)
+        XCTAssertEqual(relaunched.lastRound(docId: docId), round)
+    }
+
     /// Both slots survive a relaunch with their own notes — and the file this
     /// build writes carries the two slot keys and neither legacy one.
     func test_roundTrip_survivesRelaunchWithBothSlots() throws {

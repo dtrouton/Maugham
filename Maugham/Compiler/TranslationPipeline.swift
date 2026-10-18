@@ -371,10 +371,16 @@ final class TranslationPipeline {
                                     .init(note: $0, reason: declined.reason, authorRoleId: authorRoleId)
                                 }
                             }))
-                        guard generation == gen else {
-                            _ = record(leg, .cancelled)
-                            break legs
-                        }
+                        // **No generation check here** (#77 F8). A cancel that
+                        // landed during the mint arrives after the leg has
+                        // written its entries and the mint has put its queries
+                        // in the queue, so the round keeps what both did: the
+                        // outcomes below are applied, the leg is recorded as
+                        // the run it was, and the cancel is honoured by the
+                        // guard at the top of the next iteration, which
+                        // records the leg that never started as cancelled.
+                        // Breaking here orphaned minted annotations from the
+                        // round record and called a finished leg cancelled.
                     }
                     applyFixOutcomes(outcome, annotationIds: annotationIds, notes: notes, to: &round)
                     if leg == .finalFix {

@@ -107,7 +107,30 @@ final class CompilerRunCommandTests: XCTestCase {
 
         func shutdown() {
             shutdowns += 1
-            release(.failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)))
+            guard holdsThroughShutdown else {
+                release(.failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)))
+                return
+            }
+            // A real process takes its time dying (#36's death join): the
+            // retired turn stays outstanding and resolves whenever the test
+            // says, which may be after the NEXT session's turn has started.
+            isRunning = false
+            retired = held
+            held = nil
+        }
+
+        /// **Shutdown does not resolve the turn it retires** while this is
+        /// set — the retired turn is parked until `releaseRetired(_:)`, so a
+        /// test can start a second run first and THEN deliver the first
+        /// session's late answer (#63 item 1). No clock is involved: the late
+        /// arrival is whatever the test says it is, whenever it says.
+        var holdsThroughShutdown = false
+        private var retired: CheckedContinuation<CompilerRunEvent, Never>?
+
+        func releaseRetired(_ event: CompilerRunEvent) {
+            let continuation = retired
+            retired = nil
+            continuation?.resume(returning: event)
         }
     }
 
@@ -175,7 +198,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// fixture's arithmetic. The counts themselves are asserted where they are
     /// the subject (`test_theRunningStateCarriesWhatItIsReading`).
     private var runningOnTheStandingReading: CompilerOrchestrator.RunState {
-        .running(docId: docId, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
+        .running(docId: docId, kind: .check, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
     }
 
     private func makeProjectRoot() throws -> URL {
@@ -667,7 +690,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         XCTAssertEqual(harness.orchestrator.runState,
-                       .running(docId: docId,
+                       .running(docId: docId, kind: .check,
                                 checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
         XCTAssertEqual(harness.flashesSaid, [.started])
 
@@ -676,7 +699,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
         XCTAssertEqual(harness.orchestrator.runState,
-                       .running(docId: docId,
+                       .running(docId: docId, kind: .check,
                                 checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
         XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
                        "the second press is acknowledged, and by a different sentence — "
@@ -746,7 +769,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
 
-        guard case .running(_, let checking) = harness.orchestrator.runState else {
+        guard case .running(_, _, let checking) = harness.orchestrator.runState else {
             return XCTFail("expected a running state, got \(harness.orchestrator.runState)")
         }
         XCTAssertEqual(checking.new + checking.revised, 3,
@@ -772,7 +795,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
-        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
+        guard case .nothingNew(let stateDocId, _, _) = harness.orchestrator.runState else {
             return XCTFail("expected the idle 'nothing new' variant, got "
                            + "\(harness.orchestrator.runState)")
         }
@@ -882,7 +905,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertNil(harness.diagnostics.lastOpId(docId: docId),
                      "a run that never produced a result checked nothing")
-        guard case .failed(let stateDocId, let failure, _) = harness.orchestrator.runState
+        guard case .failed(let stateDocId, _, let failure, _) = harness.orchestrator.runState
         else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
@@ -920,7 +943,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertNil(harness.diagnostics.lastOpId(docId: docId))
-        guard case .failed(_, let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(_, _, let failure, _) = harness.orchestrator.runState else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
         XCTAssertEqual(failure, .unusableOutput)
@@ -2668,7 +2691,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
         harness.orchestrator.shutdown()
 
-        guard case .failed(_, let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(_, _, let failure, _) = harness.orchestrator.runState else {
             return XCTFail("the failure was erased by an unrelated teardown")
         }
         XCTAssertEqual(failure, .cliNotFound)
@@ -3191,6 +3214,67 @@ final class CompilerRunCommandTests: XCTestCase {
                      "an abandoned run's chunk reached the pane")
     }
 
+    /// **A retired session's late failure leaves the newer run alone** (#63
+    /// item 1). `shutdown()` retires the process, but a real one resolves its
+    /// outstanding `send` only once it has died — a bounded grace, not a tick
+    /// (#36). A writer quick enough to toggle Claude back on and press ⌘R gets
+    /// a live run before that; the old turn's failure must not call the new
+    /// one idle, stop its clock, or throw away what it is streaming.
+    func test_aRetiredSessionsLateFailureLeavesTheNewerRunAlone() throws {
+        try assertARetiredSessionsLateEventLeavesTheNewerRunAlone(
+            .failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)))
+    }
+
+    /// The same for the arm that fails a turn Maugham could not read — the
+    /// result arm's unguarded early return, the second place `finish` ends a
+    /// run without a mint.
+    func test_aRetiredSessionsLateUnusableOutputLeavesTheNewerRunAlone() throws {
+        try assertARetiredSessionsLateEventLeavesTheNewerRunAlone(
+            .resultText("I had a look and it's fine, honestly."))
+    }
+
+    private func assertARetiredSessionsLateEventLeavesTheNewerRunAlone(
+        _ late: CompilerRunEvent, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        runner.holdsThroughShutdown = true
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        // Run 1, held mid-turn, then the toggle goes off.
+        streamingRun(runner: runner, harness: harness)
+        harness.orchestrator.shutdown()
+        settle()
+        XCTAssertEqual(harness.orchestrator.runState, .idle, file: file, line: line)
+
+        // Toggle on, ⌘R: run 2 is live and streaming before run 1 has died.
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(2, on: runner)
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId),
+                        "run 2's preview is on the pane", file: file, line: line)
+
+        // Run 1's process finally dies.
+        runner.releaseRetired(late)
+        settle()
+
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading,
+                       "a retired session's late answer ended the newer run",
+                       file: file, line: line)
+        XCTAssertNotNil(harness.orchestrator.runStartedAt,
+                        "…and stopped its clock", file: file, line: line)
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.clauseStatuses?.map(\.clauseQuote),
+            ["Cold, and never wistful."],
+            "…and threw away what it was streaming", file: file, line: line)
+
+        // Run 2 still finishes as any run does.
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+        XCTAssertEqual(harness.orchestrator.runState, .idle, file: file, line: line)
+    }
+
     /// Prose, fences and anything else the model puts around its sections read
     /// as nothing — `parseSection`'s own tolerance, exercised on the path
     /// where a non-section line arrives on its own rather than inside a turn.
@@ -3373,6 +3457,37 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
                      "and nothing was recorded \u{2014} a refusal is not a run "
                      + "that found nothing")
+    }
+
+    /// **A round whose stage vanished during the hop is refused, not filed as
+    /// Claude's** (#77 G1/F6). `runRequested` refuses a round with no editor,
+    /// but the stage is re-read in `beginRun` after the burst-flush hop — and a
+    /// stage cleared in that window (by hand, or a synced manifest) used to
+    /// file a passless "Claude" round. The same refusal, from the far side of
+    /// the hop: nothing sent, nothing recorded, the window idle.
+    func test_aRoundWhoseStageVanishedDuringTheHopIsRefused() throws {
+        let runner = SpyRunner()
+        let gate = PrepareGate()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line",
+            prepareForRun: { [gate] in await gate.hold($0) })
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        settle()
+        XCTAssertEqual(gate.entries, 1, "the round is inside the burst-flush hop")
+
+        harness.setStage(nil)
+        gate.release()
+        settle()
+
+        XCTAssertEqual(harness.flashesSaid, [.started, .noEditor],
+                       "the press flashed its start, then says what is missing")
+        XCTAssertTrue(runner.sends.isEmpty, "nothing was asked of any session")
+        XCTAssertEqual(harness.runnerSpawns(), 0, "and none was spawned")
+        XCTAssertFalse(harness.orchestrator.isRunning)
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "a refusal is not a round, and not Claude's either")
     }
 
     /// **The seat is not a fallback for a round.** The same refusal with the
@@ -4946,7 +5061,7 @@ final class CompilerRunCommandTests: XCTestCase {
     private func failure(
         of state: CompilerOrchestrator.RunState
     ) -> (docId: String, failure: CompilerRunFailure)? {
-        guard case .failed(let docId, let failure, _) = state else { return nil }
+        guard case .failed(let docId, _, let failure, _) = state else { return nil }
         return (docId, failure)
     }
 
@@ -5093,7 +5208,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "the writer their warm session")
         XCTAssertEqual(harness.spawns, 1, "…and nothing was spawned in its place")
         XCTAssertEqual(runner.sends.count, 1, "…and no turn was spent")
-        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
+        guard case .nothingNew(let stateDocId, _, _) = harness.orchestrator.runState else {
             return XCTFail("expected the idle 'nothing new' variant, got "
                            + "\(harness.orchestrator.runState)")
         }

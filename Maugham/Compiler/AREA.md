@@ -339,7 +339,10 @@ fallback: `runRequested` flashes `Acknowledgment.noEditor` ("Set a pass to run
 a round.") and starts nothing at all — no session spawned, no marker moved, no
 record, `runState` still `.idle`. A **retired** pass id refuses the same way;
 under the old single resolution it fell to the coach and quietly filed a round
-in her lane.
+in her lane. `beginRun` re-asks after the hops (#77 G1/F6): a stage cleared or
+a pass retired while the settled posture or the burst flush was on its way
+refuses the same way (a second `.noEditor` flash after `.started`), rather than
+filing a passless "Claude" round.
 
 **A round is also the piece-writer's** (signed op log P3c Task 6, plan ruling
 R4). Below the `noEditor` refusal, a round asks `Environment.mayRunRound(docId)`
@@ -785,7 +788,11 @@ Before this join, an EOF-only verdict collapsed the writer's diagnostic to a
 sentence with no body and no essence (issue #36). The generation guard is what
 makes the wait safe: a verdict returned to a retired generation is ignored, so
 a send inside the grace spawns fresh rather than reusing the process that is
-dying.
+dying. The orchestrator has its own guard on the far side: `finish`'s failure
+and unusable-output arms ignore a turn whose run generation has been retired
+(#63 item 1), so a dying session's late failure cannot end a newer run, stop
+its clock or discard its stream preview. A Cancel of a sent run does not bump the
+generation, so a cancelled run's own failure still lands.
 
 ## The `--resume` fallback — pre-authorized, and NOT built
 
@@ -1358,6 +1365,16 @@ one leg's `setLive(.gap, …)` and before the next leg's own `setLive` — is
 caught by the loop's own `guard generation == gen`, which records `.cancelled`
 for the leg that never got to start rather than doing nothing
 (`TranslationPipelineCancelTests.test_cancelInTheGapStopsThePipelineWithoutStartingTheNextLeg`).
+**A cancel landing during a fix leg's `mintDeclinedQueries` is that same gap
+case, not a cancel of the fix leg** (#77 F8): by then the leg has written its
+entries and the mint has queued its queries, so there is deliberately no
+generation check after the mint — the leg's addressed rewrites, its declined →
+annotation links and (leg 7) the summary and glossary proposals are applied,
+the leg is recorded as `.ran`, and the loop's top guard records the NEXT leg as
+`.cancelled`. Checking there orphaned minted queries from the round record and
+called a finished leg cancelled
+(`TranslationPipelineCancelTests.test_aCancelLandingAfterTheMintKeepsWhatItMinted`,
+`test_aCancelLandingAfterTheFinalMintKeepsTheSummary`).
 `generation` is bumped by `start`, `cancel()` and `shutdown()` alike; `runToken`
 is bumped only by `start` — which is what lets a cancelled run still put
 `status` back to `.idle` in `execute`'s tail while a run that was shut down and
@@ -1948,7 +1965,16 @@ The fix is one bit and one precondition, no new run-state reading:
 - `DiagnosticsPane.offersDurableActions(state:)` — pure, taking `HeaderState`
   so it inherits `headerState`'s per-document scoping. Only `.running`
   withholds Answer and Promote; a run on ANOTHER document reaches it as
-  `.idle`/`.clean` and that pane keeps its fates. `.failed`/`.nothingNew`
+  `.idle`/`.clean` and that pane keeps its fates — and so, since #77 F7, does
+  a ROUND on this one: `RunState`'s three run cases carry a `RunKind`,
+  `headerState` matches `.check` alone and `ReviewRoundCockpit.phase` `.round`
+  alone, and each surface names the other loop's run in one pure line
+  (`DiagnosticsPane.otherLoopLine`, `ReviewRoundCockpit.otherLoopLine`) —
+  WINDOW-wide, because the session is the window's — while its Run/Reread
+  stays refused and Cancel is offered beside the line. That makes a check
+  note answerable mid-ROUND, which is safe only because `DiagnosticsStore`'s
+  one `persist` writes every previewing slot's FINISHED answer
+  (`finishedBeforePreview`) rather than its half-report, whoever is writing. `.failed`/`.nothingNew`
   describe runs that are over and their rows are the last finished report's.
 - `DiagnosticsStore.dismiss` refuses outright while `previewing.contains(docId)`
   — in memory as well as on disk, so the door is shut rather than the handle

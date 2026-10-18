@@ -95,9 +95,15 @@ public enum TranslationWritePipeline {
             deviceState: deviceState, projectURL: state.projectURL)
 
         // 2. Each entry supplies exactly one of `text` / `verbatim: true` /
-        // `delete: true`.
+        // `delete: true`. A `text` that is empty or whitespace is read as
+        // ABSENT (#77 F9) — `ReportJSON.nonEmptyString`, the discipline the
+        // pipeline's own ingest (`TranslatorReport.parseEntry`) already
+        // applies — so it meets this same refusal rather than storing `""`,
+        // which coverage and publishing would read as translated. An empty
+        // source paragraph's right form is `verbatim: true`.
         for e in entries {
-            let forms = [e.text != nil, e.verbatim == true, e.delete == true]
+            let hasText = ReportJSON.nonEmptyString(e.text) != nil
+            let forms = [hasText, e.verbatim == true, e.delete == true]
             if forms.filter({ $0 }).count != 1 {
                 throw MCPError.invalidArgument(
                     "entry for paragraph \(e.paragraphId) must supply exactly one of " +
