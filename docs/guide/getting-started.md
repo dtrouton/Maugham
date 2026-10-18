@@ -157,7 +157,7 @@ A typed note and a voice memo become an ordinary **scrap** carrying their words 
 
 #### When the canvas is read-only
 
-If a banner at the top of the canvas says it is read-only, Maugham could not read the layout file for this project, so it shows your words and changes nothing: you can look around, pan and zoom, but you cannot edit, add or promote anything, and neither can Claude or the Inbox. If the layout was saved by a newer version of Maugham, update Maugham to see and edit it. If the layout file is damaged, press **Start a Fresh Layout**: your words are laid out again and become editable, and the damaged file is kept beside it as `.maugham/canvas.damaged-<date>.json`. Your words are never lost.
+If a banner at the top of the canvas says it is read-only, Maugham could not read the layout file for this project, so it shows your words and changes nothing: you can look around, pan and zoom, but you cannot edit, add or promote anything, and neither can Claude or the Inbox. If the layout was saved by a newer version of Maugham, update Maugham to see and edit it. If the layout file is damaged, press **Start a Fresh Layout**: your words are laid out again and become editable, and the damaged file is kept beside it as `.maugham/canvas.damaged-<date>.json`. If Maugham couldn't read the canvas's files just now — often because the project is in iCloud and they are still downloading — press **Try Again**, or wait: Maugham tries again on its own while the canvas is open, and it becomes editable as soon as both files read. Your words are never lost.
 
 #### What Claude can put on the canvas
 

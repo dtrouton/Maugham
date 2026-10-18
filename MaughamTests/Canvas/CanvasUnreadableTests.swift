@@ -296,4 +296,119 @@ final class CanvasUnreadableTests: XCTestCase {
         }
         XCTAssertTrue(model.isReadOnly)
     }
+
+    // MARK: - Try Again (Task 2)
+
+    /// **The verb lifts read-only once the files read, and not before** — in the
+    /// same session, through the #44 lift path, and the canvas then writes.
+    func test_tryAgainLiftsReadOnlyOnlyOnceTheFilesRead() throws {
+        seedGoodCanvas()
+        let scrapsBefore = try Data(contentsOf: scrapsFile)
+        try lock(scrapsFile)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        var redrawn = 0
+        model.onSceneChangedExternally = { redrawn += 1 }
+        XCTAssertEqual(model.sidecarRefusal?.reason, .unreadable, "precondition")
+
+        let revision = model.sceneRevision
+        XCTAssertFalse(model.retryUnreadable(), "still unreadable: nothing changes")
+        XCTAssertTrue(model.isReadOnly)
+        XCTAssertEqual(model.sceneRevision, revision)
+        XCTAssertEqual(redrawn, 0)
+
+        unlockAll()
+        XCTAssertEqual(try Data(contentsOf: scrapsFile), scrapsBefore,
+                       "the retry wrote nothing while the file was unreadable")
+        XCTAssertTrue(model.retryUnreadable())
+        XCTAssertFalse(model.isReadOnly, "editable in the same session")
+        XCTAssertNil(model.sidecarRefusal)
+        XCTAssertEqual(model.scraps[CanvasNodeID("s1")], "The falls at night.")
+        XCTAssertEqual(model.scene, sampleScene())
+        XCTAssertEqual(model.sceneRevision, revision + 1, "structural readers redraw")
+        XCTAssertEqual(redrawn, 1, "the view re-measures")
+
+        model.setScrapText("The falls by day.", for: CanvasNodeID("s1"))
+        model.flush()
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")],
+                       "The falls by day.", "and the canvas writes again")
+        model.detach()
+    }
+
+    /// A stub that finishes downloading lifts the same way: the probe changes
+    /// its answer, the retry reads.
+    func test_tryAgainLiftsWhenAStubFinishesDownloading() throws {
+        seedGoodCanvas()
+        let model = CanvasModel()
+        // The model builds its own store; drive the stub through the placeholder
+        // shape, which needs no injection.
+        try FileManager.default.moveItem(
+            at: sidecarFile,
+            to: sidecarFile.deletingLastPathComponent().appendingPathComponent("held.json"))
+        let placeholder = sidecarFile.deletingLastPathComponent()
+            .appendingPathComponent(".canvas.json.icloud")
+        try Data().write(to: placeholder)
+        model.attach(projectRoot: root)
+        XCTAssertEqual(model.sidecarRefusal?.reason, .unreadable)
+
+        // "Downloaded": the real file arrives, the placeholder goes.
+        try FileManager.default.removeItem(at: placeholder)
+        try FileManager.default.moveItem(
+            at: sidecarFile.deletingLastPathComponent().appendingPathComponent("held.json"),
+            to: sidecarFile)
+        XCTAssertTrue(model.retryUnreadable())
+        XCTAssertFalse(model.isReadOnly)
+        XCTAssertEqual(model.scene, sampleScene())
+        model.detach()
+    }
+
+    /// Only `.unreadable` is retried: a damaged or newer file does not change by
+    /// being read again, and an unattached model has nothing to retry.
+    func test_tryAgainDoesNothingForAnyOtherReasonOrNoCanvas() throws {
+        XCTAssertFalse(CanvasModel().retryUnreadable(), "no canvas attached")
+
+        seedGoodCanvas()
+        try "not json at all".write(to: sidecarFile, atomically: true, encoding: .utf8)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertEqual(model.sidecarRefusal?.reason, .damaged)
+        let revision = model.sceneRevision
+        XCTAssertFalse(model.retryUnreadable())
+        XCTAssertEqual(model.sidecarRefusal?.reason, .damaged)
+        XCTAssertEqual(model.sceneRevision, revision)
+        model.detach()
+    }
+
+    /// Try Again is offered for unreadable files only, beside no Start a Fresh
+    /// Layout.
+    func test_theNoticeOffersTryAgainForUnreadableFilesOnly() {
+        XCTAssertTrue(CanvasReadOnlyNotice.offersTryAgain(for: .unreadable))
+        XCTAssertFalse(CanvasReadOnlyNotice.offersTryAgain(for: .damaged))
+        XCTAssertFalse(CanvasReadOnlyNotice.offersTryAgain(for: .newerVersion))
+        XCTAssertEqual(CanvasReadOnlyNotice.tryAgainTitle, "Try Again")
+    }
+
+    /// **The automatic retry's schedule** — bounded in rate, never for another
+    /// reason, and still trying long after (the sentence says *Maugham will keep
+    /// trying*).
+    func test_theRetryScheduleIsBoundedAndOnlyForUnreadable() {
+        XCTAssertNil(CanvasUnreadableRetry.delay(before: 0, reason: nil))
+        XCTAssertNil(CanvasUnreadableRetry.delay(before: 0, reason: .damaged))
+        XCTAssertNil(CanvasUnreadableRetry.delay(before: 0, reason: .newerVersion))
+        XCTAssertEqual(CanvasUnreadableRetry.delay(before: 0, reason: .unreadable), 10)
+        XCTAssertEqual(CanvasUnreadableRetry.delay(
+            before: CanvasUnreadableRetry.quickAttempts - 1, reason: .unreadable), 10)
+        XCTAssertEqual(CanvasUnreadableRetry.delay(
+            before: CanvasUnreadableRetry.quickAttempts, reason: .unreadable), 60)
+        XCTAssertEqual(CanvasUnreadableRetry.delay(before: 10_000, reason: .unreadable), 60,
+                       "never faster than once a minute, and never gives up while shown")
+    }
+
+    /// The canvas centre hands the notice the model's retry verb. (Textual:
+    /// SwiftUI's inset has no windowless seam.)
+    func test_theCanvasCentreWiresTryAgainToTheModel() throws {
+        let code = SourceScan.codeLines(of: try SourceTree.windowSource())
+            .joined(separator: "\n")
+        XCTAssertTrue(code.contains("tryAgain: { _ = canvasModel.retryUnreadable() }"))
+    }
 }

@@ -503,6 +503,30 @@ final class CanvasModel {
         return aside
     }
 
+    /// **Try Again** (issue #88): re-read a canvas whose files could not be read
+    /// just now. The one verb both the notice's button and its automatic retry
+    /// press. Only for `.unreadable` — a damaged or newer file does not change
+    /// by being read again, and its own way out is elsewhere.
+    ///
+    /// It is the #44 lift path, the same re-attach `startFreshLayout` ends with:
+    /// a read-only model holds no pending write and no undo step to lose, so
+    /// `attach` replaces it wholesale, and if both files now read the refusal
+    /// clears and the canvas is editable in the same session. The stub probe
+    /// answers before any byte is read, so a file still downloading costs this
+    /// call nothing on the main actor.
+    ///
+    /// Returns whether the refusal changed (lifted, or became another reason).
+    @discardableResult
+    func retryUnreadable() -> Bool {
+        guard isAttached, let store, let refusal = sidecarRefusal,
+              refusal.reason == .unreadable else { return false }
+        attach(projectRoot: store.projectRoot)
+        guard sidecarRefusal != refusal else { return false }
+        onSceneChangedExternally?()
+        bumpSceneRevision()
+        return true
+    }
+
     /// Write, and then let go of every closure that points back at the owner.
     /// `CanvasView` calls this from `.onDisappear`, which is where 1C-a does the
     /// same work.
