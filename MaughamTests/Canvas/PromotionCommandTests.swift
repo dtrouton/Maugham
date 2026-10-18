@@ -210,6 +210,75 @@ final class PromotionCommandTests: XCTestCase {
 
     // MARK: - The wiring census
 
+    /// **The item index reaches both canvas mounts, each told apart by the call
+    /// that encloses it** — never by a trailing comma or `))`, which a reflow
+    /// swaps without changing what is handed where. `CanvasView.itemIndex` and
+    /// `RegionInspectorPane.itemIndex` both default to `.empty`, a real state, so
+    /// dropping either argument compiles, runs and is invisible to every other
+    /// test. Planted control: `test_theItemIndexAnchorFiresOnPlantedOffenders`.
+    func test_theItemIndexIsHandedToBothCanvasMounts() throws {
+        let code = SourceScan.codeLines(of: try SourceTree.windowSource())
+        for call in ["CanvasView(", "RegionInspectorPane("] {
+            let bodies = Self.callBodies(of: call, in: code)
+            XCTAssertEqual(bodies.count, 1,
+                           "the window family mounts exactly one `\(call)`")
+            XCTAssertTrue(
+                bodies.contains { $0.contains(Self.itemIndexArgument) },
+                "`\(call)` must be handed `\(Self.itemIndexArgument)`")
+        }
+    }
+
+    func test_theItemIndexAnchorFiresOnPlantedOffenders() {
+        let planted = SourceScan.codeLines(of: """
+        func a() {
+            CanvasView(model: m,
+                       itemIndex: ProjectWindow.canvasItemIndex(in: store),
+                       other: 1)
+            RegionInspectorPane(
+                model: m)
+            // RegionInspectorPane(itemIndex: ProjectWindow.canvasItemIndex(in: store))
+            ReviewCanvasView(itemIndex: ProjectWindow.canvasItemIndex(in: store))
+        }
+        """)
+        let canvas = Self.callBodies(of: "CanvasView(", in: planted)
+        XCTAssertEqual(canvas.count, 1, "`ReviewCanvasView(` is not `CanvasView(`")
+        XCTAssertTrue(canvas.allSatisfy { $0.contains(Self.itemIndexArgument) })
+        let inspector = Self.callBodies(of: "RegionInspectorPane(", in: planted)
+        XCTAssertEqual(inspector.count, 1, "a comment naming the call is not a mount")
+        XCTAssertFalse(inspector.contains { $0.contains(Self.itemIndexArgument) },
+                       "the argument sitting on ANOTHER call does not satisfy this one")
+    }
+
+    private static let itemIndexArgument = "itemIndex: ProjectWindow.canvasItemIndex(in: store)"
+
+    /// The text between a call's own parentheses, for every occurrence of
+    /// `call` in `code` that is not the tail of a longer name.
+    private static func callBodies(of call: String, in code: [String]) -> [String] {
+        var bodies: [String] = []
+        for (index, line) in code.enumerated() {
+            guard let range = line.range(of: call) else { continue }
+            if let before = line[..<range.lowerBound].last,
+               before.isLetter || before.isNumber || before == "_" { continue }
+            var depth = 0
+            var body = ""
+            var text = String(line[range.lowerBound...])
+            var next = index + 1
+            scan: while true {
+                for character in text {
+                    if character == "(" { depth += 1 }
+                    if character == ")" { depth -= 1 }
+                    body.append(character)
+                    if character == ")", depth == 0 { break scan }
+                }
+                body.append("\n")
+                guard next < code.count else { break }
+                text = code[next]; next += 1
+            }
+            bodies.append(body)
+        }
+        return bodies
+    }
+
     /// Which of `required` are absent from the **code** at `location`.
     /// Shared by the census and by its planted-offender companion, so there is
     /// exactly one implementation to get wrong.
@@ -360,8 +429,6 @@ final class PromotionCommandTests: XCTestCase {
               "PromotionPiece.resolve(",
               "items: ProjectWindow.canvasItemIndex(in: store)",
               ".modifier(CanvasClaudeArrivalModifier(",
-              "itemIndex: ProjectWindow.canvasItemIndex(in: store))",
-              "itemIndex: ProjectWindow.canvasItemIndex(in: store),",
               "subject: CanvasSubject.resolve(",
               "pieceTitles: ProjectWindow.canvasPieceTitles(in: store)",
               "selectTheProjectRow: { selectedSubject = .project }",
@@ -414,12 +481,13 @@ final class PromotionCommandTests: XCTestCase {
              + "present and its own census stays green while the writer is never "
              + "told that Claude added anything. "
              + "`itemIndex: ProjectWindow.canvasItemIndex(in: store)` is 1C-d's item "
-             + "index on the CANVAS (spelled through the window's type since the "
-             + "canvas mount moved into `CentreColumn`, foundations plan 4 Task 4, "
-             + "and ending in a comma as a middle argument; the spelling beside it "
-             + "ending in `))` is the region inspector's LAST argument, spelled the "
-             + "same way since that arm moved into `RightColumn` in Task 5), and it "
-             + "is the first token here that guards "
+             + "index on the CANVAS and on the REGION INSPECTOR. It is NOT a token "
+             + "in this array: the two spellings were told apart by their trailing "
+             + "punctuation, which a reflow would swap, so "
+             + "`test_theItemIndexIsHandedToBothCanvasMounts` anchors each by its "
+             + "enclosing call (`CanvasView(` in `CentreColumn`, "
+             + "`RegionInspectorPane(` in `RightColumn`). It is the first thing "
+             + "here that guards "
              + "a DEFAULT rather than a call: `CanvasView.itemIndex` and "
              + "`RegionInspectorPane.itemIndex` both default to `.empty`, which "
              + "is a real state and therefore compiles and runs — so deleting "
@@ -600,16 +668,6 @@ final class PromotionCommandTests: XCTestCase {
                                          "result.notARealConfirmation(for: plan)"]),
             ["result.notARealConfirmation(for: plan)"],
             "the census reports the ABSENT result token and not the present one")
-        // And 1C-d's item index, falsified with a builder that cannot exist. This
-        // is the plant that matters most of the set, because the token it guards
-        // protects a DEFAULT: dropping `itemIndex:` at either call site compiles,
-        // runs, and is invisible to every other test.
-        XCTAssertEqual(
-            try missingTokens(in: Self.window,
-                              required: ["itemIndex: ProjectWindow.canvasItemIndex(in: store))",
-                                         "itemIndex: ProjectWindow.canvasNotAnItemIndex(in: store))"]),
-            ["itemIndex: ProjectWindow.canvasNotAnItemIndex(in: store))"],
-            "the census reports the ABSENT item-index token and not the present one")
         // And the piece token. `piece: .none` at the call site compiles and every
         // performer test still passes, while the sheet's whole destination half
         // is back to what shipped before §6.2.

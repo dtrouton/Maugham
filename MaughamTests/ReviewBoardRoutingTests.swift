@@ -733,11 +733,11 @@ final class ReviewBoardRoutingTests: XCTestCase {
         // centre lives in `CentreColumn` now, and a count over one type's text
         // would have gone to zero there or passed over a sibling's mount.
         XCTAssertEqual(
-            try Self.viewMounts(of: "ReviewBoardPane("), 1,
+            try SourceTree.viewMounts(of: "ReviewBoardPane("), 1,
             "one mount for the board, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
-            try Self.viewMounts(of: "manuscriptEditor("), 2,
+            try SourceTree.viewMounts(of: "manuscriptEditor("), 2,
             "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
@@ -1224,12 +1224,6 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
-    }
-
-    /// `token` as code (comments and strings masked) across every file under
-    /// `Maugham/Views` — the window, `CentreColumn` and every sibling view.
-    private static func viewMounts(of token: String) throws -> Int {
-        try SourceTree.codeOccurrences(of: token).values.reduce(0, +)
     }
 
     /// One call's argument list, from `opener` to its own balanced close paren.

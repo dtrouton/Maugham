@@ -55,29 +55,30 @@ final class CentreRouteTests: XCTestCase {
     /// other — together, so the ORDER is pinned and not the invariant).
     enum PublishState: CaseIterable, CustomStringConvertible {
         case nothingCompiled, unreadable, compiled, proposal, round, proposalAndRound
-        var preview: PublishPreviewResolution {
+        @MainActor var preview: PublishPreviewResolution {
             switch self {
             case .nothingCompiled: return .nothingCompiled
             case .unreadable: return PublishPreviewCentreTests.unreadable
             default: return .ready(newestFirst: [CentreRouteTests.book])
             }
         }
-        var proposal: DesignProposalStore.Proposal? {
+        @MainActor var proposal: DesignProposalStore.Proposal? {
             self == .proposal || self == .proposalAndRound ? CentreRouteTests.proposal : nil
         }
-        var round: TranslationRound? {
+        @MainActor var round: TranslationRound? {
             self == .round || self == .proposalAndRound ? CentreRouteTests.round : nil
         }
         var description: String { "\(self)" as String }
     }
 
+    @MainActor
     static func route(_ persona: Persona, _ shape: Shape, wall: Bool,
                       _ publish: PublishState,
                       projectType: ProjectType = .novel,
-                      structure: [StructureItem] = CentreRouteTests.structure) -> CentreRoute {
+                      structure: [StructureItem]? = nil) -> CentreRoute {
         ProjectWindow.centreRoute(
             persona: persona, subject: shape.subject, projectType: projectType,
-            structure: structure, showsPaletteWall: wall,
+            structure: structure ?? CentreRouteTests.structure, showsPaletteWall: wall,
             preview: publish.preview, proposal: publish.proposal, round: publish.round)
     }
 

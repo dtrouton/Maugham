@@ -841,6 +841,14 @@ extension SourceTree {
         SourceScan.codeLines(of: try windowSource(base: base))
     }
 
+    /// `token` as code (comments and strings masked) counted across every file
+    /// under `Maugham/Views` — the window, `CentreColumn` and every sibling
+    /// view. The one spelling the routing suites share for *how many places
+    /// mount this surface*.
+    static func viewMounts(of token: String, base: URL = repoRoot) throws -> Int {
+        try codeOccurrences(of: token, base: base).values.reduce(0, +)
+    }
+
     /// Every code line containing `token` in any .swift file under `root`, as
     /// `"<path>: <line>"`, read file by file through `mask` — so a comment or a
     /// string literal naming the token is not a hit, and one file's unclosed

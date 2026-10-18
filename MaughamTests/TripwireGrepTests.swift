@@ -6719,12 +6719,15 @@ final class TripwireGrepTests: XCTestCase {
                 + "it names no persona, so there is no predicate it could ask"),
     ]
 
-    /// `persona ==` and `persona != .` — the two shapes a name-gate takes.
-    /// `candidate == persona` (the picker's own selection test) is not a gate
-    /// and is not matched; nor is a persona compared from the other side
-    /// (`.plan == persona`), which is this census's stated limit.
+    /// `persona ==`, `persona != .x` / `persona != Persona.x`, and the same two
+    /// through a binding (`persona.wrappedValue ==` / `!=`) — the shapes a
+    /// name-gate takes. `persona != nil` is not a gate and is not matched.
+    /// **Known limits**: `candidate == persona` (the picker's own selection
+    /// test) and a persona compared from the other side (`.plan == persona`)
+    /// are not matched, nor are `switch persona` / `case .plan` and
+    /// `[…].contains(persona)` — a gate spelled any of those escapes.
     static let personaComparisonPattern = try! NSRegularExpression(
-        pattern: #"\bpersona\s*==|\bpersona\s*!=\s*\."#)
+        pattern: #"\bpersona\s*==|\bpersona\s*!=\s*(\.|Persona\.)|\bpersona\.wrappedValue\s*(==|!=)"#)
 
     /// Every persona comparison under `root`'s `Maugham/Views` that no
     /// allowance admits, as `"<path>: <line>"`, plus every allowance that
@@ -6796,6 +6799,10 @@ final class TripwireGrepTests: XCTestCase {
                 func c(box: Box) -> Bool { box.persona==.review }
                 func d(candidate: Persona, persona: Persona) -> Bool { candidate == persona }
                 func e(persona: Persona) -> Bool { persona.showsExports }
+                func g(persona: Persona) -> Bool { persona != Persona.review }
+                func h(persona: Binding<Persona>) -> Bool { persona.wrappedValue == .plan }
+                func i(persona: Binding<Persona>) -> Bool { persona.wrappedValue != .plan }
+                func j(persona: Persona?) -> Bool { persona != nil }
             }
             """,
             "Maugham/Views/AssistantColumn.swift": """
@@ -6815,7 +6822,10 @@ final class TripwireGrepTests: XCTestCase {
             "Maugham/Views/RogueStrip.swift: func a(persona: Persona) -> Bool { persona == .author }",
             "Maugham/Views/RogueStrip.swift: func b(persona: Persona) -> Bool { persona != .plan }",
             "Maugham/Views/RogueStrip.swift: func c(box: Box) -> Bool { box.persona==.review }",
-        ].sorted(), "both shapes fire, nothing else does, and the allowance is by FILE")
+            "Maugham/Views/RogueStrip.swift: func g(persona: Persona) -> Bool { persona != Persona.review }",
+            "Maugham/Views/RogueStrip.swift: func h(persona: Binding<Persona>) -> Bool { persona.wrappedValue == .plan }",
+            "Maugham/Views/RogueStrip.swift: func i(persona: Binding<Persona>) -> Bool { persona.wrappedValue != .plan }",
+        ].sorted(), "every shape fires, nothing else does, and the allowance is by FILE")
         XCTAssertEqual(planted.unused, [], "the planted AssistantColumn used its allowance")
 
         let stale = try Self.personaComparisonOffenders(

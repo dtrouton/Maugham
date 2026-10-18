@@ -1431,9 +1431,10 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// straight into its own state. Without this the pure test above pins a rule
     /// nothing obeys. Two halves since foundations plan 4 Task 2 moved the rule
     /// onto `PublishCentreModel`: the model's adopting verb asks the rule, and
-    /// the window's `onProposalChanged` reaches that verb — and nothing else in
-    /// the window writes a proposal back (`selectedProposal` is `private(set)`,
-    /// so the compiler holds that half).
+    /// the window's `onProposalChanged` reaches that verb, and so does its
+    /// `onRoundChanged`. That nothing ELSE writes either back is held by the
+    /// compiler (`selectedProposal` and `selectedRound` are `private(set)`),
+    /// and by the assertions below for the two callbacks.
     func test_theWindowsWriteBackGoesThroughTheSelectionRule() throws {
         let model = SourceScan.codeLines(
             of: try SourceTree.sourceOfType("PublishCentreModel", under: ["Maugham"]))
@@ -1455,6 +1456,12 @@ final class PublishPreviewCentreTests: XCTestCase {
         XCTAssertTrue(
             window[changed...].prefix(3).contains { $0.contains("publishCentre.adoptVerbAnswer(") },
             "`onProposalChanged` must adopt through the model's verb")
+        let roundChanged = try XCTUnwrap(
+            window.firstIndex { $0.contains("onRoundChanged:") },
+            "the window no longer takes the round report's answer back at all")
+        XCTAssertTrue(
+            window[roundChanged...].prefix(3).contains { $0.contains("publishCentre.adoptVerbAnswer(") },
+            "`onRoundChanged` must adopt through the model's verb")
     }
 
     // MARK: - The shape, in production
@@ -1500,14 +1507,14 @@ final class PublishPreviewCentreTests: XCTestCase {
         // `CentreColumn`, and a count that read a single type would have gone
         // to zero there — or passed over a second mount in a sibling view.
         XCTAssertEqual(
-            try Self.viewMounts(of: "PublishPreviewCentre("), 1,
+            try SourceTree.viewMounts(of: "PublishPreviewCentre("), 1,
             "one mount for the book, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
-            try Self.viewMounts(of: "PublishCentreNoticeBanner("), 1,
+            try SourceTree.viewMounts(of: "PublishCentreNoticeBanner("), 1,
             "and one for the notice, for the same reason")
         XCTAssertEqual(
-            try Self.viewMounts(of: "manuscriptEditor("), 2,
+            try SourceTree.viewMounts(of: "manuscriptEditor("), 2,
             "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
@@ -1644,7 +1651,7 @@ final class PublishPreviewCentreTests: XCTestCase {
             named: "func manuscriptEditor(", under: "Maugham", base: base)
         XCTAssertTrue(arm.contains("PublishPreviewCentre("), "the arm is found in the extension")
         XCTAssertEqual(
-            try Self.viewMounts(of: "PublishPreviewCentre(", base: base),
+            try SourceTree.viewMounts(of: "PublishPreviewCentre(", base: base),
             2, "the mount count reads the window's file AND the centre column's")
         XCTAssertEqual(
             try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"], base: base),
@@ -1928,12 +1935,6 @@ final class PublishPreviewCentreTests: XCTestCase {
 
     // MARK: - Reading the source
 
-    /// `token` as code (comments and strings masked) across every file under
-    /// `Maugham/Views` — the window, `CentreColumn` and every sibling view.
-    private static func viewMounts(of token: String,
-                                   base: URL = SourceTree.repoRoot) throws -> Int {
-        try SourceTree.codeOccurrences(of: token, base: base).values.reduce(0, +)
-    }
 }
 
 // MARK: - Probes
