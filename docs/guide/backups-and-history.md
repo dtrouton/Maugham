@@ -99,7 +99,7 @@ Before every backup, Maugham checks that the project's history is whole. If it i
 
 If there aren't any yet, the window says **No backups found**: *"No backup generations exist for this project yet."*
 
-Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. Keep the suggested name, or choose one that isn't already taken: if you pick the name of a folder that already exists and agree to replace it, that folder is replaced by the copy.
+Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. If you choose a name that's already taken, Maugham restores nothing and says so: *"Something named “<name>” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."*
 
 If the restore goes wrong, the window says *Restore failed:* and gives the reason.
 
