@@ -65,6 +65,39 @@ final class DocumentToolsTests: XCTestCase {
         XCTAssertEqual(doc.mode, "prose")
     }
 
+    // MARK: - read_document's `mode` wire values (foundations plan 7, Task 7)
+
+    /// A Fountain file reports `"fountain"` in every kind of project — the
+    /// collection's Fountain piece as much as the screenplay's one file.
+    func test_readDocumentMode_isFountainForAFountainPathInEveryProjectType() {
+        for type in ProjectType.allCases + [.unknown] {
+            XCTAssertEqual(
+                ReadDocumentTool.modeFor(path: "manuscript/act-one.fountain", projectType: type),
+                "fountain", "\(type)")
+        }
+    }
+
+    /// A non-Fountain file reports `"screenplay"` in a screenplay project and
+    /// `"prose"` in every other kind, `.unknown` included.
+    func test_readDocumentMode_forANonFountainPathFollowsTheProjectType() {
+        for type in ProjectType.allCases + [.unknown] {
+            XCTAssertEqual(
+                ReadDocumentTool.modeFor(path: "manuscript/c1.md", projectType: type),
+                type == .screenplay ? "screenplay" : "prose", "\(type)")
+        }
+    }
+
+    /// Exception 1 of plan 7: the extension is read case-insensitively, as the
+    /// op log already parses it, so a hand-imported `X.FOUNTAIN` reports
+    /// `"fountain"` (it reported `"prose"` / `"screenplay"` before).
+    func test_readDocumentMode_anUppercaseFountainExtensionIsFountain() {
+        for type in ProjectType.allCases + [.unknown] {
+            XCTAssertEqual(
+                ReadDocumentTool.modeFor(path: "manuscript/X.FOUNTAIN", projectType: type),
+                "fountain", "\(type)")
+        }
+    }
+
     /// E6: the closed-doc branch derives through the per-project
     /// `DerivedManuscriptCache`, not a bare `DerivedManuscript.materialize`.
     /// The two must return byte-identical anchored text for the same closed

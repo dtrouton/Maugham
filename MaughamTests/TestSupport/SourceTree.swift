@@ -39,6 +39,12 @@ enum SourceTree {
         productionRoots(base: repoRoot)
     }
 
+    /// `productionRoots` as directory URLs under `repoRoot` — the shape the
+    /// multi-root `grepSwift(in: [URL], …)` census walks.
+    static var productionRootURLs: [URL] {
+        productionRoots.map { repoRoot.appendingPathComponent($0, isDirectory: true) }
+    }
+
     /// `productionRoots` against any base — the seam a planted tree uses.
     static func productionRoots(base: URL) -> [String] {
         let fm = FileManager.default

@@ -11614,4 +11614,77 @@ extension TripwireGrepTests {
             XCTAssertEqual(Set(copies).count, 1, "the three \(name) copies have drifted")
         }
     }
+
+    // MARK: - The fountain literal has one home (foundations plan 7, Task 7)
+
+    /// The quoted spellings of the Fountain format: the bare extension, any
+    /// literal ENDING in the extension (so `"\(slug).fountain"` is caught as
+    /// well as `".fountain"`), and the help resource. None matches
+    /// `"fountain_boneyard"`, a persisted task-kind raw value.
+    static let fountainLiteralPatterns = [#""fountain""#, #".fountain""#, #""fountain-syntax""#]
+
+    /// Where a fountain literal may be spelled, and why.
+    static let fountainLiteralAllowed: [String: String] = [
+        "type:DocumentFormat": "the one home: extension, help resource and every format decision",
+        "type:ReadDocumentTool": "`read_document.mode`'s MCP wire value, pinned by DocumentToolsTests",
+    ]
+
+    private func fountainLiteralOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: Self.fountainLiteralPatterns, allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: nil)
+    }
+
+    /// **The Fountain extension is spelled in `DocumentFormat` only.** A site
+    /// that compares an extension or a suffix to `"fountain"` itself is a second
+    /// answer to "is this Fountain?" — and five such sites had drifted to
+    /// case-sensitive while the op log read `X.FOUNTAIN` as Fountain. Mac,
+    /// phone and Core are all scanned.
+    func test_theFountainExtensionIsSpelledInDocumentFormatOnly() throws {
+        let offenders = try fountainLiteralOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.fountainLiteralAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "a fountain literal outside DocumentFormat — ask `DocumentFormat` "
+            + "(`ofManuscript(path:)`, `fileExtension`, `helpResourceName`) instead:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: each code spelling is caught — the bare extension, a
+    /// suffix, an interpolated filename, the help resource — while a comment
+    /// and `"fountain_boneyard"` are not; inside `DocumentFormat` they pass,
+    /// and a lookalike (a file NAMED `DocumentFormat.swift` declaring another
+    /// type) is still caught.
+    func test_theFountainLiteralCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("fountain-literal-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let planted = dir.appendingPathComponent("Planted.swift")
+        try #"""
+        let a = url.pathExtension.lowercased() == "fountain"
+        let b = path.hasSuffix(".fountain")
+        let c = Bundle.main.url(forResource: "fountain-syntax", withExtension: "md")
+        let d = "\(slug).fountain"
+        // "fountain"
+        case fountainBoneyard = "fountain_boneyard"
+        """#.write(to: planted, atomically: true, encoding: .utf8)
+        try #"struct DocumentFormatter { let e = "fountain" }"#
+            .write(to: dir.appendingPathComponent("DocumentFormat.swift"), atomically: true, encoding: .utf8)
+
+        let bare = try fountainLiteralOffenders(in: [dir], allowed: [])
+        let byFile = Dictionary(grouping: bare) { String($0.prefix { $0 != ":" }) }
+        XCTAssertEqual(byFile["Planted.swift"]?.map { SourceTree.Hit(offender: $0)?.line },
+                       [1, 2, 3, 4],
+                       "the four code spellings, not the comment or the boneyard:\n"
+                       + bare.joined(separator: "\n"))
+        XCTAssertEqual(byFile["DocumentFormat.swift"]?.count, 1, bare.joined(separator: "\n"))
+
+        try Self.declare("DocumentFormat", in: planted)
+        let allowed = Self.dropping(unplanted: ["type:ReadDocumentTool"], from: try fountainLiteralOffenders(
+            in: [dir], allowed: Set(Self.fountainLiteralAllowed.keys)))
+        XCTAssertEqual(allowed.count, 1, "only the lookalike is caught:\n" + allowed.joined(separator: "\n"))
+        XCTAssertTrue(allowed.first?.hasPrefix("DocumentFormat.swift:1:") == true,
+                      "a file NAMED DocumentFormat.swift earns nothing: \(allowed)")
+    }
 }
