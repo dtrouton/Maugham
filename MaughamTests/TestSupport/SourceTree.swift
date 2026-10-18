@@ -35,9 +35,14 @@ enum SourceTree {
     /// Every production Swift root, repo-relative: "Maugham", "MaughamPhone",
     /// and each "Packages/<pkg>/Sources/<target>" that exists on disk.
     static var productionRoots: [String] {
+        productionRoots(base: repoRoot)
+    }
+
+    /// `productionRoots` against any base — the seam a planted tree uses.
+    static func productionRoots(base: URL) -> [String] {
         let fm = FileManager.default
         var roots = ["Maugham", "MaughamPhone"]
-        let packages = repoRoot.appendingPathComponent("Packages", isDirectory: true)
+        let packages = base.appendingPathComponent("Packages", isDirectory: true)
         let pkgNames = ((try? fm.contentsOfDirectory(atPath: packages.path)) ?? [])
             .filter { !$0.hasPrefix(".") }
             .sorted()

@@ -46,7 +46,8 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Like `grepSwift` but scans only the named files (by `lastPathComponent`)
     /// under `dir`. Used by the user-content-mover tripwire, which targets the
-    /// specific `ProjectStore+*` seams that move user-editable paths.
+    /// specific `ProjectStore+*` seams that move user-editable paths. A named
+    /// file the walk never meets is itself an offender (`missingScope`).
     private func grepSwift(
         in dir: URL,
         files: Set<String>,
@@ -54,12 +55,14 @@ final class TripwireGrepTests: XCTestCase {
         excludeLine: ((String) -> Bool)? = nil
     ) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
-            return []
-        }
         var offenders: [String] = []
+        var seen: Set<String> = []
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return Self.missingScope(files, seen: seen)
+        }
         for case let url as URL in walker where url.pathExtension == "swift" {
             guard files.contains(url.lastPathComponent) else { continue }
+            seen.insert(url.lastPathComponent)
             let text = try String(contentsOf: url, encoding: .utf8)
             for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineStr = String(line)
@@ -69,7 +72,92 @@ final class TripwireGrepTests: XCTestCase {
                 }
             }
         }
-        return offenders
+        return offenders + Self.missingScope(files, seen: seen)
+    }
+
+    /// One offender per scoped file name the walk never met: a census whose
+    /// file moved or was renamed reads nothing, and must say so rather than pass.
+    static func missingScope(_ scope: Set<String>, seen: Set<String>) -> [String] {
+        scope.subtracting(seen).sorted().map {
+            "MISSING SCOPE: \($0) — the census reads nothing; the file moved or was renamed"
+        }
+    }
+
+    // MARK: - A scoped census fails when its scope is gone (foundations plan 2, Task 2)
+
+    /// **A census scoped to a named file reads nothing once that file moves.**
+    /// The walk used to skip a name it never met, so a rename or a split
+    /// turned the census off with every assertion still green. Both file-scoped
+    /// overloads now report each name they never saw, and every caller asserts
+    /// its offenders are empty.
+    func test_aFileScopedCensusFailsWhenItsFileIsMissing() throws {
+        let dir = try plantedScopeDir()
+        let offenders = try grepSwift(
+            in: dir, files: ["A.swift", "B.swift"], patterns: ["nothing-matches-this"])
+        XCTAssertEqual(offenders.filter { $0.hasPrefix("MISSING SCOPE: B.swift") }.count, 1,
+            "a scoped file that is not there is an offender: \(offenders)")
+        XCTAssertFalse(offenders.contains { $0.hasPrefix("MISSING SCOPE: A.swift") },
+            "a scoped file that IS there is not: \(offenders)")
+    }
+
+    func test_anOnlyFilesCensusFailsWhenItsFileIsMissing() throws {
+        let dir = try plantedScopeDir()
+        let offenders = try grepSwift(
+            in: [dir], patterns: ["nothing-matches-this"], allowedSpellings: [:],
+            excludeLine: { _ in false }, onlyFiles: ["A.swift", "B.swift"])
+        XCTAssertEqual(offenders.filter { $0.hasPrefix("MISSING SCOPE: B.swift") }.count, 1,
+            "a scoped file that is not there is an offender: \(offenders)")
+        XCTAssertFalse(offenders.contains { $0.hasPrefix("MISSING SCOPE: A.swift") },
+            "a scoped file that IS there is not: \(offenders)")
+    }
+
+    /// **Every production source root, and who scans it.** Keyed by
+    /// repo-relative root, exactly as `SourceTree.productionRoots` names them;
+    /// the value names the censuses that read it. A root missing here is code
+    /// no census was ever pointed at — the moment to decide which must scan it.
+    static let knownSourceRoots: [String: String] = [
+        "Maugham": "sourceDir censuses + admissionRoots/deviceIdentityRoots/postureAskRoots",
+        "MaughamPhone": "TripwirePhoneGrepTest + admissionRoots/deviceIdentityRoots/postureAskRoots",
+        "Packages/MaughamCore/Sources/MaughamCore":
+            "admissionRoots/deviceIdentityRoots + the Packages/MaughamCore/Sources censuses",
+    ]
+
+    /// The roots `productionRoots` names that `knownSourceRoots` does not, and
+    /// the entries `knownSourceRoots` keeps for roots that are gone.
+    static func unclassifiedRoots(_ roots: [String]) -> (unclassified: [String], stale: [String]) {
+        let known = Set(knownSourceRoots.keys), actual = Set(roots)
+        return (actual.subtracting(known).sorted(), known.subtracting(actual).sorted())
+    }
+
+    func test_everyProductionRootIsClassified() {
+        let (unclassified, stale) = Self.unclassifiedRoots(SourceTree.productionRoots)
+        XCTAssertEqual(Set(Self.knownSourceRoots.keys), Set(SourceTree.productionRoots),
+            "a new source root exists: decide which censuses must scan it, then name it here. "
+            + "Unclassified: \(unclassified); named here but gone: \(stale)")
+    }
+
+    /// The control: a planted `Packages/Fake/Sources/Fake` is a root nobody
+    /// classified, and is reported by name.
+    func test_anUnclassifiedSourceRootIsReported() throws {
+        let base = TestTemp.root.appendingPathComponent("roots-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: base.appendingPathComponent("Packages/Fake/Sources/Fake"),
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: base.appendingPathComponent("Packages/MaughamCore/Sources/MaughamCore"),
+            withIntermediateDirectories: true)
+        let (unclassified, stale) = Self.unclassifiedRoots(SourceTree.productionRoots(base: base))
+        XCTAssertEqual(unclassified, ["Packages/Fake/Sources/Fake"])
+        XCTAssertEqual(stale, [])
+    }
+
+    /// A planted directory holding `A.swift` and nothing else.
+    private func plantedScopeDir() throws -> URL {
+        let dir = TestTemp.root.appendingPathComponent("scope-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "let a = 1\n".write(
+            to: dir.appendingPathComponent("A.swift"), atomically: true, encoding: .utf8)
+        return dir
     }
 
     // MARK: - Op-log filename parsing tripwire
@@ -720,10 +808,12 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("RoundEditor.swift"),
                   atomically: true, encoding: .utf8)
 
+        // The planted tree holds only some of each census's scope, so the
+        // scoped files it lacks are reported missing; this control counts hits.
         let memoryHits = try grepSwift(
             in: tmp, files: Self.checkReaderFiles,
             patterns: ["activePassMemory"],
-            excludeLine: { self.commentLine($0) })
+            excludeLine: { self.commentLine($0) }).filter { !$0.hasPrefix("MISSING SCOPE:") }
         XCTAssertEqual(memoryHits.count, 1,
             "Self-check: the planted read should be the one caught, and not the "
             + "comment. Got:\n" + memoryHits.joined(separator: "\n"))
@@ -732,7 +822,7 @@ final class TripwireGrepTests: XCTestCase {
         let seatHits = try grepSwift(
             in: tmp, files: Self.roundEditorFiles,
             patterns: ["effectiveCoach"],
-            excludeLine: { self.commentLine($0) })
+            excludeLine: { self.commentLine($0) }).filter { !$0.hasPrefix("MISSING SCOPE:") }
         XCTAssertEqual(seatHits.count, 1,
             "Self-check: the planted seat read should be caught, and not the "
             + "comment. Got:\n" + seatHits.joined(separator: "\n"))
@@ -1695,12 +1785,14 @@ final class TripwireGrepTests: XCTestCase {
         }
         """.write(to: planted, atomically: true, encoding: .utf8)
 
+        // The planted tree holds one of the scoped files, so the rest are
+        // reported missing; this control counts hits.
         let offenders = try grepSwift(
             in: tmp,
             files: userContentMoverFiles,
             patterns: userContentMoverPatterns,
             excludeLine: { [self] in isInternalMoveLine($0) }
-        )
+        ).filter { !$0.hasPrefix("MISSING SCOPE:") }
         // The bare oldURL→newURL move fires; the marked internal move is excluded.
         XCTAssertEqual(offenders.count, 1,
             "Self-check expected exactly the non-staging move to fire. Got:\n"
@@ -8031,6 +8123,8 @@ final class TripwireGrepTests: XCTestCase {
     /// census whose whole subject is ONE file's discipline
     /// (`test_theSilentAdmissionNarrowsNobody`, P3b Task 10), where the
     /// patterns are ordinary Swift that every other file uses legitimately.
+    /// A name in `onlyFiles` that no root holds is itself an offender
+    /// (`missingScope`).
     private func grepSwift(
         in roots: [URL],
         patterns: [String],
@@ -8039,7 +8133,16 @@ final class TripwireGrepTests: XCTestCase {
         onlyFiles: Set<String>? = nil
     ) throws -> [String] {
         var offenders: [String] = []
+        var seen: Set<String> = []
         for root in roots {
+            if let onlyFiles {
+                if let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) {
+                    for case let url as URL in walker
+                    where url.pathExtension == "swift" && onlyFiles.contains(url.lastPathComponent) {
+                        seen.insert(url.lastPathComponent)
+                    }
+                }
+            }
             offenders += try grepSwift(
                 in: root,
                 patterns: [],
@@ -8052,6 +8155,7 @@ final class TripwireGrepTests: XCTestCase {
                     return !allowed.contains(where: { line.contains($0) })
                 })
         }
+        if let onlyFiles { offenders += Self.missingScope(onlyFiles, seen: seen) }
         return offenders
     }
 
@@ -9459,13 +9563,20 @@ final class TripwireGrepTests: XCTestCase {
     /// convenience field on a book author, which is what an unasked admission
     /// writes; they are allowed by spelling, so `role: "reviewer"` — or any
     /// `scope:` or `pieces:` — fires.
+    ///
+    /// The scope is every file DECLARING `RegistryPresence` (foundations plan
+    /// 2, Task 2), not a file name: split the type into an extension file and
+    /// the census reads the new file too, with the same allowed spelling,
+    /// rather than going quietly blind to it.
     func test_theSilentAdmissionNarrowsNobody() throws {
+        let scope = try Self.silentAdmissionScope(
+            under: SourceTree.productionRoots, base: SourceTree.repoRoot)
         let offenders = try grepSwift(
             in: admissionRoots,
             patterns: ["role:", "scope:", "pieces:"],
-            allowedSpellings: Self.silentAdmissionAllowed,
+            allowedSpellings: scope.allowed,
             excludeLine: Self.admissionExcludeLine,
-            onlyFiles: ["RegistryPresence.swift"])
+            onlyFiles: scope.files)
         XCTAssertTrue(offenders.isEmpty,
             "`RegistryPresence` names a rung. The silent admission is the one "
             + "that shows no sheet, so the only permit it may install is the "
@@ -9474,9 +9585,24 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    static let silentAdmissionAllowed: [String: Set<String>] = [
-        "RegistryPresence.swift": [#"role: "author""#],
-    ]
+    /// The one spelling the silent admission may carry, in EVERY file that
+    /// declares `RegistryPresence`: the person record's convenience field on
+    /// a book author.
+    static let silentAdmissionAllowedSpellings: Set<String> = [#"role: "author""#]
+
+    /// The silent-admission census's scope: the basenames of every file under
+    /// `roots` declaring `RegistryPresence` (throws if none does), each
+    /// allowed `silentAdmissionAllowedSpellings`.
+    static func silentAdmissionScope(
+        under roots: [String], base: URL
+    ) throws -> (files: Set<String>, allowed: [String: Set<String>]) {
+        let names = try SourceTree.filesDeclaring("RegistryPresence", under: roots, base: base)
+            .map { ($0 as NSString).lastPathComponent }
+        let files = Set(names)
+        return (files, Dictionary(uniqueKeysWithValues: files.map {
+            ($0, silentAdmissionAllowedSpellings)
+        }))
+    }
 
     /// **The counted lists.** Each is an ARRAY with a count per file, never a
     /// number in prose (memory: *prose counts are unmaintainable*), and each
@@ -9606,23 +9732,42 @@ final class TripwireGrepTests: XCTestCase {
                 allowedSpellings: [:],
                 excludeLine: Self.admissionExcludeLine).count, 1)
 
-        // The silent-admission census, planted under its own filename, with
-        // the one allowed spelling beside a banned one.
+        // The silent-admission census, scoped by TYPE: the type's own file
+        // and an extension of it in a second file, each with the one allowed
+        // spelling beside a banned one. A scope by file name would read the
+        // first and never the second.
         let presence = """
-            let record = PersonRecord(person: p, role: "author")
-            let narrowed = PersonRecord(person: p, role: "reviewer", scope: "pieces")
+            public enum RegistryPresence {
+                let record = PersonRecord(person: p, role: "author")
+                let narrowed = PersonRecord(person: p, role: "reviewer", scope: "pieces")
+            }
             """
         try presence.write(
             to: dir.appendingPathComponent("RegistryPresence.swift"),
             atomically: true, encoding: .utf8)
+        let split = """
+            extension RegistryPresence {
+                let record = PersonRecord(person: p, role: "author")
+                let narrowed = PersonRecord(person: p, role: "reviewer")
+            }
+            """
+        try split.write(
+            to: dir.appendingPathComponent("RegistryPresence+Silent.swift"),
+            atomically: true, encoding: .utf8)
+        let scope = try Self.silentAdmissionScope(
+            under: [dir.lastPathComponent], base: dir.deletingLastPathComponent())
+        XCTAssertEqual(scope.files, ["RegistryPresence.swift", "RegistryPresence+Silent.swift"],
+            "the scope is every file declaring the type, and only those")
         let rungs = try grepSwift(
             in: [dir], patterns: ["role:", "scope:", "pieces:"],
-            allowedSpellings: Self.silentAdmissionAllowed,
+            allowedSpellings: scope.allowed,
             excludeLine: Self.admissionExcludeLine,
-            onlyFiles: ["RegistryPresence.swift"])
-        XCTAssertEqual(rungs.count, 1,
+            onlyFiles: scope.files)
+        XCTAssertEqual(rungs.count, 2,
             "the book author's own field is allowed by SPELLING and the "
-            + "narrowed one is not: \(rungs)")
+            + "narrowed one is not, in the extension file as in the type's own: \(rungs)")
+        XCTAssertTrue(rungs.contains { $0.hasPrefix("RegistryPresence+Silent.swift:") },
+            "the extension's `role: \"reviewer\"` is caught: \(rungs)")
 
         // And the counted lists: a planted extra call really does move a count.
         let extra = "let more = state.expectedStreams(inRoot: url, writtenBy: nil)"
