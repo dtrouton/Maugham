@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// **Finds production source by the TYPE or SYMBOL it declares, never by the
 /// file it happens to live in today.**
@@ -345,4 +346,148 @@ enum SourceTree {
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
     }
+}
+
+// MARK: - Type keys (foundations plan 2, Task 3)
+
+/// **An allow-list or counted-list key may name a TYPE instead of a file.**
+///
+/// `"type:OpLogStore"` means *every file that declares `OpLogStore`* —
+/// `class|struct|enum|actor|protocol|extension OpLogStore`, as
+/// `SourceTree.filesDeclaring` reads it. A census keyed by a file name has to
+/// be hand-edited the day that file is split; one keyed by the type follows
+/// the code into the extension files, and a line moved into an unrelated file
+/// is still caught. Plain file keys keep their old meaning.
+///
+/// The keys are resolved against the roots the census itself walks — so a
+/// planted tree resolves against its own declarations, never the repo's. A
+/// type key that resolves to no file is an OFFENDER (*type key `type:X` names
+/// no file*): a key that matches nothing would otherwise allow nothing and
+/// count nothing, and say neither.
+///
+/// - An allow-list (`[file: spellings]` or a `Set` of files) EXPANDS: each
+///   declaring file's basename gets the type key's spellings, merged with any
+///   plain entry of its own.
+/// - A count map FOLDS: a found file's count is added to the type key that
+///   claims it, so the key's expected count is the SUM over its files.
+extension SourceTree {
+
+    static let typeKeyPrefix = "type:"
+
+    /// The type a `type:` key names, or nil for a plain file key.
+    static func typeName(ofKey key: String) -> String? {
+        key.hasPrefix(typeKeyPrefix) ? String(key.dropFirst(typeKeyPrefix.count)) : nil
+    }
+
+    /// The type keys among some keys, resolved to the basenames that declare each.
+    struct TypeKeyResolution {
+        /// Basename → the type key that claims it.
+        var keyForFile: [String: String] = [:]
+        /// Type key → the basenames that declare its type.
+        var filesForKey: [String: Set<String>] = [:]
+        /// Unresolved keys, and basenames two type keys both claim.
+        var offenders: [String] = []
+
+        /// The key a found file is counted under: its type key, else itself.
+        func key(for basename: String) -> String { keyForFile[basename] ?? basename }
+    }
+
+    /// Resolve every `type:` key in `keys` against the Swift files under
+    /// `roots` (absolute directories, as a census walks them).
+    static func resolveTypeKeys<Keys: Sequence>(
+        _ keys: Keys, in roots: [URL]
+    ) -> TypeKeyResolution where Keys.Element == String {
+        var resolution = TypeKeyResolution()
+        for key in Set(keys).sorted() {
+            guard let type = typeName(ofKey: key) else { continue }
+            var files: Set<String> = []
+            for root in roots {
+                files.formUnion(basenamesDeclaring(type, in: root))
+            }
+            guard !files.isEmpty else {
+                resolution.offenders.append("type key `\(key)` names no file")
+                continue
+            }
+            resolution.filesForKey[key] = files
+            for file in files {
+                if let other = resolution.keyForFile[file] {
+                    resolution.offenders.append(
+                        "\(file) is claimed by two type keys, `\(other)` and `\(key)`")
+                } else {
+                    resolution.keyForFile[file] = key
+                }
+            }
+        }
+        return resolution
+    }
+
+    /// `allowed` with every type key replaced by its declaring files, each
+    /// carrying the key's spellings (merged with a plain entry of the same name).
+    static func expandingTypeKeys(
+        _ allowed: [String: Set<String>], in roots: [URL]
+    ) -> (allowed: [String: Set<String>], offenders: [String]) {
+        let resolution = resolveTypeKeys(allowed.keys, in: roots)
+        var expanded: [String: Set<String>] = [:]
+        for (key, spellings) in allowed {
+            let files = typeName(ofKey: key) == nil ? [key] : (resolution.filesForKey[key] ?? [])
+            for file in files { expanded[file, default: []].formUnion(spellings) }
+        }
+        return (expanded, resolution.offenders)
+    }
+
+    /// A set of file names with every type key replaced by its declaring files.
+    static func expandingTypeKeys(
+        _ files: Set<String>, in roots: [URL]
+    ) -> (files: Set<String>, offenders: [String]) {
+        let resolution = resolveTypeKeys(files, in: roots)
+        var expanded: Set<String> = []
+        for key in files {
+            if typeName(ofKey: key) == nil { expanded.insert(key) }
+            else { expanded.formUnion(resolution.filesForKey[key] ?? []) }
+        }
+        return (expanded, resolution.offenders)
+    }
+
+    /// `found` (per basename) re-keyed the way `expectedKeys` is: a file a
+    /// type key claims is folded into that key with `combine`. A plain
+    /// expected key naming a file a type key also claims is an offender —
+    /// the file would be counted twice over, or not at all.
+    static func foldingIntoTypeKeys<Value, Keys: Sequence>(
+        _ found: [String: Value], keyedLike expectedKeys: Keys, in roots: [URL],
+        combine: (Value, Value) -> Value
+    ) -> (folded: [String: Value], offenders: [String]) where Keys.Element == String {
+        let keys = Set(expectedKeys)
+        let resolution = resolveTypeKeys(keys, in: roots)
+        var offenders = resolution.offenders
+        for key in keys.sorted() where typeName(ofKey: key) == nil {
+            if let claimer = resolution.keyForFile[key] {
+                offenders.append("\(key) is named by itself and by `\(claimer)`")
+            }
+        }
+        var folded: [String: Value] = [:]
+        for (file, value) in found {
+            let key = resolution.key(for: file)
+            folded[key] = folded[key].map { combine($0, value) } ?? value
+        }
+        return (folded, offenders)
+    }
+
+    /// Basenames of the files under `root` declaring `type`; empty when none
+    /// do (or `root` is not a directory). A root inside the repo is memoised
+    /// for the life of the process — the production tree does not change under
+    /// a running test, and one resolution walks every file — while a planted
+    /// root (under `TestTemp`, outside the repo) is read fresh each time,
+    /// because its controls rename and rewrite files between calls.
+    private static func basenamesDeclaring(_ type: String, in root: URL) -> Set<String> {
+        let memoise = root.standardizedFileURL.path.hasPrefix(repoRoot.standardizedFileURL.path + "/")
+        let memoKey = root.standardizedFileURL.path + "\u{0}" + type
+        if memoise, let known = typeKeyMemo.withLock({ $0[memoKey] }) { return known }
+        let base = root.deletingLastPathComponent()
+        let files = (try? filesDeclaring(type, under: [root.lastPathComponent], base: base)) ?? []
+        let names = Set(files.map { ($0 as NSString).lastPathComponent })
+        if memoise { typeKeyMemo.withLock { $0[memoKey] = names } }
+        return names
+    }
+
+    private static let typeKeyMemo = OSAllocatedUnfairLock<[String: Set<String>]>(initialState: [:])
 }

@@ -20,6 +20,12 @@ import XCTest
 /// second spelling of the door inside the very file that owns the first moves
 /// its count. Count the arrays, never a number written in prose.
 ///
+/// **A key may name a TYPE** (`type:DocumentStore`, foundations plan 2 Task 3):
+/// every Mac or Core file declaring it, its count the SUM over those files —
+/// so splitting a monolith into extension files moves no census, while a site
+/// moved into an unrelated file still fails. A phone file is never claimed by
+/// a type key: it stays keyed `MaughamPhone/<file>`.
+///
 /// **The roots are the Mac, MaughamCore AND the phone, and the phone's
 /// allow-list is EMPTY** (controller ruling, plan 1 Task 8 fix round). Plan 1
 /// has no phone construction point; plan 2's phone store-injection file and
@@ -77,7 +83,7 @@ final class PersonKeyCensusTests: XCTestCase {
                         "MaughamPhone/PhonePersonKeyAccess.swift": 1]),
         Site(pattern: #"PersonKeyAccess\.store\b"#,
              sample: "let s = PersonKeyAccess.store",
-             expected: ["DocumentStore.swift": 1,
+             expected: ["type:DocumentStore": 1,
                         "MaughamPhone/PhoneDeviceRecord.swift": 1]),
     ]
 
@@ -124,7 +130,7 @@ final class PersonKeyCensusTests: XCTestCase {
         // claim's all go through it. A new caller is a new verifier.
         Site(pattern: #"credentialsVerify\("#,
              sample: "OpLogChain.credentialsVerify(c, over: d)",
-             expected: ["OpLogChain.swift": 2, "OpLogStore.swift": 1,
+             expected: ["type:OpLogChain": 2, "type:OpLogStore": 1,
                         "RegistryReader.swift": 2]),
     ]
 
@@ -148,7 +154,7 @@ final class PersonKeyCensusTests: XCTestCase {
         // on-arrival verb.
         Site(pattern: #"RegistryPresence\.admitRecognised\("#,
              sample: "RegistryPresence.admitRecognised(in: root)",
-             expected: ["DocumentStore.swift": 1, "DocumentStore+Registry.swift": 1]),
+             expected: ["type:DocumentStore": 2]),
     ]
 
     // MARK: - 4. Who links and forgets a person key
@@ -163,7 +169,7 @@ final class PersonKeyCensusTests: XCTestCase {
              expected: ["RegistryPresence.swift": 1]),
         Site(pattern: #"RegistryAdmission\.forgetPersonKey\("#,
              sample: "RegistryAdmission.forgetPersonKey(person: p)",
-             expected: ["DocumentStore+Registry.swift": 1]),
+             expected: ["type:DocumentStore": 1]),
     ]
 
     // MARK: - 5. Who finds the key, and who signs with it
@@ -184,7 +190,7 @@ final class PersonKeyCensusTests: XCTestCase {
         // to seed it with)…
         Site(pattern: #"PersonKey\.findOrCreate\("#,
              sample: "PersonKey.findOrCreate(in: s, seedName: n)",
-             expected: ["DocumentStore.swift": 1]),
+             expected: ["type:DocumentStore": 1]),
         // …and the phone only FINDS it (plan 2 Task 1, controller ruling 5:
         // a phone that minted would fork the person) — once, in
         // `PhoneDeviceRecord.findPersonKey`, which the claim AND Settings'
@@ -282,8 +288,8 @@ final class PersonKeyCensusTests: XCTestCase {
             """.write(to: dir.appendingPathComponent("PeopleAndDevicesModel.swift"),
                       atomically: true, encoding: .utf8)
 
-        let found = try Self.counts(of: Self.storeConstruction + Self.claimVerification,
-                                    in: [dir])
+        let found = try Self.foldedCounts(
+            of: Self.storeConstruction + Self.claimVerification, in: [dir]).counts
         XCTAssertEqual(found[#"KeychainPersonKeyStore\("#], ["PersonKeyAccess.swift": 2],
             "the allow-listed file's SECOND construction moves its count; the comment does not")
         XCTAssertEqual(found[#"(?<!maugham)\.personClaim\b(?!\s*\()"#],
@@ -308,24 +314,29 @@ final class PersonKeyCensusTests: XCTestCase {
             try FileManager.default.createDirectory(at: mac, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: phone, withIntermediateDirectories: true)
             // The Mac side exactly as expected…
-            for (name, count) in site.expected {
-                try plant(Array(repeating: site.sample, count: count).joined(separator: "\n"),
-                          as: name, in: mac)
+            for (key, count) in site.expected {
+                try plant(Self.plantedBody(forKey: key, repeating: site.sample, count: count),
+                          as: Self.plantedName(forKey: key), in: mac)
             }
-            XCTAssertEqual(try Self.counts(of: [site], in: [mac, phone])[site.pattern],
+            XCTAssertEqual(try Self.foldedCounts(of: [site], in: [mac, phone]).counts[site.pattern],
                            site.expected)
             // …then one phone offender under an allow-listed Mac file's name.
             // A site the phone alone is allowed (`PersonKey.find`) has no Mac
             // name to borrow; a second phone file under a new name must fail.
-            let borrowed = site.expected.keys.sorted()
-                .first { !$0.hasPrefix(Self.phoneRootName + "/") } ?? "PlantedOffender.swift"
+            // A type key lends its type's own file name, which the phone file
+            // does not declare — and is not absorbed by even if it did.
+            let borrowedKey = site.expected.keys.sorted()
+                .first { !$0.hasPrefix(Self.phoneRootName + "/") }
+            let borrowed = borrowedKey.map(Self.plantedName(forKey:)) ?? "PlantedOffender.swift"
             try site.sample.write(to: phone.appendingPathComponent(borrowed),
                                   atomically: true, encoding: .utf8)
-            let found = try Self.counts(of: [site], in: [mac, phone])[site.pattern]
+            let found = try Self.foldedCounts(of: [site], in: [mac, phone]).counts[site.pattern]
             XCTAssertEqual(found?[Self.phoneRootName + "/" + borrowed], 1,
                 "a phone `\(site.pattern)` is keyed under MaughamPhone/")
-            XCTAssertEqual(found?[borrowed], site.expected[borrowed],
-                "the phone file is not absorbed into the Mac's allowance")
+            if let borrowedKey {
+                XCTAssertEqual(found?[borrowedKey], site.expected[borrowedKey],
+                    "the phone file is not absorbed into the Mac's allowance")
+            }
             XCTAssertNotEqual(found, site.expected,
                 "a phone `\(site.pattern)` must fail the census — its allow-list is empty")
         }
@@ -383,9 +394,47 @@ final class PersonKeyCensusTests: XCTestCase {
         return result
     }
 
+    /// `counts`, each site's map re-keyed the way its `expected` is: a Mac or
+    /// Core file a `type:` key claims is counted under that key (the sum over
+    /// the type's files). Types are resolved over the non-phone roots only, so
+    /// a phone file is never claimed. `offenders` lists every type key that
+    /// resolved to no file.
+    static func foldedCounts(
+        of sites: [Site], in roots: [URL]
+    ) throws -> (counts: [String: [String: Int]], offenders: [String]) {
+        let raw = try counts(of: sites, in: roots)
+        let typeRoots = roots.filter { $0.lastPathComponent != phoneRootName }
+        var folded: [String: [String: Int]] = [:]
+        var offenders: [String] = []
+        for site in sites {
+            let (byKey, unresolved) = SourceTree.foldingIntoTypeKeys(
+                raw[site.pattern] ?? [:], keyedLike: site.expected.keys,
+                in: typeRoots, combine: +)
+            folded[site.pattern] = byKey
+            offenders += unresolved
+        }
+        return (folded, Array(Set(offenders)).sorted())
+    }
+
+    /// The file a planted control writes for an expected key: a `type:` key
+    /// plants its type's own `<Type>.swift`.
+    static func plantedName(forKey key: String) -> String {
+        SourceTree.typeName(ofKey: key).map { "\($0).swift" } ?? key
+    }
+
+    /// `sample` × `count` (after `prefix`), declaring the key's type first when
+    /// the key is a `type:` key — the census claims the file by its declaration.
+    static func plantedBody(forKey key: String, prefix: [String] = [],
+                            repeating sample: String, count: Int) -> String {
+        let declaration = SourceTree.typeName(ofKey: key).map { ["extension \($0) {}"] } ?? []
+        return (declaration + prefix + Array(repeating: sample, count: count))
+            .joined(separator: "\n")
+    }
+
     private func assertCensus(_ sites: [Site], named name: String,
                               file: StaticString = #filePath, line: UInt = #line) throws {
-        let found = try Self.counts(of: sites, in: Self.roots)
+        let (found, unresolved) = try Self.foldedCounts(of: sites, in: Self.roots)
+        XCTAssertTrue(unresolved.isEmpty, "`\(name)`: \(unresolved)", file: file, line: line)
         for site in sites {
             XCTAssertEqual(found[site.pattern], site.expected,
                 "The production sites of `\(site.pattern)` moved. A site that "
@@ -431,7 +480,7 @@ final class PersonKeyCensusTests: XCTestCase {
         let empty = try plantedDirectory()
         defer { try? FileManager.default.removeItem(at: empty) }
         for site in sites {
-            XCTAssertNotEqual(try Self.counts(of: [site], in: [empty])[site.pattern],
+            XCTAssertNotEqual(try Self.foldedCounts(of: [site], in: [empty]).counts[site.pattern],
                               site.expected,
                               "an empty tree must fail `\(site.pattern)`", file: file, line: line)
         }
@@ -440,24 +489,25 @@ final class PersonKeyCensusTests: XCTestCase {
             // 2. Exact.
             let dir = try plantedDirectory()
             defer { try? FileManager.default.removeItem(at: dir) }
-            for (name, count) in site.expected {
-                let body = ["// \(site.sample) — prose only"]
-                    + Array(repeating: site.sample, count: count)
-                try plant(body.joined(separator: "\n"), as: name, in: dir)
+            for (key, count) in site.expected {
+                try plant(Self.plantedBody(forKey: key, prefix: ["// \(site.sample) — prose only"],
+                                           repeating: site.sample, count: count),
+                          as: Self.plantedName(forKey: key), in: dir)
             }
-            XCTAssertEqual(try Self.counts(of: [site], in: [dir])[site.pattern], site.expected,
+            XCTAssertEqual(try Self.foldedCounts(of: [site], in: [dir]).counts[site.pattern],
+                           site.expected,
                 "the reproduced tree must satisfy `\(site.pattern)` exactly "
                 + "(the sample does not match its own pattern, or a comment counted)",
                 file: file, line: line)
 
             // 3a. Appeared under an allow-listed name.
             let allowed = try XCTUnwrap(site.expected.keys.sorted().first)
-            let url = dir.appendingPathComponent(allowed)
+            let url = dir.appendingPathComponent(Self.plantedName(forKey: allowed))
             try (try String(contentsOf: url, encoding: .utf8) + "\n" + site.sample)
                 .write(to: url, atomically: true, encoding: .utf8)
             var widened = site.expected
             widened[allowed, default: 0] += 1
-            let inAllowed = try Self.counts(of: [site], in: [dir])[site.pattern]
+            let inAllowed = try Self.foldedCounts(of: [site], in: [dir]).counts[site.pattern]
             XCTAssertEqual(inAllowed, widened, file: file, line: line)
             XCTAssertNotEqual(inAllowed, site.expected,
                 "a second `\(site.pattern)` inside \(allowed) must fail the census",
@@ -465,13 +515,13 @@ final class PersonKeyCensusTests: XCTestCase {
 
             // 3b. Appeared in a file the site does not name (the allowed file
             // restored first, so this is the only difference).
-            try (Array(repeating: site.sample, count: site.expected[allowed]!)
-                    .joined(separator: "\n"))
+            try Self.plantedBody(forKey: allowed, repeating: site.sample,
+                                 count: site.expected[allowed]!)
                 .write(to: url, atomically: true, encoding: .utf8)
             try site.sample.write(
                 to: dir.appendingPathComponent("PlantedOffender.swift"),
                 atomically: true, encoding: .utf8)
-            let elsewhere = try Self.counts(of: [site], in: [dir])[site.pattern]
+            let elsewhere = try Self.foldedCounts(of: [site], in: [dir]).counts[site.pattern]
             XCTAssertEqual(elsewhere?["PlantedOffender.swift"], 1,
                 "a `\(site.pattern)` in an unnamed file must be counted", file: file, line: line)
             XCTAssertNotEqual(elsewhere, site.expected,
