@@ -1,8 +1,8 @@
 # Markdown syntax in Maugham
 
-Maugham's prose mode renders a focused subset of Markdown — the constructs writers actually reach for in fiction, with a few additions (wiki links, task checkboxes) borrowed from notes-app conventions. The renderer keeps the source visible (iA Writer style): syntax markers like `**` stay in the text but render quietly while the surrounding word renders bold, so you can always see exactly what's on disk.
+Prose in Maugham is written in Markdown: plain text with a few light marks for headings, emphasis, links and lists. Maugham supports the marks fiction writers actually reach for, plus two extras borrowed from notes apps (wiki links and task checkboxes).
 
-This page documents what Maugham recognizes. The underlying parser is `MarkdownTokenizer.swift` for editor styling; inline markup (bold/italic/strikethrough/etc.) is shared via `InlineEmphasisScanner`, consumed directly by the editor and through a thin adapter (`InlineParser.swift`) by publish, so editor and published output agree there. Block-level segmentation — where a list, fence, table, blockquote, or divider starts and ends — is shared too, via `MarkdownBlockParser` (MaughamCore): the phone Read tab, the in-app Guide (⌘?), research note previews, this syntax-help sheet, and publish all parse blocks through it, so those surfaces agree with each other on block boundaries even though the editor's live-typing styling pass and each surface's renderer remain separate.
+The marks stay visible as you write. When you type `**bold**`, the asterisks stay in the text but fade into a quiet color while the word between them turns bold, so you always see exactly what's in your file.
 
 ## Block elements
 
@@ -17,7 +17,7 @@ This page documents what Maugham recognizes. The underlying parser is `MarkdownT
 ###### Smallest
 ```
 
-One to six leading `#` characters followed by a space and the heading text. Six levels are recognized; deeper nesting renders as plain text. A `#` **without** a following space (`#foo`) is not a heading — it renders as plain text, matching CommonMark's precedence rule (the in-app Help renderer is a documented exception; see below). Headings are styled with progressively smaller scale (1.6× body for `#`, 1.4× for `##`, 1.25× for `###`, 1.1× for the rest) and bold weight.
+Start a line with one to six `#` characters, then a space, then the heading. More `#` means a smaller heading. The space matters: `#foo` with no space is ordinary text, not a heading.
 
 ### Lists
 
@@ -29,7 +29,7 @@ One to six leading `#` characters followed by a space and the heading text. Six 
 2. The next one
 ```
 
-Recognized markers: `-`, `*`, `+`, or `<digits>.` followed by a space. The marker renders in the syntax-punctuation color; the item text renders normally. Indented (nested) lists are not styled differently — they render with their leading whitespace preserved. `1)`-style ordered markers are **not** styled in the editor (see the omission list) — an asymmetry worth knowing: every read surface (phone Read tab, research preview, Guide, this syntax-help sheet, and publish — see "Read surfaces" below) accepts both the `.` and `)` delimiters.
+Start a line with `-`, `*`, `+`, or a number and a period (`1.`), then a space. The marker shows in the quiet syntax color and the item reads as normal text. Indented (nested) items keep their indent but aren't styled differently.
 
 ### Task checkboxes
 
@@ -38,7 +38,9 @@ Recognized markers: `-`, `*`, `+`, or `<digits>.` followed by a space. The marke
 - [x] Confirm timeline with director
 ```
 
-A `- [ ]` or `- [x]` line is a clickable task: the checkbox renders as a real toggle, and clicking it flips `[ ]` ↔ `[x]` (with matching strikethrough on the body when checked). On first toggle, an invisible `<!--t-XXXXXX-->` anchor is appended after the line so Maugham can track the task across edits — the anchor is an HTML comment, so the file stays valid Markdown. Maugham also recognizes an inline form, `[[todo: ...]]` / `[[done: ...]]`, for dropping a task mid-paragraph without breaking prose flow.
+A line starting `- [ ]` or `- [x]` becomes a clickable checkbox. Click it to tick or untick the task; a ticked task is struck through.
+
+You can also drop a task into the middle of a paragraph without breaking the flow of your prose: write `[[todo: ...]]`, and it becomes `[[done: ...]]` when you tick it.
 
 ### Blockquotes
 
@@ -46,9 +48,9 @@ A `- [ ]` or `- [x]` line is a clickable task: the checkbox renders as a real to
 > A quoted line.
 ```
 
-The `>` marker renders in the syntax-punctuation color. A `>` **without** a following space is not recognized (a divergence from CommonMark, which doesn't require the space). Multi-line blockquotes work by prefixing each line with `>`; Maugham doesn't auto-continue a blockquote across line breaks, and only one level of nesting is supported.
+Start a line with `>` and a space. The space is required: `>quote` with no space stays ordinary text. For a quote that runs over several lines, start each line with `>`; Maugham doesn't carry the quote onto the next line for you.
 
-### Horizontal rule / scene break
+### Scene breaks
 
 ```
 ---
@@ -56,7 +58,7 @@ The `>` marker renders in the syntax-punctuation color. A `>` **without** a foll
 ###
 ```
 
-A line consisting of three or more `-` characters, or exactly three `*` or `#` characters (surrounding spaces allowed; the marker count must be exact for `*`/`#` but not for dashes), renders as a horizontal divider. `****`, `####`, or the underscore form `___` are **not** recognized as dividers. This matches publish's `isSceneBreakLine` rule exactly, so editor and PDF/EPUB agree on what counts as a break.
+A line of three or more dashes, or exactly three `*` or exactly three `#`, becomes a scene break (a horizontal divider). Spaces around the marks are fine. `****`, `####` and `___` are not scene breaks. What counts as a break while you write is exactly what counts as one in your published PDF or EPUB.
 
 ## Inline elements
 
@@ -66,7 +68,7 @@ A line consisting of three or more `-` characters, or exactly three `*` or `#` c
 **bold text**
 ```
 
-Wrapped in double asterisks. Asterisks render in the syntax-punctuation color; the text between them renders bold.
+Wrap the text in double asterisks.
 
 ### Italic
 
@@ -74,7 +76,7 @@ Wrapped in double asterisks. Asterisks render in the syntax-punctuation color; t
 *italic text*
 ```
 
-Single asterisks around the text. Same visible-syntax treatment as bold. `***bold italic***` and nesting (`*a **b** a*`) both work, and emphasis is **paragraph-scoped**: an emphasis span may open on one line and close on a later line within the same blank-line-delimited paragraph or stanza — it never crosses a blank line.
+Wrap the text in single asterisks. `***bold italic***` works, and so does italic with bold inside it (`*a **b** a*`). Emphasis can start on one line and finish on a later line of the same paragraph or stanza, but it stops at a blank line.
 
 ### Strikethrough
 
@@ -82,7 +84,7 @@ Single asterisks around the text. Same visible-syntax treatment as bold. `***bol
 ~~struck text~~
 ```
 
-Wrapped in double tildes (GFM syntax). Renders with a strikethrough line through the text; the `~~` markers render in the syntax-punctuation color. Prose only — Fountain doesn't support `~~` (`~` there is the lyric marker). Published PDF/EPUB and the phone reader both render real strikethrough too (LaTeX via the `soul` package's `\st`, XHTML via `<s>`, phone via swift-cmark's native GFM support).
+Wrap the text in double tildes. It shows struck through while you write, on the phone, and in published PDF and EPUB. Strikethrough is for prose only; screenplays use `~` for lyrics instead.
 
 ### Escaping
 
@@ -91,7 +93,7 @@ Wrapped in double tildes (GFM syntax). Renders with a strikethrough line through
 \~not struck\~
 ```
 
-A backslash before `*`, `~`, `_`, `` ` ``, or another `\` renders that character literally and consumes the backslash — the escaped delimiter can't open or close emphasis, strikethrough, or a code span. This works identically in the editor (backslash fades as syntax punctuation) and in every publish path (LaTeX/XHTML drop the backslash and print the literal character).
+When you want a literal `*`, `~`, `_`, `` ` `` or `\`, put a backslash in front of it. The character then can't start or end emphasis, and the backslash itself is left out of published output.
 
 ### Inline code
 
@@ -99,7 +101,7 @@ A backslash before `*`, `~`, `_`, `` ` ``, or another `\` renders that character
 `monospace`
 ```
 
-Wrapped in backticks. The text inside renders in the editor's monospace code color, slightly smaller than body. Only single-backtick spans are recognized — a run of two or more backticks (CommonMark's escape for code containing a literal backtick) is not supported.
+Wrap the text in single backticks to show it in a monospace font. Only single backticks work; double-backtick spans aren't supported.
 
 ### Links
 
@@ -107,7 +109,7 @@ Wrapped in backticks. The text inside renders in the editor's monospace code col
 [link text](https://example.com)
 ```
 
-Inline links only: `[text](url)` styles with `text` in the link color and the URL in the syntax-punctuation color. Link **titles** (`[text](url "title")`), angle-bracket destinations (`<url>`), balanced parens inside the URL, reference-style links (`[text][id]` with a `[id]: url` definition), and autolinks (`<https://example.com>`) are **not supported** — none of that markup is recognized as a link; it renders as plain text.
+Put the link text in square brackets and the web address in parentheses right after. Other link styles (link titles, `<https://...>` addresses, and links whose address is defined elsewhere in the file) aren't supported and stay as plain text.
 
 ### Wiki links
 
@@ -115,56 +117,52 @@ Inline links only: `[text](url)` styles with `text` in the link color and the UR
 [[Document Title]]
 ```
 
-A Maugham-specific addition. The bracketed title is matched against other documents in the project's manuscript binder (case-insensitive). When the title resolves, the link renders underlined and clicking it navigates to that document. When the title doesn't resolve, the link renders without underline (still styled, just no navigation).
+Link to another document in your manuscript by putting its title in double square brackets (capitals don't matter). When the title matches a document, the link is underlined and clicking it takes you there. When nothing matches, the link has no underline and does nothing when clicked.
 
-Wiki links also propagate on rename: if you rename a document via the binder, every `[[Old Title]]` reference in other manuscript documents is rewritten to `[[New Title]]` automatically (milestone-2d).
+If you rename a document, Maugham updates the `[[Old Title]]` links in your other manuscript documents to the new title.
 
 ## Smart typography
 
-When typed in prose mode, certain ASCII sequences auto-transform as you type — the source text on disk gets the typographic character, not the ASCII shorthand:
+As you type prose, Maugham swaps a few plain-keyboard characters for their proper typographic versions, and your file keeps the typographic character:
 
 | You type | You get |
 |---|---|
 | `--` | `—` (em dash) |
 | `...` | `…` (ellipsis) |
-| `"` (straight) | `"` or `"` (curly, context-aware) |
-| `'` (straight) | `'` or `'` (curly, context-aware) |
+| `"` (straight) | `“` or `”` (curly, depending on position) |
+| `'` (straight) | `‘` or `’` (curly, depending on position) |
 
-These transforms are configurable per-project under **Project Settings → Typography**. They're enabled by default for prose; disabled by default for screenplay (Fountain stays ASCII).
+You can turn each of these on or off in **Settings → Typography** (⌘,). They're on by default for prose. Screenplays never use them, so a script stays in plain characters.
 
-## Read surfaces: lists, fenced code, tables, and quotes
+## Lists, tables and quotes outside the editor
 
-Manuscript *editing* doesn't style lists, fences, tables, or blockquotes beyond the marker coloring above — the editor is a live-typing surface, not a renderer. But everywhere Maugham *displays* rendered content instead of raw source — the phone Read tab, research note previews, the in-app Guide (⌘?), this syntax-help sheet, and published PDF/EPUB — renders more, sharing one block-level grammar (`MarkdownBlockParser`, MaughamCore):
+While you write, lists, tables, quotes and code blocks keep the light styling described above. Wherever Maugham shows your writing as a finished page — the phone's Read tab, research note previews, Maugham Help, this reference, and published PDF and EPUB — they get the full treatment:
 
-- **Ordered and unordered lists** render as real lists (flat, tight — no nested-list layout). Both `.`- and `)`-delimited ordered markers are accepted, even though the editor only styles the `.` form. **List numbers are always sequential from position, never the digits you typed**: none of these surfaces retain the source's written ordinal, so a list that resumes at `10.` after an interruption renders as `1.` on every read surface and in publish.
-- **Fenced code** (` ``` `) renders as a monospaced block on the phone Read tab, research preview, Guide, and this sheet, and becomes a verbatim block in published output — no inline markup parsing inside it, no syntax highlighting. This guards against a fence's contents being mangled by the inline-emphasis pass; it is not full syntax-highlighted code-block support.
-- **Tables** (GFM pipe syntax — a header row, a `---`/`:--`/`--:` delimiter row, then data rows) render as a real grid on the phone Read tab, research preview, Guide, and this sheet. **Publish is the exception**: a table degrades to literal pipe-and-dash text in PDF/EPUB output — table rendering wasn't extended to the publish path, and this is an intentional, pinned behavior, not a gap to fix.
-- **Blockquotes** (`>`) render as a styled quote (indent + rule) everywhere. Nesting a blockquote inside another blockquote is handled differently by surface: the **phone Read tab** and **publish** (LaTeX/XHTML quote environment) recurse, so nested quotes render as nested quotes; **research preview, Guide, and this syntax-help sheet flatten** a nested blockquote to one level of plain quoted text rather than rendering it nested.
-- A hard line break can be written as two trailing spaces (works everywhere) or a trailing backslash (publish only).
+- **Lists** show as proper lists (one level, no nesting). Numbered lists can use `1.` or `1)`, although the editor only colors the `1.` form. Numbers are always counted from the top of the list, so a list you start at `10.` shows as `1.`.
+- **Code blocks**, fenced with three backticks, show in a monospace block exactly as written, with no bold or italic inside them.
+- **Tables** (a header row, a row of dashes, then data rows, each column separated by `|`) show as a real grid everywhere except published PDF and EPUB, where they print as plain text with the pipes and dashes.
+- **Quotes** show indented with a rule beside them. A quote inside a quote shows nested on the phone and in published output, and as a single level elsewhere.
+- **Line breaks inside a paragraph**: end a line with two spaces to break it there. A backslash at the end of the line also works, but only in published output.
 
-## Not supported (deliberately)
+## Not supported
 
-The following CommonMark constructs render as plain text, or are not recognized as their CommonMark meaning, in Maugham:
+These are shown as plain text, or don't do what they would in other Markdown apps:
 
-- Tables get no editor styling — pipe syntax renders as plain text while typing (every read surface parses and grids them — see above — except publish, which prints tables as literal text)
-- Setext headings (`Title\n=====` / `Title\n-----`) — `---` is claimed by the scene-break/horizontal-rule idiom instead; the precedence conflict is permanent.
-- Indented (4-space) code blocks — a footgun for writers who indent for other reasons.
-- Fenced code blocks get no editor syntax highlighting (inline backticks work; every read surface gets the monospace/verbatim treatment above, not syntax highlighting)
-- Reference-style links (`[text][id]` with `[id]: url` definitions elsewhere), autolinks (`<url>`), and link titles
-- HTML pass-through
-- Entities (`&amp;` etc.) — never decoded
+- Table styling while you write (tables read as plain text in the editor)
+- Headings underlined with `===` or `---` on the next line (`---` is a scene break in Maugham)
+- Code blocks made by indenting four spaces (so indenting your prose is always safe)
+- Colored code highlighting inside code blocks
+- Link titles, `<https://...>` links, and links defined elsewhere in the file
+- HTML tags, and codes like `&amp;`
 - Footnotes
-- Strikethrough is prose-only, not implemented for Fountain (see above)
-- Image embeds (`![alt](url)`) in the manuscript editor and in publish — these render as plain text; research note previews are the one surface that renders a note's own `./`-relative solo-image line as an actual image (the phone Read tab recognizes the same line but renders nothing for it — no image support there)
-- `1)`-style ordered-list markers in the editor's styling (every read surface accepts them — see above)
-- `>` blockquotes without a following space
-- Multi-backtick code spans (`` ``code with a ` backtick`` ``)
-- List numbers don't round-trip anywhere: every read surface and publish renumber sequentially from position, discarding the digits you actually typed (see "Read surfaces" above)
-- CommonMark's punctuation-class emphasis flanking and "rule of 3" — Maugham's scanner uses whitespace-only flanking; an unbalanced or ambiguous run degrades to literal text rather than guessing
-- Emphasis spanning a blank line — paragraph-scoped emphasis (above) still stops at the first blank line
-
-These omissions keep the prose surface focused. If a fiction writer needs a feature on this list, file an issue.
+- Strikethrough in screenplays
+- Images (`![alt](url)`) in the manuscript and in publishing. A research note's preview does show an image that sits on a line of its own and points at a file with a path starting `./`.
+- `1)` numbering styled in the editor (it works everywhere else, as above)
+- `>` quotes without a space after the `>`
+- Double-backtick code spans
+- Keeping your own list numbers: lists are always renumbered from the top
+- Emphasis that runs across a blank line. If the asterisks are unbalanced or ambiguous, they show as plain asterisks rather than Maugham guessing.
 
 ## How to think about it
 
-Maugham's prose mode treats Markdown syntax as a *light scaffolding* for typography, not as a full document format. The goal is that source files stay readable in any plain-text editor (Claude desktop, VS Code, `cat`) and the writer's intent — emphasis, headings, links — is preserved without locking the manuscript into a proprietary format.
+In Maugham, Markdown is light scaffolding for typography, not a document format to wrestle with. Your files stay readable in any plain-text app, and your emphasis, headings and links come through without locking your manuscript into a proprietary format.

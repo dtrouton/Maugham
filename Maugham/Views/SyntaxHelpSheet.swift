@@ -22,32 +22,52 @@ struct SyntaxHelpSheet: View {
 
     @State private var selectedTab: Tab
 
-    enum Tab: String, Hashable {
+    enum Tab: String, Hashable, CaseIterable {
         case markdown, fountain, keyboard
+
+        var title: String {
+            switch self {
+            case .markdown: return "Markdown"
+            case .fountain: return "Fountain"
+            case .keyboard: return "Keyboard"
+            }
+        }
+
+        /// The tab the sheet opens on for a document of `format`.
+        static func opening(for format: DocumentFormat) -> Tab {
+            switch format {
+            case .markdown: return .markdown
+            case .fountain: return .fountain
+            }
+        }
     }
 
     init(format: DocumentFormat) {
         self.format = format
-        switch format {
-        case .markdown: self._selectedTab = State(initialValue: .markdown)
-        case .fountain: self._selectedTab = State(initialValue: .fountain)
-        }
+        self._selectedTab = State(initialValue: Tab.opening(for: format))
     }
 
+    // A segmented picker, not a `TabView`: on macOS 27 a `TabView` in this
+    // sheet draws its tabs as one unlabeled icon (smoke, 2026-10-18).
     var body: some View {
         NavigationStack {
-            TabView(selection: $selectedTab) {
-                SyntaxHelpBlocksView(format: .markdown)
-                    .tabItem { Text("Markdown") }
-                    .tag(Tab.markdown)
-                SyntaxHelpBlocksView(format: .fountain)
-                    .tabItem { Text("Fountain") }
-                    .tag(Tab.fountain)
-                KeyboardCheatsheetView()
-                    .tabItem { Text("Keyboard") }
-                    .tag(Tab.keyboard)
+            VStack(spacing: 0) {
+                Picker("Reference", selection: $selectedTab) {
+                    ForEach(Tab.allCases, id: \.self) { tab in
+                        Text(tab.title).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .padding(.vertical, 10)
+                Divider()
+                switch selectedTab {
+                case .markdown: SyntaxHelpBlocksView(format: .markdown)
+                case .fountain: SyntaxHelpBlocksView(format: .fountain)
+                case .keyboard: KeyboardCheatsheetView()
+                }
             }
-            .padding(.top, 8)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
