@@ -2957,94 +2957,40 @@ public final class OpLogStore {
         return segURL
     }
 
-    // MARK: - Glob helpers (shared with synchronous readers)
 
-    /// The op-log file URL a writer for `docId` on device `deviceSlug` appends to:
-    /// `<projectURL>/.maugham/ops/<docId>.<deviceSlug>.jsonl`. SINGLE SOURCE OF TRUTH
-    /// for op-log filename CONSTRUCTION — the producer-side twin of
-    /// `docId(fromOpLogFilename:)`. Surfaces (phone `AnnotationWriter`, Mac
-    /// `OpLogStore.store`) MUST call this, never hand-roll the `"\(docId).\(slug).jsonl"`
-    /// template. See docs/superpowers/notes/cross-surface-contracts.md.
+    // MARK: - Glob helpers (shared with synchronous readers)
+    // The file-name functions live in `OpLogFiles`; these forward to them.
+
+    /// Forwards to `OpLogFiles.opLogFileURL`.
     public nonisolated static func opLogFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, in projectURL: URL
-    ) -> URL {
-        projectURL
-            .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent("\(docId).\(deviceSlug.raw).jsonl")
-    }
+    ) -> URL { OpLogFiles.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL) }
 
-    /// The doc id encoded in an op-log filename, or nil if `name` is not a
-    /// manuscript doc op-log file. Filenames are `<docId>(.<slug>)?.jsonl`; the
-    /// doc id is the component before the first `.` (doc ids contain no dot) and is
-    /// `doc-<hex>` / `scene-<hex>` (ADR 0008). Deliberately NOT format-validated —
-    /// this store is id-agnostic by contract; the only excluded stream is the
-    /// synthetic `__project__` (tasks/checkpoints — no manuscript content).
-    ///
-    /// SINGLE SOURCE OF TRUTH for filename→docId. Surfaces (phone + Mac) MUST call
-    /// this, never hand-roll a predicate (a stricter local copy is what shipped the
-    /// phone-v0.1.1 "No open annotations" bug). Enforced by the reach-around
-    /// tripwires; see docs/superpowers/notes/cross-surface-contracts.md.
+    /// Forwards to `OpLogFiles.docId(fromOpLogFilename:)`.
     public nonisolated static func docId(fromOpLogFilename name: String) -> String? {
-        let stem: String
-        if name.hasSuffix(".jsonl") {
-            stem = String(name.dropLast(".jsonl".count))
-        } else if name.hasSuffix(".\(OpLogSegment.fileExtension)") {
-            // Sealed segment `<docId>.<slug>.seg<NNNN>.mzseg` (ADR 0016).
-            stem = String(name.dropLast(".\(OpLogSegment.fileExtension)".count))
-        } else {
-            return nil
-        }
-        let head = String(stem.split(separator: ".", maxSplits: 1,
-                                     omittingEmptySubsequences: false)[0])
-        guard !head.isEmpty, head != "__project__" else { return nil }
-        return head
+        OpLogFiles.docId(fromOpLogFilename: name)
     }
 
-    /// Distinct doc ids among a set of `.maugham/ops/` filenames (per-device +
-    /// legacy files for one doc collapse to one id).
+    /// Forwards to `OpLogFiles.docIds(inOpsDirectoryFilenames:)`.
     public nonisolated static func docIds(inOpsDirectoryFilenames filenames: [String]) -> Set<String> {
-        Set(filenames.compactMap(docId(fromOpLogFilename:)))
+        OpLogFiles.docIds(inOpsDirectoryFilenames: filenames)
     }
 
-    /// Every op-log file URL for `docId` (legacy + per-device). Pure listing,
-    /// no read coordination — for readers that need the file set without the
-    /// async coordinated load (mtime-change heuristics; the synchronous
-    /// local-log readers in ProjectStore+Tasks). Returns [] if the ops dir or
-    /// matching files don't exist.
+    /// Forwards to `OpLogFiles.opLogFileURLs`.
     public nonisolated static func opLogFileURLs(
         forDocId docId: String, in projectURL: URL
-    ) -> [URL] {
-        let dir = projectURL.appendingPathComponent(".maugham/ops")
-        let all = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil)) ?? []
-        return all.filter { url in
-            let n = url.lastPathComponent
-            return n == "\(docId).jsonl"
-                || (n.hasPrefix("\(docId).") && n.hasSuffix(".jsonl"))
-                || (n.hasPrefix("\(docId).") && n.hasSuffix(".\(OpLogSegment.fileExtension)"))
-        }
-    }
+    ) -> [URL] { OpLogFiles.opLogFileURLs(forDocId: docId, in: projectURL) }
 
-    /// Sealed-segment URL: `.maugham/ops/<docId>.<deviceSlug>.seg<NNNN>.mzseg`
-    /// (ADR 0016 / growth spec §5.1). SINGLE SOURCE OF TRUTH for segment
-    /// filename construction — never hand-roll the template (grep tripwires
-    /// on both targets enforce; see cross-surface-contracts.md).
+    /// Forwards to `OpLogFiles.segmentFileURL`.
     public nonisolated static func segmentFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, index: Int, in projectURL: URL
     ) -> URL {
-        projectURL
-            .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent(
-                "\(docId).\(deviceSlug.raw).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
+        OpLogFiles.segmentFileURL(forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL)
     }
 
-    /// The signature beside a sealed segment: the segment's own name with
-    /// `.sig` appended, so it sorts next to it and `opLogFileURLs` — which
-    /// matches on `.jsonl` and `.mzseg` endings — can never list it as history.
-    /// SINGLE SOURCE OF TRUTH for the sidecar's name.
+    /// Forwards to `OpLogFiles.segmentSignatureURL`.
     public nonisolated static func segmentSignatureURL(for segmentURL: URL) -> URL {
-        segmentURL.deletingLastPathComponent()
-            .appendingPathComponent(segmentURL.lastPathComponent + ".sig")
+        OpLogFiles.segmentSignatureURL(for: segmentURL)
     }
 
     /// Sign a freshly minted segment's digest and write the sidecar beside it.
@@ -3064,18 +3010,10 @@ public final class OpLogStore {
         return url
     }
 
-    /// Parse `<docId>.<deviceSlug>.seg<NNNN>.mzseg` → NNNN, or nil if `name`
-    /// is not a segment of this (docId, deviceSlug) pair.
+    /// Forwards to `OpLogFiles.segmentIndex`.
     nonisolated static func segmentIndex(
         fromFilename name: String, docId: String, deviceSlug: DeviceSlug
-    ) -> Int? {
-        let prefix = "\(docId).\(deviceSlug.raw).seg"
-        let suffix = ".\(OpLogSegment.fileExtension)"
-        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
-        let digits = name.dropFirst(prefix.count).dropLast(suffix.count)
-        guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return nil }
-        return Int(digits)
-    }
+    ) -> Int? { OpLogFiles.segmentIndex(fromFilename: name, docId: docId, deviceSlug: deviceSlug) }
 
     /// Synchronous globbed read+merge, bypassing `NSFileCoordinator`. For the
     /// local-only / heuristic readers that deliberately avoid async
