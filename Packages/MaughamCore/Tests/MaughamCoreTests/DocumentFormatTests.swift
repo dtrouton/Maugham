@@ -65,6 +65,7 @@ final class DocumentFormatTests: XCTestCase {
 
         XCTAssertEqual(DocumentFormat(path: "scripts/Draft.fountain"), .fountain)
         XCTAssertEqual(DocumentFormat(path: "Chapter.MD"), .markdown)
+        XCTAssertEqual(DocumentFormat(path: "B.MD"), .markdown)
         XCTAssertNil(DocumentFormat(path: "notes.txt"))
         XCTAssertNil(DocumentFormat(path: "README"))
     }
@@ -79,6 +80,8 @@ final class DocumentFormatTests: XCTestCase {
         XCTAssertEqual(DocumentFormat.ofManuscript(path: "Draft.FOUNTAIN"), .fountain)
         XCTAssertEqual(DocumentFormat.ofManuscript(path: "notes.txt"), .markdown)
         XCTAssertEqual(DocumentFormat.ofManuscript(path: "README"), .markdown)
+        // Ruling P9: a file literally named ".fountain" has no extension.
+        XCTAssertEqual(DocumentFormat.ofManuscript(path: ".fountain"), .markdown)
     }
 
     func test_fileExtension_roundTripsThroughTheParser() {
