@@ -161,6 +161,74 @@ final class SourceTreeTests: XCTestCase {
         XCTAssertTrue(body.hasSuffix("}"), body)
     }
 
+    func test_aDefaultClosureInTheParameterListDoesNotOpenTheBody() throws {
+        try plant("App/A.swift", """
+        struct Watch {
+            public func settle(now: () -> Date = { Date() }, list: [() -> Void] = [{}]) {
+                body()
+                tail()
+            }
+        }
+        """)
+        let body = try SourceTree.declaration(named: "public func settle(", under: "App", base: base)
+        XCTAssertTrue(body.contains("tail()"), body)
+        XCTAssertTrue(body.hasSuffix("}"), body)
+    }
+
+    func test_braceInARawStringDoesNotCloseTheBody() throws {
+        try plant("App/A.swift", ##"""
+        enum A {
+            func raw() -> String {
+                let r = #"a "quoted" } and \(not) interpolated }"#
+                return r + "after"
+            }
+            func next() {}
+        }
+        """##)
+        let body = try SourceTree.declaration(named: "func raw(", under: "App", base: base)
+        XCTAssertTrue(body.contains(#"return r + "after""#), body)
+        XCTAssertFalse(body.contains("func next()"), body)
+    }
+
+    func test_braceInAMultilineStringDoesNotCloseTheBody() throws {
+        try plant("App/A.swift", #"""
+        enum A {
+            func multi() -> String {
+                let m = """
+                } a "quote" and } again — café
+                """
+                return m
+            }
+            func next() {}
+        }
+        """#)
+        let body = try SourceTree.declaration(named: "func multi(", under: "App", base: base)
+        XCTAssertTrue(body.contains("return m"), body)
+        XCTAssertTrue(body.contains("again — café"), body)
+        XCTAssertFalse(body.contains("func next()"), body)
+    }
+
+    func test_aHeaderInsideAStringLiteralIsIgnored() throws {
+        try plant("App/A.swift", """
+        enum A {
+            static let doc = "static func board() is the real one"
+            static func board() -> Int { 1 }
+        }
+        """)
+        let body = try SourceTree.declaration(named: "static func board(", under: "App", base: base)
+        XCTAssertEqual(body, "    static func board() -> Int { 1 }")
+    }
+
+    func test_filesDeclaringToleratesCommentsAndNestedAttributeArguments() throws {
+        try plant("App/A.swift", "@Wrap(f(1)) struct Qux {}\n")
+        try plant("App/B.swift", "struct Qux2 {}\nextension /* why */ Qux {}\n")
+        try plant("App/C.swift", "extension // why\nQux {}\n")
+        try plant("App/D.swift", "struct Qux3 {}\nstruct NotQux {}\n")
+        XCTAssertEqual(
+            try SourceTree.filesDeclaring("Qux", under: ["App"], base: base),
+            ["App/A.swift", "App/B.swift", "App/C.swift"])
+    }
+
     // (g)
     func test_findsProjectWindowInTheRealTree() throws {
         let files = try SourceTree.filesDeclaring("ProjectWindow", under: ["Maugham"])

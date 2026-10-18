@@ -117,28 +117,25 @@ enum SourceTree {
     }
 
     static func filesDeclaring(_ typeName: String, under roots: [String], base: URL) throws -> [String] {
-        let pattern = #"^\s*(?:@\w+(?:\([^)]*\))?\s*)*"#
+        // An attribute's arguments may nest one level of parens: `@Wrap(f(1))`.
+        // Leading space is `[ \t]*`, not `\s*`: a `\s*` that can cross lines
+        // backtracks over every blank line and made this regex ~10× slower.
+        let pattern = #"^[ \t]*(?:@\w+(?:\((?:[^()]|\([^()]*\))*\))?[ \t]*)*"#
             + #"(?:(?:public|private|fileprivate|internal|package|open|final|indirect|nonisolated|distributed)\s+)*"#
             + #"(?:class|struct|enum|actor|protocol|extension)\s+"#
             + NSRegularExpression.escapedPattern(for: typeName)
             + #"(?![A-Za-z0-9_])"#
         let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
-        // The keyword and the name, anywhere: masking only blanks characters, so a
-        // file whose RAW text lacks this cannot declare the type. Checking it first
-        // spares masking every file that merely mentions the name.
-        let loose = try NSRegularExpression(pattern:
-            #"(?:class|struct|enum|actor|protocol|extension)\s+"#
-            + NSRegularExpression.escapedPattern(for: typeName)
-            + #"(?![A-Za-z0-9_])"#)
 
         var found: [String] = []
         for root in roots {
             for file in try swiftFiles(under: root, base: base) {
                 let text = try read(file, base: base)
-                guard text.contains(typeName),
-                      loose.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
-                else { continue }
-                let masked = String(mask(text))
+                // Masking only blanks characters, so a file whose raw text never
+                // names the type cannot declare it; skipping it spares the mask.
+                guard text.contains(typeName) else { continue }
+                let masked = String(decoding: mask(text), as: UTF8.self)
+                guard masked.contains(typeName) else { continue }   // named only in comments
                 let range = NSRange(masked.startIndex..., in: masked)
                 if regex.firstMatch(in: masked, range: range) != nil { found.append(file) }
             }
@@ -157,22 +154,29 @@ enum SourceTree {
     }
 
     static func declaration(named header: String, under root: String, base: URL) throws -> String {
-        struct Match { let file: String; let text: [Character]; let headerAt: Int; let lineStart: Int }
+        struct Match {
+            let file: String
+            let text: [UInt8]
+            let masked: [UInt8]
+            let headerAt: Int
+            let lineStart: Int
+        }
 
+        let needle = Array(header.utf8)
         var matches: [Match] = []
         for file in try swiftFiles(under: root, base: base) {
             let raw = try read(file, base: base)
             guard raw.contains(header) else { continue }   // necessary, and cheap
-            let text = Array(raw)
-            let masked = String(mask(raw))
-            var offset = 0
-            for line in masked.split(separator: "\n", omittingEmptySubsequences: false) {
-                if let hit = line.range(of: header) {
-                    let column = line.distance(from: line.startIndex, to: hit.lowerBound)
-                    matches.append(Match(file: file, text: text,
-                                         headerAt: offset + column, lineStart: offset))
+            let text = Array(raw.utf8)
+            let masked = mask(raw)
+            var lineStart = 0
+            while lineStart <= masked.count {
+                let lineEnd = masked[lineStart...].firstIndex(of: newline) ?? masked.count
+                if let hit = firstIndex(of: needle, in: masked, from: lineStart, to: lineEnd) {
+                    matches.append(Match(file: file, text: text, masked: masked,
+                                         headerAt: hit, lineStart: lineStart))
                 }
-                offset += line.count + 1
+                lineStart = lineEnd + 1
             }
         }
 
@@ -187,19 +191,29 @@ enum SourceTree {
                 + "— expected exactly one: \(sites).")
         }
 
-        let masked = mask(String(match.text))
+        // The body opens on the first `{` OUTSIDE any parens or brackets: a `{`
+        // inside the parameter list is a default closure (`now: () -> Date =
+        // { Date() }`), and opening there would return a header cut short.
+        let masked = match.masked
         var depth = 0
+        var nesting = 0          // ( and [ depth; read only until the body opens
         var opened = false
         var index = match.headerAt
         while index < masked.count {
             switch masked[index] {
-            case "{":
+            case UInt8(ascii: "("), UInt8(ascii: "["):
+                nesting += 1
+            case UInt8(ascii: ")"), UInt8(ascii: "]"):
+                nesting -= 1
+            case UInt8(ascii: "{") where !opened && nesting > 0:
+                break
+            case UInt8(ascii: "{"):
                 depth += 1
                 opened = true
-            case "}" where opened:
+            case UInt8(ascii: "}") where opened:
                 depth -= 1
                 if depth == 0 {
-                    return String(match.text[match.lineStart...index])
+                    return String(decoding: match.text[match.lineStart...index], as: UTF8.self)
                 }
             default:
                 break
@@ -213,60 +227,69 @@ enum SourceTree {
 
     // MARK: - Masking
 
-    /// `text` as an array of the same length, with every character inside a
-    /// comment or a string literal's content replaced by a space. Newlines are
-    /// kept, so line numbers and offsets line up with the original. The quote
-    /// characters themselves stay; the code inside a `\( … )` interpolation stays.
+    private static let newline = UInt8(ascii: "\n")
+
+    /// `text`'s UTF-8 bytes, the same length, with every byte inside a comment or
+    /// a string literal's content replaced by a space. Newlines are kept, so
+    /// lines and byte offsets line up with the original; every delimiter is
+    /// ASCII, and a multi-byte character is either blanked whole or untouched,
+    /// so the result is still valid UTF-8. The quote characters themselves stay;
+    /// the code inside a `\( … )` interpolation stays.
     ///
     /// Handles `//` and nested `/* */` comments, `"…"`, `"""…"""`, raw strings
     /// (`#"…"#`, any number of `#`), escapes, and interpolation (which may
-    /// itself hold strings). It does not know regex literals.
-    static func mask(_ text: String) -> [Character] {
+    /// itself hold strings). It does not know regex literals: a `"`, `//` or
+    /// `/*` inside `/…/` would be read as opening a string or comment, blanking
+    /// code after it (none exist in this repo today).
+    static func mask(_ text: String) -> [UInt8] {
         enum Context {
             case code(parens: Int)          // parens: depth inside an interpolation
             case string(multiline: Bool, hashes: Int)
         }
+        let slash = UInt8(ascii: "/"), star = UInt8(ascii: "*"), hash = UInt8(ascii: "#")
+        let quote = UInt8(ascii: "\""), backslash = UInt8(ascii: "\\")
+        let open = UInt8(ascii: "("), close = UInt8(ascii: ")"), space = UInt8(ascii: " ")
 
-        let chars = Array(text)
+        let chars = Array(text.utf8)
         var out = chars
         var stack: [Context] = [.code(parens: 0)]
         var i = 0
 
-        func at(_ offset: Int, _ c: Character) -> Bool {
+        func at(_ offset: Int, _ c: UInt8) -> Bool {
             i + offset < chars.count && chars[i + offset] == c
         }
-        func run(of c: Character, from start: Int) -> Int {
+        func run(of c: UInt8, from start: Int) -> Int {
             var n = 0
             while start + n < chars.count && chars[start + n] == c { n += 1 }
             return n
         }
         func blank(_ index: Int) {
-            if !chars[index].isNewline { out[index] = " " }
+            if index < chars.count && chars[index] != newline { out[index] = space }
         }
 
         while i < chars.count {
             switch stack[stack.count - 1] {
             case .code(let parens):
-                if at(0, "/") && at(1, "/") {
-                    while i < chars.count && !chars[i].isNewline { blank(i); i += 1 }
-                } else if at(0, "/") && at(1, "*") {
+                if at(0, slash) && at(1, slash) {
+                    while i < chars.count && chars[i] != newline { blank(i); i += 1 }
+                } else if at(0, slash) && at(1, star) {
                     var depth = 0
                     repeat {
-                        if at(0, "/") && at(1, "*") { depth += 1; blank(i); blank(i + 1); i += 2 }
-                        else if at(0, "*") && at(1, "/") { depth -= 1; blank(i); blank(i + 1); i += 2 }
+                        if at(0, slash) && at(1, star) { depth += 1; blank(i); blank(i + 1); i += 2 }
+                        else if at(0, star) && at(1, slash) { depth -= 1; blank(i); blank(i + 1); i += 2 }
                         else { blank(i); i += 1 }
                     } while depth > 0 && i < chars.count
-                } else if chars[i] == "#" || chars[i] == "\"" {
-                    let hashes = run(of: "#", from: i)
-                    guard i + hashes < chars.count, chars[i + hashes] == "\"" else { i += max(hashes, 1); continue }
-                    let multiline = run(of: "\"", from: i + hashes) >= 3
+                } else if chars[i] == hash || chars[i] == quote {
+                    let hashes = run(of: hash, from: i)
+                    guard i + hashes < chars.count, chars[i + hashes] == quote else { i += max(hashes, 1); continue }
+                    let multiline = run(of: quote, from: i + hashes) >= 3
                     i += hashes + (multiline ? 3 : 1)
                     stack.append(.string(multiline: multiline, hashes: hashes))
                 } else if parens > 0 || stack.count > 1 {
                     // Inside an interpolation: track parens to find its end.
-                    if chars[i] == "(" {
+                    if chars[i] == open {
                         stack[stack.count - 1] = .code(parens: parens + 1)
-                    } else if chars[i] == ")" {
+                    } else if chars[i] == close {
                         if parens == 0 { stack.removeLast() }
                         else { stack[stack.count - 1] = .code(parens: parens - 1) }
                     }
@@ -276,19 +299,19 @@ enum SourceTree {
                 }
 
             case .string(let multiline, let hashes):
-                if chars[i] == "\\" && run(of: "#", from: i + 1) >= hashes {
+                if chars[i] == backslash && run(of: hash, from: i + 1) >= hashes {
                     let after = i + 1 + hashes
-                    if after < chars.count && chars[after] == "(" {
+                    if after < chars.count && chars[after] == open {
                         for k in i..<after { blank(k) }
                         i = after + 1
                         stack.append(.code(parens: 0))
                     } else {
-                        for k in i...min(after, chars.count - 1) { blank(k) }
+                        for k in i...after { blank(k) }
                         i = after + 1
                     }
-                } else if chars[i] == "\"",
-                          run(of: "\"", from: i) >= (multiline ? 3 : 1),
-                          run(of: "#", from: i + (multiline ? 3 : 1)) >= hashes {
+                } else if chars[i] == quote,
+                          run(of: quote, from: i) >= (multiline ? 3 : 1),
+                          run(of: hash, from: i + (multiline ? 3 : 1)) >= hashes {
                     i += (multiline ? 3 : 1) + hashes
                     stack.removeLast()
                 } else {
@@ -298,6 +321,19 @@ enum SourceTree {
             }
         }
         return out
+    }
+
+    /// The first index in `haystack[from..<to]` where `needle` begins.
+    private static func firstIndex(of needle: [UInt8], in haystack: [UInt8], from: Int, to: Int) -> Int? {
+        guard !needle.isEmpty, to - from >= needle.count else { return nil }
+        var i = from
+        while i + needle.count <= to {
+            if haystack[i] == needle[0] && haystack[i..<(i + needle.count)].elementsEqual(needle) {
+                return i
+            }
+            i += 1
+        }
+        return nil
     }
 
     private static func isDirectory(_ url: URL) -> Bool {
