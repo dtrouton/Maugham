@@ -444,7 +444,7 @@ struct CentreColumn: View {
             if let refusal = canvasModel.sidecarRefusal {
                 CanvasReadOnlyNotice(refusal: refusal,
                                      startFreshLayout: { try canvasModel.startFreshLayout() },
-                                     tryAgain: { _ = canvasModel.retryUnreadable() })
+                                     tryAgain: { canvasModel.retryUnreadable() })
             }
         }
     }

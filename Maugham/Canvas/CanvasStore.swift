@@ -37,7 +37,10 @@ final class CanvasStore {
     /// (issue #88). Asked BEFORE either file is read, because reading a dataless
     /// file from the main actor can block on a download; such a file is
     /// `.unreadable` without a byte read. Injected by tests; production is the
-    /// app's one stub rule, `OpLogQuarantine.defaultStubProbe`.
+    /// app's one stub rule, `OpLogQuarantine.defaultStubProbe`. **Its limit:** it
+    /// knows iCloud's dataless files only (`isUbiquitousItem`); a dataless file
+    /// from a third-party File Provider (Dropbox, OneDrive…) is not detected, and
+    /// reading one can still block on its download.
     private let isStub: (URL) -> Bool
     /// Asks iCloud to bring a stub down, so a later retry finds the bytes.
     /// Never waited on.
@@ -170,15 +173,18 @@ final class CanvasStore {
             }
         }
 
-        // canvas.json is the derived sidecar, not a manuscript.
-        let sidecarRead = Self.read(sidecarURL, isStub: isStub, startDownload: startDownload)
-
         // Unreadable outranks every other answer: it is the one that may change
         // on its own (a download finishing), and a damaged layout must not be
         // offered Start a Fresh Layout while the words beside it can't be read.
+        // The sidecar is not READ then — the answer is already refused — only
+        // probed, so a stub of it starts downloading for the next retry.
         if scrapsUnreadable {
+            if isStub(sidecarURL) { startDownload(sidecarURL) }
             return refuse(.unreadable, scraps: [:])
         }
+
+        // canvas.json is the derived sidecar, not a manuscript.
+        let sidecarRead = Self.read(sidecarURL, isStub: isStub, startDownload: startDownload)
         let data: Data
         switch sidecarRead {
         case .absent:

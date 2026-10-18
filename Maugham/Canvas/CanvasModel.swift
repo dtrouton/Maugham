@@ -515,16 +515,24 @@ final class CanvasModel {
     /// answers before any byte is read, so a file still downloading costs this
     /// call nothing on the main actor.
     ///
-    /// Returns whether the refusal changed (lifted, or became another reason).
+    /// Returns whether the refusal changed (lifted, or became another reason) —
+    /// false means *still couldn't read it*, which the notice says aloud.
     @discardableResult
     func retryUnreadable() -> Bool {
         guard isAttached, let store, let refusal = sidecarRefusal,
               refusal.reason == .unreadable else { return false }
+        let before = (scene: scene, scraps: scraps)
         attach(projectRoot: store.projectRoot)
-        guard sidecarRefusal != refusal else { return false }
-        onSceneChangedExternally?()
-        bumpSceneRevision()
-        return true
+        let lifted = sidecarRefusal != refusal
+        // Even with the reason unchanged the re-read can bring different words
+        // (a canvas.json that now reads beside a canvas.md that still doesn't,
+        // or the reverse), and `attach` replaced them wholesale — so the view
+        // re-measures whenever what it draws changed, not only on a lift.
+        if lifted || scene != before.scene || scraps != before.scraps {
+            onSceneChangedExternally?()
+            bumpSceneRevision()
+        }
+        return lifted
     }
 
     /// Write, and then let go of every closure that points back at the owner.

@@ -409,6 +409,65 @@ final class CanvasUnreadableTests: XCTestCase {
     func test_theCanvasCentreWiresTryAgainToTheModel() throws {
         let code = SourceScan.codeLines(of: try SourceTree.windowSource())
             .joined(separator: "\n")
-        XCTAssertTrue(code.contains("tryAgain: { _ = canvasModel.retryUnreadable() }"))
+        XCTAssertTrue(code.contains("tryAgain: { canvasModel.retryUnreadable() }"),
+                      "the verb's answer reaches the notice, not discarded")
+    }
+
+    // MARK: - Fix round (#88 review)
+
+    /// A press that still couldn't read says so, in these words; a press that
+    /// lifted says nothing; the automatic retry never says it.
+    func test_onlyAFailedPressSaysStillCouldntRead() {
+        XCTAssertEqual(CanvasReadOnlyNotice.stillUnreadableSentence, "Still couldn't read it.")
+        XCTAssertTrue(CanvasReadOnlyNotice.showsStillUnreadable(afterPress: true, lifted: false))
+        XCTAssertFalse(CanvasReadOnlyNotice.showsStillUnreadable(afterPress: true, lifted: true))
+        XCTAssertFalse(CanvasReadOnlyNotice.showsStillUnreadable(afterPress: false, lifted: false),
+                       "the automatic retry is silent")
+        XCTAssertEqual(CanvasReadOnlyNotice.stillUnreadableSeconds, 3)
+    }
+
+    /// A retry whose reason is unchanged but whose re-read brought different
+    /// words still tells the view: `attach` replaced what it draws.
+    func test_aRetryThatStaysUnreadableButChangesTheWordsRedraws() throws {
+        seedGoodCanvas()
+        try lock(sidecarFile)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertEqual(model.sidecarRefusal?.reason, .unreadable, "precondition")
+        XCTAssertEqual(model.scraps[CanvasNodeID("s1")], "The falls at night.")
+        var redrawn = 0
+        model.onSceneChangedExternally = { redrawn += 1 }
+        let revision = model.sceneRevision
+
+        // The words file changes underneath; the layout still won't read.
+        try "\(ScrapText.banner)\n\n## s1\n\nThe falls at dawn.\n"
+            .write(to: scrapsFile, atomically: true, encoding: .utf8)
+        XCTAssertFalse(model.retryUnreadable(), "still unreadable")
+        XCTAssertEqual(model.scraps[CanvasNodeID("s1")], "The falls at dawn.")
+        XCTAssertEqual(redrawn, 1, "the view re-measures what changed")
+        XCTAssertEqual(model.sceneRevision, revision + 1)
+
+        // Nothing changed this time: no redraw.
+        XCTAssertFalse(model.retryUnreadable())
+        XCTAssertEqual(redrawn, 1)
+        XCTAssertEqual(model.sceneRevision, revision + 1)
+        model.detach()
+    }
+
+    /// When canvas.md already refused the load, the sidecar is only PROBED —
+    /// a stub of it is asked to download — and never read.
+    func test_anUnreadableWordsFileOnlyProbesTheLayout() throws {
+        seedGoodCanvas()
+        try directory(at: scrapsFile)
+        var probed: [String] = []
+        var requested: [String] = []
+        let store = CanvasStore(projectRoot: root,
+                                isStub: { probed.append($0.lastPathComponent)
+                                          return $0.lastPathComponent == "canvas.json" },
+                                startDownload: { requested.append($0.lastPathComponent) })
+        XCTAssertEqual(store.load().refusal?.reason, .unreadable)
+        XCTAssertEqual(probed, ["canvas.md", "canvas.json"],
+                       "each file probed once — no second pass through the reader")
+        XCTAssertEqual(requested, ["canvas.json"], "the layout's download is still asked for")
     }
 }

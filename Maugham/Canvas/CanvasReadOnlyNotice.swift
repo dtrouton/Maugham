@@ -22,10 +22,16 @@ struct CanvasReadOnlyNotice: View {
     /// `CanvasModel.startFreshLayout`, handed in so this view names no model.
     let startFreshLayout: () throws -> Void
     /// `CanvasModel.retryUnreadable` (issue #88): **Try Again**, and the
-    /// automatic retry this notice runs while it is on screen.
-    let tryAgain: () -> Void
+    /// automatic retry this notice runs while it is on screen. Answers whether
+    /// the refusal changed; false means the files still can't be read.
+    let tryAgain: () -> Bool
 
     @State private var failure: String?
+    /// Set ONLY by a press of Try Again that still couldn't read
+    /// (`stillUnreadableAfterPress`), never by the automatic retry — a line
+    /// that appeared on its own every ten seconds would be noise.
+    @State private var stillUnreadable = false
+    @State private var stillUnreadableClear: Task<Void, Never>?
 
     /// The notice's sentence for `reason` — the refusal's own words.
     static func sentence(for reason: CanvasStore.SidecarRefused.Reason) -> String {
@@ -52,6 +58,17 @@ struct CanvasReadOnlyNotice: View {
 
     static let tryAgainTitle = "Try Again"
 
+    /// Said beside the button when a press found the files still unreadable.
+    static let stillUnreadableSentence = "Still couldn't read it."
+    /// How long that sentence stays.
+    static let stillUnreadableSeconds: TimeInterval = 3
+
+    /// Whether a retry's answer shows `stillUnreadableSentence`: only a PRESS
+    /// that changed nothing. The automatic retry never shows it.
+    static func showsStillUnreadable(afterPress pressed: Bool, lifted: Bool) -> Bool {
+        pressed && !lifted
+    }
+
     static func accessibilityLabel(for reason: CanvasStore.SidecarRefused.Reason) -> String {
         "Read-only canvas. " + sentence(for: reason)
     }
@@ -66,7 +83,11 @@ struct CanvasReadOnlyNotice: View {
                 .accessibilityLabel(Self.accessibilityLabel(for: refusal.reason))
             Spacer(minLength: 8)
             if Self.offersTryAgain(for: refusal.reason) {
-                Button(Self.tryAgainTitle) { tryAgain() }
+                if stillUnreadable {
+                    Text(Self.stillUnreadableSentence)
+                        .font(.system(size: 11))
+                }
+                Button(Self.tryAgainTitle) { pressTryAgain() }
                     .controlSize(.small)
             }
             if Self.offersStartFresh(for: refusal.reason) {
@@ -106,9 +127,20 @@ struct CanvasReadOnlyNotice: View {
             while let delay = CanvasUnreadableRetry.delay(before: attempt, reason: refusal.reason) {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 if Task.isCancelled { return }
-                tryAgain()
+                _ = tryAgain()
                 attempt += 1
             }
+        }
+    }
+
+    private func pressTryAgain() {
+        let lifted = tryAgain()
+        stillUnreadableClear?.cancel()
+        stillUnreadable = Self.showsStillUnreadable(afterPress: true, lifted: lifted)
+        guard stillUnreadable else { return }
+        stillUnreadableClear = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Self.stillUnreadableSeconds * 1_000_000_000))
+            if !Task.isCancelled { stillUnreadable = false }
         }
     }
 
