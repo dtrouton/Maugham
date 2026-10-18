@@ -826,8 +826,10 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
         // (b) The window closing gives its session back (foundations plan 3,
         // Task 2, borrowed since Task 3) — code, not a comment naming it…
-        let onDisappears = try SourceTree.windowSources().flatMap { text in
-            Self.closureBodies(after: ".onDisappear", in: text)
+        // The ABSENCE below reads every view under `Maugham/Views`, never a
+        // hand-kept list of the window's modifier files.
+        let onDisappears = try SourceTree.sources(under: "Maugham/Views").flatMap { file in
+            Self.closureBodies(after: ".onDisappear", in: file.text)
         }.map { String(decoding: SourceTree.mask($0), as: UTF8.self) }
         XCTAssertTrue(onDisappears.contains { $0.contains("sessions.release(") },
                       "ProjectWindow's .onDisappear must give its session back to the "

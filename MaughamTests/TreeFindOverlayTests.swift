@@ -375,7 +375,7 @@ final class TreeFindOverlayTests: XCTestCase {
                       "⌘⌥F no longer opens the find overlay")
     }
 
-    /// The lines of the ONE window file (by type, `SourceTree.windowSources`)
+    /// The lines of the ONE window-family file (by type, `SourceTree.windowSources`)
     /// holding `token`, so a slice after it never runs into another file.
     private static func windowFileLines(containing token: String) throws -> [Substring]? {
         try SourceTree.windowSources().first { $0.contains(token) }

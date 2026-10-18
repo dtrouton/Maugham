@@ -1,7 +1,5 @@
 import SwiftUI
 import MaughamCore
-import AppKit
-import os
 
 /// **The editor's membrane, decided from the posture** (P3c Task 3) — pure, so
 /// both directions are pinned without a window (`ReviewModeMembraneTests`).

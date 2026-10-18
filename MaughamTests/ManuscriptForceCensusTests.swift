@@ -44,9 +44,10 @@ final class ManuscriptForceCensusTests: XCTestCase {
     }
 
     /// The window's code, by type: every file under `Maugham/` declaring
-    /// `ProjectWindow`, so the receivers are found wherever a split of
-    /// `ProjectWindow.swift` moves them (foundations plan 2). Throws when
-    /// nothing declares it.
+    /// `ProjectWindow` or one of its free-standing modifiers
+    /// (`SourceTree.windowFamilyTypes`), so the receivers are found wherever a
+    /// split moves them (foundations plans 2 and 4). Throws when nothing
+    /// declares `ProjectWindow`.
     private static let window = "type:ProjectWindow"
 
     /// `location` is a repo-relative path or a `type:` key.

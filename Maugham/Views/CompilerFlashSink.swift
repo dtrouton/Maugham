@@ -1,7 +1,4 @@
 import SwiftUI
-import MaughamCore
-import AppKit
-import os
 
 /// **⌘R's acknowledgment capsule, as a value the window can hand out**
 /// (2026-08-18 review, Minor 6).

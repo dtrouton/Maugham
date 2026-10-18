@@ -1,7 +1,4 @@
 import SwiftUI
-import MaughamCore
-import AppKit
-import os
 
 /// Reports the width of whatever it is applied to — once at mount, and again
 /// whenever that width changes.

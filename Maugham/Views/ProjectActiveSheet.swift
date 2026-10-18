@@ -1,7 +1,4 @@
 import SwiftUI
-import MaughamCore
-import AppKit
-import os
 
 enum ProjectActiveSheet: Identifiable, Hashable {
     case projectSettings

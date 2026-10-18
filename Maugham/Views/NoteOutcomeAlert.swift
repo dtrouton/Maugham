@@ -1,7 +1,4 @@
 import SwiftUI
-import MaughamCore
-import AppKit
-import os
 
 /// The one-line outcome banner for a **translator's note** that could not be
 /// written (translation pipeline P2) — `restoreOutcome`'s alert, its own word.

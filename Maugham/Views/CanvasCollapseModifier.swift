@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// `⌘\` on the canvas additionally collapses both side columns (spec §8A.3),
 /// leaving the writer the canvas and nothing else.

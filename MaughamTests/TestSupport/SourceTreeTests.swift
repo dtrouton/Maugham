@@ -241,6 +241,28 @@ final class SourceTreeTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains("func c()") }, "only the window's files")
     }
 
+    func test_windowSourceReadsAPlantedFamilyMemberBeyondTheWindowsFiles() throws {
+        try plant("Maugham/Views/ProjectWindow.swift", "struct ProjectWindow: View { let a = 1 }\n")
+        try plant("Maugham/Views/RewindModifier.swift", "struct RewindModifier { let fam = 2 }\n")
+        let lines = try SourceTree.windowCodeLines(base: base)
+        XCTAssertTrue(lines.contains { $0.contains("let fam = 2") }, "a family member is the window's code")
+        XCTAssertEqual(try SourceTree.windowSources(base: base).count, 2)
+    }
+
+    func test_windowSourceStillThrowsWithoutProjectWindowEvenIfAMemberIsPlanted() throws {
+        try plant("Maugham/Views/RewindModifier.swift", "struct RewindModifier {}\n")
+        XCTAssertThrowsError(try SourceTree.windowSource(base: base))
+    }
+
+    /// In the repo's own tree an undeclared member must throw, and a rename of
+    /// any member fails here by name rather than shrinking the window's text.
+    func test_everyWindowFamilyTypeIsDeclaredInTheRealTree() throws {
+        for type in SourceTree.windowFamilyTypes {
+            XCTAssertNoThrow(try SourceTree.filesDeclaring(type, under: ["Maugham"]),
+                             "windowFamilyTypes names \(type), which no file declares")
+        }
+    }
+
     func test_codeLinesContainingScansEachFileAndSkipsCommentsAndStrings() throws {
         // An unclosed block opener in a string in one file must not hide the
         // next file's offender: the scan is per file and masks strings.

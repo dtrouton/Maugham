@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// Persona switching. Extracted so ProjectWindow.body's modifier chain gains
 /// exactly one expression — the chain is at the SwiftUI type-checker ceiling

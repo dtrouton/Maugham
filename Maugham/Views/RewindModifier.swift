@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// Owns the .maughamOpenRewind notification listener and the RewindWindow
 /// sheet. Extracted into its own modifier to stay within Swift's type-checker

@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// Focus-posture wiring (distraction-free chrome + WF1 review posture), pulled
 /// off `ProjectWindow.body` to keep the inline modifier chain under SwiftUI's

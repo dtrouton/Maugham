@@ -1092,8 +1092,8 @@ final class AssistantColumnTests: XCTestCase {
                        + "the handler")
     }
 
-    /// The window's code by TYPE — every file declaring `ProjectWindow`, each
-    /// its own text — so a split of the window moves the handler out of
+    /// The window's code by TYPE — every file declaring `ProjectWindow` or one
+    /// of its free-standing modifiers, each its own text — so a split of the window moves the handler out of
     /// nobody's sight, and the handler's slice never runs into the next file.
     private static func projectWindowSources() throws -> [String] {
         try SourceTree.windowSources()

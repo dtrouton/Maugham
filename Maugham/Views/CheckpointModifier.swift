@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// The one honest-save decision both ⌘S sites route through — `CheckpointModifier`'s
 /// key command below and the Shift-⌘S label sheet in `ProjectWindow.body`. A

@@ -761,8 +761,10 @@ extension SourceTree {
 
 extension SourceTree {
 
-    /// Every file under `Maugham/` that declares `ProjectWindow`, joined — the
-    /// window's code wherever its extensions live. Throws when nothing declares it.
+    /// The window's code, joined: every file under `Maugham/` declaring
+    /// `ProjectWindow` or one of `windowFamilyTypes`, wherever they live.
+    /// Throws when nothing declares `ProjectWindow`, and (against the repo's own
+    /// tree) when nothing declares a family member.
     static func windowSource(base: URL = repoRoot) throws -> String {
         try windowSources(base: base).joined(separator: "\n")
     }
@@ -770,9 +772,12 @@ extension SourceTree {
     /// The window's free-standing modifiers and decisions, which lived in
     /// `ProjectWindow.swift` until foundations plan 4 gave each its own file.
     /// A census reading "the window's code" reads these too, BY TYPE, so it
-    /// does not care which file a modifier lives in. A type nothing declares
-    /// is skipped (a planted tree names only what it plants); `ProjectWindow`
-    /// itself still throws when absent.
+    /// does not care which file a modifier lives in. Against the repo's own tree
+    /// a member nothing declares THROWS naming the type (a rename must fail
+    /// loudly, not shrink the text an absence check reads); only a planted base
+    /// tolerates an absent member, since it plants only what it needs.
+    /// Absence checks must still widen to a directory (`sources(under:)`),
+    /// never lean on this list.
     static let windowFamilyTypes = [
         "ProjectActiveSheet", "CheckpointFlashDecision", "CheckpointModifier",
         "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
@@ -782,8 +787,8 @@ extension SourceTree {
         "CompilerFlashSink", "NoteOutcomeAlert",
     ]
 
-    /// Every file declaring `ProjectWindow`, each its own text, in path
-    /// order — for a census that SLICES (the N characters or lines after a
+    /// Every file declaring `ProjectWindow` or a window-family type, each its
+    /// own text (the window's files first, in path order) — for a census that SLICES (the N characters or lines after a
     /// token), so a slice can never run off the end of one file into the
     /// next file's text the way it could over `windowSource`'s join.
     static func windowSources(base: URL = repoRoot) throws -> [String] {
@@ -791,14 +796,20 @@ extension SourceTree {
         var seen = Set(window.map(\.path))
         var all = window.map(\.text)
         for type in windowFamilyTypes {
-            guard let found = try? sourcesOfType(type, under: ["Maugham"], base: base) else { continue }
+            let found: [(path: String, text: String)]
+            do {
+                found = try sourcesOfType(type, under: ["Maugham"], base: base)
+            } catch let error as LookupError
+                where base != repoRoot && error.description.hasPrefix("SourceTree: no file declares") {
+                continue
+            }
             for file in found where seen.insert(file.path).inserted { all.append(file.text) }
         }
         return all
     }
 
-    /// The `length` characters after the first `token` in the window's code,
-    /// sliced inside the ONE file that holds it (files in path order). Nil
+    /// The `length` characters after the first `token` in the window's code
+    /// (`windowSources`), sliced inside the ONE file that holds it. Nil
     /// when no window file has the token.
     static func windowText(after token: String, length: Int, base: URL = repoRoot) throws -> String? {
         for text in try windowSources(base: base) {

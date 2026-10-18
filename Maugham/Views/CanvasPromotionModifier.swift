@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// The canvas's `Promote…` command: enablement, presentation and performance,
 /// all in one place so `ProjectWindow.body` gains a single line.

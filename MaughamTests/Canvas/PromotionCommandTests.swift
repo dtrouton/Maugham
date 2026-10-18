@@ -228,8 +228,9 @@ final class PromotionCommandTests: XCTestCase {
     /// argument out left the census green; deleting it turns it red.
     ///
     /// `location` is a repo-relative path, or a `type:` key (`Self.window`) —
-    /// every file under `Maugham/` declaring that type, so the window's tokens
-    /// are found wherever a split of `ProjectWindow.swift` moves them, and a
+    /// every file under `Maugham/` declaring that type (for `ProjectWindow`,
+    /// also its free-standing modifiers, `SourceTree.windowFamilyTypes`), so
+    /// the window's tokens are found wherever a split moves them, and a
     /// type nothing declares throws rather than reporting every token missing
     /// from an empty string. `base` is the seam the planted control uses.
     private func missingTokens(in location: String, required: [String],

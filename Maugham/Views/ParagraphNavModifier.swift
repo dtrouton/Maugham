@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// Handles .maughamNavigateToParagraph in its own modifier to stay within
 /// Swift's type-checker expression limit in SessionAndNavigationModifier.

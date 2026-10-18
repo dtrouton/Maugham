@@ -1,7 +1,6 @@
 import SwiftUI
 import MaughamCore
 import AppKit
-import os
 
 /// Owns this window's translation-review selection (Task 13): receives the
 /// key-window picker / enter / exit commands (ADR 0021), resolves the active
