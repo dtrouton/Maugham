@@ -824,6 +824,101 @@ final class TranslatorEnvironmentTests: XCTestCase {
         // (c) Every holder of a session runner is a roster member.
         let report = try Self.rosterMembershipReport(base: SourceTree.repoRoot)
         XCTAssertTrue(report.isEmpty, report.joined(separator: "\n"))
+
+        // (d) …and the roster's own two verbs reach EVERY member. Calling
+        // `roster.shutdownAll()` from every arm is worth nothing if
+        // `shutdownAll` forgot the compiler: a released orchestrator is a live,
+        // billing process. Member names are derived from the roster's stored
+        // properties, never typed here.
+        let teardown = try Self.rosterTeardownReport(base: SourceTree.repoRoot)
+        XCTAssertTrue(teardown.isEmpty, teardown.joined(separator: "\n"))
+
+        // And the members are WIRED and MOUNTED by the window. `ProjectWindow`
+        // reaches each member through a short accessor (`translator` is
+        // `roster.translator`), so these are the spellings in its code. The
+        // last two are spelled `pipeline?.` rather than `pipeline.`: they live
+        // inside the translator environment's `onRunEnded`/`onRunAbandoned`
+        // closures, which capture the pipeline weakly — a strong capture there
+        // is a window's whole project graph held alive by an orchestrator
+        // closure, which is the thing `.onDisappear`'s scorch exists to prevent.
+        let window = try SourceTree.windowSource()
+        for token in ["translator.configure(", "translator: translator",
+                      "coldCall.configure(", "coldCall: coldCall",
+                      "pipeline.configure(", "pipeline: pipeline",
+                      "pipeline?.translatorRunEnded(", "pipeline?.translatorRunAbandoned("] {
+            XCTAssertTrue(window.contains(token),
+                          "ProjectWindow is missing \(token) — without it a roster member "
+                          + "is unwired, unmounted, or deaf to the translator")
+        }
+        XCTAssertFalse(window.contains("translator.notARealVerb("),
+                       "the scan reads the file rather than always answering true")
+    }
+
+    /// CONTROL for (d): a roster whose `shutdownAll` forgets the designer and
+    /// whose `detachAll` forgets the compiler is reported twice — and a
+    /// comment naming the missing call does not count as making it.
+    func test_theRosterTeardownCensusFiresOnAPlantedForgottenMember() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Compiler/AgentRoster.swift": """
+                @MainActor @Observable
+                final class AgentRoster {
+                    let compiler: CompilerOrchestrator
+                    let designer: DesignerOrchestrator
+                    let translationRuns: TranslationRunLog
+                    func shutdownAll() {
+                        compiler.shutdown()
+                        // designer.shutdown()
+                    }
+                    func detachAll() {
+                        designer.detach()
+                    }
+                }
+                """,
+        ])
+        let report = try Self.rosterTeardownReport(base: base)
+        XCTAssertEqual(report.count, 2, "Self-check: exactly the two planted omissions. Got:\n"
+                       + report.joined(separator: "\n"))
+        XCTAssertTrue(report.contains { $0.contains("designer.shutdown()") },
+                      report.joined(separator: "\n"))
+        XCTAssertTrue(report.contains { $0.contains("compiler.detach()") },
+                      report.joined(separator: "\n"))
+    }
+
+    /// Roster members with no session to end, by TYPE, each with why.
+    private static let noTeardownMembers: [String: String] = [
+        "TranslationRunLog": "holds finished rounds' summaries only — no session, no "
+            + "leg, nothing that bills or waits",
+    ]
+
+    /// Every roster member `shutdownAll` does not shut down or `detachAll`
+    /// does not detach, one sentence each; empty when both reach every member.
+    /// Throws (through `filesDeclaring`) when nothing declares `AgentRoster`.
+    private static func rosterTeardownReport(base: URL) throws -> [String] {
+        var report: [String] = []
+        for file in try SourceTree.filesDeclaring("AgentRoster", under: ["Maugham"], base: base) {
+            let text = try SourceTree.read(file, base: base)
+            let masked = String(decoding: try SourceTree.checkedMask(text, path: file),
+                                as: UTF8.self)
+            let members = storedProperties(in: masked).filter { $0.owner == "AgentRoster" }
+            guard !members.isEmpty else { continue }
+            for stale in Set(noTeardownMembers.keys).subtracting(members.map(\.type)).sorted() {
+                report.append("noTeardownMembers names \(stale), which is not a roster member")
+            }
+            for (verb, call) in [("shutdownAll", "shutdown"), ("detachAll", "detach")] {
+                guard let body = closureBody(after: "func \(verb)()", in: text) else {
+                    report.append("AgentRoster declares no \(verb)()")
+                    continue
+                }
+                let code = String(decoding: SourceTree.mask(body), as: UTF8.self)
+                for member in members where noTeardownMembers[member.type] == nil
+                    && !code.contains("\(member.name).\(call)()") {
+                    report.append("AgentRoster.\(verb)() never calls \(member.name).\(call)() — "
+                                  + "every arm that calls it would leave that member's "
+                                  + "session running")
+                }
+            }
+        }
+        return report
     }
 
     /// CONTROL for (c): a planted sixth orchestrator holding a runner, and not
@@ -943,7 +1038,10 @@ final class TranslatorEnvironmentTests: XCTestCase {
     /// is not one; a computed property (`{` after the type) is not one; a
     /// closure-typed property is not one (its type does not match). Known
     /// limit: a stored property with `didSet`/`willSet` observers reads as
-    /// computed, and an annotation reflowed across lines is not read.
+    /// computed, and an annotation reflowed across lines is not read. The
+    /// blind spot most likely to arrive is a COLLECTION of runners
+    /// (`[CompilerRunner]`, a pool or a per-language map) — its type is not a
+    /// runner type, so a holder of one is not counted.
     private static func storedProperties(in masked: String)
         -> [(owner: String, name: String, type: String)] {
         let typeHeader = try! NSRegularExpression(pattern:

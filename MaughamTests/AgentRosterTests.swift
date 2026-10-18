@@ -57,13 +57,22 @@ final class AgentRosterTests: XCTestCase {
     }
 
     /// A window's worth of services with a translator leg parked in the
-    /// pipeline and a cold call out, both on `OrderSpy` sessions.
+    /// pipeline, a cold call out, a compiler check and a design round in
+    /// flight — every one on an `OrderSpy` session, so a teardown that misses
+    /// ANY service leaves that spy's record empty.
     private struct Parked {
         let world: FakeWorld
         let roster: AgentRoster
         let translatorSession: OrderSpy
         let coldSession: OrderSpy
+        let compilerSession: OrderSpy
+        let designerSession: OrderSpy
         let coldCallResult: Task<CompilerRunEvent, Never>
+
+        var sessions: [(name: String, spy: OrderSpy)] {
+            [("translator", translatorSession), ("coldCall", coldSession),
+             ("compiler", compilerSession), ("designer", designerSession)]
+        }
     }
 
     private func parkedRoster() async throws -> Parked {
@@ -104,7 +113,59 @@ final class AgentRosterTests: XCTestCase {
         pipeline.configure(environment: environment)
         coldCall.configure(makeRunner: { _ in coldSession })
 
-        let roster = AgentRoster(translator: translator, coldCall: coldCall, pipeline: pipeline)
+        let compiler = CompilerOrchestrator()
+        let compilerSession = OrderSpy(pipeline: pipeline)
+        compiler.configure(
+            environment: CompilerOrchestrator.Environment(
+                projectId: "p-1",
+                model: "test-model",
+                prepareForRun: { _ in },
+                reading: { id in
+                    id == "doc-1"
+                        ? CompilerOrchestrator.DocumentReading(
+                            ops: [Op(opId: "op1", docId: id, at: Date(), device: "macA",
+                                     session: "s", kind: .bootstrap,
+                                     changes: [.init(paragraphId: "a1b2", prior: nil,
+                                                     next: "The fog came.")],
+                                     sequence: nil)],
+                            paragraphs: ["a1b2": "The fog came."], sequence: ["a1b2"])
+                        : nil
+                },
+                liveParagraphText: { _, _ in "The fog came." },
+                intent: { _ in nil },
+                cachedWorld: { _ in nil },
+                deriveWorld: { _, _ in nil },
+                bibleSlice: { _ in [] },
+                recordFacts: { _ in },
+                pinnedListing: { _ in [] },
+                paletteListing: { [] },
+                writeMCPConfig: { TestTemp.root.appendingPathComponent("compiler-mcp.json") },
+                makeRunner: { _, _ in compilerSession },
+                onRunAcknowledged: { _ in }),
+            diagnostics: DiagnosticsStore(
+                projectRoot: TestTemp.root, device: DeviceSlug.make(from: "test-mac")))
+
+        let designer = DesignerOrchestrator()
+        let designerSession = OrderSpy(pipeline: pipeline)
+        let designerConfigURL = TestTemp.root.appendingPathComponent("designer-mcp.json")
+        designer.configure(environment: DesignerOrchestrator.Environment(
+            projectId: "p-1",
+            model: "test-model",
+            briefRound: { _, language in
+                DesignerBriefing.Inputs(
+                    designerName: "Tschichold", roleBrief: "Design the page.",
+                    visualLanguageText: "Warm paper.", language: language, direction: nil)
+            },
+            writeMCPConfig: {
+                try Data("{}".utf8).write(to: designerConfigURL, options: .atomic)
+                return designerConfigURL
+            },
+            makeRunner: { _, _ in designerSession },
+            stage: { _, _ in .init() },
+            onRunEnded: { _ in }))
+
+        let roster = AgentRoster(compiler: compiler, translator: translator, designer: designer,
+                                 coldCall: coldCall, pipeline: pipeline)
 
         XCTAssertTrue(pipeline.run(docId: "doc-1", language: "es"))
         try await waitUntil { translatorSession.sends == 1 }
@@ -113,8 +174,14 @@ final class AgentRosterTests: XCTestCase {
         let cold = Task { await coldCall.call(message: "read", preamble: nil, model: "m") }
         try await waitUntil { coldSession.sends == 1 }
 
+        compiler.runRequested(docId: "doc-1", kind: .check)
+        try await waitUntil { compilerSession.sends == 1 }
+        designer.runDesign()
+        try await waitUntil { designerSession.sends == 1 }
+
         return Parked(world: world, roster: roster, translatorSession: translatorSession,
-                      coldSession: coldSession, coldCallResult: cold)
+                      coldSession: coldSession, compilerSession: compilerSession,
+                      designerSession: designerSession, coldCallResult: cold)
     }
 
     private func waitUntil(_ predicate: () -> Bool,
@@ -135,6 +202,12 @@ final class AgentRosterTests: XCTestCase {
         if parked.translatorSession.pipelineRunningAtShutdown.isEmpty {
             parked.roster.translator.shutdown()
         }
+        if parked.compilerSession.pipelineRunningAtShutdown.isEmpty {
+            parked.roster.compiler.shutdown()
+        }
+        if parked.designerSession.pipelineRunningAtShutdown.isEmpty {
+            parked.roster.designer.shutdown()
+        }
         _ = await parked.coldCallResult.value
         await TranslationPipelineTests.settle(parked.world)
     }
@@ -149,8 +222,11 @@ final class AgentRosterTests: XCTestCase {
         XCTAssertEqual(parked.translatorSession.pipelineRunningAtShutdown, [false],
                        "the translator's session was ended while the pipeline still had a "
                        + "leg parked on it — the pipeline must go first")
-        XCTAssertEqual(parked.coldSession.pipelineRunningAtShutdown, [false],
-                       "a cold call in flight is a billing process too — every arm ends it")
+        for (name, spy) in parked.sessions {
+            XCTAssertEqual(spy.pipelineRunningAtShutdown, [false],
+                           "\(name)'s session must be ended exactly once, after the pipeline — "
+                           + "a session shutdownAll misses is a live, billing process")
+        }
         await finish(parked)
     }
 
@@ -161,11 +237,16 @@ final class AgentRosterTests: XCTestCase {
 
         XCTAssertEqual(parked.translatorSession.pipelineRunningAtShutdown, [false],
                        "detach shuts down first, and the pipeline still goes first")
-        XCTAssertEqual(parked.coldSession.pipelineRunningAtShutdown, [false])
+        for (name, spy) in parked.sessions {
+            XCTAssertEqual(spy.pipelineRunningAtShutdown, [false],
+                           "\(name)'s session must be ended by detachAll, after the pipeline")
+        }
         await finish(parked)
 
         XCTAssertNil(parked.roster.translator.configuredModel, "the translator is unwired")
         XCTAssertNil(parked.roster.pipeline.configuredModel, "the pipeline is unwired")
+        XCTAssertNil(parked.roster.compiler.configuredModel, "the compiler is unwired")
+        XCTAssertNil(parked.roster.designer.configuredModel, "the designer is unwired")
         let refused = await parked.roster.coldCall.call(message: "x", preamble: nil, model: "m")
         XCTAssertEqual(refused, .failed(.sessionDied(detail: ColdCall.notWiredDetail)),
                        "the cold-call runner forgot the window's factory")
