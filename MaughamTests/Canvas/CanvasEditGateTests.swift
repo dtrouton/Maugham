@@ -43,10 +43,9 @@ final class CanvasEditGateTests: XCTestCase {
         XCTAssertFalse(CanvasEditGate.deletes(isReadOnly: true))
     }
 
-    /// Every drop that would add something springs back; showing a card that
-    /// is already there changes nothing, so it stays.
-    func test_aReadOnlyCanvasAcceptsOnlyTheRevealDrop() {
-        XCTAssertTrue(CanvasEditGate.accepts(.reveal, isReadOnly: true))
+    /// Every drop that would add something springs back. (Showing a card that
+    /// is already there changes nothing and is not gated at all.)
+    func test_aReadOnlyCanvasRefusesEveryDropThatAdds() {
         XCTAssertFalse(CanvasEditGate.accepts(.place, isReadOnly: true))
         XCTAssertFalse(CanvasEditGate.accepts(.capture, isReadOnly: true))
         XCTAssertFalse(CanvasEditGate.accepts(.external, isReadOnly: true))
@@ -85,6 +84,7 @@ final class CanvasEditGateTests: XCTestCase {
     /// call and its ORDER are what is left to assert. An external drop gated
     /// after `ingest` would strand a copy in `canvas_assets/`; a drag gated after
     /// `interaction.begin` would open an undo bracket nothing closes.
+    /// The census is TEXTUAL ordering within each function, not control flow.
     func test_theCanvasAsksTheGateBeforeEachAct() throws {
         let code = try Self.code(of: "Maugham/Canvas/CanvasView.swift")
         let orders: [(function: String, gate: String, act: String)] = [
@@ -93,7 +93,9 @@ final class CanvasEditGateTests: XCTestCase {
             ("func handleDrag(", "CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly)",
              "interaction.begin("),
             ("func deleteSelection(", "CanvasEditGate.deletes(isReadOnly: model.isReadOnly)",
-             "model.mutate(\"Delete Region\")"),
+             // The CARD arm: its `withScene(persist: false)` is the one the
+             // model does not guard, which is what this gate exists for.
+             "model.beginGesture(\"Delete Card\")"),
             ("func handleDrop(", "CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)",
              "handleCaptureDrop(entryID"),
             ("func handleDrop(", "CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)",

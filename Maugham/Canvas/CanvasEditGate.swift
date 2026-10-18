@@ -38,11 +38,10 @@ enum CanvasEditGate {
     /// so it beeps — "that key means nothing here".
     static func deletes(isReadOnly: Bool) -> Bool { !isReadOnly }
 
-    /// The four things a drop onto the canvas can be.
+    /// The three drops onto the canvas that ADD something. (The fourth, a
+    /// research row already on the canvas, only selects its card and brings it
+    /// into view — it changes nothing, so it is not asked here at all.)
     enum Drop: CaseIterable {
-        /// A research row already on the canvas: select it and bring it into
-        /// view. Changes nothing, so it stays.
-        case reveal
         /// A research row not on the canvas yet: a new card.
         case place
         /// An Inbox capture.
@@ -56,7 +55,6 @@ enum CanvasEditGate {
     /// canvas's notice says why.
     static func accepts(_ drop: Drop, isReadOnly: Bool) -> Bool {
         switch drop {
-        case .reveal: return true
         case .place, .capture, .external: return !isReadOnly
         }
     }

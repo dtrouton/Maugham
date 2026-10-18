@@ -1632,10 +1632,8 @@ struct CanvasView: View {
             return false
 
         case .reveal(let id):
-            // Asked for symmetry; a reveal changes nothing, so it stays on a
-            // read-only canvas too.
-            guard CanvasEditGate.accepts(.reveal, isReadOnly: model.isReadOnly)
-            else { return false }
+            // Not gated (issue #44): a reveal selects and moves the camera and
+            // changes nothing, so it works on a read-only canvas too.
             // The item is already here. Say so by SHOWING it — a drop that
             // silently did nothing is indistinguishable from a broken surface,
             // which is this task's named failure. The card is not moved: that
