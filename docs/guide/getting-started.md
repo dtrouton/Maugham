@@ -209,8 +209,8 @@ button, because neither is something you need to do anything about:
 - **"N changes were written to this document by something that is not Maugham;
   kept in backup, not applied."** This one is the point of the whole thing.
   Those changes are *not* in your manuscript, they were never applied, and they
-  have not been deleted either — a copy is kept in the project's backup folder
-  so you can look at it. There is no Retry here and nothing to bring back: the
+  have not been deleted either — a copy is kept aside in the project so you can
+  look at it (this is separate from [Backups](backups-and-history.md#backups)). There is no Retry here and nothing to bring back: the
   same rule that discards an edit made to the `.md` outside Maugham applies to
   history written outside Maugham.
 

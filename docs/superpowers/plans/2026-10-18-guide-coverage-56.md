@@ -12,6 +12,8 @@
 
 ## Rulings
 
+> **Execution note (2026-10-18):** the ⌘⇧S-backs-up ruling was DEFERRED to issue #90 (the change needs `ProjectWindow.swift`, held for the foundations integration). This branch documents ⌘⇧S as not backing up; ignore the ⌘⇧S parts of Task 1, Task 2 and Review Focus 5 below, and the ⌘⇧S smoke step.
+
 - **Denver:** File → "Share for Review…" is renamed **"Share Project via iCloud…"**. Sharing no longer grants a review role, because permissions live in People & Devices. The guide's paragraph (L5) lives in `people-and-devices.md`.
 - **Denver:** a named save point (⌘⇧S) also makes a backup, exactly as ⌘S does.
 - **Controller:** M6 is dropped; PR #89 (merged) already documents the read-only canvas and Claude's refusal there. E1 test 1 (index census) already exists as `GuideDocsDriftTests`, so this branch only adds its planted-offender check.

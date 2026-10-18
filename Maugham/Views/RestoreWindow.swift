@@ -90,7 +90,7 @@ struct RestoreWindow: View {
 
 /// What a restore may do with the name the save panel returned. The panel can
 /// leave an EMPTY placeholder at the target, and `restoreBeside` refuses an
-/// existing target, so an empty folder or a zero-byte file is removed. Anything
+/// existing target, so an empty folder is removed. Anything
 /// with content is refused: a writer who picked an existing folder's name and
 /// pressed Replace must never lose that folder (issue #56 finding — the old
 /// code removed whatever was there, the open project included).
@@ -105,17 +105,12 @@ enum RestoreTarget {
     static func clearPlaceholder(at target: URL, fileManager fm: FileManager = .default) throws {
         var isDirectory: ObjCBool = false
         guard fm.fileExists(atPath: target.path, isDirectory: &isDirectory) else { return }
-        let isEmpty: Bool
-        if isDirectory.boolValue {
-            // Finder may drop a `.DS_Store` into a folder it has shown; that is
-            // metadata, not the writer's content.
-            let contents = (try? fm.contentsOfDirectory(atPath: target.path)) ?? ["?"]
-            isEmpty = contents.filter { $0 != ".DS_Store" }.isEmpty
-        } else {
-            let size = (try? fm.attributesOfItem(atPath: target.path)[.size] as? NSNumber)?.intValue ?? -1
-            isEmpty = size == 0
-        }
-        guard isEmpty else { throw Occupied(name: target.lastPathComponent) }
+        // Only an empty FOLDER is a placeholder; any file (even an empty one)
+        // is the writer's and is refused. Finder's .DS_Store doesn't count.
+        guard isDirectory.boolValue,
+              let contents = try? fm.contentsOfDirectory(atPath: target.path),
+              contents.filter({ $0 != ".DS_Store" }).isEmpty
+        else { throw Occupied(name: target.lastPathComponent) }
         try fm.removeItem(at: target)
     }
 }

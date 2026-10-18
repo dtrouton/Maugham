@@ -1,7 +1,7 @@
 import AppKit
 import MaughamCore
 
-/// Presents the macOS "share for review" affordance for a project folder.
+/// Presents the macOS sharing affordance behind File → "Share Project via iCloud…" for a project folder.
 ///
 /// Approach + rationale: we use `NSSharingServicePicker` anchored to the project
 /// window, seeded with the project's folder URL. When that folder lives in

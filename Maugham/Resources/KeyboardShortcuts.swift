@@ -26,7 +26,7 @@ public enum KeyboardShortcuts {
         Category(category: "File", items: [
             Entry(label: "New Project…",            shortcut: "⌘N"),
             Entry(label: "Open Project…",           shortcut: "⌘O"),
-            Entry(label: "Save",                    shortcut: "⌘S"),
+            Entry(label: "Save Checkpoint",         shortcut: "⌘S"),
             // Both added 2026-08-04, from the sweep that found Toggle Review
             // Mode missing. Neither is in the ⌘⌥ family the guard covers, so
             // nothing would have caught their absence — `Promote…` in

@@ -418,8 +418,8 @@ before this…**, the rewind window's **Restore here…** and **Snapshot here…
 and a checkpoint's **Revert here…** (History itself is all there to read); and
 Find in Project's **Replace** and **Replace All** for chapters that aren't
 yours (a research note's matches still replace). **⌘S** still flashes,
-because your fingers expect it, but writes nothing — a checkpoint of text you
-can't change would mark nothing of yours — and **⇧⌘S** says so instead of
+because your fingers expect it, but makes no checkpoint — a checkpoint of text
+you can't change would mark nothing of yours (your backups still run) — and **⇧⌘S** says so instead of
 asking for a label. In a collection, the File menu's **New Prose Story**,
 **New Screenplay** and **Link Existing Project…** are greyed (they add a
 collection's pieces, so no other kind of book greys them).

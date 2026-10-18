@@ -28,11 +28,11 @@ final class RestoreTargetTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: target.path))
     }
 
-    func test_anEmptyPlaceholderFileIsCleared() throws {
+    func test_anEmptyFileIsTheWritersAndIsRefused() throws {
         let target = TestTemp.root.appendingPathComponent("Novel (restored)")
         XCTAssertTrue(fm.createFile(atPath: target.path, contents: Data()))
-        try RestoreTarget.clearPlaceholder(at: target)
-        XCTAssertFalse(fm.fileExists(atPath: target.path))
+        XCTAssertThrowsError(try RestoreTarget.clearPlaceholder(at: target))
+        XCTAssertTrue(fm.fileExists(atPath: target.path))
     }
 
     func test_aFolderWithContentIsRefusedAndSurvives() throws {

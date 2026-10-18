@@ -154,13 +154,20 @@ final class DocSyncTests: XCTestCase {
     /// `⌘⇧↩` and `⌘⌥⇧R` read as `reference.md` writes them. A binding the
     /// parser cannot read (an unknown named key) yields a token carrying the
     /// raw name, which no doc row will match, so it fails loudly rather than
-    /// vanishing.
+    /// vanishing. `.defaultAction`/`.cancelAction` are skipped: they are a
+    /// dialog's Return/Escape, not a menu binding the reference documents.
+    /// **Known limit**: a `KeyEquivalent("x")` or a key held in a variable is
+    /// not matched at all; only the extractor's floor guards that.
     static func extractShortcutBindings(from sourceText: String) -> [ShortcutBinding] {
         guard let regex = try? NSRegularExpression(
             pattern: #"\.keyboardShortcut\(\s*(?:"((?:[^"\\]|\\.)+)"|\.(\w+))\s*(?:,\s*modifiers:\s*(\[[^\]]*\]|\.\w+))?\s*\)"#
         ) else { return [] }
         let ns = sourceText as NSString
-        return regex.matches(in: sourceText, range: NSRange(location: 0, length: ns.length)).map { match in
+        return regex.matches(in: sourceText, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            if match.range(at: 2).location != NSNotFound,
+               ["defaultAction", "cancelAction"].contains(ns.substring(with: match.range(at: 2))) {
+                return nil
+            }
             let key: String
             if match.range(at: 1).location != NSNotFound {
                 key = unescapeSwiftStringLiteral(ns.substring(with: match.range(at: 1))).uppercased()
