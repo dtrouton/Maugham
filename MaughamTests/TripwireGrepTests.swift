@@ -8554,6 +8554,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   reader (`ProjectIntegrity.check`, which passes no table) and the
     ///   fallback walk of an unsettled segment's inner seals. Both judge
     ///   nobody, which is what P1 did for every caller.
+    /// - `type:StreamPositions` (today `StreamPositions.swift`) — `trusted: { _ in false }`
+    ///   once: `verificationForPositions`' no-table arm, the mark sweep's walk
+    ///   of a translation sidecar or inbox manifest when no table is held.
     /// - `JSONLAppendStore.swift` — `trusted: { chain.trust($0) == .mine }`:
     ///   the chained WRITE, whose rewrite assumes a prefix. ADR 0012 gives the
     ///   file one writer, so a stranger's line in MY file is a quarantine and
@@ -8564,6 +8567,7 @@ final class TripwireGrepTests: XCTestCase {
     /// fires too — which is the moment to re-read the rule, not route around it.
     static let trustClosureAllowedSpellings: [String: Set<String>] = [
         "type:OpLogStore": ["trusted: { _ in false }"],
+        "type:StreamPositions": ["trusted: { _ in false }"],
         "JSONLAppendStore.swift": ["trusted: { chain.trust($0) == .mine }"],
     ]
 
@@ -8669,9 +8673,9 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.isEmpty,
             "A production file decides trust without a `TrustTable`. The walk "
             + "takes a `TrustVerdict`; the Bool `trusted:` overload is P1's "
-            + "shape and survives at three keyless sites only (two in "
-            + "OpLogStore.swift, one in JSONLAppendStore.swift), each named in "
-            + "`trustClosureAllowedSpellings` with the reason. "
+            + "shape and survives only at the keyless sites named in "
+            + "`trustClosureAllowedSpellings` with the reason (counted by "
+            + "`typeAllowanceBounds`). "
             + "`ChainPolicy.trustedFingerprints` is gone. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
@@ -8860,9 +8864,10 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("SecondTrustOpinion.swift"),
                   atomically: true, encoding: .utf8)
 
-        // No planted file declares `OpLogStore` yet, so its type key is
-        // (correctly) unresolved here; the control is about the four decisions.
-        let trust = Self.dropping(unplanted: ["type:OpLogStore"], from: try grepSwift(
+        // No planted file declares `OpLogStore` or `StreamPositions` yet, so
+        // their type keys are (correctly) unresolved here; the control is
+        // about the four decisions.
+        let trust = Self.dropping(unplanted: ["type:OpLogStore", "type:StreamPositions"], from: try grepSwift(
             in: [tmp],
             patterns: Self.trustClosurePatterns,
             allowedSpellings: Self.trustClosureAllowedSpellings,
@@ -9228,10 +9233,11 @@ final class TripwireGrepTests: XCTestCase {
     /// count** — the array, never a number in prose (memory: *prose counts are
     /// unmaintainable*).
     ///
-    /// - `type:OpLogStore` × 2, summed over the type's files (both in
-    ///   `OpLogStore.swift` today). One is `partitioningByPermit`, the ops door,
+    /// - `type:OpLogStore` × 1, summed over the type's files (in
+    ///   `OpLogStore.swift` today): `partitioningByPermit`, the ops door,
     ///   itself reached from three sites (the live tail, a settled segment, the
-    ///   fallback walk); one is `verificationForPositions`, the SWEEP that
+    ///   fallback walk).
+    /// - `type:StreamPositions` × 1 — `verificationForPositions`, the SWEEP that
     ///   computes a mark, which has to judge a file exactly as the load judges
     ///   it or the two would cut it in different places.
     /// - `TranslationStore.swift` × 1 — `loadMerged`, every translation
@@ -9244,7 +9250,8 @@ final class TripwireGrepTests: XCTestCase {
     /// opinion about where the permit is judged, and the two would disagree the
     /// first time one of them was changed.
     static let partitionCallSites: [String: Int] = [
-        "type:OpLogStore": 2,
+        "type:OpLogStore": 1,
+        "type:StreamPositions": 1,
         "TranslationStore.swift": 1,
         "JSONLAppendStore.swift": 1,
     ]
@@ -9391,13 +9398,15 @@ final class TripwireGrepTests: XCTestCase {
     /// sanctioned site moved within the type from a NEW one; the count can. A
     /// site added anywhere in the type fails here, and only a move passes.
     ///
-    /// - `trusted: { _ in false }` — the keyless reader and the unsettled
-    ///   segment's no-table arm (tripwire 39's doc on the allow-list).
+    /// - `trusted: { _ in false }` — in `OpLogStore`, the keyless reader and
+    ///   the unsettled segment's no-table arm; in `StreamPositions`,
+    ///   `verificationForPositions`' no-table arm (tripwire 39's doc on the
+    ///   allow-list). Each type is bounded separately.
     /// - `LocalWritePermit(` — `localWritePermit(as:documentClass:)`'s
     ///   construction sites inside the store, plus `LocalWritePermit.swift`'s
     ///   own `.unrestricted` value.
     static let typeAllowanceBounds: [String: [String: Int]] = [
-        "trusted: { _ in false }": ["type:OpLogStore": 3],
+        "trusted: { _ in false }": ["type:OpLogStore": 2, "type:StreamPositions": 1],
         "LocalWritePermit(": ["type:OpLogStore": 5, "LocalWritePermit.swift": 1],
     ]
 

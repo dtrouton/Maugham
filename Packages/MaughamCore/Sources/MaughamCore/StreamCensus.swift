@@ -243,7 +243,7 @@ public enum StreamCensus {
         // half read would call every stream in the half it could not see
         // absent, which is the one wrong answer this can give.
         guard let filenames = try? OpLogStore.listing(of: opsDir, naming: ".maugham/ops"),
-              let others = try? OpLogStore.otherStreamFileURLs(in: projectURL, forSlugs: nil)
+              let others = try? StreamPositions.otherStreamFileURLs(in: projectURL, forSlugs: nil)
         else { return [] }
         var present: Set<String> = []
         for filename in filenames {
