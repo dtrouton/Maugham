@@ -12,8 +12,8 @@ import MaughamCore
 /// sits under.
 ///
 /// **Closed documents only** (P3 constraint 30). The Statistics window is its
-/// own scene running its own `ProjectStore`/`DocumentStore`
-/// (`ProjectStatisticsWindow.load`), so nothing here consults a live
+/// own scene borrowing the project's session as a reader
+/// (`ProjectStatisticsWindow.load`), and nothing here consults a live
 /// `Document`: every row derives through `OpLogStore.loadSyncMerged` +
 /// `Deriver.deriveWithSequenceFallback`, the walk
 /// `ProjectStore.projectAnnotations` already uses. A document whose log cannot

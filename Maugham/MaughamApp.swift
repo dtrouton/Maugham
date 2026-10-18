@@ -383,6 +383,7 @@ struct MaughamApp: App {
         WindowGroup("Project Statistics", id: "project-stats", for: URL.self) { $url in
             if let url {
                 ProjectStatisticsWindow(projectURL: url)
+                    .environment(projectSessions)
             }
         }
 

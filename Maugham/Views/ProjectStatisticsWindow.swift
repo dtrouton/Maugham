@@ -3,7 +3,11 @@ import AppKit
 
 struct ProjectStatisticsWindow: View {
     let projectURL: URL
-    @State private var store: ProjectStore?
+    /// The project's session, BORROWED as a reader (foundations plan 3,
+    /// Task 4) — never opened here. See `ProjectStatisticsSource`.
+    @State private var source = ProjectStatisticsSource()
+    @Environment(ProjectSessionRegistry.self) private var sessions
+    private var store: ProjectStore? { source.store }
     @State private var sessionLog: SessionLog = .empty
     /// The Practice section's whole input (editorial letter P3, spec §5
     /// surface 1). `nil` until the walk has run once, which is what lets the
@@ -67,15 +71,29 @@ struct ProjectStatisticsWindow: View {
         .onProjectEvent(.maughamSessionLogChanged, url: projectURL, window: window) { _ in
             Task { await reloadSessionLog() }
         }
+        .onDisappear {
+            // `ProjectWindow`'s guard, for its reason: a spurious
+            // `.onDisappear` on a still-live window must keep the borrow, or
+            // the window sits on its stores' absence for good (`.task(id:)`
+            // will not re-fire for the same url). Taken synchronously, so a
+            // later `.onDisappear` or `load()` cannot give it back twice.
+            if !MaughamEvent.isLive(window), let lease = source.relinquish() {
+                let sessions = self.sessions
+                Task { await sessions.release(lease) }
+            }
+        }
     }
 
     private func load() async {
         do {
-            let s = try await ProjectStore.load(from: projectURL)
-            let ds = try await DocumentStore.open(url: projectURL)
-            s.documentStore = ds
-            self.store = s
-            self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
+            let window = self.window
+            guard let s = try await source.load(projectURL, from: sessions, keep: {
+                // `ProjectWindow.load()`'s keep-check: a cancelled load on a
+                // window already known closed hands its borrow back — its
+                // `.onDisappear` saw no lease and released nothing.
+                !(Task.isCancelled && window != nil && !MaughamEvent.isLive(window))
+            }) else { return }
+            self.sessionLog = await source.loadSessionLog() ?? .empty
             rederivePractice(store: s)
         } catch {
             self.loadError = error.localizedDescription
@@ -86,17 +104,17 @@ struct ProjectStatisticsWindow: View {
     /// a process number changed: the frontier moved, a paragraph was rewritten
     /// again, or the count of sessions since either grew by one.
     private func reloadSessionLog() async {
-        guard let store, let documentStore = store.documentStore else { return }
-        sessionLog = (try? await documentStore.loadSessionLog()) ?? .empty
+        guard let store, let log = await source.loadSessionLog() else { return }
+        sessionLog = log
         rederivePractice(store: store)
     }
 
     /// **The walk, off the main actor** — the one production caller of
     /// `ProjectPractice.derive(plan:projectURL:now:)`.
     ///
-    /// Closed documents, off their op logs (P3 constraint 30): this window runs
-    /// its own stores, so the walk consults no live `Document` and cannot
-    /// disagree with what is on disk. It also reads every op log in the
+    /// Closed documents, off their op logs (P3 constraint 30): the walk reads
+    /// only the manifest plan and the files on disk, never a live `Document`
+    /// in the borrowed session, so it cannot disagree with what is on disk. It also reads every op log in the
     /// project, which measured 1.3–1.9 s on a 30-chapter book — run inline it
     /// froze the whole app on window open and again on every session end while
     /// the window was up. So only the manifest read (`ProjectPractice.Plan`)
@@ -113,5 +131,63 @@ struct ProjectStatisticsWindow: View {
             guard !Task.isCancelled else { return }
             practice = derived
         }
+    }
+}
+
+
+/// **The Statistics window's data source: the project's session, borrowed as
+/// a READER** (foundations plan 3, Task 4).
+///
+/// The window used to open a `DocumentStore` of its own and hold it only
+/// through `ProjectStore.documentStore`, which is `weak` — so the store was
+/// released at once, every session-log reload returned early, and opening
+/// Statistics repeated the open-time registry acts (the register declaration,
+/// the seal/rotate sweep, a second file presenter). Now it asks
+/// `ProjectSessionRegistry` for the project's session: a window's live one is
+/// borrowed, opening nothing; with none open, the registry opens one and this
+/// window's release closes it. A READER borrow holds only the stores: it never
+/// attaches a window, configures a service or registers with MCP, so the last
+/// project window closing still detaches every `claude` service while
+/// Statistics stays up.
+///
+/// A plain `@MainActor` model so the borrow is pinned without a window
+/// (`ProjectStatisticsWindowSessionTests`).
+@MainActor @Observable
+final class ProjectStatisticsSource {
+    /// The one borrow this window holds, owed one release.
+    private(set) var lease: ProjectSessionRegistry.Lease?
+
+    var store: ProjectStore? { lease?.session.projectStore }
+
+    /// Borrows the session for `url` as a reader and answers its store, or
+    /// nil if the borrow went straight back. A re-run while a borrow is held
+    /// acquires nothing. `keep` is asked after the acquire with no suspension
+    /// point before the adoption: a borrow this window will not keep is
+    /// released, never left with nobody to give it back.
+    func load(_ url: URL, from sessions: ProjectSessionRegistry,
+              keep: () -> Bool = { true }) async throws -> ProjectStore? {
+        if let lease { return lease.session.projectStore }
+        let acquired = try await sessions.acquire(url, as: .reader) {
+            try await ProjectSession.open(url: url)
+        }
+        if lease != nil || !keep() {
+            await sessions.release(acquired)
+            return lease?.session.projectStore
+        }
+        lease = acquired
+        return acquired.session.projectStore
+    }
+
+    /// The session log, read off the borrowed session's LIVE `DocumentStore`;
+    /// nil while nothing is borrowed.
+    func loadSessionLog() async -> SessionLog? {
+        guard let documentStore = lease?.session.documentStore else { return nil }
+        return (try? await documentStore.loadSessionLog()) ?? .empty
+    }
+
+    /// Hands the borrow over to be released and forgets it, synchronously.
+    func relinquish() -> ProjectSessionRegistry.Lease? {
+        defer { lease = nil }
+        return lease
     }
 }
