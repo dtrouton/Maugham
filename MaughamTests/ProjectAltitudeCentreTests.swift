@@ -394,34 +394,42 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                       "and no editor is open behind it")
     }
 
-    /// **Every manuscript persona puts the SAME altitude view in the stack for
-    /// the project — and Review is the one that covers it.**
+    /// **Every manuscript persona but Review shows the SAME altitude view for
+    /// the project — and Review shows its passes board instead.**
     ///
     /// The sentence this test used to carry ("Review and Publish show the same
-    /// altitude as Author") was the recorded degrade: *Review's overview is
-    /// M3's, and until it exists the corkboard keeps the centre column from
-    /// rendering nothing at all.* M3 P1 Task 6 built the overview, so the
-    /// degrade is spent and the claim re-derives in two halves:
+    /// altitude as Author") was the recorded degrade, spent when M3 P1 Task 6
+    /// built Review's overview. Until foundations plan 4 Task 3 altitude was
+    /// still MOUNTED in Review, under the board; the route now names one
+    /// overlay, so the claim is:
     ///
-    /// - **The stack is still one stack.** `subjectShowsAltitude` is persona-
-    ///   blind below `showsManuscriptDocuments`, so altitude is mounted for the
-    ///   project in all three — with the same rows, rather than a persona's own.
-    ///   That is what keeps the board and the book LAYERS rather than arms, and
-    ///   it is the fact `EditorHost`'s zero teardowns rests on.
-    /// - **What the writer SEES differs, and only in Review.** Author's project
-    ///   row is the corkboard, unchanged. Publish's is the book or a notice over
-    ///   this same view, and its truth table is `PublishPreviewCentreTests`'
-    ///   (this probe mounts no preview layer, so what it drives here is the
-    ///   uncompiled degrade, which is exactly the state the fixture is in).
-    ///   Review's is the passes board, which is what the middle of the column
-    ///   hit-tests to — measured the way the OS measures coverage, because the
-    ///   corkboard being *mounted* underneath is the shape working rather than a
-    ///   bug.
-    func test_everyManuscriptPersonaStacksTheSameAltitudeAndOnlyReviewCoversIt() async throws {
+    /// - **Author and Publish draw the same view, with the same rows**, rather
+    ///   than a persona's own, and it is what the middle of the column
+    ///   hit-tests to. Publish's book and notices are `PublishPreviewCentreTests`'
+    ///   (this probe passes nothing compiled, so Publish here is the uncompiled
+    ///   degrade, which is exactly the state the fixture is in).
+    /// - **Review's is the board**, with no corkboard in the stack and the host
+    ///   still mounted underneath — the fact `EditorHost`'s zero teardowns rests
+    ///   on is the host's position, not altitude's.
+    func test_everyManuscriptPersonaShowsTheSameAltitudeAndOnlyReviewReplacesIt() async throws {
         for persona in Self.manuscriptPersonas {
             let store = try await novel()
             let mount = try await host(store: store, persona: persona,
                                        subject: .project)
+            // **Review's project level is the passes board** (M3 P1 Task 6).
+            // Until foundations plan 4 Task 3 the board covered a corkboard
+            // still mounted underneath; the route now names ONE overlay, so in
+            // Review there is no corkboard in the stack at all — the board's
+            // own mounted contracts are `ReviewBoardRoutingTests`'.
+            if persona.showsTheReviewBoard {
+                await waitOut(0.3)
+                XCTAssertNil(altitudeTable(in: mount.window),
+                             "\(persona): the board replaces altitude rather than "
+                             + "covering it")
+                XCTAssertEqual(mount.hostLife.appearances, 1,
+                               "\(persona): …with the host mounted underneath")
+                continue
+            }
             await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
             let table = try XCTUnwrap(
                 altitudeTable(in: mount.window),
@@ -441,14 +449,11 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             let hit = try XCTUnwrap(
                 content.hitTest(content.convert(middle, to: nil)),
                 "\(persona): nothing at all at the middle of the column")
-            let reachesTheCorkboard = hit === scroller || hit.isDescendant(of: scroller)
-
-            XCTAssertEqual(
-                reachesTheCorkboard, !persona.showsTheReviewBoard,
+            XCTAssertTrue(
+                hit === scroller || hit.isDescendant(of: scroller),
                 "\(persona): the middle of the column hit-tests to "
-                + "\(type(of: hit)). Review's altitude is covered by the passes "
-                + "board (M3 P1 Task 6) and nobody else's is — the board's own "
-                + "mounted contracts are `ReviewBoardRoutingTests`'")
+                + "\(type(of: hit)), not the corkboard — nothing but Review's "
+                + "board may take altitude's place")
         }
     }
 
@@ -925,7 +930,8 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     /// `editorPane` wires it — the routing decisions come from production's own
     /// statics — but the SHAPE of the last arm is the probe's own spelling, and
     /// a probe cannot vouch for it. This scan is the bridge: it reads the real
-    /// `manuscriptEditor` and asserts the five things the shape is made of.
+    /// `manuscriptEditor` — the host first, one switch over the overlay, each
+    /// surface in its own arm — and the route that names the overlay.
     ///
     /// **What a sixth arm would cost.** Two branches of a ViewBuilder
     /// conditional are two `_ConditionalContent` arms and therefore two view
@@ -939,40 +945,48 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     func test_theMountIsAZStackInsideTheEditorArmAndNotASixthArm() throws {
         let arm = try Self.editorArm()
 
-        XCTAssertTrue(arm.contains("ZStack"),
-                      "the two are layered, not chosen between")
-        XCTAssertTrue(arm.contains("EditorHost("),
-                      "…with the host mounted unconditionally underneath")
-        XCTAssertTrue(arm.contains("ProjectAltitudePane("),
-                      "…and altitude over it")
-        XCTAssertTrue(arm.contains("Self.subjectShowsAltitude("),
-                      "the overlay is gated on the rule, not on a second "
-                      + "spelling of it written out here")
-        XCTAssertTrue(arm.contains(".background("),
-                      "the overlay must be OPAQUE — it covers `EditorHost`'s "
-                      + "'Select a document.' placeholder, which is still "
-                      + "mounted underneath and would otherwise read through it")
+        // The host first and unconditional, then ONE switch over the overlay
+        // with altitude (opaque) in its own arm and every other surface in its
+        // own — and no routing rule asked here, so the overlay is gated on
+        // `centreRoute`'s answer rather than a second spelling of it.
+        // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders` is the
+        // planted control for this read.
+        XCTAssertEqual(CentreRouteSource.overlayFaults(in: arm), [],
+                       "the two are layered, not chosen between: `EditorHost` "
+                       + "mounted unconditionally underneath, altitude opaque "
+                       + "over it in the overlay's `.altitude` arm")
+        XCTAssertTrue(CentreRouteSource.compositionFaults(
+            in: try CentreRouteSource.rule()).isEmpty,
+            "…and the route asks `subjectShowsAltitude` rather than restating it")
 
-        // **The layers above altitude, and their order** (M3 P1 Task 6 for the
-        // board; stage 3b Task 5 for the book). Named here as well as in their
-        // own suites because this scan is the one that reads the arm from
-        // altitude's side: a layer inserted UNDER the corkboard is invisible and
-        // silent, and neither of the other two suites is looking down.
-        XCTAssertTrue(arm.contains("ReviewBoardPane("),
-                      "…Review's passes board over that")
-        XCTAssertTrue(arm.contains("Self.reviewCentreShowsBoard("),
-                      "…gated on its own named rule, for altitude's reason")
-        let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
-        let boardAt = try XCTUnwrap(arm.range(of: "ReviewBoardPane("))
-        let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
-        XCTAssertTrue(altitudeAt.lowerBound < boardAt.lowerBound,
-                      "the corkboard must not be drawn over Review's board")
-        XCTAssertTrue(boardAt.lowerBound < bookAt.lowerBound,
-                      "…and the compiled book stays the LAST layer of the stack")
+        // **The surfaces above altitude, and which one wins** (M3 P1 Task 6 for
+        // the board; stage 3b Task 5 for the book). This used to be read off
+        // the stack's text order; now the route names the winner, with the
+        // premise that altitude was offered too — a surface that lost to the
+        // corkboard is invisible and silent, and neither of the other two
+        // suites is looking down.
+        for persona in [Persona.review, .publish] {
+            XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
+                persona: persona, subject: .project, structure: Self.structure),
+                "premise: \(persona)'s project row answers altitude too")
+        }
+        XCTAssertEqual(
+            ProjectWindow.centreRoute(persona: .review, subject: .project,
+                                      projectType: .novel, structure: Self.structure,
+                                      showsPaletteWall: false, preview: .nothingCompiled),
+            .editor(overlay: .reviewBoard),
+            "the corkboard must not be drawn over Review's board")
+        XCTAssertEqual(
+            ProjectWindow.centreRoute(persona: .publish, subject: .project,
+                                      projectType: .novel, structure: Self.structure,
+                                      showsPaletteWall: false,
+                                      preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook])),
+            .editor(overlay: .books([PublishPreviewCentreTests.aBook])),
+            "…and the compiled book outranks it")
 
         XCTAssertEqual(
             try Self.editorBuildSites(), 2,
-            "the declaration and exactly ONE call — `editorPane`'s last arm. A "
+            "the declaration and exactly ONE call — `editorPane`'s `.editor` arm. A "
             + "third occurrence is a second place the editor is built, which is "
             + "the identity split this shape exists to avoid — counted across "
             + "every view, not just the window's files")
@@ -1088,11 +1102,10 @@ final class EditorHostLifeCounter {
     func disappeared() { disappearances += 1 }
 }
 
-/// **The centre column, wired the way `editorPane` wires it** — the research
-/// placement, then the canvas route, then the Collection reference arm, then the
-/// editor arm — with every decision taken from production's own statics rather
-/// than re-spelled here. A probe that decided for itself which arm applies would
-/// be testing the probe.
+/// **The centre column, wired the way `editorPane` wires it** — one switch over
+/// production's own `ProjectWindow.centreRoute`, in its case order, rather than
+/// decisions re-spelled here. A probe that decided for itself which arm applies
+/// would be testing the probe.
 ///
 /// What it does spell for itself is the SHAPE of the last arm, which is the
 /// thing under test and cannot be reached from outside `ProjectWindow`
@@ -1137,70 +1150,52 @@ private struct AltitudeCentreProbeView: View {
         Binding(get: { probe.subject }, set: { probe.subject = $0 })
     }
 
-    private var referencePiece: StructureItem? {
-        guard let id = probe.subject?.itemID,
-              let piece = store.manifest.structure.first(where: { $0.id == id }),
-              piece.pieceKind == .reference
-        else { return nil }
-        return piece
-    }
-
-    private var showsAltitude: Bool {
-        ProjectWindow.subjectShowsAltitude(persona: persona,
-                                           subject: probe.subject,
-                                           structure: store.manifest.structure)
-    }
-
-    /// Review's passes board (M3 P1 Task 6) — modelled here because this probe
-    /// claims to be wired the way `editorPane` is, and a probe that left out a
-    /// layer production draws would answer "the corkboard is what a reviewer
-    /// sees" long after it stopped being true. The publish layer stays out for
-    /// the reason the palette wall does: nothing here is Publish, and
-    /// `PublishPreviewCentreTests` owns that layer's probe.
-    private var showsBoard: Bool {
-        ProjectWindow.reviewCentreShowsBoard(persona: persona,
-                                             subject: probe.subject,
-                                             structure: store.manifest.structure)
-    }
-
     var body: some View {
         centre.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The route is production's own (`ProjectWindow.centreRoute`), switched
+    /// over in production's case order. The wall is never open here and
+    /// nothing is Publish, so those arms draw nothing.
     @ViewBuilder
     private var centre: some View {
-        let route = ProjectWindow.editorRoute(
-            persona: persona, projectType: store.manifest.type,
-            selectedPieceIsReference: referencePiece != nil)
-        if let id = ProjectWindow.researchSubjectPlacement(
-            persona: persona, subject: probe.subject).centreItemID {
+        switch ProjectWindow.centreRoute(
+            persona: persona, subject: probe.subject,
+            projectType: store.manifest.type, structure: store.manifest.structure,
+            showsPaletteWall: false, preview: .nothingCompiled) {
+        case .paletteWall:
+            EmptyView()
+        case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !persona.editsResearchInTheCentre)
-        } else if route == .canvas {
+        case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })
-        } else if route == .collectionReference, let piece = referencePiece {
+        case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        } else {
-            manuscriptCentre
+        case .editor(let overlay):
+            manuscriptCentre(overlay)
         }
     }
 
     @ViewBuilder
-    private var manuscriptCentre: some View {
+    private func manuscriptCentre(_ overlay: CentreOverlay?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
-                if showsAltitude { altitude }
-                if showsBoard { board }
+                switch overlay {
+                case .altitude: altitude
+                case .reviewBoard: board
+                default: EmptyView()
+                }
             }
         // The rejected shape is about ALTITUDE's identity split and is driven
         // in Author only, so it models the two branches that question is
         // between and no more.
         case .sixthArm:
-            if showsAltitude { altitude } else { editor }
+            if case .altitude = overlay { altitude } else { editor }
         }
     }
 

@@ -604,29 +604,31 @@ final class DesignGateTests: XCTestCase {
     /// is `doc.close()` + `unregister(path:)` + `loads.abandon()`. A gate on its
     /// own arm would tear the host down on every Show and every Back.
     ///
-    /// The mount is asked of the window by TYPE; the order is read inside
-    /// `manuscriptEditor`'s own body, found by symbol (foundations plan 2).
+    /// The mount is asked of the window by TYPE; the arm is read inside
+    /// `manuscriptEditor`'s own body, found by symbol (foundations plan 2), and
+    /// since foundations plan 4 Task 3 it is the `.designGate` arm of the ONE
+    /// switch over `CentreRoute`'s overlay — whose precedence (the gate over
+    /// the book, the round over the gate) `CentreRouteTests` pins as values.
     func test_theGateIsAFourthLayerOfTheSameStackAndNotANewArm() throws {
         XCTAssertTrue(try SourceTree.windowCodeLines().contains { $0.contains("DesignGateView(") },
                       "production must mount the gate somewhere")
-        XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(try Self.manuscriptEditorCodeLines()),
-                      "the gate is an arm of the publishCentre switch inside "
-                      + "manuscriptEditor's ZStack, beside the book's")
+        XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(try Self.manuscriptEditorSource()),
+                      "the gate is the `.designGate` arm of the overlay switch "
+                      + "inside manuscriptEditor's ZStack, beside the book's")
     }
 
-    /// `manuscriptEditor`'s own code lines, found by symbol.
-    private static func manuscriptEditorCodeLines(base: URL = SourceTree.repoRoot) throws -> [String] {
-        SourceScan.codeLines(of: try SourceTree.declaration(
-            named: "func manuscriptEditor(", under: "Maugham", base: base))
+    /// `manuscriptEditor`'s own body, found by symbol.
+    private static func manuscriptEditorSource(base: URL = SourceTree.repoRoot) throws -> String {
+        try SourceTree.declaration(named: "func manuscriptEditor(", under: "Maugham", base: base)
     }
 
-    /// Whether `code` mounts `DesignGateView(` within 40 lines after the
-    /// centre's one `Self.publishCentre(` switch — false when either is gone.
-    private static func gateIsAnArmOfTheCentreSwitch(_ code: [String]) -> Bool {
-        guard let switchLine = code.firstIndex(where: { $0.contains("Self.publishCentre(") }),
-              let gateLine = code.firstIndex(where: { $0.contains("DesignGateView(") })
+    /// Whether `source` mounts `DesignGateView(` in the `.designGate` arm of its
+    /// `switch overlay`, after the host — false when either is gone.
+    private static func gateIsAnArmOfTheCentreSwitch(_ source: String) -> Bool {
+        guard let overlay = CentreRouteSource.switchArms(in: source, over: "switch overlay")
         else { return false }
-        return gateLine > switchLine && gateLine - switchLine < 40
+        return overlay.arm("designGate").contains("DesignGateView(")
+            && !overlay.outside.contains { $0.contains("DesignGateView(") }
     }
 
     /// Every file under `root` whose code calls `designer.requestChanges(`.
@@ -641,7 +643,7 @@ final class DesignGateTests: XCTestCase {
     /// **The planted control for the window reads** (foundations plan 2): a
     /// `ProjectWindow` struct in one file and `manuscriptEditor` in an
     /// `extension ProjectWindow` in another. The arm is found across the
-    /// extension (so the order check reads the real switch), the wiring reads
+    /// extension (so the arm check reads the real switch), the wiring reads
     /// both files, and the widened caller census catches a second caller in a
     /// sibling view outside the window.
     func test_theWindowReadsFollowTheTypeAndTheCallerCensusReachesSiblingViews() throws {
@@ -656,8 +658,9 @@ final class DesignGateTests: XCTestCase {
             extension ProjectWindow {
                 private func manuscriptEditor(store: ProjectStore) -> some View {
                     ZStack {
-                        switch Self.publishCentre(persona: persona) {
-                        case .designProposal(let proposal):
+                        EditorHost()
+                        switch overlay {
+                        case .designGate(let proposal):
                             DesignGateView(proposal: proposal)
                         default: EmptyView()
                         }
@@ -673,10 +676,21 @@ final class DesignGateTests: XCTestCase {
             """,
         ])
         XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(
-            try Self.manuscriptEditorCodeLines(base: base)),
+            try Self.manuscriptEditorSource(base: base)),
             "the arm is found in the extension, switch and gate both")
-        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch(["Self.publishCentre("]),
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("switch overlay {\n}"),
                        "a switch with no gate is not compliant")
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("""
+            if showsGate { DesignGateView() }
+            switch overlay {
+            case .designGate(let proposal): EmptyView()
+            }
+            """), "a gate layered beside the switch, decided by z-order, is not compliant")
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("""
+            switch overlay {
+            case .books(let publications): DesignGateView()
+            }
+            """), "nor is a gate in another surface's arm")
         XCTAssertTrue(try SourceTree.windowCodeLines(base: base)
             .contains { $0.contains("DepartmentDesignRow.sendChanges") },
             "the wiring reads the window's files")

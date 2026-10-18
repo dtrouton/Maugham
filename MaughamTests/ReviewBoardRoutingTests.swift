@@ -351,10 +351,12 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     // MARK: - Mounted: the board takes the centre
 
-    /// **The project's own subject in Review draws the board, over the
-    /// corkboard.** Altitude is still mounted underneath — that is the layered
-    /// shape working, not a bug — so what says which one the reviewer sees is
-    /// z-order, measured the way the OS measures it.
+    /// **The project's own subject in Review draws the board, not the
+    /// corkboard.** The subject answers altitude too, and until foundations
+    /// plan 4 Task 3 altitude stayed mounted underneath and z-order decided;
+    /// now the route names ONE overlay, so the corkboard is not in the stack at
+    /// all — and the board is still what the middle of the column hit-tests
+    /// to, measured the way the OS measures it.
     func test_theProjectSubjectInReviewShowsTheBoardOverTheCorkboard() async throws {
         let store = try await novel()
         let mount = try await host(store: store, subject: .project)
@@ -364,12 +366,15 @@ final class ReviewBoardRoutingTests: XCTestCase {
             boardScroller(in: mount.window),
             "Review's centre column mounted no board. Views: "
             + "\(viewNames(in: mount.window))")
-        XCTAssertNotNil(altitudeTable(in: mount.window),
-                        "premise: the project subject really does put altitude "
-                        + "in the stack, so this is a test about which layer is "
-                        + "in FRONT rather than about which one exists")
+        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
+            persona: .review, subject: .project, structure: store.manifest.structure),
+            "premise: the project subject answers altitude too, so this is a "
+            + "test about which surface WINS rather than about which one exists")
+        XCTAssertNil(altitudeTable(in: mount.window),
+                     "the overlay is one surface: the board replaces the "
+                     + "corkboard rather than covering it")
         XCTAssertTrue(textViews(in: mount.window).isEmpty,
-                      "and no editor is open under either of them")
+                      "and no editor is open under it")
 
         let hit = try middleOfTheColumn(in: mount.window)
         XCTAssertTrue(hit === board || hit.isDescendant(of: board),
@@ -703,26 +708,32 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
 
-        XCTAssertTrue(arm.contains("ZStack"), "still one stack, not a choice")
-        XCTAssertTrue(arm.contains("EditorHost("),
-                      "…with the host mounted unconditionally underneath")
-        XCTAssertTrue(arm.contains("ProjectAltitudePane("), "…altitude over it")
-        XCTAssertTrue(arm.contains("ReviewBoardPane("),
-                      "…and Review's board over that")
-        XCTAssertTrue(arm.contains("Self.reviewCentreShowsBoard("),
-                      "gated on the ONE named rule rather than on a second "
-                      + "spelling written out here — and a second gate is how a "
-                      + "board ends up over the chapter a reviewer is reading")
+        // Still one stack with the host mounted unconditionally underneath, and
+        // the board in the overlay switch's `.reviewBoard` arm — gated on the
+        // route rather than on a second spelling written out here (a second
+        // gate is how a board ends up over the chapter a reviewer is reading).
+        // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders` plants
+        // the board as a free layer beside the switch and sees it caught.
+        XCTAssertEqual(CentreRouteSource.overlayFaults(in: arm), [])
+        let route = try CentreRouteSource.rule()
+        XCTAssertTrue(route.contains("reviewCentreShowsBoard("),
+                      "the route asks the ONE named rule for the board")
 
-        let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
-        let boardAt = try XCTUnwrap(arm.range(of: "ReviewBoardPane("))
-        let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
-        XCTAssertTrue(altitudeAt.lowerBound < boardAt.lowerBound,
-                      "the board must be OVER altitude — a corkboard drawn over "
-                      + "the board is the truth table read upside down")
-        XCTAssertTrue(boardAt.lowerBound < bookAt.lowerBound,
-                      "…and the book must stay the LAST layer of the stack, "
-                      + "which is what `PublishPreviewCentreTests` pins")
+        // **Which surface wins**, which the stack's text order used to say: the
+        // board over altitude (premise: altitude was offered too), and never
+        // both the board and the book (`CentreRouteTests` over the product).
+        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
+            persona: .review, subject: .project,
+            structure: ProjectAltitudeCentreTests.structure),
+            "premise: altitude is offered at Review's project level")
+        XCTAssertEqual(
+            ProjectWindow.centreRoute(
+                persona: .review, subject: .project, projectType: .novel,
+                structure: ProjectAltitudeCentreTests.structure,
+                showsPaletteWall: false, preview: .nothingCompiled),
+            .editor(overlay: .reviewBoard),
+            "the board must WIN over altitude — a corkboard over the board is "
+            + "the truth table read upside down")
 
         XCTAssertEqual(
             Self.occurrences(of: "ReviewBoardPane(", in: source), 1,
@@ -730,8 +741,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "is a surface nobody decided to add")
         XCTAssertEqual(
             Self.occurrences(of: "manuscriptEditor(", in: source), 2,
-            "the declaration and exactly ONE call — `editorPane`'s last arm, "
-            + "unchanged by this task")
+            "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
     /// The control for the scan above: `declaration(named:)` must BOUND the text
@@ -1260,11 +1270,10 @@ final class ReviewCentreProbeBox {
     }
 }
 
-/// **The centre column, wired the way `editorPane` wires it** — the research
-/// placement, the canvas route, the Collection reference arm, then the editor
-/// arm — with every decision taken from production's own statics rather than
-/// re-spelled here. A probe that decided for itself which arm applies would be
-/// testing the probe.
+/// **The centre column, wired the way `editorPane` wires it** — one switch over
+/// production's own `ProjectWindow.centreRoute`, in its case order, rather than
+/// decisions re-spelled here. A probe that decided for itself which arm applies
+/// would be testing the probe.
 ///
 /// What it spells for itself is the SHAPE of the last arm, which is the thing
 /// under test and cannot be reached from outside `ProjectWindow`
@@ -1293,68 +1302,55 @@ struct ReviewCentreProbeView: View {
         Binding(get: { box.subject }, set: { box.subject = $0 })
     }
 
-    private var referencePiece: StructureItem? {
-        guard let id = box.subject?.itemID,
-              let piece = store.manifest.structure.first(where: { $0.id == id }),
-              piece.pieceKind == .reference
-        else { return nil }
-        return piece
-    }
-
     var body: some View {
         centre.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The route is production's own (`ProjectWindow.centreRoute`), switched
+    /// over in production's case order. The wall is never open here; Publish
+    /// is reached only by a persona hop, with nothing compiled, so it shows
+    /// altitude and the probe models no publish surface.
     @ViewBuilder
     private var centre: some View {
-        let route = ProjectWindow.editorRoute(
-            persona: box.persona, projectType: store.manifest.type,
-            selectedPieceIsReference: referencePiece != nil)
-        if let id = ProjectWindow.researchSubjectPlacement(
-            persona: box.persona, subject: box.subject).centreItemID {
+        switch ProjectWindow.centreRoute(
+            persona: box.persona, subject: box.subject,
+            projectType: store.manifest.type, structure: store.manifest.structure,
+            showsPaletteWall: false, preview: .nothingCompiled) {
+        case .paletteWall:
+            EmptyView()
+        case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !box.persona.editsResearchInTheCentre)
-        } else if route == .canvas {
+        case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })
-        } else if route == .collectionReference, let piece = referencePiece {
+        case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        } else {
-            manuscriptCentre
+        case .editor(let overlay):
+            manuscriptCentre(overlay)
         }
     }
 
     @ViewBuilder
-    private var manuscriptCentre: some View {
+    private func manuscriptCentre(_ overlay: CentreOverlay?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
-                if showsAltitude { altitude }
-                if showsBoard { board }
+                switch overlay {
+                case .altitude: altitude
+                case .reviewBoard: board
+                default: EmptyView()
+                }
             }
         case .ownArm:
-            if showsBoard {
-                board
-            } else if showsAltitude {
-                altitude
-            } else {
-                editor
+            switch overlay {
+            case .reviewBoard: board
+            case .altitude: altitude
+            default: editor
             }
         }
-    }
-
-    private var showsAltitude: Bool {
-        ProjectWindow.subjectShowsAltitude(persona: box.persona,
-                                           subject: box.subject,
-                                           structure: store.manifest.structure)
-    }
-
-    private var showsBoard: Bool {
-        ProjectWindow.reviewCentreShowsBoard(persona: box.persona,
-                                             subject: box.subject,
-                                             structure: store.manifest.structure)
     }
 
     private var editor: some View {

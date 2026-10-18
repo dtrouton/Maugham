@@ -1889,14 +1889,6 @@ struct ProjectWindow: View {
         currentElement
     }
 
-    /// Whether the selected item is a Collection reference piece.
-    private func selectedPieceIsReference(in store: ProjectStore) -> Bool {
-        guard let id = activeItemID,
-              let piece = store.manifest.structure.first(where: { $0.id == id })
-        else { return false }
-        return piece.pieceKind == .reference
-    }
-
     /// **The canvas is ONE branch here, and every other branch is written so as
     /// not to become a second one.**
     ///
@@ -1922,42 +1914,38 @@ struct ProjectWindow: View {
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        let route = Self.editorRoute(
-            persona: persona,
-            projectType: store.manifest.type,
-            selectedPieceIsReference: selectedPieceIsReference(in: store))
-        // **Above everything else, including `researchSubjectPlacement`**
-        // (stage 2b Task 5). The wall is a deliberately-entered posture like
-        // the canvas is, and it is layered on TOP of the tree — every tree
-        // writes the subject, so a research row selected while the wall is open
-        // could otherwise claim the centre out from under it.
-        // `PaletteWallModifier` closes the wall on any subject change, so in
-        // practice the two rarely coincide; this is the belt to that
-        // modifier's braces; the guard on persona is the same belt-and-braces
-        // the door's own disabled state already keeps.
-        if Self.showsPaletteWallCentre(showsPaletteWall: showsPaletteWall, persona: persona) {
+        // **One exhaustive answer, one switch** (foundations plan 4, Task 3).
+        // `centreRoute` composes every decision this pane used to ask in turn —
+        // the palette wall above everything (stage 2b Task 5; `PaletteWallModifier`
+        // closes the wall on a subject change, this is the belt to its braces),
+        // a research subject that takes the centre (in Plan it resolves to
+        // `.besideTheCanvas` and never reaches here, so the board keeps its
+        // identity), the canvas, the Collection reference, then the editor with
+        // its one overlay. The cases are in the old chain's order, so the canvas
+        // is still the third branch and still its only mount.
+        switch Self.centreRoute(persona: persona,
+                                subject: selectedSubject,
+                                projectType: store.manifest.type,
+                                structure: store.manifest.structure,
+                                showsPaletteWall: showsPaletteWall,
+                                preview: publishCentre.preview,
+                                proposal: publishCentre.selectedProposal,
+                                round: publishCentre.selectedRound) {
+        case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
                               onClose: { showsPaletteWall = false }, persona: persona)
-        // **Above `editorRoute` and never inside it**, because the canvas
-        // branch below must stay the one the canvas is mounted from: a
-        // `.research` subject in Plan resolves to `.besideTheCanvas` and never
-        // reaches here, so the board keeps its identity and the RIGHT column
-        // takes the item (`researchSubjectPlacement`).
-        } else if let id = Self.researchSubjectPlacement(
-            persona: persona, subject: selectedSubject).centreItemID {
+        case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
                                   readOnly: !persona.editsResearchInTheCentre)
-        } else if route == .canvas {
+        case .canvas:
             canvasCentre(store: store, documentStore: documentStore)
-        } else if route == .collectionReference,
-                  let id = activeItemID,
-                  let piece = store.manifest.structure.first(where: { $0.id == id }) {
+        case .reference(let piece):
             ReferencePlaceholderCard(piece: piece) {
                 openReferenceInWindow(piece: piece, store: store)
             }
-        } else {
-            manuscriptEditor(store: store, documentStore: documentStore)
+        case .editor(let overlay):
+            manuscriptEditor(store: store, documentStore: documentStore, overlay: overlay)
         }
     }
 
@@ -1972,51 +1960,32 @@ struct ProjectWindow: View {
         MaughamEvent.post(.maughamOpenProject, to: .allWindows, payload: ["url": url])
     }
 
-    /// **The manuscript editor, and the centre column's last resort.**
+    /// **The manuscript editor, and the one surface drawn over it.**
     ///
-    /// It was `existingEditorSwitch` — a `switch` over `BinderSegment` with six
-    /// arms, four of them either unreachable or an old pane — until shell-finish
-    /// stage 2b Task 7 took the enum. What is left is what every arm that could
-    /// still be reached did: mount the editor on whatever document the tree
-    /// names. A screenplay reaches it too; its tree is the slugline navigator,
-    /// and the underlying `.fountain` is the same file.
+    /// It was `existingEditorSwitch` — a `switch` over `BinderSegment` — until
+    /// shell-finish stage 2b Task 7 took the enum. What is left mounts the
+    /// editor on whatever document the tree names (a screenplay's `.fountain`
+    /// included), with `CentreRoute`'s overlay over it: the project at altitude
+    /// (stage 3a Task 2, with Publish's no-book notice standing on it), Review's
+    /// passes board (M3 P1 Task 6), or one of Publish's surfaces — the round
+    /// report, the design gate, the compiled book (stage 3b Task 5, P4).
     ///
-    /// **And Review's own surface, as of M3 P1 Task 6** — the passes board,
-    /// over altitude and under the book: at project level in Review the board
-    /// is what the reviewer asked for, and a corkboard over it is the truth
-    /// table upside down. `reviewCentreShowsBoard` composes
-    /// `subjectShowsAltitude` the way `publishCentre` does, so a chapter
-    /// subject in Review opens the chapter and nothing is layered over it.
+    /// **The host is the ZStack's FIRST child and present whatever the overlay
+    /// is** (tripwire 6). Until foundations plan 4 Task 3 the surfaces were
+    /// independent `if` layers here and the writer saw whichever came last; now
+    /// `centreRoute` names the one on top and this body draws it with ONE
+    /// switch. Neither shape would have survived as a branch of `editorPane`:
+    /// two ViewBuilder branches are two view identities, so every project ↔
+    /// chapter hop would unmount `EditorHost`, whose `.onDisappear` is
+    /// `doc.close()` + `documentStore.unregister(path:)` + `loads.abandon()`,
+    /// not a cleanup. Here the overlay is the only thing that comes and goes.
+    /// `ProjectAltitudeCentreTests` counts the host's lifetimes over the round
+    /// trip, and drives the rejected shape as its control.
     ///
-    /// **And Publish's own surface, as of stage 3b Task 5 — the LAST layer of
-    /// the stack**, over altitude and over the host: the compiled book at
-    /// project level, or a banner naming which kind of nothing there is (never
-    /// compiled, or a catalog that cannot be read). Over a CHAPTER the layer
-    /// does not appear at all — Denver, 2026-08-12: *"a chapter/piece subject in
-    /// Publish ALWAYS opens the editor — I might tweak something for layout"* —
-    /// which is `publishCentre` composing `subjectShowsAltitude` rather than
-    /// anything spelled here. It is a layer for the reason altitude is: a fourth
-    /// `editorPane` arm would tear the host down every time the writer walked
-    /// from the proof back to the prose, and that walk is now the ordinary
-    /// gesture rather than an unusual one.
-    ///
-    /// **And the project at altitude, as of stage 3a Task 2 — layered INSIDE
-    /// this arm rather than beside it.** When the tree names no single document
-    /// the host has nothing to open and shows *"Select a document."*; that
-    /// placeholder is what the altitude view covers. A sixth arm in `editorPane`
-    /// would have been the obvious spelling and is the wrong one: two ViewBuilder
-    /// branches are two view identities, so every project ↔ chapter hop — the
-    /// gesture this task exists to create — would unmount `EditorHost`, and its
-    /// `.onDisappear` is `doc.close()` + `documentStore.unregister(path:)` +
-    /// `loads.abandon()`, not a cleanup. Layered, the host keeps its identity
-    /// and its Document across the hop and the overlay is the only thing that
-    /// comes and goes. `ProjectAltitudeCentreTests` counts the host's lifetimes
-    /// over the round trip, and drives the rejected shape as its control.
-    ///
-    /// The overlay is opaque and fills the column on purpose: the placeholder is
-    /// still mounted underneath it.
+    /// Every overlay is opaque and fills the column on purpose: the host's
+    /// "Select a document." placeholder is still mounted underneath it.
     private func manuscriptEditor(
-        store: ProjectStore, documentStore: DocumentStore
+        store: ProjectStore, documentStore: DocumentStore, overlay: CentreOverlay?
     ) -> some View {
         ZStack {
             EditorHost(
@@ -2058,9 +2027,21 @@ struct ProjectWindow: View {
                         in: store.manifest.effectiveReviewPasses)
                 }
             )
-            if Self.subjectShowsAltitude(persona: persona,
-                                         subject: selectedSubject,
-                                         structure: store.manifest.structure) {
+            // **The one overlay, ONE switch** (foundations plan 4, Task 3).
+            // Which surface draws is `centreRoute`'s answer, never a layer
+            // order: each arm is opaque and fills the column, so exactly one is
+            // drawn and the editor is still mounted beneath it. Every arm is a
+            // case of this switch rather than a branch of `editorPane` for
+            // stage 3a's reason: two ViewBuilder branches are two view
+            // identities, and `EditorHost.onDisappear` is `doc.close()` +
+            // `unregister(path:)` + `loads.abandon()`.
+            switch overlay {
+            // **The project at altitude** (stage 3a Task 2) — opaque, because
+            // the host's "Select a document." placeholder is still mounted
+            // underneath. In Publish with no book, the notice says WHICH kind
+            // of nothing it is (Denver's 2026-08-12 rulings 2 and 3), standing
+            // over the corkboard — it takes no clicks — rather than replacing it.
+            case .altitude(let notice):
                 ProjectAltitudePane(
                     store: store,
                     layout: $outlineLayout,
@@ -2068,23 +2049,13 @@ struct ProjectWindow: View {
                     title: store.manifest.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
-            }
-            // **Review's own layer** (M3 P1 Task 6), between altitude and the
-            // book. Above altitude for the reason Publish's layer is: at
-            // project level in Review the subject answers both rules, and what
-            // the reviewer asked for is the board — a corkboard drawn over it
-            // is the truth table upside down. Below the book because the two
-            // are never both offered (`showsTheReviewBoard` and
-            // `previewsThePublishedBook` are true of one persona each), so the
-            // order between them decides nothing today and the book's position
-            // is what `PublishPreviewCentreTests` pins: LAST.
-            //
-            // Project-level by construction: `reviewCentreShowsBoard` composes
-            // `subjectShowsAltitude`, so a chapter subject in Review reaches
-            // neither this layer nor altitude and opens in the host underneath.
-            if Self.reviewCentreShowsBoard(persona: persona,
-                                           subject: selectedSubject,
-                                           structure: store.manifest.structure) {
+                if let notice {
+                    PublishCentreNoticeBanner(notice: notice)
+                }
+            // **Review's passes board** (M3 P1 Task 6) — the project level of
+            // Review. A chapter subject reaches neither this arm nor altitude:
+            // `reviewCentreShowsBoard` composes `subjectShowsAltitude`.
+            case .reviewBoard:
                 // Values, not the store (tripwire 4): the board reads
                 // `manifest` here, at the one mount, and nothing on its body
                 // path can reach a document or the disk.
@@ -2165,38 +2136,11 @@ struct ProjectWindow: View {
                                     url: store.url, window: window) { _ in
                         refreshOpenNotes(store: store)
                     }
-            }
-            // **Publish's own layer, LAST of the three** (stage 3b Task 5,
-            // re-cut 2026-08-12). Above altitude rather than beside it: at
-            // project level in Publish the subject answers both rules, and the
-            // writer asked for the book — a corkboard over a compiled PDF is
-            // the truth table upside down. And when there is no book, the
-            // banner says WHICH kind of nothing it is, standing over the
-            // corkboard rather than replacing it.
-            //
-            // Both arms are project-level by construction: `publishCentre`
-            // composes `subjectShowsAltitude`, so a chapter subject in Publish
-            // reaches neither and opens in the host underneath — Denver's
-            // 2026-08-12 ruling, made structural rather than asserted twice.
-            //
-            // **And the gate is a fourth layer of this same stack** (P4 Task
-            // 5), arriving as a third arm of the ONE switch rather than as a
-            // branch of its own — stage 3a's rule, which the book already
-            // follows: two ViewBuilder arms are two view identities, and
-            // `EditorHost.onDisappear` is `doc.close()` + `unregister(path:)` +
-            // `loads.abandon()`. A gate on its own arm would tear the host down
-            // on every Show and every Back.
-            switch Self.publishCentre(persona: persona,
-                                      subject: selectedSubject,
-                                      structure: store.manifest.structure,
-                                      preview: publishCentre.preview,
-                                      proposal: publishCentre.selectedProposal,
-                                      round: publishCentre.selectedRound) {
-            // **The round report, a fifth layer of this same stack**
-            // (translation pipeline P4 Task 3) — a fourth arm of the ONE switch
-            // for the gate's reason: two ViewBuilder arms are two view
-            // identities, and a report on its own branch would tear
-            // `EditorHost` down on every Show and every Back.
+            // **Publish's surfaces** (stage 3b Task 5, P4 Task 5, translation
+            // pipeline P4 Task 3), in `publishCentre`'s order: the round report
+            // (which alone also draws over a chapter), the design gate, the
+            // compiled book. The gate and the book are project-level by
+            // construction — `publishCentre` composes `subjectShowsAltitude`.
             case .translationRound(let round):
                 TranslationRoundReportHost(
                     round: round, store: store, documentStore: documentStore,
@@ -2228,7 +2172,7 @@ struct ProjectWindow: View {
                             docId: round.docId, language: round.language,
                             paragraphId: paragraphId))
                     })
-            case .designProposal(let proposal):
+            case .designGate(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
                                // The verdict's four verbs (P4 Task 6), wired to
                                // the window's own job manager and warm designer.
@@ -2260,8 +2204,6 @@ struct ProjectWindow: View {
                     projectURL: store.url,
                     title: store.manifest.title,
                     selectedPublicationID: $publishCentre.selectedPublicationID)
-            case .notice(let notice):
-                PublishCentreNoticeBanner(notice: notice)
             case .none:
                 EmptyView()
             }
