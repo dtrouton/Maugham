@@ -9,12 +9,19 @@ import XCTest
 
 @MainActor
 final class UpdateProgressTests: XCTestCase {
+    private var defaultsSuite = ""
+    private var defaults: UserDefaults!
+
     override func setUp() {
         super.setUp()
         UpdateChecker.performInstall = nil
+        defaultsSuite = "UpdateProgressTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuite)
     }
     override func tearDown() {
         UpdateChecker.performInstall = nil
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defaults = nil
         super.tearDown()
     }
 
@@ -42,7 +49,8 @@ final class UpdateProgressTests: XCTestCase {
                 await progress(1.0)
                 return URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip")
             },
-            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") },
+            refusalDefaults: defaults)
 
         // Observe every published state change synchronously via a Combine
         // subscription — polling checker.state after the fact would only
@@ -76,7 +84,8 @@ final class UpdateProgressTests: XCTestCase {
                 await progress(-1)
                 return URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip")
             },
-            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") },
+            refusalDefaults: defaults)
 
         let cancellable = checker.$state.sink { state in
             if case .downloading(_, let progress) = state {

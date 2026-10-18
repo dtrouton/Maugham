@@ -7,12 +7,21 @@ final class UpdateCheckerTests: XCTestCase {
     // The production app wires UpdateChecker.performInstall (a global) to a
     // closure that may call NSApp.terminate. Keep it nil in these unit tests so
     // installNow's `performInstall?` short-circuits and state assertions hold.
+    /// A private preferences domain per test, so the refusal memory never
+    /// reaches the test host's `.standard` (shared across parallel workers).
+    private var defaultsSuite = ""
+    private var defaults: UserDefaults!
+
     override func setUp() {
         super.setUp()
         UpdateChecker.performInstall = nil
+        defaultsSuite = "UpdateCheckerTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuite)
     }
     override func tearDown() {
         UpdateChecker.performInstall = nil
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defaults = nil
         super.tearDown()
     }
 
@@ -30,7 +39,8 @@ final class UpdateCheckerTests: XCTestCase {
             fetchLatest: fetch,
             downloadAsset: downloadAsset,
             stageAndVerify: stageAndVerify,
-            systemVersion: systemVersion)
+            systemVersion: systemVersion,
+            refusalDefaults: defaults)
     }
 
     private func release(version: String, body: String = "notes") -> GitHubRelease {
@@ -312,5 +322,107 @@ final class UpdateCheckerTests: XCTestCase {
         } else {
             XCTFail("Expected .error, got \(checker.state)")
         }
+    }
+
+    // MARK: - #67 final review: a pending version is not re-staged
+
+    /// With 0.2.0 already staged and waiting for a quit, a later check for the
+    /// same version fetches nothing and stages nothing — re-staging would
+    /// delete `staged-<v>` from under `pendingQuitInstall` — and stays ready.
+    func test_aCheckForTheVersionAlreadyPendingNeitherDownloadsNorStages() async throws {
+        let bundle = TestTemp.root.appendingPathComponent("staged-0.2.0/Maugham.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        var downloads = 0
+        var stages = 0
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            downloadAsset: { _, _, _ in downloads += 1; return URL(fileURLWithPath: "/tmp/fake.zip") },
+            stageAndVerify: { _, _ in stages += 1; return bundle })
+        await checker.performCheck(trigger: .background)
+        XCTAssertEqual(downloads, 1)
+        XCTAssertEqual(stages, 1)
+        XCTAssertEqual(checker.pendingQuitInstall?.version, "0.2.0")
+
+        await checker.performCheck(trigger: .background)
+        await checker.performCheck(trigger: .manual)
+        XCTAssertEqual(downloads, 1, "the pending version is never fetched again")
+        XCTAssertEqual(stages, 1, "the pending version is never re-staged")
+        XCTAssertEqual(checker.state, .readyToInstall(bundleURL: bundle, version: "0.2.0", releaseNotes: "notes"))
+        XCTAssertEqual(checker.pendingQuitInstall?.bundleURL, bundle)
+    }
+
+    /// A pending bundle that has gone from disk is not trusted to still be
+    /// there: the check stages again.
+    func test_aPendingBundleThatIsGoneIsStagedAgain() async {
+        var stages = 0
+        let gone = TestTemp.root.appendingPathComponent("staged-0.2.0/Maugham.app", isDirectory: true)
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            stageAndVerify: { _, _ in stages += 1; return gone })
+        await checker.performCheck(trigger: .background)
+        await checker.performCheck(trigger: .background)
+        XCTAssertEqual(stages, 2)
+    }
+
+    // MARK: - #67 final review: a twice-refused version waits for a manual check
+
+    private func recordRefusal(_ version: String, times: Int, on checker: UpdateChecker) throws {
+        for _ in 0..<times {
+            try "refused \(version)\n".write(
+                to: TestTemp.root.appendingPathComponent("install-status"), atomically: true, encoding: .utf8)
+            checker.reportInstallStatus(in: TestTemp.root)
+        }
+    }
+
+    func test_oneRefusalStillAutoStages() async throws {
+        var downloads = 0
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            downloadAsset: { _, _, _ in downloads += 1; return URL(fileURLWithPath: "/tmp/fake.zip") })
+        try recordRefusal("0.2.0", times: 1, on: checker)
+        await checker.performCheck(trigger: .background)
+        XCTAssertEqual(downloads, 1)
+        if case .readyToInstall = checker.state {} else { XCTFail("expected ready, got \(checker.state)") }
+    }
+
+    func test_twoRefusalsKeepTheBackgroundPollQuietButAManualCheckProceeds() async throws {
+        var downloads = 0
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            downloadAsset: { _, _, _ in downloads += 1; return URL(fileURLWithPath: "/tmp/fake.zip") })
+        try recordRefusal("0.2.0", times: 2, on: checker)
+        await checker.performCheck(trigger: .background)
+        XCTAssertEqual(downloads, 0, "the background poll does not stage a twice-refused version")
+        XCTAssertEqual(checker.state, .idle)
+
+        await checker.performCheck(trigger: .manual)
+        XCTAssertEqual(downloads, 1, "Check for Updates still tries")
+        if case .readyToInstall = checker.state {} else { XCTFail("expected ready, got \(checker.state)") }
+    }
+
+    func test_aNewerVersionClearsTheRefusals() async throws {
+        var offered = "0.2.0"
+        var downloads = 0
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: offered) },
+            downloadAsset: { _, _, _ in downloads += 1; return URL(fileURLWithPath: "/tmp/fake.zip") })
+        try recordRefusal("0.2.0", times: 2, on: checker)
+        offered = "0.3.0"
+        await checker.performCheck(trigger: .background)
+        XCTAssertEqual(downloads, 1)
+        XCTAssertEqual(InstallRefusalMemory.refusals(for: "0.2.0", defaults: defaults), 0)
+        XCTAssertNil(defaults.object(forKey: InstallRefusalMemory.defaultsKey))
+    }
+
+    func test_reachingTheRefusedVersionClearsTheRefusals() async throws {
+        let checker = makeChecker(currentVersion: "0.2.0", fetch: { self.release(version: "0.2.0") })
+        try recordRefusal("0.2.0", times: 2, on: checker)
+        await checker.performCheck(trigger: .background)
+        XCTAssertNil(defaults.object(forKey: InstallRefusalMemory.defaultsKey))
     }
 }

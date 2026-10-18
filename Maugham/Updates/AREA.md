@@ -40,9 +40,13 @@ verify and `renamex_np`: `installMode` requires the install folder to be writabl
 so a process running as this user could in principle swap `.inflight` in that window. Anything
 that can do that can already write the install folder directly.
 There is deliberately **no second verifier in-process**: in `willTerminate` spctl could hang the
-quit on the network with nothing on screen; in the helper the app is already gone. **Stated
-limit:** spctl can fail offline, so a quit-time install offline is refused (and recorded), and
-the update installs on a later quit. The team the helper checks against is
+quit on the network with nothing on screen; in the helper the app is already gone. **Offline is
+not a refusal:** `release.yml` staples the notarization ticket to the app (`xcrun stapler staple`,
+then gates on `spctl -a -t exec` before packaging), so `spctl` assesses the staged copy from the
+ticket it carries with no network (`stapler validate` passes on the shipped 0.42.0). A refusal
+therefore means the bytes failed, and it costs the files: the next launch deletes that version's
+zip and `staged-<v>` and the update downloads again — but a version refused **twice** is not
+re-staged by the background poll (see *Install-time refusals are counted* below). The team the helper checks against is
 `runningAppTeamID()`; with none (ad-hoc, unsigned, the test host) or a malformed one,
 `launchSwapHelper` launches nothing and the caller takes the Finder fallback.
 
@@ -57,7 +61,7 @@ tests replace with stubs.
 
 Other protections:
 - **Only this repo's release URL is requested.** `GitHubReleasesAPI.isTrustedAssetURL` admits exactly `https://github.com/dtrouton/Maugham/releases/download/<tag>/<asset.name>` (the release's own `tag_name`; no port, user, query or fragment), checked in `performCheck` after the asset guard and before the size check — a failure is `.untrustedAssetURL`, an error on a manual check and idle on a background poll. GitHub answers with a redirect to its asset CDN; that host is **not** allow-listed (it changed in 2025, and TLS plus the signature chain gate the bytes), but a redirect to a non-https URL is refused (`UpdateDownload.followsRedirect`, applied in `UpdateDownloadSession`) and fails as `.insecureRedirect`. For a zip-less release the `.dmg` is not verified in-app at all, so for it this URL check is the only in-app gate.
-- **A refused archive is not reused.** Every `InstallError` from staging (`unzipFailed`, `verifyFailed`, `archiveTooLarge`, `archiveUnreadable`) goes through `UpdateInstaller.discardRefusedArchive`, which deletes the stage folder AND the downloaded `Maugham-<ver>.zip` — the checker reuses a zip already at that path, so a bad one left there would be re-staged and re-refused on every later check. A transient refusal (spctl offline) costs one re-download; that is accepted.
+- **A refused archive is not reused.** Every `InstallError` from staging (`unzipFailed`, `verifyFailed`, `archiveTooLarge`, `archiveUnreadable`) goes through `UpdateInstaller.discardRefusedArchive`, which deletes the stage folder AND the downloaded `Maugham-<ver>.zip` — the checker reuses a zip already at that path, so a bad one left there would be re-staged and re-refused on every later check. The next check downloads it again; with the ticket stapled, `spctl` needs no network, so a refusal is about the bytes rather than the connection.
 - **An archive is size-checked before it is unpacked.** `stageAndVerifyUnchecked` reads the zip's central directory with `/usr/bin/zipinfo -t` (`archiveTotals`/`parseZipinfoTotals`) and asks the pure `extractionDecision`: refuse over `UpdateLimits.maxUncompressedBytes` (1 GB) or `maxFiles` (20 000), or when the Updates volume's `volumeAvailableCapacityForImportantUsage` is under `uncompressedBytes * 2 + 256 MB` (twice, because the helper copies it again beside the installed app). Over-limit and not-enough-space are `InstallError.archiveTooLarge(reason)`; totals or free space that can't be read are `InstallError.archiveUnreadable` ("The downloaded update couldn't be read…"), a refusal too. Both take the same `discardRefusedArchive` cleanup. **Stated limit:** the totals are what the archive DECLARES; a crafted one can lie, and only a byte-counting extractor would close that.
 - **The download is capped** at `UpdateLimits.standard.maxDownloadBytes` (512 MB, ~17× a release today): an asset DECLARING more is refused before a byte is fetched (an error on a manual check, idle on a background poll), and a download RECEIVING more is cancelled and leaves no file.
 - Strict `>` version comparison (`UpdateChecker.swift`) prevents downgrade.
@@ -90,8 +94,14 @@ for the marker, which is read off the built plist:
   updater would withhold an update from Macs that could have run it. That is the direction the
   census guards: `TripwireGrepTests.test_everyMacOSFloorInProjectYmlIsTheSameNumber`, with
   `test_theMacOSFloorCensusFiresOnAPlantedOffender` as its control.
-- CI marks patch ≥ 90 as a pre-release; `/releases/latest` excludes pre-releases, so
-  throwaway dry-run builds (e.g. `v0.0.91`) never auto-install into production.
+- **Which release is "latest" is decided in-app, never by `/releases/latest`.**
+  `GitHubReleasesAPI.fetchLatestRelease` reads the first 30 entries of `/releases` and
+  `latestMacRelease` takes the highest `SemanticVersion` among those that are not a draft, not a
+  pre-release, and carry a plain `X.Y.Z` Mac tag (a `phone-v*` tag parses to nil and is skipped —
+  `/releases/latest` returns the most recently *published* release across all tags, which a phone
+  tag cut after the Mac release would win). `release.yml` marks patch ≥ 90 as a pre-release, so
+  throwaway dry-run builds (e.g. `v0.5.90`) are filtered out and never auto-install into
+  production.
 - The staged bundle's quarantine xattr is stripped before install (the app was already
   notarized; the xattr would re-trigger Gatekeeper on first launch).
 
@@ -187,6 +197,22 @@ a version not newer than the running app is stale (that update arrived) and says
 update surface (none was added), so a writer who never opens a project sees the sentence only in
 Check for Updates…; the notice waits for either until dismissed or the app quits.
 
+**Install-time refusals are counted (#67 final review).** `reportInstallStatus` increments
+`InstallRefusalMemory` (UserDefaults key `maugham.updateInstallRefusals`: one version and a count;
+injected as `refusalDefaults` so tests use a private suite) on every `refused` line. Once a version
+has been refused **twice** (`backgroundLimit`), the background poll stays quietly idle for it —
+no download, no stage, no banner — because each retry is a full re-download refused again on the
+next quit. A manual Check for Updates still downloads and stages it. The memory is forgotten when
+a check is offered any other version, or when the running app has reached it (up to date). A
+`failed` line is not counted: those staged files are kept and retried. The refused sentence still says *"Maugham will
+download it again"*; after the second refusal that happens only from Check for Updates… (a
+wording question for Denver, not changed here).
+
+**A pending version is not re-staged.** While `pendingQuitInstall` names version V and its
+`staged-<V>` bundle exists, a later check offered V (background or manual) neither downloads nor
+stages — re-staging would `removeItem` the stage folder and re-`ditto` it while a quit could hand
+that path to the helper — and just restores `.readyToInstall` with the pending bundle.
+
 **Debug caveat.** When launched from Xcode/lldb, the debugger kills the process group on
 app exit, so the helper is killed with it. The in-place swap will not apply in debug
 sessions — only in production (Finder/Dock) launches where the child is truly detached.
@@ -220,11 +246,13 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |
 | `atomicSwap` cross-volume → `.crossVolume` | Yes (RAM disk via hdiutil; skipped if unavailable) | `test_atomicSwap_throwsCrossVolume_*` |
 | Download retry classifier, size cap, extension from the asset name | Yes (pure) | `UpdateDownloadTests` |
-| Download delegate path: completes into place / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
+| Download delegate path: completes into place / progress never decreases and ends at 1.0 / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
 | An asset declaring more than the cap is never downloaded | Yes (injected download closure) | `UpdateCheckerTests.test_anAsset*Cap*` |
 | Only this repo's release URL is trusted; an untrusted one is never downloaded | Yes (pure table; injected download closure) | `GitHubReleasesAPITests.test_onlyThisRepos*`; `UpdateCheckerTests.test_anUntrustedAssetURL*` |
 | Redirect policy (https only, any host) | Pure decision only — the delegate's redirect is not exercised offline | `UpdateDownloadTests.test_aRedirectIsFollowedOnlyToHttps` |
 | Zip totals parse; each size/space refusal arm; a real tiny zip is read by `zipinfo`; a zip with no room is refused before unpacking and deleted | Yes (pure + injected free space + real `ditto -c -k` under `TestTemp.root`) | `UpdateInstallerTests.test_*Zipinfo*`, `test_extractionDecision_*`, `test_archiveTotals*`, `test_aZipTooBig*` |
+| A pending version is not re-downloaded or re-staged; a gone bundle is staged again | Yes (injected closures, a bundle folder under `TestTemp.root`) | `UpdateCheckerTests.test_aCheckForTheVersionAlreadyPending*`, `test_aPendingBundleThatIsGone*` |
+| Refusal memory: one refusal still auto-stages; two keep the background poll idle while a manual check proceeds; a newer version or reaching it clears it | Yes (injected `refusalDefaults` suite) | `UpdateCheckerTests.test_oneRefusal*`, `test_twoRefusals*`, `test_aNewerVersionClears*`, `test_reachingTheRefusedVersion*` |
 | Install-status line: both forms parse, garbage and non-`X.Y.Z` versions don't; both sentences; the file is removed even when garbage; `refused` deletes only that version's zip and stage folder, `failed` keeps them; the notice the checker holds survives every later check result and is cleared only by Dismiss | Yes (pure + files under `TestTemp.root`; windowless) | `InstallStatusTests` |
 | A refused zip is deleted with its stage folder | Yes (garbage / app-less zip under `TestTemp.root`, real `ditto`) | `UpdateInstallerTests.test_aZip*IsDeleted*` |
 | Running-app Team ID (real signed build) | No — ad-hoc test host returns nil; proven in dry-run | `test_runningAppTeamID_doesNotCrash` (smoke only) |
@@ -251,7 +279,7 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 | File | Purpose |
 |---|---|
 | `UpdateInstaller.swift` | Stage-and-verify (every refusal deletes the zip too, `discardRefusedArchive`), verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), the helper (`helperScript`/`helperArguments`/`HelperTools`/`HelperFailureStep`, the install-time re-check), Team ID extraction |
-| `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the trusted-URL check and the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
+| `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the trusted-URL check and the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` (never re-staged while it exists), `InstallRefusalMemory` (the two-refusal background guard) |
 | `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` (resuming from its resume data) or an HTTP 5xx, progress kept monotonic across it, cancelled past the cap (a Swift-Task cancel that lands before the task exists cancels it instead of resuming it), a non-https redirect refused; the extension comes from the asset's name |
 | `UpdateLimits.swift` | The updater's size ceilings (`UpdateLimits.standard`; `maxDownloadBytes` 512 MB, `maxUncompressedBytes` 1 GB, `maxFiles` 20 000) |
 | `UpdateState.swift` | Enum of updater states (idle/checking/downloading/readyToInstall/installing/error/upToDate/newerBuildNeedsNewerSystem) |

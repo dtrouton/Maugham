@@ -9,6 +9,22 @@ import XCTest
 @MainActor
 final class InstallStatusTests: XCTestCase {
 
+    /// A private preferences domain per test: a `refused` line is remembered
+    /// (#67 final review), and the test host's `.standard` is shared.
+    private var defaultsSuite = ""
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        defaultsSuite = "InstallStatusTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuite)
+    }
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defaults = nil
+        super.tearDown()
+    }
+
     // MARK: - parse
 
     func test_parse_readsBothForms() {
@@ -90,7 +106,8 @@ final class InstallStatusTests: XCTestCase {
             currentVersionString: currentVersion,
             fetchLatest: { throw URLError(.notConnectedToInternet) },
             downloadAsset: { _, _, _ in throw URLError(.notConnectedToInternet) },
-            stageAndVerify: { u, _ in u })
+            stageAndVerify: { u, _ in u },
+            refusalDefaults: defaults)
     }
 
     /// The two artifacts a version leaves in the Updates folder, plus a
@@ -188,6 +205,9 @@ final class InstallStatusTests: XCTestCase {
         await failing.performCheck(trigger: .background)
         XCTAssertEqual(failing.installNotice, .refused(version: "0.43.0"))
 
+        // A separate scenario: a FIRST refusal, which the background poll still
+        // re-stages. (Two keep it idle — `UpdateCheckerTests.test_twoRefusals*`.)
+        InstallRefusalMemory.clear(defaults: defaults)
         _ = try writeStatus("refused 0.43.0")
         let ready = UpdateChecker(
             currentVersionString: "0.42.0",
@@ -201,7 +221,8 @@ final class InstallStatusTests: XCTestCase {
             },
             downloadAsset: { _, _, _ in TestTemp.root.appendingPathComponent("Maugham-0.43.0.zip") },
             stageAndVerify: { _, _ in TestTemp.root.appendingPathComponent("staged-0.43.0/Maugham.app") },
-            systemVersion: MinimumSystemVersion(major: 27))
+            systemVersion: MinimumSystemVersion(major: 27),
+            refusalDefaults: defaults)
         ready.reportInstallStatus(in: TestTemp.root)
         await ready.performCheck(trigger: .background)
         // Both draw: the refusal, and beneath it the fresh "0.43.0 is ready".

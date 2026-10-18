@@ -140,6 +140,19 @@ final class UpdateDownloadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: dest), try Data(contentsOf: src))
     }
 
+    /// The fractions the real delegate delivers never go backwards and end at
+    /// 1.0. No count is asserted: a `file://` source may arrive in one chunk.
+    func test_aCompleteDownloadsProgressRisesToOne() async throws {
+        let src = try source(bytes: 200_000)
+        let dest = TestTemp.root.appendingPathComponent("Maugham-9.9.9.zip.download")
+        let seen = ProgressLog()
+        try await UpdateDownload.download(from: src, to: dest) { seen.append($0) }
+        let fractions = seen.values
+        XCTAssertFalse(fractions.isEmpty, "the delegate reports progress at least once")
+        XCTAssertEqual(fractions, fractions.sorted(), "progress never decreases: \(fractions)")
+        XCTAssertEqual(fractions.last, 1.0)
+    }
+
     func test_aDownloadOverTheCapLeavesNothingBehind() async throws {
         let src = try source(bytes: 200_000)
         let dest = TestTemp.root.appendingPathComponent("Maugham-9.9.9.zip.download")
@@ -174,4 +187,12 @@ final class UpdateDownloadTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: dest.path))
     }
+}
+
+/// Collects progress fractions from the download delegate's queue.
+private final class ProgressLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Double] = []
+    func append(_ value: Double) { lock.lock(); stored.append(value); lock.unlock() }
+    var values: [Double] { lock.lock(); defer { lock.unlock() }; return stored }
 }

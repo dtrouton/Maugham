@@ -36,19 +36,24 @@ public final class UpdateChecker: ObservableObject {
     private let downloadAsset: (GitHubRelease.Asset, String, @escaping @MainActor (Double) -> Void) async throws -> URL
     private let stageAndVerify: (URL, String) async throws -> URL
     private let systemVersion: MinimumSystemVersion
+    /// Where the install-time refusals are remembered (#67 final review):
+    /// `.standard` in the app, a private suite in tests.
+    private let refusalDefaults: UserDefaults
 
     public init(
         currentVersionString: String,
         fetchLatest: @escaping () async throws -> GitHubRelease,
         downloadAsset: @escaping (GitHubRelease.Asset, String, @escaping @MainActor (Double) -> Void) async throws -> URL,
         stageAndVerify: @escaping (URL, String) async throws -> URL,
-        systemVersion: MinimumSystemVersion = .runningSystem
+        systemVersion: MinimumSystemVersion = .runningSystem,
+        refusalDefaults: UserDefaults = .standard
     ) {
         self.currentVersionString = currentVersionString
         self.fetchLatest = fetchLatest
         self.downloadAsset = downloadAsset
         self.stageAndVerify = stageAndVerify
         self.systemVersion = systemVersion
+        self.refusalDefaults = refusalDefaults
     }
 
     /// Single check + (if needed) download. Trigger drives error visibility.
@@ -69,9 +74,13 @@ public final class UpdateChecker: ObservableObject {
                 return
             }
             guard newVersion > currentVersion else {
+                // The running version has reached whatever was refused.
+                InstallRefusalMemory.clear(defaults: refusalDefaults)
                 state = .upToDate(currentVersion: currentVersionString)
                 return
             }
+            // A different (newer) version on offer forgets the old refusals.
+            InstallRefusalMemory.forgetUnless(version: newVersion.string, defaults: refusalDefaults)
             // A newer Maugham this Mac cannot launch is not an update. Decided
             // BEFORE the asset guard and before any byte is fetched: the whole
             // point is that nothing is downloaded. A release carrying no
@@ -83,6 +92,30 @@ public final class UpdateChecker: ObservableObject {
                     currentVersion: currentVersionString,
                     newerVersion: newVersion.string,
                     requiredSystem: required.displayString)
+                return
+            }
+            // Already staged and waiting for a quit: nothing to fetch, and
+            // re-staging would delete and re-unzip `staged-<v>` while
+            // `pendingQuitInstall` points at it — a quit in that window hands
+            // the helper a missing or half-written bundle.
+            if let pending = pendingQuitInstall,
+               pending.version == newVersion.string,
+               FileManager.default.fileExists(atPath: pending.bundleURL.path) {
+                state = .readyToInstall(
+                    bundleURL: pending.bundleURL,
+                    version: pending.version,
+                    releaseNotes: MinimumSystemVersion.strippingMarker(from: release.body))
+                return
+            }
+            // A version the helper refused twice at install time is not staged
+            // again by the background poll — each refusal deleted the files, so
+            // each retry is a full download and a refusal on every quit. A
+            // manual Check for Updates still tries. (Asked after the pending
+            // reuse above, so a manual stage of it stays ready.)
+            if trigger == .background,
+               InstallRefusalMemory.refusals(for: newVersion.string, defaults: refusalDefaults)
+                   >= InstallRefusalMemory.backgroundLimit {
+                state = .idle
                 return
             }
             guard let asset = release.zipAsset ?? release.dmgAsset else {
@@ -216,6 +249,7 @@ public final class UpdateChecker: ObservableObject {
     func reportInstallStatus(in updatesDirectory: URL) -> InstallStatus? {
         guard let status = InstallStatus.consume(in: updatesDirectory) else { return nil }
         if case .refused(let version) = status {
+            InstallRefusalMemory.recordRefusal(version: version, defaults: refusalDefaults)
             UpdateInstaller.discardRefusedArchive(
                 zip: updatesDirectory.appendingPathComponent("Maugham-\(version).zip"),
                 stageDir: updatesDirectory.appendingPathComponent("staged-\(version)", isDirectory: true))
@@ -272,5 +306,37 @@ public final class UpdateChecker: ObservableObject {
     /// Force a check now (e.g. from the menu item). Bypasses the 24h gate.
     public func checkNow() async {
         await performCheck(trigger: .manual)
+    }
+}
+
+/// How many times the install-time check refused one version (#67 final
+/// review). One version at a time: offering any other version, or the running
+/// app reaching it, forgets it. Unscoped key by the same reasoning as
+/// `PendingUpdateReveal` — dev and stable are separate preferences domains.
+enum InstallRefusalMemory {
+    static let defaultsKey = "maugham.updateInstallRefusals"
+    /// Refusals at which the background poll stops re-staging that version.
+    static let backgroundLimit = 2
+
+    static func refusals(for version: String, defaults: UserDefaults) -> Int {
+        guard let stored = defaults.dictionary(forKey: defaultsKey),
+              stored["version"] as? String == version else { return 0 }
+        return stored["count"] as? Int ?? 0
+    }
+
+    static func recordRefusal(version: String, defaults: UserDefaults) {
+        let count = refusals(for: version, defaults: defaults) + 1
+        defaults.set(["version": version, "count": count], forKey: defaultsKey)
+    }
+
+    static func forgetUnless(version: String, defaults: UserDefaults) {
+        guard let stored = defaults.dictionary(forKey: defaultsKey),
+              stored["version"] as? String != version else { return }
+        clear(defaults: defaults)
+    }
+
+    static func clear(defaults: UserDefaults) {
+        guard defaults.object(forKey: defaultsKey) != nil else { return }
+        defaults.removeObject(forKey: defaultsKey)
     }
 }
