@@ -18,7 +18,7 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md": 7_987,  // plan 5: re-templated (30,412 → this), +228 review fixes (each tripwire names its census, the load's suspension points); the narrative is in docs/history/oplog.md
         "Maugham/Views/AREA.md": 7_987,  // plan 5: re-templated, +115 review fixes (28,289 → 7,872 → this; queue filters, Publish ordering, statement host, desk rules); the narrative is in docs/history/views.md
         "Maugham/Compiler/AREA.md": 7_858,  // plan 5: re-templated, +117 review fixes (23,782 → 7,741 → this; confinement of a raw spawn, the cross-lane count's one site, window hand-off); the narrative is in docs/history/compiler.md
-        "Maugham/Stores/AREA.md": 7_343,  // plan 5: re-templated (16,389 → this); the narrative is in docs/history/stores.md
+        "Maugham/Stores/AREA.md": 7_628,  // plan 5: re-templated, +285 review fixes (16,389 → 7,343 → this; tripwires 49/50, inbox promote order, backup-signature step); the narrative is in docs/history/stores.md
         "Maugham/MCP/AREA.md": 5_651,  // plan 5: re-templated (8,687 → this); the narrative is in docs/history/mcp.md
         "MaughamPhone/AREA.md": 4_033,  // plan 5: re-templated (5,007 → this); the narrative is in docs/history/phone.md
         "Maugham/Editor/AREA.md": 3_673,
