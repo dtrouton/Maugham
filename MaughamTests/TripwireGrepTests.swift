@@ -7631,7 +7631,7 @@ final class TripwireGrepTests: XCTestCase {
                     // A comment naming TranslationReveal.post( is not the call.
                     TranslationRoundReportHost(
                         round: round, store: store,
-                        onClose: { publishSelectedRound = nil },
+                        onClose: { publishCentre.clearRound() },
                         onReveal: { _ in })
                 case .designProposal(let proposal):
                     DesignGateView(proposal: proposal, onReveal: {

@@ -1406,8 +1406,8 @@ final class PublishPreviewCentreTests: XCTestCase {
         promoted.status = .approved
 
         XCTAssertEqual(
-            ProjectWindow.publishSelection(after: promoted,
-                                           showing: Self.aProposal)?.status,
+            PublishCentreModel.publishSelection(after: promoted,
+                                                showing: Self.aProposal)?.status,
             .approved,
             "the round on screen takes its own verb's answer, or the gate goes "
             + "on offering Approve over a design already live")
@@ -1418,26 +1418,42 @@ final class PublishPreviewCentreTests: XCTestCase {
             status: .pending, specMarkdown: "# another design",
             filePaths: ["template.tex"], sampleResult: nil, revertNote: nil)
         XCTAssertEqual(
-            ProjectWindow.publishSelection(after: promoted, showing: another)?.id,
+            PublishCentreModel.publishSelection(after: promoted, showing: another)?.id,
             another.id,
             "the writer moved on; a verb about the round they left must not "
             + "pull it back into the centre column")
         XCTAssertNil(
-            ProjectWindow.publishSelection(after: promoted, showing: nil),
+            PublishCentreModel.publishSelection(after: promoted, showing: nil),
             "…and one about a gate they CLOSED must not reopen it")
     }
 
     /// The bridge: the window's write-back goes through that rule rather than
     /// straight into its own state. Without this the pure test above pins a rule
-    /// nothing obeys.
+    /// nothing obeys. Two halves since foundations plan 4 Task 2 moved the rule
+    /// onto `PublishCentreModel`: the model's adopting verb asks the rule, and
+    /// the window's `onProposalChanged` reaches that verb — and nothing else in
+    /// the window writes a proposal back (`selectedProposal` is `private(set)`,
+    /// so the compiler holds that half).
     func test_theWindowsWriteBackGoesThroughTheSelectionRule() throws {
-        let code = SourceScan.codeLines(
-            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        let model = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("PublishCentreModel", under: ["Maugham"]))
+        let adopt = try XCTUnwrap(
+            model.firstIndex { $0.contains("func adoptVerbAnswer(_ updated: DesignProposalStore.Proposal)") },
+            "the model's proposal write-back verb is gone")
         XCTAssertTrue(
-            code.contains { $0.contains("publishSelection(") },
-            "`onProposalChanged` must adopt through `publishSelection`, or a "
+            model[adopt...].prefix(4).contains { $0.contains("Self.publishSelection(") },
+            "`adoptVerbAnswer` must adopt through `publishSelection`, or a "
             + "verb answering after the writer moved on writes the old proposal "
             + "back into the centre column")
+
+        let window = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        let changed = try XCTUnwrap(
+            window.firstIndex { $0.contains("onProposalChanged:") },
+            "the window no longer takes the gate's answer back at all")
+        XCTAssertTrue(
+            window[changed...].prefix(3).contains { $0.contains("publishCentre.adoptVerbAnswer(") },
+            "`onProposalChanged` must adopt through the model's verb")
     }
 
     // MARK: - The shape, in production
@@ -1926,16 +1942,38 @@ final class PublishPreviewCentreTests: XCTestCase {
 final class PublishCentreProbeBox {
     var subject: BinderSubject?
     var persona: Persona
-    var preview: PublishPreviewResolution = .nothingCompiled
+    /// **The window's own model** (foundations plan 4 Task 2): the same
+    /// `PublishCentreModel` `ProjectWindow` holds, so the modifier under test
+    /// writes it exactly as production does. The four properties below forward
+    /// to it so a test can move the column the way the window does.
+    let centre = PublishCentreModel()
+    var preview: PublishPreviewResolution {
+        get { centre.preview }
+        set { centre.preview = newValue }
+    }
     /// The header picker's window-transient choice — `nil` is "the newest".
-    var selectedPublicationID: String?
+    var selectedPublicationID: String? {
+        get { centre.selectedPublicationID }
+        set { centre.selectedPublicationID = newValue }
+    }
     /// The design proposal the desk's Show put in the centre (P4 Task 5) —
     /// window-transient like the pick above, but cleared by a persona change
-    /// where the pick deliberately is not.
-    var selectedProposal: DesignProposalStore.Proposal?
+    /// where the pick deliberately is not. Set through the desk's Show and the
+    /// gate's Back, the model's only doors.
+    var selectedProposal: DesignProposalStore.Proposal? {
+        get { centre.selectedProposal }
+        set {
+            if let newValue { centre.show(proposal: newValue) } else { centre.clearProposal() }
+        }
+    }
     /// …and the translation round the desk's other Show put there (translation
     /// pipeline P4 Task 3), cleared by a persona change for the same reason.
-    var selectedRound: TranslationRound?
+    var selectedRound: TranslationRound? {
+        get { centre.selectedRound }
+        set {
+            if let newValue { centre.show(round: newValue) } else { centre.clearRound() }
+        }
+    }
     /// The window the REFRESH MODIFIER actually got, which is not the same fact
     /// as the window the test made: `WindowAccessor` resolves it a runloop turn
     /// later, and ADR 0021's project scope drops a post whose receiver has no
@@ -2099,17 +2137,7 @@ private struct PublishRefreshProbeView: View {
             .background(WindowAccessor(window: $window))
             .modifier(PublishPreviewModifier(
                 projectURL: projectURL, window: window, persona: box.persona,
-                publishPreview: Binding(get: { box.preview },
-                                        set: { box.preview = $0 }),
-                selectedPublicationID: Binding(
-                    get: { box.selectedPublicationID },
-                    set: { box.selectedPublicationID = $0 }),
-                selectedProposal: Binding(
-                    get: { box.selectedProposal },
-                    set: { box.selectedProposal = $0 }),
-                selectedRound: Binding(
-                    get: { box.selectedRound },
-                    set: { box.selectedRound = $0 })))
+                centre: box.centre))
             .onChange(of: window) { _, next in box.modifierWindow = next }
     }
 }

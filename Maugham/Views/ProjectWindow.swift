@@ -191,42 +191,12 @@ struct ProjectWindow: View {
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
-    /// **The books the Publish persona's centre column can draw** (stage 3b
-    /// Task 5, a list since the 2026-08-12 revision gave the header a picker).
-    ///
-    /// A resolution rather than a `[Publication]` because the two ways of having
-    /// nothing to draw are different facts — never compiled, versus a catalog
-    /// that cannot be read — and the surface they share (the project at
-    /// altitude) must not be what erases the difference: each carries its own
-    /// notice. `PublishPreviewModifier` is its only writer; nothing here polls.
-    @State private var publishPreview: PublishPreviewResolution = .nothingCompiled
-    /// **Which of them the writer is looking at, by `publicationID`** — `nil` is
-    /// the newest. Window `@State` and deliberately NOT `UIState`: Denver's
-    /// ruling is that the pick is transient, so a relaunch opens on the newest
-    /// book rather than on whatever proof was being checked last week. A new
-    /// compile clears it too (`PublishPreviewModifier`).
-    @State private var publishSelectedPublicationID: String?
-    /// **The design proposal the department desk's Show put in the centre**
-    /// (publish-department P4 Task 5), or `nil` for the book.
-    ///
-    /// The whole value rather than an id: the desk read it off disk to draw its
-    /// own Design row and hands up what it already has, so nothing here reads
-    /// `.maugham/design/` a second time and the gate cannot disagree with the
-    /// row that opened it. Window `@State` and cleared on any persona change
-    /// (`PublishPreviewModifier`) — a gate is a place in a decision, and leaving
-    /// Publish is leaving it.
-    @State private var publishSelectedProposal: DesignProposalStore.Proposal?
-    /// **The translation round the desk sent to the centre** (translation
-    /// pipeline P4), beside the design proposal above. The whole value for
-    /// `publishSelectedProposal`'s reason: the desk derived it to draw the
-    /// row's own line, so nothing here reads `TranslationRoundStore` a second
-    /// time.
-    ///
-    /// Written by the desk's two Shows, which clear each other; drawn by
-    /// `PublishCentre.translationRound`, which outranks the gate above; and
-    /// cleared on a persona change by `PublishPreviewModifier`, exactly as the
-    /// proposal above is (Task 3).
-    @State private var publishSelectedRound: TranslationRound?
+    /// **What the Publish persona's centre column is showing** — the compiled
+    /// books, the header's pick, and the desk's two Shows — and the rules for
+    /// changing it (foundations plan 4 Task 2). Window-transient: see
+    /// `PublishCentreModel`. `PublishPreviewModifier` keeps its books current;
+    /// the static `publishCentre(…)` decides which surface draws from its values.
+    @State private var publishCentre = PublishCentreModel()
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var currentElement: String? = nil
@@ -715,10 +685,7 @@ struct ProjectWindow: View {
         // reaches the centre column.
         .modifier(PublishPreviewModifier(
             projectURL: url, window: window, persona: persona,
-            publishPreview: $publishPreview,
-            selectedPublicationID: $publishSelectedPublicationID,
-            selectedProposal: $publishSelectedProposal,
-            selectedRound: $publishSelectedRound))
+            centre: publishCentre))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -1718,9 +1685,8 @@ struct ProjectWindow: View {
     /// (translation pipeline P4 Task 3), composed into the same function for the
     /// same reason. The desk now has two Shows, each clearing the other as it
     /// writes, so what the writer pressed last is the only selection standing —
-    /// but the *order* is still needed here, because two `@State` writes landing
-    /// in one body pass would otherwise make which surface draws a question
-    /// about their sequence.
+    /// but the *order* is still stated here, so which surface draws never rests on
+    /// that invariant alone.
     ///
     /// **The round arm is NOT project-level, as of 2026-09-02 (Denver's
     /// ruling).** A round is about one chapter, and Show pressed with that
@@ -1758,46 +1724,6 @@ struct ProjectWindow: View {
         case .unreadableCatalog(let reason):
             return .notice(.unreadableCatalog(reason: reason))
         }
-    }
-
-    /// **A gate verb's answer, adopted only if it is about the round on
-    /// screen** (the final-review wave).
-    ///
-    /// A verb answers from a `Task` that outlives the press: a promotion is file
-    /// I/O over the writer's whole template set, and they are free to press Back
-    /// — or Show a different round on the desk — while it runs. Writing the
-    /// answer in unconditionally would then put the OLD proposal into the centre
-    /// column, reopening a gate the writer closed or replacing the round they
-    /// had just opened, both of them a frame after they acted.
-    ///
-    /// A static rather than a guard inside the closure because it is a rule
-    /// about which of two values wins, and one written inline is one no test can
-    /// reach — the very shape the write-back exists to protect is then
-    /// unassertable.
-    static func publishSelection(after updated: DesignProposalStore.Proposal,
-                                 showing current: DesignProposalStore.Proposal?)
-    -> DesignProposalStore.Proposal? {
-        current?.id == updated.id ? updated : current
-    }
-
-    /// **The same rule for a round's verb** (translation pipeline P4 Task 3),
-    /// and the same argument: "Fine" and "Adopt" answer from a `Task` that
-    /// outlives the press, and the writer is free to press Back — or Show a
-    /// different round, or the design gate — while it runs.
-    ///
-    /// A round has no `id`; it is identified by `(language, number)`, which is
-    /// what `TranslationRoundStore` keys its ring on. Written out here rather
-    /// than as an `Equatable` conformance on the record, because two rounds with
-    /// the same number in the same language ARE the same round at two moments —
-    /// which is exactly the case this write-back exists for — while
-    /// `TranslationRound: Equatable` is a value comparison the store and the
-    /// tests depend on.
-    static func publishSelection(after updated: TranslationRound,
-                                 showing current: TranslationRound?)
-    -> TranslationRound? {
-        current.map { $0.language == updated.language && $0.number == updated.number } == true
-            ? updated
-            : current
     }
 
     /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
@@ -2263,9 +2189,9 @@ struct ProjectWindow: View {
             switch Self.publishCentre(persona: persona,
                                       subject: selectedSubject,
                                       structure: store.manifest.structure,
-                                      preview: publishPreview,
-                                      proposal: publishSelectedProposal,
-                                      round: publishSelectedRound) {
+                                      preview: publishCentre.preview,
+                                      proposal: publishCentre.selectedProposal,
+                                      round: publishCentre.selectedRound) {
             // **The round report, a fifth layer of this same stack**
             // (translation pipeline P4 Task 3) — a fourth arm of the ONE switch
             // for the gate's reason: two ViewBuilder arms are two view
@@ -2279,12 +2205,12 @@ struct ProjectWindow: View {
                     actions: TranslationRoundActions.production(
                         store: store, documentStore: documentStore,
                         projectURL: store.url, world: declaredWorld),
-                    onClose: { publishSelectedRound = nil },
-                    // Through `publishSelection`, never straight in: a verb
-                    // answers from a `Task` that outlives the press.
+                    onClose: { publishCentre.clearRound() },
+                    // Through `PublishCentreModel.publishSelection`, never
+                    // straight in: a verb answers from a `Task` that outlives
+                    // the press.
                     onRoundChanged: { updated in
-                        publishSelectedRound = Self.publishSelection(
-                            after: updated, showing: publishSelectedRound)
+                        publishCentre.adoptVerbAnswer(updated)
                     },
                     // **A row as a way back into the manuscript** (P4 Task 5).
                     // The row knows its own paragraph; the round knows the
@@ -2297,7 +2223,7 @@ struct ProjectWindow: View {
                         // cross-chapter reveal makes; now that the arm draws
                         // over a chapter too, the dismissal is explicit and
                         // covers the same-chapter reveal as well.
-                        publishSelectedRound = nil
+                        publishCentre.clearRound()
                         TranslationReveal.post(.init(
                             docId: round.docId, language: round.language,
                             paragraphId: paragraphId))
@@ -2312,7 +2238,7 @@ struct ProjectWindow: View {
                                // pure function of this one piece of window
                                // state, so dropping it hands the column back to
                                // whatever the book's own rule answers.
-                               onClose: { publishSelectedProposal = nil },
+                               onClose: { publishCentre.clearProposal() },
                                // …and the same piece of state is how a verb's
                                // result reaches the surface. The gate holds the
                                // proposal as a VALUE and `approve` marks it
@@ -2320,21 +2246,20 @@ struct ProjectWindow: View {
                                // this write the gate would go on offering
                                // Approve over a design already live.
                                //
-                               // **Through `publishSelection`, never straight
-                               // in**: a verb answers from a `Task` that
-                               // outlives the press, and the writer is free to
-                               // press Back or Show another round while it runs.
+                               // **Through the model's `publishSelection`,
+                               // never straight in**: a verb answers from a
+                               // `Task` that outlives the press, and the writer
+                               // is free to press Back or Show another round
+                               // while it runs.
                                onProposalChanged: { updated in
-                                   publishSelectedProposal = Self.publishSelection(
-                                       after: updated,
-                                       showing: publishSelectedProposal)
+                                   publishCentre.adoptVerbAnswer(updated)
                                })
             case .books(let publications):
                 PublishPreviewCentre(
                     publications: publications,
                     projectURL: store.url,
                     title: store.manifest.title,
-                    selectedPublicationID: $publishSelectedPublicationID)
+                    selectedPublicationID: $publishCentre.selectedPublicationID)
             case .notice(let notice):
                 PublishCentreNoticeBanner(notice: notice)
             case .none:
@@ -3185,19 +3110,10 @@ struct ProjectWindow: View {
             // as of translation pipeline P4, a round's. They are the only
             // things on that pane that reach the CENTRE column, and each is
             // one write of the window state its own arm is a function of.
-            //
-            // **One centre, one selection.** The gate arm and the round arm are
-            // two readings of the same column, so each Show clears the other:
-            // leaving both set would make which one the centre draws a question
-            // about the order of two `@State` writes.
-            onShowDesignProposal: {
-                publishSelectedProposal = $0
-                publishSelectedRound = nil
-            },
-            onShowTranslationRound: {
-                publishSelectedRound = $0
-                publishSelectedProposal = nil
-            },
+            // Each Show clears the other (`PublishCentreModel.show`): one
+            // centre, one selection.
+            onShowDesignProposal: { publishCentre.show(proposal: $0) },
+            onShowTranslationRound: { publishCentre.show(round: $0) },
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue

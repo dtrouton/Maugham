@@ -25,9 +25,9 @@ struct TranslationReviewModifier: ViewModifier {
     let activeDocId: String
     /// The window's one subject-picker, written when a reveal names a chapter
     /// that is not the open one (P4 Task 5). The round report the row was
-    /// clicked in is dismissed by the report's own `onReveal` (it clears
-    /// `publishSelectedRound` before posting) — it used to fall out of the
-    /// subject change, but since 2026-09-02 the report draws over a chapter
+    /// clicked in is dismissed by the report's own `onReveal` (it calls
+    /// `PublishCentreModel.clearRound` before posting) — it used to fall out of
+    /// the subject change, but since 2026-09-02 the report draws over a chapter
     /// subject too, so the dismissal is explicit.
     @Binding var selectedSubject: BinderSubject?
     /// For the pending reveal's one question: has that chapter's `Document`
