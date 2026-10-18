@@ -1,4 +1,5 @@
 import AppKit
+import MaughamCore
 
 /// Disk I/O for the canvas: the derived sidecar and the plain-text scraps.
 ///
@@ -32,10 +33,24 @@ final class CanvasStore {
 
     private let debounceInterval: TimeInterval
 
+    /// Whether a file is an iCloud item whose bytes are not current on this Mac
+    /// (issue #88). Asked BEFORE either file is read, because reading a dataless
+    /// file from the main actor can block on a download; such a file is
+    /// `.unreadable` without a byte read. Injected by tests; production is the
+    /// app's one stub rule, `OpLogQuarantine.defaultStubProbe`.
+    private let isStub: (URL) -> Bool
+    /// Asks iCloud to bring a stub down, so a later retry finds the bytes.
+    /// Never waited on.
+    private let startDownload: (URL) -> Void
+
     init(projectRoot: URL,
-         debounceInterval: TimeInterval = CanvasStore.defaultDebounceInterval) {
+         debounceInterval: TimeInterval = CanvasStore.defaultDebounceInterval,
+         isStub: @escaping (URL) -> Bool = OpLogQuarantine.defaultStubProbe,
+         startDownload: @escaping (URL) -> Void = CanvasStore.defaultStartDownload) {
         self.projectRoot = projectRoot
         self.debounceInterval = debounceInterval
+        self.isStub = isStub
+        self.startDownload = startDownload
         // `.onDisappear` does NOT fire on app quit, and the 750ms debounce is
         // exactly long enough to lose the writer's last drag. This is an AppKit
         // lifecycle notification, not a `maugham.*` one, so it is outside
@@ -129,33 +144,142 @@ final class CanvasStore {
     func load() -> Loaded {
         // canvas.md is scrap CONTENT, not a manuscript — it never goes through
         // the op log (spec §8); this function IS its reconciler.
-        let scraps = (try? String(contentsOf: scrapsURL, encoding: .utf8)) // adr-0018-ok: canvas.md scrap text, not manuscript
-            .map(ScrapText.parse) ?? [:]
+        //
+        // **Absent and unreadable are two different facts** (issue #88). An
+        // absent canvas.md is a canvas with no scraps yet; one that is there and
+        // will not read (an iCloud stub, a permissions break, a directory in its
+        // place) still holds every scrap's words, and the next save would write
+        // `ScrapText.render([:])` over them. So it refuses the load exactly as an
+        // unreadable layout does.
+        let scrapsRead = Self.read(scrapsURL, isStub: isStub, startDownload: startDownload)
+        var scraps: [CanvasNodeID: String] = [:]
+        var scrapsUnreadable = false
+        switch scrapsRead {
+        case .absent:
+            break
+        case .unreadable:
+            scrapsUnreadable = true
+        case .bytes(let data):
+            // Not lossy: bytes that are not UTF-8 are words this build can't
+            // read, and a save would replace them with whatever a lossy decode
+            // made of them.
+            if let text = String(data: data, encoding: .utf8) {
+                scraps = ScrapText.parse(text)
+            } else {
+                scrapsUnreadable = true
+            }
+        }
 
         // canvas.json is the derived sidecar, not a manuscript.
-        guard let data = try? Data(contentsOf: sidecarURL) else { // adr-0018-ok: canvas.json derived sidecar, not manuscript
+        let sidecarRead = Self.read(sidecarURL, isStub: isStub, startDownload: startDownload)
+
+        // Unreadable outranks every other answer: it is the one that may change
+        // on its own (a download finishing), and a damaged layout must not be
+        // offered Start a Fresh Layout while the words beside it can't be read.
+        if scrapsUnreadable {
+            return refuse(.unreadable, scraps: [:])
+        }
+        let data: Data
+        switch sidecarRead {
+        case .absent:
             loadRefusal = nil
             return Loaded(scene: CanvasScene(), scraps: scraps, sidecar: .absent, refusal: nil)
+        case .unreadable:
+            return refuse(.unreadable, scraps: scraps)
+        case .bytes(let bytes):
+            data = bytes
         }
         switch Self.decode(data) {
         case .failure(let reason):
             // Corrupt, or from a newer build. An empty layout with the words
             // intact is a recoverable state; a crash is not — and the FILE is
             // left alone, because it is somebody's arrangement.
-            let refusal = SidecarRefused(projectName: projectRoot.lastPathComponent,
-                                         reason: reason)
-            loadRefusal = refusal
-            // A payload queued before this load was made against whatever the
-            // file held THEN; it may not land over what it holds now.
-            pendingSave?.cancel()
-            pendingSave = nil
-            pendingPayload = nil
-            return Loaded(scene: CanvasScene(), scraps: scraps, sidecar: .refused,
-                          refusal: refusal)
+            return refuse(reason, scraps: scraps)
         case .success(let dto):
             loadRefusal = nil
             return Loaded(scene: dto.scene, scraps: scraps, sidecar: .decoded, refusal: nil)
         }
+    }
+
+    /// A refused load: the scene is empty (what this build made up is not the
+    /// writer's layout), the words that DID read are kept, and nothing this
+    /// store holds may be written from now on.
+    private func refuse(_ reason: SidecarRefused.Reason,
+                        scraps: [CanvasNodeID: String]) -> Loaded {
+        let refusal = SidecarRefused(projectName: projectRoot.lastPathComponent,
+                                     reason: reason)
+        loadRefusal = refusal
+        // A payload queued before this load was made against whatever the
+        // file held THEN; it may not land over what it holds now.
+        pendingSave?.cancel()
+        pendingSave = nil
+        pendingPayload = nil
+        return Loaded(scene: CanvasScene(), scraps: scraps, sidecar: .refused,
+                      refusal: refusal)
+    }
+
+    /// What reading one of the canvas's two files found (issue #88).
+    enum FileRead: Equatable {
+        /// No file and no iCloud placeholder for one: nothing to lose.
+        case absent
+        case bytes(Data)
+        /// **Present, and not readable right now** — an iCloud stub or
+        /// placeholder, a permissions break, a directory in its place, an I/O
+        /// error. It is somebody's file, so it is never written over.
+        case unreadable
+    }
+
+    /// **The one classifier both files and `setDamagedSidecarAside` read
+    /// through.** Never blocks on iCloud: a stub is answered from its resource
+    /// values before any byte is asked for (and a download is requested, not
+    /// awaited). Only a missing file with no `.<name>.icloud` placeholder beside
+    /// it is absent; every other failure is unreadable.
+    static func read(_ url: URL,
+                     isStub: (URL) -> Bool,
+                     startDownload: (URL) -> Void) -> FileRead {
+        if isStub(url) {
+            startDownload(url)
+            return .unreadable
+        }
+        do {
+            return .bytes(try Data(contentsOf: url)) // adr-0018-ok: canvas.md scrap text / canvas.json derived sidecar, not manuscript
+        } catch {
+            guard isNoSuchFile(error) else { return .unreadable }
+            if hasICloudPlaceholder(for: url) {
+                startDownload(url)
+                return .unreadable
+            }
+            return .absent
+        }
+    }
+
+    private static func isNoSuchFile(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == CocoaError.fileReadNoSuchFile.rawValue {
+            return true
+        }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain, underlying.code == Int(ENOENT) {
+            return true
+        }
+        return false
+    }
+
+    /// The old-style iCloud placeholder: the real file is gone and
+    /// `.<name>.icloud` stands beside it. The same shape the op-log sweep
+    /// refuses on (`StreamPositions.nameBehindICloudPlaceholder`, Core-internal,
+    /// hence spelled here from the other direction).
+    static func hasICloudPlaceholder(for url: URL) -> Bool {
+        let placeholder = url.deletingLastPathComponent()
+            .appendingPathComponent("." + url.lastPathComponent + ".icloud")
+        return FileManager.default.fileExists(atPath: placeholder.path)
+    }
+
+    /// Production download request. Fire-and-forget; a failure only means a
+    /// retry finds the file still unreadable.
+    static func defaultStartDownload(_ url: URL) {
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
     }
 
     /// The sidecar's bytes decoded, or why this build cannot use them.
@@ -191,6 +315,11 @@ final class CanvasStore {
             /// Not JSON, truncated, hand-edited — anything at a version this build
             /// knows (or with no readable version at all) that will not decode.
             case damaged
+            /// Either file — `canvas.json` or `canvas.md` — is there but could not
+            /// be read just now: an iCloud stub still downloading, a placeholder,
+            /// a permissions break (issue #88). Unlike the other two it can
+            /// change on its own, so the way out is waiting, never a fresh layout.
+            case unreadable
 
             /// The writer-facing sentence, one per reason (Denver's rulings on
             /// #44, 2026-10-18). Every surface — the canvas's notice, the inbox
@@ -201,6 +330,8 @@ final class CanvasStore {
                     return "This canvas was saved by a newer version of Maugham, so only its words are shown. Update Maugham to see and edit your layout."
                 case .damaged:
                     return "This canvas's layout file is damaged, so only its words are shown. Start a Fresh Layout sets the damaged file aside and lays your words out again."
+                case .unreadable:
+                    return "Maugham couldn't read this canvas's files just now, so it can't be changed yet. If the project is in iCloud they may still be downloading — Maugham will keep trying."
                 }
             }
         }
@@ -268,8 +399,16 @@ final class CanvasStore {
     ///
     /// Returns where the damaged file now is.
     func setDamagedSidecarAside(now: Date = Date()) throws -> URL {
-        guard let data = try? Data(contentsOf: sidecarURL) else { // adr-0018-ok: canvas.json derived sidecar, not manuscript
+        let data: Data
+        switch Self.read(sidecarURL, isStub: isStub, startDownload: startDownload) {
+        case .absent:
             throw FreshLayoutRefused.nothingDamaged
+        case .unreadable:
+            // Not damaged — not readable at all just now (#88). Nothing moves.
+            throw SidecarRefused(projectName: projectRoot.lastPathComponent,
+                                 reason: .unreadable)
+        case .bytes(let bytes):
+            data = bytes
         }
         switch Self.decode(data) {
         case .failure(.damaged):
