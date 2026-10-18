@@ -3,7 +3,7 @@ import XCTest
 @testable import MaughamCore
 
 /// **A phone-written claim, read on the Mac** (your devices are you, plan 2
-/// Task 1; Review Focus 1; the phone's AREA.md iOS tripwire #7).
+/// Task 1; Review Focus 1; `MaughamPhone/AREA.md`, Rules → iCloud and the folder: phone-written rows are byte-compatible).
 ///
 /// The bytes below were WRITTEN BY THE PHONE: `MaughamPhoneTests`'
 /// `PhoneClaimFixtureDump` (opt-in — its header says how to run it to

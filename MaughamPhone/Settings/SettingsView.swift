@@ -27,7 +27,7 @@ struct SettingsView: View {
     @State private var showFolderPicker = false
     /// C5 (P3c plan 2, Task 6): the standing is re-read when the app returns
     /// to the front, since it changes on the Mac and the phone has no file
-    /// presenter (iOS tripwire 5).
+    /// presenter (`MaughamPhone/AREA.md`, Rules → iCloud and the folder: no live cross-device updates).
     @Environment(\.scenePhase) private var scenePhase
 
     /// This phone's standing in each recent book, by project id, and its own

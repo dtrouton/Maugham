@@ -262,7 +262,7 @@ final class PhonePersonClaimTests: XCTestCase {
         XCTAssertEqual(store.finds, 0, "never looked")
     }
 
-    // MARK: - The round trip (Review Focus 1, iOS tripwire #7)
+    // MARK: - The round trip (Review Focus 1; `MaughamPhone/AREA.md`, Rules → iCloud and the folder: phone-written rows are byte-compatible)
 
     /// The Mac roots the book and links its own person key exactly as its open
     /// does (Core's `ensureDeviceRecord` + `ensureRootIfEmpty` +

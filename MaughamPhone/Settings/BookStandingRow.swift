@@ -75,7 +75,7 @@ struct BookStandingRow: Equatable {
     /// **Settings re-reads when the app comes back to the front.** The
     /// standing changes on the MAC — the writer admits or promotes this phone
     /// there and comes back to check — and the phone has no file presenter
-    /// (iOS tripwire 5), so returning to the app and pulling to refresh are
+    /// (`MaughamPhone/AREA.md`, Rules → iCloud and the folder: no live cross-device updates), so returning to the app and pulling to refresh are
     /// the two moments it looks again.
     static func rereads(on phase: ScenePhase) -> Bool {
         phase == .active

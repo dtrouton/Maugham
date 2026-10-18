@@ -181,6 +181,6 @@ The full install cycle (codesign + notarize + download + verify + swap + relaunc
 - Spec: `docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`. Its "Error handling" promise of an atomic rename is what `renamex_np(RENAME_SWAP)` now delivers; where the spec and this guide differ, this guide describes the code.
 - Releases and signing: `docs/RELEASING.md`, `.github/workflows/release.yml` (the minimum-macOS marker, the stapled ticket, patch ≥ 90 pre-releases).
 - The dry run is the integration test: a throwaway tag through the real pipeline (`docs/RELEASING.md`) is the only proof of signing, notarization and the swap.
-- Tripwire 13 (`docs/tripwires.md`): the variant-dependent paths come from `BuildVariant`.
-- Tests: `UpdateInstallerTests`, `UpdateSwapHelperEndToEndTests`, `UpdateCheckerTests`, `UpdateDownloadTests`, `InstallStatusTests`, `UpdateSweepTests`, `GitHubReleasesAPITests`, `MinimumSystemVersionTests`, `PendingUpdateRevealTests`.
+- Tripwire 13 (`docs/tripwires.md`, `TripwireGrepTests.test_noHardcodedIdentityStringsInMacSources`): the variant-dependent paths come from `BuildVariant`.
+- Tests: `UpdateInstallerTests`, `UpdateSwapHelperEndToEndTests`, `UpdateCheckerTests`, `UpdateDownloadTests`, `InstallStatusTests`, `UpdateSweepTests`, `GitHubReleasesAPITests`, `MinimumSystemVersionTests`, `PendingUpdateRevealTests`, `UpdateBannerIntegrationTests`, `UpdateProgressTests`, `UpdateSheetIntegrationTests`, `UpdateStateTests`.
 - History, the incidents and the rejected alternatives: `docs/history/updates.md`.

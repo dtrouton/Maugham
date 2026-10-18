@@ -1,6 +1,6 @@
 # MaughamPhone — area guide
 
-The iOS companion app: a four-tab SwiftUI app (**Capture / Read / Annotations / Settings**) that reads and writes a security-scoped-bookmarked iCloud Drive projects folder, sharing `Packages/MaughamCore` with the Mac. It captures into the inbox, reads manuscripts, palette cards and statements, disposes of annotations, and declares itself to the Mac's admission. The one rule from CLAUDE.md: **AppKit never; WhisperKit is Mac-only.** The area carries tripwires 4, 13, 15, 17, 18, 19, 20, 24, 35, 46, 51 and 53. The narrative and history behind the rules below are in `docs/history/phone.md`.
+The iOS companion app: a four-tab SwiftUI app (**Capture / Read / Annotations / Settings**) that reads and writes a security-scoped-bookmarked iCloud Drive projects folder, sharing `Packages/MaughamCore` with the Mac. It captures into the inbox, reads manuscripts, palette cards and statements, disposes of annotations, and declares itself to the Mac's admission. The one rule from CLAUDE.md: **AppKit never; WhisperKit is Mac-only.** The area carries tripwires 4, 13, 15, 17, 18, 19, 20, 24, 35, 37, 38, 39, 40, 41, 46, 51, 53, 54 and 55. The narrative and history behind the rules below are in `docs/history/phone.md`.
 
 ## Map
 
@@ -9,6 +9,7 @@ Every source file in `MaughamPhone/` appears once.
 ### App and identity
 - `MaughamPhoneApp.swift` — owns the shared stores (`ProjectsRoot`, `RecentsTracker`, one `DownloadCoordinator`, `ProjectsBrowser`, `LaunchAuthGate`) and runs the cold-launch sequence; all four tabs get the SAME instances.
 - `BuildVariantPhone.swift` — the phone's variant knobs; the one sanctioned home for the bundle-id literals (`com.Maugham.MaughamPhone[.dev]`). Tripwire 13.
+- `Info.plist` — the usage descriptions (camera, Face ID, microphone, photo library, speech recognition) that capture and the launch gate need; `Assets.xcassets` — the app icon and colours.
 - `MaughamPhone.entitlements` — `keychain-access-groups` = `$(AppIdentifierPrefix)com.maugham.person`, wired in `project.yml` under Release only.
 
 ### `Storage/` — the substrate
@@ -67,8 +68,12 @@ Every source file in `MaughamPhone/` appears once.
 - **20 — Annotations derive from the op log, never the `.md`** (`TripwirePhoneGrepTest.test_noManuscriptFileReadsOutsideReconciler`). The Read tab's display of the clean `.md` is the one contracted exception (below).
 - **24 — Filenames take a `DeviceSlug`**: enforced by the compiler.
 - **35 — No hand-built device id**: the phone's id is `DeviceIdentity.author.deviceId`, never a `phone:<uuid>` of its own (`TripwirePhoneGrepTest.test_noHandBuiltDeviceIdOutsideDeviceIdentity`).
-- **46, 51 — The phone asks its posture in one place**, `PhonePosture.swift`, through Core's `PostureDoor`: no other phone file names `PostureDoor.` or `Posture.settling` (`test_thePhoneAsksItsPostureInOnePlace`, `test_captureNeverAsksAPosture`; the Mac's `test_postureIsAskedOfThePermitInOnePlace` scans this target too).
+- **51 (46 by way of Core's `PostureDoor`) — The phone asks its posture in one place**, `PhonePosture.swift`, through Core's `PostureDoor`: no other phone file names `PostureDoor.` or `Posture.settling` (`test_thePhoneAsksItsPostureInOnePlace`, `test_captureNeverAsksAPosture`; the Mac's `test_postureIsAskedOfThePermitInOnePlace` scans this target too).
+- **37 — The phone recognises no seal line**: `OpLogChain` is the one recogniser (`TripwirePhoneGrepTest.test_noSealLineRecogniserOnThePhone`).
+- **38 — No `device:` string at a `Document.load`**: the Mac census scans this target (`TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`).
+- **39, 40, 41 — The phone makes no trust decision and writes no registry record**; it reaches the writer only through `PhoneDeviceRecord` → `RegistryPresence` (`TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`, `test_thePhoneWritesNoRegistryRecord`).
 - **53 — `PhonePersonKeyAccess.swift` is the phone's one `PersonKeyStore` construction**, and `PhoneDeviceRecord.findPersonKey` its one find (`PersonKeyCensusTests`, keyed `MaughamPhone/<file>`).
+- **54, 55 — No `"fountain"` literal and no kind/format equality**: ask `DocumentFormat`/`ProjectType`'s capabilities or switch exhaustively; the Mac censuses scan this target (`TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`, `test_projectKindAndFormatAreAskedByCapabilityNotByEquality`).
 
 ### Build and shape
 - **No AppKit, and never WhisperKit**: WhisperKit is a Mac-target-only dependency.
@@ -194,7 +199,7 @@ Every source file in `MaughamPhone/` appears once.
 - App icon sources: `scripts/phone-icon/` (`render.sh`).
 - Cross-surface contracts registry: `docs/superpowers/notes/cross-surface-contracts.md`. ADRs 0008 (id prefixes), 0012 (per-device op logs), 0018/0019 (op log as truth, clean `.md`), 0023 (undo conventions), 0032 (the signed op log).
 - Palette spec: `docs/superpowers/specs/2026-07-10-palette-phone-and-role-identity-design.md`.
-- `docs/tripwires.md` rows 4, 13, 15, 17, 18, 19, 20, 24, 35, 46, 51, 53.
+- `docs/tripwires.md` rows 4, 13, 15, 17, 18, 19, 20, 24, 35, 37, 38, 39, 40, 41, 46, 51, 53, 54, 55.
 - Tests: `TripwirePhoneGrepTest` (every phone census), `PhoneDeviceIdentityTests`, `PhonePostureTests`, `PhonePostureRoundTripTests`, `PhoneDeviceRecordTests`, `PhonePersonClaimTests`, `PersonKeyLineTests`, `PhoneChainPolicyTests`, `ResolvedEntryDecisionTests`, `ColdLaunchDownloaderTests`, `PhoneStatementReadTests`.
 - Neighbouring guides: `Packages/MaughamCore/Sources/MaughamCore/AREA.md` (the shared implementations), `Maugham/Stores/AREA.md` (the Mac's inbox).
 - History: `docs/history/phone.md`.

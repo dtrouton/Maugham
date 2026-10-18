@@ -1,6 +1,6 @@
 # MCP — area guide
 
-The in-app MCP server that lets Claude Desktop, Claude Code and the app's own `claude` sessions read and contribute to open projects: the Unix-socket transport, JSON-RPC dispatch, the tool catalogue, the SEP-2640 skills surface, the dev-only test catalogue, and the stdio bridge (`maugham-mcp/`). Claude reads projects, annotates manuscripts in a parallel layer, writes into the planning plane (`research/`, the canvas) and stages statement drafts the writer adopts. The one rule from CLAUDE.md: **one catalogue, `MCPToolCatalog.all`; MCP never writes manuscript text.** The area carries tripwires 10, 13, 20, 21 and 38. The narrative and history behind the rules below are in `docs/history/mcp.md`.
+The in-app MCP server that lets Claude Desktop, Claude Code and the app's own `claude` sessions read and contribute to open projects: the Unix-socket transport, JSON-RPC dispatch, the tool catalogue, the SEP-2640 skills surface, the dev-only test catalogue, and the stdio bridge (`maugham-mcp/`). Claude reads projects, annotates manuscripts in a parallel layer, writes into the planning plane (`research/`, the canvas) and stages statement drafts the writer adopts. The one rule from CLAUDE.md: **one catalogue, `MCPToolCatalog.all`; MCP never writes manuscript text.** The area carries tripwires 10, 13, 20, 21, 38, 51, 52 and 54. The narrative and history behind the rules below are in `docs/history/mcp.md`.
 
 ## Map
 
@@ -27,7 +27,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 ### `Tools/` — one family per file
 - `ProjectTools.swift` — `list_projects`, `get_metadata`, `get_outline`.
 - `ListMaughamToolsTool.swift` — `list_maugham_tools`. `GetHelpTool.swift` — `get_help`.
-- `DocumentTools.swift` — `read_document`, `search_text`; `ReadDocumentTool` is the model for a polymorphic image-or-text response with crop-on-demand.
+- `DocumentTools.swift` — `read_document`, `search_text`; `ReadDocumentTool` is the model for a polymorphic image-or-text response with crop-on-demand, and is tripwire 54's one allow-listed tool (`read_document.mode`'s wire value); no other tool spells a `"fountain"` literal.
 - `ReferenceTools.swift` — `list_scenes`, `find_references`, `get_session_stats`.
 - `ListDocumentsByTagTool.swift` — `list_documents_by_tag`.
 - `AddNoteTool.swift` — `add_note`. `ListResearchTool.swift` — `list_research`. `ResearchLinkTools.swift` — `link_research`, `unlink_research`. `ListAllLinksTool.swift` — `list_all_links`. `MoveResearchItemTool.swift` — `move_research_item`.
@@ -47,7 +47,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `Test/Tools/` — `TestProjectTools.swift`, `TestDocumentTools.swift`, `TestEditTool.swift`, `TestLifecycleTools.swift`, `TestPingTool.swift`, `TestInspectTools.swift`.
 
 ### Outside the folder
-- `maugham-mcp/` (repo root) — the standalone CLI bridging Claude Desktop's stdio to the app's socket (`maugham-mcp/JSONRPCBridge.swift`, `maugham-mcp/main.swift`); a separate Swift package bundled in `Maugham.app/Contents/MacOS/`.
+- `maugham-mcp/` (repo root) — the standalone CLI bridging Claude Desktop's stdio to the app's socket (`maugham-mcp/JSONRPCBridge.swift`, `maugham-mcp/main.swift`); an xcodegen tool target (`maugham-mcp` in `project.yml`) copied into `Maugham.app/Contents/MacOS/`.
 - `Maugham/Help/SkillIndex.swift` — loads the bundled skills (mirrors `HelpTopicIndex`; lives in `Help/` because `get_help` also serves it).
 - `Maugham/Views/HelpClaudeDesktopSheet.swift` — the "Set up Claude Desktop…" flow and its Claude Code section; `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift` — the "Allow Claude to connect (MCP)" toggle.
 
@@ -126,7 +126,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 ### The membrane
 - **MCP never writes manuscript text, full stop**: the manuscript is the writer's, and Claude reaches it only through the parallel annotation layer. Even a tool that "feels safe" does not soften this; violating it loses the writer's trust in the whole integration (ADR 0004).
-- **A write tool may touch only the planning plane, and today that is three destinations**: `research/` (`add_note`), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). A fourth destination needs its own ADR-level argument, not this list as precedent.
+- **A write tool may touch only the planning plane, and today that is three destinations**: `research/` (`add_note`), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). Over the inbox MCP may read and promote only, never add or trash. What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). A fourth destination needs its own ADR-level argument, not this list as precedent.
 - **Think about the membrane before adding a tool**: a read tool is low-risk; a write tool needs ADR-level justification; an annotation tool belongs to the annotation layer.
 - **No tool writes a statement.** The two propose tools stage a draft that only the writer's click at `StatementPane`'s gate turns into a statement (`StatementProposalGate.adopt`). `CompilerAllowlistTests.test_noStatementWritingToolExistsAnywhereClaudeCanReach` fails on a statement writer in the catalogue as well as the compiler's allowlist; its predicate passes the two propose tools by name and catches `write_edition_brief`, `propose_craft_intent` and the like.
 - **Claude never writes the lessons ledger, the first reader, craft intent or visual language**: the ledger moves only through the writer's own verbs in Maugham (Keep as lesson / These are all choices / retire).
@@ -136,8 +136,9 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **`write_translation` is the one tool that is not the assistant**: it loads `.translator`, because a translation record is the pipeline's work.
 - **Never hand-build a device string at a `Document.load` here**: name the actor and let `LocalIdentities` answer (tripwire 38, `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`).
 - **Both of `withAnnotationDocument`'s arms yield assistant-signed notes, and only one loads as the assistant.** The closed-document arm transient-loads `.assistant`. The OPEN-document arm writes through the live `Document` the editor loaded as `.author`, so `Document.addAnnotation` stamps the actor off the annotation's AUTHOR (`deviceFor(author:)`: a `sourceKind` that is not `.human` is the assistant's). The writer's own dispositions of those notes stay the writer's (`Maugham/OpLog/AREA.md`).
-- **Reads derive from the op log, never the `.md`** (tripwire 20): an open document through its live `Document`, a closed one through `DerivedManuscriptCache`/`derivedCache` (`currentParagraphState`), a statement through `ProjectStore.statementText(of:)`.
-- **Post through `MaughamEvent`** (tripwire 21), project-scoped: `maughamStatementProposalsChanged`, `maughamTranslationDidUpdate`.
+- **Reads derive from the op log, never the `.md`** (tripwire 20): an open document through its live `Document`, a closed one through `DerivedManuscriptCache`/`derivedCache` (`currentParagraphState`), a statement through `ProjectStore.statementText(of:)`. Any other file read here (a research note, a publish file, a config) carries `// adr-0018-ok: <reason>` naming why it is not manuscript (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`).
+- **Nothing under `Maugham/MCP` emits a task op** (`TripwireGrepTests.test_nothingUnderMCPEmitsATaskOp`): `Permit.isALoadEmission` waives the actor narrowing for `taskCreate` by kind, which is safe only while the load is the one non-author emitter. A task-writing tool is a permit-layer decision first.
+- **Post through `MaughamEvent`** (tripwire 21, `TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`), project-scoped: `maughamStatementProposalsChanged`, `maughamTranslationDidUpdate`.
 
 ### The catalogue and dispatch
 - **`MCPToolCatalog.all` is the only list of tools.** `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from it; if you find yourself editing `MCPToolsListHandler` to add a tool, stop (`MCPCatalogConsistencyTests`: catalogue ↔ `tools/list`, catalogue ↔ router, schema validity).
@@ -154,7 +155,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **The transport is a live-only Unix socket; no stdio inside the app.** The standalone `maugham-mcp` CLI is the only stdio surface (ADR 0003).
 - **The server runs only while Maugham runs**: no daemon, no LaunchAgent. Settings → General → "Allow Claude to connect (MCP)" toggles it; default on.
 - **SIGPIPE handling is idempotent and required**: don't simplify it away.
-- **Socket paths come from `BuildVariant`** (tripwire 13); `MaughamApp.swift` binds `TestHost.mcpSocketPath`, never `BuildVariant.current.mcpSocketPath`.
+- **Socket paths come from `BuildVariant`** (tripwire 13, `TripwireGrepTests.test_noHardcodedIdentityStringsInMacSources`); `MaughamApp.swift` binds `TestHost.mcpSocketPath`, never `BuildVariant.current.mcpSocketPath`.
 - **A test host binds a socket of its own, never the variant's.** The app starts an `MCPServer` from the Welcome scene's `.task` on every launch, and `start()`, `stop()` and `willTerminate` each unlink the path, so a gate run used to delete the socket the open dev app was listening on: every later `claude -p` reported `mcp_servers: [{maugham-dev, failed}]` and the writer saw a compiler check that "couldn't be read as notes". `TestHost.mcpSocketPath` is the one decision: the variant's path for a writer's launch, `<temp>/maugham-host-<pid>.sock` for a host (`TripwireGrepTests.test_theAppBindsTheEffectiveSocketPathAndNotTheVariantsOwn` and its planted-offender companion). The `*Environment+Project` files and `HelpClaudeDesktopSheet` name the variant's path on purpose: they tell an OUTSIDE process where the real app listens.
 - **Socket tests bind isolated paths of their own** (`MCPServerLifecycleTests`, `MCPColdStartTests`, `MCPBinaryIntegrationTests`); nothing connects to a host's socket.
 - **The bridge runs one bounded poll loop for both reconnect cases** (`handleStdinLine`; budget `MAUGHAM_MCP_RECONNECT_BUDGET_MS`, default 15 s, low in tests). Never reintroduce a `hadPriorConnection` fast-fail branch: "no prior connection" is exactly the first call after a cold launch. Pinned by `MCPColdStartTests`. The cost: a genuinely absent app takes the whole budget to answer `maugham_not_running`.
@@ -214,7 +215,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **A `text`/`verbatim` entry naming an unknown paragraph rejects the whole batch; a `delete` entry is exempt**, per entry, not per batch. Tombstoning an id never translated is an idempotent no-op.
 - **The server stamps every record with a hash of the current source paragraph**; non-verbatim entries surface structural-drift warnings and an advisory (never blocking) when the text equals the source.
 - **The batch persists through one `TranslationStore.appendBatch`, every record built first**, so a rejected or failed batch writes nothing. A tombstones-only batch for a language with no records writes nothing and still reports the entries (otherwise the language would appear in `languages(forDocId:)` forever).
-- **The permit refuses first**: `TranslationWritePipeline.refuseUnlessTranslatable` asks `OpLogStore.localWritePermit` (as the translator, in the `.translation(piece:)` class) before anything is built; a refusal is a `translation_not_permitted` tool error naming the piece. The orphan purge asks the same door under the author's key.
+- **The permit refuses first**: `TranslationWritePipeline.refuseUnlessTranslatable` asks Core's `PostureDoor.posture(as:using:)` for the translator in the `.translation(piece:)` class and checks `.allows(.translate)` before anything is built; a refusal is a `translation_not_permitted` tool error naming the piece. The file is admitted no permit or posture spelling of its own (tripwire 51, `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`). The orphan purge asks the same door under the author's key.
 - **None of that lives in the tool**: validation, record building and the single append are `TranslationWritePipeline.perform`, shared with the translator loop; the tool keeps the wire form (decode, the language gate ahead of the registry lookup, the project-scoped post, the response). `TripwireGrepTests.test_theTranslationWritePipelineIsTheOnlyPlaceAWriteBatchIsAppended` counts `appendBatch` sites; the one sanctioned second is `TranslationReviewPaneLogic.purgeOrphans`, tombstones only.
 - **`read_translation` reads an unknown language as all-`missing`, but a translation file that is PRESENT and unreadable fails the call by name** (`OpLogStore.ReadError.unreadableFile`): skipping it would answer like not-started and send Claude to re-translate a chapter already on disk. `status` filters entries (`stale` + `missing` is the retranslation worklist).
 - **`translation_status` reports one row per (document, language)** with `fresh`/`stale`/`missing`/`verbatim`/`orphans` counts and `open_queries`; `document_id` narrows it to one document, and the whole-project walk skips collection references (the `ProjectStoreASTSource` walk).
@@ -252,7 +253,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **`TestMCPToolCatalog` is registered only under `#if MAUGHAM_DEV_BUILD`, on the same dev socket**, and is absent from the stable binary (`TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`). It is for Claude Code and outside the production count.
 - **It drives the full create → edit → autosave → checkpoint → quit → relaunch → verify loop** to check invisible state (op log, autosave, cursor restore, checkpoints, the clean `.md`); it does not cover UI fidelity, which stays a manual pass (ADR 0020).
 - **Every mutating test tool resolves its project through `TestWorkspace.require(_:)`** (MaughamCore), which throws unless the path is under `~/Library/Application Support/Maugham Dev/TestWorkspace/`. Inspect tools are not fenced. Under XCTest the root gains a per-worker `xctest-worker-<pid>` leaf, because `reset()` deletes the whole tree (`TestWorkspaceIsolationTests`).
-- **`test_apply_edit` writes through the editor's own entry point** (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`), never a parallel mutation path or faked keystrokes, so there is one manuscript write path (tripwires 6/7).
+- **`test_apply_edit` writes through the editor's own entry point** (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`), never a parallel mutation path or faked keystrokes, so there is one manuscript write path (tripwires 6/7). Its one `setFullText(` is a counted site in tripwire 52's `TripwireGrepTests.manuscriptWriterCallSites`; a second manuscript writer in a test tool changes that count.
 - **The tools**: drive (`test_create_project`, `test_open_project`, `test_add_document`, `test_open_document`, `test_close_document`, `test_apply_edit`, `test_checkpoint`, `test_reset_workspace`); lifecycle (`test_ping`, the readiness probe after relaunch; `test_flush_autosave`; `test_quit`, which acks first and terminates ~100 ms later); inspect (`test_dump_document`: paragraphs by `sequence`, `¶id` and text, cursor, `lastDiskEcho`, the pending sweep; `test_dump_oplog`; `test_autosave_status`; `test_pending_buffer`, the `PendingBuffer` durable sequence; `test_list_checkpoints`).
 - **Connection**: the repo-root `.mcp.json` and `scripts/maugham-test-mcp.sh` point `MAUGHAM_MCP_SOCKET` at the dev socket and exec the `maugham-mcp` bridge, surfacing the tools as `mcp__maugham_test__*`.
 
@@ -260,14 +261,14 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 ### Add a tool
 1. Implement it in `Tools/<Family>.swift`: an enum conforming to `MCPTool` with `method`, `description`, `inputSchemaJSON` and `handle(paramsJSON:registry:)`; decode params and resolve `project_id` through `MCPToolHelpers.swift`.
-2. Decide its side of the membrane (Rules → The membrane). A write tool needs an ADR, and goes into `writeTools` in `MaughamTests/CompilerAllowlistTests.swift` (`test_noWriteToolIsAllowed`). A name that writes a statement fails `test_noStatementWritingToolExistsAnywhereClaudeCanReach`.
+2. Decide its side of the membrane (Rules → The membrane). A write tool needs an ADR, and goes into `writeTools` in `MaughamTests/CompilerAllowlistTests.swift` (`test_noWriteToolIsAllowed`). A name that writes a statement fails `test_noStatementWritingToolExistsAnywhereClaudeCanReach`. A tool that would write a task fails `test_nothingUnderMCPEmitsATaskOp`; decide `Permit.isALoadEmission` first.
 3. Add the type to `MCPToolCatalog.all` in `MCPTool.swift`; that is the only registration.
 4. Add its method to the expected set in `MaughamTests/MCP/MCPProtocolHandlersTests.swift` (`test_toolsList_returnsAllExpectedTools`).
 5. If the compiler's session should reach it, add `mcp__maugham__<method>` to `Maugham/Compiler/CompilerAllowlist.swift` (reads only; `test_everyEntryNamesACatalogTool`).
 6. Images: use the crop-on-demand parameters through `ImageResponseBuilder.swift`. Unbounded text: call `MCPResponseBudget.enforce` with a section-scoped hint (mirror `read_document`), and paginate or filter anything that scales with the project.
 7. Load documents only through `withAnnotationDocument` or with a named `DeviceActor` (tripwire 38); derive from the op log (tripwire 20).
 8. List it under `## Tool catalogue (NN)` above, bump NN (`DocSyncTests`), and add its contract to Rules → Tool contracts.
-9. If a procedure should call it, name it in that skill's `docs/skills/<name>/SKILL.md` and in the router `docs/skills/maugham-bootstrap/SKILL.md`; if writers see it, in `docs/guide/claude-desktop.md`. A tool nobody is told to call has no consumer.
+9. If a procedure should call it, name it in that skill's `docs/skills/<name>/SKILL.md` and in the router `docs/skills/maugham-bootstrap/SKILL.md`; if writers see it, in the relevant `docs/guide/` page (`claude-desktop.md`'s *What Claude can do*, or the feature's own page, e.g. `review-passes.md`). A tool nobody is told to call has no consumer.
 10. Tests in `MaughamTests/MCP/Tools/`; then try it from Claude Desktop (Settings → Help → "Set up Claude Desktop…").
 
 ### Add a skill
@@ -276,14 +277,14 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 3. Add it to the served-skills list under Rules → Skills, and point the router `docs/skills/maugham-bootstrap/SKILL.md` at it if Claude Code should reach for it.
 
 ### Add a dev-only test tool
-1. Implement it in `Test/Tools/`, `test_`-prefixed, under `#if MAUGHAM_DEV_BUILD`; a mutating tool resolves its project through `TestWorkspace.require(_:)`.
+1. Implement it in `Test/Tools/`, `test_`-prefixed, under `#if MAUGHAM_DEV_BUILD`; a mutating tool resolves its project through `TestWorkspace.require(_:)`. A manuscript write is a counted site in tripwire 52's `TripwireGrepTests.manuscriptWriterCallSites` (`TestEditTool.swift` holds the one `setFullText(`); a new one changes that count.
 2. Add it to `TestMCPToolCatalog.all` in `Maugham/MCP/Test/TestMCPToolCatalog.swift`; `TestMCPCatalogConsistencyTests` covers it. The production heading does not move.
 
 ## Pointers
 
 - ADRs: 0003 (live-only Unix socket), 0004 (foundation scope, the 1 MB incident), 0010 (typed seams, the sweep reason), 0020 (the test MCP), 0026 (the canvas write), 0032 (the signed op log, actors); ADR 0030 §7 and the translation pipeline spec for the propose tools.
 - `docs/superpowers/specs/2026-07-01-test-mcp-design.md`.
-- `docs/tripwires.md` rows 10, 13, 20, 21, 38.
+- `docs/tripwires.md` rows 10, 13, 20, 21, 38, 51, 52, 54.
 - Tests: `MCPCatalogConsistencyTests`, `MCPProtocolHandlersTests`, `DocSyncTests`, `CompilerAllowlistTests`, `MCPBinaryIntegrationTests` (the real bridge against bogus or absent sockets), `MCPColdStartTests` (the bridge against a stub listener; the cold-launch pin), `MCPServerLifecycleTests`, `PresenterRoutingTests`, `TestMCPCatalogConsistencyTests`, and per-tool tests under `MaughamTests/MCP/`.
 - Elsewhere: manuscript persistence in `Maugham/Stores/DocumentStore.swift`; the op log in `Maugham/OpLog/`.
 - Neighbouring guides: `Maugham/OpLog/AREA.md` (actors, chained and sealed), `Maugham/Canvas/AREA.md` (`CanvasClaudeWrite`, placement), `Maugham/Compiler/AREA.md` (the allowlist, the statement gate), `Maugham/Stores/AREA.md` (the research mover, statements).
