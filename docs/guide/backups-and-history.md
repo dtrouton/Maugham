@@ -24,9 +24,8 @@ The History pane shows the history of the document you have open, newest first: 
 - **Checkpoints** — just the checkpoints.
 - **Edits** — your writing, grouped into bursts. A new burst appears about every 30 seconds while you work.
 - **Annotations** — every note and suggestion, and every answer you gave one.
-- **External** — entries that record a change arriving from outside the editor. Edits made to the `.md` file outside Maugham aren't kept, so this list stays empty.
 
-Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at.
+Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at. Edits made to the `.md` file outside Maugham aren't kept, so History has nothing to show for them.
 
 **If some checkpoints can't be read**, a line at the top says so: *"Some checkpoints can’t be read (…). They are still in the file — check permissions or iCloud sync."* The brackets name the files, and hovering over the line shows the reason for each one. A permissions problem is fixed on this Mac. A file iCloud hasn't downloaded yet is fixed by getting online. Your other checkpoints, and your backups, carry on as normal.
 
