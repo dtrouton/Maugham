@@ -18,7 +18,7 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md": 7_987,  // plan 5: re-templated (30,412 → this), +228 review fixes (each tripwire names its census, the load's suspension points); the narrative is in docs/history/oplog.md
         "Maugham/Views/AREA.md": 7_987,  // plan 5: re-templated, +115 review fixes (28,289 → 7,872 → this; queue filters, Publish ordering, statement host, desk rules); the narrative is in docs/history/views.md
         "Maugham/Compiler/AREA.md": 7_741,  // plan 5: re-templated (23,782 → this); the narrative is in docs/history/compiler.md
-        "Maugham/Stores/AREA.md": 16_389,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17; +275 at the foundations merge: main's additions since the plans branched and the Project sessions row
+        "Maugham/Stores/AREA.md": 7_343,  // plan 5: re-templated (16,389 → this); the narrative is in docs/history/stores.md
         "Maugham/MCP/AREA.md": 8_687,  // + residue from CLAUDE.md, 2026-10-17; +16: the bump-the-catalogue-heading step; +95: main's #44 refused-layout text, merged at the foundations integration
         "MaughamPhone/AREA.md": 5_007,
         "Maugham/Editor/AREA.md": 3_673,
@@ -57,6 +57,7 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md",
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",
+        "Maugham/Stores/AREA.md",
     ]
 
     /// Guides already in the template (Map / Rules / Recipes / Pointers).
@@ -67,13 +68,13 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md",
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",
+        "Maugham/Stores/AREA.md",
     ]
 
     /// Guides still over the hard cap, awaiting their re-template. Shrinks to
     /// empty by the end of plan 5; a member at or under the cap fails the
     /// census so the set cannot go stale.
     static let notYetTemplated: Set<String> = [
-        "Maugham/Stores/AREA.md",
         "Maugham/MCP/AREA.md",
     ]
 
