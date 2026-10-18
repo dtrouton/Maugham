@@ -1,7 +1,7 @@
 import AppKit
 import MaughamCore
 
-/// Presents the macOS "share for review" affordance for a project folder.
+/// Presents the macOS sharing affordance behind File → "Share Project via iCloud…" for a project folder.
 ///
 /// Approach + rationale: we use `NSSharingServicePicker` anchored to the project
 /// window, seeded with the project's folder URL. When that folder lives in
@@ -73,9 +73,9 @@ enum ProjectShareSheetPresenter {
         let alert = NSAlert()
         alert.messageText = "Move this project to iCloud Drive to share it"
         alert.informativeText = """
-            To review with others, this project needs to be in iCloud Drive. \
+            To share it, this project needs to be in iCloud Drive. \
             Move the project folder to iCloud Drive, then use Share → \
-            Collaborate to invite reviewers.
+            Collaborate. What each person may change is set in People & Devices.
             """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")

@@ -37,4 +37,4 @@ The underlying file still contains the smart characters; nothing is lost on save
 
 The bottom-right of the editor shows a goal capsule: today's word count, document word count, reading time. If you set a word target on a document in the Inspector, the capsule shows progress.
 
-⌘S triggers a "Saved" flash. Autosave already runs every 750ms; the flash is muscle memory.
+⌘S triggers a "Saved" flash. Autosave already runs every 750ms, so nothing is ever waiting to be saved; ⌘S makes a [checkpoint](backups-and-history.md#checkpoints) and runs your backups.

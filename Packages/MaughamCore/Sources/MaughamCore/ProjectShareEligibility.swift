@@ -1,7 +1,7 @@
 import Foundation
 
 /// Pure decision: can a project folder be offered to iCloud Collaborate sharing,
-/// and if not, why? Used by the Mac "Share for Review…" command to choose
+/// and if not, why? Used by the Mac "Share Project via iCloud…" command to choose
 /// between presenting the share sheet and showing the move-to-iCloud explanation.
 ///
 /// The decision is split from the OS probe so it stays unit-testable: the caller

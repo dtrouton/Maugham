@@ -26,7 +26,7 @@ public enum KeyboardShortcuts {
         Category(category: "File", items: [
             Entry(label: "New Project…",            shortcut: "⌘N"),
             Entry(label: "Open Project…",           shortcut: "⌘O"),
-            Entry(label: "Save",                    shortcut: "⌘S"),
+            Entry(label: "Save Checkpoint",         shortcut: "⌘S"),
             // Both added 2026-08-04, from the sweep that found Toggle Review
             // Mode missing. Neither is in the ⌘⌥ family the guard covers, so
             // nothing would have caught their absence — `Promote…` in
@@ -68,13 +68,13 @@ public enum KeyboardShortcuts {
             Entry(label: "Review mode", shortcut: "⌘3"),
             Entry(label: "Publish mode", shortcut: "⌘4"),
             Entry(label: "Inspector pane", shortcut: "⌘⌥I"),
-            Entry(label: "Research pane", shortcut: "⌘⌥R"),
-            Entry(label: "Outline pane", shortcut: "⌘⌥O"),
+            Entry(label: "Reveal Research section", shortcut: "⌘⌥R"),
+            Entry(label: "Select project row (outline)", shortcut: "⌘⌥O"),
             Entry(label: "Annotations pane", shortcut: "⌘⌥A"),
             Entry(label: "History pane", shortcut: "⌘⌥H"),
             Entry(label: "Tasks pane", shortcut: "⌘⌥T"),
             Entry(label: "Inbox pane", shortcut: "⌘⌥B"),
-            Entry(label: "Palette pane", shortcut: "⌘⌥P"),
+            Entry(label: "Reveal Palette section", shortcut: "⌘⌥P"),
             Entry(label: "Translation pane", shortcut: "⌘⌥L"),
             Entry(label: "Intent pane", shortcut: "⌘⌥N"),
             Entry(label: "What I've Learned pane", shortcut: "⌘⌥G"),
@@ -86,6 +86,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
         ]),
         Category(category: "Help", items: [
+            Entry(label: "Maugham Help",            shortcut: "⌘?"),
             Entry(label: "Syntax Reference",        shortcut: "⌘/"),
         ]),
     ]

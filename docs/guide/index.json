@@ -15,5 +15,6 @@
   { "slug": "translation-review",  "title": "Translating Your Manuscript", "order": 14 },
   { "slug": "publish-department",  "title": "The Publish Department", "order": 15 },
   { "slug": "people-and-devices",  "title": "People & Devices",       "order": 16 },
-  { "slug": "reference",           "title": "Reference",              "order": 17 }
+  { "slug": "backups-and-history", "title": "Backups & History",      "order": 17 },
+  { "slug": "reference",           "title": "Reference",              "order": 18 }
 ]
