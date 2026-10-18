@@ -420,6 +420,10 @@ public struct Republisher {
             warnings = r.warnings
             errors = r.errors
             logExcerpt = ""
+        case .unknown(let raw):
+            // Defence in depth behind the compile door: unreachable once the
+            // door refuses an unknown format, never a precondition failure.
+            throw PublishFormatRefusal(raw: raw)
         }
 
         if !errors.isEmpty || outputPath.isEmpty {

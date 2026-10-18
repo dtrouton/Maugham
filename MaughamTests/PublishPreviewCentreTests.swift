@@ -32,8 +32,8 @@ import MaughamCore
 ///   (`PublicationStore.load()` is ascending `compiledAt`) and answers with
 ///   every row it can actually put on screen. Both of its guards are about facts
 ///   on disk — a row can outlive its file (`ExportsListView`'s Delete removes the
-///   file and never the JSONL), and an unknown format decodes to `.pdf` — so
-///   these tests write real catalogs and real PDFs.
+///   file and never the JSONL), and a row's `.pdf` format is a claim, not
+///   the bytes at its path — so these tests write real catalogs and real PDFs.
 /// - **The rule.** `ProjectWindow.publishCentre` is a static over
 ///   `(persona, subject, structure, resolution)`, so it is assertable with no
 ///   window at all.
@@ -194,11 +194,11 @@ final class PublishPreviewCentreTests: XCTestCase {
                        + "of standing beside it")
     }
 
-    /// **And a file that is not a PDF at all.** An unknown `format` decodes to
-    /// `.pdf` (ADR 0015's forward-tolerance, `PublishConfig.Format`), so the
-    /// format field alone is not enough: the file must open. Written as bytes
-    /// that are not a PDF at a `.pdf` path, which is exactly what a newer
-    /// build's third output format would leave behind.
+    /// **And a file that is not a PDF at all.** A row's `format == .pdf` is
+    /// what the catalog claims, not what is on disk, so the format field alone
+    /// is not enough: the file must open. Written as bytes that are not a PDF
+    /// at a `.pdf` path. (A newer build's format no longer claims `.pdf` — it
+    /// decodes as `.unknown`, `PublishFormatToleranceTests`.)
     func test_aRowWhoseFileIsNotReallyAPDFIsWalkedPast() async throws {
         let project = try makeProject()
         let store = PublicationStore(projectURL: project)
@@ -212,9 +212,9 @@ final class PublishPreviewCentreTests: XCTestCase {
             store: store, projectURL: project)
 
         assertReady(resolution, is: real,
-                    "`format == .pdf` is a decoded field and an unknown "
-                    + "format decodes to it — so the file has to open, not "
-                    + "merely be claimed")
+                    "`format == .pdf` is a claim the catalog makes, not the "
+                    + "bytes on disk — so the file has to open, not merely be "
+                    + "claimed")
         XCTAssertEqual(resolution.publications.map(\.publicationID), [real.publicationID],
                        "…and the picker does not offer it")
     }

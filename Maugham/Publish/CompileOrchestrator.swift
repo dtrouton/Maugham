@@ -742,6 +742,10 @@ public struct CompileOrchestrator {
             warnings = result.warnings
             errors = result.errors
             logExcerpt = ""
+        case .unknown(let raw):
+            // Defence in depth behind the compile door: unreachable once the
+            // door refuses an unknown format, never a precondition failure.
+            throw PublishFormatRefusal(raw: raw)
         }
 
         if !errors.isEmpty || outputPath.isEmpty {

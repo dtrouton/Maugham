@@ -342,6 +342,10 @@ public struct PreviewCompiler {
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)
+        case .unknown(let raw):
+            // Defence in depth behind the compile door: unreachable once the
+            // door refuses an unknown format, never a precondition failure.
+            throw PublishFormatRefusal(raw: raw)
         }
     }
 }

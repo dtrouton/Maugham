@@ -130,20 +130,49 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         }
     }
 
-    public enum Format: String, Codable, Equatable, Sendable, CaseIterable {
+    /// An output format. `.pdf` and `.epub` are what this build can produce;
+    /// `.unknown(raw)` is a format a NEWER build named, kept verbatim so it
+    /// re-encodes as itself (ADR 0015 §5 amendment, pinned by
+    /// `PublishFormatToleranceTests`). An unknown name in `formats_enabled` is
+    /// not a config error — an older build can still edit a newer build's
+    /// config — but compiling one is refused with `PublishFormatRefusal`.
+    ///
+    /// `allCases` is the formats this build can PRODUCE, so `.unknown` never
+    /// reaches a picker.
+    public enum Format: Codable, Equatable, Hashable, Sendable, CaseIterable, RawRepresentable {
         case pdf
         case epub
+        case unknown(String)
 
-        /// Cross-version forward-tolerance (ADR 0015): an unknown output format
-        /// from a newer build decodes to `.pdf` rather than throwing and making
-        /// the whole `config.json` unloadable. `Format` lives in a
-        /// `[Format]` array (`formats_enabled`), where one bad element would
-        /// otherwise sink the entire `Outputs` block. `config.json` is Mac-only
-        /// and already mostly `?? PublishConfig()`-guarded; this shores up the
-        /// in-array case.
+        public static var allCases: [Format] { [.pdf, .epub] }
+
+        /// Non-failable. The known names match case-insensitively (a
+        /// hand-typed `"PDF"` or `"Epub"` is the known format); anything else
+        /// is `.unknown` with the original string kept verbatim. Never
+        /// constructs `.unknown("pdf")` or `.unknown("epub")`.
+        public init(rawValue: String) {
+            switch rawValue.lowercased() {
+            case "pdf":  self = .pdf
+            case "epub": self = .epub
+            default:     self = .unknown(rawValue)
+            }
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .pdf:              return "pdf"
+            case .epub:             return "epub"
+            case .unknown(let raw): return raw
+            }
+        }
+
         public init(from decoder: Decoder) throws {
-            let raw = try decoder.singleValueContainer().decode(String.self)
-            self = Format(rawValue: raw) ?? .pdf
+            self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.singleValueContainer()
+            try c.encode(rawValue)
         }
     }
 
@@ -439,4 +468,24 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         case template
         case imprint
     }
+}
+
+/// **The one refusal for compiling an output format this build can't
+/// produce** (`PublishConfig.Format.unknown`). `message(raw:)` is the one
+/// sentence: any error type that carries it calls this rather than restating
+/// it. Thrown by the three dispatch switches (`CompileOrchestrator`,
+/// `Republisher`, `PreviewCompiler`) as defence in depth behind the compile
+/// doors.
+public struct PublishFormatRefusal: Error, LocalizedError, Equatable, Sendable {
+    /// The format's name exactly as the config or catalog spelled it.
+    public let raw: String
+
+    public init(raw: String) { self.raw = raw }
+
+    public static func message(raw: String) -> String {
+        "This Maugham can't produce '\(raw)' output — it was named by a newer "
+            + "version of Maugham. Update Maugham to compile it. Nothing was compiled."
+    }
+
+    public var errorDescription: String? { Self.message(raw: raw) }
 }
