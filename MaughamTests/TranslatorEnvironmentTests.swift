@@ -813,13 +813,18 @@ final class TranslatorEnvironmentTests: XCTestCase {
                           + "service it misses is a billing process outliving the window")
         }
 
-        // (b) The window closing detaches every service.
+        // (b) The window closing closes its session (foundations plan 3,
+        // Task 2)…
         let onDisappears = try SourceTree.windowSources().flatMap { text in
             Self.closureBodies(after: ".onDisappear", in: text)
         }
-        XCTAssertTrue(onDisappears.contains { $0.contains("roster.detachAll()") },
-                      "ProjectWindow's .onDisappear must detach the roster — otherwise "
+        XCTAssertTrue(onDisappears.contains { $0.contains("session.close()") },
+                      "ProjectWindow's .onDisappear must close its session — otherwise "
                       + "a closed window keeps its sessions and its stores alive")
+        // …and the session's close detaches every service BEFORE the
+        // DocumentStore closes.
+        let close = try Self.sessionCloseReport(base: SourceTree.repoRoot)
+        XCTAssertTrue(close.isEmpty, close.joined(separator: "\n"))
 
         // (c) Every holder of a session runner is a roster member.
         let report = try Self.rosterMembershipReport(base: SourceTree.repoRoot)
@@ -833,25 +838,93 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let teardown = try Self.rosterTeardownReport(base: SourceTree.repoRoot)
         XCTAssertTrue(teardown.isEmpty, teardown.joined(separator: "\n"))
 
-        // And the members are WIRED and MOUNTED by the window. `ProjectWindow`
-        // reaches each member through a short accessor (`translator` is
-        // `roster.translator`), so these are the spellings in its code. The
-        // last two are spelled `pipeline?.` rather than `pipeline.`: they live
-        // inside the translator environment's `onRunEnded`/`onRunAbandoned`
-        // closures, which capture the pipeline weakly — a strong capture there
-        // is a window's whole project graph held alive by an orchestrator
-        // closure, which is the thing `.onDisappear`'s scorch exists to prevent.
-        let window = try SourceTree.windowSource()
-        for token in ["translator.configure(", "translator: translator",
-                      "coldCall.configure(", "coldCall: coldCall",
-                      "pipeline.configure(", "pipeline: pipeline",
+        // And the members are WIRED by the session and MOUNTED by the window.
+        // Both reach each member under its short name (`translator` is
+        // `roster.translator` — a local in `ProjectSession.open`, an accessor
+        // in `ProjectWindow`), so these are the spellings in their code. The
+        // last two wiring tokens are spelled `pipeline?.` rather than
+        // `pipeline.`: they live inside the translator environment's
+        // `onRunEnded`/`onRunAbandoned` closures, which capture the pipeline
+        // weakly — a strong capture there is a window's whole project graph
+        // held alive by an orchestrator closure, which is the thing
+        // `.onDisappear`'s scorch exists to prevent.
+        let session = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"])
+        for token in ["translator.configure(", "coldCall.configure(", "pipeline.configure(",
+                      "translator: translator, coldCall: coldCall",
                       "pipeline?.translatorRunEnded(", "pipeline?.translatorRunAbandoned("] {
+            XCTAssertTrue(session.contains(token),
+                          "ProjectSession is missing \(token) — without it a roster member "
+                          + "is unwired or deaf to the translator")
+        }
+        let window = try SourceTree.windowSource()
+        for token in ["translator: translator", "coldCall: coldCall", "pipeline: pipeline"] {
             XCTAssertTrue(window.contains(token),
                           "ProjectWindow is missing \(token) — without it a roster member "
-                          + "is unwired, unmounted, or deaf to the translator")
+                          + "is unmounted")
         }
-        XCTAssertFalse(window.contains("translator.notARealVerb("),
+        XCTAssertFalse(window.contains("translator.notARealVerb(")
+                       || session.contains("translator.notARealVerb("),
                        "the scan reads the file rather than always answering true")
+    }
+
+    /// CONTROL for (b)'s second half: a session whose `close()` closes the
+    /// DocumentStore before detaching is reported, and so is one that only
+    /// names the detach in a comment.
+    func test_theSessionCloseCensusFiresOnAPlantedMisorder() throws {
+        let misordered = try SourceTree.plantedTree([
+            "Maugham/Stores/ProjectSession.swift": """
+                @MainActor @Observable
+                final class ProjectSession {
+                    func close() async {
+                        await documentStore.close()
+                        roster.detachAll()
+                    }
+                }
+                """,
+        ])
+        let misorderedReport = try Self.sessionCloseReport(base: misordered)
+        XCTAssertEqual(misorderedReport.count, 1, misorderedReport.joined(separator: "\n"))
+        XCTAssertTrue(misorderedReport.contains { $0.contains("before") },
+                      misorderedReport.joined(separator: "\n"))
+
+        let commented = try SourceTree.plantedTree([
+            "Maugham/Stores/ProjectSession.swift": """
+                @MainActor @Observable
+                final class ProjectSession {
+                    func close() async {
+                        // roster.detachAll()
+                        await documentStore.close()
+                    }
+                }
+                """,
+        ])
+        let commentedReport = try Self.sessionCloseReport(base: commented)
+        XCTAssertEqual(commentedReport.count, 1, commentedReport.joined(separator: "\n"))
+        XCTAssertTrue(commentedReport.contains { $0.contains("never calls roster.detachAll()") },
+                      commentedReport.joined(separator: "\n"))
+    }
+
+    /// Whether `ProjectSession.close()` detaches the roster and THEN closes
+    /// the DocumentStore, one sentence per thing wrong; empty when it does.
+    /// Throws when nothing under `Maugham/` declares `ProjectSession`.
+    private static func sessionCloseReport(base: URL) throws -> [String] {
+        let text = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"], base: base)
+        guard let body = closureBody(after: "func close()", in: text) else {
+            return ["ProjectSession declares no close()"]
+        }
+        let code = String(decoding: SourceTree.mask(body), as: UTF8.self)
+        guard let detach = code.range(of: "roster.detachAll()") else {
+            return ["ProjectSession.close() never calls roster.detachAll() — a closed "
+                    + "window's services would keep their sessions and the stores alive"]
+        }
+        guard let closeStore = code.range(of: "documentStore.close()") else {
+            return ["ProjectSession.close() never closes its DocumentStore"]
+        }
+        if closeStore.lowerBound < detach.lowerBound {
+            return ["ProjectSession.close() closes the DocumentStore before it detaches "
+                    + "the roster — a service mid-turn would still be writing through it"]
+        }
+        return []
     }
 
     /// CONTROL for (d): a roster whose `shutdownAll` forgets the designer and

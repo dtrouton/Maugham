@@ -257,12 +257,21 @@ struct ProjectWindow: View {
     /// designer (P3), the cold-call runner and the seven-leg pipeline
     /// (translation pipeline P2/P3), and the translation run log the desk
     /// reports from. Owned here for the canvas model's reason — a run is
-    /// started from one column and read in another. Wired in `load()`, where
-    /// the stores exist; torn down by `roster.detachAll()` in `.onDisappear`
-    /// and `roster.shutdownAll()` in `CompilerRunModifier`, each in the
+    /// started from one column and read in another. The roster is the
+    /// session's (Task 2): built and wired by `ProjectSession.open`, torn down
+    /// by `session.close()` in `.onDisappear` (which detaches it before the
+    /// DocumentStore closes) and `roster.shutdownAll()` in
+    /// `CompilerRunModifier`, each in the
     /// roster's one order (pipeline first). A session merely released is a
     /// live, billing process — `AgentRoster`'s own contract.
-    @State private var roster = AgentRoster()
+    @State private var session: ProjectSession?
+    /// The session's roster once the project is open. Before that (and after
+    /// the close), an unconfigured placeholder, so `CompilerRunModifier` and
+    /// the accessors below always have a roster to name: every verb on an
+    /// unconfigured service is a no-op, exactly as the window's own roster
+    /// was before `load()` configured it.
+    private var roster: AgentRoster { session?.roster ?? Self.unloadedRoster }
+    private static let unloadedRoster = AgentRoster()
     private var compiler: CompilerOrchestrator { roster.compiler }
     private var translator: TranslatorOrchestrator { roster.translator }
     private var translationRuns: TranslationRunLog { roster.translationRuns }
@@ -278,8 +287,8 @@ struct ProjectWindow: View {
     /// invalidate the cache are reached from it, so a store constructed inside
     /// the pane would be a second cache the run never hits. Both are
     /// project-scoped and per-device, and both materialize their sidecar in
-    /// `init`, so they are built in `load()` where the project URL exists and
-    /// never from a view body.
+    /// `init`, so they are built in `ProjectSession.open`, where the project
+    /// URL exists, and never from a view body; these are the window's mirrors.
     @State private var bible: BibleStore?
     @State private var declaredWorld: DeclaredWorldStore?
 
@@ -452,10 +461,6 @@ struct ProjectWindow: View {
         .task(id: url) { await load() }
         .onDisappear {
             mcpRegistry.unregister(url: url)
-            // `Task { … }` captures `documentStore` by value, so nil-ing the
-            // @State immediately after is safe — the close still runs on the
-            // captured reference.
-            Task { await documentStore?.close() }
             // Scorch the heavy @State on window close. SwiftUI never dismantles
             // a closed `WindowGroup` scene's view graph (`GraphHost.sharedGraph`
             // retains it — see the scene-storage spike note), but `.onDisappear`
@@ -473,11 +478,17 @@ struct ProjectWindow: View {
                 // Before the stores drop: the orchestrator's environment holds
                 // closures over both of them, so a session left configured here
                 // would keep the whole project graph alive in the husk — and
-                // its `claude` subprocess alive with it.
-                // The roster detaches the pipeline first: a leg parked on a
+                // its `claude` subprocess alive with it. `session.close()`
+                // detaches the roster (pipeline first: a leg parked on a
                 // translator summary has to be resolved before the translator
-                // that owed it is torn down.
-                roster.detachAll()
+                // that owed it is torn down) and THEN closes the DocumentStore.
+                // `Task { … }` captures `session` by value, so nil-ing the
+                // @State immediately after is safe — the close still runs on
+                // the captured reference.
+                if let session {
+                    Task { await session.close() }
+                }
+                session = nil
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
@@ -4039,20 +4050,19 @@ struct ProjectWindow: View {
     @MainActor
     private func load() async {
         do {
-            let s = try await ProjectStore.load(from: url)
-            let ds = try await DocumentStore.open(url: url)
-            s.documentStore = ds
-            // The other direction, and set here for the same reason: the
-            // registry's narrowing verbs live on `DocumentStore` and the
-            // manifest lives on `ProjectStore`, so the schema gate at the first
-            // narrowing (P3b Task 3) has to be able to tell the live store what
-            // it just wrote to disk. Weak on both sides; the window owns them.
-            ds.projectStore = s
-            // The canvas's equivalent, and set here for the same reason: the
-            // model is `@State` on this view, so nothing an MCP tool is handed
-            // can reach it otherwise. In `load()` and never in `body` — a store
-            // is not read from a view body or anything a body calls.
-            s.liveCanvas = canvasModel
+            // The stores and the services are the session's (foundations
+            // plan 3, Task 2): `ProjectSession.open` loads the manifest, opens
+            // the DocumentStore, cross-links them, hands the store this
+            // window's canvas model, builds the bible and the declared world
+            // and configures every roster service. What stays here is the
+            // window's own: seeding its UI state, publishing the stores, the
+            // MCP registration and the session log.
+            let session = try await ProjectSession.open(
+                url: url, preferences: userPreferences,
+                liveCanvas: canvasModel,
+                onCompilerFlash: { showCompilerFlash($0) })
+            let s = session.projectStore
+            let ds = session.documentStore
 
             // **Every `ds.uiState` seed is read BEFORE the stores are published,
             // and the order is the contract** (2026-08-26). `showInspector`
@@ -4113,106 +4123,16 @@ struct ProjectWindow: View {
             self.outlineLayout = ds.uiState.outlineLayout
             applyNoChrome()
 
+            // A window whose `.task(id: url)` re-ran would otherwise drop its
+            // previous session still configured — a live, billing process.
+            if let previous = self.session {
+                Task { await previous.close() }
+            }
+            self.session = session
             self.store = s
             self.documentStore = ds
-            // The Intent pane's strata, on the same device slug and the same
-            // rule as every other derived sidecar (tripwire 24 at the filename
-            // point, which both stores take care of themselves).
-            //
-            // **Built BEFORE the compiler, because the run reads both.** The
-            // declared world is what ⌘R briefs its clauses from and the bible
-            // is the ledger a run slices and then feeds; a compiler configured
-            // against stores that did not exist yet would be a run with no
-            // clauses and facts that go nowhere, all of it silent.
-            let device = DeviceIdentity.author.slug
-            let bibleStore = BibleStore(projectRoot: url, device: device)
-            let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
-            self.bible = bibleStore
-            self.declaredWorld = worldStore
-            compiler.configure(
-                environment: .production(
-                    store: s, documentStore: ds, projectURL: url,
-                    declaredWorld: worldStore, bible: bibleStore,
-                    preferences: userPreferences,
-                    model: ds.uiState.compilerModel.claudeModel,
-                    onRunAcknowledged: { showCompilerFlash($0) }),
-                diagnostics: DiagnosticsStore(
-                    projectRoot: url,
-                    device: DeviceIdentity.author.slug))
-            // The translator's loop, wired beside the compiler's and for its
-            // reason. Its run verb is the department desk's Run button (P4 Task
-            // 3), and what a finished round has to say goes to the window's own
-            // record so that desk can report it — plus the log line, which is
-            // what a session that ran while no pane was open leaves behind.
-            translator.configure(
-                environment: .production(
-                    store: s, documentStore: ds, projectURL: url,
-                    // The same ledger the compiler was handed a few lines up,
-                    // and for the run's own reason: a fact the manuscript has
-                    // established about a person is a grammatical choice in
-                    // most of the languages this loop translates into.
-                    bible: bibleStore,
-                    preferences: userPreferences,
-                    model: ds.uiState.compilerModel.claudeModel,
-                    // **Two listeners, and the second is load-bearing for
-                    // cancel** (translation pipeline P3): the pipeline's leg is
-                    // suspended on a continuation that ONLY this forwarding
-                    // resumes. `pipeline.cancel()` mid-translator-leg works by
-                    // calling `TranslatorOrchestrator.cancel()`, which emits a
-                    // `.cancelled` summary — which reaches the parked leg
-                    // through this line and nowhere else. Drop it and a
-                    // cancelled round hangs forever.
-                    onRunEnded: { [weak translationRuns, weak pipeline] summary in
-                        translationRuns?.record(summary)
-                        pipeline?.translatorRunEnded(summary)
-                        _projectWindowLog.info(
-                            "translation run \(summary.runId, privacy: .public) ended for \(summary.docId, privacy: .public)/\(summary.language, privacy: .public)")
-                    },
-                    // A click that turned out not to be a run — the briefing
-                    // answered nil — emits no summary at all, so the leg would
-                    // wait on a run that never started.
-                    onRunAbandoned: { [weak pipeline] runId in
-                        pipeline?.translatorRunAbandoned(runId)
-                    }))
-            // The designer's loop, wired beside the other two. Headless for the
-            // translator's reason — a design round is started from the desk
-            // (P4) — so what a finished round has to say goes to the log until
-            // that desk exists to say it to. **The two things it says are the
-            // round's whole product**: which proposal is now on the desk, and
-            // whether its sample pages compiled. A record naming neither is one
-            // nobody can follow up on.
-            designer.configure(
-                environment: .production(
-                    store: s, projectURL: url,
-                    preferences: userPreferences,
-                    model: ds.uiState.compilerModel.claudeModel,
-                    onRunEnded: { summary in
-                        _projectWindowLog.info(
-                            "design run \(summary.runId, privacy: .public) round \(summary.round, privacy: .public) ended: \(Self.designRunRecord(summary), privacy: .public)")
-                    }))
-            // The cold-call runner, wired beside the three orchestrators. It
-            // holds no session between calls; what it needs is the factory
-            // that builds a sealed one, and the same toggle every spawn reads.
-            coldCall.configure(
-                makeRunner: ColdCall.productionRunnerFactory(preferences: userPreferences))
-            // The pipeline, sequencing the translator and the cold-call runner
-            // wired just above. Owns no session; owns the leg that waits.
-            pipeline.configure(environment: .production(
-                store: s, documentStore: ds, projectURL: url,
-                translator: translator, coldCall: coldCall,
-                model: ds.uiState.compilerModel.claudeModel,
-                onRoundEnded: { round in
-                    _projectWindowLog.info(
-                        "translation round \(round.number, privacy: .public) for \(round.docId, privacy: .public)/\(round.language, privacy: .public) ended at leg \(round.legs.last?.leg.name ?? "-", privacy: .public)")
-                    // **How a finished round reaches the desk** (P4). The round
-                    // is filed to `TranslationRoundStore`, which touches
-                    // neither the manifest nor the annotations, and the desk's
-                    // `ReloadKey` carries the pipeline's LANGUAGE and not its
-                    // leg — so nothing else here would tell the row it has a
-                    // newer round to draw. `.project`-scoped, because another
-                    // window on another book has no stake in it.
-                    MaughamEvent.postTranslationRoundEnded(projectURL: url, round: round)
-                }))
+            self.bible = session.bible
+            self.declaredWorld = session.declaredWorld
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
             loadError = nil

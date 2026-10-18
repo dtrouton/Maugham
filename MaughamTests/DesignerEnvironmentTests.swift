@@ -421,19 +421,26 @@ final class DesignerEnvironmentTests: XCTestCase {
     /// gives it a run verb.
     func test_theWindowOwnsWiresAndReleasesTheDesigner() throws {
         let window = try SourceTree.windowSource()
-        // Owned, released and re-modelled through the roster (foundations
-        // plan 3): `AgentRosterTests` pins what `detachAll`/`updateModel` do
-        // to the designer, and `TranslatorEnvironmentTests`' census that the
-        // window calls them.
-        for token in ["AgentRoster()", "roster.detachAll()",
-                      "designer.configure(", "designer: designer",
-                      "roster.updateModel("] {
+        let session = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"])
+        // Owned, wired and released by the session's roster (foundations
+        // plan 3, Task 2), mounted and re-modelled by the window:
+        // `AgentRosterTests` pins what `detachAll`/`updateModel` do to the
+        // designer, and `TranslatorEnvironmentTests`' census that the window
+        // and the session call them.
+        for token in ["AgentRoster()", "roster.detachAll()", "designer.configure("] {
+            XCTAssertTrue(session.contains(token),
+                          "ProjectSession is missing \(token) — without it the "
+                          + "designer is unwired or outlives the window that "
+                          + "started it")
+        }
+        for token in ["session.close()", "designer: designer", "roster.updateModel("] {
             XCTAssertTrue(window.contains(token),
                           "ProjectWindow is missing \(token) — without it the "
-                          + "designer is unwired, unmounted, or outlives the "
-                          + "window that started it")
+                          + "designer is unmounted, never re-modelled, or "
+                          + "outlives the window that started it")
         }
-        XCTAssertFalse(window.contains("designer.notARealVerb("),
+        XCTAssertFalse(window.contains("designer.notARealVerb(")
+                       || session.contains("designer.notARealVerb("),
                        "the scan reads the file rather than always answering true")
     }
 }

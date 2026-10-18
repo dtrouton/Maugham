@@ -636,7 +636,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the scan reads the file rather than always answering true")
 
         let window = try SourceTree.windowSource()
-        for token in ["CompilerRunModifier(", "roster.detachAll()",
+        for token in ["CompilerRunModifier(", "session.close()",
                       "SaveFlashOverlay(isShowing: $showingCompilerFlash"] {
             XCTAssertTrue(window.contains(token),
                           "ProjectWindow is missing \(token) — without the first the "
