@@ -21,10 +21,10 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/Stores/AREA.md": 7_628,  // plan 5: re-templated, +285 review fixes (16,389 → 7,343 → this; tripwires 49/50, inbox promote order, backup-signature step); the narrative is in docs/history/stores.md
         "Maugham/MCP/AREA.md": 5_651,  // plan 5: re-templated (8,687 → this); the narrative is in docs/history/mcp.md
         "MaughamPhone/AREA.md": 4_033,  // plan 5: re-templated (5,007 → this); the narrative is in docs/history/phone.md
-        "Maugham/Editor/AREA.md": 3_673,
+        "Maugham/Editor/AREA.md": 3_012,  // plan 5: re-templated (3,673 → this); the narrative is in docs/history/editor.md
         "Maugham/Updates/AREA.md": 3_992,  // plan 5: re-templated (4,089 → this); the narrative is in docs/history/updates.md
-        "Maugham/Publish/AREA.md": 1_073,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17; +38: the pointer to Core's block-kind recipe; +96: the unproducible-format door (foundations plan 7)
-        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_085,  // +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities
+        "Maugham/Publish/AREA.md": 2_097,  // plan 5: re-templated (1,073 → this: the Map names all 54 files, two recipes added); the narrative is in docs/history/publish.md
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_193,  // plan 5: +108, Pointers filled (tripwire rows, tests, neighbours); +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.
@@ -48,6 +48,8 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/MCP/AREA.md",
         "MaughamPhone/AREA.md",
         "Maugham/Updates/AREA.md",
+        "Maugham/Editor/AREA.md",
+        "Maugham/Publish/AREA.md",
     ]
 
     /// Docs that must carry no milestone tag (a rule outlives the milestone
@@ -64,6 +66,8 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/MCP/AREA.md",
         "MaughamPhone/AREA.md",
         "Maugham/Updates/AREA.md",
+        "Maugham/Editor/AREA.md",
+        "Maugham/Publish/AREA.md",
     ]
 
     /// Guides already in the template (Map / Rules / Recipes / Pointers).
@@ -78,6 +82,8 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/MCP/AREA.md",
         "MaughamPhone/AREA.md",
         "Maugham/Updates/AREA.md",
+        "Maugham/Editor/AREA.md",
+        "Maugham/Publish/AREA.md",
     ]
 
     /// Guides still over the hard cap, awaiting their re-template. Shrinks to
@@ -260,6 +266,20 @@ final class DocBudgetTests: XCTestCase {
             XCTAssertNil(Self.templateProblem(in: try Self.read(path)),
                 "\(path) must have ## Map, ## Rules, ## Recipes, ## Pointers in that order")
         }
+    }
+
+    /// Every guide in the repo is in the template (plan 5's end state). The
+    /// equality is the census: a new AREA.md the walk finds but the list does
+    /// not name fails, and so does a listed guide that no longer exists.
+    func test_everyAreaGuideInTheRepoIsTemplated() {
+        let guides = Self.areaGuides(under: Self.repoRoot)
+        XCTAssertGreaterThanOrEqual(guides.count, 11, "the control: the walk found only \(guides)")
+        XCTAssertEqual(Set(Self.templatedGuides), Set(guides),
+            "templatedGuides must name exactly the AREA.md files in the repo. "
+            + "A new guide is written in the template (## Map, ## Rules, ## Recipes, ## Pointers) "
+            + "and added to templatedGuides, untaggedDocs and wordCeilings.")
+        XCTAssertEqual(Self.templatedGuides.count, Set(Self.templatedGuides).count,
+            "templatedGuides names a guide twice")
     }
 
     func test_noAreaGuideExceedsTheHardCap() throws {

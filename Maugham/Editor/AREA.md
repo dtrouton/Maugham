@@ -1,48 +1,61 @@
-# Editor — Area guide
+# Editor — area guide
 
-This is the most fragile area in the codebase. Three cursor races in 24 hours during the 3d window all lived here. Read this before editing anything in `Maugham/Editor/`. Also read the project root `CLAUDE.md` for cross-cutting invariants.
+The NSTextView-backed editing surface and the SwiftUI bridge that exposes it as a binding: text storage, tokenizing and styling, cursor and scroll management, smart typography, find-match and annotation navigation, focus dimming, image paste, wiki-link and checkbox hit-testing, screenplay Tab-cycling, the review render and the translation-review badges. It is the most fragile area in the codebase: every cursor race the project has had lived here. The one rule from CLAUDE.md: **the `EditorHost` binding is fragile (tripwires 2, 3, 6, 7).** The area also carries tripwires 1, 4, 5 and 33. The narrative and history behind the rules below are in `docs/history/editor.md`.
 
-## What this area owns
+## Map
 
-The NSTextView-backed editing surface: text storage, tokenization, styling, cursor management, smart typography substitution, find-match navigation, focus dimming, image-paste routing, wiki-link hit-testing, Tab-element cycling (screenplay), and the SwiftUI bridge that exposes it as a binding to the rest of the app.
+Every source file in `Maugham/Editor/` appears once.
 
-**A surface with an `imagePasteHandler` OWNS pasteboard images** *(M1A Task 12 review round 3)*. `MaughamTextView.paste(_:)` used to fall through to `super` when the handler returned nil — and because `readablePasteboardTypes` advertises image types whenever a handler is set, `super` accepted the image and inserted an **attachment character**. Measured: pasting into a visual language with no file yet put `![](./visual-language_assets/…png)\n\n￼` in the writer's op log, and a research note whose paste failed to encode got the `U+FFFC` with no ref at all. Nil means *handled, nothing to insert here* — never *not mine*. `StatementImageIngestTests.test_pastingAPictureLeavesNoAttachmentCharacterBehind` pins it, and it only catches the defect with **no statement created up front**: with one, the handler answers synchronously and `super` never runs, which is how the first draft of that test passed against the live bug.
+### The surface and the coordinator
+- `EditorSurface.swift` — the `NSViewRepresentable` around the text view, the SwiftUI-side boundary: `EditorSurfaceConfiguration` (with `isSecondEditorInItsWindow`), `reconcileTextBuffer`, the one `applyExternalText` call, and `MaughamTextView` (the `NSTextView` subclass: caret clamp, paste, checkbox click, private undo manager, column inset). Tripwires 6, 7.
+- `EditorCoordinator.swift` — the `NSTextViewDelegate`, the area's central nervous system: `shouldChangeTextIn` (the membrane), `textDidChange`, the key-window observers, `detach()`, `applyExternalText`, `observeControl`/`applyControl`. Tripwires 2, 3, 6, 7.
+- `EditorCoordinator+Typography.swift` — `retokenizeAndStyle`, the deferred and live windowed restyles, `applyAppearance`, `effectiveAppearanceDidChange`, `applyFocusDim`, typewriter centring, metrics delivery, `postScriptDidUpdate`, checkbox and wiki-link hit-testing.
+- `EditorCoordinator+FindNavigation.swift` — line and annotation navigation, and the selection toolbar's placement.
+- `EditorCoordinator+TabCycle.swift` — screenplay Tab / Shift-Tab element cycling.
+- `EditorCoordinator+ReviewRender.swift` — the review overlays: resolving marks, the margin cards, the toolbar's annotation authoring, card actions. Tripwire 4.
+- `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
+- `EditorControl.swift` — the `@Observable` control-plane model (posture, appearance, review annotations, translation language and badges); never text (ADR 0017).
+- `EditorEditPolicy.swift` — the pure membrane decisions: `allowsTextMutation(isReviewMode:lockEditing:isTranslationReview:)` and `allowsCheckboxToggle`.
+- `CoordinatorLeakProbe.swift` — a dev-build weak registry of every coordinator, to check by hand that a closed window's coordinator is released.
 
-## TextKit version
+### Modes, tokens and styling
+- `WritingMode.swift` — the `WritingMode` protocol (tokenize, `applyTypography` with a restyle window, `defersRestyleWhileTyping`) and `EditorMetrics`.
+- `WritingModeFactory.swift` — picks the mode and default typography from `DocumentFormat.ofManuscript(path:)`.
+- `ProseMode.swift` — the Markdown mode.
+- `ScreenplayMode.swift` — the Fountain mode: tokens from the shared parser, per-element paragraph styling, page count.
+- `Token.swift` — `Token` and `Token.Kind`, including `taskBody` and `invisibleAnchor`.
+- `TokenRestyleWindow.swift` — the attribute-application window for a keystroke restyle.
+- `Maugham/Editor/Tokenizer/MarkdownTokenizer.swift` — the prose tokenizer; emphasis is paragraph-scoped through the shared `InlineEmphasisScanner`.
+- `Maugham/Editor/Tokenizer/BlankLineBlocks.swift` — blank-line-delimited blocks, so emphasis scans per paragraph.
+- `Maugham/Editor/Tokenizer/SmartTypography.swift` — em dash, ellipsis and curly-quote substitution.
+- `MarkdownCheckboxTokenizer.swift` — the editor's checkbox attribute; the shared scanner is `Maugham/OpLog/InlineTaskScanners.swift`.
+- `Maugham/Editor/Fountain/ScreenplayCycle.swift` — the pure Tab-cycle order of screenplay elements.
+- `Maugham/Editor/Fountain/ScreenplayLineMutator.swift` — rewrites one line's source (forced-syntax markers) so it classifies as the chosen element.
+- `ElementGutterView.swift` — the screenplay element gutter (CHAR, DLG…); draws only visible lines through a binary search and a label cache. Tripwire 4.
+- `FocusFinder.swift` — the sentence or paragraph around the cursor, for focus dimming.
+- `RenderFilter.swift` — round-trips the anchored stored form and the display form, reattaching paragraph ids by position and shingle match.
 
-The editor is **pinned to TextKit 1**. A fresh `NSTextView` on recent macOS is TextKit 2, whose caret is a private `NSTextInsertionIndicator` with no resize hook — so the empty-line caret renders at the full line-fragment height (glyph + the body line spacing) and visibly "shrinks" on the first keystroke. `EditorSurface.makeNSView` touches `textView.layoutManager` once, which permanently downgrades the view to TextKit 1, where `MaughamTextView.drawInsertionPoint` clamps the caret to glyph height (`CaretHeightTests`). Screenplay/review/typewriter already forced TK1 (gutter + overlays touch `layoutManager`), and the typing-perf milestone was tuned against that TK1 screenplay path — so this just makes prose consistent. **That `_ = textView.layoutManager` line looks unused; it is load-bearing — don't remove it.**
+### Review and translation surfaces
+- `ReviewPalette.swift` — pure colour policy: Claude a fixed terracotta, humans a stable hash into a capped muted set.
+- `ReviewRenderViews.swift` — `ResolvedReviewMark`, `AnnotationMarkRenderer` (inline pencil marks) and `ReviewMarginRailView` (margin cards and leaders). Tripwire 4.
+- `ReviewSpanCapture.swift` — turns a selection into a paragraph-relative span and back (`graphemeRangeToUTF16`).
+- `ReviewCardActions.swift` — which actions a margin card offers per annotation kind and posture.
+- `ReviewAnnotationComposerView.swift` — the inline annotation composer, a plain `NSView`. Tripwire 5.
+- `SelectionToolbarView.swift` — the floating selection toolbar (Comment, Suggest, Query, Translator's note), a plain `NSView`. Tripwire 5.
+- `SuggestedEditDiff.swift` — a reviewer's replacement → the `(body, suggestedText)` pair.
+- `TranslationBadgeLayout.swift` — pure geometry for the staleness badges.
+- `TranslationBadgeOverlayView.swift` — the badge overlay in the left inset (amber filled = stale, grey hollow = missing).
+- `ImagePasteHandler.swift` — saves a pasted image beside the note it belongs to and returns the Markdown reference.
 
-## Layout
+### Outside the folder
+- `Maugham/Views/EditorHost.swift` — binds the per-document `Document` to `EditorSurface`; the binding contract lives here. Tripwires 2, 3, 6, 7.
+- `Maugham/Views/EditorControlMirror.swift` — `EditorControlMirror.membrane(posture:manualReview:shareIsReadOnly:)`, which composes `lockEditing`.
+- `Maugham/Views/StatementEditorHost.swift` — the statement panes, the second editor in a window.
+- `FountainTokenizer.swift`, `FountainScript.swift` and `FountainLine.swift` — the screenplay parser and its model, in MaughamCore (`Packages/MaughamCore/Sources/MaughamCore/AREA.md`).
 
-- `EditorSurface.swift` — `NSViewRepresentable` wrapping `NSTextView`. The SwiftUI-side boundary.
-- `EditorHost.swift` (lives at `Maugham/Views/EditorHost.swift`, not here — historical placement) — binds the per-document `Document` actor to `EditorSurface`. The binding is the single source `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })`; `Document.setFullText` writes `displayText` exactly once at the end. The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad is gone — all that state moved onto `Document`.
-- `EditorCoordinator.swift` — `NSTextViewDelegate` implementation. The "central nervous system" and by far the largest file in this area. Tokenizes, applies styles, manages cursor, handles Tab-cycle for screenplay, smart-quote / em-dash substitution, find-match scrolling, focus-dim, image paste routing, wiki-link `[[…]]` hit-testing.
-- `ScreenplayMode.swift` lives at `Maugham/Editor/` (not under `Fountain/`).
-  - `applyTypography` takes a `restyleWindow` so callers can `setAttributes` over just a sub-range (the modes still honour it; `WindowedTypographyEquivalenceTests` pins window≡whole-doc equivalence). **The typing path is now mode-gated (tripwire 9, `WritingMode.defersRestyleWhileTyping`):** prose DEFERS a windowed repaint to the burst settle (`performDeferredRestyle`), while screenplay paints LIVE & WINDOWED per keystroke (`paintLiveWindowed`). Both compute the window via `changedParagraphWindow` (character diff vs a baseline), so the coordinator DOES compute per-keystroke windows again on the live path. Don't add work *inside* `applyTypography` on either path.
-  - **History (not live code):** display-time uppercase for forced sluglines/characters was rejected as an "option-A fallback" for cursor-positioning reasons — making text render uppercase while the source/selection stayed lowercase desynced the caret. The shared `ScreenplayUppercase` in MaughamCore uppercases the *source* instead. A dead `ScreenplayLayoutManager` (glyph-substitution `NSLayoutManager` keyed on a never-set `.maughamDisplayUppercase` attribute) lingered as a relic of that rejected approach and was deleted 2026-06-10. Don't reintroduce display-time uppercase without rethinking the cursor-positioning problem.
-- Typing-perf milestone (2026-06-10, branch `typing-perf`): `FountainTokenizer` is a single UTF-16 buffer pass over an internal `LineRecord` array — `LineRecord` is the documented seam a future INCREMENTAL tokenizer re-derives from (don't inline it away); any grammar change must update BOTH the tokenizer and the frozen `FountainTokenizerReference` oracle in MaughamCoreTests. The footer/inspector metrics pipeline is `EditorCoordinator.onMetricsChanged` (computed from the keystroke's own parse, debounced with the script broadcast — no consumer re-parses). `ElementGutterView` draws only visible-range lines via binary search + a color-keyed label cache (tripwire 4).
-- **Crafted review render (Component F, review-mode only):** `ReviewPalette.swift` (pure colour policy — Claude = fixed terracotta, humans = stable FNV-hash into a capped muted set; TDD'd by `ReviewPaletteTests`) + `ReviewRenderViews.swift` (two transparent overlay NSViews installed on the text view like the gutter: `AnnotationMarkRenderer` draws inline pencil marks — underline / strike+caret / query-`?` — and `ReviewMarginRailView` draws the right-margin slip cards + leader lines). Both are coordinator-owned, shown only when `coordinator.isReviewMode`, and bound to the visible glyph range (tripwire 4). The coordinator resolves each `Annotation` to absolute UTF-16 (`ResolvedReviewMark`) in `recomputeReviewMarks()` — grapheme `resolvedSpanRange` → UTF-16 via `ReviewSpanCapture.graphemeRangeToUTF16` + the paragraph's `displayRange(forParagraphId:)` location — caching the result and recomputing only on annotation-set change (pushed one-way from EditorHost off `Document.annotationsVersion`) or text change, never per draw. Overlays self-observe scroll/text via `NotificationCenter` (mirrors `ElementGutterView`); resize re-frames them from `MaughamTextView.updateColumnInset`.
-- `Fountain/` — screenplay parser primitives: `FountainTokenizer.swift` (the parser; despite the name it does parsing not just tokenizing), `FountainScript.swift`, `FountainLine.swift`.
-- `Tokenizer/` — prose-side tokenizer + style application.
-- **Character autocomplete is intentionally absent.** The NSPopover-based `CharacterAutocompleter` was deleted (2026-06-06) after being dead since 3b ("too brittle, blocks input"). Don't reintroduce a popover-based autocomplete; if character autocomplete returns, redesign the UX first (inline ghost-text or sheet).
-- **Effective-appearance change (OS light/dark) — DIRECT per-view call, not a broadcast (2026-07-02):** `MaughamTextView.viewDidChangeEffectiveAppearance` calls `coordinator?.effectiveAppearanceDidChange()` directly (one delegate hop). It does NOT post a NotificationCenter broadcast. AppKit fires `viewDidChangeEffectiveAppearance` on a view's FIRST mount, not only on a real light/dark flip — and every piece flip builds a fresh `EditorSurface` — so the old `object: nil` broadcast (`.maughamEffectiveAppearanceChanged`, now deleted) fanned a whole-doc restyle out to EVERY live coordinator, including leaked ones from closed windows (a 174KB screenplay restyle = ~seconds). Two belts: `effectiveAppearanceDidChange()` no-ops when `textView.effectiveAppearance.name` is unchanged since the last handled change (baseline seeded in `attach`); and `coordinator.detach()` runs on teardown — from `EditorSurface.dismantleNSView` on IN-window teardowns (the `.id(path)` piece flip) AND from `MaughamTextView.viewWillMove(toWindow: nil)` on window close (the retain-root trace proved `dismantleNSView` NEVER runs on ⌘W — `GraphHost.sharedGraph` retains the dead scene). `detach()` releases the text-view graph, cancels the async Tasks, and flips `isDetached` so a coordinator SwiftUI has not yet released does no restyle work; it is explicitly idempotent (`guard !isDetached`) because a flip fires both hooks. The coordinator has **no internal ARC cycle** — every back-reference (delegate, `textView`, overlay/gutter `coordinator`, NC observers, Tasks) is `weak`/`[weak self]`; the post-window-close leak is SwiftUI `WindowGroup` scene retention, which `detach()` cannot force-release but neutralises. The heavy `@State` payload (Document, ProjectStore, DocumentStore, FountainScript AST) is separately scorched in `ProjectWindow`/`EditorHost` `.onDisappear` (workaround 1, see the scene-storage spike note). NOTE this is distinct from theme/typography changes, which flow via `EditorControl` (below) — `applyAppearance` serves both, so the same-appearance no-op guard lives in `effectiveAppearanceDidChange()`, not in `applyAppearance`. Regression net: `EditorAppearanceChangeTests`.
-- **Control plane (ADR 0017):** Control state (posture/appearance/review annotation set) flows through `EditorControl`, observed by the coordinator via `withObservationTracking` — it does NOT ride `updateNSView` and does NOT get a new notification. `updateNSView` is text + frame + gutter + provider-wiring only; the text binding/data plane is unchanged. D1 — `EditorControl` holds only control state, never text-/cursor-derived values (else observation fires on the typing hot path). D2 — `applyControl` stays per-sub-area no-op-guarded; callers add no-op guards to avoid redundant AppKit calls. The ⌘⌥⇧R `maughamToggleReviewMode` observer is kept deliberately for a synchronous membrane flip (Bug B).
-  - **Narrowed observation capture (ADR 0017 addendum, 2026-07-02):** `armControlObservation` runs the initial `applyControl` **outside** `withObservationTracking`; the tracking closure reads ONLY the `control.*` properties (each touched explicitly). This closes D1's latent exposure: `applyControl` reads *through* Document/UserPreferences providers in review posture (`recomputeReviewMarks` → `reviewLocalAuthorName`), so if the apply ran *inside* tracking those reads were tracked and any shared `UserPreferences`/`Document` mutation re-fired the whole-doc restyle in every review-mode window. Don't move `applyControl` back inside the tracking closure, and don't add a `control.*` read to the closure without a matching read in `applyControl` (keep the tracked set == the consumed set). Regression net: `EditorControlBridgeTests.test_reviewObservation_ignoresSharedPreferencesMutation` / `…_stillFiresOnControlPropertyChange` (via the internal `applyControlCount`).
-- **Scoped `maughamScriptDidUpdate` (Channel A, now ADR 0021):** the coordinator's script-did-update post routes through `MaughamEvent`'s `.project` scope, not a bespoke channel. `postScriptDidUpdate` posts `MaughamEvent.post(.maughamScriptDidUpdate, to: .project(id: scriptOriginProjectId), object: script)`, where `scriptOriginProjectId` is stamped by the coordinator (wired by `EditorSurface` from `EditorHost` = `ProjectIdentifier.id(for: store.url)`). Receivers subscribe via `.onProjectEvent(.maughamScriptDidUpdate, url:, window:)` (`ProjectWindow.swift`) — adopt the script only when the event's project id matches their own. This is NOT a key-window guard (a background window's own MCP-driven re-parse must still update its scene navigator). Before scoping, any window flipping to a screenplay piece wrote every other window's `lastParsedScript`, triggering a ~0.8–1s NavigationStack relayout of the bound editor and silently clobbering that window's navigator payload. `scriptOriginProjectId` can be nil (non-manuscript surface); the nil case gates only the `MaughamEvent.post` call — the debounce cancel/reschedule bookkeeping in `postScriptDidUpdate` stays unconditional, so a nil-origin call can't strand a stale in-flight debounced post. The old bespoke `ScriptUpdateRouting.swift` channel is deleted — absorbed into the wrapper. Regression net: `ScriptUpdateScopingTests`.
+## Rules
 
-## Task anchor styling
-
-Two new `Token.Kind` values were added in the task-anchors milestone:
-
-- `Token.Kind.taskBody` — paints the checkbox body text distinctly (currently `palette.syntaxPunctuation`) so the writer can see the boundary between task text and surrounding prose.
-- `Token.Kind.invisibleAnchor` — paints `NSColor.clear` so the `<!--t-XXXXXX-->` span is present in NSTextStorage (required for the strip/restore round-trip via `RenderFilter`) but invisible to the writer.
-
-Both the Markdown and Fountain tokenizers emit these kinds for anchored inline tasks. `ScreenplayMode` adds the invisible-anchor attributes **after** its full-storage `setAttributes` call — consistent with the existing race-window discipline (don't add work *inside* `applyTypography`).
-
-`EditorCoordinator` records cursor position to `Document.recordCursorAt(_:)` on selection changes. `Document.setFullText` reads the recorded cursor as `preEditCursor` for V2 cross-paragraph alignment, which detects cut/paste of anchored task lines between paragraphs.
-
-## The binding contract
-
+### The binding contract
 ```
 EditorHost: Binding(get: { doc.displayText }, set: { doc.setFullText($0) })
    ↓
@@ -50,99 +63,97 @@ Document.setFullText: parse → diff → record paragraph changes → write disp
    ↓
 debounced burst flush → op log + autosave → eventual disk write → Document.lastDiskEcho updates inside the coordinated-write block
 ```
-
-Invariants:
-
-- **`displayText` is written exactly once per `setFullText` call.** That's what closes the binding-loop race (see harness test `test_endOfFileTyping_doesNotFireApplyExternalText`).
-- **`EditorSurface.applyExternalText` is for cloud-conflict resolution only** — not for normal typing, not for op-log re-renders. Adding a caller is a tripwire (see below).
-- **Echo guard for our own writes** lives on `Document` as `lastDiskEcho: EchoState`; the editor doesn't see it. Don't introduce parallel "last text" state in the editor layer.
-- The binding setter's side effects (`recordEditorTextWrite` → `recordWordCount`/`recordSessionActivity`) are part of the contract — pinned by `EditorBindingSideEffectsTests` (regression b37609a). Preserve them in any binding change.
-
 **If you change the shape here, every cursor race you've heard about returns.**
+- **`displayText` is written exactly once per `setFullText` call**: that closes the binding-loop race (tripwire 6). `EditorIntegrationHarnessTests.test_endOfFileTyping_doesNotFireApplyExternalText` is the canonical assertion; extend it whenever you touch the binding shape.
+- **No parallel observable state on `EditorHost`, and no parallel onChange that reads back into the binding**: the old `$documentText` triad drove three cursor races in 24 hours (tripwire 6, `EditorIntegrationHarnessTests`). A new external-text path needs a regression test asserting `applyExternalText` does not fire during normal typing (`EditorIntegrationHarness.assertNoApplyExternalText`, via `applyExternalTextCallCount`).
+- **`EditorSurface.applyExternalText` is for cloud-conflict resolution only**, never typing or op-log re-renders. Its one production call is in `EditorSurface.swift`; a second is a binding race (tripwire 7, `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`).
+- **No heavy work inside a synchronous SwiftUI binding setter** (tripwire 3, `EditorIntegrationHarnessTests`). It caused a trailing-space autosave that moved the cursor, an async restore racing key events, and a binding loop reading stale text. Debounce, and isolate the write side from the read side.
+- **No SwiftUI ↔ AppKit two-way sync guarded by flags**: `.onChange` fires after the synchronous flag-clear, so the guard leaks (tripwire 2, prose only).
+- **The echo guard for our own writes lives on `Document`** (`lastDiskEcho: EchoState`). The editor never sees it, so don't add "last text" state in the editor layer.
+- **The binding setter's side effects are part of the contract**: `recordEditorTextWrite` → `recordWordCount`/`recordSessionActivity` (`EditorBindingSideEffectsTests`).
+- **`EditorCoordinator` records the cursor into `Document.recordCursorAt(_:)` on selection change**: `Document.setFullText` reads it as `preEditCursor` to align a cut-and-paste of anchored task lines between paragraphs.
+- **No `NSTextStorage` subclass fronting several files** (tripwire 1, prose only): AppKit's layout, undo and selection caches cannot be steered from a subclass, and multi-file screenplay is dead.
 
-## Tripwires (history of pain)
+### TextKit, caret and paste
+- **The editor is pinned to TextKit 1**: `EditorSurface.makeNSView` touches `textView.layoutManager` once, which downgrades the view for good, so `MaughamTextView.drawInsertionPoint` can clamp the empty-line caret to glyph height (`CaretHeightTests`). **That `_ = textView.layoutManager` line looks unused; it is load-bearing — don't remove it.**
+- **A surface with an `imagePasteHandler` owns pasteboard images**: `MaughamTextView.paste(_:)` never falls through to `super` for an image. `readablePasteboardTypes` advertises images, so `super` would insert an attachment character (`U+FFFC`) into the op log. A nil from the handler means *handled, nothing to insert here*, never *not mine* (`StatementImageIngestTests.test_pastingAPictureLeavesNoAttachmentCharacterBehind`, which catches the defect only with no statement created up front).
 
-1. **Don't add a parallel onChange in `EditorHost` that reads back into the binding.** The current single-binding shape replaced the older 3-onChange triad that drove three cursor races in 24 hours. New external-text paths need a regression test asserting `applyExternalText` doesn't fire during normal typing.
+### Restyle, scroll and typewriter
+Code comments cite this section as "Editor AREA tripwire 9", the old guide's local number for the scroll rules; it is not `docs/tripwires.md` row 9.
+- **Don't add work inside `applyTypography`** on either path. It takes a `restyleWindow`, and window ≡ whole document is pinned by `WindowedTypographyEquivalenceTests`.
+- **The typing path is mode-gated on `WritingMode.defersRestyleWhileTyping`.** Both branches restyle only the changed paragraphs found by a character diff (`changedParagraphWindow`), never a token diff: plain prose has no tokens, so a token window falls back to whole-document and snaps scroll. A local `setAttributes` does not move scroll, so AppKit's caret-following autoscroll is left alone.
+  - Prose defers the repaint to the burst's trailing edge (`scheduleDeferredRestyle` → `performDeferredRestyle`, `restyleSettleDelayMs` = 300 ms), diffing against `burstBaselineText`, snapshotted in `shouldChangeTextIn`. Deferral is what stops emphasis flicker. The whole-document branch survives only as a no-baseline fallback.
+  - Screenplay paints live and windowed on the keystroke (`paintLiveWindowed`, diffed against `liveRestyleBaseline`), because a styling lag on element-heavy text reads as sluggishness. The cursor restore in `textDidChange` covers its jostle.
+  - **Don't re-introduce a per-keystroke origin restore, a whole-document settle or live paint, or a token diff** (`DeferredRestyleTests.test_settleRestyleIsWindowedNotWholeDocument`, `test_screenplayRestylesLiveWhileTyping`, `test_screenplayLiveRestyleIsWindowedNotWholeDocument`).
+- **Non-typing callers paint whole-document and re-assert caret and scroll themselves** (attach, `applyExternalText`, theme, typography, focus): `applyExternalText` clamps, and attach defers a `scrollRangeToVisible`.
+- **Typewriter mode needs half a viewport of headroom**: `refreshTypewriterInset` sets `textContainerInset.height` to half the clip height (24 when off) and re-runs on resize from `MaughamTextView.updateColumnInset`. `scrollSelectionToVerticalCenter` adds `textContainerInset.height` to the line's container-space `midY`; **don't drop that correction**. Centring runs per keystroke in `textDidChange` (a scroll, not a paint).
+- **`applyFocusDim` is called from three paths intentionally** — selection change, focus change and an explicit theme update — and again after each restyle repaints over it. Don't dedupe the calls.
+- **The screenplay parser is one pass over `LineRecord`**, the seam a future incremental tokenizer re-derives from; don't inline it away. A grammar change updates both `FountainTokenizer` and the frozen `FountainTokenizerReference` oracle in MaughamCoreTests. `retokenizeAndStyle` parses once and threads the script to both tokens and typography, so no consumer re-parses.
+- **Metrics come from the keystroke's own parse**: `EditorCoordinator.onMetricsChanged`, debounced with the script post.
+- **The Mac editor renders screenplay text as typed.** Display-time uppercase was tried and rejected: rendering uppercase over lowercase source desynced the caret. `ScreenplayUppercase` (MaughamCore) is a display contract that only the phone reader consumes. If the Mac ever uppercases, it consumes that and solves cursor positioning first.
+- **Task anchors are painted, never deleted from storage**: `Token.Kind.taskBody` paints the checkbox body distinctly, and `Token.Kind.invisibleAnchor` paints the `<!--t-XXXXXX-->` span `NSColor.clear`, so it stays in storage for `RenderFilter`'s round-trip. Both tokenizers emit them, and `ScreenplayMode` adds the invisible-anchor attributes after its full-storage `setAttributes`.
 
-2. **Don't add a 2nd caller to `EditorSurface.applyExternalText`.** It exists for **cloud-conflict resolution only**. Asserting this is what catches binding races. The harness test `test_endOfFileTyping_doesNotFireApplyExternalText` is the regression net.
+### Appearance, teardown and the control plane
+- **An OS light/dark change is a direct per-view call, not a broadcast**: `MaughamTextView.viewDidChangeEffectiveAppearance` calls `coordinator?.effectiveAppearanceDidChange()`. That no-ops when the appearance name is unchanged since the last handled one (baseline seeded in `attach`). AppKit also fires it on first mount, so a broadcast restyled every live coordinator (`EditorAppearanceChangeTests`). The no-op guard lives there, not in `applyAppearance`, which theme and typography changes share.
+- **`detach()` runs on every teardown and is idempotent** (`guard !isDetached`). It runs from `EditorSurface.dismantleNSView` on an in-window teardown, and from `MaughamTextView.viewWillMove(toWindow: nil)` on window close, where `dismantleNSView` never runs. It releases the text-view graph, cancels the async tasks, drops the observer tokens and clears the native undo stack before the text view goes (stale actions are the `⌘Z EXC_BAD_ACCESS` class).
+- **The coordinator has no internal ARC cycle**: every back-reference (delegate, `textView`, overlay and gutter `coordinator`, observers, tasks) is weak or `[weak self]`. SwiftUI's scene retention after a window closes is neutralised by `detach()` and the `.onDisappear` scorch in `ProjectWindow`/`EditorHost` (`WindowTeardownScorchTests`).
+- **Control state flows through `EditorControl`, observed with `withObservationTracking`** (ADR 0017). It does not ride `updateNSView`, which is text, frame, gutter and provider wiring only, and it gets no new notification.
+  - D1: `EditorControl` holds only control state, never text- or cursor-derived values, or observation fires on the typing hot path.
+  - D2: `applyControl` stays no-op-guarded per sub-area.
+  - **`armControlObservation` runs `applyControl` outside the tracking closure, and the closure reads only `control.*` properties.** `applyControl` reads through `Document` and `UserPreferences` in review posture, and a tracked read re-fired the whole-document restyle in every review window. Keep the tracked set equal to the consumed set (`EditorControlBridgeTests.test_reviewObservation_ignoresSharedPreferencesMutation`, `test_reviewObservation_stillFiresOnControlPropertyChange`, via `applyControlCount`).
+  - The ⌘⌥⇧R `maughamToggleReviewMode` observer is kept deliberately (Bug B): it flips the review membrane synchronously, where a `control.*` mirror would land a frame later.
+- **A control flag that swaps which buffer the editor shows flips the membrane synchronously, before the buffer-swap decision.** `EditorSurface.reconcileTextBuffer` calls `coordinator.setTranslationReview(...)` first, then compares `textView.string` to decide a replace. A swap across a translation render always drops the native undo stack (ADR 0023's D1 corruption class; `EditorUndoStackClearTests`).
+- **The script post is project-scoped** (ADR 0021): `postScriptDidUpdate` posts `.maughamScriptDidUpdate` to `.project(id: scriptOriginProjectId)`, and receivers adopt it through `.onProjectEvent` only when the id is their own. It is not a key-window guard: a background window's own re-parse must still reach its navigator. A nil origin skips only the post; the debounce bookkeeping stays unconditional (`ScriptUpdateScopingTests`).
 
-3. **Don't put heavy work inside a synchronous SwiftUI binding setter.** This caused three separate cursor races in 24 hours:
-   - Trailing-space autosave moved the cursor (autosave wrote, NSTextView re-laid-out, cursor jumped).
-   - Async restore raced key events (restore set selection mid-typing).
-   - Binding loop read stale `documentText` (onChange fired before write completed).
-   Use the established pattern: debounce + isolate the write side from the read side.
+### The membrane reads the posture
+- **What the editor refuses is decided in `shouldChangeTextIn` alone**, by `EditorEditPolicy.allowsTextMutation`. The editor stays selectable, scrollable and copyable, and `isEditable` is never touched.
+- **`lockEditing` has exactly two inputs**, composed once in `EditorControlMirror.membrane(posture:manualReview:shareIsReadOnly:)`:
+  - the posture, `!posture.allows(.writeText)`, asked of the window's one door (`DocumentStore.posture(forDocId:)`). A reviewer, an author outside her own pieces, the root yielding on somebody else's piece until **Edit Anyway**, and `Posture.settling` all lock;
+  - a read-only iCloud share, `ProjectWindow.shareIsReadOnly(_:)`, an OS-level lock that claims no role.
+- **Neither input unlocks what the other locks, and the manual ⌘⌥⇧R (`isReviewMode`) flips the review render but never the lock.**
+- **The lock and the `Document`'s own writes flip together**: a trust change bumps the door's epoch, and the `Document`'s stamp is re-stamped in the same main-actor turn (`DocumentStorePostureTests.test_theRestampAndTheBumpAreOneTurn`). The lock trails the change until the refresh lands. A burst typed in that window under a withdrawn permit is signed and set aside in her name, kept in History, not lost (ADR 0032).
+- **The checkbox click writes text, so `MaughamTextView.mouseDown` asks `coordinator?.allowsCheckboxToggle` before `checkboxToggleHandler`.** No test may synthesise the click (tripwire 33), so `TripwireGrepTests.test_theEditorsCheckboxClickAsksTheMembraneFirst` reads the source.
+- **The statement editor asks the same door** for `.editStatement` (`StatementEditorHost.locksEditing`). The line that says why the editor is locked is `Maugham/Views/PostureStandingLine.swift`. `PostureMembraneTests` (in `ReviewModeMembraneTests.swift`) and `PostureStandingLineTests` pin both directions.
 
-4. **Don't subclass NSTextStorage to front multiple files.** This killed Phase 3d. AppKit's layout, undo, and selection caches downstream of NSTextStorage can't be steered cleanly from a subclass. Multi-file screenplay is **dead**. See `memory/project_milestone_3d_abandoned.md`.
+### Two editors in one window
+A statement pane in the right column holds a second `EditorSurface` while the manuscript editor holds the centre (`StatementEditorMountTests` hosts the pair in one window). Both fixes below hang off `EditorSurfaceConfiguration.isSecondEditorInItsWindow`, default false (census: `TripwireGrepTests.test_everyEditorSurfaceMountIsAccountedFor`, over `editorSurfaceMountSites`).
+- **The window's `UndoManager` is shared, and `detach()` clears it**: `MaughamTextView.usesPrivateUndoManager`, set in `makeNSView` before anything registers, gives the second editor its own manager. Do NOT instead make `detach()`'s clear conditional: popping a native action after its text view has gone is the `⌘Z EXC_BAD_ACCESS` class.
+- **Both coordinators answer the window's commands**: every observer `EditorCoordinator`'s `init` registers is key-window scoped through `receiverContext(.keyWindow)`, and `EditorCoordinator.respondsToWindowCommands` gates them at that one funnel. **Count the `MaughamEvent.observe` calls in that init rather than any sentence about them.**
+- **A third surface asks the same question**: if it can be on screen at the same time as another editor, it is a second editor.
 
-5. **Don't add SwiftUI ↔ AppKit bidirectional sync with flag-based loop guards.** `.onChange` fires *after* the synchronous flag-clear, so the guard leaks. Killed cursor↔binder sync in 3d.
+### Overlays and in-editor UI
+- **No `NSPopover` for in-editor UI or autocomplete** (tripwire 5, prose only): sizing is unreliable, it blocks input and it fights text-view focus. Use inline ghost text, a sheet, a plain `NSView` overlay or a pane. Character autocomplete is intentionally absent; redesign the UX before bringing it back.
+- **Overlays and gutters draw only the visible range, from cached data** (tripwire 4). The coordinator resolves each `Annotation` to UTF-16 (`ResolvedReviewMark`) in `recomputeReviewMarks()` on an annotation-set change (pushed one-way from `EditorHost` off `Document.annotationsVersion`) or a text change, never per draw. Overlays self-observe scroll and text through `NotificationCenter` and are re-framed from `MaughamTextView.updateColumnInset`; the review overlays show only when `coordinator.isReviewMode`.
+- **No uncached per-row computation in SwiftUI list rows that show editor-adjacent metadata** (tripwire 4, prose only): per-row Fountain re-parses made a binder click O(N²). Cache, or read the script the coordinator already parsed.
+- **The Translator's note is a window command, not an editor write**: ⌘⌥C and the toolbar's fourth button post `.maughamTranslatorsNote`. `ProjectWindow` reads the paragraph (`Document.paragraphId(at:)`) and opens `TranslatorsNoteSheet` (`Maugham/Views/TranslatorsNote.swift`), which writes a directive through `RulingPerformer.rule`. The editor knows nothing about statements (`TranslatorsNoteTests`).
 
-6. **Don't compute in SwiftUI list rows that render editor-adjacent metadata** without caching. Per-row Fountain re-parses became O(N²) on binder click in 3d, producing visible load pauses.
+## Recipes
 
-7. **Don't reach for NSPopover for in-editor UI.** Sizing is unreliable, it blocks input, it fights NSTextView focus. Use inline ghost-text, a sheet, or a sidebar pane instead.
+### Add a control-plane input
+1. `EditorControl.swift` — add the property. It must be control state, never derived from text or the cursor (D1).
+2. `EditorCoordinator.swift` — read it in `armControlObservation`'s tracking closure, and apply it in `applyControl` behind a no-op guard (D2). The two lists stay equal.
+3. `Maugham/Views/EditorControlMirror.swift`, or the host that owns the `EditorControl` (such as `Maugham/Views/StatementEditorHost.swift`) — write it one-way; the coordinator never writes back.
+4. If it changes which buffer is shown, flip the membrane before the buffer decision in `EditorSurface.reconcileTextBuffer`.
+5. Tests: `EditorControlBridgeTests` (a property change re-applies; an unrelated `UserPreferences` mutation does not).
 
-8. **`applyFocusDim` is called from three paths intentionally.** Don't dedupe blindly — selection-change, focus-change, and explicit theme-update all need to drive it.
+### Add a window command the editor answers
+1. Name the event in `Maugham/Models/MaughamNotifications.swift`, and post it through `MaughamEvent` with a declared scope (tripwire 21), usually `.keyWindow` from `Maugham/MaughamApp.swift`.
+2. `EditorCoordinator.swift` — observe it in `init` with `context: { [weak self] in self?.receiverContext(.keyWindow) }` and hold the token in a property, so the second-editor gate covers it.
+3. Add the token to `detach()`'s removal list.
+4. If the command opens UI, the window handles it (`Maugham/Views/ProjectWindow.swift`); the editor posts or moves the caret and owns nothing else.
 
-9. **Scroll position is hand-governed; a whole-doc `setAttributes` snaps the origin toward the top on a long scrolled doc.** `retokenizeAndStyle`'s full-storage `setAttributes` invalidates all layout, which AppKit then re-lays-out from the top. The mitigation depends on *when* the paint happens:
-   - **Typing path — MODE-GATED on `WritingMode.defersRestyleWhileTyping` (since 2026-06-27).** Both branches restyle only the changed paragraph(s) via a CHARACTER diff (`changedParagraphWindow` — not a token diff: plain prose produces no syntax tokens, so the token-window approach falls back to whole-doc and re-introduces the scroll snap; this exact bug shipped in the first cut). A *local* `setAttributes` doesn't invalidate whole-doc layout, so it never moves scroll — **AppKit's native caret-following autoscroll is left to work** and `textDidChange` no longer captures/restores the origin (that old per-keystroke restore was *fighting* the autoscroll: "recoil on the last line" + "caret runs off the bottom mid-document").
-     - **Prose (`defersRestyleWhileTyping == true`) — the "settle paint":** the repaint is **deferred** off the keystroke to the trailing edge of the burst (`scheduleDeferredRestyle` → `performDeferredRestyle`, ~`restyleSettleDelayMs`=300ms). On the keystroke itself NO paint happens. `shouldChangeTextIn` snapshots the pre-burst text (`burstBaselineText`); `performDeferredRestyle` diffs it against the post-burst text and windows the restyle. Deferral kills the emphasis-flicker: a transient invalid syntax state (`*italic *` while editing the end of a run) never gets painted because the paint waits for rest. The whole-doc + capture/restore branch survives only as a no-baseline defensive fallback.
-     - **Screenplay (`defersRestyleWhileTyping == false`) — `paintLiveWindowed`:** paints synchronously ON the keystroke, but windowed (diffed against `liveRestyleBaseline`, the text as of the last paint). Live because screenplay styling is element-classification heavy — nearly every line is a different element, so a 300ms settle lag reads as pervasive sluggishness. The cursor restore in `textDidChange` covers any windowed-`setAttributes` jostle (no restore inside `paintLiveWindowed`). Trade-off: screenplay's (rarer) inline emphasis CAN flicker at a run edge again, since it no longer defers — acceptable vs. the constant element lag.
-     - **Don't re-introduce a per-keystroke origin-restore, a whole-doc settle/live paint, or a token diff.** (`DeferredRestyleTests` — `test_settleRestyleIsWindowedNotWholeDocument`, `test_screenplayRestylesLiveWhileTyping`, `test_screenplayLiveRestyleIsWindowedNotWholeDocument` — is the regression net.)
-   - **Non-typing callers (attach, applyExternalText, theme/typography/focus):** still paint synchronously and whole-doc; they don't go through `textDidChange` and historically never had the origin restore. They tolerate the snap because they re-assert the caret/scroll themselves (e.g. `applyExternalText` clamps + the attach deferred `scrollRangeToVisible`).
-   - **Typewriter on:** centering needs half-a-viewport of headroom above the first line and below the last, or the active line pins to the top/bottom edge instead of center. `refreshTypewriterInset` sets `textContainerInset.height` to `clipHeight/2` (restored to 24 when off) and must be re-run on resize (wired from `MaughamTextView.updateColumnInset`). `scrollSelectionToVerticalCenter` adds `textContainerInset.height` to the container-space `lineRect.midY` to land in view space — **don't drop that correction**, it's what makes centering accurate once the inset is large. Centering still runs per-keystroke in `textDidChange` (it's a scroll op, not a paint).
+### Mount another `EditorSurface`
+1. Decide whether it can be on screen beside another editor; if so, set `isSecondEditorInItsWindow: true` in its `EditorSurfaceConfiguration`.
+2. Add its file to `TripwireGrepTests.editorSurfaceMountSites`, saying which it is.
+3. Bind it with the sanctioned binding shape; don't mount `EditorHost`, which is the manuscript editor's.
+4. Test the pair in one window, as `StatementEditorMountTests` does.
 
-10. **Any control flag that swaps which BUFFER the editor is showing (not just its styling) must flip the membrane synchronously, before the buffer-swap decision is made.** Translation review (Task 11, ADR 0024) hit this: `EditorSurface.reconcileTextBuffer` calls `coordinator.setTranslationReview(...)` FIRST, then checks whether `textView.string != text` to decide on a replace — in that order, deliberately. Reordering it (check-then-flip, or flipping on a later pass) let the membrane see a stale posture for one layout pass, and separately let an in-mode translated-content refresh retain a stale `preserveUndoStack` decision across a buffer swap that must always drop the native undo stack (carrying the SOURCE manuscript's undo actions across a translation-render swap reopens the ADR-0023 D1 corruption class). `setLockEditing` established the "plain stored-property flip, read live in `shouldChangeTextIn`" shape this reuses; the buffer-identity case adds the ordering requirement on top. `EditorUndoStackClearTests` is the regression net.
-
-## The membrane reads the posture (signed op log P3c plan 1)
-
-The checkbox click in `MaughamTextView.mouseDown` writes text, so `coordinator?.allowsCheckboxToggle` must precede `checkboxToggleHandler` there (#74); no test may synthesise the click (tripwire 33), so `TripwireGrepTests.test_theEditorsCheckboxClickAsksTheMembraneFirst` reads the source instead.
-
-What the editor refuses is decided by `EditorEditPolicy.allowsTextMutation(isReviewMode:lockEditing:isTranslationReview:)`, keyed off `shouldChangeTextIn` alone — the editor stays selectable, scrollable and copyable, and `isEditable` is never touched. **`lockEditing` has exactly these inputs**, composed once in the pure `EditorControlMirror.membrane(posture:manualReview:shareIsReadOnly:)` (`ProjectWindow.swift`):
-
-- **the posture** — `!posture.allows(.writeText)`, asked of the window's one door (`DocumentStore.posture(forDocId:)`) for the document shown. A reviewer, an author of some pieces outside her own, the root yielding on somebody else's piece until **Edit Anyway**, and `Posture.settling` (nothing decided yet) all lock. A trust change bumps the door's epoch, so a demotion arriving mid-session reaches this mirror as a changed value — and the `Document`'s own stamp is re-stamped in the SAME main-actor turn as that bump — the turn that also publishes the refresh's staged drawing answers, so no redraw during the pre-warm's yields sees the new answer early (controller ruling AG; whole-branch fix wave Minor 1; `DocumentStorePostureTests.test_theRestampAndTheBumpAreOneTurn`, which samples the stamp AND the drawn answer) — so the editor's lock and the Document's own writes flip together once the refresh lands. **The lock trails the change**: until the refresh lands (the presenter's debounce, the off-main resolve, the pre-warm) both still answer as before it, and a burst typed then under a permit just withdrawn is signed and set aside in her name — kept in History, not lost (ADR 0032's P3c limits);
-- **a read-only iCloud share** — `ProjectWindow.shareIsReadOnly(_:)`, an OS-level lock that claims no role (WF1's Component A, which turned a share into a "reviewer" role, is retired).
-
-Neither input unlocks what the other locks, and the manual ⌘⌥⇧R (`isReviewMode`) flips the review RENDER but never the lock. The statement editor asks the same door for `.editStatement` (`StatementEditorHost.locksEditing`). The line above the text that says WHY is `Maugham/Views/PostureStandingLine.swift`, not this area's. `PostureMembraneTests` (in `ReviewModeMembraneTests.swift`) and `PostureStandingLineTests` pin both directions.
-
-## Two editors in one window (M1A)
-
-Until M1A there was exactly one `EditorSurface` alive in a window at a time. The statement panes (`Maugham/Views/StatementEditorHost.swift`) put a second one in the right column while the manuscript editor holds the centre, and **two things broke immediately** — neither visible by reading, both caught by a test that hosted the pair in one window (`StatementEditorMountTests`):
-
-1. **The window's `UndoManager` is shared, and `detach()` clears it.** Every `NSTextView` in a window resolves `undoManager` to the window's unless it says otherwise, and `EditorCoordinator.detach()` calls `removeAllActions()` on whatever it can reach. So taking the second editor down — an ordinary pane switch — destroyed the manuscript's ⌘Z history, which is v0.18.0's headline feature failing on a click. `MaughamTextView.usesPrivateUndoManager` (set in `makeNSView`, before anything can register) takes the second editor's actions onto a manager of its own; the primary is untouched and still resolves to the window's exactly as before. Do NOT instead make `detach()`'s clear conditional: those native actions capture text-storage state, and popping one after its text view has gone is the `⌘Z EXC_BAD_ACCESS` class.
-2. **Both coordinators answer the window's commands.** Every observer `EditorCoordinator`'s `init` registers is key-window scoped and resolves through `receiverContext(.keyWindow)` — ⌘⌥⇧R's review membrane, scene / find-match / paragraph / annotation navigation, and the translation membrane's two halves. So the intent pane flipped into review chrome, moved its caret when the writer clicked a scene, and went read-only in translation review. `EditorCoordinator.respondsToWindowCommands` gates them at that one shared funnel, which is why the whole set is covered rather than the ones someone thought to enumerate — **count the `MaughamEvent.observe` calls in that init rather than any sentence about them.**
-
-Both hang off one configuration flag, `EditorSurfaceConfiguration.isSecondEditorInItsWindow`, default false. **A third surface asks the same question**: if it can be on screen at the same time as another editor, it is a second editor.
-
-## Translator's note — the editor's one statement-writing verb (translation pipeline P2)
-
-⌘⌥C (Edit ▸ Translator's Note…, and a fourth `SelectionToolbarView.Kind` in
-Review Mode) opens `TranslatorsNoteSheet` (`Maugham/Views/TranslatorsNote.swift`)
-on the paragraph under the caret — `Document.paragraphId(at: cursorLocation)`,
-read by `ProjectWindow`'s key-window handler, never by the coordinator — and
-writes a **directive** (`Ruling.directiveText`, provenance `translator's note`)
-through `RulingPerformer.rule`: the piece's craft intent at `.document(id)` by
-default, or one language's edition brief at `.project`. The editor itself
-knows nothing about statements (the toolbar button only posts the window
-command), which is what keeps this out of the binding contract above. It is
-a sheet, not a popover (tripwire 7). `TranslatorsNoteTests` drives the whole
-act at the op log.
-
-## What to read before editing
-
-- For prose tokenization changes: `Tokenizer/` and the prose path in `EditorCoordinator.applyStyles`.
-- For screenplay changes: `ScreenplayMode.swift` at `Maugham/Editor/` (start here), then `Fountain/FountainTokenizer.swift` (the parser), then the screenplay path in `EditorCoordinator`.
-- For anything touching cursor / selection / external-text arrival: re-read the triad section above before touching `EditorHost.swift` or `EditorSurface.swift`.
-- For op-log boundary: `Maugham/OpLog/AREA.md` (companion file).
-
-## Tests worth knowing about
-
-- Editor-side tests live in `MaughamTests/Editor/` (and the `Fountain/` subfolder for screenplay-specific).
-- `EditorIntegrationHarness` + `EditorIntegrationHarnessTests` is the regression net for the binding contract: `assertNoApplyExternalText` (via `applyExternalTextCallCount` on the coordinator) wraps a block of simulated typing and fails if `applyExternalText` fires. `test_endOfFileTyping_doesNotFireApplyExternalText` is the canonical assertion — extend it whenever you touch the binding shape.
-- Smoke test (manual, user-driven): launch → create Novel → type → ⌘Q → relaunch → reopen from Recents → sentence intact.
-
-## What's intentionally NOT here
-
-- Document persistence — `Maugham/Stores/DocumentStore.swift`.
-- Op log mutation — `Maugham/OpLog/`.
-- Binder / outline / inspector UI — `Maugham/Views/`.
-- Find/replace data model — `Maugham/Stores/` (`ProjectStore.currentSearch`; ⌘⌥F is an overlay of the left column, not a binder segment).
-- Wiki-link resolution to other docs — `Maugham/Stores/ProjectStore` (WikiLink extension); the *hit-testing* (mouse over `[[…]]`) lives here but resolution doesn't.
+## Pointers
+- ADRs: 0017 (the editor control plane), 0019 (clean derived `.md`), 0021 (scoped window events), 0023 (op-log-backed undo), 0024 (the translation layer), 0032 (the signed op log, posture).
+- `docs/tripwires.md` rows 1–7, 21, 33.
+- Tests: `EditorIntegrationHarness` and `EditorIntegrationHarnessTests` (the binding contract), `EditorBindingSideEffectsTests`, `DeferredRestyleTests`, `WindowedTypographyEquivalenceTests`, `CaretHeightTests`, `EditorAppearanceChangeTests`, `EditorControlBridgeTests`, `EditorUndoStackClearTests`, `ScriptUpdateScopingTests`, `ReviewPaletteTests`, `StatementEditorMountTests`, `PostureMembraneTests`. Editor tests live in `MaughamTests/Editor/`.
+- Where to start: prose tokenizing in `Maugham/Editor/Tokenizer/MarkdownTokenizer.swift` and `ProseMode.swift`, then `retokenizeAndStyle`; screenplay in `ScreenplayMode.swift`, then `FountainTokenizer.swift` (the parser), then the coordinator's screenplay path; cursor, selection or external text: re-read the binding contract above before touching `EditorHost.swift` or `EditorSurface.swift`.
+- Smoke (manual, user-driven): launch → create Novel → type → ⌘Q → relaunch → reopen from Recents → sentence intact.
+- Not here: document persistence (`Maugham/Stores/DocumentStore.swift`); op-log mutation (`Maugham/OpLog/`); binder, outline and inspector UI (`Maugham/Views/`); the find/replace model (`ProjectStore.currentSearch`; ⌘⌥F is an overlay of the left column); wiki-link resolution (`ProjectStore`'s WikiLink extension; only the hit-testing is here).
+- Neighbouring guides: `Maugham/OpLog/AREA.md` (the op-log boundary, `Document`), `Maugham/Views/AREA.md` (the hosts, posture), `Packages/MaughamCore/Sources/MaughamCore/AREA.md` (the Fountain parser).
+- History: `docs/history/editor.md`.

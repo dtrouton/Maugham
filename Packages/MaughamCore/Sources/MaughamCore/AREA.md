@@ -241,3 +241,8 @@ Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the
 ## Pointers
 - The op log's behaviour and history: `Maugham/OpLog/AREA.md`
 - ADR 0032 (signed op log), ADR 0015 (schema evolution), ADR 0019 (clean derived .md), ADR 0022 (grammar ledger)
+- `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share and why it lives here.
+- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–49, 51 and 53–56: the tripwires the Rules above cite.
+- Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). Worth knowing: `DocBudgetTests` (this map's census), `SchemaEvolutionToleranceTests`, `FountainTokenizerDifferentialTests` (the parser against its frozen reference), `MarkdownBlockParserTests`, `OpLogChainTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; the app-side censuses are in `MaughamTests/TripwireGrepTests.swift` and `MaughamTests/PersonKeyCensusTests.swift`.
+- Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md` (the phone's consumers).
+- No history file: this guide was written in the template and nothing has been moved out of it.
