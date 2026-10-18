@@ -275,3 +275,7 @@ The spec promised an atomic rename, and the original implementation used `rm -rf
 instead (not atomic, brick risk on crash). This is now correct: the swap uses
 `renamex_np(RENAME_SWAP)`, which is the atomic primitive the spec intended. The spec
 entry is superseded by this AREA.md description of what the code actually does.
+
+## Old updates are deleted (#67 Task 6)
+
+`UpdateSweep` (Denver's ruling: Maugham may delete its own old downloads; the folder had grown to 5.2 GB). The decision is the pure `staleUpdateArtifacts(in:keeping:runningVersion:)`: it can only ever return `Maugham-<semver>.(zip|dmg)`, the same with `.download`, and `staged-<semver>` — never `install-status`, never anything else. Versions compare with `SemanticVersion` (pre-releases like 0.41.90 exist). With a `keeping` version every other matching entry goes; with none, entries at or below the running version go and a newer one is kept (it may be a download the next check reuses). Two runs: at **launch** (in the Welcome `.task`, after `reportInstallStatus` so the refused-deletion and the sweep never race, off the main thread, skipped in test hosts and dev builds) which includes `.download` files, and **after a successful stage** (`UpdateChecker.sweepAfterStage`, set only by the app at launch) keeping only the new version and never touching `.download` files, since one may be mid-write while the app is up.

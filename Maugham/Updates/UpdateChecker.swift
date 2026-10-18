@@ -28,6 +28,10 @@ public final class UpdateChecker: ObservableObject {
         stageAndVerify: UpdateChecker.defaultStageAndVerify)
 
     private let currentVersionString: String
+    /// Set by the app at launch (never in a test host): deletes every old
+    /// update but the given version. Nil for any other checker.
+    var sweepAfterStage: ((String) -> Void)?
+    var runningVersionString: String { currentVersionString }
     private let fetchLatest: () async throws -> GitHubRelease
     private let downloadAsset: (GitHubRelease.Asset, String, @escaping @MainActor (Double) -> Void) async throws -> URL
     private let stageAndVerify: (URL, String) async throws -> URL
@@ -120,6 +124,8 @@ public final class UpdateChecker: ObservableObject {
                 releaseNotes: MinimumSystemVersion.strippingMarker(from: release.body))
             if stagedBundle.pathExtension == "app" {
                 pendingQuitInstall = (stagedBundle, newVersion.string)
+                // Keep only the version now waiting to install (#67 Task 6).
+                sweepAfterStage?(newVersion.string)
             }
         } catch {
             state = trigger == .manual

@@ -118,6 +118,21 @@ struct MaughamApp: App {
                     // test host never touches a real Updates folder.
                     if BuildVariant.current.updaterEnabled, !TestHost.isActive {
                         UpdateChecker.shared.reportInstallStatus(in: UpdateChecker.updatesDirectory)
+                        // Then the sweep of old downloads (#67 Task 6), off the
+                        // main thread and AFTER the refused-deletion above, so
+                        // the two never race.
+                        let running = UpdateChecker.shared.runningVersionString
+                        let updates = UpdateChecker.updatesDirectory
+                        UpdateChecker.shared.sweepAfterStage = { keep in
+                            DispatchQueue.global(qos: .utility).async {
+                                UpdateSweep.sweep(in: updates, keeping: keep, runningVersion: running,
+                                                  includingDownloads: false)
+                            }
+                        }
+                        DispatchQueue.global(qos: .utility).async {
+                            UpdateSweep.sweep(in: updates, keeping: nil, runningVersion: running,
+                                              includingDownloads: true)
+                        }
                     }
                     // Updater is independent of MCP — start it regardless of whether
                     // the MCP socket bound successfully.
