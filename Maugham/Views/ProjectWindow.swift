@@ -2483,6 +2483,14 @@ struct ProjectWindow: View {
                            entryID: entryID, projectStore: store,
                            placement: .dropped(at: point))
                    }))
+        // Issue #44: a layout file this build refused says why, over the canvas
+        // and outside its layer stack; not chrome, so ⌘\ keeps it.
+        .safeAreaInset(edge: .top) {
+            if let refusal = canvasModel.sidecarRefusal {
+                CanvasReadOnlyNotice(refusal: refusal,
+                                     startFreshLayout: { try canvasModel.startFreshLayout() })
+            }
+        }
     }
 
     /// Helper: the currently-selected manuscript Document, if one is open

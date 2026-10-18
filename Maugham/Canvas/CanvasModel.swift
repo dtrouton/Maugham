@@ -469,6 +469,40 @@ final class CanvasModel {
         return true
     }
 
+    /// **Start a Fresh Layout** (issue #44, Denver's ruling): the way out of a
+    /// canvas whose layout file is DAMAGED. The file is set aside and kept
+    /// (`CanvasStore.setDamagedSidecarAside`), the model re-attaches through the
+    /// ordinary `attach` — so the load finds no sidecar, the refusal clears, and
+    /// the writer's words come back as the layout, the same loose cards they
+    /// were looking at — and that layout is saved once, so the fresh file exists
+    /// before the writer's first edit. Editable in the same session; nothing is
+    /// reopened.
+    ///
+    /// Refused for anything but `.damaged`: a newer build's file throws its own
+    /// `SidecarRefused` (setting a real layout aside is the one thing this must
+    /// never do), a writable canvas throws `.nothingDamaged`, and a model with
+    /// no canvas on screen throws `.canvasNotOpen`. Every refusal leaves the
+    /// file and the model as they were — a failed move included, which leaves
+    /// the canvas read-only and throws the move's own error.
+    @discardableResult
+    func startFreshLayout(now: Date = Date()) throws -> URL {
+        guard isAttached, let store else { throw CanvasStore.FreshLayoutRefused.canvasNotOpen }
+        guard let refusal = sidecarRefusal else {
+            throw CanvasStore.FreshLayoutRefused.nothingDamaged
+        }
+        guard refusal.reason == .damaged else { throw refusal }
+        let aside = try store.setDamagedSidecarAside(now: now)
+        attach(projectRoot: store.projectRoot)
+        // Once, and now: `attach` only QUEUED the repair, and a fresh layout
+        // that existed only in a debounce is one a crash would lose.
+        self.store?.save(scene: scene, scraps: scraps)
+        // The scene was replaced wholesale. The view (when one is mounted)
+        // re-measures, and the structural readers redraw.
+        onSceneChangedExternally?()
+        bumpSceneRevision()
+        return aside
+    }
+
     /// Write, and then let go of every closure that points back at the owner.
     /// `CanvasView` calls this from `.onDisappear`, which is where 1C-a does the
     /// same work.

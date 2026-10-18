@@ -10,7 +10,9 @@ final class CanvasStore {
     static let sidecarRelativePath = ".maugham/canvas.json"
     static let scrapsRelativePath = "canvas.md"
 
-    private let projectRoot: URL
+    /// Read by `CanvasModel.startFreshLayout`, which re-attaches to the same
+    /// project after the damaged file is set aside.
+    let projectRoot: URL
     private var pendingSave: DispatchWorkItem?
     /// The last payload `scheduleSave` queued. Held so `flush()` needs no
     /// arguments and so the app-quit hook has something to write.
@@ -209,6 +211,94 @@ final class CanvasStore {
         let reason: Reason
 
         var errorDescription: String? { reason.sentence }
+    }
+
+    /// Why Start a Fresh Layout did not set anything aside. (A NEWER build's
+    /// file is refused with its own `SidecarRefused` instead, whose sentence
+    /// already says the way out — updating Maugham.)
+    enum FreshLayoutRefused: Error, LocalizedError, Equatable {
+        /// The file is not damaged (any more): it is absent, or it reads.
+        case nothingDamaged
+        /// The model is not attached to a canvas on screen.
+        case canvasNotOpen
+
+        var errorDescription: String? {
+            switch self {
+            case .nothingDamaged:
+                return "There's no damaged layout file to set aside. Close and reopen the project to see the canvas as it is now."
+            case .canvasNotOpen:
+                return "Open the canvas to start a fresh layout."
+            }
+        }
+    }
+
+    /// Where the damaged sidecar goes: `.maugham/canvas.damaged-<stamp>.json`,
+    /// beside the file it was, with `-2`, `-3`… added when that name is taken.
+    /// Pure, so the name and the collision rule are pinned without a disk.
+    static func asideName(stamp: String, attempt: Int) -> String {
+        attempt <= 1 ? "canvas.damaged-\(stamp).json"
+                     : "canvas.damaged-\(stamp)-\(attempt).json"
+    }
+
+    static let asideStampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.timeZone = TimeZone.current
+        return f
+    }()
+
+    /// **Start a Fresh Layout's file half** (issue #44): move a DAMAGED sidecar
+    /// aside and keep it — never delete it, never overwrite an earlier aside
+    /// file — so the next `load()` finds no sidecar and lays the writer's words
+    /// out again. `canvas.md` is not touched: the words were never in this file.
+    ///
+    /// **It re-reads the file rather than trusting the load's verdict**, because
+    /// the bytes can have changed since (a sync): a file that is now a NEWER
+    /// build's throws that refusal and moves nothing — setting a real layout
+    /// aside is exactly the thing this verb must never do — and one that is
+    /// absent or now reads throws `.nothingDamaged`.
+    ///
+    /// A raw `moveItem`, deliberately not the typed `DocumentStore` mover
+    /// (tripwire 14): that rule is for user-editable CONTENT an autosave could
+    /// recreate at the old path. This is the derived sidecar, no `Document`
+    /// holds it, and this store's own writes are refused while its load is
+    /// refused — the one write that follows is the fresh layout itself.
+    ///
+    /// Returns where the damaged file now is.
+    func setDamagedSidecarAside(now: Date = Date()) throws -> URL {
+        guard let data = try? Data(contentsOf: sidecarURL) else { // adr-0018-ok: canvas.json derived sidecar, not manuscript
+            throw FreshLayoutRefused.nothingDamaged
+        }
+        switch Self.decode(data) {
+        case .failure(.damaged):
+            break
+        case .failure(let reason):
+            throw SidecarRefused(projectName: projectRoot.lastPathComponent, reason: reason)
+        case .success:
+            throw FreshLayoutRefused.nothingDamaged
+        }
+        let fm = FileManager.default
+        let directory = sidecarURL.deletingLastPathComponent()
+        let stamp = Self.asideStampFormatter.string(from: now)
+        var attempt = 1
+        while true {
+            let aside = directory.appendingPathComponent(
+                Self.asideName(stamp: stamp, attempt: attempt))
+            if !fm.fileExists(atPath: aside.path) {
+                do {
+                    // `moveItem` refuses an existing destination, so a file
+                    // that appears between the check and the move is never
+                    // overwritten — it only costs another attempt.
+                    try fm.moveItem(at: sidecarURL, to: aside)
+                    return aside
+                } catch CocoaError.fileWriteFileExists {
+                    // Taken in the gap; try the next name.
+                }
+            }
+            attempt += 1
+        }
     }
 
     /// The one place a transient write asks permission. Loads, and throws the

@@ -600,7 +600,7 @@ public enum AddCanvasScrapsTool: MCPTool {
         case .newerVersion:
             return "Update Maugham on this Mac before adding to this canvas. " + shown
         case .damaged:
-            return "Ask the writer to press Start a Fresh Layout on the canvas, which "
+            return "Ask the writer to press \(CanvasReadOnlyNotice.startFreshTitle) on the canvas, which "
                 + "sets the damaged layout file aside, before adding to it. " + shown
         }
     }
