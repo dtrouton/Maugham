@@ -501,7 +501,7 @@ extension OpLogStore {
             guard let bytes = (try? readCoordinated(url: url, presenter: nil)) ?? nil,
                   let stream = PermitMark.stream(of: url)
             else { continue }
-            let classified = classify(
+            let classified = OpLogClassifier.classify(
                 url: url, bytes: bytes, state: nil, trust: trust)
             guard let verification = classified.verification else {
                 // A settled segment was never walked, so there is no

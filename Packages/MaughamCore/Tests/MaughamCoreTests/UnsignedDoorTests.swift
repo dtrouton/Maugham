@@ -843,10 +843,10 @@ final class UnsignedDoorTests: XCTestCase {
             var onMain: [Bool] { lock.lock(); defer { lock.unlock() }; return seen }
         }
         let place = Where()
-        OpLogStore.heldLinesWalkObserverForTesting = {
+        OpLogClassifier.heldLinesWalkObserverForTesting = {
             place.note(Thread.isMainThread)
         }
-        defer { OpLogStore.heldLinesWalkObserverForTesting = nil }
+        defer { OpLogClassifier.heldLinesWalkObserverForTesting = nil }
 
         let held = try await reader().heldLines(
             forDocId: docId, heldBy: ghostHolder)

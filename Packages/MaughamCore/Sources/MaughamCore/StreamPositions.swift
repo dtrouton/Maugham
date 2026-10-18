@@ -56,7 +56,7 @@ public enum StreamPositions {
             for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
                 guard let bytes = try OpLogStore.readCoordinated(url: url, presenter: nil)
                 else { continue }
-                let classified = OpLogStore.classify(
+                let classified = OpLogClassifier.classify(
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 for op in classified.ops where ids.contains(op.device) {
@@ -273,7 +273,7 @@ public enum StreamPositions {
                 else { continue }
                 guard let bytes = try OpLogStore.readCoordinated(url: url, presenter: nil)
                 else { continue }
-                let classified = OpLogStore.classify(
+                let classified = OpLogClassifier.classify(
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 if url.pathExtension == OpLogSegment.fileExtension {
@@ -504,7 +504,7 @@ public enum StreamPositions {
                 guard let stream = PermitMark.stream(of: url),
                       let bytes = try OpLogStore.readCoordinated(url: url, presenter: nil)
                 else { continue }
-                let classified = OpLogStore.classify(
+                let classified = OpLogClassifier.classify(
                     url: url, bytes: bytes, state: nil, trust: trust, permit: nil)
                 if url.pathExtension == OpLogSegment.fileExtension {
                     // **Noted before the attributability guard, on purpose.**
@@ -698,24 +698,20 @@ public enum StreamPositions {
     private nonisolated static func verificationForPositions(
         at url: URL, bytes: Data, stream: PermitMark.Stream, trust: TrustTable?
     ) -> OpLogChain.Verification {
-        let walked = trust.map { table in
-            OpLogChain.verify(
-                bytes: bytes, trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: nil,
-                // Arm 2 here too, so both sweeps judge a file the way the LOAD
-                // judges it. **It moves `appliedPositions` and not
-                // `seenPositions`**: a held or verdict-refused line was seen
-                // and judged — `wasSeen` excludes only a torn tail and what a
-                // broken chain quarantined — so a mark recording where the
-                // root had READ TO is unchanged, while one recording what it
-                // APPLIED correctly stops counting a span this device holds.
-                // The lookup is over the shared REGISTER, so it moves with the
-                // bytes and not with what this Mac happens to remember, which
-                // is the whole of spec §3.3 and the reason the remembered head
-                // is skipped just above.
-                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
-        } ?? OpLogChain.verify(
-            bytes: bytes, trusted: { _ in false }, rememberedHead: nil)
+        // The load's own `OpLogClassifier.walk`, with no remembered head.
+        // Arm 2 here too, so both sweeps judge a file the way the LOAD
+        // judges it. **It moves `appliedPositions` and not
+        // `seenPositions`**: a held or verdict-refused line was seen
+        // and judged — `wasSeen` excludes only a torn tail and what a
+        // broken chain quarantined — so a mark recording where the
+        // root had READ TO is unchanged, while one recording what it
+        // APPLIED correctly stops counting a span this device holds.
+        // The lookup is over the shared REGISTER, so it moves with the
+        // bytes and not with what this Mac happens to remember, which
+        // is the whole of spec §3.3 and the reason the remembered head
+        // is skipped just above.
+        let walked = OpLogClassifier.walk(
+            bytes: bytes, trust: trust, rememberedHead: nil, url: url)
         let (resolved, _) = OpLogChain.resolveAbsentHead(
             walked, rememberedHead: nil, previousHead: nil)
         guard let trust else { return resolved }

@@ -8550,24 +8550,24 @@ final class TripwireGrepTests: XCTestCase {
     /// The KEYLESS sites, by file and by spelling. Each holds no key to judge
     /// by, or must not widen past this device's own hand:
     ///
-    /// - `type:OpLogStore` (today `OpLogStore.swift`) — `trusted: { _ in false }` twice: the keyless
-    ///   reader (`ProjectIntegrity.check`, which passes no table) and the
-    ///   fallback walk of an unsettled segment's inner seals. Both judge
-    ///   nobody, which is what P1 did for every caller.
-    /// - `type:StreamPositions` (today `StreamPositions.swift`) — `trusted: { _ in false }`
-    ///   once: `verificationForPositions`' no-table arm, the mark sweep's walk
-    ///   of a translation sidecar or inbox manifest when no table is held.
+    /// - `type:OpLogClassifier` (today `OpLogClassifier.swift`) — `trusted: { _ in false }`
+    ///   once: `OpLogClassifier.walk`'s no-table arm, the ONE verify walk
+    ///   (foundations plan 6, Task 4). Three callers reach it: the keyless
+    ///   reader of a live tail (`ProjectIntegrity.check`, which passes no
+    ///   table), the fallback walk of an unsettled segment's inner seals, and
+    ///   `StreamPositions.verificationForPositions` — the mark sweep's walk of
+    ///   a translation sidecar or inbox manifest when no table is held. All
+    ///   judge nobody, which is what P1 did for every caller.
     /// - `JSONLAppendStore.swift` — `trusted: { chain.trust($0) == .mine }`:
     ///   the chained WRITE, whose rewrite assumes a prefix. ADR 0012 gives the
     ///   file one writer, so a stranger's line in MY file is a quarantine and
     ///   never a hold, and the write path must not widen past `.mine`.
     ///
     /// A spelling rather than a bare filename, so a NEW `trusted:` closure in
-    /// either file fires. A reflow that splits one of these across two lines
+    /// any allow-listed file fires. A reflow that splits one of these across two lines
     /// fires too — which is the moment to re-read the rule, not route around it.
     static let trustClosureAllowedSpellings: [String: Set<String>] = [
-        "type:OpLogStore": ["trusted: { _ in false }"],
-        "type:StreamPositions": ["trusted: { _ in false }"],
+        "type:OpLogClassifier": ["trusted: { _ in false }"],
         "JSONLAppendStore.swift": ["trusted: { chain.trust($0) == .mine }"],
     ]
 
@@ -8864,10 +8864,9 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("SecondTrustOpinion.swift"),
                   atomically: true, encoding: .utf8)
 
-        // No planted file declares `OpLogStore` or `StreamPositions` yet, so
-        // their type keys are (correctly) unresolved here; the control is
-        // about the four decisions.
-        let trust = Self.dropping(unplanted: ["type:OpLogStore", "type:StreamPositions"], from: try grepSwift(
+        // No planted file declares `OpLogClassifier` yet, so its type key is
+        // (correctly) unresolved here; the control is about the four decisions.
+        let trust = Self.dropping(unplanted: ["type:OpLogClassifier"], from: try grepSwift(
             in: [tmp],
             patterns: Self.trustClosurePatterns,
             allowedSpellings: Self.trustClosureAllowedSpellings,
@@ -8881,14 +8880,22 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(trust.contains(where: { $0.contains("let member") }))
         XCTAssertTrue(trust.contains(where: { $0.contains("let test") }))
 
-        // The allow-list is a FILE plus a SPELLING: the two keyless sites pass
-        // under their own names, a fourth one in the same file does not.
+        // The allow-list is a TYPE plus a SPELLING: the keyless walk passes
+        // inside the keyed type's declaration, a new closure there does not,
+        // and a LOOKALIKE-named type is not the keyed one — its keyless line
+        // fires, because the key claims `OpLogClassifier`'s declarations and
+        // nothing whose name merely starts the same way.
         try """
         let keyless = chain.verify(bytes: data, trusted: { _ in false })
         let widened = chain.verify(bytes: data, trusted: { _ in true })
-        """.write(to: tmp.appendingPathComponent("OpLogStore.swift"),
+        """.write(to: tmp.appendingPathComponent("OpLogClassifier.swift"),
                   atomically: true, encoding: .utf8)
-        try Self.declare("OpLogStore", in: tmp.appendingPathComponent("OpLogStore.swift"))
+        try Self.declare("OpLogClassifier", in: tmp.appendingPathComponent("OpLogClassifier.swift"))
+        try """
+        let lookalike = chain.verify(bytes: data, trusted: { _ in false })
+        """.write(to: tmp.appendingPathComponent("OpLogClassifierShadow.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifierShadow", in: tmp.appendingPathComponent("OpLogClassifierShadow.swift"))
         try """
         let write = chain.verify(bytes: data, trusted: { chain.trust($0) == .mine })
         """.write(to: tmp.appendingPathComponent("JSONLAppendStore.swift"),
@@ -8899,11 +8906,14 @@ final class TripwireGrepTests: XCTestCase {
             patterns: Self.trustClosurePatterns,
             allowedSpellings: Self.trustClosureAllowedSpellings,
             excludeLine: Self.admissionExcludeLine)
-        XCTAssertEqual(allowed.filter { $0.hasPrefix("OpLogStore.swift") }.count, 1,
+        XCTAssertEqual(allowed.filter { $0.hasPrefix("OpLogClassifier.swift") }.count, 1,
             "Self-check: the keyless spelling passes and a NEW closure in the "
-            + "same file does not. Caught:\n" + allowed.joined(separator: "\n"))
+            + "same type does not. Caught:\n" + allowed.joined(separator: "\n"))
         XCTAssertTrue(allowed.contains(where: { $0.contains("let widened") }))
         XCTAssertFalse(allowed.contains(where: { $0.contains("let keyless") }))
+        XCTAssertTrue(allowed.contains(where: { $0.contains("let lookalike") }),
+            "Self-check: a lookalike-named type's keyless line is NOT allowed. "
+            + "Caught:\n" + allowed.joined(separator: "\n"))
         XCTAssertFalse(allowed.contains(where: { $0.contains("let write") }))
 
         // The registry census, over its own planted file.
@@ -9233,8 +9243,8 @@ final class TripwireGrepTests: XCTestCase {
     /// count** — the array, never a number in prose (memory: *prose counts are
     /// unmaintainable*).
     ///
-    /// - `type:OpLogStore` × 1, summed over the type's files (in
-    ///   `OpLogStore.swift` today): `partitioningByPermit`, the ops door,
+    /// - `type:OpLogClassifier` × 1, summed over the type's files (in
+    ///   `OpLogClassifier.swift` today): `partitioningByPermit`, the ops door,
     ///   itself reached from three sites (the live tail, a settled segment, the
     ///   fallback walk).
     /// - `type:StreamPositions` × 1 — `verificationForPositions`, the SWEEP that
@@ -9250,7 +9260,7 @@ final class TripwireGrepTests: XCTestCase {
     /// opinion about where the permit is judged, and the two would disagree the
     /// first time one of them was changed.
     static let partitionCallSites: [String: Int] = [
-        "type:OpLogStore": 1,
+        "type:OpLogClassifier": 1,
         "type:StreamPositions": 1,
         "TranslationStore.swift": 1,
         "JSONLAppendStore.swift": 1,
@@ -9388,25 +9398,26 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    /// **The two whole-type allowances over `OpLogStore`, bounded by count.**
+    /// **The two whole-type allowances (over `OpLogClassifier` and
+    /// `OpLogStore`), bounded by count.**
     ///
     /// `trustClosureAllowedSpellings` and `localWritePermitAllowed` key the
-    /// store by TYPE, so the allowance reaches every file declaring it —
+    /// classifier and the store by TYPE, so the allowance reaches every file declaring it —
     /// `OpLogPermitContext.swift` and, notably, `OpLogStore+Testing.swift`, a
     /// testing seam compiled into production Core and the natural home for a
     /// "testing" hand-built `LocalWritePermit(`. The allow-list cannot tell a
     /// sanctioned site moved within the type from a NEW one; the count can. A
     /// site added anywhere in the type fails here, and only a move passes.
     ///
-    /// - `trusted: { _ in false }` — in `OpLogStore`, the keyless reader and
-    ///   the unsettled segment's no-table arm; in `StreamPositions`,
-    ///   `verificationForPositions`' no-table arm (tripwire 39's doc on the
-    ///   allow-list). Each type is bounded separately.
+    /// - `trusted: { _ in false }` — in `OpLogClassifier`, once:
+    ///   `OpLogClassifier.walk`'s no-table arm, the one verify walk the live
+    ///   tail, the unsettled segment and `verificationForPositions` share
+    ///   (tripwire 39's doc on the allow-list).
     /// - `LocalWritePermit(` — `localWritePermit(as:documentClass:)`'s
     ///   construction sites inside the store, plus `LocalWritePermit.swift`'s
     ///   own `.unrestricted` value.
     static let typeAllowanceBounds: [String: [String: Int]] = [
-        "trusted: { _ in false }": ["type:OpLogStore": 2, "type:StreamPositions": 1],
+        "trusted: { _ in false }": ["type:OpLogClassifier": 1],
         "LocalWritePermit(": ["type:OpLogStore": 5, "LocalWritePermit.swift": 1],
     ]
 
@@ -9417,7 +9428,7 @@ final class TripwireGrepTests: XCTestCase {
             XCTAssertTrue(unresolved.isEmpty, "typeAllowanceBounds[\(pattern)]: \(unresolved)")
             XCTAssertEqual(found, expected,
                 "The sites spelling “\(pattern)” moved. The type-keyed allow-list "
-                + "lets the spelling anywhere in `OpLogStore`'s files; this count is "
+                + "lets the spelling anywhere in the keyed type's files; this count is "
                 + "what keeps that to the sites already reviewed. A new one is a new "
                 + "keyless decision or a hand-built permit — gate it, or update "
                 + "`typeAllowanceBounds` with its reason. Found: "

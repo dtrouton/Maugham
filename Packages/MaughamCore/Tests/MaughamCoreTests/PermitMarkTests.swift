@@ -486,7 +486,7 @@ final class PermitMarkTests: XCTestCase {
         bytes.append(0x0A)
         try bytes.write(to: tailURL)
 
-        let classified = OpLogStore.classify(
+        let classified = OpLogClassifier.classify(
             url: tailURL, bytes: bytes, state: nil, trust: table)
         XCTAssertEqual(classified.verification?.lines.last?.state, .quarantined,
                        "the splice really is refused")
