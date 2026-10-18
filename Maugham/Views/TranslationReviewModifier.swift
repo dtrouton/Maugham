@@ -2,33 +2,26 @@ import SwiftUI
 import MaughamCore
 import AppKit
 
-/// Owns this window's translation-review selection (Task 13): receives the
-/// key-window picker / enter / exit commands (ADR 0021), resolves the active
-/// doc's available languages for the picker, mirrors the chosen language
-/// ONE-WAY into `editorControl.translationLanguage` (EditorHost swaps in the
-/// derived surface and the coordinator flips its membrane from there — Tasks
-/// 11/12), and renders the top indicator pill next to `ReviewModeIndicator`.
+/// Owns this window's translation-review selection: receives the key-window
+/// picker / enter / exit commands (ADR 0021), resolves the active doc's
+/// available languages for the picker, mirrors the chosen language ONE-WAY
+/// into `editorControl.translationLanguage` (EditorHost swaps in the derived
+/// surface and the coordinator flips its membrane from there), and renders
+/// the top indicator pill next to `ReviewModeIndicator`.
 ///
-/// Menu-shape note: the app-global menu can't reach `activeDocId`/`projectURL`
-/// (per-window state), so the menu posts a generic "show picker" command and
-/// THIS window presents the picker — resolving languages is a direct local call
-/// here, and the filesystem scan happens only on demand rather than on every
-/// body render (as a focused-value publish of the list would). Extracted into a
-/// ViewModifier to stay under ProjectWindow.body's type-checker ceiling.
+/// The app-global menu can't reach `activeDocId`/`projectURL`, so it posts a
+/// generic "show picker" command and THIS window presents the picker — the
+/// filesystem scan happens only on demand, never on every body render.
 struct TranslationReviewModifier: ViewModifier {
     let window: NSWindow?
     let projectURL: URL
-    /// From `ProjectWindow`'s boundary, so this modifier sees the same value the
-    /// right-hand panes do. It used to be handed the RAW selection under this
-    /// name — the one consumer of `activeDocId` with no sentinel substitution at
-    /// all, and a third spelling of the rule.
+    /// From `ProjectWindow`'s boundary (`BinderSubject.activeDocId`), so this
+    /// modifier sees the same value the right-hand panes do.
     let activeDocId: String
     /// The window's one subject-picker, written when a reveal names a chapter
-    /// that is not the open one (P4 Task 5). The round report the row was
-    /// clicked in is dismissed by the report's own `onReveal` (it calls
-    /// `PublishCentreModel.clearRound` before posting) — it used to fall out of
-    /// the subject change, but since 2026-09-02 the report draws over a chapter
-    /// subject too, so the dismissal is explicit.
+    /// that is not the open one. The round report the row was clicked in is
+    /// dismissed explicitly by its own `onReveal`
+    /// (`PublishCentreModel.clearRound`), since it draws over a chapter too.
     @Binding var selectedSubject: BinderSubject?
     /// For the pending reveal's one question: has that chapter's `Document`
     /// registered yet? The enter-review post reaches an `EditorCoordinator` that
@@ -72,12 +65,9 @@ struct TranslationReviewModifier: ViewModifier {
                 translationLanguage = nil
                 editorControl.translationLanguage = nil
             }
-            // **A report row as a way back into the manuscript** (P4 Task 5).
-            //
-            // The reveal names a chapter, an edition and a paragraph. Which
-            // chapter is OPEN is this window's own answer and nobody else's, so
-            // the poster posts and the plan is made here — `.now` when the
-            // chapter is already up, `.afterSelecting` when it is not.
+            // **A report row as a way back into the manuscript.** Which chapter is
+            // OPEN is this window's own answer, so the poster posts and the plan is
+            // made here — `.now` when the chapter is up, `.afterSelecting` when not.
             .onKeyWindowCommand(.maughamRevealTranslation, window: window) { note in
                 guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
                 switch TranslationReveal.plan(reveal, activeDocId: activeDocId) {
@@ -91,13 +81,10 @@ struct TranslationReviewModifier: ViewModifier {
             // The chosen language belongs to the doc that was active when it was
             // picked; a doc switch must drop the posture back to the source.
             //
-            // **And this is where a pending reveal lands.** The selection above
-            // moves `activeDocId` on the same body pass, so this is the first
-            // moment the window is looking at the chapter the reveal named. The
-            // clear still runs first, on purpose: the reveal's own enter-review
-            // post sets the language a moment later, and until it does the
-            // writer is looking at the new chapter's SOURCE rather than at the
-            // previous chapter's edition.
+            // **And this is where a pending reveal lands** — the first moment the
+            // window looks at the chapter it named. The clear still runs first, on
+            // purpose: until the reveal's enter-review post sets the language, the
+            // writer sees the new chapter's SOURCE, never the previous edition.
             .onChange(of: activeDocId) { _, newValue in
                 if translationLanguage != nil {
                     translationLanguage = nil
@@ -120,12 +107,10 @@ struct TranslationReviewModifier: ViewModifier {
                 isPresented: $showingPicker,
                 titleVisibility: .visible
             ) {
-                // Mutate directly — do NOT post .keyWindow events from these
-                // buttons. The confirmationDialog's own window holds key status
-                // while its action runs, so a synchronous .keyWindow post from
-                // here is dropped by shouldDeliver's isWindowKey check (the
-                // v0.24.0 enter-does-nothing bug). The onKeyWindowCommand
-                // receivers above remain for genuine out-of-window posters.
+                // Mutate directly — do NOT post .keyWindow events from these buttons.
+                // The dialog's own window holds key status while its action runs, so
+                // a synchronous .keyWindow post is dropped by shouldDeliver's
+                // isWindowKey check (the v0.24.0 enter-does-nothing bug).
                 ForEach(pickerLanguages, id: \.self) { tag in
                     Button(TranslationReviewIndicator.displayLabel(forLanguageTag: tag)) {
                         translationLanguage = tag
@@ -157,28 +142,20 @@ struct TranslationReviewModifier: ViewModifier {
             }
     }
 
-    /// **Perform a reveal, waiting for each thing it needs to exist** (P4 Task 5).
+    /// **Perform a reveal, waiting for each thing it needs to exist.** Two waits,
+    /// neither optional:
     ///
-    /// Two waits, and neither is optional:
+    /// - **The document**, when the chapter had to be selected first: the
+    ///   enter-review post is received by an `EditorCoordinator` that does not
+    ///   exist until `EditorHost` has registered the `Document`.
+    /// - **The translated surface**, always: the buffer is swapped in on the
+    ///   next body pass (`recomputeTranslatedSurface` → `applyExternalText`), so
+    ///   navigating without waiting scrolls source text the swap then discards.
     ///
-    /// - **The document**, when the chapter had to be selected first.
-    ///   `EditorHost` registers the `Document` as it loads, and the enter-review
-    ///   post is received by an `EditorCoordinator` that does not exist until it
-    ///   has.
-    /// - **The translated surface**, always. The enter-review post only writes
-    ///   `translationLanguage`; the buffer is swapped in on the next body pass
-    ///   (`EditorHost`'s `.onChange` → `recomputeTranslatedSurface` →
-    ///   `applyExternalText`). Navigate without waiting and the coordinator
-    ///   scrolls the source text, which the swap then discards — the reveal
-    ///   lands at the top of the edition every time (fix round 1).
-    ///
-    /// The two facts the surface wait is judged against — which edition was on
-    /// screen, and what its badge model held — are captured HERE, before the
+    /// The edition on screen and its badge model are captured HERE, before the
     /// enter-review post, because that post is delivered synchronously and has
-    /// already moved both of them by the time `ready` runs.
-    ///
-    /// Cancels whatever a previous reveal left running: the writer clicking a
-    /// second row means the first is no longer what they asked for.
+    /// moved both by the time `ready` runs. Cancels any previous reveal: a
+    /// second row clicked means the first is no longer what was asked for.
     private func startReveal(_ reveal: TranslationReveal, waitingForDocument: Bool) {
         revealTask?.cancel()
         let store = documentStore
@@ -206,16 +183,11 @@ struct TranslationReviewModifier: ViewModifier {
 
     /// Poll until the chapter's document is registered. `true` if it arrived.
     ///
-    /// A bare next-tick deferral loses this race — tripwire 16's lesson, one
-    /// column over — so this polls on the coordinator's own idiom: 50 ms, up to
-    /// three seconds, then gives up in silence. Giving up still leaves the
-    /// writer with the right chapter open, which is honestly most of what the
-    /// row was asked for; a notice for a load that is merely slow would be worse
-    /// than the quiet.
-    ///
-    /// Static, and handed the store rather than reading `self`, so the `Task`
-    /// captures sendable values instead of a whole `ViewModifier` whose `@State`
-    /// it must not outlive.
+    /// A bare next-tick deferral loses this race (tripwire 16's lesson), so
+    /// this polls 50 ms, up to three seconds, then gives up in silence — the
+    /// right chapter is still open, and a notice for a slow load would be worse.
+    /// Static and handed the store, so the `Task` captures sendable values
+    /// rather than a `ViewModifier` whose `@State` it must not outlive.
     @MainActor
     private static func waitForDocument(
         _ reveal: TranslationReveal, in store: DocumentStore?
@@ -237,11 +209,9 @@ struct TranslationReviewModifier: ViewModifier {
     /// reached `EditorControl`.
     ///
     /// **Both halves of the predicate are load-bearing.** `replacing` is the
-    /// badge model as it stood before the post: without it, a reveal into a
-    /// DIFFERENT edition than the one on screen would be satisfied instantly by
-    /// the outgoing edition's entries, which is the bug this wait exists to
-    /// prevent wearing a different hat. The `contains` is what says the surface
-    /// that arrived actually holds the paragraph being revealed.
+    /// badge model from before the post: without it, a reveal into a DIFFERENT
+    /// edition would be satisfied instantly by the outgoing edition's entries.
+    /// The `contains` says the arrived surface holds the revealed paragraph.
     @MainActor
     private static func waitForTranslatedSurface(
         _ reveal: TranslationReveal, in control: EditorControl,

@@ -28,21 +28,15 @@ struct ProjectWindow: View {
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     /// **The window's flashes and its banner** — ⌘S's capsule, ⌘R's capsule
-    /// (its word and its generation) and the MCP note banner — as ONE value
-    /// (foundations plan 4 Task 6). See `WindowFlashes`.
+    /// (its word and its generation) and the MCP note banner — as ONE value.
+    /// See `WindowFlashes`.
     @State private var flashes = WindowFlashes()
-    /// The Diagnostics pane's gear menu (M2 Task 8), seeded from
-    /// `UIState.compilerModel` at `load()` and written back through
-    /// `updateUIState` on change — the `outlineLayout` pattern.
+    /// The Diagnostics pane's gear menu, seeded from `UIState.compilerModel` at
+    /// `load()` and written back through `updateUIState` on change.
     @State private var compilerModel: CompilerModelChoice = .standard
-    /// **How wide the annotations queue is looking** (M3 P2 Task 7).
-    ///
-    /// Window state rather than the pane's own, because the board's
-    /// open-notes column will set it from the CENTRE column — a click on
-    /// "11 notes" against Chapter Nine widens the queue and points it at that
-    /// piece. Deliberately NOT persisted to `UIState`: a scope is a glance, not
-    /// a home, and reopening the project in a list of the whole book is not
-    /// where the writer left off.
+    /// **How wide the annotations queue is looking.** Window state because the
+    /// board's open-notes column sets it from the CENTRE column. Deliberately
+    /// NOT persisted to `UIState`: a scope is a glance, not a home.
     @State private var annotationScopeRequest: AnnotationScope = .document
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
@@ -50,10 +44,9 @@ struct ProjectWindow: View {
     @State private var selectedSubject: BinderSubject?
     @State private var selectedPaletteCardId: String?
     /// **The palette wall's window state** — its open flag, the door-in-Plan
-    /// travel token and the inspector stash — as ONE value (foundations plan 4
-    /// Task 6). See `PaletteWallState` for each field and the folds over them;
-    /// `PaletteWallModifier` takes a binding to the whole, `CentreColumn` a
-    /// binding to `showsWall`.
+    /// travel token and the inspector stash — as ONE value. See
+    /// `PaletteWallState`; `PaletteWallModifier` takes a binding to the whole,
+    /// `CentreColumn` a binding to `showsWall`.
     @State private var paletteWall = PaletteWallState()
     /// The inspector's visibility captured when `⌘\` gave the canvas the whole
     /// window (spec §8A.3), so leaving restores it exactly. `nil` when the
@@ -66,34 +59,19 @@ struct ProjectWindow: View {
     /// behaves exactly as it did before there was a binding here.
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var activeSheet: ProjectActiveSheet?
-    /// **A Describe… press in Project Settings, waiting for the sheet to
-    /// close** (two loops P2 Task 6).
+    /// **A Describe… press in Project Settings, waiting for the sheet to close.**
     ///
-    /// `MaughamEvent.postDetailSegment` is scoped `.keyWindow`, and a sheet's
-    /// own window is the key one while it is up — this window would filter the
-    /// command out, so the sheet posting for itself would be swallowed by the
-    /// very act of closing. The request is recorded instead and acted on from
-    /// the `.sheet`'s `onDismiss`, which is the framework's own "it is gone"
-    /// hook.
+    /// `MaughamEvent.postDetailSegment` is scoped `.keyWindow`, and the sheet's
+    /// window is key while it is up, so the request is recorded and acted on
+    /// from the `.sheet`'s `onDismiss`. **The hand-off WRITES the segment
+    /// through `selectDetailSegment`; it does not post it** — `onDismiss` runs
+    /// before key status returns, so a `.keyWindow` post would be dropped.
     ///
-    /// **The hand-off WRITES the segment; it does not post it** (smoke,
-    /// 2026-09-06). `onDismiss` runs before the sheet's window has given key
-    /// status back, so a `.keyWindow`-scoped post is dropped there too and the
-    /// picker stayed on Diagnostics — the shape was reasoned rather than
-    /// measured. `ProjectWindow` owns all three pieces of the act, so it
-    /// performs it directly through `selectDetailSegment`, the one spelling
-    /// the key-window receiver calls as well.
-    ///
-    /// **Guarded twice, because one guard covered one door out of three**
-    /// (fix round 1). `describeFirstReader`'s two awaits leave a window in
-    /// which the writer can Escape before the request is recorded, and the
-    /// request then stands over a sheet that is already gone. Every
-    /// presentation clears it (`activeSheet`'s `onChange`, which also mirrors
-    /// what is up into `presentedSheet`), and the
+    /// **Guarded twice**: every presentation clears it (`activeSheet`'s
+    /// `onChange`, which also mirrors what is up into `presentedSheet`), and the
     /// dismissal that acts on it must be Project Settings' own
-    /// (`opensFirstReader`) — otherwise the next translator's-note or Claude
-    /// Desktop sheet the writer closed would jump the right column to her
-    /// statement.
+    /// (`opensFirstReader`) — otherwise closing any other sheet would jump the
+    /// right column to her statement.
     @State private var describeFirstReaderRequested = false
     /// **Which sheet is up** — `onDismiss` is told nothing about what closed,
     /// and the decision above turns on it. Mirrored from `activeSheet` rather
@@ -101,9 +79,9 @@ struct ProjectWindow: View {
     /// is already nil.
     @State private var presentedSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
-    /// The right column's one width (shell-finish stage 1). Restored from
-    /// `UIState` in `load()`; written back by the column's own drag handle and
-    /// by nothing else — see `RightColumn`, which takes it as a binding.
+    /// The right column's one width. Restored from `UIState` in `load()`;
+    /// written back by the column's own drag handle and by nothing else — see
+    /// `RightColumn`, which takes it as a binding.
     @State private var detailColumnWidth: Double = UIState.defaultDetailColumnWidth
     /// The window content's measured width, and the ONLY reason it is measured:
     /// the three columns' floors can out-arithmetic the window's own, and the
@@ -116,31 +94,17 @@ struct ProjectWindow: View {
     @State private var lastParsedScript: FountainScript? = nil
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
-    /// **Find in Project, as an overlay of the left column** (shell-finish
-    /// stage 2b Task 1). Window state rather than segment state: ⌘⌥F writes
-    /// this and nothing else, so the overlay rides through a persona switch
-    /// untouched and closing it reveals whatever column was underneath instead
-    /// of navigating anyone anywhere.
-    ///
-    /// It replaces `findActive`, which had zero true-writers — both of its
-    /// writers wrote `false` — and whose gates in the picker and both toggles
-    /// were dead code when they were deleted.
+    /// **Find in Project, as an overlay of the left column.** Window state
+    /// rather than segment state: ⌘⌥F writes this and nothing else, so the
+    /// overlay rides through a persona switch untouched and closing it reveals
+    /// whatever column was underneath instead of navigating anywhere.
     @State private var treeFindActive: Bool = false
-    /// **The tree's own state, owned by the window** (stage-3a Task 4): its
-    /// `List` selection, its inline-rename request, its loaded palette cards
-    /// and — new in this task — which of its sections and research groups are
-    /// open.
-    ///
-    /// It was `@State` inside each of the three tree hosts until the sections
-    /// learned to close. `openResearchItem` and `handleShowLatestMCPNote` name
-    /// an item the writer may not be looking at, and making that item's row
-    /// visible means opening the section it lives in — which a flag held
-    /// privately by whichever host is mounted is not reachable to do. One
-    /// window, one tree, one state; the hosts take it and none of them owns it.
-    ///
-    /// It also outlives the host now, which the find overlay makes visible:
-    /// ⌘⌥F replaces the whole left column, so the tree used to come back with
-    /// its multi-selection and its open groups reset.
+    /// **The tree's own state, owned by the window**: its `List` selection, its
+    /// inline-rename request, its loaded palette cards and which of its
+    /// sections and research groups are open. One window, one tree, one state;
+    /// the three tree hosts take it and none of them owns it — so
+    /// `openResearchItem`/`handleShowLatestMCPNote` can open the section a row
+    /// lives in, and the tree survives the find overlay replacing the column.
     @State private var treeState = BinderTreeSectionsState()
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
@@ -148,14 +112,14 @@ struct ProjectWindow: View {
     @State private var outlineLayout: OutlineLayout = .table
     /// **What the Publish persona's centre column is showing** — the compiled
     /// books, the header's pick, and the desk's two Shows — and the rules for
-    /// changing it (foundations plan 4 Task 2). Window-transient: see
-    /// `PublishCentreModel`. `PublishPreviewModifier` keeps its books current;
-    /// the static `publishCentre(…)` decides which surface draws from its values.
+    /// changing it. Window-transient: see `PublishCentreModel`.
+    /// `PublishPreviewModifier` keeps its books current; `CentreRoute` decides
+    /// which surface draws from its values.
     @State private var publishCentre = PublishCentreModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var currentElement: String? = nil
     /// Control-plane model for the editor (ADR 0017). ProjectWindow is its sole
-    /// posture/appearance writer; EditorHost writes the annotation set (Task 5).
+    /// posture/appearance writer; EditorHost writes the annotation set.
     /// Threaded down to the coordinator, which observes it.
     @State private var editorControl = EditorControl()
     /// The canvas's scene, scraps, selection, sidecar store and undo recorder.
@@ -164,84 +128,64 @@ struct ProjectWindow: View {
     /// draws — and region labels do not live in the manifest, so a `ProjectStore`
     /// could not carry them.
     @State private var canvasModel = CanvasModel()
-    /// **The window's `claude` services, in one owner** (foundations plan 3,
-    /// Task 1): the compiler (M2), the translator (publish department P2), the
-    /// designer (P3), the cold-call runner and the seven-leg pipeline
-    /// (translation pipeline P2/P3), and the translation run log the desk
-    /// reports from. Owned here for the canvas model's reason — a run is
-    /// started from one column and read in another. The roster is the
-    /// session's (Task 2), wired when this window ATTACHES to it (Task 3b,
-    /// `ProjectSession.attachWindow`, through the registry's window borrow)
-    /// and detached when the window's borrow goes back in `.onDisappear`
-    /// (`ProjectSession.detachWindow`) — and `roster.shutdownAll()` in
-    /// `CompilerRunModifier`, each in the roster's one order (pipeline
-    /// first). A session merely released is a live, billing process —
-    /// `AgentRoster`'s own contract.
-    ///
-    /// The window's ONE borrow of its project's session, and the session is
-    /// read through it, so there is no second piece of state to disagree.
+    /// **The window's ONE borrow of its project's session**, which owns the
+    /// window's `claude` services (compiler, translator, designer, cold-call
+    /// runner, pipeline, translation run log) — owned at window level because
+    /// a run is started from one column and read in another. The window attaches on `load()`
+    /// (`ProjectSession.attachWindow`) and gives the borrow back in
+    /// `.onDisappear` (`ProjectSession.detachWindow`); `CompilerRunModifier`
+    /// runs `roster.shutdownAll()`, pipeline first. A session merely released
+    /// is a live, billing process — `AgentRoster`'s own contract. The session
+    /// is read through the lease, so there is no second state to disagree.
     @State private var lease: ProjectSessionRegistry.Lease?
     private var session: ProjectSession? { lease?.session }
-    /// The session's roster once the project is open. Before that (and after
-    /// the close), an unconfigured placeholder, so `CompilerRunModifier`, the
-    /// right column's environment and the accessors below always have a
-    /// roster to name: every verb on an unconfigured service is a no-op,
-    /// exactly as the window's own roster was before `load()` configured it.
+    /// The session's roster once the project is open; before that (and after
+    /// the close) an unconfigured placeholder, so every caller always has a
+    /// roster to name. Every verb on an unconfigured service is a no-op.
     private var roster: AgentRoster { session?.roster ?? Self.unloadedRoster }
     private static let unloadedRoster = AgentRoster()
-    /// The two members this file's own body still reaches by name (the
-    /// footer's last run and the cockpit's Run; the desk's design gate). The
-    /// right column reads the rest off the roster in its environment
-    /// (`inspectorPane`, foundations plan 3 Task 5).
+    /// The two members this file's own body still reaches by name. The right
+    /// column reads the rest off the roster in its environment (`RightColumn`).
     private var compiler: CompilerOrchestrator { roster.compiler }
     private var designer: DesignerOrchestrator { roster.designer }
-    /// The Intent pane's two lower strata (declared-world Task 6): Claude's
-    /// bible of what the manuscript has established, and the per-scope cache of
-    /// its readings of the writer's statements.
-    ///
-    /// Owned here for the canvas model's and the compiler's reason — the pane
-    /// that reads them is in the RIGHT column and the ruling verbs that
-    /// invalidate the cache are reached from it, so a store constructed inside
-    /// the pane would be a second cache the run never hits. Both are
-    /// project-scoped and per-device, and both materialize their sidecar in
-    /// `init`, so they are built in `ProjectSession.open`, where the project
-    /// URL exists, and never from a view body; these are the window's mirrors.
+    /// The Intent pane's two lower strata: Claude's bible of what the
+    /// manuscript has established, and the per-scope cache of its readings of
+    /// the writer's statements. Window mirrors of the session's stores, because
+    /// the RIGHT column's pane reads them and its ruling verbs invalidate the
+    /// cache — a store built inside the pane would be a second cache the run
+    /// never hits. Both materialize a sidecar in `init`, so they are built in
+    /// `ProjectSession.open` and never from a view body.
     @State private var bible: BibleStore?
     @State private var declaredWorld: DeclaredWorldStore?
 
-    /// **What pin is being studied** (M2 §6.2). Owned by the window rather than
-    /// by either surface because two of them read it: the References pane
-    /// writes it, and `detailColumn`'s first arm — which stands *in place of*
-    /// that pane — is a function of it. It has no width; a studied reference
-    /// takes `detailColumnWidth`, the right column's own (spec §3.2).
+    /// **What pin is being studied** (M2 §6.2). Owned by the window because the
+    /// References pane writes it and `RightColumn`'s study arm — which stands
+    /// *in place of* that pane — is a function of it. It has no width; a
+    /// studied reference takes `detailColumnWidth` (spec §3.2).
     @State private var assistant = AssistantColumnModel()
-    /// This project's iCloud share snapshot, read once on open and again on a
-    /// share-change (app re-activation), then cached — an INDICATOR, never a
-    /// role (P3c Task 4). It drives the sharing pill, the share sheet's
-    /// eligibility, and the read-only-share lock (`shareIsReadOnly`); the
-    /// editor's review posture is the permit's (`editorMembrane`, P3c Task 3).
-    /// `nil` until the first read completes. Single read, threaded down.
+    /// This project's iCloud share snapshot, read on open and on a share-change,
+    /// then cached — an INDICATOR, never a role. It drives the sharing pill, the
+    /// share sheet's eligibility, and the read-only-share lock
+    /// (`shareIsReadOnly`); the editor's review posture is the permit's
+    /// (`editorMembrane`). `nil` until the first read completes.
     @State private var shareSnapshot: ShareMetadata?
     /// What ⌘⌥Z has to say: the reason it refused a deletion it could not
     /// return whole (RULING-40), or what a restore could not give back
     /// (RULING-42). A refusal the writer never sees is the same as a silence.
     @State private var restoreOutcome: String?
-    /// What a translator's note has to say when it could not be written
-    /// (translation pipeline P2). A SIBLING of `restoreOutcome` rather than a
-    /// reuse of it: that one's alert is titled "Restore", and a refusal about
-    /// a directive arriving under that heading would read as a deletion the
-    /// writer never made. Same shape, its own word.
+    /// What a translator's note has to say when it could not be written. A
+    /// SIBLING of `restoreOutcome`, not a reuse: that alert is titled "Restore",
+    /// and a directive refusal under that heading would read as a deletion.
     @State private var noteOutcome: String?
     /// Injected reader for the share metadata (real OS-backed Mac reader in
     /// production; substitutable in tests/previews).
     private let shareReader: ShareMetadataReading = ICloudShareMetadataReader()
     @Environment(UserPreferences.self) private var userPreferences
-    /// The app's one session per project (foundations plan 3, Task 3): this
-    /// window BORROWS its project's session from it — `load()` acquires, the
-    /// window-ending `.onDisappear` releases — so a second window on the same
-    /// project never runs `DocumentStore.open` a second time. Its borrow is a
-    /// WINDOW borrow (Task 3b), so the registry also announces the project to
-    /// MCP for as long as a window is open on it.
+    /// The app's one session per project: this window BORROWS its project's
+    /// session — `load()` acquires, the window-ending `.onDisappear` releases —
+    /// so a second window never runs `DocumentStore.open` twice. It is a WINDOW
+    /// borrow, so the registry announces the project to MCP while a window is
+    /// open on it.
     @Environment(ProjectSessionRegistry.self) private var sessions
     @Environment(\.openWindow) private var openWindow
 
@@ -360,22 +304,19 @@ struct ProjectWindow: View {
             isNoChromeOn: isNoChromeOn,
             onSelectPersona: Self.postPersona))
         .background(WindowAccessor(window: $window))
-        // Signed op log P2b: a device asking to be let into this book. Mounted
-        // on the whole window rather than inside an arm, because the question
-        // is the PROJECT's and arrives whichever persona the writer is in and
-        // whether or not the load has finished — the modifier's own guards
-        // decide when there is anything to ask.
+        // Signed op log P2b: a device asking to be let into this book. Mounted on
+        // the whole window, because the question is the PROJECT's and arrives in
+        // any persona, loaded or not — the modifier's own guards decide.
         .modifier(AdmissionModifier(
             projectURL: url,
             projectTitle: store?.manifest.title ?? url.lastPathComponent,
             documentStore: documentStore,
             projectStore: store,
             window: $window))
-        // **The load's other question** (P3b Task 7, spec §4.5): somebody who
-        // may write some of this book has started a piece that is in nobody's
-        // scope. Its own modifier beside admission's, for admission's reason —
-        // one subject, one queue — and the two cannot collide: a stranger has
-        // no permit to widen, and a person who has one is no stranger.
+        // **The load's other question** (spec §4.5): somebody who may write some
+        // of this book has started a piece in nobody's scope. Its own modifier
+        // beside admission's — one subject, one queue — and the two cannot
+        // collide: a stranger has no permit to widen.
         .modifier(NewPieceModifier(
             projectURL: url,
             documentStore: documentStore,
@@ -383,36 +324,24 @@ struct ProjectWindow: View {
             window: $window))
         .task(id: url) { await load() }
         .onDisappear {
-            // Scorch the heavy @State on window close. SwiftUI never dismantles
-            // a closed `WindowGroup` scene's view graph (`GraphHost.sharedGraph`
-            // retains it — see the scene-storage spike note), but `.onDisappear`
-            // DOES fire on close, so we empty the zombie ourselves: the Document
-            // (paragraphs + op-log mirror), the derived-cache-bearing ProjectStore,
-            // the DocumentStore, and the parsed FountainScript AST all drop here,
-            // leaving only SwiftUI's AttributeGraph husk.
+            // Scorch the heavy @State on window close. SwiftUI never dismantles a
+            // closed `WindowGroup` scene's view graph, but `.onDisappear` DOES fire
+            // on close, so we empty the zombie ourselves (see the scene-storage spike
+            // note).
             //
-            // GUARD on the window actually being gone (ADR 0021 liveness helper):
-            // a spurious `.onDisappear` on a still-live window must NOT blank the
+            // GUARD on the window actually being gone (ADR 0021 liveness helper): a
+            // spurious `.onDisappear` on a still-live window must NOT blank the
             // @State — `body` renders "Loading…" when `store == nil` and
-            // `.task(id: url)` won't re-fire for the same url, so a live blank
-            // would stick.
+            // `.task(id: url)` won't re-fire for the same url.
             if !MaughamEvent.isLive(window) {
-                // The services' environments hold closures over both stores,
-                // so a session left configured would keep the whole project
-                // graph alive in the husk — and its `claude` subprocess alive
-                // with it. The session is BORROWED (Task 3) as a WINDOW
-                // (Task 3b), so this window gives its window borrow back
-                // rather than closing anything: the registry detaches this
-                // window (`ProjectSession.detachWindow` — every service
-                // detaches, pipeline first, unless an older window on the
-                // project takes the attachment back) and forgets the project
-                // in MCP when no window is left, even while a reader such as
-                // the Statistics window still holds the stores; its LAST
-                // release of any kind runs `ProjectSession`'s close. It runs
-                // in a queued `Task`, after this body has nil-ed the @State
-                // below: the Task captures the lease, and nil-ing `lease`
-                // here is what keeps a later `.onDisappear` or `load()` from
-                // giving the same borrow back twice.
+                // The services hold closures over both stores, so a configured session
+                // would keep the project graph — and its `claude` subprocess — alive in
+                // the husk. The window gives its WINDOW borrow back rather than closing
+                // anything: the registry detaches this window
+                // (`ProjectSession.detachWindow`, pipeline first) and forgets the project
+                // in MCP when no window is left; the LAST release runs the session's
+                // close. Nil-ing `lease` here keeps a later `.onDisappear` or `load()`
+                // from giving the same borrow back twice.
                 if let lease {
                     let sessions = self.sessions
                     Task { await sessions.release(lease) }
@@ -440,11 +369,8 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamShowProjectSettings, window: window) { _ in
             openProjectSettings()
         }
-        // **Translator's note** (⌘⌥C): the sheet opens on the paragraph
-        // under the caret of the ACTIVE manuscript document; with no
-        // document in the centre column there is nothing to note, and
-        // the command is a quiet no-op like every other editor verb
-        // with no editor.
+        // **Translator's note** (⌘⌥C): opens on the paragraph under the caret of
+        // the ACTIVE manuscript document; with no document it is a quiet no-op.
         .onKeyWindowCommand(.maughamTranslatorsNote, window: window) { _ in
             guard let store, let documentStore,
                   let document = activeDocument(in: store, documentStore: documentStore),
@@ -468,10 +394,8 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in
             showInspector.toggle()
         }
-        // shell-finish stage-3a Task 5: ⌘⌥O's new meaning. The same write
-        // Escape and the canvas's own `selectTheProjectRow` closure already
-        // make (spec §4.1) — the key is a second door onto it, not a second
-        // write.
+        // ⌘⌥O: the same write Escape and the canvas's own `selectTheProjectRow`
+        // closure make (spec §4.1) — a second door onto it, not a second write.
         .onKeyWindowCommand(.maughamSelectProjectRow, window: window) { _ in
             selectedSubject = .project
         }
@@ -482,9 +406,8 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamRevealResearchSection, window: window) { _ in
             guard !treeFindActive else { return }
             treeState.researchSectionExpanded = true
-            // The header lands on screen too (stage-3b Task 8) — expanding a
-            // section scrolled far off-screen makes it TRUE without making it
-            // VISIBLE.
+            // The header lands on screen too — expanding a section scrolled far
+            // off-screen makes it TRUE without making it VISIBLE.
             treeState.scrollRequest = .researchHeader
         }
         // ⌘⌥P's twin, for the Palette section.
@@ -517,10 +440,8 @@ struct ProjectWindow: View {
         .onChange(of: selectedSubject) { _, newValue in
             documentStore?.updateUIState { $0.selectedSubject = newValue }
             // Zero the inspector/footer metrics when the new selection is not a
-            // document (group, no selection). The EditorCoordinator only
-            // delivers `onMetricsChanged` while a document is bound, so it can't
-            // clear them on deselection — this preserves the zeroing the old
-            // `updateMetrics(for:)` guard performed.
+            // document: the EditorCoordinator only delivers `onMetricsChanged` while
+            // a document is bound, so it can't clear them on deselection.
             if !selectionIsDocument(newValue) {
                 metrics = EditorMetrics(
                     wordCount: 0, characterCount: 0, readingMinutes: 0)
@@ -560,11 +481,10 @@ struct ProjectWindow: View {
                                        persona: $persona,
                                        detailSegment: $detailSegment,
                                        documentStore: documentStore))
-        // Denver's travel rule (shell-finish stage 3b): a double-click on any
-        // tree row in Plan takes the writer to Author, on that row's subject.
-        // One line, because this body has no expression budget (the Release
-        // type-check ceiling) — the whole rule is in `TreeTravel.swift`, and
-        // THIS LINE is what makes it reachable.
+        // Denver's travel rule: a double-click on any tree row in Plan takes the
+        // writer to Author, on that row's subject. The rule is in
+        // `TreeTravel.swift`; THIS LINE is what makes it reachable (this body has
+        // no expression budget — the Release type-check ceiling).
         .modifier(TreeTravelModifier(window: window,
                                      persona: $persona,
                                      detailSegment: $detailSegment,
@@ -587,19 +507,15 @@ struct ProjectWindow: View {
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
-        // Read the iCloud share snapshot ONCE per project URL (and again on
-        // app re-activation — a pragmatic "the user may have just accepted a
-        // share in Finder" trigger). Reads off the main actor's critical path;
-        // the result is cached in @State and threaded one-way to the editor and
-        // the pill. Never polled / per-render.
+        // Read the iCloud share snapshot once per project URL and again on app
+        // re-activation, off the main actor's critical path; cached in @State and
+        // threaded one-way to the editor and the pill. Never polled / per-render.
         .task(id: url) { await readShareSnapshot() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await readShareSnapshot() }
         }
         // Mirror posture + appearance into the EditorControl model (ADR 0017).
-        // Extracted into a ViewModifier to stay under ProjectWindow.body's
-        // SwiftUI type-checker ceiling (the extracted-ViewModifier pattern).
         .modifier(EditorControlMirrorModifier(
             membrane: editorMembrane,
             posture: editorPosture,
@@ -619,43 +535,33 @@ struct ProjectWindow: View {
             selectedSubject: $selectedSubject,
             persona: persona))
         // A research subject arriving while the canvas holds the centre reveals
-        // the column that previews it — one line, because this body has no
-        // expression budget (the Release type-check ceiling), and the whole of
-        // the rule is in the modifier. Delete this line and every token in that
-        // file is still present, every decision test still green, and a research
-        // row in Plan's tree puts nothing anywhere.
+        // the column that previews it. Load-bearing line: deleting it leaves every
+        // token in the modifier present and every decision test green, while a
+        // research row in Plan's tree puts nothing anywhere.
         .modifier(ResearchRevealModifier(persona: persona,
                                          selectedSubject: $selectedSubject,
                                          showInspector: $showInspector,
                                          detailSegment: $detailSegment))
-        // The compiled book the Publish persona's centre column draws, kept
-        // current by a compile finishing, a window opening and an arrival into
-        // Publish — one line, because this body has no expression budget (the
-        // Release type-check ceiling), and the whole of the rule is in the
-        // modifier. Delete this line and every token in that file is still
-        // present, every decision test still green, and a writer's compile never
-        // reaches the centre column.
+        // The compiled book the Publish centre draws, kept current by a compile
+        // finishing, a window opening and an arrival into Publish. Load-bearing
+        // line: deleting it leaves every decision test green, while a compile
+        // never reaches the centre column.
         .modifier(PublishPreviewModifier(
             projectURL: url, window: window, persona: persona,
             centre: publishCentre))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
-        // The writer's notice that Claude added cards to their canvas, and the way
-        // to go and look. One line, because this body has no expression budget
-        // (the Release type-check ceiling); the whole of the behaviour is in the
-        // modifier, and THIS LINE is what makes it reachable — deleting it leaves
-        // every token in that file present and every test green.
+        // The writer's notice that Claude added cards to their canvas, and the
+        // way to go and look. Load-bearing line: deleting it leaves every token in
+        // the modifier present and every test green.
         .modifier(CanvasClaudeArrivalModifier(url: url, window: window,
                                               model: canvasModel,
                                               persona: $persona,
                                               showInspector: $showInspector,
                                               detailSegment: $detailSegment,
                                               documentStore: documentStore))
-        // ⌘\ on the canvas collapses both side columns (spec §8A.3). One line,
-        // because this body has no expression budget (the Release type-check
-        // ceiling); the whole of the behaviour is in the modifier, and THIS LINE
-        // is what makes it reachable — delete it and every token in the modifier
-        // is still present, every decision test still green, and ⌘\ on the
+        // ⌘\ on the canvas collapses both side columns (spec §8A.3). Load-bearing
+        // line: deleting it leaves every decision test green, while ⌘\ on the
         // canvas moves nothing.
         .modifier(CanvasCollapseModifier(
             persona: persona,
@@ -673,9 +579,8 @@ struct ProjectWindow: View {
     /// `MaughamEvent.personaKey` so the two cannot drift. `.keyWindow` scope:
     /// only the focused project window switches.
     ///
-    /// A named `static func` rather than an inline closure in the modifier
-    /// chain: `ProjectWindow.body` is at SwiftUI's type-checker ceiling (see
-    /// `Maugham/Views/AREA.md`), and `static` keeps it from capturing `self`.
+    /// A named `static func` rather than an inline closure: `body` is at the
+    /// type-checker ceiling, and `static` keeps it from capturing `self`.
     private static func postPersona(_ next: Persona) {
         MaughamEvent.post(.maughamSetPersona,
                           to: .keyWindow,
@@ -703,10 +608,9 @@ struct ProjectWindow: View {
         return id
     }
 
-    /// **The editor's membrane, asked of the posture** (P3c Task 3). The
-    /// DRAWING accessor (controller ruling I): reading it observes
-    /// `postureEpoch`, so a demotion or a promotion arriving mid-session
-    /// re-mirrors with no reopen. The rule itself is
+    /// **The editor's membrane, asked of the posture.** The DRAWING accessor:
+    /// reading it observes `postureEpoch`, so a demotion or a promotion
+    /// arriving mid-session re-mirrors with no reopen. The rule itself is
     /// `EditorControlMirror.membrane`, pinned without a window.
     private var editorMembrane: EditorControlMirror.Membrane {
         EditorControlMirror.membrane(
@@ -716,18 +620,17 @@ struct ProjectWindow: View {
     }
 
     /// The drawing posture of the manuscript document in the editor, nil where
-    /// none is — the membrane's input, and (P3c Task 5) the margin card's,
-    /// mirrored to `EditorControl.posture`.
+    /// none is — the membrane's input and the margin card's, mirrored to
+    /// `EditorControl.posture`.
     private var editorPosture: Posture? {
         selectedManuscriptDocId.flatMap { id in documentStore?.posture(forDocId: id) }
     }
 
-    /// **The drawing posture of any document this window names** (P3c Task
-    /// 6) — for a surface that is about a piece other than the editor's: the
-    /// inspectors' pass ladders, the board's chips. The drawing door, so it
-    /// observes `postureEpoch`. `settling` — the reviewer row alone — where
-    /// there is no store yet or no document: nothing is offered that must not
-    /// be, and the ladder draws read-only for a frame at worst.
+    /// **The drawing posture of any document this window names** — for a
+    /// surface about a piece other than the editor's (the inspectors' pass
+    /// ladders, the board's chips). Observes `postureEpoch`. `settling` — the
+    /// reviewer row alone — where there is no store or no document: nothing is
+    /// offered that must not be.
     private func postureDrawn(forDocId docId: String?) -> Posture {
         guard let docId, let documentStore else { return .settling }
         return documentStore.posture(forDocId: docId)
@@ -753,7 +656,7 @@ struct ProjectWindow: View {
 
     /// The typography the editor actually uses — manifest override else user
     /// default. Mirrors the value EditorHost passes to EditorSurface, so the
-    /// control model and the (still-active) prop path agree during migration.
+    /// control model and the prop path agree.
     private var effectiveTypography: TypographySettings {
         guard let store else { return userPreferences.typography }
         return ProjectStore.effectiveTypography(
@@ -762,12 +665,11 @@ struct ProjectWindow: View {
     }
 
     /// **True when iCloud grants this user READ-ONLY access to the share** —
-    /// an OS-level lock that claims no role (P3c Task 4). Such a user cannot
-    /// write into the folder at all, not even an annotation op, so the editor
-    /// locks and `ViewOnlyShareNotice` says "ask the owner for edit access"
-    /// rather than letting a comment fail silently. Only an explicit
-    /// `canWrite == false` locks: an unresolved grant (`nil`) or an unshared
-    /// project never does. Derived from the snapshot alone, never from a role.
+    /// an OS-level lock that claims no role. Such a user cannot write into the
+    /// folder at all, not even an annotation op, so the editor locks and
+    /// `ViewOnlyShareNotice` asks for edit access rather than letting a comment
+    /// fail silently. Only an explicit `canWrite == false` locks: an unresolved
+    /// grant (`nil`) or an unshared project never does.
     nonisolated static func shareIsReadOnly(_ snapshot: ShareMetadata?) -> Bool {
         snapshot?.isShared == true && snapshot?.canWrite == false
     }
@@ -781,24 +683,19 @@ struct ProjectWindow: View {
     }
 
     /// The persona bar, the top banners (software-update + backups-paused), and
-    /// the focused project URL, pulled off `body` into a modifier so
-    /// `ProjectWindow.body` stays under the SwiftUI type-checker's ceiling — the
-    /// Release optimizer is stricter than Debug, so adding these inline built
-    /// locally but failed the Release CI build.
+    /// the focused project URL, pulled off `body` for the Release type-check
+    /// ceiling.
     ///
     /// The persona bar is a WINDOW TOOLBAR item, not part of the safe-area
-    /// strip below. A permanently non-zero top safe-area inset applied outside
-    /// a `NavigationSplitView` occludes the top of every column — it cost the
-    /// binder's `Pieces | Research | Trash` picker and the right pane's segment
-    /// row (2026-07-25 smoke, defect A). The two banners keep the inset because
-    /// they are zero-height except in the rare states that raise them, and they
-    /// are deliberately *below* the toolbar in the reading order.
+    /// strip: a permanently non-zero top safe-area inset outside a
+    /// `NavigationSplitView` occludes the top of every column (2026-07-25
+    /// smoke, defect A). The two banners keep the inset because they are
+    /// zero-height except in the rare states that raise them.
     ///
     /// `⌘\` focus mode hides the whole window toolbar rather than swapping the
-    /// item for an empty one: a conditional inside `ToolbarItem` leaves a live
-    /// (if empty) item and macOS keeps the taller unified titlebar, which is
-    /// exactly the chrome `⌘\` exists to remove. `PersonaBar.isVisible` stays
-    /// the single predicate.
+    /// item for an empty one: an empty `ToolbarItem` keeps the taller unified
+    /// titlebar, the exact chrome `⌘\` exists to remove. `PersonaBar.isVisible`
+    /// stays the single predicate.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
         let persona: Persona
@@ -828,32 +725,24 @@ struct ProjectWindow: View {
     }
 
     /// Opening the palette wall hides the right pane so it gets width; closing
-    /// restores the pane's prior visibility exactly (spec: no stuck-hidden
-    /// inspector). Kept out of ProjectWindow.body for the type-checker budget.
-    /// A ⌘⌥N that sets `showInspector = true` while the wall is open wins —
-    /// the user explicitly asked for the pane; we don't fight it.
+    /// restores the pane's prior visibility exactly (no stuck-hidden
+    /// inspector). A ⌘⌥N that sets `showInspector = true` while the wall is
+    /// open wins. Keyed on the wall's own flag — see
+    /// `PaletteWallState.applyPaletteWallChange`.
     ///
-    /// **Re-keyed on the wall's own flag since stage 2b Task 5** — see
-    /// `PaletteWallState.applyPaletteWallChange`'s doc comment for what changed and why.
+    /// **The subject-change close lives here too**: "Esc or any subject change
+    /// closes it" is the door's own contract (Esc is `PaletteWallCentre.onClose`),
+    /// and every close must run through the SAME `applyPaletteWallChange`, or the
+    /// inspector stash restores twice or not at all depending on which
+    /// `onChange` wins.
     ///
-    /// **The subject-change close lives here too**, rather than as a second
-    /// modifier: "Esc or any subject change closes it" is the door's own
-    /// contract (its Esc half is `PaletteWallCentre.onClose`), and a subject
-    /// change that closes the wall must run through the SAME
-    /// `applyPaletteWallChange` the door's other exits do, or the inspector
-    /// stash restores twice or not at all depending on which `onChange` wins
-    /// the pass.
-    /// **Internal rather than private because `PaletteWallDoorTests` mounts
-    /// this exact modifier** (the `ContainerWidthReporter` precedent). The
-    /// persona-change close is a SwiftUI `onChange` and the thing that can fail
-    /// about it is whether it fires at all, so a test that re-created the
-    /// observer would be testing its own copy.
+    /// **Internal because `PaletteWallDoorTests` mounts this exact modifier**:
+    /// what can fail about an `onChange` is whether it fires at all, so a test
+    /// re-creating the observer would test its own copy.
     struct PaletteWallModifier: ViewModifier {
-        /// The wall's whole window state — its flag, the door-in-Plan travel
-        /// token and the inspector stash (`PaletteWallState`). The token is
-        /// consumed below, in the same handler that closes the wall and after
-        /// it, so nothing about the order depends on which modifier SwiftUI
-        /// runs first.
+        /// The wall's whole window state (`PaletteWallState`). The travel token is
+        /// consumed below, in the same handler that closes the wall and after it,
+        /// so nothing depends on which modifier SwiftUI runs first.
         @Binding var paletteWall: PaletteWallState
         @Binding var showInspector: Bool
         @Binding var selectedPaletteCardId: String?
@@ -873,15 +762,10 @@ struct ProjectWindow: View {
                 .onChange(of: selectedSubject) { _, _ in
                     if paletteWall.showsWall { paletteWall.showsWall = false }
                 }
-                // **The wall belongs to the persona it was opened in** (final
-                // review's I3). Here rather than at the three sites that write
-                // `persona`, two of which never touch `PersonaModifier` at all.
-                //
-                // **And the travel arrives here too, second** (stage 3b Task
-                // 4): the close is unconditional and the travel is what asks
-                // for a wall on the far side of it, so the two lines are one
-                // rule about one persona change rather than two observers
-                // racing. Swap them and the wall opens and is immediately shut.
+                // **The wall belongs to the persona it was opened in** — here rather than
+                // at the three sites that write `persona`. **The travel arrives second**:
+                // the close is unconditional and the travel asks for a wall on the far
+                // side of it. Swap them and the wall opens and is immediately shut.
                 .onChange(of: persona) { _, _ in
                     paletteWall.closePaletteWallOnPersonaChange()
                     paletteWall.applyWallTravelOnPersonaChange()
@@ -904,24 +788,22 @@ struct ProjectWindow: View {
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
         /// Written by `.maughamNavigateToDocument` alone, through
-        /// `ManuscriptNavigation` — a navigation to a manuscript document moves
-        /// the writer to Author when the persona they are in would not show it
-        /// (Denver, 2026-08-02). `.maughamCloseFind` used to read it too, to
-        /// send the writer to this persona's binder home; since stage 2b Task 1
-        /// closing find moves nobody, so it no longer does.
+        /// `ManuscriptNavigation` — a navigation to a manuscript document moves the
+        /// writer to Author when the persona they are in would not show it
+        /// (Denver, 2026-08-02). Closing find moves nobody.
         @Binding var persona: Persona
-        /// What ⌘⌥Z has to say when it cannot restore a deletion whole, or
-        /// when a restore gave back less than was deleted (RULING-40/42).
+        /// What ⌘⌥Z has to say when it cannot restore a deletion whole
+        /// (RULING-40), or when a restore gave back less than was deleted
+        /// (RULING-42).
         @Binding var restoreOutcome: String?
         /// **The studied pin**, for the ⌘⌥-letter handler alone: a keystroke
         /// naming a pane is an act, and an act ends a study even when the pane
         /// it names is the one already selected.
         let assistant: AssistantColumnModel
         let mcpBanner: MCPBannerModel
-        /// The tree's disclosure/selection state (stage-3a Task 4) — held here
-        /// too, since Task 8, for the find-match handler's scroll request. An
-        /// `@Observable` reference type, so a plain `let` reaches the same
-        /// object `ProjectWindow` owns; nothing here needs a `Binding` to it.
+        /// The tree's disclosure/selection state, for the find-match handler's
+        /// scroll request. An `@Observable` reference type, so a plain `let`
+        /// reaches the same object `ProjectWindow` owns.
         let treeState: BinderTreeSectionsState
 
         func body(content: Content) -> some View {
@@ -948,21 +830,14 @@ struct ProjectWindow: View {
                 // this project's window even when it isn't key.
                 //
                 // **The persona write on this path is cross-window, and that is
-                // intended.** The scope is what makes the stats window work at
-                // all — it is key, this window is not, and this window is the
-                // one that must move. Taking it to the document while leaving
-                // its persona bar on Plan would be half a navigation: the
-                // window would draw a manuscript editor under a persona whose
-                // own centre column is the board, which is exactly the state
-                // Denver ruled out. Two windows open on ONE project both move,
-                // which is the breadth `selectedSubject` has always had here;
-                // `persona` is per-project state in `UIState` beside
-                // `personaMemory`, shared last-writer-wins by two windows by
-                // the same design.
+                // intended.** The stats window is key and this window must move; taking
+                // it to the document while leaving its persona on Plan would draw a
+                // manuscript editor under a persona whose centre is the board — the
+                // state Denver ruled out. Two windows on ONE project both move;
+                // `persona` is per-project `UIState`, shared last-writer-wins by design.
                 .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
-                    // `store != nil` rather than a binding: the navigation moves
-                    // window state and reads none of the store's, and an unused
-                    // `let store` has warned since Task 7 took its last reader.
+                    // `store != nil` rather than a binding: the navigation moves window
+                    // state and reads none of the store's.
                     if let id = note.userInfo?["id"] as? String, store != nil {
                         // Whether this persona shows a document at all is
                         // `ManuscriptNavigation`'s to answer.
@@ -1017,66 +892,33 @@ struct ProjectWindow: View {
                         $0.researchPreviewVisible = researchPreviewVisible
                     }
                 }
-                // **⌘⌥F opens the overlay and moves nothing else.** It used to
-                // write a `.find` binder segment, which is how find came to be
-                // a segment at all — a state wearing a surface's clothes. The
-                // overlay is the left column while it is up, in every persona,
-                // and the strip never mediated it even when there was one: this
-                // handler never consulted the picker's visible list, and there
-                // is no longer a picker to consult.
-                //
-                // Touching nothing but this flag is also what keeps Denver's
-                // 2026-08-02 footer ruling true: the footer follows the
-                // DOCUMENT in the centre column, opening find does not touch
-                // the centre column, so a writer who had the footer still has
-                // it.
+                // **⌘⌥F opens the overlay and moves nothing else.** The overlay is the
+                // left column while it is up, in every persona. Touching nothing but
+                // this flag is what keeps Denver's 2026-08-02 footer ruling true: the
+                // footer follows the DOCUMENT in the centre column, and opening find
+                // does not touch the centre column.
                 .onKeyWindowCommand(.maughamFindInProject, window: window) { _ in
                     treeFindActive = true
                 }
                 // **The one way down**, reached by both the ✕ and Escape —
-                // `ProjectSearchView.close()` is their single call site and this
-                // is its only receiver, so the two cannot come to disagree the
-                // way the flag-plus-post pair before it could.
-                //
-                // **Closing find no longer moves the binder**, and that is the
-                // whole shape of the change: there is nowhere to send anyone.
-                // The overlay was covering a column that is still there, so
-                // dismissing it reveals that column. The old handler forced the
-                // persona's binder home because it had to undo its own `.find`
-                // write, and before slice 2 forced the manuscript segment,
-                // which put a writer who pressed ⌘⌥F in Plan and changed their
-                // mind into a text editor.
+                // `ProjectSearchView.close()` is their single call site and this is its
+                // only receiver, so the two cannot disagree. **Closing find moves
+                // nothing**: the overlay was covering a column that is still there, so
+                // dismissing it reveals that column.
                 .onKeyWindowCommand(.maughamCloseFind, window: window) { _ in
                     ProjectWindow.applyCloseFind(treeFindActive: &treeFindActive,
                                                  store: store)
                 }
-                // **A match click writes the SUBJECT** — the recorded gap that
-                // sat here for two slices, closed by stage 2b Task 1.
-                //
-                // A research match used to write the old research pane's own
-                // `selectedResearchId` alone, and while the binder was on
-                // `.find` the centre column was `EditorHost` regardless, so
-                // clicking a research result showed the writer their
-                // manuscript. The fix was never a line in this handler — it
-                // needed find to stop taking the centre column hostage, which
-                // is what the overlay does: the column underneath is untouched,
-                // so `researchSubjectPlacement` routes the subject the way
-                // stage 2a routes every other research selection (the centre in
-                // Author/Review/Publish, beside the canvas in Plan). The second
-                // write went with those panes in the kill task; the subject is
-                // now the only thing a match click moves.
-                // **The full arrival posture, both arms** (stage-3b Task 8).
-                // A research match gets `openResearchItem`'s own shape —
-                // `reveal`, then the scroll request from what it returned;
-                // the section is already expanding beneath the overlay from
-                // the subject write above, and the row itself is on screen
-                // once Escape hands the column back and the tree's own
-                // mount consumes the pending scroll. A manuscript match's
-                // row is never behind anything closable, so it scrolls
-                // straight to its own tag. The overlay stays up either way —
-                // no `applyCloseFind` here — and the editor's own text
-                // scroll is untouched: that is `EditorCoordinator`'s
-                // independent observer, not this handler's.
+                // **A match click writes the SUBJECT**, and nothing else: find does not
+                // take the centre column, so `researchSubjectPlacement` routes a research
+                // subject the way every research selection is routed.
+                // **The full arrival posture, both arms.** A research match gets
+                // `openResearchItem`'s shape — `reveal`, then the scroll request from what
+                // it returned; the tree's own mount consumes the pending scroll once
+                // Escape hands the column back. A manuscript match scrolls straight to its
+                // own tag. The overlay stays up either way — no `applyCloseFind` here —
+                // and the editor's text scroll is `EditorCoordinator`'s independent
+                // observer, not this handler's.
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch,
@@ -1141,9 +983,9 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
-                // The File menu's enabled state (ruling X), published by the
-                // modifier that receives the three items — and only where the
-                // project shows the pieces pane (Task 9).
+                // The File menu's enabled state (ruling X), published by the modifier
+                // that receives the three items — and only where the project shows the
+                // pieces pane.
                 .focusedSceneValue(\.mayStartAPiece, StartAPieceDoor.published(store: store))
                 .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
@@ -1217,12 +1059,9 @@ struct ProjectWindow: View {
 
     // MARK: - Helpers
 
-    // `defaultSegment(for:)` lived here and was deleted 2026-08-02: zero
-    // callers, and its body was a second spelling of the binder's document-home
-    // rule — the re-derivation that shipped the 2026-07-02 screenplay navigate
-    // bug. A dead copy of a load-bearing rule is a copy waiting to be called.
-    // Both it and the rule it copied are gone now; `TreePane` is the surviving
-    // half of that question.
+    // `TreePane` is the one home of the binder's document-home rule; do not
+    // add a second spelling here — a dead copy of a load-bearing rule is a
+    // copy waiting to be called (the 2026-07-02 screenplay navigate bug).
 
     private var currentSyntaxHelpMode: SyntaxHelpMode {
         guard let store else { return .prose }
@@ -1234,17 +1073,13 @@ struct ProjectWindow: View {
     /// Which binder shell the left column mounts.
     ///
     /// **One rule, named, because it decides which surfaces a project type has
-    /// at all.** It was an inline `type == .collection` here; the census that
-    /// asks *"can the writer name the project in every project type?"*
-    /// (`ProjectSubjectReachabilityTests`) has to reach the same surface
-    /// production reaches, and a copy of the check in the test is a copy that can
-    /// drift away from the thing it is meant to be auditing. A third shell is a
-    /// third case, and the census's `switch` stops compiling until it is
-    /// enumerated there too.
+    /// at all.** `ProjectSubjectReachabilityTests` reaches the same surface
+    /// production reaches through it, so the census cannot drift from what it
+    /// audits; a third shell is a third case, and the census's `switch` stops
+    /// compiling until it is enumerated there too.
     ///
     /// The shell is only half the address: which TREE it puts up is
-    /// `TreePane(for:)`, and that is where a screenplay diverges — its tree is
-    /// the Scenes navigator, not `BinderView`.
+    /// `TreePane(for:)`, where a screenplay diverges to the Scenes navigator.
     enum BinderShell {
         /// `BinderPaneToggle` — every non-collection type. Its tree is
         /// `BinderView`; a screenplay puts up `SceneNavigatorPane` instead.
@@ -1260,20 +1095,18 @@ struct ProjectWindow: View {
 
     /// The left column, plus **the second producer of `lastParsedScript`**.
     ///
-    /// `.maughamScriptDidUpdate` — the only other producer — comes from a mounted
-    /// `EditorCoordinator`, and Plan mounts none: on Plan's Structure tab a
-    /// screenplay's navigator was handed `nil` and told the writer their script
-    /// had no scenes (slice 2 review, F1). `ScreenplayScriptSource` derives it
-    /// from the op log instead, and its `needsDerivation` is what orders the two
-    /// producers — see that type for why this is a producer rather than a second
-    /// value (tripwire 6) and how it satisfies tripwires 4 and 20.
+    /// `.maughamScriptDidUpdate` — the only other producer — comes from a
+    /// mounted `EditorCoordinator`, and Plan mounts none, so a screenplay's
+    /// navigator would be told its script had no scenes. `ScreenplayScriptSource`
+    /// derives it from the op log, and its `needsDerivation` orders the two
+    /// producers — see that type for why this is a producer rather than a
+    /// second value (tripwire 6) and how it satisfies tripwires 4 and 20.
     ///
-    /// **Keyed on the predicate.** The task re-runs when the answer changes,
-    /// which is exactly "a surface that lists sluglines just appeared with
-    /// nothing to list"; once a script exists the key is `false` and stays
-    /// there. The `nil` re-check inside is not redundant with the key — the
-    /// derive is a suspension point, and an editor that mounted and posted
-    /// across it must not be overwritten by the older op-log parse.
+    /// **Keyed on the predicate**, so the task re-runs exactly when a surface
+    /// that lists sluglines appears with nothing to list. The `nil` re-check
+    /// inside is not redundant: the derive is a suspension point, and an editor
+    /// that mounted and posted across it must not be overwritten by the older
+    /// op-log parse.
     @ViewBuilder
     private func binderColumn(store: ProjectStore) -> some View {
         binderShell(store: store)
@@ -1315,11 +1148,11 @@ struct ProjectWindow: View {
                 treeFindActive: $treeFindActive,
                 persona: persona,
                 onOpenPaletteWall: { openPaletteWall() },
-                // **One sink for both restore paths** (final review's I1). ⌘⌥Z
-                // and the disclosure's own Restore say the same kind of thing —
-                // RULING-40's refusal, RULING-42's shortfall — and only this
-                // alert is mounted unconditionally, so only it can be shown by a
-                // restore that empties the trash and takes the rows with it.
+                // **One sink for both restore paths.** ⌘⌥Z and the
+                // disclosure's own Restore say the same kind of thing
+                // (RULING-40's refusal, RULING-42's shortfall), and only this
+                // alert is mounted unconditionally, so only it can be shown by
+                // a restore that empties the trash and takes the rows with it.
                 onRestoreOutcome: { restoreOutcome = $0 })
         }
     }
@@ -1346,10 +1179,9 @@ struct ProjectWindow: View {
     private func contentColumn(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        // **The centre column, mounted ONCE, here** (foundations plan 4,
-        // Task 4) — the content column's root, at the position `editorPane`
-        // used to occupy inline, so the route switch beneath it (and with it
-        // `EditorHost` and the canvas) keeps its identity. See `CentreColumn`.
+        // **The centre column, mounted ONCE, here** — the content column's root,
+        // so the route switch beneath it (and with it `EditorHost` and the
+        // canvas) keeps its identity. See `CentreColumn`.
         CentreColumn(
             store: store, documentStore: documentStore,
             canvasModel: canvasModel, editorControl: editorControl,
@@ -1392,24 +1224,19 @@ struct ProjectWindow: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                // **Applied FIRST of the three top insets, which is what puts it
-                // nearest the prose.** `safeAreaInset` places each inset outside
-                // the content it wraps, so the last one applied ends up furthest
-                // from the editor: the read-only trap is the outermost line, the
-                // review banner sits under it, and the strip is directly over
-                // the writing. That is the order the surfaces want — the two
-                // banners are notices about the WINDOW's posture and belong with
-                // the chrome, and the strip is a running head belonging to the
-                // page.
+                // **Applied FIRST of the three top insets, which puts it nearest the
+                // prose**: each `safeAreaInset` sits outside what it wraps. So the
+                // read-only trap is outermost, the review banner under it, and the
+                // strip — a running head belonging to the page — directly over the
+                // writing; the two banners are notices about the WINDOW's posture.
                 if let line = intentStripLine {
                     IntentStrip(line: line, mayTrailDraft: intentStripMayTrailDraft)
                 }
             }
             .safeAreaInset(edge: .top) {
-                // **Why the words are not hers** (P3c Task 3) — the posture's
-                // own reason, one sentence, over the editor. The manual ⌘⌥⇧R
-                // review keeps its own pill, which names no role: a role is the
-                // permit's, and the standing line is where it is said.
+                // **Why the words are not hers** — the posture's own reason, one
+                // sentence, over the editor. The manual ⌘⌥⇧R review keeps its own pill,
+                // which names no role: a role is the permit's, said in the standing line.
                 VStack(spacing: 0) {
                     if let line = postureStandingLine {
                         PostureStandingLineView(
@@ -1429,13 +1256,12 @@ struct ProjectWindow: View {
                     ViewOnlyShareNotice()
                 }
             }
-            // The studied reference's BEHAVIOUR — Escape, the reveal, and the
-            // three dismisses. It inserts no view: the column itself is
-            // `detailColumn`'s first arm, in the RIGHT column (spec §3.2). This
-            // rides the centre column only because the modifier has to hang
-            // somewhere that lives as long as the window does — `detailColumn`
-            // is behind `showInspector` and would take Escape's arbiter
-            // registration down with it every time the writer hid the column.
+            // The studied reference's BEHAVIOUR — Escape, the reveal, and the three
+            // dismisses. It inserts no view: the column itself is `RightColumn`'s
+            // study arm (spec §3.2). It rides the centre column because that lives
+            // as long as the window does — the right column is behind
+            // `showInspector` and would take Escape's arbiter registration down
+            // every time the writer hid it.
             .modifier(AssistantColumnModifier(
                 window: window, isNoChromeOn: isNoChromeOn, persona: persona,
                 activeDocId: activeDocId, detailSegment: detailSegment,
@@ -1447,39 +1273,25 @@ struct ProjectWindow: View {
 
     /// The intent strip's line, or nil for no strip (M2 §6.1).
     ///
-    /// **`EditorStatusFooter`'s twin, and gated the same way**: Author only, and
-    /// gone with the chrome under ⌘\. The decision itself is
-    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` rather than a
-    /// condition written out here, so it can be asked over the product of its
-    /// inputs by a test instead of only down the path this property takes.
+    /// **`EditorStatusFooter`'s twin, and gated the same way**: Author only,
+    /// gone under ⌘\. The decision is
+    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` so a test can ask
+    /// it over the product of its inputs.
     ///
-    /// The freshness is SwiftUI's own observation **while the statement is open
-    /// in a pane**: the resolver prefers the statement's live `Document` through
-    /// `ProjectStore.statementText(of:)`, so a change made in the Intent pane
-    /// invalidates this body with no event and no poll. A CLOSED statement's
-    /// text comes from `derivedCache`, which is `@ObservationIgnored` — an
-    /// append to one lands on the next body pass instead. See
-    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` for the boundary and
-    /// the one visible case.
+    /// Freshness: while the statement is open in a pane, its live `Document`
+    /// makes a change invalidate this body with no event and no poll; a CLOSED
+    /// statement's text comes from `@ObservationIgnored` `derivedCache` and
+    /// lands on the next body pass. See `IntentStrip.line` for the boundary.
     ///
-    /// **`activeDocId` carries the no-selection sentinel and that is correct
-    /// here** — no manuscript document means no document-scope intent to find,
-    /// so the resolution falls to the project's, which is the right answer for a
-    /// window whose subject is the project.
+    /// **`activeDocId`'s no-selection sentinel is correct here** — no document
+    /// means no document-scope intent, so the resolution falls to the project's.
     ///
-    /// **One divergence is known and accepted rather than fixed.** Clicking the
-    /// strip posts a bare `postDetailSegment(.intent)`, and the Intent pane
-    /// resolves its own scope from the binder selection
-    /// (`StatementPane.effectiveScope`), which never falls back — so a chapter
-    /// with no intent of its own shows the *project's* line in the strip and
-    /// opens the *chapter's* empty editor on click. Landing on the fallback
-    /// scope instead would need Open-sets-scope machinery, which is the reverted
-    /// three-round M1A work (`openPromotedArtifact`, `Maugham/Canvas/AREA.md`)
-    /// and not a ride-along. The click is still the right one — the writer who
-    /// pressed a project-scope line while a chapter is selected is one keystroke
-    /// from writing that chapter's own intent, which is the thing they would
-    /// want to do next. `IntentStripTests` pins the divergence so it is a
-    /// recorded position rather than a surprise.
+    /// **One divergence is known and accepted**: clicking the strip posts a bare
+    /// `postDetailSegment(.intent)`, and `StatementPane.effectiveScope` never
+    /// falls back — so a chapter with no intent shows the *project's* line and
+    /// opens the *chapter's* empty editor. Fixing it needs Open-sets-scope
+    /// machinery (the reverted M1A work, `Maugham/Canvas/AREA.md`).
+    /// `IntentStripTests` pins the divergence.
     private var intentStripLine: String? {
         guard let store else { return nil }
         return IntentStrip.line(
@@ -1489,23 +1301,15 @@ struct ProjectWindow: View {
 
     /// Whether the strip carries its quiet mark (M3-P3 §7).
     ///
-    /// **Read beside the line and only where the line is**: this property is
-    /// asked for inside the `if let line` that mounts the strip, so a persona
-    /// with no strip reads no run record and resolves no statement.
+    /// **Read beside the line and only where the line is** — inside the
+    /// `if let line` that mounts the strip, so a persona with no strip reads no
+    /// run record. The decision is `IntentDrift.mayTrailDraft`, testable over
+    /// its inputs; the words are the view's own constant (ADR 0027 §1).
     ///
-    /// The decision is `IntentDrift.mayTrailDraft` rather than a condition
-    /// written out here, for `intentStripLine`'s reason — it can then be asked
-    /// over the product of its inputs by a test instead of only down the path
-    /// this property takes. What arrives at the view is a `Bool`; the words
-    /// are the view's own constant (ADR 0027 §1).
-    ///
-    /// **The freshness is `DiagnosticsStore`'s observation.** The store is
-    /// `@Observable` and `lastRun(docId:)` reads an observed property, so a
-    /// finished run — or a cancel putting the previous run back — invalidates
-    /// this body with no event and no poll. The statement half inherits
-    /// `intentStripLine`'s boundary exactly (live `Document` while the
-    /// statement is open in a pane; `derivedCache` otherwise), because it is
-    /// the same reader.
+    /// Freshness is `DiagnosticsStore`'s observation: `lastRun(docId:)` reads
+    /// an observed property, so a finished or cancelled run invalidates this
+    /// body with no event and no poll. The statement half inherits
+    /// `intentStripLine`'s boundary exactly.
     private var intentStripMayTrailDraft: Bool {
         guard let store else { return false }
         return IntentDrift.mayTrailDraft(
@@ -1515,18 +1319,12 @@ struct ProjectWindow: View {
 
     private var shouldShowStatusFooter: Bool {
         guard userPreferences.goalIndicatorsVisible else { return false }
-        // The gate is a named pure function, not the two segment equalities
-        // that used to be written out here. Plan is deliberately absent — the
-        // footer reports manuscript metrics, and readiness stays silent about
-        // the canvas (umbrella §7, §9).
-        //
-        // **Denver's 2026-08-02 find ruling holds by construction and no input
-        // carries it** — find is an overlay of the left column, so this gate
-        // sees whatever the overlay is covering: opening find does not touch the
-        // centre column, so it cannot take the footer away. Task 1 asserted that
-        // (`test_openingTheOverlayCannotTakeTheStatusFooterAway`) rather than
-        // adding a parameter that could not change an answer, and the re-base
-        // onto the persona inherits the same shape.
+        // Plan is deliberately absent — the footer reports manuscript metrics,
+        // and readiness stays silent about the canvas (umbrella §7, §9).
+        // **Denver's 2026-08-02 find ruling holds by construction**: find is an
+        // overlay of the left column and does not touch the centre, so it
+        // cannot take the footer away
+        // (`test_openingTheOverlayCannotTakeTheStatusFooterAway`).
         guard Self.showsStatusFooter(
             persona: persona,
             subject: selectedSubject,
@@ -1537,68 +1335,30 @@ struct ProjectWindow: View {
     }
 
     /// **Does the centre column hold a manuscript document?** — asked of the
-    /// persona, and then of what the writer has actually put in there.
-    ///
-    /// The footer follows the DOCUMENT in the centre and never the shape of the
-    /// left column, which is the whole of Denver's 2026-08-02 ruling. Until
-    /// stage 2b Task 6 that was spelled as a switch over the binder segment
-    /// (`BinderSegment.showsManuscriptStatusFooter`); the persona is the durable
-    /// basis, because Plan is the persona whose centre is the board and the
-    /// other three are where the editor lives. Task 7 deleted the interim
-    /// narrowing that stood beside it — old panes could hold Author's centre
-    /// while the strip existed, and none of them exists now.
-    ///
-    /// `Persona.showsManuscriptDocuments` rather than `!centresTheCanvas` at
-    /// this call site: they are the same value by construction, and this is the
+    /// persona, and then of what the writer has actually put in there. The
+    /// footer follows the DOCUMENT in the centre and never the shape of the left
+    /// column (Denver's 2026-08-02 ruling). `Persona.showsManuscriptDocuments`
+    /// rather than `!centresTheCanvas`: the same value, and this is the
     /// question being asked.
     ///
-    /// One narrowing sits under it, and it is about what the centre column
-    /// actually holds rather than what the persona usually puts there: a
-    /// research subject can take the centre in any persona that hands it over
-    /// (stage-2a Task 5), and the footer's four readings are all about a
-    /// manuscript document — a goal capsule, the live session words, the `¶id`
-    /// under the cursor and the current element. Over a research note the first
-    /// is about a different thing and the last two are blank, so the strip is a
-    /// row of claims the centre column cannot support.
+    /// The footer's four readings — a goal capsule, the live session words,
+    /// the `¶id` under the cursor and the current element — are all about a
+    /// manuscript document, so each clause refuses where the centre holds none:
+    /// - the palette wall (`showsPaletteWallCentre`), layered over every other
+    ///   arm, so a wall over a research subject still hides the footer;
+    /// - a research subject that takes the centre;
+    /// - altitude (the project, a group, a dangling id), asked LAST so the
+    ///   research clause keeps owning the research subject — no clause here
+    ///   restates another.
     ///
-    /// **The palette wall since Task 8.** Since stage 2b Task 5 the wall can
-    /// take the centre column in Author, Review and Publish
-    /// (`showsPaletteWallCentre`) — layered on top of `editorPane`'s other
-    /// arms, `researchSubjectPlacement` included, so a wall open over a
-    /// research subject still hides the footer. Tasks 6 and 7 each recorded
-    /// this as a live gap rather than closing it, because a re-base is bound to
-    /// answer exactly what it answered before and this is a behaviour change.
-    /// The `.find` overlay took no third parameter for the same-shaped
-    /// question and does not get one here either — opening it writes neither
-    /// `persona` nor `subject` nor `showsPaletteWall`
-    /// (`TreeFindOverlayTests.test_openingTheOverlayCannotTakeTheStatusFooterAway`),
-    /// so Denver's 2026-08-02 find ruling holds unchanged by construction.
-    /// **The altitude term, since stage 3a Task 2.** The clause below it asks
-    /// only whether a RESEARCH item took the centre, so it answered TRUE for the
-    /// project, a group and a dangling id — every subject that now draws the
-    /// altitude view — and the word count floated over a corkboard. The
-    /// argument is the one this comment already makes: a goal capsule, the live
-    /// session words, the `¶id` under the cursor and the current element are
-    /// four readings about a document, and at altitude there is no document for
-    /// them to be about.
-    ///
-    /// It is asked LAST of the four deliberately. Each clause above it decides
-    /// some input alone — the research clause still owns the research subject,
-    /// which this one would otherwise answer for on its way past — so no clause
-    /// here is a restatement of another.
-    /// **The published-book term had a clause of its own here from stage 3b
-    /// Task 5 until the 2026-08-12 revision, and it is gone because it can no
-    /// longer change an answer.** Denver's ruling made the book a PROJECT-level
-    /// surface — a chapter in Publish opens the editor, so the footer speaks
-    /// there exactly as it does in Author — and `publishCentre` now refuses
-    /// unless `subjectShowsAltitude` is already true. Whatever the preview or
-    /// either notice covers, the altitude clause below has therefore already
-    /// refused; a fifth clause would be a parameter that cannot move the
-    /// result, which is the shape the find-overlay question was answered with a
-    /// test rather than an argument. `PublishPreviewCentreTests
-    /// .test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
-    /// asserts the implication over the whole product rather than leaving it to
-    /// this comment.
+    /// The find overlay takes no parameter: opening it writes neither `persona`
+    /// nor `subject` nor `showsPaletteWall`
+    /// (`TreeFindOverlayTests.test_openingTheOverlayCannotTakeTheStatusFooterAway`).
+    /// The published book needs no clause either: `publishCentre` covers only
+    /// where `subjectShowsAltitude` already refused, so a clause would be a
+    /// parameter that cannot move the result —
+    /// `PublishPreviewCentreTests.test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
+    /// asserts the implication over the whole product.
     static func showsStatusFooter(persona: Persona,
                                   subject: BinderSubject?,
                                   showsPaletteWall: Bool,
@@ -1613,56 +1373,30 @@ struct ProjectWindow: View {
                                      structure: structure)
     }
 
-    /// **What Publish puts over the manuscript stack — the book, a notice, or
-    /// nothing at all** (stage 3b Task 5, re-cut by Denver's rulings of
-    /// 2026-08-12).
+    /// **What Publish puts over the manuscript stack — a round, the design
+    /// gate, the book, a notice, or nothing at all**, in that order.
     ///
     /// One function answering both *"does anything cover the centre?"* and
     /// *"what covers it?"*, for `ResearchSubjectPlacement.centreItemID`'s
-    /// reason: two spellings of the same gate are two answers free to disagree
-    /// about what is in the centre column — and here that disagreement would be
-    /// a "nothing published yet" notice over a compiled book.
+    /// reason: two gates over one column are two answers free to disagree —
+    /// a "nothing published yet" notice over a compiled book, or a book over
+    /// the proposal the writer pressed Show on.
     ///
-    /// **It takes the subject as of this revision, and asks the ONE existing
-    /// question about it.** Denver walked back "a piece subject shows the same
-    /// preview": *"a chapter/piece subject in Publish ALWAYS opens the editor —
-    /// I might tweak something for layout"*, and the book shows at PROJECT level
-    /// (the project row, a group, or nothing selected). That is exactly
-    /// `subjectShowsAltitude`, so this composes it rather than spelling a second
-    /// document-resolution rule beside it — two of those are two answers free to
-    /// disagree about what a document is, and the disagreement here would put a
-    /// PDF over the chapter a writer is fixing.
+    /// **The book and the gate are PROJECT-level** (Denver, 2026-08-12):
+    /// *"a chapter/piece subject in Publish ALWAYS opens the editor — I might
+    /// tweak something for layout"*. That is exactly `subjectShowsAltitude`,
+    /// composed rather than restated, so no second document-resolution rule
+    /// can put a PDF over the chapter a writer is fixing. A research subject in
+    /// Publish is `.nothingMoves` and resolves to no document, so it gets the
+    /// book (spec §4's "project altitude shown").
     ///
-    /// A research subject in Publish is `.nothingMoves` (spec §4's "—" row) and
-    /// resolves to no manuscript document, so it lands here as project level and
-    /// gets the book — which is what the spec's "project altitude shown" degrade
-    /// always meant.
-    ///
-    /// **The design gate joins as a THIRD answer, above the other two**
-    /// (publish-department P4 Task 5), and it is composed into this function
-    /// rather than layered beside it for the reason the whole function exists:
-    /// two gates over one column are two answers free to disagree, and the
-    /// disagreement here would be a compiled book drawn over the proposal the
-    /// writer pressed Show on. Both guards above it still apply unchanged — the
-    /// gate is Publish's, and it is PROJECT-level, so a chapter subject opens the
-    /// editor with a proposal selected exactly as it does with one compiled.
-    ///
-    /// **And a translation round joins as a FOURTH answer, above the gate**
-    /// (translation pipeline P4 Task 3), composed into the same function for the
-    /// same reason. The desk now has two Shows, each clearing the other as it
-    /// writes, so what the writer pressed last is the only selection standing —
-    /// but the *order* is still stated here, so which surface draws never rests on
-    /// that invariant alone.
-    ///
-    /// **The round arm is NOT project-level, as of 2026-09-02 (Denver's
-    /// ruling).** A round is about one chapter, and Show pressed with that
-    /// chapter selected drew nothing — the report only appeared once the writer
-    /// moved to the project row, which read as a dead button. So the round is
-    /// answered BEFORE the altitude guard: it draws over whatever the centre
-    /// holds, the editor included (the `ZStack` keeps `EditorHost` mounted
-    /// beneath it), and Back or a click-through clears it. The persona guard
-    /// still applies — the report is Publish's — and the book and the design
-    /// gate stay project-level exactly as before.
+    /// **The round is NOT project-level** (Denver, 2026-09-02): a round is about
+    /// one chapter, so it is answered BEFORE the altitude guard and draws over
+    /// whatever the centre holds, the editor included (`EditorHost` stays
+    /// mounted beneath it); Back or a click-through clears it. The desk's two
+    /// Shows clear each other, but the *order* is still stated here so which
+    /// surface draws never rests on that invariant alone. The persona guard
+    /// applies to every arm.
     static func publishCentre(persona: Persona,
                               subject: BinderSubject?,
                               structure: [StructureItem],
@@ -1678,10 +1412,10 @@ struct ProjectWindow: View {
         switch preview {
         case .ready(let publications):
             // `.ready` is non-empty by construction (the resolver answers
-            // `.nothingCompiled` when its walk finds nothing readable). The
-            // ternary is what makes this switch total without inventing a third
-            // arm nobody can reach; `PublishPreviewCentreTests` pins the
-            // resolver's half of that invariant.
+            // `.ready` is non-empty by construction (the resolver answers
+            // `.nothingCompiled` when it finds nothing readable); the ternary makes
+            // this switch total without an unreachable arm. `PublishPreviewCentreTests`
+            // pins the resolver's half of that invariant.
             return publications.isEmpty
                 ? .notice(.neverCompiled)
                 : .books(publications)
@@ -1692,38 +1426,22 @@ struct ProjectWindow: View {
         }
     }
 
-    /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
-    /// spec §4 — the board is Review's project altitude.)
-    ///
-    /// `publishCentre`'s shape without its resolution: two independent facts,
-    /// composed here so no caller can hold one without the other.
+    /// **Does Review's centre column show the passes board?** (spec §4 — the
+    /// board is Review's project altitude.) Two independent facts, composed
+    /// here so no caller can hold one without the other:
     ///
     /// - **Which persona.** `Persona.showsTheReviewBoard`, asked rather than
-    ///   spelled — a `== .review` here would be the fifth equality in the shape
-    ///   `centresTheCanvas` was written to close off, and the compiler cannot
-    ///   check that two of them in two files still agree.
-    /// - **Which subject.** `subjectShowsAltitude`, composed rather than
-    ///   restated, for the reason `publishCentre` composes it: two
-    ///   document-resolution rules are two answers free to disagree about what a
-    ///   document is, and the disagreement here would put a board of chips over
-    ///   the chapter a reviewer is reading. Review's board is a PROJECT-level
-    ///   surface exactly as Publish's book is — the project row, a group, or
-    ///   nothing selected — and a chapter subject in Review opens the chapter,
-    ///   which is what a reviewer with a note to leave needs.
+    ///   spelled — a `== .review` is the equality shape `centresTheCanvas`
+    ///   was written to close off.
+    /// - **Which subject.** `subjectShowsAltitude`, composed for
+    ///   `publishCentre`'s reason: the board is PROJECT-level, and a chapter
+    ///   subject in Review opens the chapter. A research subject resolves to no
+    ///   document, so it gets the board.
     ///
-    /// A research subject in Review resolves to no manuscript document, so it
-    /// lands here as project level and gets the board — the same fall-through
-    /// Publish's book already has, and the same one the corkboard had before
-    /// either of them.
-    ///
-    /// **`showsStatusFooter` needs no clause of its own for this**, for the
-    /// argument the footer's own comment makes about the book: the board only
-    /// ever shows where `subjectShowsAltitude` is already true, and the footer's
-    /// altitude clause has therefore already refused. A fifth clause would be a
-    /// parameter that cannot move the result.
+    /// **`showsStatusFooter` needs no clause for this**: the board only shows
+    /// where the footer's altitude clause has already refused.
     /// `ReviewBoardRoutingTests.test_theBoardOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
-    /// asserts that implication over the whole product rather than leaving it
-    /// here.
+    /// asserts that implication over the whole product.
     static func reviewCentreShowsBoard(persona: Persona,
                                        subject: BinderSubject?,
                                        structure: [StructureItem]) -> Bool {
@@ -1733,33 +1451,24 @@ struct ProjectWindow: View {
     }
 
     /// **Does the centre column show the project at altitude rather than a
-    /// document?** (shell-finish stage 3a Task 2.)
+    /// document?** True for every subject that resolves to no single document —
+    /// no subject, the project, a group, and an `.item` that names nothing in
+    /// the manifest (or a document with no path) — in a manuscript persona.
     ///
-    /// Four subject shapes resolve to no single document — no subject at all,
-    /// the project itself, a group, and an `.item` that names nothing in the
-    /// manifest (or a document with no path). Every one of them used to leave
-    /// the centre column showing `EditorHost`'s *"Select a document."*, which is
-    /// the degrade this replaces: the writer who clicks the project's own head
-    /// row now gets the corkboard or the table.
+    /// **The complement of `selectionIsDocument`**, the window's one question
+    /// about whether a subject is a manuscript document (the one the
+    /// `EditorCoordinator`'s metrics turn on); two switches over the same cases
+    /// are two answers free to disagree. `persona.showsManuscriptDocuments`
+    /// first: altitude is what the manuscript personas show INSTEAD of a
+    /// document, never a surface competing with Plan's board.
     ///
-    /// **Written as the complement of `selectionIsDocument` rather than as a
-    /// switch of its own**, because that is already the window's one question
-    /// about whether a subject resolves to a manuscript document — the question
-    /// the `EditorCoordinator`'s metrics turn on. Two switches over the same
-    /// four cases are two answers free to disagree about what a document is.
-    ///
-    /// `persona.showsManuscriptDocuments` first: Plan's centre column is the
-    /// board, and altitude is what the manuscript personas show INSTEAD of a
-    /// document, never a fifth surface competing for the centre.
-    ///
-    /// **`.research` is not this function's question, and it deliberately does
-    /// not re-guard it.** `editorPane` asks `researchSubjectPlacement` above the
-    /// editor arm, so in every persona that reaches here the research item has
-    /// already taken the centre; in the one that does not (Plan) this function
+    /// **`.research` is deliberately not re-guarded.** `centreRoute` asks
+    /// `researchSubjectPlacement` before the editor arm, so wherever this is
+    /// reached the research item has already taken the centre, and in Plan this
     /// has already refused on the persona. `ProjectAltitudeCentreTests` asserts
-    /// that pair over `Persona.allCases` — a guard written here would be a
-    /// second place the research routing is decided, and the one that never runs
-    /// is the one that goes quietly wrong.
+    /// that pair over `Persona.allCases` — a guard here would be a second place
+    /// research routing is decided, and the one that never runs goes quietly
+    /// wrong.
     static func subjectShowsAltitude(persona: Persona,
                                      subject: BinderSubject?,
                                      structure: [StructureItem]) -> Bool {
@@ -1768,14 +1477,12 @@ struct ProjectWindow: View {
     }
 
     /// **What the window is about after a search match is clicked**, as a pure
-    /// function, so the routing is drivable without a mounted window — the two
-    /// arms differ only in which tree the match's path is looked up in, and
-    /// that symmetry is exactly what was missing while the research arm wrote a
-    /// pane's private selection and the manuscript arm wrote the subject.
+    /// function, so the routing is drivable without a mounted window; the two
+    /// arms differ only in which tree the match's path is looked up in.
     ///
     /// `nil` when the match names a path no longer in the manifest (renamed or
-    /// deleted between the search and the click), which is a stale result rather
-    /// than a place to send anyone.
+    /// deleted between the search and the click) — a stale result, not a place
+    /// to send anyone.
     static func matchSubject(_ match: SearchMatch,
                              in store: ProjectStore) -> BinderSubject? {
         switch match.documentSource {
@@ -1790,18 +1497,12 @@ struct ProjectWindow: View {
         }
     }
 
-    /// **What a find match's subject earns as a scroll target** (stage-3b
-    /// Task 8) — one function for both of `matchSubject`'s arms, kept pure
-    /// and static for the same reason `matchSubject` is: the routing is
-    /// drivable without a mounted window.
-    ///
-    /// A research match reveals whatever section or fold holds it and scrolls
-    /// to what `reveal` says is now on screen — `openResearchItem`'s own
-    /// shape, and `nil` when `reveal` finds no tree that draws the id (a
-    /// stale match, same reasoning as `matchSubject`'s own `nil`). A
-    /// manuscript (or project) match's row is never behind anything
-    /// closable — `reveal` only ever opens research furniture, never a
-    /// structural group — so it scrolls straight to its own tag.
+    /// **What a find match's subject earns as a scroll target** — pure and
+    /// static for `matchSubject`'s reason. A research match reveals whatever
+    /// section or fold holds it and scrolls to what `reveal` says is now on
+    /// screen (`openResearchItem`'s shape; `nil` for a stale match). A
+    /// manuscript or project match's row is never behind anything closable —
+    /// `reveal` only opens research furniture — so it scrolls to its own tag.
     static func findMatchScrollTarget(
         for subject: BinderSubject, store: ProjectStore,
         treeState: BinderTreeSectionsState
@@ -1817,16 +1518,11 @@ struct ProjectWindow: View {
         }
     }
 
-    /// **Closing the find overlay, whole**, so the handler above is a call
-    /// rather than a rule and a test can drive the real thing.
-    ///
-    /// Two writes, and they belong together: the flag that says the overlay is
-    /// up, and the results it was showing. Clearing one without the other is
-    /// what leaves a reopened find sitting on the previous search — the ✕ used
-    /// to own the `clearSearch()` half while this handler owned the flag half,
-    /// and Escape would have had to remember both.
-    ///
-    /// It deliberately moves the binder nowhere: see the handler.
+    /// **Closing the find overlay, whole**, so the handler is a call rather
+    /// than a rule and a test can drive the real thing. Two writes that belong
+    /// together — the overlay flag and the results it showed; clearing one
+    /// without the other leaves a reopened find on the previous search. It
+    /// deliberately moves the binder nowhere.
     static func applyCloseFind(treeFindActive: inout Bool, store: ProjectStore?) {
         treeFindActive = false
         store?.clearSearch()
@@ -1834,10 +1530,8 @@ struct ProjectWindow: View {
 
     private var sessionWordsForFooter: Int {
         // Net words added in the currently-active session. `sessionLog` only
-        // captures sessions that have ENDED (30-min idle timeout or app quit),
-        // so during an active session it's stale; pull the live delta from
-        // DocumentStore (which observes `lastKnownProjectWordCount` and so
-        // ticks as the user types).
+        // captures ENDED sessions (30-min idle or quit), so the live delta comes
+        // from DocumentStore, which ticks as the user types.
         documentStore?.liveSessionWordsNet ?? 0
     }
 
@@ -1868,15 +1562,13 @@ struct ProjectWindow: View {
 
     /// The binder column's declared floor — **the one source**, read by its own
     /// `navigationSplitViewColumnWidth` and by the right column's affordability
-    /// sum below. Two spellings of one number is how the sum comes to disagree
-    /// with the layout it is reasoning about.
+    /// sum below. Two spellings of one number let the sum disagree with layout.
     static let binderColumnFloor: CGFloat = 200
 
-    /// What macOS 26 draws AROUND the sidebar: a 200pt sidebar occupies 208 in
-    /// the split view (measured — see `DetailColumnWidthTests`). Eight points is
-    /// the whole of the difference between "the window holds" and "the window
-    /// silently grows by 8", so it is part of the sum rather than a rounding
-    /// error somebody later trims.
+    /// What macOS draws AROUND the sidebar: a 200pt sidebar occupies 208 in the
+    /// split view (measured — see `DetailColumnWidthTests`). Eight points is the
+    /// difference between "the window holds" and "the window silently grows",
+    /// so it is part of the sum, not a rounding error to trim.
     static let sidebarInset: CGFloat = 8
 
     /// The writing column's declared floor, same rule as the binder's.
@@ -1890,47 +1582,26 @@ struct ProjectWindow: View {
     /// set it.** `body`'s `.frame(minHeight:)`.
     ///
     /// A pane's content growing is a reason to compress or scroll that pane,
-    /// never a reason to move this number: `NSHostingView` stamps
-    /// `window.contentMinSize` and the window then measures its own legal sizes
-    /// against the stamp, so a layout minimum that rises past this floor after
-    /// the stamp is taken leaves the window at a height it still believes is
-    /// legal while the content has decided otherwise — and SwiftUI CENTRES what
-    /// it cannot compress, which pushes the binder tree out of the top of its
-    /// own column (`TreeScrollStabilityTests`).
-    ///
-    /// Named rather than written inline so the census that guards it can cite
-    /// the floor instead of repeating the number
-    /// (`test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`).
+    /// never to move this number: `NSHostingView` stamps
+    /// `window.contentMinSize`, and a layout minimum rising past it afterwards
+    /// makes SwiftUI CENTRE what it cannot compress, pushing the binder tree out
+    /// of the top of its column (`TreeScrollStabilityTests`). Named so the
+    /// census can cite it (`test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`).
     static let windowHeightFloor: CGFloat = 540
 
     /// Records the measured container width, but **only when it changes what
-    /// the window can afford**. A window drag-resize is 60 frames a second and
-    /// this view's `body` is not something to re-evaluate at that rate; the
-    /// affordable ceiling is unchanged across almost all of that range, so
-    /// almost all of those frames write nothing.
+    /// the window can afford** — a drag-resize is 60 frames a second, and
+    /// almost none of them move the ceiling.
     ///
     /// **Keyed on the CEILING, and deliberately blind to the persisted width.**
-    /// The stored container has two consumers — `effectiveDetailColumnWidth`,
-    /// which reads it at the *current* width, and `draggableDetailCeiling`,
-    /// which reads it at the range's *upper bound* — and a memo is only sound
-    /// when it is keyed on something that determines every consumer. This was
-    /// keyed on the effective width at the current persisted value, which is
-    /// the first consumer and not the second, and the consequence was total:
-    /// for any persisted width the window could already afford (the 280 default,
-    /// and every value a drag could produce, since the drag is capped by the
-    /// very ceiling being starved) the guard compared a value to itself, never
-    /// recorded, and left `containerWidth` nil for the life of every window. The
-    /// drag ceiling was then permanently the nil fallback — narrower than the
-    /// range the column replaced, on a display of any size, self-sealing across
-    /// relaunches because drag-end persisted the starved value. Found by
-    /// whole-branch review, 2026-08-08, in the seam between two of this task's
-    /// own fix rounds; `test_aFreshProjectCanDragPastTheUnmeasuredFallback` is
-    /// the regression, and it goes through this guard rather than around it —
-    /// on a window merely wider than the floor, since asserting the ceiling was
-    /// the range's own 480 made it a claim about the developer's monitor.
-    ///
-    /// The persisted width is not a parameter any more, so the shape that caused
-    /// this cannot be spelled here again.
+    /// A memo is only sound when keyed on something that determines every
+    /// consumer, and the stored container has two: `effectiveDetailColumnWidth`
+    /// (at the current width) and `draggableDetailCeiling` (at the range's upper
+    /// bound). Keyed on the first alone, it never recorded for an affordable
+    /// width and starved the drag ceiling for the life of every window.
+    /// `test_aFreshProjectCanDragPastTheUnmeasuredFallback` is the regression,
+    /// and goes through this guard. The persisted width is not a parameter, so
+    /// that shape cannot be spelled here again.
     static func recordsContainerWidth(_ width: Double, over current: Double?) -> Bool {
         draggableDetailCeiling(containerWidth: width)
             != draggableDetailCeiling(containerWidth: current)
@@ -1945,31 +1616,21 @@ struct ProjectWindow: View {
     /// only as far as this window can afford it.**
     ///
     /// The three columns' floors out-arithmetic the window's own: at the window
-    /// floor the binder and the prose between them want more than the window has
-    /// to give, and what is left is less than the 480 a writer is allowed to
-    /// wish for. **The number is not written here** — the code above computes it
-    /// from the constants and `test_theAffordabilitySumGivesTheWindowWhatItNeedsAndTheWriterTheRest`
-    /// asserts it the same way; a worked example in prose is the
-    /// unmaintainable-count defect wearing arithmetic, and this one shipped
-    /// wrong (it said 300 against a true 292, having dropped the sidebar inset
-    /// it is standing next to). AppKit does not resolve the shortfall
-    /// that by squeezing anything; it silently GROWS the window past its
-    /// declared minimum, which is the same "the app moved something under me"
-    /// complaint this task exists to kill, relocated from the divider to the
-    /// window edge. Found by review, 2026-08-08; the shipped test had asserted a
-    /// 980pt window while measuring a 1169pt one.
+    /// floor, what is left for the right column is less than the most a writer
+    /// may wish for. **The number is not written here** — the code computes it
+    /// from the constants and
+    /// `test_theAffordabilitySumGivesTheWindowWhatItNeedsAndTheWriterTheRest`
+    /// asserts it the same way (a worked example in prose is the unmaintainable
+    /// count). AppKit does not squeeze anything over a shortfall; it silently
+    /// GROWS the window past its declared minimum.
     ///
-    /// **The asymmetry is deliberate and is the point.** This reduces what is
-    /// DISPLAYED; it never touches what is STORED. A writer who dragged to 480
-    /// on a large display and then opens the project on a laptop gets what that
-    /// laptop affords, and their 480 back the moment the window can afford it —
-    /// their wish is not edited by the furniture it happened to be opened in
-    /// front of.
+    /// **The asymmetry is the point.** This reduces what is DISPLAYED and never
+    /// touches what is STORED: a wish made on a large display comes back the
+    /// moment the window can afford it.
     ///
-    /// `containerWidth` is nil until the window has been measured, and the
-    /// answer for nil is deliberately the CONSERVATIVE one (the window's own
-    /// floor): a first pass that guessed generously would grow the window
-    /// before the measurement could arrive, and a grown window does not shrink
+    /// `containerWidth` is nil until measured, and the answer for nil is
+    /// deliberately the CONSERVATIVE one (the window's own floor): a generous
+    /// first guess would grow the window, and a grown window does not shrink
     /// back on its own.
     static func effectiveDetailColumnWidth(persisted: Double,
                                            containerWidth: Double?) -> Double {
@@ -1989,27 +1650,15 @@ struct ProjectWindow: View {
             containerWidth: containerWidth)
     }
 
-    /// **Where a drag of the right column's handle lands.**
-    ///
-    /// Pure, and holding all three of the rules the gesture used to hold inline,
-    /// because a `DragGesture` body is not something a test can drive without
-    /// building gesture-driving machinery for one assertion (re-review, 2026-08-08:
-    /// the window-aware ceiling shipped with zero coverage precisely because it
-    /// lived in there):
+    /// **Where a drag of the right column's handle lands.** Pure, so a test can
+    /// drive it without gesture machinery, and holding all three rules:
     ///
     /// 1. **The sign.** The handle is on the column's LEADING edge, so a
-    ///    leftward drag — a negative translation — makes the column WIDER. The
-    ///    subtraction is the whole of that, and it was previously verifiable
-    ///    only by reading it.
+    ///    leftward drag — a negative translation — makes the column WIDER.
     /// 2. **The column's own range** (`UIState.clampedDetailColumnWidth`).
-    /// 3. **What this window can afford** — a writer may only wish for a width
-    ///    they can be shown, so on a narrow window the gesture stops where the
-    ///    column stops moving instead of silently banking a wider number that
-    ///    would reappear on a bigger display.
-    ///
-    /// Kept as a static here rather than in a type of its own: its three
-    /// siblings above are statics on this view for the same reason, and one more
-    /// namespace would be one more place to look for the same arithmetic.
+    /// 3. **What this window can afford** — on a narrow window the gesture
+    ///    stops where the column stops moving instead of banking a wider number
+    ///    that would reappear on a bigger display.
     static func draggedDetailColumnWidth(startWidth: Double,
                                          translation: Double,
                                          containerWidth: Double?) -> Double {
@@ -2017,15 +1666,12 @@ struct ProjectWindow: View {
             draggableDetailCeiling(containerWidth: containerWidth))
     }
 
-    /// **The right column, mounted ONCE, here** (foundations plan 4, Task 5) —
-    /// the detail column's root, at the position the `if showInspector` branch
-    /// used to occupy inline. See `RightColumn` for the column itself: the
-    /// resize handle, the study arm, the inspector arm, and the one width
-    /// applied to both the content's frame and the split item.
+    /// **The right column, mounted ONCE, here** — the detail column's root. See
+    /// `RightColumn` for the resize handle, the study arm, the inspector arm,
+    /// and the one width applied to both the content's frame and the split item.
     ///
-    /// **The width is bound HERE, once, and handed down as a value.** It is the
-    /// EFFECTIVE width — the writer's wish reduced to what this window affords
-    /// (`effectiveDetailColumnWidth`) — and the column applies this one value
+    /// **The width is bound HERE, once, and handed down as a value** — the
+    /// EFFECTIVE width (`effectiveDetailColumnWidth`), which the column applies
     /// twice. `DetailColumnWidthTests` counts this binding and expects exactly
     /// one; the column writes only the persisted wish, through its binding.
     @ViewBuilder
@@ -2053,30 +1699,15 @@ struct ProjectWindow: View {
 
     /// **The right column when there is nothing in it** — and it has to SAY so.
     ///
-    /// This arm used to be no arm at all: `detailColumn` was a bare
-    /// `if showInspector { … }`, on the reading that a column rendering nothing
-    /// takes no room. In a three-column `NavigationSplitView` the DETAIL column
-    /// is the flexible trailing one, so what actually happened is that AppKit
-    /// resolved the CONTENT column on its `ideal` (720) and handed everything
-    /// left over to a column with nothing in it. Measured in a 1200pt window
-    /// before this arm existed:
-    ///
-    /// | state | binder | prose | empty right column |
-    /// |---|---|---|---|
-    /// | `⌘\` on the canvas (`.doubleColumn`, pane hidden) | — | 720 | 479 |
-    /// | `⌘⌥I` in Author (`.all`, pane hidden) | 240 | 720 | ~240 |
-    ///
-    /// The first row is Denver's report — *the binder vanishes, the right-hand
-    /// side goes blank and roughly doubles, and the board is squeezed* — and the
-    /// second is the same defect in every persona, which is why the fix is the
-    /// hidden ARM rather than anything in `canvasCollapse`: the decision was
-    /// right (`.doubleColumn` keeps the canvas, `.detailOnly` would hide it),
-    /// and the column simply never declared that it wanted no width.
+    /// In a three-column `NavigationSplitView` the DETAIL column is the flexible
+    /// trailing one: a column that renders no view does not take no room —
+    /// AppKit resolves the CONTENT column on its `ideal` (720) and hands the
+    /// remainder to an empty column (Denver's "blank and roughly doubled"
+    /// report, in every persona; see the CLAUDE.md Canvas row). Hence a hidden
+    /// ARM declaring zero width, rather than anything in `canvasCollapse`.
     ///
     /// **One static, shared with the harness.** `DetailColumnWidthTests` mounts
-    /// its own three-column split, and a harness carrying its own copy of this
-    /// spelling would measure a column production does not have — so both call
-    /// this, and the two cannot drift.
+    /// its own three-column split and calls this, so the two cannot drift.
     static var hiddenDetailColumn: some View {
         Color.clear.navigationSplitViewColumnWidth(0)
     }
@@ -2084,42 +1715,25 @@ struct ProjectWindow: View {
     // MARK: - Which column shows what
 
     /// **The canvas check sits ABOVE the project-type split, in both columns.**
+    /// There is ONE canvas per project regardless of type (spec §2); deciding
+    /// below the split let the two paths disagree — a Collection writer
+    /// selecting a region got the piece inspector (smoke, 2026-07-28).
     ///
-    /// That is the more correct shape rather than merely the shorter one: there
-    /// is ONE canvas per project regardless of type (spec §2), and which view the
-    /// canvas segment wants has nothing to do with whether the project is a
-    /// collection or which piece happened to be selected in some other segment.
-    /// Leaving the decision *below* the split is what let the two paths disagree
-    /// — the region inspector shipped built, reviewed and reachable on only one
-    /// of them, and a Collection writer selecting a region got the piece
-    /// inspector for whatever manuscript item was last selected. Found by smoke,
-    /// 2026-07-28; the editor column had the same defect and it was found by
-    /// asking the same question of every sibling split.
-    ///
-    /// Pure and named rather than nested `if`s inside a `@ViewBuilder`, so a test
-    /// can be exhaustive over (persona × type) instead of over the one path a
-    /// plan happened to name. `CanvasRouteTests` is that test.
+    /// Pure and named so a test can be exhaustive over (persona × type).
+    /// `CanvasRouteTests` is that test.
     enum InspectorRoute: Equatable {
         case canvas
         /// A Collection's per-piece inspector, which never consults the persona.
         case collectionPiece
         /// `InspectorView` — the selected manuscript document's own inspector.
-        ///
-        /// It was called `.segment` while `existingInspectorSwitch` dispatched
-        /// on `BinderSegment`; both the switch and the enum died in shell-finish
-        /// stage 2b Task 7, and a case named after a type that no longer exists
-        /// is the stale second spelling this milestone is about.
         case document
     }
 
     static func inspectorRoute(persona: Persona,
                                projectType: ProjectType) -> InspectorRoute {
-        // The predicate, not `== .plan`: the board is Plan's centre column
-        // today, and a persona NAME here says the region inspector belongs to a
-        // persona rather than to the column that draws the board. Spelled as an
-        // equality in three places with no compiler help, it cost the region
-        // inspector its reachability from Plan's tree — the exact defect the doc
-        // comment above records.
+        // The predicate, not `== .plan`: a persona NAME here says the region
+        // inspector belongs to a persona rather than to the column that draws the
+        // board — the equality cost the inspector its reachability from Plan's tree.
         if persona.centresTheCanvas { return .canvas }
         return projectType == .collection ? .collectionPiece : .document
     }
@@ -2127,12 +1741,10 @@ struct ProjectWindow: View {
     /// Whether the Palette section's "Open Wall" door travels from this persona
     /// rather than opening the wall where the writer already is.
     ///
-    /// **`TreeTravel.treeTravelDestination`, not a second predicate.** It is the
-    /// same question Denver's tree-travel rule asks on the same day — the door
-    /// is a tree affordance, and "the centre column here is the board, so there
-    /// is somewhere to travel to" has one answer, not one per affordance. Two
-    /// spellings is how the door's tooltip and the door's action come to
-    /// disagree; `PaletteWallDoorTests` pins them to this one.
+    /// **`TreeTravel.treeTravelDestination`, not a second predicate**: the door
+    /// is a tree affordance, and "there is somewhere to travel to" has one
+    /// answer. Two spellings let the door's tooltip and action disagree;
+    /// `PaletteWallDoorTests` pins them to this one.
     static func paletteWallDoorTravels(persona: Persona) -> Bool {
         TreeTravel.treeTravelDestination(persona: persona) != nil
     }
@@ -2141,24 +1753,17 @@ struct ProjectWindow: View {
     /// travels to where it opens — Denver, 2026-08-12.
     ///
     /// Returns the persona change to persist, or `nil` when nobody moved. The
-    /// state writes are inout rather than a returned value because the two arms
-    /// write different things and a caller assembling them from a description
-    /// would be the second spelling this function exists to prevent; the window
-    /// keeps only the `UIState` write, which needs its `documentStore`.
+    /// writes are inout because the two arms write different things; the window
+    /// keeps only the `UIState` write.
     ///
     /// **It does NOT open the wall on the travelling arm**, and it writes no
-    /// subject: the persona change closes the wall
-    /// (`closePaletteWallOnPersonaChange`) and a subject change closes it too
-    /// (`PaletteWallModifier`'s second observer), so either would undo the very
-    /// thing the press asked for. What crosses the switch is the token.
+    /// subject: a persona change and a subject change each close the wall, so
+    /// either would undo the press. What crosses the switch is the token.
     @discardableResult
     ///
-    /// **A `ProjectWindow` static rather than a `PaletteWallState` method,
-    /// though it writes the wall's state** (foundations plan 4 Task 6): it
+    /// **A `ProjectWindow` static rather than a `PaletteWallState` method**: it
     /// also writes the PERSONA, and the window is one of the closed set of
-    /// persona decision sites
-    /// (`TripwireGrepTests.personaDecisionSites`); moving it would have made
-    /// the wall's value a sixth.
+    /// persona decision sites (`TripwireGrepTests.personaDecisionSites`).
     static func pressPaletteWallDoor(
         persona: inout Persona,
         detailSegment: inout DetailSegment,
@@ -2171,9 +1776,8 @@ struct ProjectWindow: View {
             return nil
         }
         paletteWall.travelPending = true
-        // The same discipline every deliberate persona move uses (`TreeTravel
-        // Modifier`, `ManuscriptNavigation.go`): the departing position is
-        // recorded, so ⌘1 brings the writer back to the board they left.
+        // The departing position is recorded (as `TreeTravelModifier` and
+        // `ManuscriptNavigation.go` do), so ⌘1 brings the writer back to the board.
         let change = PersonaModifier.applyPersonaChange(
             to: destination, from: persona,
             currentSegment: detailSegment, memory: memory)
@@ -2183,10 +1787,9 @@ struct ProjectWindow: View {
     }
 
     /// Whether the palette wall takes the centre column — `showsPaletteWall`
-    /// AND the persona is one the wall may cover (`Persona.showsPaletteWall`:
-    /// not Plan, whose centre is the canvas — stage 2b Task 5's contract). Pure
-    /// and named so `editorPane`'s guard and a test can share one answer rather
-    /// than two copies of the persona rule drifting.
+    /// AND a persona the wall may cover (`Persona.showsPaletteWall`: not Plan,
+    /// whose centre is the canvas). Pure and named so `centreRoute` and a test
+    /// share one answer.
     static func showsPaletteWallCentre(showsPaletteWall: Bool, persona: Persona) -> Bool {
         showsPaletteWall && persona.showsPaletteWall
     }
@@ -2196,20 +1799,15 @@ struct ProjectWindow: View {
     /// What `⌘\` must do to the two side columns, as a value.
     ///
     /// **`.doubleColumn`, and the case that looks right is the one that breaks
-    /// it.** The canvas is the CONTENT (middle) column — `CanvasView` is inside
-    /// `contentColumn` — so `.detailOnly`, which reads as "everything else
-    /// away", hides the canvas itself: a focus key that blanks the thing it is
-    /// focusing. `.doubleColumn` hides the SIDEBAR and keeps content + detail,
-    /// and `detailColumn` already renders nothing when `showInspector` is false,
-    /// so the pair is what leaves the canvas the whole window. The visibility
-    /// travels in the payload rather than being implied by the case name
-    /// precisely so a test has to name the enum case it expects — "not `.all`"
-    /// is satisfied by the trap.
+    /// it.** The canvas is the CONTENT (middle) column, so `.detailOnly` hides
+    /// the canvas itself. `.doubleColumn` hides the SIDEBAR, and with
+    /// `showInspector` false the right column holds zero width, so the pair
+    /// leaves the canvas the whole window. The visibility travels in the payload
+    /// so a test has to name the case it expects — "not `.all`" is satisfied by
+    /// the trap.
     ///
-    /// **`.unchanged` is a real answer, and the one the control rests on.** `⌘\`
-    /// in the editor must move no column at all, so the off-canvas arm writes
-    /// nothing whatever — not even `.all` over a sidebar the writer dragged shut
-    /// by hand.
+    /// **`.unchanged` is a real answer**: `⌘\` in the editor must move no column
+    /// at all — not even `.all` over a sidebar the writer dragged shut.
     enum CanvasCollapse: Equatable {
         /// Give the canvas the window, remembering the inspector's visibility so
         /// leaving can put it back exactly.
@@ -2224,43 +1822,20 @@ struct ProjectWindow: View {
     }
 
     /// Pure and named, so the decision can be asked over the whole product of
-    /// its inputs rather than the one path a plan happened to name — the shape
-    /// that found both of this window's routing bugs (see `inspectorRoute`).
-    ///
-    /// **`route` rather than a second "is the canvas showing" test.** The canvas
-    /// check already lives above the project-type split, in one place, and
-    /// spelling it again here is how two paths came to disagree once already.
+    /// its inputs (see `inspectorRoute`). **`route` rather than a second "is the
+    /// canvas showing" test** — the canvas check lives in one place.
     ///
     /// The stash is both the memory and the "am I already collapsed" flag: an
     /// already-collapsed canvas answers `.unchanged`, or a second apply in the
     /// same pass would stash the `false` the first one wrote and leave the
     /// inspector hidden for good.
     ///
-    /// **It used to TAKE OVER the palette wall's stash, and Task 7 deleted that
-    /// branch with the strip that made it reachable.** Plan's binder offered
-    /// Palette and Canvas side by side, so palette → canvas in focus mode was
-    /// **one click** needing no persona switch — and it ran the wall's exit arm
-    /// and this collapse **in the same update pass**, in whichever order SwiftUI
-    /// picked. Collapse-first remembered the wall's *forced* `false`, and the
-    /// exit arm then reopened the inspector against the collapse, leaving the
-    /// writer a collapsed canvas with the pane still in it and a memory that
-    /// closed the pane for good on the way out — tripwire 2 wearing a segment
-    /// picker. The fix was for the collapse to take the wall's memory when one
-    /// was live and say so, which made the exit arm's conditional restore a
-    /// no-op in either order.
-    ///
-    /// **The two folds can no longer meet.** The wall is `showsPaletteWall`
-    /// since Task 5, its door is disabled in Plan, and a persona change closes
-    /// it — every persona change, from every writer of `persona`, since the
-    /// final review's I3 (`closePaletteWallOnPersonaChange`; the arm that used
-    /// to make this sentence true covered the ⌘1–⌘4 handler alone, so a Claude
-    /// arrival or a wiki-link jump carried the wall across). A collapse needs
-    /// `route == .canvas`, which is Plan. Task 5 left the branch dormant rather
-    /// than dead because the picker was still there; Task 7 removed the picker,
-    /// so the branch and the parameter that fed it go together rather than
-    /// standing as machinery for a state the window cannot enter. What survives
-    /// is the wall's own conditional restore, which is what makes the sequence
-    /// *wall in Author → ⌘1 → ⌘\* end where the writer left it.
+    /// **It never touches the palette wall's stash**: the two folds cannot meet,
+    /// because the wall never covers Plan and every persona change closes it
+    /// (`closePaletteWallOnPersonaChange`), while a collapse needs
+    /// `route == .canvas`. The wall's own conditional restore is what makes
+    /// *wall in Author → ⌘1 → ⌘\* end where the writer left it. Tripwire 2
+    /// records what the two folds racing in one pass cost.
     static func canvasCollapse(route: InspectorRoute,
                                isNoChromeOn: Bool,
                                showInspector: Bool,
@@ -2280,11 +1855,9 @@ struct ProjectWindow: View {
 
     /// Folding the decision into the window's state.
     ///
-    /// Static and `inout` rather than inline in the modifier so the sequence
-    /// test — collapse, persona switch, come back, which is three SwiftUI passes
-    /// — drives the SAME fold the window does. A test that mirrored the fold
-    /// would have gone green over the palette bug this whole shape exists to
-    /// avoid.
+    /// Static and `inout` so the sequence test — collapse, persona switch, come
+    /// back, three SwiftUI passes — drives the SAME fold the window does. A test
+    /// mirroring the fold would have gone green over the palette-stash bug.
     static func applyCanvasCollapse(_ decision: CanvasCollapse,
                                     columnVisibility: inout NavigationSplitViewVisibility,
                                     showInspector: inout Bool,
@@ -2304,36 +1877,29 @@ struct ProjectWindow: View {
     }
 
     enum EditorRoute: Equatable {
-        /// `canvasCentre` — the planning canvas, mounted ONCE, in a branch of
-        /// its own so nothing else can give the board a second view identity.
-        ///
-        /// **It became a case of its own in slice 2**, when the canvas stopped
-        /// being one segment's arm inside a switch; `editorPane` records what an
-        /// arm apiece cost and what was measured.
+        /// The planning canvas, mounted ONCE, in a branch of its own so nothing
+        /// else can give the board a second view identity (tripwires 27/30).
         case canvas
         /// A Collection's placeholder for a linked-project reference piece.
         case collectionReference
         /// `manuscriptEditor` — the editor on whatever document the tree names.
-        /// It was `.segment` until Task 7, when the switch it named went with
-        /// `BinderSegment`.
         case editor
     }
 
     static func editorRoute(persona: Persona,
                             projectType: ProjectType,
                             selectedPieceIsReference: Bool) -> EditorRoute {
-        // The canvas draws whatever else is selected. A reference piece chosen
-        // in a Collection's tree stays selected across a persona switch —
-        // nothing clears the subject but a delete — so without this the centre
-        // column shows the placeholder and the canvas never appears at all.
+        // The canvas draws whatever else is selected: a reference piece stays
+        // selected across a persona switch, so without this the centre shows the
+        // placeholder and the canvas never appears.
         if persona.centresTheCanvas { return .canvas }
         return projectType == .collection && selectedPieceIsReference
             ? .collectionReference : .editor
     }
 
-    /// Pre-order ids of every `.document` node in the structure tree.
-    /// Single source of truth shared by ProjectWindow, CheckpointModifier, and
-    /// RewindModifier (each had its own copy before the TreeWalk migration).
+    /// Pre-order ids of every `.document` node in the structure tree. Single
+    /// source of truth shared by ProjectWindow, CheckpointModifier and
+    /// RewindModifier.
     static func documentIds(in items: [StructureItem]) -> [String] {
         TreeWalk.collect(in: items, where: { $0.type == .document }).map(\.id)
     }
@@ -2347,45 +1913,35 @@ struct ProjectWindow: View {
         return result
     }
 
-    /// The pieces both canvas pickers offer — the region's and, since 1C-c2a, the
-    /// card's. Ids, so an association survives a rename (tripwire 22's rule
-    /// applied to a reference).
+    /// The pieces both canvas pickers offer — the region's and the card's. Ids,
+    /// so an association survives a rename (tripwire 22's rule applied to a
+    /// reference).
     ///
-    /// **Only the pieces a promotion can be ROUTED to.**
-    /// `ProjectStore.researchScopeTargets()` exists for precisely this — its own
-    /// doc comment says it "drives the promote-target picker" — and this walked
-    /// every `.document` instead, including the Collection reference pieces
-    /// `researchRouting` throws on. So a writer could choose a piece that made
-    /// the promotion fail, on a surface whose whole promise is predictability
-    /// (spec §6.2).
+    /// **Only the pieces a promotion can be ROUTED to**
+    /// (`ProjectStore.researchScopeTargets()`), never every `.document`: a
+    /// Collection reference piece makes `researchRouting` throw, and this
+    /// surface's promise is predictability (spec §6.2).
     ///
-    /// **Eager, and read on the body path — and that is the cheaper of the two
-    /// mistakes available here.** A deferred closure is this file's rule for
-    /// anything that walks the manifest (`artifactTitle` is one), but the pieces
-    /// are consumed by a `Picker` inside `RegionInspector.body` — a body that
-    /// reads `model.scene` and so re-evaluates on every drag and coast frame.
-    /// Deferring would move an O(documents²) routing walk from "once per window
-    /// body pass" onto the drag loop, which is tripwire 30's own shape. Kept here
-    /// it costs one walk per manifest change, which is what it cost before.
+    /// **Eager, evaluated by the column body that hands it over — never a
+    /// deferred closure.** The `Picker` that consumes it lives in
+    /// `RegionInspector.body`, which reads `model.scene` and re-evaluates on
+    /// every drag frame; deferring would put an O(documents²) routing walk on
+    /// the drag loop (tripwire 30's shape). Eager, it costs one walk per
+    /// manifest change.
     static func pieceChoices(in store: ProjectStore) -> [RegionInspector.PieceChoice] {
         store.researchScopeTargets()
             .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
     }
 
     /// What every item node on the canvas resolves its title, kind glyph and
-    /// thumbnail path through (1C-d, spec §8A.1).
+    /// thumbnail path through (spec §8A.1).
     ///
-    /// **Built HERE, beside `pieceChoices`, and on exactly its terms.** This body
-    /// reads `store.manifest`, so it re-evaluates when the manifest changes and
-    /// not otherwise; it does **not** read `canvasModel.scene`, so it is not on
-    /// the canvas's drag loop. Building it inside `CanvasView` instead would put
-    /// one walk of the whole research tree on a body that re-evaluates every drag,
-    /// coast and straighten frame — tripwire 4's per-row manifest walk arriving on
-    /// the frame path, which is what made a binder click O(N²) in 3d.
-    ///
-    /// The second index over one manifest, the first being `ArtifactIndex`; the
-    /// two are not one because they answer different questions, and
-    /// `CanvasItemIndex`'s own doc comment carries why.
+    /// **Built on `pieceChoices`' terms**: called from a column body that reads
+    /// `store.manifest` and does **not** read `canvasModel.scene`, so it is off
+    /// the canvas's drag loop. Building it inside `CanvasView` would put a walk
+    /// of the research tree on every drag, coast and straighten frame
+    /// (tripwire 4). `CanvasItemIndex`'s own doc says why it is not
+    /// `ArtifactIndex`.
     static func canvasItemIndex(in store: ProjectStore) -> CanvasItemIndex {
         CanvasItemIndex.over(research: store.manifest.research)
     }
@@ -2393,65 +1949,37 @@ struct ProjectWindow: View {
     /// What a dimmed region on the canvas says it already belongs to (§4.2), and
     /// what the region inspector resolves an unofferable binding through.
     ///
-    /// **Built HERE, beside `pieceChoices` and `canvasItemIndex`, on exactly
-    /// their terms** — this body reads `store.manifest` and so re-evaluates when
-    /// the manifest changes, and it does not read `canvasModel.scene`, so it is
-    /// not on the canvas's drag loop. Building it inside `CanvasView` would put a
-    /// walk of the whole structure on a body that re-evaluates every drag, coast
-    /// and straighten frame (tripwire 4).
-    ///
-    /// The third index over one manifest, and the first over `structure` rather
-    /// than `research`; `CanvasPieceTitles` carries why it is the whole tree and
-    /// not `pieceChoices`' routable subset.
+    /// **Built on `pieceChoices`' terms** — from a body that reads
+    /// `store.manifest` and not `canvasModel.scene`, so off the drag loop
+    /// (tripwire 4). `CanvasPieceTitles` carries why it is the whole structure
+    /// and not `pieceChoices`' routable subset.
     static func canvasPieceTitles(in store: ProjectStore) -> CanvasPieceTitles {
         CanvasPieceTitles.over(structure: store.manifest.structure)
     }
 
-    /// **Navigate to a research item: make it the window's SUBJECT** — which is
-    /// what every other way of selecting a research row in this app now does.
+    /// **Navigate to a research item: make it the window's SUBJECT** — what
+    /// every other way of selecting a research row does. `researchSubjectPlacement`
+    /// routes it to the centre in Author and Review and beside the board in
+    /// Plan; in Publish it is `.nothingMoves`, so the subject falls through to
+    /// project level.
     ///
-    /// It used to force the binder onto a `.research` segment and write that
-    /// pane's own private selection, and both halves died with the strip in
-    /// stage 2b Task 7. What replaces them is one write, and it is strictly more
-    /// than the two it replaces: `researchSubjectPlacement` routes a research
-    /// subject to the centre column in Author and Review and beside the board in
-    /// Plan, so **Open** now works from Plan — where the old pair could only work
-    /// by dragging the writer's left column out from under them. (Publish is the
-    /// fourth answer and it is `.nothingMoves`, stage 3b Task 5: neither column
-    /// acts on the item, so the subject falls through to project level — the
-    /// compiled book, or altitude and its notice. This line claimed Publish took
-    /// the centre for a slice after that stopped being true.)
+    /// **The tree opens far enough to show the row**: `reveal` opens the
+    /// section or piece FOLD that holds the item, plus every group between. It
+    /// only ever opens; an id no tree draws opens nothing.
     ///
-    /// **And the tree opens far enough to show the row** (stage-3a Task 4).
-    /// This was the one thing the old segment force did that the subject write
-    /// did not, and it was recorded here as a gap for a slice: the item lived
-    /// inside a `Section` — and possibly inside a research group — whose
-    /// open/closed flag SwiftUI held privately, so the window could point every
-    /// column at a note and still leave its row undrawn. The flags are
-    /// `BinderTreeSectionsState`'s now (the window owns the object and the trees
-    /// take it), and `reveal` opens the section — or, since stage-3b Task 7, the
-    /// piece FOLD — that holds the item, plus every group between it and that
-    /// root. It only ever opens, so a writer's other groups are left alone; an
-    /// id no tree draws a row for opens nothing at all.
-    ///
-    /// Reached from a promoted card's **Open** button (1C-c2), through
-    /// `openPromotedArtifact`. The craft-intent inspector affordance was the
-    /// other caller until M1A Task 8 replaced it with a pane switch.
-    /// **And the reveal, explicitly** (final review's Critical). The subject
-    /// observer covers a subject that CHANGES; **Open** pressed on a card whose
-    /// item is already the window's subject changes nothing, so no observer
-    /// fires and a writer who had the pane on Inbox would press Open and watch
-    /// the window sit still. The two writes are idempotent together — the
-    /// observer's reveal and this one ask the same function the same question.
+    /// Reached from a promoted card's **Open**, through `openPromotedArtifact`.
+    /// **The reveal is explicit here**: the subject observer covers a subject
+    /// that CHANGES, and Open on a card whose item is already the subject
+    /// changes nothing, so no observer fires. The two reveals are idempotent
+    /// together — same function, same question.
     private func openResearchItem(_ itemId: String) {
         selectedSubject = .research(itemId)
         if let store,
            let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
                                             research: store.manifest.research,
                                             projectType: store.manifest.type) {
-            // Arrival is visible, not just true (stage-3b Task 8): opening the
-            // section/fold makes the row EXIST; scrolling to what `reveal`
-            // returned is what puts it on screen.
+            // Arrival is visible, not just true: opening the section/fold makes the
+            // row EXIST; scrolling to what `reveal` returned puts it on screen.
             treeState.scrollRequest = .row(revealed)
         }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
@@ -2459,42 +1987,19 @@ struct ProjectWindow: View {
                                   detailSegment: &detailSegment)
     }
 
-    /// **Open** on a promoted card, region or picture — which since M1A can name
-    /// an artifact that is not in `research/` at all.
+    /// **Open** on a promoted card, region or picture — which can name an
+    /// artifact that is not in `research/` at all. A `Statement` id sent to
+    /// `openResearchItem` would select a research id no tree holds, so a
+    /// statement routes to its pane instead.
     ///
-    /// A card promoted to craft intent carries a `Statement` id, and sending that
-    /// to `openResearchItem` selects a research id no research tree holds: the
-    /// pane says "Select an item" and the writer's intent is nowhere. So a
-    /// statement routes to the Intent pane instead.
-    ///
-    /// **What it does not do is choose the pane's SCOPE.** `StatementPane`
-    /// resolves that from the window's subject and has no say in it, so a
-    /// document-scoped intent opened from here may land on a different scope's.
-    /// Driving the subject from Open would move the writer's open document as a
-    /// side effect of pressing a button about an artifact — which is the whole
-    /// of what is left to decide, and slice 4's to decide.
-    ///
-    /// **A request the pane honours was built for that gap and reverted**
-    /// (M1A Task 7, fix rounds 1–3, 2026-08-01). Three rounds each closed their
-    /// finding and each opened a new one in a cell the last had right, because
-    /// the pane's scope switch, the request and `prefersProjectScope` interacted
-    /// and no test drove a press through the binding and back through this
-    /// view's state.
-    ///
-    /// **Two of those three parts no longer exist.** Slice 1 gave the tree a
-    /// project row, and the pane's `[<chapter> | Project]` switch and its
-    /// `prefersProjectScope` state went with it (task 7) — the switch was only
-    /// ever a workaround for the tree being unable to say "the project". And the
-    /// missing test now exists: `StatementPaneSelectionDeliveryTests` drives a
-    /// real selection through `BinderView`'s `List(selection:)`, the shared
-    /// binding, this view's boundary conversion and `DetailPaneToggle`, and
-    /// reads the resolved scope off the words in the mounted editor. It was
-    /// written deliberately against the SELECTION rather than the switch, so it
-    /// survived the deletion and is the fixture the next attempt starts from.
-    ///
-    /// So what remains here is not the three-way interaction — it is one design
-    /// question: **may pressing Open move the window's subject?** See the task-7
-    /// report for what the three rounds established.
+    /// **It does not choose the pane's SCOPE.** `StatementPane` resolves that
+    /// from the window's subject, so a document-scoped intent opened here may
+    /// land on a different scope's. Driving the subject from Open would move the
+    /// writer's open document as a side effect of a button about an artifact;
+    /// whether Open may move the subject is an open design question. A
+    /// request-the-pane-honours attempt was built and reverted (M1A);
+    /// `StatementPaneSelectionDeliveryTests` is the fixture the next attempt
+    /// starts from.
     private func openPromotedArtifact(_ itemId: String) {
         guard let store else { return }
         if let pane = Self.statementPane(forMark: itemId, in: store) {
@@ -2508,14 +2013,9 @@ struct ProjectWindow: View {
     /// means the Research pane.
     ///
     /// Pure and static so the routing is asked over the whole product of its
-    /// inputs rather than through a window's state, and a `switch` over the kind
-    /// rather than a test for `.intent`: a fall-through is how a selected page
-    /// card came to be told to select something (`RegionInspectorPane`), and here
-    /// it would send the writer to a Research pane that shows them nothing.
-    /// `.intent` is the only kind a PROMOTION produces, but it is no longer the
-    /// only reachable arm: `.lessons` (editorial letter P2) and `.firstReader`
-    /// (two loops P2) each have a pane, so a mark on one of those statements
-    /// opens it rather than falling through.
+    /// inputs, and a `switch` over the kind rather than a test for `.intent`: a
+    /// fall-through would send the writer to a Research pane that shows them
+    /// nothing. Every kind with a pane of its own opens it.
     static func statementPane(forMark itemId: String,
                               in store: ProjectStore) -> DetailSegment? {
         guard let statement = store.manifest.statements.first(where: { $0.id == itemId })
@@ -2525,13 +2025,9 @@ struct ProjectWindow: View {
         case .visualLanguage: return .visualLanguage
         // Neither has a pane here — same as `.unknown` below.
         case .editionBrief: return nil
-        // Editorial letter P2 Task 5: the ledger has a pane of its own, so a
-        // mark on a promoted lesson opens it rather than falling through to a
-        // Research pane that would show the writer nothing.
+        // The ledger has a pane of its own.
         case .lessons: return .lessons
-        // Two loops P2 Task 1: she has a pane of her own, so a mark on her
-        // statement opens it rather than falling through to a Research pane
-        // that would show the writer nothing.
+        // She has a pane of her own.
         case .firstReader: return .firstReader
         // A kind a newer build wrote, retained and ignored everywhere else
         // (`Statement.Kind`). There is no pane for it here either.
@@ -2539,15 +2035,14 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The name a mark shows — a research item's title, or, since M1A, an intent
+    /// The name a mark shows — a research item's title, or an intent
     /// statement's composed name.
     ///
     /// **One rule, two readers.** The promotion sheet reads `ArtifactIndex`,
-    /// built once when it opens; this is the inspector's deferred lookup, which
-    /// exists so that selecting an unpromoted card walks nothing. They must
-    /// answer identically for a statement or one card says two different things
-    /// about what it became, so the composing is `ArtifactIndex.statementTitle`'s
-    /// in both — pinned by `PromotionStatementMarkTests`.
+    /// built once when it opens; this is the inspector's deferred lookup, so
+    /// selecting an unpromoted card walks nothing. They must answer identically
+    /// for a statement, so the composing is `ArtifactIndex.statementTitle`'s in
+    /// both — pinned by `PromotionStatementMarkTests`.
     static func artifactTitle(_ itemID: String, in store: ProjectStore) -> String? {
         if let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
             return item.title
@@ -2561,25 +2056,18 @@ struct ProjectWindow: View {
     }
 
     /// What is already in a promotion destination — the read behind the sheet's
-    /// `linkAlreadyPresent`, and the one thing the sheet cannot answer from the
-    /// plain values it is handed.
+    /// `linkAlreadyPresent`.
     ///
-    /// **`PromotionPerformer.writableDestination`'s order, one surface earlier,
-    /// and it is one surface rather than two by the same argument the performer
-    /// makes.** Research first, then a statement. Resolving `manifest.research`
-    /// alone — which is what shipped — answers nil for a line drawn from an
-    /// intent-marked card, so `linkAlreadyPresent` stayed false, the sheet
-    /// enabled Commit, and the performer's own dedupe threw the refusal into an
-    /// alert a second later. A preview that cannot see the destination is not a
-    /// preview.
+    /// **`PromotionPerformer.writableDestination`'s order, one surface
+    /// earlier**: research first, then a statement. Resolving research alone
+    /// let the sheet enable Commit for an intent-marked card and the performer
+    /// refuse a second later; a preview that cannot see the destination is not
+    /// a preview.
     ///
-    /// The statement arm reads `statementText(of:)` rather than the file beside
-    /// it: a statement is a `Document` with an op log and its `.md` is derived
-    /// output (tripwire 20), and it is the same reader the performer dedupes
-    /// against, so the sheet's promise and the write cannot disagree.
-    ///
-    /// Static and store-taking, like `artifactTitle` and `statementPane` above,
-    /// so the resolution is reachable from a test that hosts no window.
+    /// The statement arm reads `statementText(of:)`, never the `.md` (derived
+    /// output, tripwire 20) — the same reader the performer dedupes against, so
+    /// the sheet's promise and the write cannot disagree. Static and
+    /// store-taking so a test can reach it without a window.
     static func promotionDestinationBody(of itemID: String,
                                          in store: ProjectStore) -> String? {
         if let item = TreeWalk.find(id: itemID, in: store.manifest.research),
@@ -2596,17 +2084,13 @@ struct ProjectWindow: View {
             .flatMap { try? store.statementText(of: $0) }
     }
 
-    // MARK: - Helpers
 
     // MARK: - The subject boundary
 
-    // **Two properties, one rule.** Everything below this line that wants a bare
+    // **Two properties, one rule.** Everything below that wants a bare
     // `String` takes one of these; nothing else in the window unwraps a
-    // `BinderSubject`. Before the type there were three spellings of the same
-    // defaulting rule at three call sites — one raw, two `??`-substituted, and a
-    // fourth re-substitution inside `DetailPaneToggle` on a value already
-    // substituted here — so which pane you were looking at decided what "no
-    // document" meant.
+    // `BinderSubject`, so which pane you look at cannot decide what "no
+    // document" means.
 
     /// The structure item the tree names, when it names one. `nil` for the
     /// project and for no selection alike: neither is an item, and every
@@ -2624,37 +2108,26 @@ struct ProjectWindow: View {
     /// `UIState.activePassMemory`'s write half, persisted through
     /// `updateUIState` on the same debounce as every other UI-state write.
     ///
-    /// **One copy on purpose.** P1 also kept a per-window `@State` mirror on
-    /// the `outlineLayout` pattern, written ahead of any reader; when P2's
-    /// readers arrived they all read `documentStore.uiState.activePassMemory`
-    /// directly — the store is `@Observable`, so a window sees the write
-    /// without a mirror, and the mirror could only ever disagree with it.
-    /// P2 deleted it. A future reader wanting this memory reads the store.
+    /// **One copy on purpose**: readers read `documentStore.uiState
+    /// .activePassMemory` directly (the store is `@Observable`); a per-window
+    /// mirror could only ever disagree with it.
     private func recordActivePass(forPiece piece: String, passId: String) {
         documentStore?.updateUIState { $0.activePassMemory.record(piece: piece, passId: passId) }
     }
 
-    /// Ask for `piece`'s round as soon as the editor has it open (M4 P2 Task
-    /// 4) — the far side of `runRequested`'s silent refusal.
+    /// Ask for `piece`'s round as soon as the editor has it open — the far
+    /// side of `runRequested`'s silent refusal.
     ///
-    /// **Not a second delivery site for ⌘R so much as a deferred one.** The
-    /// call at the end is the identical one the key, the cockpit's Run button
-    /// and the cold-start offer make; what this adds is the wait, because the
-    /// board is a project-level surface and the piece a chip names has usually
-    /// never been on screen. `RunWhenDocumentOpens` owns the bound and what
-    /// happens at its expiry (the round is dropped with a log line); this is
-    /// the one place that says what "open" means here and what a run is.
+    /// **A deferred delivery site for ⌘R**: the call is the identical one the
+    /// key, the cockpit's Run and the cold-start offer make; what this adds is
+    /// the wait, because the piece a board chip names has usually never been on
+    /// screen. `RunWhenDocumentOpens` owns the bound and its expiry; this says
+    /// what "open" means and what a run is. The task is deliberately discarded
+    /// — a closed window takes the reason for the round with it.
     ///
-    /// The task is deliberately discarded. A window that goes away takes the
-    /// reason for the round with it, and the wait expires on its own; nothing
-    /// downstream of here holds the writer's words.
-    ///
-    /// **The expiry flashes** (Denver's 2026-08-18 ruling). The drop was a log
-    /// line and nothing else, so a chip press whose piece never opened looked
-    /// exactly like a chip that does nothing — the writer travelled, waited,
-    /// and no round arrived. It goes through `showCompilerFlash`, the same
-    /// capsule ⌘R already acknowledges itself in, because this is the same
-    /// keystroke's answer arriving late and negative.
+    /// **The expiry flashes** (Denver, 2026-08-18) through `showCompilerFlash`,
+    /// ⌘R's own capsule, because it is the same keystroke's answer arriving late
+    /// and negative.
     private func runRoundWhenPieceOpens(pieceId: String) {
         guard let documentStore else { return }
         RunWhenDocumentOpens.start(
@@ -2662,46 +2135,33 @@ struct ProjectWindow: View {
             isOpen: { [weak documentStore] docId in
                 documentStore?.document(forDocId: docId) != nil
             },
-            // **A round, said literally.** This is the review board's chip
-            // arriving late — the piece was not open when it was pressed —
-            // and it belongs to the round loop by construction, so it names
-            // the verb rather than re-deriving it from a persona the writer
-            // may have left in the meantime.
+            // **A round, said literally** — the board chip arriving late belongs to
+            // the round loop by construction, so it names the verb rather than
+            // re-deriving it from a persona the writer may have left.
             run: { [compiler] docId in
                 compiler.runRequested(docId: docId, kind: .round)
             },
-            // `[flash]`, not a bare `showCompilerFlash(…)`: this closure is
-            // held for the deferral's whole 5s bound, and capturing `self`
-            // would hold the window's stores with it — the thing the two
-            // capture lists above exist to avoid. See `compilerFlash`.
+            // `[flash]`, not a bare `showCompilerFlash(…)`: this closure is held for
+            // the deferral's whole bound, and capturing `self` would hold the window's
+            // stores with it. See `compilerFlash`.
             onTimedOut: { [flash = compilerFlash] in flash.show(.pieceWouldNotOpen) })
     }
 
     /// Whether the window's subject still names something, and what it becomes
     /// when it does not.
     ///
-    /// **One containment question, asked at two moments.** It was written for
-    /// the first — where a freshly opened window lands, given what
-    /// `ui-state.json` held and the structure that file's ids are supposed to
-    /// name — and `SubjectValidationModifier` asks it again on every structure
-    /// change, because a subject can stop naming a row long after the window
-    /// opened. A second spelling of the rule for the runtime moment would be
-    /// free to disagree with this one about the two cases below that are easy to
-    /// get wrong (`.project`, and a group taking its children with it), which is
-    /// exactly how it would go wrong: `BinderView` used to hold one, and it
-    /// answered *"is the subject the row I deleted?"* rather than *"is the
-    /// subject still in the structure?"* — the same question for a document and
-    /// a different one for a group.
+    /// **One containment question, asked at two moments**: where a freshly
+    /// opened window lands given `ui-state.json`, and on every structure change
+    /// (`SubjectValidationModifier`). A second spelling would be free to
+    /// disagree about the two easy-to-get-wrong cases — `.project`, and a group
+    /// taking its children with it ("is the subject still in the structure?",
+    /// not "is it the row I deleted?").
     ///
-    /// **`.project` is valid precisely because it is in no structure.** The
-    /// validation this replaces was a bare `TreeWalk.contains` over the subject's
-    /// item id, and the project subject has none — so it failed the check and the
-    /// window silently landed on the first document instead. A restore that lands
-    /// somewhere *plausible* is the failure mode nobody reports: the writer
-    /// selects the project, quits, reopens, and sees chapter one with no error
-    /// anywhere.
+    /// **`.project` is valid precisely because it is in no structure.** A bare
+    /// `TreeWalk.contains` fails it and lands the window somewhere *plausible* —
+    /// the failure mode nobody reports.
     ///
-    /// Four shapes reach here, and the four answers are the whole contract:
+    /// The four answers are the whole contract:
     ///
     /// | on disk | answer |
     /// |---|---|
@@ -2710,35 +2170,20 @@ struct ProjectWindow: View {
     /// | a bare id naming a deleted item | `.project` |
     /// | nothing at all | `.project` |
     ///
-    /// **The last two answered "the first document" until slice 3's review, and
-    /// that was wrong** — Denver's ruling: *the dim must only ever be entered by
-    /// a click*. It was inert for as long as the restored subject only decided
-    /// what the editor opened; slice 3 hands the same value to the canvas, where
-    /// a document subject FILTERS the board. A window restoring a chapter nobody
-    /// chose therefore opened in Plan onto a fully dimmed canvas, with a standing
-    /// offer naming a document that appears nowhere on screen and no subject
-    /// picker in the `.canvas` binder segment to climb back out of — and the next
-    /// sweep silently bound a region to that chapter.
+    /// **Never "the first document"** — Denver's ruling: *the dim must only ever
+    /// be entered by a click*. A document subject FILTERS the canvas, so a
+    /// restored chapter nobody chose would open Plan onto a dimmed board and
+    /// the next sweep would bind a region to it. The accepted trade: a fresh
+    /// window in Author opens with no document in the editor.
     ///
-    /// The accepted trade, stated rather than worked around: a fresh window in
-    /// Author opens with **no document in the editor**. `.project` was not
-    /// expressible before the binder grew a project row; now that it is, it is
-    /// the honest answer to "the writer has not chosen anything".
+    /// Never absent: `.project` is available even for a structure with no
+    /// document. A pure function because this is a silent routing decision and
+    /// `load()` is unreachable from a test.
     ///
-    /// The answer is never absent, which is why this returns a subject rather
-    /// than an optional one: `.project` is in no structure and so is available
-    /// even for a structure with no document in it — the one shape that used to
-    /// have no answer at all.
-    ///
-    /// A pure function rather than four lines inside `load()`: this is a routing
-    /// decision, the failure is silent, and `load()` is unreachable from a test.
-    ///
-    /// **The `nil` row is the restore's answer, not the sweep's.** A window
-    /// nobody has clicked in gets `.project` on open; a window whose writer has
-    /// deselected is left alone, because the sweep REPAIRS a subject and does
-    /// not choose one. That guard lives at the sweep's call site rather than
-    /// here — see `SubjectValidationModifier`, where it is also what keeps the
-    /// sweep out of `load()`'s own window.
+    /// **The `nil` row is the restore's answer, not the sweep's.** The sweep
+    /// REPAIRS a subject and does not choose one, so a writer who deselected is
+    /// left alone; that guard lives at the sweep's call site
+    /// (`SubjectValidationModifier`).
     static func validSubject(_ subject: BinderSubject?,
                              in structure: [StructureItem],
                              research: [ResearchItem]) -> BinderSubject {
@@ -2838,32 +2283,21 @@ struct ProjectWindow: View {
         }
     }
 
-    /// ⌘R's acknowledgment. Shorter than ⌘S's: this one says the key was heard,
-    /// and the pane says the rest. The word is the acknowledgment's own —
-    /// "Checking…" for a press that started a run, "Still checking…" for one
-    /// that found a run already under way.
-    ///
-    /// The generation is what keeps a double-press honest: the first press's
-    /// hide is still pending when the second arrives, and without it the
-    /// "Still checking…" capsule would be taken off screen by a timer belonging
-    /// to a flash the writer has already stopped reading.
+    /// ⌘R's acknowledgment — "Checking…" for a press that started a run, "Still
+    /// checking…" for one that found a run under way. The pane says the rest.
+    /// Through `compilerFlash`, whose generation keeps a double-press honest.
     @MainActor
     private func showCompilerFlash(_ acknowledgment: CompilerOrchestrator.Acknowledgment) {
         compilerFlash.show(acknowledgment)
     }
 
-    /// One finished design round, as a sentence for the log — what P4's desk
-    /// will draw as a row.
+    /// One finished design round, as a sentence for the log.
     ///
-    /// `static` and pure so the `onRunEnded` closure holds nothing: a bare
-    /// method reference would capture `self`, and a `ProjectWindow` copy carries
-    /// `store`, `documentStore` and every orchestrator with it
-    /// (`compilerFlash`'s reasoning, one closure over).
-    ///
-    /// A staged round says both of the things it produced — the proposal that
-    /// is now on the desk, and whether its sample pages compiled — because a
-    /// sample failure ends the round CLEAN (spec §6) and a record that mentioned
-    /// only the proposal would look identical either way.
+    /// `static` and pure so the `onRunEnded` closure holds nothing: a method
+    /// reference would capture `self`, and with it `store`, `documentStore` and
+    /// every orchestrator. A staged round says both what it produced and
+    /// whether its sample pages compiled, because a sample failure ends the
+    /// round CLEAN (spec §6).
     static func designRunRecord(_ summary: DesignerOrchestrator.RunSummary) -> String {
         switch summary.outcome {
         case .staged(let staged):
@@ -2885,19 +2319,11 @@ struct ProjectWindow: View {
         }
     }
 
-    /// **The flash's own capture surface**, so a caller that has to hold the
-    /// flash across a suspension holds THREE bindings rather than the window
-    /// (2026-08-18 review, Minor 6). `runRoundWhenPieceOpens` keeps its expiry
-    /// closure alive for the deferral's whole 5s bound, next to two capture
-    /// lists written precisely to avoid holding things that long — a bare
-    /// `{ showCompilerFlash(…) }` captures `self`, and a `ProjectWindow` copy
-    /// carries `store`, `documentStore`, `compiler` and every other reference
-    /// the window has with it.
-    ///
-    /// `@State` boxes are owned by SwiftUI's graph and outlive any closure, so
-    /// holding three of them costs nothing and keeps the flash ONE spelling —
-    /// which is the point of the sink existing rather than the closure
-    /// re-implementing the generation dance.
+    /// **The flash's own capture surface**, so a caller holding the flash
+    /// across a suspension holds THREE bindings rather than the window: a bare
+    /// `{ showCompilerFlash(…) }` captures `self`, and with it every store and
+    /// orchestrator. `@State` boxes outlive any closure, so this costs nothing
+    /// and keeps the flash ONE spelling.
     private var compilerFlash: CompilerFlashSink {
         CompilerFlashSink(
             label: $flashes.compilerLabel,
@@ -2905,35 +2331,20 @@ struct ProjectWindow: View {
             showing: $flashes.showingCompiler)
     }
 
-    /// **Show**, on the banner that says Claude added a research note.
-    ///
-    /// One write since stage 2b Task 7, for `openResearchItem`'s reason and with
-    /// the same gain: the note becomes the window's subject, so the banner works
-    /// in Plan — the persona a writer is most likely to be in when Claude is
-    /// adding research — instead of forcing a segment Plan's picker offered and
-    /// the other three did not.
-    /// **Show reveals the column too** — `openResearchItem`'s reason exactly: a
-    /// second note arriving while the writer is already looking at the first
-    /// leaves the subject unchanged, and a banner whose button does nothing is
-    /// worse than no banner.
-    /// **The one place this sheet is opened.** Three controls ask for it — the
-    /// ⌘⇧, command, the Inspector's row and the Diagnostics header's *Define a
-    /// first reader…*. One door so there is one thing to reason about; the
-    /// stale-request clear lives on the `activeSheet` change instead, because
-    /// this window presents two other sheets that never come through here.
+    /// **The one place the Project Settings sheet is opened.** Three controls
+    /// ask for it — the ⌘⇧, command, the Inspector's row and the Diagnostics
+    /// header's *Define a first reader…*. The stale-request clear lives on the
+    /// `activeSheet` change, because two other sheets never come through here.
     private func openProjectSettings() {
         activeSheet = .projectSettings
     }
 
     /// **Whether a dismissal hands the writer to the first reader's
     /// statement** — pure, so the rule is assertable with no window
-    /// (tripwire 33).
-    ///
-    /// It takes the sheet that CLOSED, not just the standing request: the
-    /// request is set by one sheet's button, and a `.sheet(item:onDismiss:)`
-    /// fires the same callback for all three of this window's sheets. A guard
-    /// on the request alone sent a translator's-note dismissal to her
-    /// statement (fix round 1).
+    /// (tripwire 33). It takes the sheet that CLOSED, not just the standing
+    /// request: `.sheet(item:onDismiss:)` fires for all three of this window's
+    /// sheets, and a guard on the request alone sent a translator's-note
+    /// dismissal to her statement.
     static func opensFirstReader(
         requested: Bool, dismissed: ProjectActiveSheet?
     ) -> Bool {
@@ -2945,12 +2356,9 @@ struct ProjectWindow: View {
     /// `SessionAndNavigationModifier` and by the Describe… hand-off below.
     ///
     /// **The keystroke ends a study, even when it names the pane already
-    /// selected** — Denver's fix-round-1 ruling. A studied reference stands IN
-    /// PLACE OF the pane picker, so ⌘⌥E is precisely what a writer presses to
-    /// get the shelf back; leaving it to `detailSegment`'s `.onChange` made it
-    /// inert, because the value it writes is the one already there. The
-    /// picker's own no-op snap is NOT a keystroke and keeps the study — that
-    /// half stays with `.onChange`
+    /// selected** (Denver's ruling): a studied reference stands IN PLACE OF the
+    /// pane picker, so ⌘⌥E is what a writer presses to get the shelf back. The
+    /// picker's own no-op snap is NOT a keystroke and keeps the study
     /// (`AssistantColumnModifier.paneChangeEndsTheStudy`).
     static func selectDetailSegment(
         _ seg: DetailSegment,
@@ -2981,6 +2389,12 @@ struct ProjectWindow: View {
             assistant: assistant)
     }
 
+    /// **Show**, on the banner that says Claude added a research note: the
+    /// note becomes the window's subject, so the banner works in every
+    /// persona, Plan included. **It reveals the column too**, for
+    /// `openResearchItem`'s reason: a second note arriving while the writer
+    /// looks at the first leaves the subject unchanged, and a banner whose
+    /// button does nothing is worse than no banner.
     private func handleShowLatestMCPNote() {
         guard let id = flashes.mcpBanner.latestId else { return }
         selectedSubject = .research(id)
@@ -2990,8 +2404,7 @@ struct ProjectWindow: View {
            let revealed = treeState.reveal(id, structure: store.manifest.structure,
                                             research: store.manifest.research,
                                             projectType: store.manifest.type) {
-            // And it scrolls onto screen, `openResearchItem`'s twin write
-            // (stage-3b Task 8).
+            // And it scrolls onto screen, `openResearchItem`'s twin write.
             treeState.scrollRequest = .row(revealed)
         }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
@@ -3003,23 +2416,16 @@ struct ProjectWindow: View {
     @MainActor
     private func load() async {
         do {
-            // **A re-run for the same project reuses the live session.** A
-            // spurious `.onDisappear` on a live window keeps its session (the
-            // liveness guard there), and a re-appear restarts this task:
-            // opening again would install a second presenter and run the
-            // open-time seal/rotate sweep — rotation DELETES — while the live
-            // store still has Documents registered and the editor bound to
-            // them. The window's own state survived too, so nothing is
-            // re-seeded — and nothing is re-registered: MCP registration
-            // follows the window borrow (Task 3b), which that spurious
-            // `.onDisappear` kept. A different project's session closes
-            // BEFORE the open, never alongside it.
+            // **A re-run for the same project reuses the live session.** A spurious
+            // `.onDisappear` keeps its session (the liveness guard), and a
+            // re-appear restarts this task: opening again would install a second
+            // presenter and run the open-time seal/rotate sweep — rotation DELETES
+            // — while Documents are registered and the editor bound to them.
             //
-            // **The window holds at most ONE borrow, and it is `lease`**
-            // (Task 3). `.reuseLive` acquires nothing — this window already
-            // holds the borrow — and a different project's borrow is given
-            // back (and `lease` cleared, so nothing gives it back twice)
-            // BEFORE the new acquire.
+            // **The window holds at most ONE borrow, and it is `lease`.**
+            // `.reuseLive` acquires nothing; a different project's borrow is given
+            // back (and `lease` cleared, so nothing gives it back twice) BEFORE the
+            // new acquire.
             switch ProjectSession.loadStep(live: session?.url, requested: url) {
             case .reuseLive:
                 return
@@ -3031,44 +2437,31 @@ struct ProjectWindow: View {
             case .open:
                 break
             }
-            // The stores and the services are the session's (foundations
-            // plan 3, Task 2), and the session is the project's rather than
-            // the window's (Task 3): the registry opens it once — through
-            // `ProjectSession.open`, which loads the manifest, opens the
-            // DocumentStore, cross-links them and builds the bible and the
-            // declared world — and every other window on the project borrows
-            // that same session. Borrowing AS A WINDOW (Task 3b) attaches
-            // this one: its canvas model becomes the store's live canvas, its
-            // flash the compiler's, and the roster's services are configured
-            // if no other window had them; the registry also announces the
-            // project to MCP. What stays here is the window's own: seeding
-            // its UI state, publishing the stores and the session log.
+            // The stores and services are the session's, and the session is the
+            // project's: the registry opens it once (`ProjectSession.open`) and every
+            // window borrows it. Borrowing AS A WINDOW attaches this one — its canvas
+            // model becomes the store's live canvas, its flash the compiler's — and
+            // announces the project to MCP. What stays here is the window's own: its
+            // UI state, the stores and the session log.
             let lease = try await sessions.acquire(url, as: .window(attach: { session in
                 session.attachWindow(
                     canvas: canvasModel,
                     flash: { showCompilerFlash($0) },
                     preferences: userPreferences)
             }, isLive: {
-                // Read at the registry's reattach, from the window's state as
-                // it is THEN. No window in hand yet counts as live: a window
-                // still appearing must not be dropped.
+                // Read at the registry's reattach, from the window's state THEN. No
+                // window in hand yet counts as live: a window still appearing must not
+                // be dropped.
                 window.map { MaughamEvent.isLive($0) } ?? true
             })) {
                 try await ProjectSession.open(url: url)
             }
-            // **A borrow this window will not keep goes straight back.** Two
-            // ways to get here holding one: another run of `load()` for this
-            // window finished first and already holds one, or this load was
-            // cancelled AND the window is known gone (it closed while the
-            // open was in flight — its `.onDisappear` saw no lease and
-            // released nothing). Keeping either would be a borrow nobody
-            // gives back, and the project would stay open — attached — after
-            // its last window. A cancelled task on a window that is still
-            // live KEEPS its borrow: nothing promises the task re-runs, and
-            // a window holding no lease would sit on "Loading…" for good.
-            // From here to `self.lease = lease` below there is no suspension
-            // point, so nothing can slip in between this check and the
-            // adoption.
+            // **A borrow this window will not keep goes straight back**: another
+            // `load()` already holds one, or this load was cancelled AND the window
+            // is gone. Keeping either would leave the project open after its last
+            // window. A cancelled task on a still-live window KEEPS its borrow, or
+            // it would sit on "Loading…" for good. No suspension point between this
+            // check and `self.lease = lease` below.
             if self.lease != nil
                 || (Task.isCancelled && window != nil && !MaughamEvent.isLive(window)) {
                 await sessions.release(lease)
@@ -3078,30 +2471,16 @@ struct ProjectWindow: View {
             let s = session.projectStore
             let ds = session.documentStore
 
-            // **Every `ds.uiState` seed is read BEFORE the stores are published,
-            // and the order is the contract** (2026-08-26). `showInspector`
-            // defaults to `true` and `detailSegment` to `.inspector`, so any body
-            // pass that runs with a store in hand and these still at their
-            // defaults mounts `DetailPaneToggle` on `.inspector` — and that view's
-            // `.onAppear` PERSISTS the segment it mounted with. The read below
-            // would then be reading back what the mount had just written, and
-            // every writer's remembered pane would silently reset on launch.
+            // **Every `ds.uiState` seed is read BEFORE the stores are published, and
+            // the order is the contract.** `showInspector`/`detailSegment` default to
+            // `true`/`.inspector`, and a body pass with a store in hand and these
+            // still at their defaults mounts `DetailPaneToggle` on `.inspector`,
+            // whose `.onAppear` PERSISTS that segment — resetting every writer's
+            // remembered pane on launch. With the stores still nil no body pass can
+            // observe the defaults.
             //
-            // It did not happen while these sat below, and only by an accident
-            // nothing wrote down: the one `await` in that stretch is
-            // `ds.loadSessionLog()`, whose body contains no suspension point
-            // (`NSFileCoordinator.coordinate` blocks), so the main actor was never
-            // yielded and no render pass could interleave. One genuinely
-            // suspending call added there — or that read moved off the main actor
-            // for perfectly good reasons — and the launch pane resets for
-            // everyone, with nothing red. Seeding first retires the hazard instead
-            // of describing it: with the stores still nil there is no body pass
-            // that can observe the defaults.
-            //
-            // Seed UI state from disk (or defaults), through the one rule that
-            // decides where a freshly opened window lands. There is always an
-            // answer — `.project` needs no document to exist — so there is
-            // nothing to leave alone and no `if let` here.
+            // The subject goes through the one rule that decides where a freshly
+            // opened window lands; `.project` always answers, so no `if let`.
             self.selectedSubject = Self.validSubject(
                 ds.uiState.selectedSubject, in: s.manifest.structure,
                 research: s.manifest.research)
@@ -3109,29 +2488,15 @@ struct ProjectWindow: View {
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             self.compilerModel = ds.uiState.compilerModel
-            // **Nothing about the study column is restored**, and that is the
-            // whole of it since it stopped having a width of its own
-            // (2026-08-25): nothing is studied when a window opens, because
-            // restoring a subject would put a reference over the right column
-            // before the writer had asked for anything.
-            //
-            // The right column's width. A window that opened before this line
-            // existed opened at the range's `max` or its `min` depending on
-            // what the last visibility transition had left behind.
+            // **Nothing about the study column is restored**: nothing is studied
+            // when a window opens, or a reference would cover the right column
+            // before the writer asked for anything.
             self.detailColumnWidth = ds.uiState.detailColumnWidth
-            // Restored VERBATIM, exactly as the binder below is. Coercing to
-            // the restored persona's registry here silently ate the writer's
-            // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
-            // Outline gone, back when `.outline` was still a pane), and would
-            // have moved every pre-persona project off
-            // Annotations/History/Inbox/Translation on upgrade. It protects
-            // nothing: `DetailPaneToggle` appends an out-of-persona selection
-            // and renders it highlighted — `visibleSegments`' own doc comment
-            // names a restored `UIState` as a path that append exists to
-            // honour, and (stage 3a Task 6) that append never refuses now. A
-            // `detailSegment` stored as one of the three retired segments
-            // simply fails `UIState`'s own tolerant decode and falls back to
-            // `.inspector` before this line ever runs.
+            // Restored VERBATIM. Coercing to the restored persona's registry would
+            // eat the writer's last explicit pane choice; `DetailPaneToggle` appends
+            // an out-of-persona selection and renders it highlighted
+            // (`visibleSegments`). A retired segment fails `UIState`'s tolerant
+            // decode and falls back to `.inspector` before this line runs.
             self.detailSegment = ds.uiState.detailSegment
             self.persona = ds.uiState.persona
             self.outlineLayout = ds.uiState.outlineLayout

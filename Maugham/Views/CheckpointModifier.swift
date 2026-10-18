@@ -2,18 +2,16 @@ import SwiftUI
 import MaughamCore
 import AppKit
 
-/// The one honest-save decision both ⌘S sites route through — `CheckpointModifier`'s
-/// key command below and the Shift-⌘S label sheet in `ProjectWindow.body`. A
-/// landed checkpoint runs `onSuccess` (the flash); a thrown one runs neither
-/// `onSuccess` nor the caller's own success path, and posts a notice
-/// explaining why instead of staying silent. Never both, never neither — the
-/// whole-branch review's finding was a ⌘S flash that fired even when the
-/// checkpoint write failed or, in a read-only recovery state, wrote nothing.
+/// The one honest-save decision both ⌘S sites route through —
+/// `CheckpointModifier`'s key command and the Shift-⌘S label sheet in
+/// `ProjectWindow.body`. A landed checkpoint runs `onSuccess` (the flash); a
+/// thrown one runs neither `onSuccess` nor the caller's own success path,
+/// and posts a notice explaining why instead of staying silent. Never both,
+/// never neither — a ⌘S flash must not fire over a checkpoint that failed or
+/// wrote nothing.
 ///
-/// A free type rather than a method on `ProjectWindow` or `CheckpointModifier`
-/// (different structs, so a method could not serve both) — and internal, not
-/// `private`, so `SaveFlashHonestyTests` can pin both directions without
-/// mounting either view.
+/// A free type so both views can share it, and internal so
+/// `SaveFlashHonestyTests` can pin both directions without mounting either.
 enum CheckpointFlashDecision {
     @MainActor
     static func run(
@@ -25,9 +23,9 @@ enum CheckpointFlashDecision {
             try await capture()
             onSuccess()
         } catch CheckpointRefusal.notYourText {
-            // **⌘S always flashes** (P3c Task 3, plan ruling R5): the refusal
-            // wrote NOTHING — no op, no entry — by design, so it is not a
-            // failure to explain. Exactly this refusal and no other error.
+            // **⌘S always flashes** (plan ruling R5): the refusal wrote NOTHING —
+            // no op, no entry — by design, so it is not a failure to explain.
+            // Exactly this refusal and no other error.
             onSuccess()
         } catch {
             MaughamEvent.postNotice(
@@ -39,12 +37,11 @@ enum CheckpointFlashDecision {
 
 extension CheckpointFlashDecision {
     /// **⇧⌘S's Confirm** — the labelled checkpoint, through the same honest
-    /// decision ⌘S takes, and flashing as ⌘S does (P3c Task 3 fix round 1).
-    /// The sheet only opens where the posture allowed a checkpoint; a demotion
-    /// arriving between opening it and Confirm reaches the capture's door,
-    /// which writes NOTHING, and the flash still fires — ⌘S always flashes.
-    /// Any other error posts its notice and does not flash. A free function so
-    /// the Confirm path is pinned without mounting the sheet (tripwire 33).
+    /// decision ⌘S takes, and flashing as ⌘S does. A demotion arriving between
+    /// opening the sheet and Confirm reaches the capture's door, which writes
+    /// NOTHING, and the flash still fires — ⌘S always flashes. Any other error
+    /// posts its notice and does not flash. A free function so the Confirm path
+    /// is pinned without mounting the sheet (tripwire 33).
     @MainActor
     static func labelled(
         _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
@@ -66,8 +63,8 @@ extension CheckpointFlashDecision {
     }
 }
 
-/// Breaks the ⌘S / Shift-⌘S checkpoint notification handlers out of the
-/// main body chain so Swift's type-checker doesn't time out.
+/// The ⌘S / Shift-⌘S checkpoint notification handlers, kept out of
+/// `ProjectWindow.body` for the type-check ceiling.
 struct CheckpointModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
@@ -82,9 +79,8 @@ struct CheckpointModifier: ViewModifier {
     /// The item the tree names, already converted at `ProjectWindow`'s
     /// boundary — `nil` for the project and for no selection alike.
     let selectedItemId: String?
-    /// The breadcrumb's stream id, from the same boundary. Taken rather than
-    /// re-derived: this modifier used to spell the `?? "__no-selection__"` rule
-    /// a second time, three hops from the two other spellings of it.
+    /// The breadcrumb's stream id, from the same boundary — taken, never
+    /// re-derived here.
     let activeDocId: String
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void

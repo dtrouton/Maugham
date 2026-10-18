@@ -9,7 +9,7 @@ import XCTest
 /// the document by itself the moment the file lands. A `View` is a struct, so
 /// those closures carry `selectedItemId` — a `let` — from the moment they were
 /// built, and `EditorHost` keeps its identity across a document switch
-/// (`ProjectWindow.manuscriptEditor` layers rather than branches), so the pane
+/// (`CentreColumn.manuscriptEditor` layers rather than branches), so the pane
 /// and its poll survive the writer selecting something else. The window is not
 /// a hair's breadth: it is the whole of the next document's load.
 ///

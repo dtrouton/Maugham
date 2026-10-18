@@ -11,7 +11,7 @@ import MaughamCore
 /// ask whether the centre column is the board before they ask anything else, and
 /// both have shipped a defect by asking it second.
 ///
-/// **The smoke-found defect, 2026-07-28.** `ProjectWindow.inspectorPane` split
+/// **The smoke-found defect, 2026-07-28.** `RightColumn.inspectorPane` split
 /// on project type *before* it consulted the canvas at all, and a Collection
 /// took a branch with no canvas arm — so a Collection writer selecting a region
 /// got the piece inspector for whatever manuscript item was last selected.

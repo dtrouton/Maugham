@@ -28,7 +28,7 @@ import MaughamCore
 /// by `TranslationRoundReportHost` off a body path, and every verb is a closure.
 ///
 /// **Opaque and full-frame**, `PublishPreviewCentre`'s rule: this is a layer of
-/// `ProjectWindow.manuscriptEditor`'s `ZStack` with `EditorHost` and the altitude
+/// `CentreColumn.manuscriptEditor`'s `ZStack` with `EditorHost` and the altitude
 /// view still mounted underneath, and anything translucent would read the
 /// corkboard through the page.
 ///

@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// **The window's acknowledgments, as one value** (foundations plan 4 Task 6):
-/// ⌘S's capsule, ⌘R's capsule and the MCP note banner. Five `@State`s on
-/// `ProjectWindow` until then, held now in ONE `@State` of this type.
+/// **The window's acknowledgments, as one value**: ⌘S's capsule, ⌘R's
+/// capsule and the MCP note banner, in ONE `@State`.
 ///
 /// **A value, never an `@Observable`** (tripwire 2). The banner's model is a
-/// reference it carries — `MCPBannerModel` was already a class with an
-/// auto-dismiss timer of its own, and it is created once with the window's
-/// `@State`, exactly as it was when it was a `@State` by itself.
+/// reference it carries — `MCPBannerModel` is a class with an auto-dismiss
+/// timer of its own, created once with the window's `@State`.
 @MainActor
 struct WindowFlashes {
     /// ⌘S's capsule.

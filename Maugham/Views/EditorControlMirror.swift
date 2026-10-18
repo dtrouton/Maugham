@@ -1,8 +1,8 @@
 import SwiftUI
 import MaughamCore
 
-/// **The editor's membrane, decided from the posture** (P3c Task 3) — pure, so
-/// both directions are pinned without a window (`ReviewModeMembraneTests`).
+/// **The editor's membrane, decided from the posture** — pure, so both
+/// directions are pinned without a window (`ReviewModeMembraneTests`).
 ///
 /// - `lockEditing` is the hard floor: the posture refuses `.writeText`, or the
 ///   iCloud share is read-only (an OS-level lock that claims no role).
@@ -10,12 +10,12 @@ import MaughamCore
 ///   refuses the text — a reviewer's Mac opens in review mode, so the
 ///   selection toolbar offers annotation.
 ///
-/// Keyed on `allows(.writeText)`, never on `isRestricted` (controller ruling
-/// E): an author of some pieces inside her own piece is restricted (she may
-/// not start a piece) and may type every word of it. `Posture.settling` —
-/// nothing decided yet — refuses `.writeText`, so it LOCKS: a verb appearing a
-/// frame late is fine, one appearing that must not is not. `nil` is no
-/// manuscript document in the editor: nothing to lock.
+/// Keyed on `allows(.writeText)`, never on `isRestricted`: an author of
+/// some pieces inside her own piece is restricted (she may not start a
+/// piece) and may type every word of it. `Posture.settling` refuses
+/// `.writeText`, so it LOCKS: a verb appearing a frame late is fine, one
+/// appearing that must not is not. `nil` is no manuscript document in the
+/// editor: nothing to lock.
 enum EditorControlMirror {
     struct Membrane: Equatable {
         let lockEditing: Bool
@@ -33,16 +33,16 @@ enum EditorControlMirror {
 }
 
 /// Mirrors posture + appearance changes from ProjectWindow-owned sources into
-/// the `EditorControl` model (ADR 0017). Extracted into a ViewModifier to stay
-/// under ProjectWindow.body's SwiftUI type-checker ceiling.
+/// the `EditorControl` model (ADR 0017). A modifier for `ProjectWindow.body`'s
+/// type-check ceiling.
 struct EditorControlMirrorModifier: ViewModifier {
     /// Computed in `ProjectWindow`'s body from the drawing posture door, so a
     /// selection change AND a `postureEpoch` bump both arrive here as a change
     /// of this value.
     let membrane: EditorControlMirror.Membrane
-    /// The same door's answer, whole, for the margin card's dispositions
-    /// (P3c Task 5) — mirrored beside the membrane rather than folded into it,
-    /// because the membrane is the pinned lock decision and nothing more.
+    /// The same door's answer, whole, for the margin card's dispositions —
+    /// mirrored beside the membrane rather than folded into it, because the
+    /// membrane is the pinned lock decision and nothing more.
     let posture: Posture?
     let effectiveTypography: TypographySettings
     @Binding var editorControl: EditorControl

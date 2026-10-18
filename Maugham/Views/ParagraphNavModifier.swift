@@ -2,8 +2,8 @@ import SwiftUI
 import MaughamCore
 import AppKit
 
-/// Handles .maughamNavigateToParagraph in its own modifier to stay within
-/// Swift's type-checker expression limit in SessionAndNavigationModifier.
+/// Handles .maughamNavigateToParagraph and .maughamNavigateToScene, in its
+/// own modifier for the type-check ceiling.
 struct ParagraphNavModifier: ViewModifier {
     /// The owning project window. `.maughamNavigateToParagraph` and
     /// `.maughamNavigateToScene` are both key-window scoped (ADR 0021), so only
@@ -34,26 +34,18 @@ struct ParagraphNavModifier: ViewModifier {
                     detailSegment: $detailSegment,
                     documentStore: documentStore)
             }
-            // **The screenplay's own navigation, and the third to route here.**
+            // **The screenplay's own navigation.** A slugline click posts this from
+            // `SceneNavigatorPane`'s `onSelect`, and `EditorCoordinator` receives it
+            // to scroll — but Plan mounts no coordinator, so without this the click
+            // would set the subject and nothing else. Denver's ruling: *"if I'm
+            // moving to the manuscript I'm moving to Author."*
             //
-            // A slugline click posts this from `SceneNavigatorPane`'s `onSelect`
-            // (via `BinderPaneToggle`) and `EditorCoordinator` receives it to
-            // scroll. Slice 2 gave Plan's Structure tab that same navigator, and
-            // in Plan the coordinator does not exist — so the click set the
-            // subject and then nothing happened at all: no movement, no error,
-            // no greyed-out affordance (slice 2 review, F2). Denver's ruling
-            // covers it exactly as it covers the other two: *"if I'm moving to
-            // the manuscript I'm moving to Author."*
-            //
-            // **Two receivers, one poster, and they do different jobs**: this one
-            // moves the window to where the script can be read, the coordinator's
-            // scrolls to the slugline. Deliberately NOT a re-post once the editor
-            // mounts — see `SceneNavigatorPane.subject(_:whenNavigatingTo:)` for
-            // the already-recorded first-click edge and why a delayed re-post
-            // would be worse than a first click that under-delivers. From Plan
-            // that edge is now reachable one more way: the click that moves the
-            // window to Author lands in the script rather than on that slugline,
-            // and the next one scrolls.
+            // **Two receivers, one poster, different jobs**: this one moves the
+            // window to where the script can be read, the coordinator's scrolls to
+            // the slugline. Deliberately NOT a re-post once the editor mounts — see
+            // `SceneNavigatorPane.subject(_:whenNavigatingTo:)` for the first-click
+            // edge (from Plan, the first click lands in the script and the next one
+            // scrolls) and why a delayed re-post would be worse.
             .onKeyWindowCommand(.maughamNavigateToScene, window: window) { _ in
                 ManuscriptNavigation.go(
                     to: ManuscriptNavigation.destination(

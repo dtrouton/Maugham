@@ -2,11 +2,10 @@ import SwiftUI
 import MaughamCore
 import AppKit
 
-/// Focus-posture wiring (distraction-free chrome + WF1 review posture), pulled
-/// off `ProjectWindow.body` to keep the inline modifier chain under SwiftUI's
-/// body type-check ceiling (the extracted-ViewModifier pattern; see
-/// `Maugham/Views/AREA.md`). Handles ⌘\ no-chrome and ⌘⌥⇧R review (key-window
-/// only) and persists both flags to UIState.
+/// Focus-posture wiring (distraction-free chrome + review posture): ⌘\
+/// no-chrome and ⌘⌥⇧R review (key-window only), both flags persisted to
+/// UIState. Kept off `ProjectWindow.body` for the type-check ceiling
+/// (the extracted-ViewModifier pattern).
 struct FocusPostureModifier: ViewModifier {
     let window: NSWindow?
     let documentStore: DocumentStore?

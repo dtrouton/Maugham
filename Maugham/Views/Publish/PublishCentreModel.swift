@@ -2,29 +2,22 @@ import Foundation
 import Observation
 
 /// **What the Publish persona's centre column is showing, and the rules for
-/// changing it** (foundations plan 4 Task 2).
-///
-/// Four pieces of window-transient state used to sit on `ProjectWindow` as
-/// separate `@State` values, with the rule that a design proposal and a
-/// translation round clear each other written out at two closure sites. They
-/// live here now, with every write the window and `PublishPreviewModifier`
-/// make named as a method, so each rule has one home a test can reach without
-/// a window. `ProjectWindow.publishCentre(…)` — the static decision of which
-/// surface draws — still takes plain values; the window hands it this model's.
+/// changing it.** Every write the window and `PublishPreviewModifier` make
+/// is a named method, so each rule — above all, that a design proposal and
+/// a translation round clear each other — has one home a test can reach
+/// without a window. `ProjectWindow.publishCentre(…)`, the static decision
+/// of which surface draws, still takes plain values; the window hands it
+/// this model's.
 ///
 /// None of it is persisted. Each value's doc says why it is transient.
 @MainActor @Observable
 final class PublishCentreModel {
 
-    /// **The books the centre column can draw** (stage 3b Task 5, a list since
-    /// the 2026-08-12 revision gave the header a picker).
-    ///
-    /// A resolution rather than a `[Publication]` because the two ways of having
-    /// nothing to draw are different facts — never compiled, versus a catalog
-    /// that cannot be read — and the surface they share (the project at
-    /// altitude) must not be what erases the difference: each carries its own
-    /// notice. Written by `publishSelection(after:)`, which `PublishPreviewModifier`
-    /// calls; nothing here polls.
+    /// **The books the centre column can draw.** A resolution rather than a
+    /// `[Publication]` because the two ways of having nothing to draw — never
+    /// compiled, versus a catalog that cannot be read — are different facts,
+    /// each with its own notice. Written by `publishSelection(after:)`, which
+    /// `PublishPreviewModifier` calls; nothing here polls.
     var preview: PublishPreviewResolution = .nothingCompiled
 
     /// **Which of them the writer is looking at, by `publicationID`** — `nil` is
@@ -35,23 +28,16 @@ final class PublishCentreModel {
     /// writes it directly through a binding.
     var selectedPublicationID: String?
 
-    /// **The design proposal the department desk's Show put in the centre**
-    /// (publish-department P4 Task 5), or `nil` for the book.
-    ///
-    /// The whole value rather than an id: the desk read it off disk to draw its
-    /// own Design row and hands up what it already has, so nothing here reads
-    /// `.maugham/design/` a second time and the gate cannot disagree with the
-    /// row that opened it. Cleared on any persona change (`clearDecisions`) — a
-    /// gate is a place in a decision, and leaving Publish is leaving it.
+    /// **The design proposal the department desk's Show put in the centre**, or
+    /// `nil` for the book. The whole value rather than an id: the desk already
+    /// read it off disk, so nothing here reads `.maugham/design/` a second time
+    /// and the gate cannot disagree with the row that opened it. Cleared on any
+    /// persona change (`clearDecisions`) — a gate is a place in a decision.
     private(set) var selectedProposal: DesignProposalStore.Proposal?
 
-    /// **The translation round the desk sent to the centre** (translation
-    /// pipeline P4), beside the design proposal above. The whole value for
-    /// `selectedProposal`'s reason: the desk derived it to draw the row's own
-    /// line, so nothing here reads `TranslationRoundStore` a second time.
-    ///
-    /// Drawn by `PublishCentre.translationRound`, which outranks the gate; and
-    /// cleared on a persona change exactly as the proposal is.
+    /// **The translation round the desk sent to the centre.** The whole value
+    /// for `selectedProposal`'s reason. Drawn by `PublishCentre.translationRound`,
+    /// which outranks the gate; cleared on a persona change as the proposal is.
     private(set) var selectedRound: TranslationRound?
 
     // MARK: - The desk's two Shows
@@ -83,13 +69,10 @@ final class PublishCentreModel {
     func clearRound() { selectedRound = nil }
 
     /// **A persona change lets both decisions go and keeps the book's pick.**
-    ///
-    /// The asymmetry is the point. The publication pick is a place in a
-    /// *reading* — Denver's ruling keeps it across a walk out of Publish and
-    /// back. The gate and the report are places in a *decision*: the writer
-    /// entered by pressing Show and a persona change is them leaving. Coming
-    /// back to Publish should show the book, and pressing Show again is one
-    /// click.
+    /// The asymmetry is the point: the publication pick is a place in a
+    /// *reading* (Denver's ruling keeps it across a walk out of Publish), while
+    /// the gate and the report are places in a *decision* the writer leaves by
+    /// changing persona.
     func clearDecisions() {
         selectedProposal = nil
         selectedRound = nil
@@ -99,11 +82,9 @@ final class PublishCentreModel {
 
     /// **Adopt a fresh resolution of the catalog, taking the writer's manual
     /// pick away when the NEWEST publication changed** (Denver, 2026-08-12:
-    /// *"a NEW compile snaps the preview back to the newest"*).
-    ///
-    /// The reset is keyed on the newest book changing rather than on the
-    /// refresh happening, so walking out of Publish and back keeps whatever the
-    /// writer was looking at — a refresh is not news, a new book is.
+    /// *"a NEW compile snaps the preview back to the newest"*). Keyed on the
+    /// newest book changing, not on the refresh — a refresh is not news, a new
+    /// book is.
     func publishSelection(after compiled: PublishPreviewResolution) {
         if compiled.publication?.publicationID
             != preview.publication?.publicationID {
@@ -131,36 +112,24 @@ final class PublishCentreModel {
                                               showing: selectedRound)
     }
 
-    /// **A gate verb's answer, adopted only if it is about the round on
-    /// screen** (the final-review wave).
-    ///
-    /// A verb answers from a `Task` that outlives the press: a promotion is file
-    /// I/O over the writer's whole template set, and they are free to press Back
-    /// — or Show a different round on the desk — while it runs. Writing the
-    /// answer in unconditionally would then put the OLD proposal into the centre
-    /// column, reopening a gate the writer closed or replacing the round they
-    /// had just opened, both of them a frame after they acted.
-    ///
-    /// A static rather than a guard inside the method because it is a rule
-    /// about which of two values wins, and the tests reach it as one.
+    /// **A gate verb's answer, adopted only if it is about the proposal on
+    /// screen.** A verb answers from a `Task` that outlives the press, and the
+    /// writer may press Back or Show a different round meanwhile; writing the
+    /// answer unconditionally would reopen a gate they closed or replace the
+    /// round they just opened. A static because it is a rule about which of two
+    /// values wins, and the tests reach it as one.
     static func publishSelection(after updated: DesignProposalStore.Proposal,
                                  showing current: DesignProposalStore.Proposal?)
     -> DesignProposalStore.Proposal? {
         current?.id == updated.id ? updated : current
     }
 
-    /// **The same rule for a round's verb** (translation pipeline P4 Task 3),
-    /// and the same argument: "Fine" and "Adopt" answer from a `Task` that
-    /// outlives the press, and the writer is free to press Back — or Show a
-    /// different round, or the design gate — while it runs.
-    ///
-    /// A round has no `id`; it is identified by `(language, number)`, which is
-    /// what `TranslationRoundStore` keys its ring on. Written out here rather
-    /// than as an `Equatable` conformance on the record, because two rounds with
-    /// the same number in the same language ARE the same round at two moments —
-    /// which is exactly the case this write-back exists for — while
-    /// `TranslationRound: Equatable` is a value comparison the store and the
-    /// tests depend on.
+    /// **The same rule for a round's verb**, by the same argument. A round has
+    /// no `id`; it is identified by `(language, number)`, the key of
+    /// `TranslationRoundStore`'s ring. Spelled here rather than as an
+    /// `Equatable` conformance: two rounds with the same number in the same
+    /// language ARE the same round at two moments, while `TranslationRound:
+    /// Equatable` is a value comparison the store and the tests depend on.
     static func publishSelection(after updated: TranslationRound,
                                  showing current: TranslationRound?)
     -> TranslationRound? {

@@ -3,8 +3,7 @@ import MaughamCore
 import AppKit
 
 /// Owns the .maughamOpenRewind notification listener and the RewindWindow
-/// sheet. Extracted into its own modifier to stay within Swift's type-checker
-/// expression limit in ProjectWindow.body.
+/// sheet, kept out of `ProjectWindow.body` for the type-check ceiling.
 struct RewindModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
@@ -61,13 +60,11 @@ struct RewindModifier: ViewModifier {
             }
             .onProjectEvent(.maughamDocumentNotice,
                             url: store?.url ?? url, window: window) { note in
-                // The Document's one writer-facing channel (RULING-7,
-                // RULING-22, RULING-32) rendered in the toast this modifier
-                // already owns, rather than a second overlay that could stack
-                // with a restore report. The message is composed at the post
-                // site; the view only shows it. No Revert — none of these
-                // notices has an action, and a stale manager from an earlier
-                // restore must not be left armed behind one.
+                // The Document's one writer-facing channel (RULING-7, RULING-22,
+                // RULING-32), rendered in this modifier's own toast rather than a
+                // second overlay that could stack with a restore report. No Revert —
+                // none of these notices has an action, and a stale manager from an
+                // earlier restore must not be left armed behind one.
                 guard let message =
                     note.userInfo?[MaughamEvent.noticeMessageKey] as? String,
                       !message.isEmpty else { return }
@@ -126,12 +123,9 @@ struct RewindModifier: ViewModifier {
                             .maughamCheckpointAdded, to: .project(for: store.url))
                     case .restoreHere(let opId):
                         Task { @MainActor in
-                            // The result is RENDERED, not discarded (RULING-28's
-                            // after half — this `_ =` discard was the defect the
-                            // type's own doc comment described): the toast
-                            // reports what the restore actually did, and a
-                            // `.nearest` resolution carries Revert right in the
-                            // notice (RULING-27, the clause Denver added).
+                            // The result is RENDERED, never discarded (RULING-28's after
+                            // half): the toast reports what the restore did, and a
+                            // `.nearest` resolution carries Revert in the notice (RULING-27).
                             let result: RewindRestoreResult
                             do {
                                 guard let restored = try await documentStore
@@ -140,8 +134,8 @@ struct RewindModifier: ViewModifier {
                                 else { return }
                                 result = restored
                             } catch is Document.PostureRefusal {
-                                // The restore door refused (C1): a sheet drawn
-                                // before a demotion landed. Said, not swallowed.
+                                // The restore door refused: a sheet drawn before a demotion
+                                // landed. Said, not swallowed.
                                 restoreToast = RewindWindow.refusedRestoreSentence
                                 restoreToastOffersRevert = false
                                 return
@@ -149,11 +143,9 @@ struct RewindModifier: ViewModifier {
                                 return
                             }
                             restoreToast = RewindImpact.toast(for: result)
-                            // Revert is the surfaced undo — offered only when
-                            // the restore actually registered one. A .nearest
-                            // resolution that changed nothing has no undo, and
-                            // a Revert that pops the writer's own typing stack
-                            // would be silent prose loss (branch review).
+                            // Revert is the surfaced undo — offered only when the restore
+                            // actually registered one. A Revert that pops the writer's own
+                            // typing stack would be silent prose loss.
                             if case .nearest = result.targetResolution,
                                result.restoreOp != nil {
                                 restoreToastOffersRevert = true

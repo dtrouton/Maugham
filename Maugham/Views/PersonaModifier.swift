@@ -2,17 +2,15 @@ import SwiftUI
 import MaughamCore
 import AppKit
 
-/// Persona switching. Extracted so ProjectWindow.body's modifier chain gains
-/// exactly one expression — the chain is at the SwiftUI type-checker ceiling
-/// and three sibling modifiers exist because inlining broke the Release build.
+/// Persona switching, as one modifier so `ProjectWindow.body`'s chain (at the
+/// Release type-check ceiling) gains exactly one expression.
 struct PersonaModifier: ViewModifier {
     @Binding var persona: Persona
     @Binding var detailSegment: DetailSegment
     @Binding var showInspector: Bool
-    // **No wall bindings here since the final review's I3 fix.** They were
-    // written by one arm of the ⌘1–⌘4 handler and nothing else; leaving them
-    // threaded in would invite a second wall rule beside the one observer that
-    // now owns the question (`PaletteWallState.closePaletteWallOnPersonaChange`).
+    // No wall bindings here: the one wall rule is the persona observer
+    // `PaletteWallState.closePaletteWallOnPersonaChange`, and threading them
+    // in would invite a second.
     /// `CanvasCollapseModifier`'s pre-collapse visibility stash. Written here
     /// only to DROP it — see `releasesCanvasCollapse(from:to:stash:)`.
     @Binding var inspectorWasVisibleBeforeCanvasCollapse: Bool?
@@ -37,18 +35,9 @@ struct PersonaModifier: ViewModifier {
     ///
     /// A persona switch is a WORKSPACE switch: the departing persona's pane
     /// selection is snapshotted, and the destination's is restored (its own
-    /// default the first time). The earlier rule — keep whatever segment the
-    /// destination also offers — is what stranded the binder on Research after
-    /// ⌘1 then ⌘2 (2026-07-25 smoke, defect B): Author offered Research, so
-    /// nothing ever moved it back.
-    ///
-    /// **It carried the LEFT column too, until shell-finish stage 2b Task 7.**
-    /// There is nothing left to carry: every persona's left column is the
-    /// project's own tree, so a switch cannot move it and cannot strand anyone
-    /// on it. The transient exception went with it — `.find` and `.trash` were
-    /// segments a writer had to be allowed to ride through a switch, and both
-    /// are window state now (the find overlay, the trash foot disclosure) which
-    /// no persona change touches at all.
+    /// default the first time). Keeping whatever segment the destination also
+    /// offers strands the writer (2026-07-25 smoke, defect B). The left column
+    /// is the project's own tree in every persona, so a switch never moves it.
     static func applyPersonaChange(to persona: Persona,
                                    from currentPersona: Persona,
                                    currentSegment: DetailSegment,
@@ -65,38 +54,25 @@ struct PersonaModifier: ViewModifier {
         return Persona(rawValue: raw)
     }
 
-    // **The wall's own arm left this handler in the final review's I3 fix.**
-    // `clearsPaletteWallStash` asked whether a persona change was entering Plan
-    // with the wall open, and it could only ever be asked HERE — of the ⌘1–⌘4
-    // handler — while two other writers move the persona without passing
-    // through it (`CanvasClaudeArrivalModifier.show`,
-    // `ManuscriptNavigation.go`). Its successor is
-    // `PaletteWallState.closePaletteWallOnPersonaChange`, observed on the persona
-    // itself in `PaletteWallModifier`, which covers all three by construction
-    // and every destination rather than Plan alone. It drops the stash for the
-    // same ordering reason this one did — see its doc comment.
+    // The palette wall's persona rule is not here: it is observed on the
+    // persona itself (`PaletteWallState.closePaletteWallOnPersonaChange` in
+    // `PaletteWallModifier`), because two other writers move the persona
+    // without passing through this handler (`CanvasClaudeArrivalModifier
+    // .show`, `ManuscriptNavigation.go`).
 
     /// True when a persona change moves the binder OFF the canvas *while a
     /// `⌘\` collapse is in force* — the case where `CanvasCollapseModifier`'s
     /// stash must be dropped and the sidebar handed back, here, synchronously.
     ///
-    /// **The same ordering hazard as the palette's, one surface over.** That
-    /// modifier's own `.onChange` fires in a LATER update pass than this
+    /// **The same ordering hazard as the palette's, one surface over.**
+    /// `CanvasCollapseModifier`'s `.onChange` fires a pass LATER than this
     /// handler, so its release arm would restore the stashed visibility *over*
-    /// the `showInspector = true` below — a writer who had closed the inspector
-    /// before collapsing would land in the new persona with it closed, unlike
-    /// every other persona-switch path. Doing both halves here rather than
-    /// deferring the force-open by a pass is what makes that arm a no-op instead
-    /// of a race, which is the fragility tripwire 2 is about.
+    /// the `showInspector = true` below. Doing both halves here makes that arm
+    /// a no-op instead of a race — tripwire 2.
     ///
-    /// **The predicate rather than `== .plan`, since slice 2, and asked of the
-    /// PERSONA since stage 2b Task 6.** The board is Plan's centre column, so
-    /// what "leaving the canvas" means is leaving Plan — and a rule that named
-    /// the persona would be claiming the collapse belongs to a mode rather than
-    /// to the column that draws the board. Task 7 dropped the two segment
-    /// arguments that stood beside these: while the strip existed, Plan's
-    /// Palette tab was Plan with no board in front of the writer, and there is
-    /// no such state now.
+    /// **The predicate rather than `== .plan`**: leaving the canvas means
+    /// leaving the persona whose centre is the board; a persona name would
+    /// claim the collapse belongs to a mode rather than to the column.
     ///
     /// **Guarded on the stash rather than on the personas alone**, so a persona
     /// switch off an *uncollapsed* canvas reopens nothing: the writer may have
@@ -111,23 +87,13 @@ struct PersonaModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // **The window's working mode, published to the scene** for the
-            // File menu's two compiler items (`FocusedRunButtons`, two loops
-            // P3): Author's ⌘R is a check and Review's a round, so the menu
-            // titles them apart (`RunMenuTitles`). It is a TITLE and nothing
-            // else — what those items post never moved, because the `RunKind`
-            // is minted from the persona at the receiver, and a second read of
-            // the persona on the posting side would be one decision made in two
-            // places that can disagree.
-            //
-            // It lives on THIS modifier because the persona is this modifier's
-            // whole subject — it already owns the binding and is the one place
-            // the window's mode is written. Task 1 first hung it off
-            // `CanvasPromotionModifier`, which publishes to the same scene and
-            // takes the same value: that works, and it couples the File menu's
-            // wording to canvas plumbing for no reason that survives being
-            // written down. `RunMenuTitlesTests` censuses the publish site so
-            // there stays exactly one.
+            // **The window's working mode, published to the scene** for the File
+            // menu's two compiler items: Author's ⌘R is a check and Review's a
+            // round, so `RunMenuTitles` titles them apart. A TITLE and nothing else
+            // — the `RunKind` is minted from the persona at the receiver, and a
+            // second read on the posting side would be one decision made in two
+            // places. Here because the persona is this modifier's whole subject;
+            // `RunMenuTitlesTests` censuses the publish site so there stays one.
             .focusedSceneValue(\.persona, persona)
             .onKeyWindowCommand(.maughamSetPersona, window: window) { note in
                 guard let next = Self.persona(

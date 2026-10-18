@@ -3,10 +3,9 @@ import SwiftUI
 enum ProjectActiveSheet: Identifiable, Hashable {
     case projectSettings
     case claudeDesktop
-    /// **Translator's note…** (⌘⌥C, translation pipeline P2) — the paragraph
-    /// the sheet is about, resolved off the caret by the key-window handler
-    /// before the sheet exists. Carrying the `Target` rather than an id is
-    /// what keeps the sheet from re-reading a caret that has since moved.
+    /// **Translator's note…** (⌘⌥C) — the paragraph the sheet is about,
+    /// resolved off the caret before the sheet exists. Carrying the `Target`
+    /// rather than an id keeps the sheet from re-reading a moved caret.
     case translatorsNote(TranslatorsNote.Target)
     var id: Int { hashValue }
 }

@@ -1,12 +1,9 @@
 import SwiftUI
 
-/// The one-line outcome banner for a **translator's note** that could not be
-/// written (translation pipeline P2) — `restoreOutcome`'s alert, its own word.
-///
-/// Extracted as a `ViewModifier` for this file's standing reason:
-/// `ProjectWindow.body` sits at SwiftUI's type-checker ceiling, and an
-/// `.alert` with a derived `Binding` in line is exactly the shape that has
-/// pushed it over before.
+/// The one-line outcome alert for a **translator's note** that could not be
+/// written — `restoreOutcome`'s alert, its own word. A modifier because an
+/// `.alert` with a derived `Binding` inline has pushed `ProjectWindow.body`
+/// over the type-check ceiling before.
 @MainActor
 struct NoteOutcomeAlert: ViewModifier {
     @Binding var outcome: String?

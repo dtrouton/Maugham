@@ -54,7 +54,7 @@ private struct DetailColumnCensusHarness: View {
                                                    readingMinutes: 0),
                               onOpenProjectSettings: {}, posture: .author)
             }
-            // The services arrive the way `ProjectWindow.inspectorPane`
+            // The services arrive the way `RightColumn.inspectorPane`
             // injects them (foundations plan 3, Task 5): a roster carrying
             // this harness's compiler, and the bible and declared world.
             .environment(roster)

@@ -120,7 +120,7 @@ enum PublishCentreNotice: Equatable {
 /// research preview and the book cannot come to scroll differently.
 ///
 /// **Opaque and full-frame on purpose.** This is the third layer of
-/// `ProjectWindow.manuscriptEditor`'s `ZStack` — `EditorHost` is still mounted
+/// `CentreColumn.manuscriptEditor`'s `ZStack` — `EditorHost` is still mounted
 /// underneath it (and the altitude view is too, since both are project-level),
 /// and anything translucent would read the corkboard through the page.
 ///
