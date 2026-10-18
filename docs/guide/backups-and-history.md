@@ -99,10 +99,12 @@ Before every backup, Maugham checks that the project's history is whole. If it i
 
 If none are found, the window says **No backups found** and offers **Show All Backups**, which lists every backup in your backup folders by its project's title, so you can pick the right one yourself. This helps when a project's settings file was lost and its own backups can't be matched to it.
 
-If a project's settings file (`project.maugham.json`) goes missing but Maugham's safety copy of it is intact, the project still opens. Maugham puts the file back and says once: *"This project's settings file was missing, so Maugham put it back from its safety copy."*
+Choose a backup and press **Restore a Copy…**. Maugham asks you to choose a folder: *"Choose a folder to restore a copy of this project into. Maugham names the copy itself."* Press **Restore Here**. The copy is called *<project> (restored)*, or *<project> (restored 2)*, *(restored 3)* and so on if that name is taken, so it never lands on top of anything. Maugham shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need.
 
-Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. If you choose a name that's already taken, Maugham restores nothing — even if you pressed **Replace**, the window says *Restore failed:* and explains: *"Something named “<name>” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."*
+The restored copy is a separate book. It gets its own backups, kept in their own folder and counted against Keep on their own, so backing up one never clears the other's.
 
 If the restore goes wrong, the window says *Restore failed:* and gives the reason.
 
 The same window opens from **Restore from Backup…** in a document that won't open (see [Troubleshooting: a document that won't open](getting-started.md#troubleshooting-a-document-that-wont-open)), and from the paused-backups banner.
+
+If a project's settings file (`project.maugham.json`) goes missing but Maugham's safety copy of it is intact, the project still opens. Maugham puts the file back and says once: *"This project's settings file was missing, so Maugham put it back from its safety copy."*

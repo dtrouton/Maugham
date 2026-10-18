@@ -98,12 +98,20 @@ struct RestoreWindow: View {
     private func restore() {
         guard let dir = selection,
               let gen = generations.first(where: { $0.directory == dir }) else { return }
-        let panel = NSSavePanel()
-        panel.message = "Choose where to restore a copy of this project."
-        panel.nameFieldStringValue = projectURL.lastPathComponent + " (restored)"
+        // A FOLDER, never a name (#92.3): Maugham names the copy itself, so no
+        // name can be taken and the system's Replace? is never offered.
+        let panel = NSOpenPanel()
+        RestoreFolderPanel.configuration.apply(to: panel)
         panel.directoryURL = projectURL.deletingLastPathComponent()
-        guard panel.runModal() == .OK, let target = panel.url else { return }
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let base = showingAll ? (titles[dir] ?? projectURL.lastPathComponent) : projectURL.lastPathComponent
+        let name = RestoreCopyName.name(for: base) { taken in
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent(taken).path)
+        }
+        let target = folder.appendingPathComponent(name, isDirectory: true)
         do {
+            // A backstop now: the name was chosen free, but something could
+            // arrive between the check and the copy.
             try RestoreTarget.clearPlaceholder(at: target)
             let restored = try BackupRestore.restoreBeside(gen, to: target)
             NSWorkspace.shared.activateFileViewerSelecting([restored])
@@ -114,9 +122,53 @@ struct RestoreWindow: View {
     }
 }
 
-/// What a restore may do with the name the save panel returned. The panel can
-/// leave an EMPTY placeholder at the target, and `restoreBeside` refuses an
-/// existing target, so an empty folder is removed. Anything
+/// The Restore window's folder panel, as a value a test can compare — no test
+/// allocates a panel (CLAUDE.md, `AddFilePanelConfiguration`'s shape).
+struct RestoreFolderPanel: Equatable {
+    let canChooseFiles: Bool
+    let canChooseDirectories: Bool
+    let canCreateDirectories: Bool
+    let allowsMultipleSelection: Bool
+    let prompt: String
+    let message: String
+
+    static let configuration = RestoreFolderPanel(
+        canChooseFiles: false,
+        canChooseDirectories: true,
+        canCreateDirectories: true,
+        allowsMultipleSelection: false,
+        prompt: "Restore Here",
+        message: "Choose a folder to restore a copy of this project into. Maugham names the copy itself.")
+
+    func apply(to panel: NSOpenPanel) {
+        panel.canChooseFiles = canChooseFiles
+        panel.canChooseDirectories = canChooseDirectories
+        panel.canCreateDirectories = canCreateDirectories
+        panel.allowsMultipleSelection = allowsMultipleSelection
+        panel.prompt = prompt
+        panel.message = message
+    }
+}
+
+/// **What a restored copy is called** (#92.3, Denver's ruling): *"<project>
+/// (restored)"*, then *"(restored 2)"*, *"(restored 3)"*…, never a name
+/// already taken in the chosen folder. Pure: `isTaken` is the folder's answer.
+enum RestoreCopyName {
+    static func name(for project: String, isTaken: (String) -> Bool) -> String {
+        let base = project.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let first = "\(base) (restored)"
+        guard isTaken(first) else { return first }
+        var n = 2
+        while isTaken("\(base) (restored \(n))") { n += 1 }
+        return "\(base) (restored \(n))"
+    }
+}
+
+/// What a restore may do with a target that is already there — a BACKSTOP
+/// since #92.3, when the window stopped asking for a name and began choosing a
+/// free one (`RestoreCopyName`). `restoreBeside` refuses an existing target,
+/// so an empty folder is removed. Anything
 /// with content is refused: a writer who picked an existing folder's name and
 /// pressed Replace must never lose that folder (issue #56 finding — the old
 /// code removed whatever was there, the open project included).

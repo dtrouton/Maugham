@@ -71,6 +71,36 @@ public enum BackupRestore {
         for sidecar in [BackupWriter.manifestName, BackupSignature.signatureName] {
             try? fm.removeItem(at: target.appendingPathComponent(sidecar))
         }
+        renewIdentity(in: target)
         return target
+    }
+
+    /// **A restored copy is its own book** (#92, Denver's ruling): a fresh
+    /// `ProjectManifest.id` in the copy's manifest AND its shadow, so its
+    /// backups go to their own folder (and are pruned on their own count) and
+    /// the phone, which keys captures and recents on the id, never confuses the
+    /// two. Nothing in the signed op log, the register or permits names this id.
+    ///
+    /// Never fails a restore over identity. A manifest this build can't decode
+    /// (too new, or damaged in the generation) is left exactly as it was; where
+    /// only the shadow decodes, the shadow alone takes the new id, and the
+    /// copy's first open repairs the manifest from it.
+    static func renewIdentity(in target: URL) {
+        let manifestURL = target.appendingPathComponent(ProjectManifest.fileName)
+        if let data = try? Data(contentsOf: manifestURL),  // adr-0018-ok: restored copy's manifest JSON, not manuscript
+           var manifest = try? ProjectManifest.decodeGuardingSchema(data) {
+            manifest.id = ULID.generate()
+            guard let fresh = try? ProjectManifest.makeEncoder().encode(manifest),
+                  (try? fresh.write(to: manifestURL, options: .atomic)) != nil else { return }
+            try? ManifestShadow.write(fresh, in: target)
+            return
+        }
+        if let shadow = ManifestShadow.recover(in: target),
+           var manifest = try? ProjectManifest.decodeGuardingSchema(shadow) {
+            manifest.id = ULID.generate()
+            if let fresh = try? ProjectManifest.makeEncoder().encode(manifest) {
+                try? ManifestShadow.write(fresh, in: target)
+            }
+        }
     }
 }

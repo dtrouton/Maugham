@@ -267,4 +267,29 @@ final class BackupCoordinatorTests: XCTestCase {
         XCTAssertEqual(all.map(\.id), ["01B", "01A"])
         XCTAssertEqual(all.map { BackupCoordinator.title(of: $0) }, ["Beta", "Alpha"])
     }
+
+    // MARK: - #92.2: a restored copy's backups never touch the original's
+
+    func test_aRestoredCopyBacksUpUnderItsOwnKeyAndLeavesTheOriginalsAlone() async throws {
+        let proj = try tempProjectWithOps()
+        let data = try writeManifest(id: "proj-ORIG", into: proj)
+        try ManifestShadow.write(data, in: proj)
+        let dest = destDir()
+        let coordinator = BackupCoordinator()
+        // Keep 1: if the copy shared the original's folder, its backup would
+        // prune the original's only generation.
+        coordinator.destinations = [BackupDestination(url: dest, retention: 1)]
+        await coordinator.backupNow(projectURL: proj, generationId: "01ORIG", at: Date(timeIntervalSince1970: 1))
+
+        let gen = try XCTUnwrap(coordinator.generations(forProject: proj).first)
+        let copy = try BackupRestore.restoreBeside(
+            gen, to: TestTemp.root.appendingPathComponent("Copy (restored)"))
+        XCTAssertNotEqual(BackupCoordinator.projectKey(for: copy), BackupCoordinator.projectKey(for: proj))
+
+        try "more words\n".write(to: copy.appendingPathComponent("extra.md"), atomically: true, encoding: .utf8)
+        await coordinator.backupNow(projectURL: copy, generationId: "02COPY", at: Date(timeIntervalSince1970: 2))
+
+        XCTAssertEqual(coordinator.generations(forProject: proj).map(\.id), ["01ORIG"])
+        XCTAssertEqual(coordinator.generations(forProject: copy).map(\.id), ["02COPY"])
+    }
 }
