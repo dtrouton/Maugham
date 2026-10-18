@@ -20,6 +20,14 @@ final class RestoreTargetTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: target.path))
     }
 
+    func test_aFolderHoldingOnlyFinderMetadataIsCleared() throws {
+        let target = TestTemp.root.appendingPathComponent("Novel (restored)")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data([0, 0, 0, 1]).write(to: target.appendingPathComponent(".DS_Store"))
+        try RestoreTarget.clearPlaceholder(at: target)
+        XCTAssertFalse(fm.fileExists(atPath: target.path))
+    }
+
     func test_anEmptyPlaceholderFileIsCleared() throws {
         let target = TestTemp.root.appendingPathComponent("Novel (restored)")
         XCTAssertTrue(fm.createFile(atPath: target.path, contents: Data()))

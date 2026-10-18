@@ -107,7 +107,10 @@ enum RestoreTarget {
         guard fm.fileExists(atPath: target.path, isDirectory: &isDirectory) else { return }
         let isEmpty: Bool
         if isDirectory.boolValue {
-            isEmpty = ((try? fm.contentsOfDirectory(atPath: target.path)) ?? ["?"]).isEmpty
+            // Finder may drop a `.DS_Store` into a folder it has shown; that is
+            // metadata, not the writer's content.
+            let contents = (try? fm.contentsOfDirectory(atPath: target.path)) ?? ["?"]
+            isEmpty = contents.filter { $0 != ".DS_Store" }.isEmpty
         } else {
             let size = (try? fm.attributesOfItem(atPath: target.path)[.size] as? NSNumber)?.intValue ?? -1
             isEmpty = size == 0
