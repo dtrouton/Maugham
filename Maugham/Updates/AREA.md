@@ -28,6 +28,8 @@ swapped in. There is no window between verify and install where a different bund
 be substituted.
 
 Other protections:
+- **Only this repo's release URL is requested.** `GitHubReleasesAPI.isTrustedAssetURL` admits exactly `https://github.com/dtrouton/Maugham/releases/download/<tag>/<asset.name>` (the release's own `tag_name`; no port, user, query or fragment), checked in `performCheck` after the asset guard and before the size check — a failure is `.untrustedAssetURL`, an error on a manual check and idle on a background poll. GitHub answers with a redirect to its asset CDN; that host is **not** allow-listed (it changed in 2025, and TLS plus the signature chain gate the bytes), but a redirect to a non-https URL is refused (`UpdateDownload.followsRedirect`, applied in `UpdateDownloadSession`) and fails as `.insecureRedirect`. For a zip-less release the `.dmg` is not verified in-app at all, so for it this URL check is the only in-app gate.
+- **A refused archive is not reused.** Every `InstallError` from staging (`unzipFailed`, `verifyFailed`) goes through `UpdateInstaller.discardRefusedArchive`, which deletes the stage folder AND the downloaded `Maugham-<ver>.zip` — the checker reuses a zip already at that path, so a bad one left there would be re-staged and re-refused on every later check. A transient refusal (spctl offline) costs one re-download; that is accepted.
 - **The download is capped** at `UpdateLimits.standard.maxDownloadBytes` (512 MB, ~17× a release today): an asset DECLARING more is refused before a byte is fetched (an error on a manual check, idle on a background poll), and a download RECEIVING more is cancelled and leaves no file.
 - Strict `>` version comparison (`UpdateChecker.swift`) prevents downgrade.
 - **A build this Mac cannot launch is not an update.** `release.yml` appends
@@ -147,6 +149,9 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | Download retry classifier, size cap, extension from the asset name | Yes (pure) | `UpdateDownloadTests` |
 | Download delegate path: completes into place / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
 | An asset declaring more than the cap is never downloaded | Yes (injected download closure) | `UpdateCheckerTests.test_anAsset*Cap*` |
+| Only this repo's release URL is trusted; an untrusted one is never downloaded | Yes (pure table; injected download closure) | `GitHubReleasesAPITests.test_onlyThisRepos*`; `UpdateCheckerTests.test_anUntrustedAssetURL*` |
+| Redirect policy (https only, any host) | Pure decision only — the delegate's redirect is not exercised offline | `UpdateDownloadTests.test_aRedirectIsFollowedOnlyToHttps` |
+| A refused zip is deleted with its stage folder | Yes (garbage / app-less zip under `TestTemp.root`, real `ditto`) | `UpdateInstallerTests.test_aZip*IsDeleted*` |
 | Running-app Team ID (real signed build) | No — ad-hoc test host returns nil; proven in dry-run | `test_runningAppTeamID_doesNotCrash` (smoke only) |
 | **Detached helper actually replaces the running app and relaunches** | **NO — cannot be unit-tested** | See below |
 
@@ -170,12 +175,12 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 
 | File | Purpose |
 |---|---|
-| `UpdateInstaller.swift` | Verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), helper script generation, Team ID extraction |
-| `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
-| `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` (resuming from its resume data) or an HTTP 5xx, progress kept monotonic across it, cancelled past the cap (a Swift-Task cancel that lands before the task exists cancels it instead of resuming it); the extension comes from the asset's name |
+| `UpdateInstaller.swift` | Stage-and-verify (every refusal deletes the zip too, `discardRefusedArchive`), verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), helper script generation, Team ID extraction |
+| `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the trusted-URL check and the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
+| `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` (resuming from its resume data) or an HTTP 5xx, progress kept monotonic across it, cancelled past the cap (a Swift-Task cancel that lands before the task exists cancels it instead of resuming it), a non-https redirect refused; the extension comes from the asset's name |
 | `UpdateLimits.swift` | The updater's size ceilings (`UpdateLimits.standard`; `maxDownloadBytes` 512 MB) |
 | `UpdateState.swift` | Enum of updater states (idle/checking/downloading/readyToInstall/installing/error/upToDate) |
-| `GitHubReleasesAPI.swift` | GitHub Releases JSON decode; `zipAsset` preferred over `dmgAsset` |
+| `GitHubReleasesAPI.swift` | GitHub Releases JSON decode; `zipAsset` preferred over `dmgAsset`; `owner`/`repo` and `isTrustedAssetURL` |
 | `UpdateBannerView.swift` | In-window toast ("Maugham X.Y.Z is ready") |
 | `UpdateSheet.swift` | Sheet variant of the install UI |
 | `UpdateMenuCommand.swift` | Menu bar entry (title derived from `UpdateState`) |

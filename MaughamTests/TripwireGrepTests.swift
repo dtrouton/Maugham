@@ -161,8 +161,9 @@ final class TripwireGrepTests: XCTestCase {
             // Comment lines — tripwire explanation comments are fine.
             if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
             // GitHubReleasesAPI: repo name is constant across variants (both
-            // stable and dev update from dtrouton/Maugham on GitHub).
-            if trimmed.contains("repo:") && trimmed.contains("\"Maugham\"") { return true }
+            // stable and dev update from dtrouton/Maugham on GitHub). Hoisted
+            // to `static let repo` so the trusted-URL check shares it (#67).
+            if trimmed == "public static let repo = \"Maugham\"" { return true }
             return false
         }
 

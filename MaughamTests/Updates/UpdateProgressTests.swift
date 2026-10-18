@@ -22,7 +22,7 @@ final class UpdateProgressTests: XCTestCase {
         let json = """
         {"tag_name":"v\(version)","name":"x","body":"\(body)","draft":false,"prerelease":false,
          "assets":[{"name":"Maugham-\(version).zip",
-                    "browser_download_url":"https://example/Maugham-\(version).zip",
+                    "browser_download_url":"https://github.com/dtrouton/Maugham/releases/download/v\(version)/Maugham-\(version).zip",
                     "size":100}]}
         """
         return try! GitHubRelease.decode(from: Data(json.utf8))

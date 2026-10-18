@@ -37,7 +37,7 @@ final class UpdateCheckerTests: XCTestCase {
         let json = """
         {"tag_name":"v\(version)","name":"x","body":"\(body)","draft":false,"prerelease":false,
          "assets":[{"name":"Maugham-\(version).zip",
-                    "browser_download_url":"https://example/Maugham-\(version).zip",
+                    "browser_download_url":"https://github.com/dtrouton/Maugham/releases/download/v\(version)/Maugham-\(version).zip",
                     "size":100}]}
         """
         return try! GitHubRelease.decode(from: Data(json.utf8))
@@ -135,7 +135,7 @@ final class UpdateCheckerTests: XCTestCase {
         let json = """
         {"tag_name":"v\(version)","name":"x","body":"notes","draft":false,"prerelease":false,
          "assets":[{"name":"Maugham-\(version).zip",
-                    "browser_download_url":"https://example/Maugham-\(version).zip",
+                    "browser_download_url":"https://github.com/dtrouton/Maugham/releases/download/v\(version)/Maugham-\(version).zip",
                     "size":\(assetSize)}]}
         """
         return try! GitHubRelease.decode(from: Data(json.utf8))
@@ -178,6 +178,42 @@ final class UpdateCheckerTests: XCTestCase {
             downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL })
         await checker.performCheck(trigger: .manual)
         XCTAssertTrue(downloaded)
+    }
+
+    // MARK: - Only this repo's release URL (#67 F14)
+
+    private func release(version: String, assetURL: String) -> GitHubRelease {
+        let json = """
+        {"tag_name":"v\(version)","name":"x","body":"notes","draft":false,"prerelease":false,
+         "assets":[{"name":"Maugham-\(version).zip",
+                    "browser_download_url":"\(assetURL)",
+                    "size":100}]}
+        """
+        return try! GitHubRelease.decode(from: Data(json.utf8))
+    }
+
+    func test_anUntrustedAssetURLIsNeverDownloaded_manual() async {
+        var downloaded = false
+        let checker = makeChecker(
+            fetch: { self.release(version: "0.2.0", assetURL: "https://example/Maugham-0.2.0.zip") },
+            downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL })
+        await checker.performCheck(trigger: .manual)
+        XCTAssertFalse(downloaded, "nothing may be fetched from a URL that isn't this repo's release")
+        XCTAssertEqual(checker.state,
+                       .error(GitHubReleasesAPI.Error.untrustedAssetURL.localizedDescription))
+        XCTAssertNil(checker.pendingQuitInstall)
+    }
+
+    func test_anUntrustedAssetURLIsNeverDownloaded_background() async {
+        var downloaded = false
+        let checker = makeChecker(
+            fetch: { self.release(
+                version: "0.2.0",
+                assetURL: "https://github.com/dtrouton/Maugham/releases/download/v0.1.9/Maugham-0.2.0.zip") },
+            downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL })
+        await checker.performCheck(trigger: .background)
+        XCTAssertFalse(downloaded, "another release's tag is not this release's URL")
+        XCTAssertEqual(checker.state, .idle)
     }
 
     // MARK: - A build this Mac cannot run is not an update

@@ -10,6 +10,9 @@ public enum UpdateDownloadError: Error, LocalizedError, Equatable {
     /// The server answered with a non-success HTTP status (a 404 page is not
     /// an update archive).
     case badStatus(Int)
+    /// The server redirected the download to a URL that is not https. The
+    /// redirect is not followed and nothing is kept.
+    case insecureRedirect
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +22,8 @@ public enum UpdateDownloadError: Error, LocalizedError, Equatable {
             return "The update is \(f.string(fromByteCount: bytes)), more than the \(f.string(fromByteCount: limit)) Maugham will download."
         case .badStatus(let code):
             return "The update server answered with an error (HTTP \(code))."
+        case .insecureRedirect:
+            return "The update server sent the download somewhere that isn't secure (not https)."
         }
     }
 }
@@ -99,6 +104,14 @@ public enum UpdateDownload {
             mark = value
             return true
         }
+    }
+
+    /// The redirect policy, pure: follow a redirect only to an https URL. The
+    /// target HOST is deliberately not checked — GitHub moved its asset CDN in
+    /// 2025, and TLS plus the signature chain gate the bytes; the strict check
+    /// is on the URL we request (`GitHubReleasesAPI.isTrustedAssetURL`).
+    public static func followsRedirect(to url: URL?) -> Bool {
+        url?.scheme?.lowercased() == "https"
     }
 
     /// The archive's extension, from the asset's NAME (the URL path is the
@@ -275,8 +288,11 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
         }
     }
 
-    /// The hook point for the redirect policy. Today every redirect is
-    /// followed, as `URLSession` does by default.
+    /// The redirect policy (`UpdateDownload.followsRedirect`): a non-https
+    /// target is refused. Answering nil makes the task finish with the 3xx
+    /// response itself; the recorded refusal outranks whatever that produces,
+    /// so it surfaces as `.insecureRedirect` and the redirect body is never
+    /// kept as if it were the archive.
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -284,6 +300,13 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
         newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
+        guard UpdateDownload.followsRedirect(to: request.url) else {
+            lock.lock()
+            if refusal == nil { refusal = UpdateDownloadError.insecureRedirect }
+            lock.unlock()
+            completionHandler(nil)
+            return
+        }
         completionHandler(request)
     }
 

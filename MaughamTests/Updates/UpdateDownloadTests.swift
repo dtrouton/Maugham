@@ -108,6 +108,23 @@ final class UpdateDownloadTests: XCTestCase {
                        "only the two kinds the updater handles are ever produced")
     }
 
+    // MARK: - Redirects: https only, any host (#67 F14)
+
+    func test_aRedirectIsFollowedOnlyToHttps() {
+        XCTAssertTrue(UpdateDownload.followsRedirect(to: URL(string:
+            "https://release-assets.githubusercontent.com/github-production-release-asset/1/2")))
+        XCTAssertTrue(UpdateDownload.followsRedirect(to: URL(string: "HTTPS://cdn.example.net/a.zip")),
+                      "the host is deliberately not allow-listed")
+        XCTAssertFalse(UpdateDownload.followsRedirect(to: URL(string: "http://release-assets.githubusercontent.com/a")))
+        XCTAssertFalse(UpdateDownload.followsRedirect(to: URL(string: "ftp://example.net/a.zip")))
+        XCTAssertFalse(UpdateDownload.followsRedirect(to: nil))
+    }
+
+    func test_anInsecureRedirectIsNeitherTransientNorSilent() {
+        XCTAssertFalse(UpdateDownload.isTransient(UpdateDownloadError.insecureRedirect))
+        XCTAssertNotNil(UpdateDownloadError.insecureRedirect.errorDescription)
+    }
+
     // MARK: - The real delegate path, offline
 
     private func source(bytes: Int) throws -> URL {

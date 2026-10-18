@@ -106,7 +106,12 @@ update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). If
 revealing the `.dmg` in Finder instead — that fallback path is **not** in-app
 verified; the `.dmg` is Gatekeeper-verified on launch, the same as any downloaded
 app, not by `UpdateInstaller`. The verify/stage Process work runs off the main
-actor. See `docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
+actor. The updater requests an archive only from this repo's own release URL
+(`https://github.com/dtrouton/Maugham/releases/download/<tag>/<asset>`, so asset names
+and tags must stay as `release.yml` publishes them) and refuses a non-https redirect; a
+zip that fails to unpack or verify is deleted, so the next check downloads it afresh.
+See `Maugham/Updates/AREA.md` (which supersedes
+`docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`).
 
 **Release configuration — After any change to `ProjectWindow.body` (or any large SwiftUI `body`),
 run a local Release build before tagging:**

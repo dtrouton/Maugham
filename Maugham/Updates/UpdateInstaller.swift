@@ -319,9 +319,25 @@ extension UpdateInstaller {
     }
 
     /// Synchronous worker. MUST be called off the main actor (see stageAndVerify).
+    ///
+    /// Every refusal (`InstallError`) goes through `discardRefusedArchive`, which
+    /// removes the staged folder AND the downloaded zip: the checker reuses a
+    /// zip already at `Maugham-<ver>.zip`, so a bad one left there would be
+    /// re-staged and re-refused on every later check, silently on a background
+    /// poll, and that version could never install. A new kind of refusal joins
+    /// as an `InstallError` case and gets the same cleanup.
     private static func stageAndVerifySync(zip: URL, version: String) throws -> URL {
         let stageDir = zip.deletingLastPathComponent()
             .appendingPathComponent("staged-\(version)", isDirectory: true)
+        do {
+            return try stageAndVerifyUnchecked(zip: zip, stageDir: stageDir)
+        } catch let refusal as InstallError {
+            discardRefusedArchive(zip: zip, stageDir: stageDir)
+            throw refusal
+        }
+    }
+
+    private static func stageAndVerifyUnchecked(zip: URL, stageDir: URL) throws -> URL {
         try? FileManager.default.removeItem(at: stageDir)
         try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
         let (code, _) = run("/usr/bin/ditto", ["-x", "-k", zip.path, stageDir.path])
@@ -336,9 +352,15 @@ extension UpdateInstaller {
         case .accept:
             return bundle
         case .reject(let reason):
-            try? FileManager.default.removeItem(at: stageDir)
             throw InstallError.verifyFailed(reason)
         }
+    }
+
+    /// The one cleanup for a refused archive: the staged folder and the zip it
+    /// came from, so the next check downloads afresh.
+    static func discardRefusedArchive(zip: URL, stageDir: URL) {
+        try? FileManager.default.removeItem(at: stageDir)
+        try? FileManager.default.removeItem(at: zip)
     }
 
     /// Launch the detached swap helper for a verified bundle. Returns false if it

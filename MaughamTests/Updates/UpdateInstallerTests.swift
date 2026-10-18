@@ -260,4 +260,68 @@ final class UpdateInstallerTests: XCTestCase {
         // Installed bundle is untouched.
         XCTAssertTrue(fm.fileExists(atPath: installed.path))
     }
+
+    // MARK: - A refused archive is not reused (#67 New-2)
+
+    /// The checker reuses a zip already at `Maugham-<ver>.zip`; a refused one
+    /// left there would be re-staged and re-refused on every later check. A
+    /// zip that will not unpack takes its stage folder AND itself with it.
+    func test_aZipThatWillNotUnpackIsDeletedWithItsStageFolder() async throws {
+        let updates = TestTemp.root.appendingPathComponent("Updates", isDirectory: true)
+        try FileManager.default.createDirectory(at: updates, withIntermediateDirectories: true)
+        let zip = updates.appendingPathComponent("Maugham-9.9.9.zip")
+        try Data("not a zip archive".utf8).write(to: zip)
+
+        do {
+            _ = try await UpdateInstaller.stageAndVerify(zip: zip, version: "9.9.9")
+            XCTFail("a garbage archive must be refused")
+        } catch let error as UpdateInstaller.InstallError {
+            guard case .unzipFailed = error else { return XCTFail("expected .unzipFailed, got \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path),
+                       "a refused zip must not be left for the next check to reuse")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: updates.appendingPathComponent("staged-9.9.9").path))
+    }
+
+    /// A real zip with no Maugham.app inside is refused the same way.
+    func test_aZipWithNoAppInsideIsDeletedWithItsStageFolder() async throws {
+        let updates = TestTemp.root.appendingPathComponent("Updates", isDirectory: true)
+        let payload = TestTemp.root.appendingPathComponent("payload", isDirectory: true)
+        try FileManager.default.createDirectory(at: updates, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: payload, withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: payload.appendingPathComponent("readme.txt"))
+        let zip = updates.appendingPathComponent("Maugham-9.9.9.zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", payload.path, zip.path]
+        try ditto.run()
+        ditto.waitUntilExit()
+        XCTAssertEqual(ditto.terminationStatus, 0)
+
+        do {
+            _ = try await UpdateInstaller.stageAndVerify(zip: zip, version: "9.9.9")
+            XCTFail("an archive with no Maugham.app must be refused")
+        } catch let error as UpdateInstaller.InstallError {
+            guard case .unzipFailed = error else { return XCTFail("expected .unzipFailed, got \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: updates.appendingPathComponent("staged-9.9.9").path))
+    }
+
+    /// The one cleanup removes exactly the two things it names.
+    func test_discardingARefusedArchiveRemovesTheZipAndTheStageFolderOnly() throws {
+        let updates = TestTemp.root.appendingPathComponent("Updates", isDirectory: true)
+        let stage = updates.appendingPathComponent("staged-9.9.9", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        let zip = updates.appendingPathComponent("Maugham-9.9.9.zip")
+        let other = updates.appendingPathComponent("Maugham-9.9.8.zip")
+        try Data("z".utf8).write(to: zip)
+        try Data("o".utf8).write(to: other)
+        UpdateInstaller.discardRefusedArchive(zip: zip, stageDir: stage)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stage.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: other.path))
+    }
 }

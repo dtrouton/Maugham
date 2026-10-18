@@ -80,6 +80,15 @@ public final class UpdateChecker: ObservableObject {
                     : .idle
                 return
             }
+            // Only this repo's own release URL for this tag and asset is ever
+            // requested — refused like a release with no asset.
+            guard GitHubReleasesAPI.isTrustedAssetURL(
+                asset.browserDownloadURL, for: asset, tag: release.tagName) else {
+                state = trigger == .manual
+                    ? .error(GitHubReleasesAPI.Error.untrustedAssetURL.localizedDescription)
+                    : .idle
+                return
+            }
             // A release declaring more than the cap is refused before a byte
             // is fetched (the download also counts what actually arrives).
             guard !UpdateDownload.exceedsCap(receivedBytes: 0, expectedBytes: Int64(asset.size)) else {
