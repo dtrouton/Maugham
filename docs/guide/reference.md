@@ -11,7 +11,7 @@ The ones you'll use most:
 | `⌘N` | New project |
 | `⌘O` | Open project |
 | `⌘S` | Checkpoint, and back up if you've set a backup destination — autosave is automatic (see [Backups & History](backups-and-history.md)) |
-| `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again (it doesn't run a backup) |
+| `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again, and back up as ⌘S does |
 | `⌘R` | **Check Writing** in Author — notes on what you've written since the last check; **Run Round** in Review — a numbered round in the piece's pass |
 | `⌘⇧R` | **Reread** in Author, **Fresh Eyes** in Review — ends the warm session and reads the whole piece cold |
 | `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |

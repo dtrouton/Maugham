@@ -189,6 +189,8 @@ struct ProjectWindow: View {
     /// borrow, so the registry announces the project to MCP while a window is
     /// open on it.
     @Environment(ProjectSessionRegistry.self) private var sessions
+    /// ⇧⌘S's Confirm backs up through the same call ⌘S does (#90).
+    @Environment(BackupCoordinator.self) private var backupCoordinator
     @Environment(\.openWindow) private var openWindow
 
     let url: URL
@@ -274,6 +276,7 @@ struct ProjectWindow: View {
                                     session: _checkpointSessionId,
                                     activeDocument: activeDoc,
                                     posture: { await documentStore.settledPosture(forDocId: $0) },
+                                    backups: backupCoordinator,
                                     flash: { showSaveFlash() })
                             }
                         },

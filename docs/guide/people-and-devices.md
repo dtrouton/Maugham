@@ -420,7 +420,7 @@ Find in Project's **Replace** and **Replace All** for chapters that aren't
 yours (a research note's matches still replace). **⌘S** still flashes,
 because your fingers expect it, but makes no checkpoint — a checkpoint of text
 you can't change would mark nothing of yours (your backups still run) — and **⇧⌘S** says so instead of
-asking for a label. In a collection, the File menu's **New Prose Story**,
+asking for a label (your backups still run then too). In a collection, the File menu's **New Prose Story**,
 **New Screenplay** and **Link Existing Project…** are greyed (they add a
 collection's pieces, so no other kind of book greys them).
 
