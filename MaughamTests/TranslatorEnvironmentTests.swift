@@ -794,8 +794,12 @@ final class TranslatorEnvironmentTests: XCTestCase {
     /// - every window-ending arm hands the roster its teardown —
     ///   `CompilerRunModifier`'s two arms (app quit, the AI toggle) each call
     ///   `roster.shutdownAll()`, and the window's `.onDisappear` gives its
-    ///   session back to `ProjectSessionRegistry`, whose last release runs
-    ///   `ProjectSession.close()` and so `roster.detachAll()`;
+    ///   WINDOW borrow back to `ProjectSessionRegistry`, whose release of a
+    ///   window borrow calls `ProjectSession.detachWindow` — which runs
+    ///   `roster.detachAll()` for the attached window — and whose last
+    ///   release of any kind runs `ProjectSession.close()`, which runs it
+    ///   again before the DocumentStore closes (Task 3b: the services follow
+    ///   the windows, so a reader holding the stores keeps nothing billing);
     /// - every production class that HOLDS a session runner is a roster
     ///   member — derived from the code, never a list of names, so a sixth
     ///   orchestrator that spawns its own `claude` and is not in the roster
@@ -828,9 +832,15 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertFalse(onDisappears.contains { $0.contains("session.close()") },
                        "ProjectWindow's .onDisappear closes a session it only borrowed — "
                        + "the registry's last release is what closes it")
-        // …the registry's LAST release closes the session…
+        // …the registry's release detaches a window borrow and its LAST
+        // release closes the session…
         let release = try Self.registryReleaseReport(base: SourceTree.repoRoot)
         XCTAssertTrue(release.isEmpty, release.joined(separator: "\n"))
+        // …the session's detach of the attached window detaches every
+        // service — the link that ends billing while a reader holds the
+        // stores (Task 3b)…
+        let detach = try Self.windowDetachReport(base: SourceTree.repoRoot)
+        XCTAssertTrue(detach.isEmpty, detach.joined(separator: "\n"))
         // …and the session's close detaches every service BEFORE the
         // DocumentStore closes.
         let close = try Self.sessionCloseReport(base: SourceTree.repoRoot)
@@ -858,14 +868,31 @@ final class TranslatorEnvironmentTests: XCTestCase {
         // weakly — a strong capture there is a window's whole project graph
         // held alive by an orchestrator closure, which is the thing
         // `.onDisappear`'s scorch exists to prevent.
-        let session = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"])
-        for token in ["translator.configure(", "coldCall.configure(", "pipeline.configure(",
+        //
+        // Read from `attachWindow`'s body (Task 3b), where the configure
+        // calls live: a window attaching is what wires the services, and
+        // `open` — the stores, which a reader borrows — configures none.
+        let sessionSource = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"])
+        let session = try XCTUnwrap(Self.closureBody(after: "func attachWindow(", in: sessionSource),
+                                    "ProjectSession declares no attachWindow(")
+        let open = try XCTUnwrap(Self.closureBody(after: "static func open(", in: sessionSource),
+                                 "ProjectSession declares no open(")
+        for token in ["compiler.configure(", "translator.configure(", "designer.configure(",
+                      "coldCall.configure(", "pipeline.configure(",
                       "translator: translator, coldCall: coldCall",
                       "pipeline?.translatorRunEnded(", "pipeline?.translatorRunAbandoned("] {
             XCTAssertTrue(session.contains(token),
-                          "ProjectSession is missing \(token) — without it a roster member "
-                          + "is unwired or deaf to the translator")
+                          "ProjectSession.attachWindow is missing \(token) — without it a "
+                          + "roster member is unwired or deaf to the translator")
         }
+        XCTAssertFalse(String(decoding: SourceTree.mask(open), as: UTF8.self).contains(".configure("),
+                       "ProjectSession.open configures a service — a reader's borrow would "
+                       + "then hold a billing session no window can end")
+        // The compiler's flash goes through the session to whichever window
+        // is attached NOW, never to a closure captured from the window that
+        // configured it — the reopened-window half of Task 3b.
+        XCTAssertTrue(session.contains("onRunAcknowledged: { [weak self] in self?.flash($0) }"),
+                      "the compiler's flash must forward through the session's current sink")
         let window = try SourceTree.windowSource()
         for token in ["translator: translator", "coldCall: coldCall", "pipeline: pipeline"] {
             XCTAssertTrue(window.contains(token),
@@ -921,15 +948,39 @@ final class TranslatorEnvironmentTests: XCTestCase {
             "Maugham/Stores/ProjectSessionRegistry.swift": """
                 @MainActor @Observable
                 final class ProjectSessionRegistry {
-                    func release(_ url: URL) async {
+                    func release(_ lease: Lease) async {
+                        session.detachWindow(leaving.attachment)
                         // await session.close()
-                        entries[url] = nil
+                        entries[lease.key] = nil
                     }
                 }
                 """,
         ])
         let report = try Self.registryReleaseReport(base: base)
         XCTAssertEqual(report.count, 1, report.joined(separator: "\n"))
+        XCTAssertTrue(report.contains { $0.contains("never closes") }, report.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the registry's window half (Task 3b): a `release` that
+    /// closes on the last borrow but never detaches a window — or names the
+    /// detach only in a comment — is reported.
+    func test_theRegistryReleaseCensusFiresOnAPlantedForgottenWindowDetach() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Stores/ProjectSessionRegistry.swift": """
+                @MainActor @Observable
+                final class ProjectSessionRegistry {
+                    func release(_ lease: Lease) async {
+                        // session.detachWindow(leaving.attachment)
+                        entries[lease.key] = nil
+                        await session.close()
+                    }
+                }
+                """,
+        ])
+        let report = try Self.registryReleaseReport(base: base)
+        XCTAssertEqual(report.count, 1, report.joined(separator: "\n"))
+        XCTAssertTrue(report.contains { $0.contains("never detaches a window") },
+                      report.joined(separator: "\n"))
     }
 
     /// Whether `ProjectSessionRegistry.release` closes the session it gives
@@ -942,11 +993,52 @@ final class TranslatorEnvironmentTests: XCTestCase {
             return ["ProjectSessionRegistry declares no release(_:)"]
         }
         let code = String(decoding: SourceTree.mask(body), as: UTF8.self)
-        guard code.contains("session.close()") else {
-            return ["ProjectSessionRegistry.release never closes the session — the last "
-                    + "window on a project would leave its services and stores alive"]
+        var report: [String] = []
+        if !code.contains("session.detachWindow(") {
+            report.append("ProjectSessionRegistry.release never detaches a window — the last "
+                          + "window on a project would leave its services billing while a "
+                          + "reader holds the stores")
+        }
+        if !code.contains("session.close()") {
+            report.append("ProjectSessionRegistry.release never closes the session — the last "
+                          + "borrow on a project would leave its services and stores alive")
+        }
+        return report
+    }
+
+    /// Whether `ProjectSession.detachWindow` detaches every service — the
+    /// link that ends billing when the last window goes while a reader holds
+    /// the stores (Task 3b). Empty when it does.
+    private static func windowDetachReport(base: URL) throws -> [String] {
+        let text = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"], base: base)
+        guard let body = closureBody(after: "func detachWindow(", in: text) else {
+            return ["ProjectSession declares no detachWindow(_:)"]
+        }
+        let code = String(decoding: SourceTree.mask(body), as: UTF8.self)
+        guard code.contains("roster.detachAll()") else {
+            return ["ProjectSession.detachWindow never calls roster.detachAll() — the last "
+                    + "window closing would leave every claude service warm and billing"]
         }
         return []
+    }
+
+    /// CONTROL for the window-detach link: a `detachWindow` that clears the
+    /// canvas but only NAMES the detach in a comment is reported.
+    func test_theWindowDetachCensusFiresOnAPlantedForgottenDetach() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Stores/ProjectSession.swift": """
+                @MainActor @Observable
+                final class ProjectSession {
+                    func detachWindow(_ token: WindowAttachment) {
+                        guard attachment == token else { return }
+                        // roster.detachAll()
+                        projectStore.liveCanvas = nil
+                    }
+                }
+                """,
+        ])
+        let report = try Self.windowDetachReport(base: base)
+        XCTAssertEqual(report.count, 1, report.joined(separator: "\n"))
     }
 
     /// Whether `ProjectSession.close()` detaches the roster and THEN closes

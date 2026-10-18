@@ -8,10 +8,11 @@ struct MaughamApp: App {
     @State private var backupCoordinator = BackupCoordinator()
     @State private var recents = RecentsStore()
     @State private var mcpRouter = MCPRouter()
-    @State private var mcpRegistry = ProjectRegistry()
+    @State private var mcpRegistry: ProjectRegistry
     /// One `ProjectSession` per open project, borrowed by every window on it
-    /// (foundations plan 3, Task 3).
-    @State private var projectSessions = ProjectSessionRegistry()
+    /// (foundations plan 3, Task 3). It announces a project to MCP while a
+    /// window is open on it (Task 3b), so it is built on the same registry.
+    @State private var projectSessions: ProjectSessionRegistry
     @State private var mcpServer: MCPServer?
     @State private var onboarding = OnboardingModel()
 
@@ -23,6 +24,10 @@ struct MaughamApp: App {
     }
 
     init() {
+        let mcp = ProjectRegistry()
+        _mcpRegistry = State(initialValue: mcp)
+        _projectSessions = State(initialValue: ProjectSessionRegistry(mcp: mcp))
+
         // Fail-fast guardrail: if the compile flag and bundle id drift apart
         // (e.g. CI config error), this fires immediately in Debug.
         #if MAUGHAM_DEV_BUILD

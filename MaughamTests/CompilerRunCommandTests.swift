@@ -636,9 +636,16 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the scan reads the file rather than always answering true")
 
         let window = try SourceTree.windowSource()
-        for token in ["CompilerRunModifier(", "session.close()",
+        // The second token is the window's borrow going back on close
+        // (foundations plan 3, Task 3b): the registry detaches the window's
+        // services and closes the session on its last borrow — the chain
+        // `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
+        // follows to `roster.detachAll()`. Read from masked code, so a
+        // comment naming it does not count.
+        let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
+        for token in ["CompilerRunModifier(", "Task { await sessions.release(lease) }",
                       "SaveFlashOverlay(isShowing: $showingCompilerFlash"] {
-            XCTAssertTrue(window.contains(token),
+            XCTAssertTrue(windowCode.contains(token),
                           "ProjectWindow is missing \(token) — without the first the "
                           + "modifier is never mounted, without the second a closed "
                           + "window keeps its session and its stores alive, and without "

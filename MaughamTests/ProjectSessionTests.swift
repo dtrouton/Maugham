@@ -29,10 +29,11 @@ final class ProjectSessionTests: XCTestCase {
     private func openSession() async throws -> ProjectSession {
         let url = try await ProjectFactory.createNovelProject(
             named: "Session-\(UUID().uuidString.prefix(6))", in: TestTemp.root)
-        let preferences = UserPreferences(defaults: try XCTUnwrap(UserDefaults(suiteName: suiteName)))
-        return try await ProjectSession.open(
-            url: url, preferences: preferences, liveCanvas: nil,
-            onCompilerFlash: { _ in })
+        return try await ProjectSession.open(url: url)
+    }
+
+    private func preferences() throws -> UserPreferences {
+        UserPreferences(defaults: try XCTUnwrap(UserDefaults(suiteName: suiteName)))
     }
 
     // (a)
@@ -46,14 +47,58 @@ final class ProjectSessionTests: XCTestCase {
         await session.close()
     }
 
-    // (b)
-    func test_openWiresEveryServiceAndCloseDetachesThemAll() async throws {
+    // (b) — Task 3b: open is the stores; a WINDOW attaching wires the
+    // services, and either its detach or the close unwires them.
+    func test_openWiresNothingAndAttachingAWindowWiresEveryService() async throws {
         let session = try await openSession()
         let roster = session.roster
-        XCTAssertNotNil(roster.compiler.configuredModel, "premise: open wired the compiler")
-        XCTAssertNotNil(roster.translator.configuredModel, "premise: open wired the translator")
-        XCTAssertNotNil(roster.designer.configuredModel, "premise: open wired the designer")
-        XCTAssertNotNil(roster.pipeline.configuredModel, "premise: open wired the pipeline")
+        XCTAssertNil(roster.compiler.configuredModel, "open alone must wire no service")
+        XCTAssertNil(roster.translator.configuredModel, "open alone must wire no service")
+        XCTAssertNil(roster.designer.configuredModel, "open alone must wire no service")
+        XCTAssertNil(roster.pipeline.configuredModel, "open alone must wire no service")
+        XCTAssertNil(session.attachment)
+
+        let canvas = CanvasModel()
+        let token = session.attachWindow(canvas: canvas, flash: { _ in },
+                                         preferences: try preferences())
+        XCTAssertEqual(session.attachment, token)
+        XCTAssertTrue(session.projectStore.liveCanvas === canvas)
+        XCTAssertNotNil(roster.compiler.configuredModel, "attaching wired the compiler")
+        XCTAssertNotNil(roster.translator.configuredModel, "attaching wired the translator")
+        XCTAssertNotNil(roster.designer.configuredModel, "attaching wired the designer")
+        XCTAssertNotNil(roster.pipeline.configuredModel, "attaching wired the pipeline")
+
+        session.detachWindow(token)
+        XCTAssertNil(session.attachment)
+        XCTAssertNil(session.projectStore.liveCanvas, "a detached window's canvas is not live")
+        XCTAssertNil(roster.compiler.configuredModel, "detaching unwired the compiler")
+        XCTAssertNil(roster.pipeline.configuredModel, "detaching unwired the pipeline")
+        await session.close()
+    }
+
+    /// A stale attachment — a newer window attached since — detaches nothing.
+    func test_aStaleAttachmentDetachesNothing() async throws {
+        let session = try await openSession()
+        let older = session.attachWindow(canvas: CanvasModel(), flash: { _ in },
+                                         preferences: try preferences())
+        let newerCanvas = CanvasModel()
+        let newer = session.attachWindow(canvas: newerCanvas, flash: { _ in },
+                                         preferences: try preferences())
+        session.detachWindow(older)
+        XCTAssertEqual(session.attachment, newer)
+        XCTAssertTrue(session.projectStore.liveCanvas === newerCanvas)
+        XCTAssertNotNil(session.roster.compiler.configuredModel)
+        session.detachWindow(newer)
+        await session.close()
+    }
+
+    // (b') close unwires an attached session's services too.
+    func test_closeDetachesEveryServiceOfAnAttachedSession() async throws {
+        let session = try await openSession()
+        let roster = session.roster
+        session.attachWindow(canvas: CanvasModel(), flash: { _ in },
+                             preferences: try preferences())
+        XCTAssertNotNil(roster.compiler.configuredModel, "premise: the window wired the compiler")
 
         await session.close()
 
@@ -92,10 +137,17 @@ final class ProjectSessionTests: XCTestCase {
         let load = String(decoding: masked[start...end], as: UTF8.self)
         let ask = try XCTUnwrap(load.range(of: "ProjectSession.loadStep("),
                                 "load() must ask the reuse/close decision")
-        let giveBackPrevious = try XCTUnwrap(load.range(of: "await sessions.release(previous.url)"),
+        let giveBackPrevious = try XCTUnwrap(load.range(of: "await sessions.release(previous)"),
                                              "load() must await the previous project's release")
         let acquire = try XCTUnwrap(load.range(of: "sessions.acquire("),
                                     "load() must borrow its session from the registry")
+        // …as a WINDOW (Task 3b): the borrow that attaches this window's
+        // canvas and flash and configures the services. A reader borrow here
+        // would leave the window with no services and its canvas not live.
+        XCTAssertTrue(load.contains("sessions.acquire(url, as: .window(attach:"),
+                      "load() must borrow as a window")
+        XCTAssertTrue(load.contains("session.attachWindow("),
+                      "load()'s window borrow must attach the window to the session")
         let open = try XCTUnwrap(load.range(of: "ProjectSession.open("),
                                  "load() must open through ProjectSession")
         XCTAssertTrue(ask.lowerBound < giveBackPrevious.lowerBound
@@ -109,16 +161,20 @@ final class ProjectSessionTests: XCTestCase {
                        "load() opens only inside the registry's acquire")
         XCTAssertFalse(load.contains(".close()"),
                        "load() closes a session it only borrowed — give it back instead")
-        // A borrow this window will not keep (cancelled, or another run of
-        // load() already adopted one) goes back before the adoption.
-        let unkept = try XCTUnwrap(load.range(of: "if Task.isCancelled || self.session != nil {"),
-                                   "load() must check whether it can keep the borrow")
-        let adopt = try XCTUnwrap(load.range(of: "self.session = session"),
-                                  "load() never adopts the session")
+        // A borrow this window will not keep (another run of load() already
+        // adopted one, or the load was cancelled on a window known to be
+        // gone) goes back before the adoption. A cancelled load on a LIVE
+        // window keeps it (Task 3b): nothing promises the task re-runs.
+        let unkept = try XCTUnwrap(load.range(of: """
+            if self.lease != nil
+                            || (Task.isCancelled && window != nil && !MaughamEvent.isLive(window)) {
+            """), "load() must check whether it can keep the borrow")
+        let adopt = try XCTUnwrap(load.range(of: "self.lease = lease"),
+                                  "load() never adopts the borrow")
         XCTAssertTrue(acquire.upperBound < unkept.lowerBound && unkept.upperBound < adopt.lowerBound,
                       "the keep-check sits between the acquire and the adoption")
         let between = load[unkept.upperBound..<adopt.lowerBound]
-        XCTAssertTrue(between.contains("await sessions.release(url)"),
+        XCTAssertTrue(between.contains("await sessions.release(lease)"),
                       "an unkept borrow must be released")
         XCTAssertEqual(between.components(separatedBy: "await").count - 1, 1,
                        "nothing may suspend between the keep-check and the adoption "

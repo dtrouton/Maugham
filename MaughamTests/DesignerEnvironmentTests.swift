@@ -427,14 +427,22 @@ final class DesignerEnvironmentTests: XCTestCase {
         // `AgentRosterTests` pins what `detachAll`/`updateModel` do to the
         // designer, and `TranslatorEnvironmentTests`' census that the window
         // and the session call them.
+        // The detach is `detachWindow`'s and `close()`'s (Task 3b) and the
+        // configure is `attachWindow`'s: a window wires the designer and its
+        // going unwires it.
         for token in ["AgentRoster()", "roster.detachAll()", "designer.configure("] {
             XCTAssertTrue(session.contains(token),
                           "ProjectSession is missing \(token) — without it the "
                           + "designer is unwired or outlives the window that "
                           + "started it")
         }
-        for token in ["session.close()", "designer: designer", "roster.updateModel("] {
-            XCTAssertTrue(window.contains(token),
+        // The window's borrow going back on close (Task 3b) is what reaches
+        // `detachWindow` and so the designer's detach; read from masked code,
+        // so a comment naming it does not count.
+        let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
+        for token in ["Task { await sessions.release(lease) }", "designer: designer",
+                      "roster.updateModel("] {
+            XCTAssertTrue(windowCode.contains(token),
                           "ProjectWindow is missing \(token) — without it the "
                           + "designer is unmounted, never re-modelled, or "
                           + "outlives the window that started it")

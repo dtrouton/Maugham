@@ -11,21 +11,23 @@ private let _projectSessionLog = Logger(
     category: "ProjectWindow")
 
 /// **An open project's stores and `claude` services, owned outside the view**
-/// (foundations plan 3, Task 2).
+/// (foundations plan 3, Tasks 2 and 3b).
 ///
-/// Everything `ProjectWindow.load()` used to do that is not UI seeding lives
-/// in `open`: load the manifest, open the `DocumentStore`, cross-link the two,
-/// build the bible and the declared world, and configure every roster service
-/// with its production environment. `close()` is the window-ending teardown,
-/// in its one order — the roster detaches first (each service's environment
-/// holds closures over both stores, and a session left configured keeps its
-/// `claude` subprocess and the whole project graph alive), THEN the
-/// `DocumentStore` flushes and drains.
+/// Two halves with two lifetimes. `open` is the STORES: load the manifest,
+/// open the `DocumentStore`, cross-link the two, build the bible and the
+/// declared world, and make the (unconfigured) roster — everything a reader
+/// such as the Statistics window needs, and nothing that bills. A WINDOW then
+/// `attachWindow`s: its canvas model becomes the store's live canvas, its
+/// flash the compiler's, and every roster service is configured.
+/// `detachWindow` undoes exactly that, so the services follow the windows and
+/// not whoever happens to hold the stores. `close()` is the stores' end, in
+/// its one order — the roster detaches first (a no-op if no window is
+/// attached; each service's environment holds closures over both stores),
+/// THEN the `DocumentStore` flushes and drains.
 ///
-/// The session builds its own `AgentRoster`, so whoever shares a session
-/// shares its services (Task 3 shares one session across the windows on one
-/// project). The canvas model and the flash callback are the window's, and
-/// are handed in.
+/// The session builds its own `AgentRoster`, so the windows on one project
+/// share its services (`ProjectSessionRegistry` decides which window is
+/// attached: the newest).
 @MainActor @Observable
 final class ProjectSession {
     let url: URL
@@ -45,25 +47,11 @@ final class ProjectSession {
         self.roster = roster
     }
 
-    /// Opens the project at `url` and wires its services. Throws what
+    /// Opens the project's stores at `url` — no service is configured and no
+    /// window's anything is installed; that is `attachWindow`'s. Throws what
     /// `ProjectStore.load` and `DocumentStore.open` throw; the window maps
     /// those to its load-error sentences.
-    static func open(
-        url: URL,
-        preferences: UserPreferences,
-        liveCanvas: CanvasModel?,
-        onCompilerFlash: @escaping @MainActor (CompilerOrchestrator.Acknowledgment) -> Void
-    ) async throws -> ProjectSession {
-        let roster = AgentRoster()
-        // The roster's members under the names the wiring below has always
-        // used, so the configure calls read exactly as they did in the window.
-        let compiler = roster.compiler
-        let translator = roster.translator
-        let translationRuns = roster.translationRuns
-        let designer = roster.designer
-        let coldCall = roster.coldCall
-        let pipeline = roster.pipeline
-
+    static func open(url: URL) async throws -> ProjectSession {
         let s = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         s.documentStore = ds
@@ -73,11 +61,6 @@ final class ProjectSession {
         // narrowing (P3b Task 3) has to be able to tell the live store what
         // it just wrote to disk. Weak on both sides; the session owns them.
         ds.projectStore = s
-        // The canvas's equivalent, and set here for the same reason: the
-        // model is `@State` on the window, so nothing an MCP tool is handed
-        // can reach it otherwise. Set at open and never in a view `body` — a
-        // store is not read from a view body or anything a body calls.
-        s.liveCanvas = liveCanvas
 
         // The Intent pane's strata, on the same device slug and the same
         // rule as every other derived sidecar (tripwire 24 at the filename
@@ -91,13 +74,79 @@ final class ProjectSession {
         let device = DeviceIdentity.author.slug
         let bibleStore = BibleStore(projectRoot: url, device: device)
         let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
+        return ProjectSession(url: url, projectStore: s, documentStore: ds,
+                              bible: bibleStore, declaredWorld: worldStore,
+                              roster: AgentRoster())
+    }
+
+    // MARK: - The window's attachment
+
+    /// Which window the session is attached to. Opaque: a window holds the
+    /// one `attachWindow` handed it and gives it back to `detachWindow`.
+    struct WindowAttachment: Hashable {
+        fileprivate let serial: Int
+    }
+
+    /// The window the services and the canvas seam currently answer to, or
+    /// nil while no window is attached (a reader alone, or between windows).
+    private(set) var attachment: WindowAttachment?
+    @ObservationIgnored private var attachmentSerial = 0
+    /// The attached window's flash. The compiler's `onRunAcknowledged`
+    /// forwards through `flash(_:)` to whatever this is NOW, never to a
+    /// closure captured from the window that happened to configure it.
+    @ObservationIgnored private var flashSink: (@MainActor (CompilerOrchestrator.Acknowledgment) -> Void)?
+
+    /// Attaches a window: its canvas model becomes the store's live canvas,
+    /// its flash becomes the compiler's, and — when no window was attached —
+    /// every roster service is configured with its production environment.
+    /// A second window attaching over a first takes the canvas and the flash
+    /// and leaves the services as they are: nothing in their environments is
+    /// a window's (the flash goes through the session), so the warm sessions
+    /// the first window started stay warm. The newest window wins.
+    @discardableResult
+    func attachWindow(
+        canvas: CanvasModel,
+        flash: @escaping @MainActor (CompilerOrchestrator.Acknowledgment) -> Void,
+        preferences: UserPreferences
+    ) -> WindowAttachment {
+        attachmentSerial += 1
+        let token = WindowAttachment(serial: attachmentSerial)
+        let configures = attachment == nil
+        attachment = token
+        flashSink = flash
+        // The canvas seam: the model is `@State` on the window, so nothing an
+        // MCP tool is handed can reach it otherwise. Set here and never in a
+        // view `body` — a store is not read from a view body or anything a
+        // body calls. A window reopened on a project whose session a reader
+        // kept alive is attached afresh, so ITS canvas is the live one and
+        // Claude's cards never go to the sidecar behind its back.
+        projectStore.liveCanvas = canvas
+        guard configures else { return token }
+
+        // Every roster service, wired to this session's stores — moved from
+        // `open` (foundations plan 3, Task 3b) unchanged in order and in its
+        // captures; the locals are the names it has always used.
+        let url = self.url
+        let s = projectStore
+        let ds = documentStore
+        let bibleStore = bible
+        let worldStore = declaredWorld
+        // The roster's members under the names the wiring below has always
+        // used, so the configure calls read exactly as they did in the window.
+        let compiler = roster.compiler
+        let translator = roster.translator
+        let translationRuns = roster.translationRuns
+        let designer = roster.designer
+        let coldCall = roster.coldCall
+        let pipeline = roster.pipeline
+
         compiler.configure(
             environment: .production(
                 store: s, documentStore: ds, projectURL: url,
                 declaredWorld: worldStore, bible: bibleStore,
                 preferences: preferences,
                 model: ds.uiState.compilerModel.claudeModel,
-                onRunAcknowledged: { onCompilerFlash($0) }),
+                onRunAcknowledged: { [weak self] in self?.flash($0) }),
             diagnostics: DiagnosticsStore(
                 projectRoot: url,
                 device: DeviceIdentity.author.slug))
@@ -175,9 +224,26 @@ final class ProjectSession {
                 // window on another book has no stake in it.
                 MaughamEvent.postTranslationRoundEnded(projectURL: url, round: round)
             }))
-        return ProjectSession(url: url, projectStore: s, documentStore: ds,
-                              bible: bibleStore, declaredWorld: worldStore,
-                              roster: roster)
+        return token
+    }
+
+    /// Detaches the window holding `token`: every roster service detaches
+    /// (pipeline first — the roster's own order), and the canvas seam and the
+    /// flash are cleared, so no `claude` session outlives the last window on
+    /// the project even while a reader holds the stores. A stale token — a
+    /// newer window attached since — does nothing.
+    func detachWindow(_ token: WindowAttachment) {
+        guard attachment == token else { return }
+        roster.detachAll()
+        projectStore.liveCanvas = nil
+        flashSink = nil
+        attachment = nil
+    }
+
+    /// The compiler's acknowledgment, delivered to the attached window's
+    /// flash — or to nobody, while no window is attached.
+    func flash(_ acknowledgment: CompilerOrchestrator.Acknowledgment) {
+        flashSink?(acknowledgment)
     }
 
     /// What a window's `load()` does, given the session it already holds.
@@ -201,12 +267,13 @@ final class ProjectSession {
         return live == requested ? .reuseLive : .closeLiveThenOpen
     }
 
-    /// The window-ending teardown, in order: every roster service detaches
-    /// (pipeline first — the roster's own order), THEN the `DocumentStore`
-    /// flushes and drains its registry. Detaching first is the point: each
-    /// service's environment holds closures over both stores, so a session
-    /// left configured would keep the project graph — and its `claude`
-    /// subprocess — alive past the close.
+    /// The stores' end — `ProjectSessionRegistry`'s last release of any kind
+    /// — in order: every roster service detaches (pipeline first — the
+    /// roster's own order; a no-op when no window is attached), THEN the
+    /// `DocumentStore` flushes and drains its registry. Detaching first is
+    /// the point: each service's environment holds closures over both
+    /// stores, so a session left configured would keep the project graph —
+    /// and its `claude` subprocess — alive past the close.
     func close() async {
         roster.detachAll()
         await documentStore.close()

@@ -258,13 +258,18 @@ struct ProjectWindow: View {
     /// (translation pipeline P2/P3), and the translation run log the desk
     /// reports from. Owned here for the canvas model's reason — a run is
     /// started from one column and read in another. The roster is the
-    /// session's (Task 2): built and wired by `ProjectSession.open`, torn down
-    /// by `session.close()` in `.onDisappear` (which detaches it before the
-    /// DocumentStore closes) and `roster.shutdownAll()` in
-    /// `CompilerRunModifier`, each in the
-    /// roster's one order (pipeline first). A session merely released is a
-    /// live, billing process — `AgentRoster`'s own contract.
-    @State private var session: ProjectSession?
+    /// session's (Task 2), wired when this window ATTACHES to it (Task 3b,
+    /// `ProjectSession.attachWindow`, through the registry's window borrow)
+    /// and detached when the window's borrow goes back in `.onDisappear`
+    /// (`ProjectSession.detachWindow`) — and `roster.shutdownAll()` in
+    /// `CompilerRunModifier`, each in the roster's one order (pipeline
+    /// first). A session merely released is a live, billing process —
+    /// `AgentRoster`'s own contract.
+    ///
+    /// The window's ONE borrow of its project's session, and the session is
+    /// read through it, so there is no second piece of state to disagree.
+    @State private var lease: ProjectSessionRegistry.Lease?
+    private var session: ProjectSession? { lease?.session }
     /// The session's roster once the project is open. Before that (and after
     /// the close), an unconfigured placeholder, so `CompilerRunModifier` and
     /// the accessors below always have a roster to name: every verb on an
@@ -319,11 +324,12 @@ struct ProjectWindow: View {
     /// production; substitutable in tests/previews).
     private let shareReader: ShareMetadataReading = ICloudShareMetadataReader()
     @Environment(UserPreferences.self) private var userPreferences
-    @Environment(ProjectRegistry.self) private var mcpRegistry
     /// The app's one session per project (foundations plan 3, Task 3): this
     /// window BORROWS its project's session from it — `load()` acquires, the
     /// window-ending `.onDisappear` releases — so a second window on the same
-    /// project never runs `DocumentStore.open` a second time.
+    /// project never runs `DocumentStore.open` a second time. Its borrow is a
+    /// WINDOW borrow (Task 3b), so the registry also announces the project to
+    /// MCP for as long as a window is open on it.
     @Environment(ProjectSessionRegistry.self) private var sessions
     @Environment(\.openWindow) private var openWindow
 
@@ -465,7 +471,6 @@ struct ProjectWindow: View {
             window: $window))
         .task(id: url) { await load() }
         .onDisappear {
-            mcpRegistry.unregister(url: url)
             // Scorch the heavy @State on window close. SwiftUI never dismantles
             // a closed `WindowGroup` scene's view graph (`GraphHost.sharedGraph`
             // retains it — see the scene-storage spike note), but `.onDisappear`
@@ -483,22 +488,24 @@ struct ProjectWindow: View {
                 // The services' environments hold closures over both stores,
                 // so a session left configured would keep the whole project
                 // graph alive in the husk — and its `claude` subprocess alive
-                // with it. The session is BORROWED (Task 3), so this window
-                // gives its borrow back rather than closing it: another
-                // window on the same project may still hold it, and the
-                // registry's LAST release is what runs `ProjectSession`'s
-                // close (the roster detaches, pipeline first, THEN the
-                // DocumentStore drains). It runs in a queued `Task`, after
-                // this body has nil-ed the @State below: the Task captures
-                // the URL the borrow was taken under, and nil-ing `session`
+                // with it. The session is BORROWED (Task 3) as a WINDOW
+                // (Task 3b), so this window gives its window borrow back
+                // rather than closing anything: the registry detaches this
+                // window (`ProjectSession.detachWindow` — every service
+                // detaches, pipeline first, unless an older window on the
+                // project takes the attachment back) and forgets the project
+                // in MCP when no window is left, even while a reader such as
+                // the Statistics window still holds the stores; its LAST
+                // release of any kind runs `ProjectSession`'s close. It runs
+                // in a queued `Task`, after this body has nil-ed the @State
+                // below: the Task captures the lease, and nil-ing `lease`
                 // here is what keeps a later `.onDisappear` or `load()` from
                 // giving the same borrow back twice.
-                if let session {
+                if let lease {
                     let sessions = self.sessions
-                    let borrowed = session.url
-                    Task { await sessions.release(borrowed) }
+                    Task { await sessions.release(lease) }
                 }
-                session = nil
+                lease = nil
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
@@ -4067,25 +4074,23 @@ struct ProjectWindow: View {
             // open-time seal/rotate sweep — rotation DELETES — while the live
             // store still has Documents registered and the editor bound to
             // them. The window's own state survived too, so nothing is
-            // re-seeded; only the MCP registration, which that `.onDisappear`
-            // dropped unconditionally, is restored. A different project's
-            // session closes BEFORE the open, never alongside it.
+            // re-seeded — and nothing is re-registered: MCP registration
+            // follows the window borrow (Task 3b), which that spurious
+            // `.onDisappear` kept. A different project's session closes
+            // BEFORE the open, never alongside it.
             //
-            // **The window holds at most ONE borrow, and it is `session`**
+            // **The window holds at most ONE borrow, and it is `lease`**
             // (Task 3). `.reuseLive` acquires nothing — this window already
             // holds the borrow — and a different project's borrow is given
-            // back (and `session` cleared, so nothing gives it back twice)
+            // back (and `lease` cleared, so nothing gives it back twice)
             // BEFORE the new acquire.
             switch ProjectSession.loadStep(live: session?.url, requested: url) {
             case .reuseLive:
-                if let live = session {
-                    mcpRegistry.register(url: url, store: live.projectStore)
-                }
                 return
             case .closeLiveThenOpen:
-                if let previous = session {
-                    self.session = nil
-                    await sessions.release(previous.url)
+                if let previous = lease {
+                    self.lease = nil
+                    await sessions.release(previous)
                 }
             case .open:
                 break
@@ -4094,31 +4099,41 @@ struct ProjectWindow: View {
             // plan 3, Task 2), and the session is the project's rather than
             // the window's (Task 3): the registry opens it once — through
             // `ProjectSession.open`, which loads the manifest, opens the
-            // DocumentStore, cross-links them, hands the store this window's
-            // canvas model, builds the bible and the declared world and
-            // configures every roster service — and every other window on
-            // the project borrows that same session. What stays here is the
-            // window's own: seeding its UI state, publishing the stores, the
-            // MCP registration and the session log.
-            let session = try await sessions.acquire(url) {
-                try await ProjectSession.open(
-                    url: url, preferences: userPreferences,
-                    liveCanvas: canvasModel,
-                    onCompilerFlash: { showCompilerFlash($0) })
+            // DocumentStore, cross-links them and builds the bible and the
+            // declared world — and every other window on the project borrows
+            // that same session. Borrowing AS A WINDOW (Task 3b) attaches
+            // this one: its canvas model becomes the store's live canvas, its
+            // flash the compiler's, and the roster's services are configured
+            // if no other window had them; the registry also announces the
+            // project to MCP. What stays here is the window's own: seeding
+            // its UI state, publishing the stores and the session log.
+            let lease = try await sessions.acquire(url, as: .window(attach: { session in
+                session.attachWindow(
+                    canvas: canvasModel,
+                    flash: { showCompilerFlash($0) },
+                    preferences: userPreferences)
+            })) {
+                try await ProjectSession.open(url: url)
             }
             // **A borrow this window will not keep goes straight back.** Two
-            // ways to get here holding one: this load was cancelled while it
-            // waited (the window closed — its `.onDisappear` saw no session
-            // and released nothing — or the task restarted), or another run
-            // of `load()` for this window finished first and already holds
-            // one. Keeping it would be a borrow nobody gives back, and the
-            // project would stay open after its last window. From here to
-            // `self.session = session` below there is no suspension point, so
-            // nothing can slip in between this check and the adoption.
-            if Task.isCancelled || self.session != nil {
-                await sessions.release(url)
+            // ways to get here holding one: another run of `load()` for this
+            // window finished first and already holds one, or this load was
+            // cancelled AND the window is known gone (it closed while the
+            // open was in flight — its `.onDisappear` saw no lease and
+            // released nothing). Keeping either would be a borrow nobody
+            // gives back, and the project would stay open — attached — after
+            // its last window. A cancelled task on a window that is still
+            // live KEEPS its borrow: nothing promises the task re-runs, and
+            // a window holding no lease would sit on "Loading…" for good.
+            // From here to `self.lease = lease` below there is no suspension
+            // point, so nothing can slip in between this check and the
+            // adoption.
+            if self.lease != nil
+                || (Task.isCancelled && window != nil && !MaughamEvent.isLive(window)) {
+                await sessions.release(lease)
                 return
             }
+            let session = lease.session
             let s = session.projectStore
             let ds = session.documentStore
 
@@ -4181,12 +4196,11 @@ struct ProjectWindow: View {
             self.outlineLayout = ds.uiState.outlineLayout
             applyNoChrome()
 
-            self.session = session
+            self.lease = lease
             self.store = s
             self.documentStore = ds
             self.bible = session.bible
             self.declaredWorld = session.declaredWorld
-            mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {

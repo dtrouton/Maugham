@@ -216,9 +216,10 @@ final class CanvasLiveSeamTests: XCTestCase {
     /// The two are counted by ASSIGNMENT rather than by mention, so a later slice
     /// adding a *reader* of `liveCanvas` — which is the whole point of it — does
     /// not have to edit this expectation. An assigner appearing that is not
-    /// `ProjectSession` (which sets it at open, from the canvas model the
-    /// window hands it — foundations plan 3, Task 2) is a second opinion about
-    /// which canvas is live, and that is a deliberate edit here.
+    /// `ProjectSession` (which sets it when a window attaches, from the canvas
+    /// model the window hands it, and clears it when that window detaches —
+    /// foundations plan 3, Tasks 2 and 3b) is a second opinion about which
+    /// canvas is live, and that is a deliberate edit here.
     func test_theExternalChangeHookHasAProductionCaller() throws {
         XCTAssertEqual(try assigners(of: "onSceneChangedExternally",
                                      excluding: "CanvasModel.swift"),
@@ -345,9 +346,11 @@ final class CanvasLiveSeamTests: XCTestCase {
         let session = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"])
         XCTAssertTrue(assigns("liveCanvas", in: session),
                       "control: the real file assigns the store's reference")
+        // Two assignments since Task 3b — the window attaching installs its
+        // canvas, the window detaching clears it — so the deletion takes both.
         XCTAssertFalse(
             assigns("liveCanvas",
-                    in: session.replacingOccurrences(of: "s.liveCanvas =",
+                    in: session.replacingOccurrences(of: "projectStore.liveCanvas =",
                                                      with: "// the assignment, deleted")),
             "the scan cannot see an assignment that is gone")
 
@@ -358,8 +361,11 @@ final class CanvasLiveSeamTests: XCTestCase {
         // `liveCanvas` and must not have to edit the expectation above.
         XCTAssertFalse(
             assigns("liveCanvas",
-                    in: session.replacingOccurrences(of: "s.liveCanvas = liveCanvas",
-                                                     with: "_ = s.liveCanvas")),
+                    in: session
+                        .replacingOccurrences(of: "projectStore.liveCanvas = canvas",
+                                              with: "_ = projectStore.liveCanvas")
+                        .replacingOccurrences(of: "projectStore.liveCanvas = nil",
+                                              with: "_ = projectStore.liveCanvas")),
             "a file that only reads the property is being counted as the one that "
             + "sets it — so the census would stay green with nothing wired, which "
             + "is exactly the blind shape it exists to avoid")

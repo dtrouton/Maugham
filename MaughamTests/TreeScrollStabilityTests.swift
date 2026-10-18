@@ -291,7 +291,7 @@ final class TreeScrollStabilityTests: XCTestCase {
             ProjectWindow(url: url)
                 .environment(UserPreferences())
                 .environment(registry)
-                .environment(ProjectSessionRegistry())
+                .environment(ProjectSessionRegistry(mcp: registry))
                 .environment(BackupCoordinator())))
         hosting.sizingOptions = [.minSize]
         hosting.frame = frame
@@ -571,7 +571,7 @@ final class TreeScrollStabilityTests: XCTestCase {
             ProjectWindow(url: store.url)
                 .environment(UserPreferences())
                 .environment(registry)
-                .environment(ProjectSessionRegistry())
+                .environment(ProjectSessionRegistry(mcp: registry))
                 .environment(BackupCoordinator())))
         hosting.frame = frame
         let container = NSView(frame: frame)
@@ -747,7 +747,7 @@ final class TreeScrollStabilityTests: XCTestCase {
                 ProjectWindow(url: url)
                     .environment(UserPreferences())
                     .environment(registry)
-                    .environment(ProjectSessionRegistry())
+                    .environment(ProjectSessionRegistry(mcp: registry))
                     .environment(BackupCoordinator())),
             size: CGSize(width: 1200, height: 500),
             as: SilentTestWindow.self,
