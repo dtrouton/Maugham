@@ -459,7 +459,8 @@ final class DesignerEnvironmentTests: XCTestCase {
                           + "desk never reaches the designer")
         }
         XCTAssertFalse(window.contains("designer.notARealVerb(")
-                       || session.contains("designer.notARealVerb("),
+                       || session.contains("designer.notARealVerb(")
+                       || toggle.contains("designer.notARealVerb("),
                        "the scan reads the file rather than always answering true")
     }
 }

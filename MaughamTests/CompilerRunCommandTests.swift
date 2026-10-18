@@ -619,6 +619,9 @@ final class CompilerRunCommandTests: XCTestCase {
                       "…and carry ⌘R, which was verified unbound at implementation time")
 
         let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
+        // Read from masked code, as `windowCode` is below, so a comment
+        // naming a token does not count.
+        let modifierCode = String(decoding: SourceTree.mask(modifier), as: UTF8.self)
         for token in [".onKeyWindowCommand(.maughamRunCompiler",
                       "roster.compiler.runRequested(",
                       // **The kind is MINTED here, not chosen here** (two
@@ -629,10 +632,10 @@ final class CompilerRunCommandTests: XCTestCase {
                       "kind: RunKind.of(persona: persona)",
                       ".onGlobalEvent(.maughamAppWillTerminate)",
                       "roster.shutdownAll()"] {
-            XCTAssertTrue(modifier.contains(token),
+            XCTAssertTrue(modifierCode.contains(token),
                           "CompilerRunModifier is missing \(token)")
         }
-        XCTAssertFalse(modifier.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
+        XCTAssertFalse(modifierCode.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
                        "the scan reads the file rather than always answering true")
 
         let window = try SourceTree.windowSource()

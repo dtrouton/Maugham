@@ -273,9 +273,8 @@ struct ProjectWindow: View {
     /// The session's roster once the project is open. Before that (and after
     /// the close), an unconfigured placeholder, so `CompilerRunModifier`, the
     /// right column's environment and the accessors below always have a
-    /// roster to name: every verb on an
-    /// unconfigured service is a no-op, exactly as the window's own roster
-    /// was before `load()` configured it.
+    /// roster to name: every verb on an unconfigured service is a no-op,
+    /// exactly as the window's own roster was before `load()` configured it.
     private var roster: AgentRoster { session?.roster ?? Self.unloadedRoster }
     private static let unloadedRoster = AgentRoster()
     /// The two members this file's own body still reaches by name (the

@@ -381,7 +381,6 @@ struct MaughamApp: App {
                     .environment(userPreferences)
                     .environment(backupCoordinator)
                     .environment(recents)
-                    .environment(mcpRegistry)
                     .environment(projectSessions)
             } else {
                 Text("No project URL").foregroundStyle(.secondary)
