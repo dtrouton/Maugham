@@ -52,6 +52,28 @@ Work a piece through a later pass while an earlier one is still open, and a quie
 
 Triage lives in the pane only. The margin cards in the editor answer one note beside the sentence it's about; there's no pile there to sort.
 
+### Working a batch
+
+Once a pile is sorted, you can answer much of it in one go. Press the checklist button in the pane's toolbar (*"Select several notes and answer them together"*). Each row gets a tick box, and a bar appears with three verbs:
+
+- **Triage** — a menu of the same marks as a row's flag menu, **Do**, **Decline** and **Discuss**, plus **Clear** (*"Mark what you plan to do about all of these"*).
+- **Accept** — answers the notes at once.
+- **Stet** — *"Read, considered — and the words stand. Resolves these without applying or refusing anything."*
+
+Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. The bar says which: *All 12 shown* or *4 selected*. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Press the checklist button again to leave; the ticks go with it.
+
+**Each button tells you before you press it how many notes it will reach**: *Accept all 6*, *Accept 4 selected*, or *Accept 4 of 6* when some of them are out of its reach. A bulk verb reaches exactly the notes the same button on each row would reach, and no further:
+
+- **Accept** reaches open notes only. It never answers a question, because a question wants your words and that's what **Reply…** is for. And it never applies a suggestion whose passage you've changed since, because the row would ask you first (*Apply anyway*), and a batch can't ask forty times. Those notes simply stay open for you to answer one by one.
+- **Stet** reaches open notes.
+- **Triage** reaches every note that doesn't already carry that mark, answered or not, because a mark isn't an answer.
+
+If anything in the batch can't be done, you hear about it once, in one notice titled *Not everything in the batch could be done*, rather than one alert per note. It counts what landed (*"3 of 4 accepted."*) and says why the rest didn't. For example: *"One suggestion could no longer be applied — the passage it would replace is no longer in its paragraph."* followed by *"Those notes stay open; ask Claude for fresh suggestions against the current text."*
+
+**One ⌘Z reverses the whole batch.** Each note goes back to how it was, so undoing a batch of triage marks gives every note back its own earlier mark rather than clearing them all. Suggestions are the exception, as they are one at a time (see [Suggestions](#suggestions)): ⌘Z reaches only the last suggestion a batch accepted, and **Revert** on a row reaches the others at any time. The Accept button's tooltip says this too. If an undo can't be done — say, a note was changed on another device in the meantime — Maugham says so; see [When an undo can't be done](#when-an-undo-cant-be-done).
+
+The bar is only in **This Piece** scope (below), and only shows the verbs this Mac may use in this piece. Where it may use none, there's no bar at all. See [People & Devices](people-and-devices.md#what-their-mac-shows-them).
+
 ### One piece, or the whole project
 
 The pane's scope menu switches between **This Piece** and **All Pieces**. Widened, it shows every piece's notes at once, grouped by piece and in the order your binder holds them — parts and chapters where you put them, so the queue reads like the book. Every filter above still applies across the whole set, so "every unanswered suggestion in the manuscript" is two clicks.
@@ -75,6 +97,15 @@ Reject, archive, and the other non-text-mutating annotation actions are undoable
 - **Edit → Undo Edit Annotation** — if you edited the body (or, for a suggestion, the proposed replacement) of a note you authored, ⌘Z restores the prior wording.
 
 Every one of these appends a **compensating** entry to the document's history rather than erasing the original action — open the **History pane** and you'll see both the original resolution and its undo listed as separate events. Undo never rewrites history; it only adds to it.
+
+#### When an undo can't be done
+
+Now and then ⌘Z declines rather than guess. That happens when a note has changed somewhere else since you acted on it — answered or edited on your iPhone or another Mac — or when this Mac may no longer write that kind of thing in this piece. In a batch, whatever can be undone is undone, and the rest is left as it is. A message at the foot of the window says what couldn't be undone and why, in one sentence however many notes it covers, for example:
+
+- *"Couldn't undo stetting 2 notes — they changed on another device."*
+- *"Couldn't change 2 notes — this Mac can no longer answer notes in this piece."*
+
+The same goes for tasks, a History restore and an accepted suggestion: if this Mac may no longer change that piece, the undo says so instead of quietly doing nothing. Whatever was declined is still in the queue, and you can answer it from there.
 
 ### Rewinding with suggestions
 

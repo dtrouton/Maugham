@@ -617,14 +617,14 @@ private struct FocusedRestoreButton: View {
     }
 }
 
-/// File → "Share for Review…". Disabled when no project window is focused.
+/// File → "Share Project via iCloud…". Disabled when no project window is focused.
 /// The focused `ProjectWindow` handles the actual presentation (iCloud
 /// Collaborate share sheet, or the move-to-iCloud explanation) so it can anchor
 /// the sheet to its own window and reuse its already-resolved share snapshot.
 private struct FocusedShareForReviewButton: View {
     @FocusedValue(\.projectURL) private var projectURL
     var body: some View {
-        Button("Share for Review…") {
+        Button("Share Project via iCloud…") {
             MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
         }
         .disabled(projectURL == nil)

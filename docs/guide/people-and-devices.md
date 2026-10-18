@@ -418,8 +418,8 @@ before this…**, the rewind window's **Restore here…** and **Snapshot here…
 and a checkpoint's **Revert here…** (History itself is all there to read); and
 Find in Project's **Replace** and **Replace All** for chapters that aren't
 yours (a research note's matches still replace). **⌘S** still flashes,
-because your fingers expect it, but writes nothing — a checkpoint of text you
-can't change would mark nothing of yours — and **⇧⌘S** says so instead of
+because your fingers expect it, but makes no checkpoint — a checkpoint of text
+you can't change would mark nothing of yours (your backups still run) — and **⇧⌘S** says so instead of
 asking for a label. In a collection, the File menu's **New Prose Story**,
 **New Screenplay** and **Link Existing Project…** are greyed (they add a
 collection's pieces, so no other kind of book greys them).
@@ -463,6 +463,16 @@ What this is not:
   says so, whatever permission that person has in the book. Sharing read-write
   locks nothing by itself — what somebody may write is the permission you gave
   them here.
+
+**Sharing the book with someone.** To give another person the project folder,
+choose **File → Share Project via iCloud…**. The project has to be in iCloud
+Drive for this; if it isn't, Maugham tells you so: *"To share it, this project
+needs to be in iCloud Drive. Move the project folder to iCloud Drive, then use
+Share → Collaborate. What each person may change is set in People & Devices."*
+Once it's shared, a small **Shared** mark appears in the window — *Shared by
+<name>* on the other person's Mac. Sharing only hands over the folder, read-only
+or read-write as you choose in the share sheet. What they may *write* in the
+book is decided here, when their Mac first asks to be let in.
 
 ## Starting a piece of your own
 

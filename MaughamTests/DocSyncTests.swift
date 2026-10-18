@@ -124,23 +124,94 @@ final class DocSyncTests: XCTestCase {
     /// (`[.option, .command]`) is in scope, which a literal pattern would miss
     /// the same silent way.
     static func extractCommandOptionShortcutTokens(from sourceText: String) -> [String] {
+        extractShortcutBindings(from: sourceText)
+            .filter { $0.modifiers.contains(".command") && $0.modifiers.contains(".option") }
+            .map(\.token)
+    }
+
+    /// One `.keyboardShortcut(…)` binding as written in source, and the token
+    /// the guide spells it as.
+    struct ShortcutBinding: Equatable {
+        var modifiers: Set<String>
+        var token: String
+    }
+
+    /// The guide's spelling of a non-character `KeyEquivalent`.
+    static let namedKeyGlyphs: [String: String] = [
+        "return": "↩", "delete": "⌫", "deleteForward": "⌦", "escape": "⎋",
+        "tab": "⇥", "space": "Space", "upArrow": "↑", "downArrow": "↓",
+        "leftArrow": "←", "rightArrow": "→", "home": "↖", "end": "↘",
+        "pageUp": "⇞", "pageDown": "⇟", "clear": "⌧",
+    ]
+
+    /// EVERY `.keyboardShortcut(key, modifiers: …)` binding in `sourceText`,
+    /// widened from the ⌘⌥-only extractor above (#56 E1): a key is a string
+    /// literal (`"s"`, `","`, `"\\"` — unescaped to `\\` as the guide writes it)
+    /// or a named `KeyEquivalent` (`.return` → `↩`); the modifiers are a bare
+    /// `.command`, a list in any order, or absent (SwiftUI's default, ⌘).
+    ///
+    /// The token's order is the guide's — ⌘ first, then ⌃⌥⇧ — so `⌘⇧S`,
+    /// `⌘⇧↩` and `⌘⌥⇧R` read as `reference.md` writes them. A binding the
+    /// parser cannot read (an unknown named key) yields a token carrying the
+    /// raw name, which no doc row will match, so it fails loudly rather than
+    /// vanishing. `.defaultAction`/`.cancelAction` are skipped: they are a
+    /// dialog's Return/Escape, not a menu binding the reference documents.
+    /// **Known limit**: a `KeyEquivalent("x")` or a key held in a variable is
+    /// not matched at all; only the extractor's floor guards that.
+    static func extractShortcutBindings(from sourceText: String) -> [ShortcutBinding] {
         guard let regex = try? NSRegularExpression(
-            pattern: #"\.keyboardShortcut\("([^"]+)",\s*modifiers:\s*\[([^\]]*)\]\)"#
+            pattern: #"\.keyboardShortcut\(\s*(?:"((?:[^"\\]|\\.)+)"|\.(\w+))\s*(?:,\s*modifiers:\s*(\[[^\]]*\]|\.\w+))?\s*\)"#
         ) else { return [] }
         let ns = sourceText as NSString
-        let matches = regex.matches(in: sourceText, range: NSRange(location: 0, length: ns.length))
-        return matches.compactMap { match in
-            let key = ns.substring(with: match.range(at: 1))
+        return regex.matches(in: sourceText, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            if match.range(at: 2).location != NSNotFound,
+               ["defaultAction", "cancelAction"].contains(ns.substring(with: match.range(at: 2))) {
+                return nil
+            }
+            let key: String
+            if match.range(at: 1).location != NSNotFound {
+                key = unescapeSwiftStringLiteral(ns.substring(with: match.range(at: 1))).uppercased()
+            } else {
+                let name = ns.substring(with: match.range(at: 2))
+                key = namedKeyGlyphs[name] ?? ".\(name)"
+            }
+            let modifierText = match.range(at: 3).location == NSNotFound
+                ? ".command" : ns.substring(with: match.range(at: 3))
             let modifiers = Set(
-                ns.substring(with: match.range(at: 2))
+                modifierText
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
                     .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespaces) })
-            guard modifiers.contains(".command"), modifiers.contains(".option") else { return nil }
-            // ⌘⌥⇧ is the order the roadmap, ADR 0025 and the View menu all
-            // spell it in; a token in any other order would never be found in
-            // the docs even when the row is there.
-            return "⌘⌥" + (modifiers.contains(".shift") ? "⇧" : "") + key.uppercased()
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty })
+            var token = ""
+            if modifiers.contains(".command") { token += "⌘" }
+            if modifiers.contains(".control") { token += "⌃" }
+            if modifiers.contains(".option") { token += "⌥" }
+            if modifiers.contains(".shift") { token += "⇧" }
+            return ShortcutBinding(modifiers: modifiers, token: token + key)
         }
+    }
+
+    /// `\\` → `\`, `\"` → `"`: the key as typed, not as Swift escapes it.
+    static func unescapeSwiftStringLiteral(_ literal: String) -> String {
+        var out = ""
+        var escaping = false
+        for character in literal {
+            if escaping { out.append(character); escaping = false }
+            else if character == "\\" { escaping = true }
+            else { out.append(character) }
+        }
+        return out
+    }
+
+    /// The tokens with no ROW in `referenceText`: a token counts as documented
+    /// only inside a table row (`| … |`) as its own code span (`` `⌘S` ``), so a
+    /// mention in prose, or `⌘⇧S` standing in for `⌘S`, does not satisfy it.
+    static func tokensWithoutAReferenceRow(_ tokens: [String], in referenceText: String) -> [String] {
+        let rows = referenceText.components(separatedBy: "\n")
+            .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("|") }
+            .joined(separator: "\n")
+        return tokens.filter { !rows.contains("`\($0)`") }
     }
 
     /// Returns the subset of `tokens` that do NOT appear anywhere in `docText`.
@@ -237,6 +308,59 @@ final class DocSyncTests: XCTestCase {
         XCTAssertEqual(Self.missingTokens(["⌘⌥⇧R"], in: referenceMd), [],
             "⌘⌥⇧R (Toggle Review Mode) is missing from docs/guide/reference.md's "
             + "shortcut table.")
+    }
+
+    // MARK: - Test 2b: EVERY shortcut in MaughamApp.swift has a reference.md row (#56 E1)
+
+    func test_everyShortcutInTheAppHasAReferenceRow() throws {
+        let sourceText = try readFile("Maugham/MaughamApp.swift")
+        let tokens = Self.extractShortcutBindings(from: sourceText).map(\.token)
+        // Anti-vacuity: 41 bindings on 2026-10-18. A floor with slack, so a
+        // binding removed for a reason does not red this, but a parser that
+        // stopped matching a whole form (bare `.command` is most of the file)
+        // does.
+        XCTAssertGreaterThanOrEqual(tokens.count, 35,
+            "extracted only \(tokens.count) .keyboardShortcut bindings from MaughamApp.swift — "
+            + "has the extractor stopped matching a form? Found: \(tokens)")
+        // Controls for each form the ⌘⌥ extractor could not see.
+        for form in ["⌘S", "⌘\\", "⌘⇧↩", "⌘?", "⌘⇧,", "⌘⌥⇧R"] {
+            XCTAssertTrue(tokens.contains(form),
+                          "the extractor no longer sees \(form) in MaughamApp.swift. Found: \(tokens)")
+        }
+
+        let referenceMd = try readFile("docs/guide/reference.md")
+        let missing = Self.tokensWithoutAReferenceRow(tokens, in: referenceMd)
+        XCTAssertTrue(missing.isEmpty,
+            "MaughamApp.swift binds \(missing) but docs/guide/reference.md's shortcut table has no "
+            + "row for it (a row is `| `<shortcut>` | … |`). All bindings: \(tokens).")
+    }
+
+    /// Self-check: a bare `.command` binding, a `.return` binding and a `"\\"`
+    /// binding are each read as the guide would write them, and each is
+    /// reported when the reference has no row for it — while a prose mention
+    /// does not count as a row.
+    func test_theEveryShortcutCheckFiresOnPlantedOffenders() {
+        let plantedSource = #"""
+        Button("A") { }.keyboardShortcut("j", modifiers: .command)
+        Button("B") { }.keyboardShortcut(.return, modifiers: [.shift, .command])
+        Button("C") { }.keyboardShortcut("\\", modifiers: .command)
+        Button("D") { }.keyboardShortcut("k")
+        """#
+        let tokens = Self.extractShortcutBindings(from: plantedSource).map(\.token)
+        XCTAssertEqual(tokens, ["⌘J", "⌘⇧↩", "⌘\\", "⌘K"])
+
+        let syntheticReference = """
+        Press ⌘J to do a thing (prose, not a row).
+
+        | Shortcut | Action |
+        |---|---|
+        | `⌘K` | Something |
+        | `⌘⇧S` | Not ⌘S |
+        """
+        XCTAssertEqual(Self.tokensWithoutAReferenceRow(tokens, in: syntheticReference),
+                       ["⌘J", "⌘⇧↩", "⌘\\"])
+        XCTAssertEqual(Self.tokensWithoutAReferenceRow(["⌘S"], in: syntheticReference), ["⌘S"],
+                       "⌘⇧S's row must not stand in for ⌘S")
     }
 
     /// **The second surface, and `reference.md` is the one that sends readers to

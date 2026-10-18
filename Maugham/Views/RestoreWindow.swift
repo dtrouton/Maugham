@@ -78,14 +78,39 @@ struct RestoreWindow: View {
         panel.directoryURL = projectURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let target = panel.url else { return }
         do {
-            // NSSavePanel may have created/cleared the target; restoreBeside refuses an
-            // existing target, so remove an empty placeholder the panel made.
-            try? FileManager.default.removeItem(at: target)
+            try RestoreTarget.clearPlaceholder(at: target)
             let restored = try BackupRestore.restoreBeside(gen, to: target)
             NSWorkspace.shared.activateFileViewerSelecting([restored])
             dismiss()
         } catch {
             self.error = "Restore failed: \(error.localizedDescription)"
         }
+    }
+}
+
+/// What a restore may do with the name the save panel returned. The panel can
+/// leave an EMPTY placeholder at the target, and `restoreBeside` refuses an
+/// existing target, so an empty folder is removed. Anything
+/// with content is refused: a writer who picked an existing folder's name and
+/// pressed Replace must never lose that folder (issue #56 finding — the old
+/// code removed whatever was there, the open project included).
+enum RestoreTarget {
+    struct Occupied: LocalizedError {
+        let name: String
+        var errorDescription: String? {
+            "Something named “\(name)” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."
+        }
+    }
+
+    static func clearPlaceholder(at target: URL, fileManager fm: FileManager = .default) throws {
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: target.path, isDirectory: &isDirectory) else { return }
+        // Only an empty FOLDER is a placeholder; any file (even an empty one)
+        // is the writer's and is refused. Finder's .DS_Store doesn't count.
+        guard isDirectory.boolValue,
+              let contents = try? fm.contentsOfDirectory(atPath: target.path),
+              contents.filter({ $0 != ".DS_Store" }).isEmpty
+        else { throw Occupied(name: target.lastPathComponent) }
+        try fm.removeItem(at: target)
     }
 }
