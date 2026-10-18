@@ -930,4 +930,78 @@ final class InboxToCanvasTests: XCTestCase {
         try await assertRefused(f, entryID: "t21", before: before)
     }
 
+    // MARK: - An OPEN canvas over a layout this build refuses (issue #44)
+
+    /// The live twin of the three tests above. Before #44 `refuseUnlessWritable`
+    /// returned early whenever a model was live, and the model's verbs no-op over
+    /// a refused layout — so a send answered with a node id that existed nowhere,
+    /// the entry flipped to `.promoted`, and a photograph was copied into a well
+    /// no node referenced. Now it throws the model's held refusal first.
+    private func assertLiveRefused(_ json: String,
+                                   reason: CanvasStore.SidecarRefused.Reason,
+                                   entry: InboxEntry,
+                                   name: String,
+                                   imageName: String? = nil) async throws {
+        let f = try await openProject(name)
+        let before = try seedUnreadableSidecar(f, json)
+        let original = try imageName.map { try seedImageAsset(f, name: $0) }
+        try await seed(f, [entry])
+        let model = attached(f)
+        XCTAssertTrue(model.isReadOnly, "precondition: attached over a refused layout")
+        XCTAssertNotNil(CanvasClaudeWrite.liveModel(of: f.store),
+                        "precondition: the live route")
+        let sceneBefore = model.scene
+
+        // The alert reads `localizedDescription`; it is the reason's sentence.
+        let live = try XCTUnwrap(f.inbox.entries.first { $0.id == entry.id })
+        do {
+            _ = try await f.inbox.sendToCanvas(live, projectStore: f.store, placement: .loose)
+            XCTFail("a send onto an open read-only canvas must be refused")
+        } catch let refused as CanvasStore.SidecarRefused {
+            XCTAssertEqual(refused.reason, reason)
+            XCTAssertEqual(refused.localizedDescription, reason.sentence,
+                           "the \"Couldn't promote\" alert shows the reason's sentence")
+            XCTAssertEqual(refused, model.sidecarRefusal,
+                           "the model's held refusal — the same value the closed "
+                           + "route throws")
+        }
+        XCTAssertEqual(model.scene, sceneBefore, "no card appeared on the canvas")
+
+        // The shared tail: told, files byte-identical, entry still `.new`.
+        try await assertRefused(f, entryID: entry.id, before: before)
+
+        if let original {
+            let well = f.url.appendingPathComponent(canvasAssetWellName)
+            let ingested = (try? FileManager.default.contentsOfDirectory(atPath: well.path)) ?? []
+            XCTAssertTrue(ingested.isEmpty,
+                          "nothing was copied into the well before the refusal. "
+                          + "found: \(ingested)")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: original.path),
+                          "the inbox original is still the inbox's")
+        }
+
+        model.flush()
+        model.detach()
+        XCTAssertEqual(try Data(contentsOf: sidecarURL(f)), before.sidecar)
+        XCTAssertEqual(try Data(contentsOf: scrapsURL(f)), before.scraps)
+        withExtendedLifetime(f.documentStore) {}
+    }
+
+    func test_aTextCaptureIsRefusedByAnOpenCanvasOverANewerLayout() async throws {
+        try await assertLiveRefused(Self.sidecarFromANewerBuild, reason: .newerVersion,
+                                    entry: textEntry("t30", "a thought worth keeping"),
+                                    name: "LiveRefusedText")
+    }
+
+    func test_aPhotographIsRefusedByAnOpenCanvasBeforeItIsCopied() async throws {
+        try await assertLiveRefused(Self.sidecarFromANewerBuild, reason: .newerVersion,
+                                    entry: photoEntry("p30", filename: "p30.png"),
+                                    name: "LiveRefusedPhoto", imageName: "p30.png")
+    }
+
+    func test_aCaptureIsRefusedByAnOpenCanvasOverADamagedLayout() async throws {
+        try await assertLiveRefused("not json at all", reason: .damaged,
+                                    entry: textEntry("t31", "another thought"),
+                                    name: "LiveRefusedDamaged")
+    }
 }

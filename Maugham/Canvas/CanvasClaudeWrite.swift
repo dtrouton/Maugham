@@ -21,7 +21,7 @@ import Foundation
 /// | | attached | otherwise |
 /// |---|---|---|
 /// | read | the model's `scene` and `scraps` | `CanvasStore.load()` |
-/// | write | `mutateFromInspector`, then the bump, then `flush()` | `loadForTransientWrite()` → `apply` → `save` |
+/// | write | refuse if `sidecarRefusal`, else `mutateFromInspector`, the bump, `flush()` | `loadForTransientWrite()` → `apply` → `save` |
 ///
 /// **Nothing here is `async`, deliberately.** `CanvasClaudePlacement.apply` takes
 /// an `inout CanvasScene`, and an `inout` cannot cross a suspension point — that is
@@ -46,18 +46,25 @@ enum CanvasClaudeWrite {
     /// `fromOpenCanvas` is reported rather than inferred, for the reason
     /// `read_preview_page` puts the preview's filename and mtime in its response:
     /// where the answer came from is a fact the caller needs and cannot recover.
+    ///
+    /// `refusal` is why this canvas's layout may not be changed, or nil (issue
+    /// #44): the attached model's `sidecarRefusal`, or the load's own. A refused
+    /// layout reads as the writer's words laid out loose, which is NOT their
+    /// arrangement — so a reader is told, rather than left to mistake it for an
+    /// empty or a real one.
     static func readScene(store: ProjectStore,
                           projectRoot: URL) -> (scene: CanvasScene,
                                                 scraps: [CanvasNodeID: String],
-                                                fromOpenCanvas: Bool) {
+                                                fromOpenCanvas: Bool,
+                                                refusal: CanvasStore.SidecarRefused?) {
         if let model = liveModel(of: store) {
             // The scrap the writer is typing into right now is already here: the
             // mounted editor folds every keystroke into `scraps` (tripwire 28), so
             // the live model is ahead of the sidecar and never behind it.
-            return (model.scene, model.scraps, true)
+            return (model.scene, model.scraps, true, model.sidecarRefusal)
         }
         let loaded = CanvasStore(projectRoot: projectRoot).load()
-        return (loaded.scene, loaded.scraps, false)
+        return (loaded.scene, loaded.scraps, false, loaded.refusal)
     }
 
     /// Write a plan to whichever canvas is real.
@@ -74,18 +81,25 @@ enum CanvasClaudeWrite {
     /// hold a plan across anything that could write to the canvas in between.
     ///
     /// `throws` because both callers are throwing MCP handlers and the sidecar
-    /// route is a disk write. **It throws `CanvasStore.SidecarRefused` on that
-    /// route when the file is present and this build cannot read it** (issue #33):
-    /// `load()` answers such a file with an EMPTY scene, so the write used to save
-    /// that empty scene plus Claude's cards over every region, line, position, mark
-    /// and binding another build put there — and answer "added". Nothing else
-    /// throws: `CanvasStore` still swallows its own I/O errors, the way every other
-    /// writer of the sidecar does. The live-model arm cannot refuse, because a
-    /// model attached by this build is this build's own act.
+    /// route is a disk write. **It throws `CanvasStore.SidecarRefused` on BOTH
+    /// routes when the layout file is present and this build cannot read it**:
+    /// `load()` answers such a file with the writer's words laid out loose, so a
+    /// write used to save that scene plus Claude's cards over every region, line,
+    /// position, mark and binding another build put there — and answer "added"
+    /// (issue #33, the sidecar route). A model attached over such a file holds the
+    /// same refusal and its verbs change nothing, so the live route used to report
+    /// ids for cards that did not exist (issue #44). Both routes throw the SAME
+    /// value — the load's own — so the caller cannot tell which answered. Nothing
+    /// else throws: `CanvasStore` still swallows its own I/O errors, the way every
+    /// other writer of the sidecar does.
     static func apply(_ plan: CanvasClaudePlacement.Plan,
                       store: ProjectStore,
                       projectRoot: URL) throws {
         if let model = liveModel(of: store) {
+            // Before the bracket: `mutateFromInspector` would no-op on a
+            // read-only model, and returning from here would report cards that
+            // were never made.
+            if let refused = model.sidecarRefusal { throw refused }
             // **ONE bracket for the whole batch, and it is `mutateFromInspector`
             // rather than `mutate` — tripwire 32, whose sharpest repro is this
             // one.** An MCP call can arrive while the writer is inside a scrap
@@ -155,5 +169,17 @@ enum CanvasClaudeWrite {
     static func liveModel(of store: ProjectStore) -> CanvasModel? {
         guard let model = store.liveCanvas, model.isAttached else { return nil }
         return model
+    }
+
+    /// **Why a write to this project's canvas would be refused, or nil** — live or
+    /// not (issue #44). The attached model's `sidecarRefusal` when there is one,
+    /// otherwise the load's own `refusal`; the same value either way, so a door
+    /// asking it before a side effect (an asset copy) refuses exactly as the
+    /// write itself would. Asks `liveModel(of:)` rather than re-deciding which
+    /// canvas is real.
+    static func refusal(of store: ProjectStore,
+                        projectRoot: URL) -> CanvasStore.SidecarRefused? {
+        if let model = liveModel(of: store) { return model.sidecarRefusal }
+        return CanvasStore(projectRoot: projectRoot).load().refusal
     }
 }
