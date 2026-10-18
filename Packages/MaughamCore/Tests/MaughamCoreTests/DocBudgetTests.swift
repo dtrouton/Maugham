@@ -13,9 +13,9 @@ final class DocBudgetTests: XCTestCase {
         "CLAUDE.md": 3_031,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason. +19: the Maugham/Models row names its two real guides (final fix wave); +92 at the foundations merge: tripwire rows 54–56 (plans 6/7's censuses), the type-keyed census line, AgentRoster in the Compiler row
         "docs/tripwires.md": 6_791,  // ratchet: actual size; +485 at the foundations merge: rows 54–56, the census-key paragraph, rows 17/24/39/46 name the OpLogStore split's homes
         "docs/testing/TROUBLESHOOTING.md": 4_406,  // ratchet: actual size; +28 over 4,378 for the line naming the old CLAUDE.md phrases comments still cite
-        "docs/INDEX.md": 400,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session
+        "docs/INDEX.md": 417,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session; +15: the docs/history line (plan 5)
         "Maugham/Canvas/AREA.md": 47_971,  // ratchet: main's #44 rewrote the refused-layout paragraphs shorter
-        "Maugham/OpLog/AREA.md": 30_405,  // + residue and the two invariant bullets from CLAUDE.md, 2026-10-17; +15: tripwire 10 names all three keyless OpLogStore sites; +317 at the foundations merge: main's #51 Reopen sentence, the OpLogStore-split map bullet, tripwire 10's walk callers
+        "Maugham/OpLog/AREA.md": 30_412,  // plan 5: +7, the stale split sentence corrected; + residue and the two invariant bullets from CLAUDE.md, 2026-10-17; +15: tripwire 10 names all three keyless OpLogStore sites; +317 at the foundations merge: main's #51 Reopen sentence, the OpLogStore-split map bullet, tripwire 10's walk callers
         "Maugham/Views/AREA.md": 28_289,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17; +572 at the foundations merge: the window family, CentreColumn/CentreRoute/RightColumn/PaletteWallState/PublishCentreModel rows, the session pointer
         "Maugham/Compiler/AREA.md": 23_782,  // + residue from CLAUDE.md, 2026-10-17; +396 at the foundations merge: main's additions since the plans branched and the AgentRoster paragraph
         "Maugham/Stores/AREA.md": 16_389,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17; +275 at the foundations merge: main's additions since the plans branched and the Project sessions row
@@ -51,6 +51,26 @@ final class DocBudgetTests: XCTestCase {
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
     ]
 
+    /// Guides already in the template (Map / Rules / Recipes / Pointers).
+    /// Plan 5 adds each area's guide here as it is re-templated.
+    static let templatedGuides: [String] = [
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
+    ]
+
+    /// Guides still over the hard cap, awaiting their re-template. Shrinks to
+    /// empty by the end of plan 5; a member at or under the cap fails the
+    /// census so the set cannot go stale.
+    static let notYetTemplated: Set<String> = [
+        "Maugham/Canvas/AREA.md",
+        "Maugham/OpLog/AREA.md",
+        "Maugham/Views/AREA.md",
+        "Maugham/Compiler/AREA.md",
+        "Maugham/Stores/AREA.md",
+        "Maugham/MCP/AREA.md",
+    ]
+
+    static let areaGuideHardCap = 8_000
+
     // MARK: - Helpers (pure; the planted controls below exercise them)
 
     static var repoRoot: URL {
@@ -73,6 +93,45 @@ final class DocBudgetTests: XCTestCase {
     static func longestLine(_ text: String) -> Int {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .map(\.count).max() ?? 0
+    }
+
+    /// Every `AREA.md` in the repo, found by walking from `repoRoot`. Skips
+    /// hidden directories (`.git`, `.superpowers`, `.claude`, `.build`…),
+    /// build products, and worktree copies.
+    static func areaGuides(under root: URL) -> [String] {
+        let skipped: Set<String> = ["DerivedData", "build", "node_modules", "worktrees", "Maugham.xcodeproj"]
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
+        var found: [String] = []
+        for case let url as URL in walker {
+            let name = url.lastPathComponent
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir {
+                if name.hasPrefix(".") || skipped.contains(name) || name.hasPrefix("Maugham-") {
+                    walker.skipDescendants()
+                }
+                continue
+            }
+            if name == "AREA.md" {
+                found.append(String(url.path.dropFirst(root.path.count + 1)))
+            }
+        }
+        return found.sorted()
+    }
+
+    /// The problem with a guide's headings, or nil when `## Map`, `## Rules`,
+    /// `## Recipes`, `## Pointers` each appear as a heading line, in that order.
+    static func templateProblem(in text: String) -> String? {
+        let headings = text.components(separatedBy: "\n").filter { $0.hasPrefix("## ") }
+        var from = headings.startIndex
+        for want in ["## Map", "## Rules", "## Recipes", "## Pointers"] {
+            guard let at = headings[from...].firstIndex(of: want) else {
+                return headings.contains(want)
+                    ? "\(want) is out of order" : "\(want) is missing"
+            }
+            from = headings.index(after: at)
+        }
+        return nil
     }
 
     /// `Task 4`, `P3a`, `P3c plan 2`, `plan 1`, `fix round`, `M4`, `M1A`, an ISO date.
@@ -180,6 +239,32 @@ final class DocBudgetTests: XCTestCase {
         }
     }
 
+    func test_everyAreaGuideFollowsTheTemplate() throws {
+        for path in Self.templatedGuides {
+            XCTAssertNil(Self.templateProblem(in: try Self.read(path)),
+                "\(path) must have ## Map, ## Rules, ## Recipes, ## Pointers in that order")
+        }
+    }
+
+    func test_noAreaGuideExceedsTheHardCap() throws {
+        let guides = Self.areaGuides(under: Self.repoRoot)
+        XCTAssertGreaterThanOrEqual(guides.count, 11, "the control: the walk found only \(guides)")
+        for path in guides {
+            let words = Self.wordCount(try Self.read(path))
+            if Self.notYetTemplated.contains(path) {
+                XCTAssertGreaterThan(words, Self.areaGuideHardCap,
+                    "\(path) holds \(words) words, within the cap: remove it from notYetTemplated")
+            } else {
+                XCTAssertLessThanOrEqual(words, Self.areaGuideHardCap,
+                    "\(path) holds \(words) words, over the \(Self.areaGuideHardCap)-word cap. "
+                    + "Move narrative to docs/history/ and re-template it.")
+            }
+        }
+        for path in Self.notYetTemplated {
+            XCTAssertTrue(guides.contains(path), "notYetTemplated names \(path), which is not an AREA.md")
+        }
+    }
+
     func test_theCeilingsNameRealDocs() {
         for path in Set(Self.wordCeilings.keys).union(Self.lineCeilings.keys)
             .union(Self.pathCheckedDocs).union(Self.untaggedDocs) {
@@ -217,6 +302,14 @@ final class DocBudgetTests: XCTestCase {
     // MARK: - Planted controls (each helper fires, and lets clean text through)
 
     func test_theHelpersFireOnPlantedOffenders() {
+        let good = "# X\n\n## Map\n\n## Rules\n\n## Recipes\n\n## Pointers\n"
+        XCTAssertNil(Self.templateProblem(in: good))
+        XCTAssertNotNil(Self.templateProblem(in: "## Rules\n## Map\n## Recipes\n## Pointers\n"),
+                        "Rules before Map is reported")
+        XCTAssertNotNil(Self.templateProblem(in: "## Map\n## Rules\n## Pointers\n"),
+                        "a missing Recipes is reported")
+        XCTAssertNotNil(Self.templateProblem(in: good.replacingOccurrences(of: "## Rules", with: "### Rules")),
+                        "a ### heading is not a ## heading")
         XCTAssertEqual(Self.wordCount("one two\nthree\t four  "), 4)
         XCTAssertEqual(Self.longestLine("ab\nabcde\n"), 5)
         XCTAssertEqual(Self.milestoneTags(in: "Shipped in P3c plan 2, Task 4, fix round 1, on 2026-10-17."),

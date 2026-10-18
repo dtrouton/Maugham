@@ -1,6 +1,6 @@
 # OpLog — Area guide
 
-Structural changes need the census allow-lists updated in the same commit; the foundations audit (2026-10-17, plan 5) schedules `OpLogStore`'s split. Read this before touching anything in `Maugham/OpLog/`. Also read the project root `CLAUDE.md` for cross-cutting invariants.
+Structural changes need the census allow-lists updated in the same commit; `OpLogStore` is already split into its homes (see the "door over six pure homes" bullet below). Read this before touching anything in `Maugham/OpLog/`. Also read the project root `CLAUDE.md` for cross-cutting invariants.
 
 ## What this area owns
 
