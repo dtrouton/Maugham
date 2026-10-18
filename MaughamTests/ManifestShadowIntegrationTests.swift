@@ -125,4 +125,22 @@ final class ManifestShadowIntegrationTests: XCTestCase {
         XCTAssertEqual(store.manifest.title, "Corrupt")
         XCTAssertNil(store.manifestRestoredNotice)
     }
+
+    func test_anEvictedManifestIsNeverRestoredOverAndSaysItIsStillDownloading() async throws {
+        let url = try await shadowedProject("Evicted")
+        let manifest = manifestURL(url)
+        try FileManager.default.removeItem(at: manifest)
+        let placeholder = url.appendingPathComponent("." + ProjectManifest.fileName + ".icloud")
+        try Data("placeholder".utf8).write(to: placeholder)
+
+        XCTAssertFalse(ProjectStore.restoreMissingManifest(at: manifest, projectURL: url))
+        do {
+            _ = try await ProjectStore.load(from: url)
+            XCTFail("expected manifestStillDownloading")
+        } catch ProjectStoreError.manifestStillDownloading {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: manifest.path),
+                           "nothing may be written under the real name while iCloud holds it")
+            XCTAssertEqual(try Data(contentsOf: placeholder), Data("placeholder".utf8))
+        }
+    }
 }

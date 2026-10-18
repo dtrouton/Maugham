@@ -43,7 +43,7 @@ final class RestoreTargetTests: XCTestCase {
 
         XCTAssertThrowsError(try RestoreTarget.clearPlaceholder(at: project)) { error in
             XCTAssertEqual(error.localizedDescription,
-                           "Something named “Novel” is already there, so nothing was restored. Choose a new name — a restore never replaces anything.")
+                           "Something named “Novel” is already there, so nothing was restored. Try again.")
         }
         XCTAssertEqual(try String(contentsOf: chapter, encoding: .utf8), "It was a dark night.")
     }
@@ -84,5 +84,17 @@ final class RestoreTargetTests: XCTestCase {
         XCTAssertTrue(c.canChooseDirectories)
         XCTAssertFalse(c.allowsMultipleSelection)
         XCTAssertEqual(c.prompt, "Restore Here")
+    }
+
+    func test_anEmptyOrHiddenTitleFallsBackToTheFolderName() {
+        XCTAssertEqual(RestoreCopyName.name(for: "   ", fallback: "Novel") { _ in false }, "Novel (restored)")
+        XCTAssertEqual(RestoreCopyName.name(for: ".hidden") { _ in false }, "hidden (restored)")
+        XCTAssertEqual(RestoreCopyName.name(for: "...", fallback: "Novel") { _ in false }, "Novel (restored)")
+    }
+
+    func test_showAllsPanelSaysBackupNotThisProject() {
+        XCTAssertFalse(RestoreFolderPanel.anyBook.message.contains("this project"))
+        XCTAssertFalse(RestoreFolderPanel.anyBook.canChooseFiles)
+        XCTAssertTrue(RestoreFolderPanel.anyBook.canChooseDirectories)
     }
 }

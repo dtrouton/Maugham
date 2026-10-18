@@ -27,7 +27,7 @@ struct RestoreWindow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Restore \(projectURL.lastPathComponent)").font(.headline)
+            Text(showingAll ? "Restore from All Backups" : "Restore \(projectURL.lastPathComponent)").font(.headline)
                 .padding(12)
             Divider()
             if generations.isEmpty {
@@ -101,11 +101,11 @@ struct RestoreWindow: View {
         // A FOLDER, never a name (#92.3): Maugham names the copy itself, so no
         // name can be taken and the system's Replace? is never offered.
         let panel = NSOpenPanel()
-        RestoreFolderPanel.configuration.apply(to: panel)
+        (showingAll ? RestoreFolderPanel.anyBook : RestoreFolderPanel.configuration).apply(to: panel)
         panel.directoryURL = projectURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        let base = showingAll ? (titles[dir] ?? projectURL.lastPathComponent) : projectURL.lastPathComponent
-        let name = RestoreCopyName.name(for: base) { taken in
+        let base = showingAll ? (titles[dir] ?? "") : projectURL.lastPathComponent
+        let name = RestoreCopyName.name(for: base, fallback: projectURL.lastPathComponent) { taken in
             FileManager.default.fileExists(atPath: folder.appendingPathComponent(taken).path)
         }
         let target = folder.appendingPathComponent(name, isDirectory: true)
@@ -140,6 +140,15 @@ struct RestoreFolderPanel: Equatable {
         prompt: "Restore Here",
         message: "Choose a folder to restore a copy of this project into. Maugham names the copy itself.")
 
+    /// Show All Backups' panel: the generation may be any book, so it says so.
+    static let anyBook = RestoreFolderPanel(
+        canChooseFiles: false,
+        canChooseDirectories: true,
+        canCreateDirectories: true,
+        allowsMultipleSelection: false,
+        prompt: "Restore Here",
+        message: "Choose a folder to restore a copy of this backup into. Maugham names the copy itself.")
+
     func apply(to panel: NSOpenPanel) {
         panel.canChooseFiles = canChooseFiles
         panel.canChooseDirectories = canChooseDirectories
@@ -154,9 +163,20 @@ struct RestoreFolderPanel: Equatable {
 /// (restored)"*, then *"(restored 2)"*, *"(restored 3)"*…, never a name
 /// already taken in the chosen folder. Pure: `isTaken` is the folder's answer.
 enum RestoreCopyName {
-    static func name(for project: String, isTaken: (String) -> Bool) -> String {
-        let base = project.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
+    /// `fallback` names the copy when `project` is empty once trimmed and
+    /// stripped of leading dots (a hidden folder is no name for a book).
+    static func name(for project: String, fallback: String = "Project",
+                     isTaken: (String) -> Bool) -> String {
+        func clean(_ raw: String) -> String {
+            var t = raw.replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            while t.hasPrefix(".") { t.removeFirst() }
+            return t.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var base = clean(project)
+        if base.isEmpty { base = clean(fallback) }
+        if base.isEmpty { base = "Project" }
         let first = "\(base) (restored)"
         guard isTaken(first) else { return first }
         var n = 2
@@ -176,7 +196,7 @@ enum RestoreTarget {
     struct Occupied: LocalizedError {
         let name: String
         var errorDescription: String? {
-            "Something named “\(name)” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."
+            "Something named “\(name)” is already there, so nothing was restored. Try again."
         }
     }
 

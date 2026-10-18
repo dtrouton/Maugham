@@ -107,4 +107,4 @@ If the restore goes wrong, the window says *Restore failed:* and gives the reaso
 
 The same window opens from **Restore from Backup…** in a document that won't open (see [Troubleshooting: a document that won't open](getting-started.md#troubleshooting-a-document-that-wont-open)), and from the paused-backups banner.
 
-If a project's settings file (`project.maugham.json`) goes missing but Maugham's safety copy of it is intact, the project still opens. Maugham puts the file back and says once: *"This project's settings file was missing, so Maugham put it back from its safety copy."*
+If a project's settings file (`project.maugham.json`) goes missing but Maugham's safety copy of it is intact, the project still opens. Maugham puts the file back and says once: *"This project's settings file was missing, so Maugham put it back from its safety copy."* If the file is only still downloading from iCloud, Maugham doesn't replace it. It asks you to open the project again in a moment.

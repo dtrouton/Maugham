@@ -693,7 +693,7 @@ struct ProjectWindow: View {
     /// The persona bar is a WINDOW TOOLBAR item, not part of the safe-area
     /// strip: a permanently non-zero top safe-area inset outside a
     /// `NavigationSplitView` occludes the top of every column (2026-07-25
-    /// smoke, defect A). The two banners keep the inset because they are
+    /// smoke, defect A). The three banners keep the inset because they are
     /// zero-height except in the rare states that raise them.
     ///
     /// `⌘\` focus mode hides the whole window toolbar rather than swapping the
