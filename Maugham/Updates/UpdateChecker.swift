@@ -14,6 +14,13 @@ public final class UpdateChecker: ObservableObject {
 
     @Published public private(set) var state: UpdateState = .idle
 
+    /// The last launch's install that did not complete (#67 Task 5), read from
+    /// the helper's `install-status` at this launch. Held APART from `state`
+    /// so no check replaces it: it stays until the writer dismisses it
+    /// (`dismissInstallNotice`). Not persisted — the file is already gone, and
+    /// one launch is enough.
+    @Published public private(set) var installNotice: InstallStatus?
+
     public static let shared: UpdateChecker = UpdateChecker(
         currentVersionString: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0-dev",
         fetchLatest: { try await GitHubReleasesAPI.fetchLatestRelease() },
@@ -181,7 +188,7 @@ public final class UpdateChecker: ObservableObject {
     }
 
     /// Read and remove the swap helper's `install-status` line from the last
-    /// install (#67 Task 5), and put its sentence in the banner. Called once
+    /// install (#67 Task 5), and hold it as `installNotice` for the banner. Called once
     /// at launch, before the background poll starts.
     ///
     /// - `refused`: the staged copy failed the install-time check, so this
@@ -210,14 +217,13 @@ public final class UpdateChecker: ObservableObject {
         guard let reported = SemanticVersion(status.version),
               let current = SemanticVersion(currentVersionString),
               reported > current else { return nil }
-        state = .installDidNotComplete(status)
+        installNotice = status
         return status
     }
 
-    /// The banner's Dismiss for an install notice: back to idle. A no-op in
-    /// any other state, so a check that already replaced the notice stands.
+    /// The banner's Dismiss for the install notice. Touches no check state.
     public func dismissInstallNotice() {
-        if case .installDidNotComplete = state { state = .idle }
+        installNotice = nil
     }
 
     /// Set when a verified .app update is staged but the user dismissed the

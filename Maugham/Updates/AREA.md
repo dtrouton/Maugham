@@ -169,10 +169,13 @@ of `UpdateInstaller.HelperFailureStep` (`python3`, `ditto`, `swap`). Success wri
 test host). `InstallStatus.consume` reads the file and removes it **unconditionally** — a line
 that does not parse is removed too, because a later successful install writes nothing and an old
 line would otherwise outlive it. `InstallStatus.parse` accepts exactly the two forms, an `X.Y.Z`
-version and a `HelperFailureStep` raw value, and nothing else. A parsed line puts the checker in
-`UpdateState.installDidNotComplete`, which the existing `UpdateBannerView` draws (its pure
-`notice(for:)`) as one sentence with Dismiss (`dismissInstallNotice` → idle); the next check
-replaces it. `refused`: *"The update to Maugham <v> didn't pass its safety check and wasn't
+version and a `HelperFailureStep` raw value, and nothing else. A parsed line is held as
+`UpdateChecker.installNotice` — APART from `state`, so no check result replaces it (Denver chose
+"tell me next launch": the sentence must actually be seen). The existing `UpdateBannerView` draws
+it (its pure `notice(for:)`) as one sentence with Dismiss (`dismissInstallNotice` → nil), ahead of
+any "ready" row (a refused 0.43 then a fresh "0.43 is ready" is coherent), and the Check for
+Updates… sheet draws it above whatever the check shows. It is not persisted: the file is already
+gone and one launch is enough. `refused`: *"The update to Maugham <v> didn't pass its safety check and wasn't
 installed. Maugham will download it again."* (Denver's ruling), and that version's
 `Maugham-<v>.zip` and `staged-<v>` are deleted through `discardRefusedArchive` — the checker
 reuses a zip already at that path, so without this the sentence would be false. `failed`: *"The
@@ -180,9 +183,9 @@ update to Maugham <v> couldn't be installed. Maugham will try again."*, and the 
 KEPT — every step names this Mac at that moment, not the bytes, so the next check re-stages them
 without a download (with no python3, the next install takes the Finder fallback). A line naming
 a version not newer than the running app is stale (that update arrived) and says nothing.
-**Stated limit:** the banner mounts in project windows only, so a writer who stays on the Welcome
-window sees the sentence in Check for Updates… (the sheet draws it, then re-checks) or not at all
-if the 60-second background check replaces it first.
+**Stated limit:** the banner mounts in project windows only, and the Welcome window has no
+update surface (none was added), so a writer who never opens a project sees the sentence only in
+Check for Updates…; the notice waits for either until dismissed or the app quits.
 
 **Debug caveat.** When launched from Xcode/lldb, the debugger kills the process group on
 app exit, so the helper is killed with it. The in-place swap will not apply in debug
@@ -222,7 +225,7 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | Only this repo's release URL is trusted; an untrusted one is never downloaded | Yes (pure table; injected download closure) | `GitHubReleasesAPITests.test_onlyThisRepos*`; `UpdateCheckerTests.test_anUntrustedAssetURL*` |
 | Redirect policy (https only, any host) | Pure decision only — the delegate's redirect is not exercised offline | `UpdateDownloadTests.test_aRedirectIsFollowedOnlyToHttps` |
 | Zip totals parse; each size/space refusal arm; a real tiny zip is read by `zipinfo`; a zip with no room is refused before unpacking and deleted | Yes (pure + injected free space + real `ditto -c -k` under `TestTemp.root`) | `UpdateInstallerTests.test_*Zipinfo*`, `test_extractionDecision_*`, `test_archiveTotals*`, `test_aZipTooBig*` |
-| Install-status line: both forms parse, garbage and non-`X.Y.Z` versions don't; both sentences; the file is removed even when garbage; `refused` deletes only that version's zip and stage folder, `failed` keeps them; the state the checker ends in and the banner's notice | Yes (pure + files under `TestTemp.root`; windowless) | `InstallStatusTests` |
+| Install-status line: both forms parse, garbage and non-`X.Y.Z` versions don't; both sentences; the file is removed even when garbage; `refused` deletes only that version's zip and stage folder, `failed` keeps them; the notice the checker holds survives every later check result and is cleared only by Dismiss | Yes (pure + files under `TestTemp.root`; windowless) | `InstallStatusTests` |
 | A refused zip is deleted with its stage folder | Yes (garbage / app-less zip under `TestTemp.root`, real `ditto`) | `UpdateInstallerTests.test_aZip*IsDeleted*` |
 | Running-app Team ID (real signed build) | No — ad-hoc test host returns nil; proven in dry-run | `test_runningAppTeamID_doesNotCrash` (smoke only) |
 | **Detached helper survives the app's exit (launchd adoption), real codesign/spctl on a real notarized build, relaunch** | **NO — cannot be unit-tested** | See below |
@@ -251,7 +254,7 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 | `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the trusted-URL check and the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
 | `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` (resuming from its resume data) or an HTTP 5xx, progress kept monotonic across it, cancelled past the cap (a Swift-Task cancel that lands before the task exists cancels it instead of resuming it), a non-https redirect refused; the extension comes from the asset's name |
 | `UpdateLimits.swift` | The updater's size ceilings (`UpdateLimits.standard`; `maxDownloadBytes` 512 MB, `maxUncompressedBytes` 1 GB, `maxFiles` 20 000) |
-| `UpdateState.swift` | Enum of updater states (idle/checking/downloading/readyToInstall/installing/error/upToDate/newerBuildNeedsNewerSystem/installDidNotComplete) |
+| `UpdateState.swift` | Enum of updater states (idle/checking/downloading/readyToInstall/installing/error/upToDate/newerBuildNeedsNewerSystem) |
 | `InstallStatus.swift` | The helper's `install-status` line: parse, the banner's sentence, read-and-remove at launch |
 | `GitHubReleasesAPI.swift` | GitHub Releases JSON decode; `zipAsset` preferred over `dmgAsset`; `owner`/`repo` and `isTrustedAssetURL` |
 | `UpdateBannerView.swift` | In-window toast ("Maugham X.Y.Z is ready", or the last install's notice) |

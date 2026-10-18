@@ -121,8 +121,9 @@ final class InstallStatusTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: other.zip.path))
         XCTAssertTrue(fm.fileExists(atPath: other.staged.path))
         XCTAssertTrue(fm.fileExists(atPath: neighbour.path))
-        XCTAssertEqual(checker.state, .installDidNotComplete(.refused(version: "0.43.0")))
-        XCTAssertEqual(UpdateBannerView.notice(for: checker.state),
+        XCTAssertEqual(checker.installNotice, .refused(version: "0.43.0"))
+        XCTAssertEqual(checker.state, .idle, "the notice is not a check state")
+        XCTAssertEqual(UpdateBannerView.notice(for: checker.installNotice),
                        "The update to Maugham 0.43.0 didn't pass its safety check and wasn't installed. Maugham will download it again.")
     }
 
@@ -136,8 +137,8 @@ final class InstallStatusTests: XCTestCase {
 
         XCTAssertTrue(fm.fileExists(atPath: artifacts.zip.path))
         XCTAssertTrue(fm.fileExists(atPath: artifacts.staged.path))
-        XCTAssertEqual(checker.state, .installDidNotComplete(.failed(version: "0.43.0", step: "ditto")))
-        XCTAssertEqual(UpdateBannerView.notice(for: checker.state),
+        XCTAssertEqual(checker.installNotice, .failed(version: "0.43.0", step: "ditto"))
+        XCTAssertEqual(UpdateBannerView.notice(for: checker.installNotice),
                        "The update to Maugham 0.43.0 couldn't be installed. Maugham will try again.")
     }
 
@@ -145,8 +146,8 @@ final class InstallStatusTests: XCTestCase {
         let file = try writeStatus("refused banana")
         let checker = makeChecker()
         XCTAssertNil(checker.reportInstallStatus(in: TestTemp.root))
-        XCTAssertEqual(checker.state, .idle)
-        XCTAssertNil(UpdateBannerView.notice(for: checker.state))
+        XCTAssertNil(checker.installNotice)
+        XCTAssertNil(UpdateBannerView.notice(for: checker.installNotice))
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
@@ -155,7 +156,7 @@ final class InstallStatusTests: XCTestCase {
             let file = try writeStatus(line)
             let checker = makeChecker(currentVersion: "0.43.0")
             XCTAssertNil(checker.reportInstallStatus(in: TestTemp.root), line)
-            XCTAssertEqual(checker.state, .idle, line)
+            XCTAssertNil(checker.installNotice, line)
             XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), line)
         }
     }
@@ -164,34 +165,53 @@ final class InstallStatusTests: XCTestCase {
         _ = try writeStatus("refused 0.43.0")
         let checker = makeChecker(currentVersion: "0.0.0-dev")
         XCTAssertNil(checker.reportInstallStatus(in: TestTemp.root))
-        XCTAssertEqual(checker.state, .idle)
+        XCTAssertNil(checker.installNotice)
     }
 
-    func test_dismissMovesTheNoticeToIdle_andTouchesNoOtherState() throws {
+    func test_dismissClearsTheNotice_andTouchesNoCheckState() throws {
         _ = try writeStatus("refused 0.43.0")
         let checker = makeChecker()
         checker.reportInstallStatus(in: TestTemp.root)
         checker.dismissInstallNotice()
+        XCTAssertNil(checker.installNotice)
+        XCTAssertNil(UpdateBannerView.notice(for: checker.installNotice))
         XCTAssertEqual(checker.state, .idle)
-        XCTAssertNil(UpdateBannerView.notice(for: checker.state))
     }
 
-    func test_theNextCheckReplacesTheNotice() async throws {
+    /// Denver chose "tell me next launch": the sentence must be SEEN, so no
+    /// check result replaces it — not a failed check, not a fresh "ready".
+    func test_theNoticeSurvivesEveryLaterCheckResult() async throws {
         _ = try writeStatus("refused 0.43.0")
-        let checker = makeChecker()
-        checker.reportInstallStatus(in: TestTemp.root)
-        await checker.performCheck(trigger: .manual)
-        XCTAssertNil(UpdateBannerView.notice(for: checker.state))
+        let failing = makeChecker()
+        failing.reportInstallStatus(in: TestTemp.root)
+        await failing.performCheck(trigger: .manual)
+        await failing.performCheck(trigger: .background)
+        XCTAssertEqual(failing.installNotice, .refused(version: "0.43.0"))
+
+        _ = try writeStatus("refused 0.43.0")
+        let ready = UpdateChecker(
+            currentVersionString: "0.42.0",
+            fetchLatest: {
+                try GitHubRelease.decode(from: Data("""
+                {"tag_name":"v0.43.0","name":"x","body":"notes","draft":false,"prerelease":false,
+                 "assets":[{"name":"Maugham-0.43.0.zip",
+                            "browser_download_url":"https://github.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip",
+                            "size":100}]}
+                """.utf8))
+            },
+            downloadAsset: { _, _, _ in TestTemp.root.appendingPathComponent("Maugham-0.43.0.zip") },
+            stageAndVerify: { _, _ in TestTemp.root.appendingPathComponent("staged-0.43.0/Maugham.app") },
+            systemVersion: MinimumSystemVersion(major: 27))
+        ready.reportInstallStatus(in: TestTemp.root)
+        await ready.performCheck(trigger: .background)
+        // Both draw: the refusal, and beneath it the fresh "0.43.0 is ready".
+        XCTAssertEqual(UpdateBannerView.notice(for: ready.installNotice),
+                       InstallStatus.refused(version: "0.43.0").sentence)
+        XCTAssertTrue(UpdateBannerView.shouldShow(state: ready.state, dismissed: []))
     }
 
-    // MARK: - the other surfaces' words for the state
-
-    func test_theNoticeIsNotTheReadyBanner_andIsIdleShapedElsewhere() {
-        let state = UpdateState.installDidNotComplete(.refused(version: "0.43.0"))
-        XCTAssertFalse(UpdateBannerView.shouldShow(state: state, dismissed: []))
-        XCTAssertNil(UpdateBannerView.notice(for: .readyToInstall(
-            bundleURL: URL(fileURLWithPath: "/x/Maugham.app"), version: "0.43.0", releaseNotes: "")))
-        XCTAssertEqual(UpdateMenuCommand.menuTitle(for: state), "Check for Updates…")
-        XCTAssertEqual(UpdateSheet.title(for: state), "Maugham 0.43.0 Wasn't Installed")
+    func test_noNoticeWithoutAStatusLine() {
+        XCTAssertNil(UpdateBannerView.notice(for: nil))
+        XCTAssertNil(makeChecker().installNotice)
     }
 }
