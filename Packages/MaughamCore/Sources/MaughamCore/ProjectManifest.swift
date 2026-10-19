@@ -137,7 +137,43 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     ///
     /// As with M1A, M3 and the publish department, this makes the milestone a
     /// **paired Mac + phone release**.
-    public static let currentSchemaVersion = 9
+    ///
+    /// 9 → 10 (report foundations): the `profile` and `switches` fields on the
+    /// manifest, and `ResearchItem.citation` on any research item. All three
+    /// are additive and absent-tolerant, so a schema-9 manifest opens fine; the
+    /// bump is load-bearing for the reason 3 → 4 and 7 → 8 were. An older build
+    /// would read the project happily and re-save the manifest **without
+    /// them** — the Report profile gone, the writer's switches gone, and every
+    /// citation's authors, year and key stripped from the research shelf while
+    /// the manuscript's `[@key]` citations go on pointing at them. Codable drops
+    /// unknown keys without a word; `decodeGuardingSchema` refusing the file is
+    /// the only thing that stops it.
+    ///
+    /// **Only v10 CONTENT raises an existing book** — the 8 → 9 shape with a
+    /// different trigger. `contentSchemaFloor` is 10 when a manifest carries a
+    /// profile, switches or a citation, and `encodeForDisk`, the one door every
+    /// manifest takes to disk, raises the number to it. A schema-9 book that
+    /// gains none of them keeps its 9 and goes on opening on the writer's
+    /// not-yet-updated Mac; a book made on this build starts at 10 through the
+    /// init default, as every bump has. As with every bump since M1A, this
+    /// makes the milestone a **paired Mac + phone release**.
+    public static let currentSchemaVersion = 10
+
+    /// **The one way a manifest becomes bytes for disk** (report foundations,
+    /// schema 10). The number becomes
+    /// `max(schemaVersion, min(contentSchemaFloor, currentSchemaVersion))`,
+    /// then `makeEncoder()` encodes it — so a manifest carrying v10 content can
+    /// never reach disk under a number an older build would open, and one
+    /// without it is written byte-for-byte as before. Every production write
+    /// site goes through here (`TripwireGrepTests
+    /// .test_manifestBytesForDiskComeFromOneFunction`); `makeEncoder()` stays
+    /// public for tests and for reading the format.
+    public static func encodeForDisk(_ manifest: ProjectManifest) throws -> Data {
+        var outgoing = manifest
+        outgoing.schemaVersion = max(
+            manifest.schemaVersion, min(manifest.contentSchemaFloor, currentSchemaVersion))
+        return try makeEncoder().encode(outgoing)
+    }
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a
@@ -344,6 +380,16 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// (show for screenplay projects). Set explicitly to false to hide.
     public var showElementGutter: Bool?
 
+    /// The project's profile (report foundations, schema 10). Nil for every
+    /// project made before it and every project that never chose one. Read
+    /// `effectiveSwitches` for what the profile means.
+    public var profile: ProjectProfile?
+
+    /// The writer's own switch settings; nil (or a nil field) means the
+    /// profile's default. Read `effectiveSwitches`, never this, for the
+    /// answer (schema 10).
+    public var switches: ProjectSwitches?
+
     /// **The recorded starter of the piece `id`** (P3c plan 2, Option A;
     /// ruling OA-1) — its `StructureItem.startedBy`, wherever in the tree the
     /// item sits. Nil for an item with none (made before this build), and for
@@ -445,7 +491,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
               var manifest = try? makeDecoder().decode(ProjectManifest.self, from: outgoing)
         else { return outgoing }
         manifest.schemaVersion = ceiling
-        return (try? makeEncoder().encode(manifest)) ?? outgoing
+        return (try? encodeForDisk(manifest)) ?? outgoing
     }
 
     /// Thrown by `decodeGuardingSchema` when a manifest's on-disk
@@ -503,7 +549,9 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         productionRoles: [ProductionRole] = [],
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
-        showElementGutter: Bool? = nil
+        showElementGutter: Bool? = nil,
+        profile: ProjectProfile? = nil,
+        switches: ProjectSwitches? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -522,6 +570,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.targets = targets
         self.typography = typography
         self.showElementGutter = showElementGutter
+        self.profile = profile
+        self.switches = switches
     }
 
     /// Hand-written because `statements` is non-optional and absent from every
@@ -556,5 +606,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)
         self.typography = try c.decodeIfPresent(TypographySettings.self, forKey: .typography)
         self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)
+        self.profile = try c.decodeIfPresent(ProjectProfile.self, forKey: .profile)
+        self.switches = try c.decodeIfPresent(ProjectSwitches.self, forKey: .switches)
     }
 }

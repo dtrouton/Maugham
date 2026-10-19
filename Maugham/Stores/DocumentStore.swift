@@ -2036,7 +2036,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         if let live = projectStore {
             let adoption = live.adoptExternalManifest(incoming)
             if adoption.replacedSomething,
-               let loser = try? ProjectManifest.makeEncoder().encode(adoption.previous) {
+               let loser = try? ProjectManifest.encodeForDisk(adoption.previous) {
                 archiveManifestForConflict(data: loser)
             }
             if adoption.overUnsavedChange {

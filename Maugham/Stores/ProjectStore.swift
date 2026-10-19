@@ -562,7 +562,7 @@ public final class ProjectStore {
         if manifest.id == nil {
             manifest.id = ULID.generate()
             do {
-                let data = try ProjectManifest.makeEncoder().encode(manifest)
+                let data = try ProjectManifest.encodeForDisk(manifest)
                 try data.write(to: manifestURL, options: [.atomic])
             } catch {
                 projectStoreLog.error("Project id backfill failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")

@@ -88,7 +88,7 @@ final class ProjectManifestTests: XCTestCase {
         XCTAssertNoThrow(try makeISODecoder().decode(ProjectManifest.self, from: json))
     }
 
-    func test_schemaVersion9_isCurrent() {
+    func test_schemaVersion10_isCurrent() {
         // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2; annotationReopen
         // (2026-07-09, ADR 0015 contract) bumped 2 -> 3; the `statements` section
         // (M1A, 2026-07-31) bumped 3 -> 4 — see ProjectManifest.statements for why
@@ -115,11 +115,15 @@ final class ProjectManifestTests: XCTestCase {
         // first NARROWING event writes, because a build with no permit layer
         // applies a reviewer's refused text and re-asserts it under its own
         // book-author key. Refusing the project is the only way to stop that.
+        // Report foundations (2026-10-19) bumped 9 -> 10: the manifest's
+        // `profile` and `switches` and every research item's `citation` — an
+        // older build's re-save silently drops all three. Only v10 CONTENT
+        // raises an existing book (`ProjectManifest.encodeForDisk`).
         //
         // Deliberately a literal, unlike the gate tests: this is the ledger's
         // assertion, and its whole job is to make a bump a conscious act that
         // sends the next person to `currentSchemaVersion`'s doc comment.
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 9)
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 10)
     }
 
     func test_codable_roundTrips_withTypographyOverride() throws {

@@ -290,7 +290,11 @@ extension ProjectStore {
 
         let researchPrefix = "\(pieceFolderRel)/research/"
         let now = Date()
-        let encoder = ProjectManifest.makeEncoder()
+        // For the piece's `.maugham-link.json` only; the promoted project's
+        // manifest goes through `ProjectManifest.encodeForDisk`, the one door.
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         // Declared outside the `do` so the failure path can read it. Appended to
         // as each move lands, never before — a move that threw is not a move to
@@ -334,8 +338,7 @@ extension ProjectStore {
                 docName: mainDocName,
                 researchPrefix: researchPrefix,
                 carriedIntent: stagedIntent?.statement,
-                now: now,
-                encoder: encoder)
+                now: now)
 
             // 6. Validate by loading
             try await validatePromotedProject(staging: stagingURL)
@@ -546,8 +549,7 @@ extension ProjectStore {
         docName: String,
         researchPrefix: String,
         carriedIntent: Statement?,
-        now: Date,
-        encoder: JSONEncoder
+        now: Date
     ) throws {
         let docStructItem = StructureItem(
             id: Self.newId(prefix: "doc"),
@@ -600,7 +602,7 @@ extension ProjectStore {
             research: carriedResearch,
             statements: carriedStatements,
             targets: newTargets)
-        try encoder.encode(newManifest).write(
+        try ProjectManifest.encodeForDisk(newManifest).write(
             to: staging.appendingPathComponent(ProjectManifest.fileName),
             options: .atomic)
     }

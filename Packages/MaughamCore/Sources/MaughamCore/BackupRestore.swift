@@ -90,7 +90,7 @@ public enum BackupRestore {
         if let data = try? Data(contentsOf: manifestURL),  // adr-0018-ok: restored copy's manifest JSON, not manuscript
            var manifest = try? ProjectManifest.decodeGuardingSchema(data) {
             manifest.id = ULID.generate()
-            guard let fresh = try? ProjectManifest.makeEncoder().encode(manifest),
+            guard let fresh = try? ProjectManifest.encodeForDisk(manifest),
                   (try? fresh.write(to: manifestURL, options: .atomic)) != nil else { return }
             try? ManifestShadow.write(fresh, in: target)
             return
@@ -98,7 +98,7 @@ public enum BackupRestore {
         if let shadow = ManifestShadow.recover(in: target),
            var manifest = try? ProjectManifest.decodeGuardingSchema(shadow) {
             manifest.id = ULID.generate()
-            if let fresh = try? ProjectManifest.makeEncoder().encode(manifest) {
+            if let fresh = try? ProjectManifest.encodeForDisk(manifest) {
                 try? ManifestShadow.write(fresh, in: target)
             }
         }

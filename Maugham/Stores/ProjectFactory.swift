@@ -60,7 +60,7 @@ public enum ProjectFactory {
                 research: []
             )
 
-            let manifestData = try ProjectManifest.makeEncoder().encode(manifest)
+            let manifestData = try ProjectManifest.encodeForDisk(manifest)
             try manifestData.write(to: projectURL.appendingPathComponent(manifestFilename))
 
             // Publishing: copy barebones starter so new projects can publish immediately.
@@ -237,7 +237,7 @@ public enum ProjectFactory {
         _ manifest: ProjectManifest, to projectURL: URL
     ) throws {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
-        let data = try ProjectManifest.makeEncoder().encode(manifest)
+        let data = try ProjectManifest.encodeForDisk(manifest)
         try data.write(to: manifestURL, options: [.atomic])
     }
 }

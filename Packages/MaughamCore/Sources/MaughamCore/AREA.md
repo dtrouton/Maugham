@@ -128,7 +128,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ProductionRole.swift` — a named translator, reader, collator or designer in the publish department.
 
 ### Project model
-- `ProjectManifest.swift` — `project.maugham.json`: structure, research, statements, passes, roles; `currentSchemaVersion` and its gate.
+- `ProjectManifest.swift` — `project.maugham.json`: structure, research, statements, passes, roles; `currentSchemaVersion` and its gate; `encodeForDisk`, the one way a manifest becomes bytes for disk.
+- `ProjectProfile.swift` — the Report profile and the four project switches; `effectiveSwitches` and `contentSchemaFloor`.
 - `ProjectType.swift` — the four project forms plus decode-only `.unknown`.
 - `ProjectType+Capabilities.swift` — what callers ask of a kind (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`), answered once for Mac and phone (tripwire 55).
 - `DocumentFormat.swift` — a manuscript's format from its extension: the extension, held blank lines, screenplay family, help resource, icon (tripwires 54, 55).

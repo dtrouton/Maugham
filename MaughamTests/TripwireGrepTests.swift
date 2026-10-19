@@ -373,10 +373,10 @@ final class TripwireGrepTests: XCTestCase {
     /// the value names the censuses that read it. A root missing here is code
     /// no census was ever pointed at — the moment to decide which must scan it.
     static let knownSourceRoots: [String: String] = [
-        "Maugham": "sourceDir censuses + admissionRoots/deviceIdentityRoots/postureAskRoots",
-        "MaughamPhone": "TripwirePhoneGrepTest + admissionRoots/deviceIdentityRoots/postureAskRoots",
+        "Maugham": "sourceDir censuses + admissionRoots/deviceIdentityRoots/postureAskRoots/manifestEncodeRoots",
+        "MaughamPhone": "TripwirePhoneGrepTest + admissionRoots/deviceIdentityRoots/postureAskRoots/manifestEncodeRoots",
         "Packages/MaughamCore/Sources/MaughamCore":
-            "admissionRoots/deviceIdentityRoots + the Packages/MaughamCore/Sources censuses",
+            "admissionRoots/deviceIdentityRoots/manifestEncodeRoots + the Packages/MaughamCore/Sources censuses",
     ]
 
     /// The roots `productionRoots` names that `knownSourceRoots` does not, and
@@ -11844,6 +11844,71 @@ extension TripwireGrepTests {
             XCTAssertTrue(text.contains("\"--tools\", \"\""),
                           "\(file) launches claude without `--tools \"\"`")
         }
+    }
+
+    // MARK: - Manifest bytes for disk come from one function (schema 10)
+
+    /// The files that may spell the manifest encoder, each with its reason.
+    /// `ProjectManifest.swift` is the door itself (`encodeForDisk`).
+    static let manifestEncoderAllowed: [String: String] = [
+        "ProjectManifest.swift": "defines makeEncoder() and encodeForDisk, the one door",
+    ]
+
+    /// Every production root: the Mac app, the phone, and Core's sources.
+    private var manifestEncodeRoots: [URL] {
+        [sourceDir,
+         repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+         repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)]
+    }
+
+    private func manifestEncoderOffenders(in roots: [URL]) throws -> [String] {
+        try grepSwift(
+            in: roots,
+            patterns: ["makeEncoder()"],
+            allowed: Set(Self.manifestEncoderAllowed.keys),
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: nil)
+    }
+
+    /// **A manifest reaches disk through `ProjectManifest.encodeForDisk` only.**
+    ///
+    /// That door raises `schemaVersion` to `contentSchemaFloor`: a manifest
+    /// carrying a profile, switches or a citation is written at 10, so an
+    /// older build refuses it rather than re-saving it without them (Codable
+    /// drops unknown keys). A second spelling of the encoder is a write site
+    /// that skips the floor — the old build then opens the book and silently
+    /// strips the writer's report settings and citations.
+    func test_manifestBytesForDiskComeFromOneFunction() throws {
+        let offenders = try manifestEncoderOffenders(in: manifestEncodeRoots)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file encodes a manifest with `makeEncoder()` instead of "
+            + "`ProjectManifest.encodeForDisk`, which skips the schema-10 content floor. "
+            + "Route it through `encodeForDisk`, or (for a verbatim backup of other bytes) "
+            + "allow-list the file in `manifestEncoderAllowed` with a reason. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: a planted file spelling the encoder both ways is caught, its
+    /// comment is not, and the same text under the allowed NAME passes.
+    func test_theManifestEncoderCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-manifest-encode-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let text = """
+        // A comment may name ProjectManifest.makeEncoder().
+        let a = try ProjectManifest.makeEncoder().encode(manifest)
+        let e = ProjectManifest.makeEncoder()
+        """
+        try text.write(to: tmp.appendingPathComponent("SecondDoor.swift"), atomically: true, encoding: .utf8)
+        let offenders = try manifestEncoderOffenders(in: [tmp])
+        XCTAssertEqual(offenders.count, 2, offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.allSatisfy { $0.hasPrefix("SecondDoor.swift:") }, offenders.description)
+
+        try fm.removeItem(at: tmp.appendingPathComponent("SecondDoor.swift"))
+        try text.write(to: tmp.appendingPathComponent("ProjectManifest.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try manifestEncoderOffenders(in: [tmp]), [])
     }
 
     /// CONTROL: the census sees a planted launch in each spelling, and not a

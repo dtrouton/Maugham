@@ -72,9 +72,11 @@ final class SynthesisSourceTests: XCTestCase {
     /// a reviewer's refused text and re-asserts it under its own book-author
     /// key, so the first narrowing has to make that Mac refuse the project
     /// outright. `decodeGuardingSchema` is what does the refusing, and 9 is the
-    /// number it refuses on.
-    func test_schemaVersionIsNine() {
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 9)
+    /// number it refuses on. Report foundations raised the current number to
+    /// 10 (`ProjectProfileTests.test_currentSchemaIsTen` is that bump's pin);
+    /// this one holds only that the 8 → 9 gate is never undone.
+    func test_schemaVersionIsAtLeastNine() {
+        XCTAssertGreaterThanOrEqual(ProjectManifest.currentSchemaVersion, 9)
     }
 
     func test_aSchemaNineManifestIsRefusedByABuildThatStopsAtEight() throws {

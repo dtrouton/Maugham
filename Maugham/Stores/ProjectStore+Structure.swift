@@ -271,7 +271,7 @@ extension ProjectStore {
         let saving = manifest
         let data: Data
         do {
-            data = try ProjectManifest.makeEncoder().encode(saving)
+            data = try ProjectManifest.encodeForDisk(saving)
         } catch {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
         }

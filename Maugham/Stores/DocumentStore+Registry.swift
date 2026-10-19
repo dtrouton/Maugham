@@ -196,7 +196,7 @@ extension DocumentStore {
     /// build's schema is left byte-identical, so the SECOND narrowing writes no
     /// manifest at all — and a non-narrowing admission, revocation, retirement
     /// or rename never gets here. The bytes go through `writeManifest`, the
-    /// store's own coordinated door, with `ProjectManifest`'s own encoder (never
+    /// store's own coordinated door, through `ProjectManifest.encodeForDisk` (never
     /// hand-written JSON — tripwire 14's neighbourhood).
     ///
     /// ## The in-memory copy
@@ -223,7 +223,7 @@ extension DocumentStore {
                 var raised = manifest
                 raised.schemaVersion = ProjectManifest.currentSchemaVersion
                 try await writeManifest(
-                    try ProjectManifest.makeEncoder().encode(raised))
+                    try ProjectManifest.encodeForDisk(raised))
             }
         } catch {
             throw RegistryAdmissionError.manifestNotGated(
