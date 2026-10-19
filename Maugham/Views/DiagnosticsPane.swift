@@ -1400,7 +1400,7 @@ struct DiagnosticsPane: View {
                     // Refused up front while another run holds the session
                     // (#83), saying whose run it waits for.
                     .disabled(Self.refusesColdStartRead(otherLoopLine: otherLoopLine))
-                    .help(otherLoopLine ?? "")
+                    .help(otherLoopLine ?? Self.coldStartOfferSentence)
             }
         }
         .padding(24)

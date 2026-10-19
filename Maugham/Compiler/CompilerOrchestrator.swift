@@ -40,7 +40,8 @@ final class CompilerOrchestrator {
     /// in Author made the cockpit read "running" with a check's counts, and a
     /// check's death painted the cockpit red as a round failure (and the
     /// reverse). Each surface now matches its own kind and names the other's
-    /// in one line (`DiagnosticsPane.otherLoopLine`,
+    /// in one line, and its own kind's run on another piece by that piece's
+    /// title (#83) (`DiagnosticsPane.otherLoopLine`,
     /// `ReviewRoundCockpit.otherLoopLine`).
     enum RunState: Equatable {
         case idle
