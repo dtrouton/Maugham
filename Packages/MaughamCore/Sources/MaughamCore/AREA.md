@@ -214,8 +214,16 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - The held-line and schema call sites in `OpLogDeviceState.swift` (`acknowledgedLosses`, `expectedStreams(`) and `StreamCensus` are counted per file (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`): a new call site updates `countedLists`.
 - The person key's doors are counted in `PersonKeyCensusTests` (tripwire 53).
 - Run `./scripts/test.sh core` after any change here, then both app schemes; tests build under `TestTemp`.
+- Every manifest written to disk goes through `ProjectManifest.encodeForDisk`, which stamps the content floor so an older build refuses rather than strips v10 content; narrowing raises only to `narrowingSchemaVersion` (`TripwireGrepTests.test_manifestBytesForDiskComeFromOneFunction`).
 
 ## Recipes
+
+### Add a manuscript element
+1. Recognise it: a block in `ManuscriptBlocks.swift` (over `MarkdownBlockParser`), or an inline in `ManuscriptInlineScanner.swift`. A label it carries is read by `ManuscriptLabel.swift`.
+2. Index and diagnose it in `ManuscriptIndex.swift`: record what it defines or cites, and report each way it can be wrong.
+3. Publishing's AST and the editor's tokenizer consume it next, each reading the same recognised element rather than re-parsing the text.
+
+Checks: the manuscript grammar tests in `MaughamCoreTests`.
 
 ### Add a block kind to the text model
 1. `MarkdownBlockParser.swift` — add the `MarkdownBlock` case and its rule in the precedence order the parser documents.

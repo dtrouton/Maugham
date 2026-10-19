@@ -347,6 +347,7 @@ Two things deliberately live elsewhere:
 - **The retry converges**: the node id is `cap-<entryId>`, and the image arm asks `CanvasCapture.existingNode` (via `CanvasClaudeWrite.liveModel`) before `ingestCanvasAsset`.
 - **There is no MCP write path onto the canvas from the inbox.**
 - **`InboxTranscriptionWorker` is poked on every inbox change**, audio or not, because an `.m4a` and its manifest row arrive in either order.
+- Every manifest written to disk goes through `ProjectManifest.encodeForDisk`, which stamps the content floor so an older build refuses rather than strips v10 content; narrowing raises only to `narrowingSchemaVersion` (`TripwireGrepTests.test_manifestBytesForDiskComeFromOneFunction`).
 
 ## Recipes
 

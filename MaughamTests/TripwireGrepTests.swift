@@ -11869,7 +11869,10 @@ extension TripwireGrepTests {
             "let linkData = try encoder.encode(linkFile)",
             "try encoder.encode(linkFile).write(to: linkURL, options: .atomic)",
         ]),
-        "ProjectStore+References.swift": ("a reference piece's .maugham-link.json", nil),
+        "ProjectStore+References.swift": ("a reference piece's .maugham-link.json encoder", [
+            "let encoder = JSONEncoder()",
+            "try encoder.encode(linkFile).write(to: linkURL, options: .atomic)",
+        ]),
         "DocumentStore.swift": ("the sessions log and ui-state.json, never the manifest", [
             "let encoder = JSONEncoder()",
             "let data = try encoder.encode(next)",
