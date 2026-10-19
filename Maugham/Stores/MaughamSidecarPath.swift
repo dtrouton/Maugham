@@ -10,8 +10,9 @@ import MaughamCore
 /// The canonical `.maugham/` subdir layout (see `Maugham/Stores/AREA.md`)
 /// is encoded here as explicit cases. Subdirs that exist but don't yet
 /// have presenter routing (`sessions`, `ui-state`, `conflicts`, `scratch`,
-/// `pending`, `trash`) parse to their own cases so a future owner-wiring is a
-/// one-case edit rather than a free-string regex change.
+/// `pending`) parse to their own cases so a future owner-wiring is a
+/// one-case edit rather than a free-string regex change. (`.trash` is not one
+/// of them: the real trash is `<project>/.trash/`, outside `.maugham/`.)
 internal enum MaughamSidecarPath: Equatable {
 
     /// Top-level manifest.
@@ -50,7 +51,10 @@ internal enum MaughamSidecarPath: Equatable {
     /// never reactively from a presenter callback).
     case pending(relativePath: String)
 
-    /// `.maugham/trash/*` — owned by `TrashStore`. No presenter routing today.
+    /// `.maugham/trash/*` — owned by nobody: `TrashStore`'s trash is
+    /// `<project>/.trash/`, OUTSIDE `.maugham/`, which classifies as
+    /// `.otherProjectFile` (a trashed piece is no longer registered, so nothing
+    /// reacts to it). Kept so a stray file under this path is ignored.
     case trash(relativePath: String)
 
     /// `.maugham/publish/template.tex` + all `.tex` partials. The Claude-authored

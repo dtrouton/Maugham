@@ -17,21 +17,39 @@ struct RestoreWindow: View {
     /// every destination — so the list keys on `directory`, not `id`.
     @State private var selection: URL?
     @State private var error: String?
+    /// **The last resort** (#92): every generation in every backup folder,
+    /// whatever book it belongs to, offered only when none were found for this
+    /// project. The writer picks by title — nothing matches a book to a
+    /// generation by title or folder name, because titles collide.
+    @State private var showingAll = false
+    /// Each listed generation's own title, read once with the list.
+    @State private var titles: [URL: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Restore \(projectURL.lastPathComponent)").font(.headline)
+            Text(showingAll ? "Restore from All Backups" : "Restore \(projectURL.lastPathComponent)").font(.headline)
                 .padding(12)
             Divider()
             if generations.isEmpty {
-                ContentUnavailableView("No backups found",
-                    systemImage: "externaldrive.badge.questionmark",
-                    description: Text("No backup generations exist for this project yet."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label("No backups found", systemImage: "externaldrive.badge.questionmark")
+                } description: {
+                    Text(showingAll
+                         ? "Your backup folders hold no backups."
+                         : "No backups were found for this project. If its settings file was lost, its backups may be filed under another name.")
+                } actions: {
+                    if !showingAll {
+                        Button("Show All Backups") { Task { await load(all: true) } }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(generations, id: \.directory, selection: $selection) { gen in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
+                            if showingAll {
+                                Text(titles[gen.directory] ?? "Untitled")
+                            }
                             Text(gen.builtAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? gen.id)
                             Text(gen.destination.deletingLastPathComponent().lastPathComponent)
                                 .font(.caption).foregroundStyle(.secondary)
@@ -61,10 +79,18 @@ struct RestoreWindow: View {
         .task { await load() }
     }
 
-    private func load() async {
-        let gens = backupCoordinator.generations(forProject: projectURL)
+    private func load(all: Bool = false) async {
+        let gens = all
+            ? backupCoordinator.allGenerations()
+            : backupCoordinator.generations(forProject: projectURL)
         var ok: Set<URL> = []
-        for gen in gens where BackupRestore.verify(gen).isEmpty { ok.insert(gen.directory) }
+        var named: [URL: String] = [:]
+        for gen in gens {
+            if BackupRestore.verify(gen).isEmpty { ok.insert(gen.directory) }
+            if all, let title = BackupCoordinator.title(of: gen) { named[gen.directory] = title }
+        }
+        showingAll = all
+        titles = named
         generations = gens
         intact = ok
     }
@@ -72,12 +98,20 @@ struct RestoreWindow: View {
     private func restore() {
         guard let dir = selection,
               let gen = generations.first(where: { $0.directory == dir }) else { return }
-        let panel = NSSavePanel()
-        panel.message = "Choose where to restore a copy of this project."
-        panel.nameFieldStringValue = projectURL.lastPathComponent + " (restored)"
+        // A FOLDER, never a name (#92.3): Maugham names the copy itself, so no
+        // name can be taken and the system's Replace? is never offered.
+        let panel = NSOpenPanel()
+        (showingAll ? RestoreFolderPanel.anyBook : RestoreFolderPanel.configuration).apply(to: panel)
         panel.directoryURL = projectURL.deletingLastPathComponent()
-        guard panel.runModal() == .OK, let target = panel.url else { return }
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let base = showingAll ? (titles[dir] ?? "") : projectURL.lastPathComponent
+        let name = RestoreCopyName.name(for: base, fallback: projectURL.lastPathComponent) { taken in
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent(taken).path)
+        }
+        let target = folder.appendingPathComponent(name, isDirectory: true)
         do {
+            // A backstop now: the name was chosen free, but something could
+            // arrive between the check and the copy.
             try RestoreTarget.clearPlaceholder(at: target)
             let restored = try BackupRestore.restoreBeside(gen, to: target)
             NSWorkspace.shared.activateFileViewerSelecting([restored])
@@ -88,9 +122,73 @@ struct RestoreWindow: View {
     }
 }
 
-/// What a restore may do with the name the save panel returned. The panel can
-/// leave an EMPTY placeholder at the target, and `restoreBeside` refuses an
-/// existing target, so an empty folder is removed. Anything
+/// The Restore window's folder panel, as a value a test can compare — no test
+/// allocates a panel (CLAUDE.md, `AddFilePanelConfiguration`'s shape).
+struct RestoreFolderPanel: Equatable {
+    let canChooseFiles: Bool
+    let canChooseDirectories: Bool
+    let canCreateDirectories: Bool
+    let allowsMultipleSelection: Bool
+    let prompt: String
+    let message: String
+
+    static let configuration = RestoreFolderPanel(
+        canChooseFiles: false,
+        canChooseDirectories: true,
+        canCreateDirectories: true,
+        allowsMultipleSelection: false,
+        prompt: "Restore Here",
+        message: "Choose a folder to restore a copy of this project into. Maugham names the copy itself.")
+
+    /// Show All Backups' panel: the generation may be any book, so it says so.
+    static let anyBook = RestoreFolderPanel(
+        canChooseFiles: false,
+        canChooseDirectories: true,
+        canCreateDirectories: true,
+        allowsMultipleSelection: false,
+        prompt: "Restore Here",
+        message: "Choose a folder to restore a copy of this backup into. Maugham names the copy itself.")
+
+    func apply(to panel: NSOpenPanel) {
+        panel.canChooseFiles = canChooseFiles
+        panel.canChooseDirectories = canChooseDirectories
+        panel.canCreateDirectories = canCreateDirectories
+        panel.allowsMultipleSelection = allowsMultipleSelection
+        panel.prompt = prompt
+        panel.message = message
+    }
+}
+
+/// **What a restored copy is called** (#92.3, Denver's ruling): *"<project>
+/// (restored)"*, then *"(restored 2)"*, *"(restored 3)"*…, never a name
+/// already taken in the chosen folder. Pure: `isTaken` is the folder's answer.
+enum RestoreCopyName {
+    /// `fallback` names the copy when `project` is empty once trimmed and
+    /// stripped of leading dots (a hidden folder is no name for a book).
+    static func name(for project: String, fallback: String = "Project",
+                     isTaken: (String) -> Bool) -> String {
+        func clean(_ raw: String) -> String {
+            var t = raw.replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            while t.hasPrefix(".") { t.removeFirst() }
+            return t.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var base = clean(project)
+        if base.isEmpty { base = clean(fallback) }
+        if base.isEmpty { base = "Project" }
+        let first = "\(base) (restored)"
+        guard isTaken(first) else { return first }
+        var n = 2
+        while isTaken("\(base) (restored \(n))") { n += 1 }
+        return "\(base) (restored \(n))"
+    }
+}
+
+/// What a restore may do with a target that is already there — a BACKSTOP
+/// since #92.3, when the window stopped asking for a name and began choosing a
+/// free one (`RestoreCopyName`). `restoreBeside` refuses an existing target,
+/// so an empty folder is removed. Anything
 /// with content is refused: a writer who picked an existing folder's name and
 /// pressed Replace must never lose that folder (issue #56 finding — the old
 /// code removed whatever was there, the open project included).
@@ -98,7 +196,7 @@ enum RestoreTarget {
     struct Occupied: LocalizedError {
         let name: String
         var errorDescription: String? {
-            "Something named “\(name)” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."
+            "Something named “\(name)” is already there, so nothing was restored. Try again."
         }
     }
 

@@ -19,6 +19,10 @@ public enum StructureItemKind: Equatable, Sendable {
 
 public enum ProjectStoreError: Error, Equatable {
     case manifestNotFound
+    /// `project.maugham.json` is an iCloud placeholder still coming down
+    /// (`.project.maugham.json.icloud` beside it). Refused rather than
+    /// restored from the shadow, which may be older than the file on its way.
+    case manifestStillDownloading
     case manifestUnreadable(String)
     case manifestUnwritable(String)
     /// The on-disk manifest declares a `schemaVersion` newer than this build
@@ -105,6 +109,9 @@ extension ProjectStoreError: LocalizedError {
         switch self {
         case .manifestNotFound:
             return "The project could not be found."
+        case .manifestStillDownloading:
+            return "This project's settings file is still downloading from iCloud. "
+                + "Try opening the project again in a moment."
         case .manifestUnreadable(let detail):
             return "The project could not be read: \(detail)"
         case .manifestUnwritable(let detail):
@@ -155,6 +162,10 @@ extension ProjectStoreError: LocalizedError {
 public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
+    /// One line for the window when `load` put a missing manifest back from
+    /// its shadow (#92); nil otherwise. The banner's dismiss clears it, so it
+    /// is said once per open.
+    var manifestRestoredNotice: String?
 
     /// **The manifest as it last stood level with disk** — loaded, saved, or
     /// adopted from another device (F7, 2026-09-23). Outside a structural verb,
@@ -456,13 +467,62 @@ public final class ProjectStore {
         self.trashEntries = trashEntries
     }
 
+    /// The window's one line when `load` put a missing `project.maugham.json`
+    /// back from its shadow (Denver's #92 ruling, verbatim).
+    static let manifestRestoredSentence =
+        "This project's settings file was missing, so Maugham put it back from its safety copy."
+
+    /// Writes the verified shadow to the missing manifest's place, but only if
+    /// the shadow decodes under this build's schema gate and nothing is at
+    /// `manifestURL`. Returns whether the file was put back.
+    static func restoreMissingManifest(at manifestURL: URL, projectURL: URL) -> Bool {
+        guard !hasICloudPlaceholder(for: manifestURL),
+              let shadow = ManifestShadow.recover(in: projectURL),
+              (try? ProjectManifest.decodeGuardingSchema(shadow)) != nil else { return false }
+        do {
+            try shadow.write(to: manifestURL, options: [.withoutOverwriting])
+        } catch {
+            return false
+        }
+        projectStoreLog.error(
+            "Restored missing project manifest from shadow for \(projectURL.path, privacy: .public)")
+        return true
+    }
+
+    /// The old-style iCloud placeholder: the real file is gone and
+    /// `.<name>.icloud` stands beside it — the shape
+    /// `StreamPositions.nameBehindICloudPlaceholder` reads (Core-internal,
+    /// hence spelled here from the other direction, as `CanvasStore` does).
+    static func hasICloudPlaceholder(for url: URL) -> Bool {
+        let placeholder = url.deletingLastPathComponent()
+            .appendingPathComponent("." + url.lastPathComponent + ".icloud")
+        return FileManager.default.fileExists(atPath: placeholder.path)
+    }
+
     /// Load a project from disk by URL.
     public static func load(from url: URL) async throws -> ProjectStore {
         let manifestURL = url.appendingPathComponent(manifestFilename)
         let fm = FileManager.default
 
-        guard fm.fileExists(atPath: manifestURL.path) else {
-            throw ProjectStoreError.manifestNotFound
+        // **A MISSING manifest comes back from its safety copy** (#92, Denver's
+        // ruling) — the corrupt case below already did. Only when the file is
+        // ABSENT and the shadow verifies and decodes; never over a present file,
+        // whatever its state (`.withoutOverwriting` holds that even against a
+        // file that arrived between the check and the write).
+        var restoredFromShadow = false
+        if !fm.fileExists(atPath: manifestURL.path) {
+            // An EVICTED manifest is not a missing one: writing a possibly
+            // older shadow under the real name would make an iCloud conflict
+            // that can beat the newer file on its way down (#92 review).
+            if hasICloudPlaceholder(for: manifestURL) {
+                try? fm.startDownloadingUbiquitousItem(at: manifestURL)
+                throw ProjectStoreError.manifestStillDownloading
+            }
+            restoredFromShadow = restoreMissingManifest(at: manifestURL, projectURL: url)
+            // A file that arrived meanwhile is read below like any other.
+            guard restoredFromShadow || fm.fileExists(atPath: manifestURL.path) else {
+                throw ProjectStoreError.manifestNotFound
+            }
         }
 
         var manifest: ProjectManifest
@@ -518,6 +578,9 @@ public final class ProjectStore {
             manifest: manifest,
             trashStore: trashStore,
             trashEntries: trashEntries)
+        if restoredFromShadow {
+            store.manifestRestoredNotice = manifestRestoredSentence
+        }
         // S1: eagerly stamp the durable `role` on legacy (role == nil) palette /
         // craft-intent items BEFORE the window (and any rename affordance) is
         // reachable, so a rename made before the palette wall is ever opened

@@ -43,7 +43,7 @@ final class RestoreTargetTests: XCTestCase {
 
         XCTAssertThrowsError(try RestoreTarget.clearPlaceholder(at: project)) { error in
             XCTAssertEqual(error.localizedDescription,
-                           "Something named “Novel” is already there, so nothing was restored. Choose a new name — a restore never replaces anything.")
+                           "Something named “Novel” is already there, so nothing was restored. Try again.")
         }
         XCTAssertEqual(try String(contentsOf: chapter, encoding: .utf8), "It was a dark night.")
     }
@@ -53,5 +53,48 @@ final class RestoreTargetTests: XCTestCase {
         try Data("keep".utf8).write(to: target)
         XCTAssertThrowsError(try RestoreTarget.clearPlaceholder(at: target))
         XCTAssertEqual(try Data(contentsOf: target), Data("keep".utf8))
+    }
+
+    // MARK: - #92.3: a folder is chosen and Maugham names the copy
+
+    func test_theCopyIsNamedRestoredThenNumberedNeverATakenName() {
+        XCTAssertEqual(RestoreCopyName.name(for: "Novel") { _ in false }, "Novel (restored)")
+        let taken: Set<String> = ["Novel (restored)", "Novel (restored 2)"]
+        XCTAssertEqual(RestoreCopyName.name(for: "Novel") { taken.contains($0) }, "Novel (restored 3)")
+        let gap: Set<String> = ["Novel (restored)", "Novel (restored 3)"]
+        XCTAssertEqual(RestoreCopyName.name(for: "Novel") { gap.contains($0) }, "Novel (restored 2)")
+    }
+
+    func test_aTitleCannotNameAPath() {
+        XCTAssertEqual(RestoreCopyName.name(for: "A/B: C") { _ in false }, "A-B- C (restored)")
+    }
+
+    func test_theNameIsFreeInARealFolder() throws {
+        let folder = TestTemp.root.appendingPathComponent("into-\(UUID().uuidString)")
+        try fm.createDirectory(at: folder.appendingPathComponent("Novel (restored)"), withIntermediateDirectories: true)
+        let name = RestoreCopyName.name(for: "Novel") {
+            self.fm.fileExists(atPath: folder.appendingPathComponent($0).path)
+        }
+        XCTAssertEqual(name, "Novel (restored 2)")
+    }
+
+    func test_thePanelChoosesAFolderAndNothingElse() {
+        let c = RestoreFolderPanel.configuration
+        XCTAssertFalse(c.canChooseFiles)
+        XCTAssertTrue(c.canChooseDirectories)
+        XCTAssertFalse(c.allowsMultipleSelection)
+        XCTAssertEqual(c.prompt, "Restore Here")
+    }
+
+    func test_anEmptyOrHiddenTitleFallsBackToTheFolderName() {
+        XCTAssertEqual(RestoreCopyName.name(for: "   ", fallback: "Novel") { _ in false }, "Novel (restored)")
+        XCTAssertEqual(RestoreCopyName.name(for: ".hidden") { _ in false }, "hidden (restored)")
+        XCTAssertEqual(RestoreCopyName.name(for: "...", fallback: "Novel") { _ in false }, "Novel (restored)")
+    }
+
+    func test_showAllsPanelSaysBackupNotThisProject() {
+        XCTAssertFalse(RestoreFolderPanel.anyBook.message.contains("this project"))
+        XCTAssertFalse(RestoreFolderPanel.anyBook.canChooseFiles)
+        XCTAssertTrue(RestoreFolderPanel.anyBook.canChooseDirectories)
     }
 }

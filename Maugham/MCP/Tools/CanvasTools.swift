@@ -205,9 +205,10 @@ public enum ListCanvasTool: MCPTool {
         — a card that merely APPEARS in a region is cited there, not part of that \
         piece's context, and two regions may be bound to one piece, so a derived \
         answer goes wrong in both directions. `layout_readable` is false when this \
-        version of Maugham cannot read the canvas's layout file (saved by a newer \
-        version, or damaged): the scene is then only the writer's words laid out \
-        loose, not their arrangement, `layout_unreadable_reason` says why, and \
+        version of Maugham cannot read the canvas's files (a layout saved by a newer \
+        version, a damaged layout, or files not readable just now, often still \
+        downloading from iCloud): the scene is then not the writer's arrangement \
+        (at most their words laid out loose), `layout_unreadable_reason` says why, and \
         add_canvas_scraps will refuse. Pass include_text: false for the same \
         structure without the scraps' words when a canvas is too large to return \
         whole.
@@ -602,6 +603,13 @@ public enum AddCanvasScrapsTool: MCPTool {
         case .damaged:
             return "Ask the writer to press \(CanvasReadOnlyNotice.startFreshTitle) on the canvas, which "
                 + "sets the damaged layout file aside, before adding to it. " + shown
+        case .unreadable:
+            // Its own `shown`: when canvas.md is the file that won't read, what
+            // list_canvas returned is missing the words too.
+            return "The canvas's files couldn't be read just now — often iCloud is still "
+                + "downloading them. Try again in a little while; nothing needs to be set "
+                + "aside or started fresh. What list_canvas returned for this canvas is "
+                + "not the writer's real canvas, and may be missing their words."
         }
     }
 

@@ -101,17 +101,50 @@ public final class BackupCoordinator {
     }
 
     /// The per-project subfolder name under a destination: the project's minted
-    /// `ProjectManifest.id`, falling back to the folder name if the manifest has
-    /// no id (older projects). Keeps each project's generations separate so several
-    /// projects can share one backup destination.
+    /// `ProjectManifest.id`, then the id in the manifest's verified SHADOW
+    /// (`.maugham/manifest.shadow.json`), then the folder name. Keeps each
+    /// project's generations separate so several projects can share one backup
+    /// destination. The shadow rung is #92's: a project whose
+    /// `project.maugham.json` is missing or unreadable — the very project that
+    /// needs Restore — still finds its own generations, because the shadow is
+    /// written on every manifest save.
     public static func projectKey(for projectURL: URL) -> String {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         if let data = try? Data(contentsOf: manifestURL),  // adr-0018-ok: backup manifest read, not manuscript
-           let manifest = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data),
-           let id = manifest.id, !id.isEmpty {
+           let id = minted(id: data) {
+            return id
+        }
+        if let shadow = ManifestShadow.recover(in: projectURL), let id = minted(id: shadow) {
             return id
         }
         return projectURL.lastPathComponent
+    }
+
+    private static func minted(id manifestData: Data) -> String? {
+        guard let manifest = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: manifestData),
+              let id = manifest.id, !id.isEmpty else { return nil }
+        return id
+    }
+
+    /// **Every generation in every destination, whatever book it belongs to** —
+    /// the Restore window's last resort when no id can find this project's own
+    /// (#92). Newest first. The writer picks by title; nothing matches a book
+    /// to a generation automatically, because titles collide.
+    public func allGenerations() -> [RestoreGeneration] {
+        let keyFolders = destinations.flatMap { dest -> [URL] in
+            ((try? BackupWriter.generationIds(at: dest.url)) ?? [])
+                .map { dest.url.appendingPathComponent($0) }
+        }
+        return BackupRestore.listGenerations(across: keyFolders)
+    }
+
+    /// The title recorded in `gen`'s own `project.maugham.json`, or nil.
+    public static func title(of gen: RestoreGeneration) -> String? {
+        let url = gen.directory.appendingPathComponent(ProjectManifest.fileName)
+        guard let data = try? Data(contentsOf: url),  // adr-0018-ok: backup generation manifest read, not manuscript
+              let manifest = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+        else { return nil }
+        return manifest.title
     }
 
     /// Per-project destination URLs (`<destination>/<projectKey>`), preserving retention.

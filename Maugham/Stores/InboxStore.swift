@@ -583,7 +583,7 @@ final class InboxStore {
     }
 
     /// Move an entry to a terminal status (`.promoted` / `.trashed`), stamping
-    /// `resolvedAt`. Asset relocation (into `research/` or `.maugham/trash/`) is
+    /// `resolvedAt`. Asset relocation (into `research/` or the project's `.trash/`) is
     /// the caller's responsibility and must be coordinated separately.
     func updateStatus(id: String, to status: InboxEntry.Status,
                       resolvedAt: Date? = Date()) async {

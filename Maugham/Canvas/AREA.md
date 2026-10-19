@@ -232,6 +232,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **A refused canvas is read-only on every route**: the store's saves no-op, the model's verbs change nothing, `CanvasEditGate` gates every gesture, key, drop and inspector control (`CanvasEditGateTests`), and Promote… is off.
 - **Claude and the Inbox are refused with `canvas_sidecar_unreadable` before any asset copy.**
 - **Only a damaged file offers Start a Fresh Layout**, which renames it aside; a newer one never does.
+- **A canvas file that exists but can't be read is refused `.unreadable`** (read-only, no fresh layout); Try Again and a bounded retry lift it in-session (#88).
 - **`CanvasModel.attach` surfaces orphan words** (text with no node) as loose cards, and drops blank ones; a refused sidecar is never written back at load.
 - **`CanvasStore.load()` reads both files directly under `// adr-0018-ok:`** — scrap text has one persisted representation, so ADR 0018's drift cannot arise.
 - **`flush()` covers app quit through `NSApplication.willTerminateNotification` with `queue: nil`** — with a queue the block may never run before exit.

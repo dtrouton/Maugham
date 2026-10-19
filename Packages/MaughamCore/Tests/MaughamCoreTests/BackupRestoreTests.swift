@@ -121,4 +121,61 @@ final class BackupRestoreTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))  // nothing written
     }
+
+    // MARK: - #92.2: a restored copy is its own book
+
+    private func manifestData(id: String?, title: String = "Novel", schemaVersion: Int = ProjectManifest.currentSchemaVersion) throws -> Data {
+        try ProjectManifest.makeEncoder().encode(ProjectManifest(
+            schemaVersion: schemaVersion, id: id, type: .novel, title: title, author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: []))
+    }
+
+    /// A backed-up project carrying `manifest` (and, unless nil, `shadow`).
+    private func restoredCopy(manifest: Data?, shadow: Data?) throws -> URL {
+        let source = try makeTree(["a.md": "alpha"])
+        if let manifest { try manifest.write(to: source.appendingPathComponent(ProjectManifest.fileName)) }
+        if let shadow { try ManifestShadow.write(shadow, in: source) }
+        let dest = destDir()
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        let gen = BackupRestore.listGenerations(across: [dest])[0]
+        let target = TestTemp.root.appendingPathComponent("restored-\(UUID().uuidString)")
+        return try BackupRestore.restoreBeside(gen, to: target)
+    }
+
+    private func decoded(_ data: Data?) throws -> ProjectManifest {
+        try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: XCTUnwrap(data))
+    }
+
+    func test_restoreBeside_mintsANewIdAndTheShadowAgrees() throws {
+        let original = try manifestData(id: "01ORIGINALID")
+        let copy = try restoredCopy(manifest: original, shadow: original)
+
+        let live = try decoded(Data(contentsOf: copy.appendingPathComponent(ProjectManifest.fileName)))
+        let shadow = try decoded(ManifestShadow.recover(in: copy))
+        XCTAssertNotNil(live.id)
+        XCTAssertNotEqual(live.id, "01ORIGINALID")
+        XCTAssertEqual(shadow.id, live.id, "a later shadow recovery must not hand the old id back")
+        XCTAssertEqual(live.title, "Novel")
+        XCTAssertEqual(try String(contentsOf: copy.appendingPathComponent("a.md"), encoding: .utf8), "alpha")
+    }
+
+    func test_restoreBeside_aManifestThisBuildCantReadIsLeftAloneAndTheRestoreStillSucceeds() throws {
+        let tooNew = try manifestData(id: "01ORIGINALID", schemaVersion: ProjectManifest.currentSchemaVersion + 1)
+        let copy = try restoredCopy(manifest: tooNew, shadow: nil)
+        XCTAssertEqual(try Data(contentsOf: copy.appendingPathComponent(ProjectManifest.fileName)), tooNew)
+
+        let corrupt = Data("{ broken".utf8)
+        let second = try restoredCopy(manifest: corrupt, shadow: nil)
+        XCTAssertEqual(try Data(contentsOf: second.appendingPathComponent(ProjectManifest.fileName)), corrupt)
+    }
+
+    func test_restoreBeside_whereOnlyTheShadowDecodesTheShadowTakesTheNewId() throws {
+        let corrupt = Data("{ broken".utf8)
+        let copy = try restoredCopy(manifest: corrupt, shadow: try manifestData(id: "01ORIGINALID"))
+        XCTAssertEqual(try Data(contentsOf: copy.appendingPathComponent(ProjectManifest.fileName)), corrupt)
+        let shadow = try decoded(ManifestShadow.recover(in: copy))
+        XCTAssertNotNil(shadow.id)
+        XCTAssertNotEqual(shadow.id, "01ORIGINALID")
+    }
 }

@@ -189,6 +189,8 @@ struct ProjectWindow: View {
     /// borrow, so the registry announces the project to MCP while a window is
     /// open on it.
     @Environment(ProjectSessionRegistry.self) private var sessions
+    /// ⇧⌘S's Confirm backs up through the same call ⌘S does (#90).
+    @Environment(BackupCoordinator.self) private var backupCoordinator
     @Environment(\.openWindow) private var openWindow
 
     let url: URL
@@ -274,6 +276,7 @@ struct ProjectWindow: View {
                                     session: _checkpointSessionId,
                                     activeDocument: activeDoc,
                                     posture: { await documentStore.settledPosture(forDocId: $0) },
+                                    backups: backupCoordinator,
                                     flash: { showSaveFlash() })
                             }
                         },
@@ -302,6 +305,7 @@ struct ProjectWindow: View {
         .modifier(ContainerWidthReporter(onWidth: noteContainerWidth))
         .modifier(TopChromeModifier(
             projectURL: url,
+            store: store,
             persona: persona,
             isNoChromeOn: isNoChromeOn,
             onSelectPersona: Self.postPersona))
@@ -684,14 +688,15 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The persona bar, the top banners (software-update + backups-paused), and
+    /// The persona bar, the top banners (software-update, backups-paused,
+    /// settings-file-restored), and
     /// the focused project URL, pulled off `body` for the Release type-check
     /// ceiling.
     ///
     /// The persona bar is a WINDOW TOOLBAR item, not part of the safe-area
     /// strip: a permanently non-zero top safe-area inset outside a
     /// `NavigationSplitView` occludes the top of every column (2026-07-25
-    /// smoke, defect A). The two banners keep the inset because they are
+    /// smoke, defect A). The three banners keep the inset because they are
     /// zero-height except in the rare states that raise them.
     ///
     /// `⌘\` focus mode hides the whole window toolbar rather than swapping the
@@ -700,6 +705,7 @@ struct ProjectWindow: View {
     /// stays the single predicate.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
+        let store: ProjectStore?
         let persona: Persona
         let isNoChromeOn: Bool
         let onSelectPersona: (Persona) -> Void
@@ -714,6 +720,7 @@ struct ProjectWindow: View {
                     VStack(spacing: 0) {
                         UpdateBannerView()
                         BackupRecoveryBanner(projectURL: projectURL)
+                        ManifestRestoredBanner(store: store)
                     }
                 }
                 .toolbar {

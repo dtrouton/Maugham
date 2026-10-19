@@ -42,11 +42,17 @@ extension CheckpointFlashDecision {
     /// NOTHING, and the flash still fires — ⌘S always flashes. Any other error
     /// posts its notice and does not flash. A free function so the Confirm path
     /// is pinned without mounting the sheet (tripwire 33).
+    ///
+    /// **And it backs up, as ⌘S does** (#90, Denver's ruling): after the
+    /// capture, whether or not it landed, it runs `backUp` — the one backup
+    /// call every checkpoint key shares, so a named save point gets the same
+    /// integrity gate and the same skip-if-unchanged signature.
     @MainActor
     static func labelled(
         _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
         device: String, session: String, activeDocument: Document?,
         posture: @escaping @MainActor (String) async -> Posture,
+        backups: BackupCoordinator,
         flash: () -> Void
     ) async {
         await run(projectURL: projectURL, onSuccess: flash) {
@@ -60,6 +66,22 @@ extension CheckpointFlashDecision {
                 activeDocument: activeDocument,
                 posture: posture)
         }
+        await backUp(projectURL: projectURL, using: backups)
+    }
+
+    /// **The backup a checkpoint runs** — ⌘S, ⇧⌘S's Confirm and ⇧⌘S's
+    /// refusal all call this, never `backupNow` directly (#90). Runs whether or
+    /// not a checkpoint landed: `run` catches its own throw, so a refused
+    /// checkpoint (a reviewer's, a read-only recovery document) still reaches
+    /// this attempt. The coordinator hops off-main internally and records
+    /// status; its own gate (`blocksBackup`) decides whether THIS backup
+    /// proceeds, and an unchanged project is skipped by its signature.
+    @MainActor
+    static func backUp(projectURL: URL, using coordinator: BackupCoordinator) async {
+        await coordinator.backupNow(
+            projectURL: projectURL,
+            generationId: ULID.generate(),
+            at: Date())
     }
 }
 
@@ -110,17 +132,10 @@ struct CheckpointModifier: ViewModifier {
                             activeDocument: activeDoc,
                             posture: { await documentStore.settledPosture(forDocId: $0) })
                     }
-                    // Runs regardless of whether the checkpoint above landed —
-                    // CheckpointFlashDecision.run catches its own throw rather
-                    // than propagating one, so a refused checkpoint (e.g. a
-                    // read-only recovery document) still reaches this backup
-                    // attempt. The coordinator hops off-main internally and
-                    // records status; its own gate (blocksBackup) is what
-                    // decides whether THIS backup proceeds.
-                    await backupCoordinator.backupNow(
-                        projectURL: store.url,
-                        generationId: ULID.generate(),
-                        at: Date())
+                    // The one backup every checkpoint key shares (#90) — runs
+                    // whether or not the checkpoint above landed.
+                    await CheckpointFlashDecision.backUp(
+                        projectURL: store.url, using: backupCoordinator)
                 }
             }
             .onKeyWindowCommand(.maughamNamedCheckpoint, window: window) { _ in
@@ -141,6 +156,10 @@ struct CheckpointModifier: ViewModifier {
                     } else {
                         MaughamEvent.postNotice(
                             PostureStandingLine.checkpointRefusal, projectURL: store.url)
+                        // A refused ⌘S still backs up, so a refused ⇧⌘S does
+                        // too (#90): no save point, the same backup.
+                        await CheckpointFlashDecision.backUp(
+                            projectURL: store.url, using: backupCoordinator)
                     }
                 }
             }

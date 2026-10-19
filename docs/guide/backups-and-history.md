@@ -12,9 +12,9 @@ A checkpoint helps when you want last Tuesday's version of a chapter back. A bac
 
 **⌘S makes a checkpoint and runs your backups.** Maugham names the checkpoint for you from the time, the word count of the whole project, and the document you were in — for example *14:32 — 52,310 words (Chapter 3)*. When you weren't in a document, the part in brackets is left off. Checkpoints always cover the whole project, whichever document you were in.
 
-**⌘⇧S (File → Save Checkpoint As…) makes a checkpoint with a name you choose.** A small sheet asks you to **Name this checkpoint**, with *e.g. end of draft 2* as a hint, and **Save** stays off until you've typed something. A named checkpoint doesn't run a backup. Press ⌘S when you want one.
+**⌘⇧S (File → Save Checkpoint As…) makes a checkpoint with a name you choose.** A small sheet asks you to **Name this checkpoint**, with *e.g. end of draft 2* as a hint, and **Save** stays off until you've typed something. It runs your backups too, exactly as ⌘S does.
 
-In a piece you may not change (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)), ⌘⇧S doesn't open the sheet. It says why instead: *"This text isn’t yours to change, so a checkpoint here would mark nothing of yours."*
+In a piece you may not change (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)), ⌘⇧S doesn't open the sheet. It says why instead: *"This text isn’t yours to change, so a checkpoint here would mark nothing of yours."* If you've set a backup destination, your backups still run.
 
 ## The History pane (⌘⌥H)
 
@@ -24,9 +24,8 @@ The History pane shows the history of the document you have open, newest first: 
 - **Checkpoints** — just the checkpoints.
 - **Edits** — your writing, grouped into bursts. A new burst appears about every 30 seconds while you work.
 - **Annotations** — every note and suggestion, and every answer you gave one.
-- **External** — entries that record a change arriving from outside the editor. Edits made to the `.md` file outside Maugham aren't kept, so this list stays empty.
 
-Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at.
+Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at. Edits made to the `.md` file outside Maugham aren't kept, so History has nothing to show for them.
 
 **If some checkpoints can't be read**, a line at the top says so: *"Some checkpoints can’t be read (…). They are still in the file — check permissions or iCloud sync."* The brackets name the files, and hovering over the line shows the reason for each one. A permissions problem is fixed on this Mac. A file iCloud hasn't downloaded yet is fixed by getting online. Your other checkpoints, and your backups, carry on as normal.
 
@@ -72,13 +71,13 @@ The tab's own advice is worth following:
 
 > *"Tip: local folders use copy-on-write, so keeping many generations is nearly free. For a cloud-synced folder (Dropbox, OneDrive, Drive) each generation re-uploads, so lower its count (2 is a good default) — Maugham can't tell a synced folder from a local one, so the choice is yours."*
 
-### What happens when you press ⌘S
+### What happens when you press ⌘S or ⌘⇧S
 
-*"Backups run automatically when you save (⌘S). A copy is verified, then written to each destination; a corrupt project is detected and skipped rather than backed up."* In more detail:
+*"Backups run automatically when you save (⌘S) or name a checkpoint (⌘⇧S). A copy is verified, then written to each destination; a corrupt project is detected and skipped rather than backed up."* In more detail:
 
 - **The whole project folder is copied** — manuscript, research, the canvas, your project's history, everything in it. Several projects can share one destination, because each gets its own folder there.
 - **The copy is checked before it counts.** It's written under a temporary name, checked, and only then joins your backups. A copy that was cut short never looks like a finished one.
-- **Nothing is written if nothing has changed.** Pressing ⌘S ten times without writing a word makes one backup, not ten. Things like which document you had selected or which persona you were in don't count as changes.
+- **Nothing is written if nothing has changed.** Pressing ⌘S (or ⌘⇧S) ten times without writing a word makes one backup, not ten. Things like which document you had selected or which persona you were in don't count as changes.
 - **Old backups are cleared down to the destination's Keep number** each time a new one is made, oldest first. A backup that checks out is kept ahead of a damaged one.
 
 ### When backups pause
@@ -97,10 +96,14 @@ Before every backup, Maugham checks that the project's history is whole. If it i
 - a green seal — *"Integrity verified"*: this backup checks out.
 - an orange triangle — *"This generation failed verification"*: something in this copy is damaged. Choose another one.
 
-If there aren't any yet, the window says **No backups found**: *"No backup generations exist for this project yet."*
+If none are found, the window says **No backups found** and offers **Show All Backups**, which lists every backup in your backup folders by its project's title, so you can pick the right one yourself. This helps when a project's settings file was lost and its own backups can't be matched to it.
 
-Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. If you choose a name that's already taken, Maugham restores nothing — even if you pressed **Replace**, the window says *Restore failed:* and explains: *"Something named “<name>” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."*
+Choose a backup and press **Restore a Copy…**. Maugham asks you to choose a folder: *"Choose a folder to restore a copy of this project into. Maugham names the copy itself."* Press **Restore Here**. The copy is called *<project> (restored)*, or *<project> (restored 2)*, *(restored 3)* and so on if that name is taken, so it never lands on top of anything. Maugham shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need.
+
+The restored copy is a separate book. It gets its own backups, kept in their own folder and counted against Keep on their own, so backing up one never clears the other's.
 
 If the restore goes wrong, the window says *Restore failed:* and gives the reason.
 
 The same window opens from **Restore from Backup…** in a document that won't open (see [Troubleshooting: a document that won't open](getting-started.md#troubleshooting-a-document-that-wont-open)), and from the paused-backups banner.
+
+If a project's settings file (`project.maugham.json`) goes missing but Maugham's safety copy of it is intact, the project still opens. Maugham puts the file back and says once: *"This project's settings file was missing, so Maugham put it back from its safety copy."* If the file is only still downloading from iCloud, Maugham doesn't replace it. It asks you to open the project again in a moment.

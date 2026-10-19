@@ -443,7 +443,8 @@ struct CentreColumn: View {
         .safeAreaInset(edge: .top) {
             if let refusal = canvasModel.sidecarRefusal {
                 CanvasReadOnlyNotice(refusal: refusal,
-                                     startFreshLayout: { try canvasModel.startFreshLayout() })
+                                     startFreshLayout: { try canvasModel.startFreshLayout() },
+                                     tryAgain: { canvasModel.retryUnreadable() })
             }
         }
     }

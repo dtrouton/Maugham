@@ -43,7 +43,7 @@ struct BackupSettingsTab: View {
                 Button("Add destination…") { addDestination() }
             }
             Section {
-                Text("Backups run automatically when you save (⌘S). A copy is verified, then written to each destination; a corrupt project is detected and skipped rather than backed up.")
+                Text("Backups run automatically when you save (⌘S) or name a checkpoint (⌘⇧S). A copy is verified, then written to each destination; a corrupt project is detected and skipped rather than backed up.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Tip: local folders use copy-on-write, so keeping many generations is nearly free. For a cloud-synced folder (Dropbox, OneDrive, Drive) each generation re-uploads, so lower its count (2 is a good default) — Maugham can't tell a synced folder from a local one, so the choice is yours.")

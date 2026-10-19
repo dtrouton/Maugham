@@ -43,7 +43,12 @@ public enum HistoryEntry: Identifiable {
 }
 
 public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
-    case all, checkpoints, edits, annotations, external
+    // No External filter (#91, Denver's ruling): nothing this build writes
+    // records an edit made outside Maugham — an outside `.md` change is
+    // discarded on re-materialize — so a chip for it promised an empty list.
+    // `OpKind.externalEdit` still DECODES from old logs and still draws as a
+    // row under All.
+    case all, checkpoints, edits, annotations
 
     public var id: String { rawValue }
     public var label: String {
@@ -52,7 +57,6 @@ public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
         case .checkpoints: return "Checkpoints"
         case .edits: return "Edits"
         case .annotations: return "Annotations"
-        case .external: return "External"
         }
     }
 
@@ -62,7 +66,6 @@ public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
         case .checkpoints: return "flag.fill"
         case .edits: return "pencil"
         case .annotations: return "bubble.left"
-        case .external: return "arrow.down.left"
         }
     }
 
@@ -89,11 +92,6 @@ public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
                     return true
                 default: return false
                 }
-            }
-            return false
-        case .external:
-            if case .op(let op) = entry {
-                return op.kind == .externalEdit
             }
             return false
         }
@@ -250,7 +248,6 @@ struct HistoryPane: View {
         case .checkpoints: return "No checkpoints"
         case .edits:       return "No edits"
         case .annotations: return "No annotations"
-        case .external:    return "No external edits"
         }
     }
 
@@ -260,7 +257,6 @@ struct HistoryPane: View {
         case .checkpoints: return "flag"
         case .edits:       return "pencil"
         case .annotations: return "bubble.left.and.bubble.right"
-        case .external:    return "arrow.down.doc"
         }
     }
 
@@ -274,8 +270,6 @@ struct HistoryPane: View {
             return "Typing bursts appear here every 30 seconds while you work."
         case .annotations:
             return "Ask Claude to comment or suggest a change — annotations land here as a forensic record."
-        case .external:
-            return "External edits to the .md file (e.g. via another editor or sync) show up here."
         }
     }
 
@@ -1249,7 +1243,7 @@ struct HistoryPane: View {
         // Prefer the live Document if it's loaded (its mirror reflects any
         // unflushed in-memory state). Otherwise read the op log directly
         // from disk — the History pane should always show typing bursts /
-        // annotations / external edits for the active doc, even when the
+        // annotations for the active doc, even when the
         // user hasn't yet opened it in the editor this session.
         if let ds = documentStore,
            let doc = ds.document(forDocId: activeDocId) {

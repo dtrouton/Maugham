@@ -59,13 +59,15 @@ final class BackupCoordinatorTests: XCTestCase {
     /// Writes a valid `project.maugham.json` carrying `id` into `proj`, so
     /// `BackupCoordinator.projectKey` reads the minted id instead of falling
     /// back to the folder name.
-    private func writeManifest(id: String, into proj: URL) throws {
+    @discardableResult
+    private func writeManifest(id: String, title: String = "T", into proj: URL) throws -> Data {
         let manifest = ProjectManifest(
-            id: id, type: .novel, title: "T", author: "A",
+            id: id, type: .novel, title: title, author: "A",
             created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
             structure: [], research: [])
-        try ProjectManifest.makeEncoder().encode(manifest)
-            .write(to: proj.appendingPathComponent(ProjectManifest.fileName))
+        let data = try ProjectManifest.makeEncoder().encode(manifest)
+        try data.write(to: proj.appendingPathComponent(ProjectManifest.fileName))
+        return data
     }
 
     func test_backupNow_writesGenerationAndRecordsStatus() async throws {
@@ -200,5 +202,94 @@ final class BackupCoordinatorTests: XCTestCase {
         if case .integrityFailed = coordinator.lastResult(for: bad) {} else {
             XCTFail("bad project should be .integrityFailed, got \(coordinator.lastResult(for: bad))")
         }
+    }
+
+    // MARK: - #92.1: the key ladder — manifest id, then the shadow's, then the folder
+
+    func test_projectKey_prefersTheManifestsIdOverTheShadows() throws {
+        let proj = try tempProjectWithOps()
+        try writeManifest(id: "live-id", into: proj)
+        let shadow = try ProjectManifest.makeEncoder().encode(ProjectManifest(
+            id: "shadow-id", type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: []))
+        try ManifestShadow.write(shadow, in: proj)
+        XCTAssertEqual(BackupCoordinator.projectKey(for: proj), "live-id")
+    }
+
+    func test_projectKey_aMissingManifestFallsToTheShadowsId() throws {
+        let proj = try tempProjectWithOps()
+        let data = try writeManifest(id: "proj-LOST", into: proj)
+        try ManifestShadow.write(data, in: proj)
+        try FileManager.default.removeItem(at: proj.appendingPathComponent(ProjectManifest.fileName))
+        XCTAssertEqual(BackupCoordinator.projectKey(for: proj), "proj-LOST")
+    }
+
+    func test_projectKey_aCorruptManifestFallsToTheShadowsId() throws {
+        let proj = try tempProjectWithOps()
+        let data = try writeManifest(id: "proj-HURT", into: proj)
+        try ManifestShadow.write(data, in: proj)
+        try Data("{ broken".utf8).write(to: proj.appendingPathComponent(ProjectManifest.fileName))
+        XCTAssertEqual(BackupCoordinator.projectKey(for: proj), "proj-HURT")
+    }
+
+    func test_projectKey_noManifestAndNoShadowIsTheFolderName() throws {
+        let proj = try tempProjectWithOps()
+        XCTAssertEqual(BackupCoordinator.projectKey(for: proj), proj.lastPathComponent)
+    }
+
+    func test_generationsForProject_stillFindsTheBookAfterItsManifestIsGone() async throws {
+        let proj = try tempProjectWithOps()
+        let data = try writeManifest(id: "proj-FIND", into: proj)
+        try ManifestShadow.write(data, in: proj)
+        let dest = destDir()
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+        await coordinator.backupNow(projectURL: proj, generationId: "01FIND", at: Date(timeIntervalSince1970: 1))
+
+        try FileManager.default.removeItem(at: proj.appendingPathComponent(ProjectManifest.fileName))
+
+        XCTAssertEqual(coordinator.generations(forProject: proj).map(\.id), ["01FIND"])
+    }
+
+    func test_allGenerations_listsEveryBookWithItsOwnTitle() async throws {
+        let projA = try tempProjectWithOps()
+        try writeManifest(id: "proj-A", title: "Alpha", into: projA)
+        let projB = try tempProjectWithOps()
+        try writeManifest(id: "proj-B", title: "Beta", into: projB)
+        let dest = destDir()
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+        await coordinator.backupNow(projectURL: projA, generationId: "01A", at: Date(timeIntervalSince1970: 1))
+        await coordinator.backupNow(projectURL: projB, generationId: "01B", at: Date(timeIntervalSince1970: 2))
+
+        let all = coordinator.allGenerations()
+        XCTAssertEqual(all.map(\.id), ["01B", "01A"])
+        XCTAssertEqual(all.map { BackupCoordinator.title(of: $0) }, ["Beta", "Alpha"])
+    }
+
+    // MARK: - #92.2: a restored copy's backups never touch the original's
+
+    func test_aRestoredCopyBacksUpUnderItsOwnKeyAndLeavesTheOriginalsAlone() async throws {
+        let proj = try tempProjectWithOps()
+        let data = try writeManifest(id: "proj-ORIG", into: proj)
+        try ManifestShadow.write(data, in: proj)
+        let dest = destDir()
+        let coordinator = BackupCoordinator()
+        // Keep 1: if the copy shared the original's folder, its backup would
+        // prune the original's only generation.
+        coordinator.destinations = [BackupDestination(url: dest, retention: 1)]
+        await coordinator.backupNow(projectURL: proj, generationId: "01ORIG", at: Date(timeIntervalSince1970: 1))
+
+        let gen = try XCTUnwrap(coordinator.generations(forProject: proj).first)
+        let copy = try BackupRestore.restoreBeside(
+            gen, to: TestTemp.root.appendingPathComponent("Copy (restored)"))
+        XCTAssertNotEqual(BackupCoordinator.projectKey(for: copy), BackupCoordinator.projectKey(for: proj))
+
+        try "more words\n".write(to: copy.appendingPathComponent("extra.md"), atomically: true, encoding: .utf8)
+        await coordinator.backupNow(projectURL: copy, generationId: "02COPY", at: Date(timeIntervalSince1970: 2))
+
+        XCTAssertEqual(coordinator.generations(forProject: proj).map(\.id), ["01ORIG"])
+        XCTAssertEqual(coordinator.generations(forProject: copy).map(\.id), ["02COPY"])
     }
 }

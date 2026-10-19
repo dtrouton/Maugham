@@ -649,6 +649,7 @@ final class PostureStandingLineTests: XCTestCase {
             activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId],
             device: "m", session: "s", activeDocument: nil,
             posture: { await store.settledPosture(forDocId: $0) },
+            backups: BackupCoordinator(),
             flash: { flashes += 1 })
         XCTAssertEqual(flashes, 1, "the flash survives the refusal")
         XCTAssertEqual(try fixture.opLineCount(), opsBefore)
@@ -661,10 +662,55 @@ final class PostureStandingLineTests: XCTestCase {
             activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId],
             device: "m", session: "s", activeDocument: nil,
             posture: { await store.settledPosture(forDocId: $0) },
+            backups: BackupCoordinator(),
             flash: { flashes += 1 })
         XCTAssertEqual(flashes, 2)
         let entriesPromoted = await fixture.checkpointCount()
         XCTAssertEqual(entriesPromoted, entriesBefore + 1)
+    }
+
+    /// **A named save point backs up, as ⌘S does** (#90, Denver's ruling) —
+    /// through `CheckpointFlashDecision.backUp`, the one call both keys share,
+    /// so it carries ⌘S's integrity gate and skip-if-unchanged signature. A
+    /// refused Confirm still backs up (as a refused ⌘S does); a second refused
+    /// one finds nothing changed and writes no generation; an author's Confirm
+    /// changes the book and writes one.
+    func test_aNamedCheckpointBacksUpThroughTheSameCallAsCmdS() async throws {
+        let store = try await fixture.openAs(.reviewer)
+        let dest = TestTemp.root.appendingPathComponent("backups-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 10)]
+        let generations = dest.appendingPathComponent(
+            BackupCoordinator.projectKey(for: fixture.projectURL))
+
+        func confirm(_ label: String) async {
+            await CheckpointFlashDecision.labelled(
+                label, projectURL: fixture.projectURL,
+                activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId],
+                device: "m", session: "s", activeDocument: nil,
+                posture: { await store.settledPosture(forDocId: $0) },
+                backups: coordinator,
+                flash: {})
+        }
+
+        await confirm("Refused")
+        XCTAssertEqual(try BackupWriter.generationIds(at: generations).count, 1,
+                       "a refused named save point still backs up")
+
+        await confirm("Refused again")
+        XCTAssertEqual(try BackupWriter.generationIds(at: generations).count, 1,
+                       "nothing changed, so ⌘S's signature skips it")
+        guard case .ok(let written, let skipped, _, _) = coordinator.lastResult(for: fixture.projectURL) else {
+            return XCTFail("expected ok, got \(coordinator.lastResult(for: fixture.projectURL))")
+        }
+        XCTAssertEqual(written, 0)
+        XCTAssertEqual(skipped, 1)
+
+        try await fixture.changeMyPermit(to: .bookAuthor, store: store)
+        await confirm("Before the cut")
+        XCTAssertEqual(try BackupWriter.generationIds(at: generations).count, 2,
+                       "the save point changed the book, so a new generation")
     }
 
     /// ⌘S always flashes: the refusal reaches `onSuccess` and posts no notice.

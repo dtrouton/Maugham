@@ -462,8 +462,10 @@ public enum EmissionContract {
     static let recoveryNote = """
     ## Recovery
 
-    Overwriting or clearing a style file moves the prior version to Maugham's \
-    trash (`.maugham/trash/`, 30-day sweep, undo via ⌘⌥Z). There is **no git** in \
+    Overwriting or clearing a style file moves the prior version to the \
+    project's trash folder (`.trash/` at the project root, swept after 30 days). \
+    It is Maugham's own safety copy, so it stays out of the Trash pane and \
+    Restore Last Deletion; recover it from that folder. There is **no git** in \
     this workflow; the trash is the recovery path. `build/body.<lang>.tex` \
     (the PDF emitter's output for one language — `build/body.tex` is the \
     wrapper over them), `build/body.xhtml`, and `build/compile.log` are \

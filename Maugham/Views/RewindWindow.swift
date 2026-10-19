@@ -162,7 +162,6 @@ struct RewindWindow: View {
             legendChip(text: "typed", swatchColor: color(for: .typingBurst))
             legendChip(text: "checkpoint", swatchColor: color(for: .checkpoint))
             legendChip(text: "Claude annotation", swatchColor: color(for: .claudeComment))
-            legendChip(text: "external edit", swatchColor: color(for: .externalEdit))
             Spacer()
         }
         .font(.caption2)

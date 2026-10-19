@@ -1264,14 +1264,21 @@ final class CanvasToolsTests: XCTestCase {
     // MARK: - Both routes over a refused layout (issue #44)
 
     /// Seed a refused layout and hand back both files' bytes.
-    private func seedRefusedLayout(_ url: URL, _ json: String) throws -> (Data, Data) {
+    /// `scrapsBytes` replaces the words file — bytes that are not UTF-8 are the
+    /// byte-comparable way to make it unreadable (#88).
+    private func seedRefusedLayout(_ url: URL, _ json: String,
+                                   scrapsBytes: Data? = nil) throws -> (Data, Data) {
         let sidecar = url.appendingPathComponent(CanvasStore.sidecarRelativePath)
         let scraps = url.appendingPathComponent(CanvasStore.scrapsRelativePath)
         try FileManager.default.createDirectory(
             at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
         try json.write(to: sidecar, atomically: true, encoding: .utf8)
-        try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
-            .write(to: scraps, atomically: true, encoding: .utf8)
+        if let scrapsBytes {
+            try scrapsBytes.write(to: scraps)
+        } else {
+            try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
+                .write(to: scraps, atomically: true, encoding: .utf8)
+        }
         return (try Data(contentsOf: sidecar), try Data(contentsOf: scraps))
     }
 
@@ -1289,10 +1296,12 @@ final class CanvasToolsTests: XCTestCase {
     /// answered "added" with node ids for cards a read-only model never made.
     /// Each reason's message is its own sentence, and its hint its own way out.
     private func assertBothRoutesRefuseAlike(_ json: String,
+                                             scrapsBytes: Data? = nil,
                                              reason: CanvasStore.SidecarRefused.Reason,
                                              name: String) async throws {
         let (url, store, registry, id) = try await registeredProject(name)
-        let (sidecarBefore, scrapsBefore) = try seedRefusedLayout(url, json)
+        let (sidecarBefore, scrapsBefore) = try seedRefusedLayout(url, json,
+                                                                  scrapsBytes: scrapsBytes)
 
         XCTAssertNil(store.liveCanvas, "precondition: the sidecar route first")
         let closedPayload = try await refusalPayload(registry, id)
@@ -1331,6 +1340,30 @@ final class CanvasToolsTests: XCTestCase {
                                               reason: .damaged, name: "BothDamaged")
     }
 
+    /// #88: a words file that can't be read beside a good layout refuses on both
+    /// routes with `.unreadable`, and `list_canvas` says the canvas isn't
+    /// readable — both files byte-identical throughout.
+    func test_addCanvasScrapsRefusesUnreadableWordsAlikeOnBothRoutes() async throws {
+        try await assertBothRoutesRefuseAlike(#"{"schemaVersion":9,"nodes":[]}"#,
+                                              scrapsBytes: Data([0x23, 0xFF, 0xFE, 0x0A]),
+                                              reason: .unreadable, name: "BothUnreadable")
+    }
+
+    func test_listCanvasReportsUnreadableWordsOnBothRoutes() async throws {
+        let (url, store, registry, id) = try await registeredProject("ListUnreadable")
+        _ = try seedRefusedLayout(url, #"{"schemaVersion":9,"nodes":[]}"#,
+                                  scrapsBytes: Data([0x23, 0xFF, 0xFE, 0x0A]))
+        let closed = try await call(registry, id)
+        XCTAssertFalse(closed.layout_readable)
+        XCTAssertEqual(closed.layout_unreadable_reason,
+                       CanvasStore.SidecarRefused.Reason.unreadable.sentence)
+        let model = attached(to: store, at: url)
+        let open = try await call(registry, id)
+        XCTAssertEqual(open.read_from, "open_canvas")
+        XCTAssertFalse(open.layout_readable)
+        withExtendedLifetime(model) {}
+    }
+
     /// The hints are right for their own reason: updating helps a newer file and
     /// does nothing for a damaged one, which the writer can set aside. Neither
     /// claims the earlier read was an "empty" canvas — on the live route it held
@@ -1338,11 +1371,14 @@ final class CanvasToolsTests: XCTestCase {
     func test_theUnreadableHintNamesEachReasonsOwnWayOut() {
         let newer = AddCanvasScrapsTool.unreadableHint(.newerVersion)
         let damaged = AddCanvasScrapsTool.unreadableHint(.damaged)
+        let unreadable = AddCanvasScrapsTool.unreadableHint(.unreadable)
+        XCTAssertFalse(unreadable.contains("Start a Fresh Layout"), unreadable)
+        XCTAssertFalse(unreadable.contains("Update Maugham"), unreadable)
         XCTAssertTrue(newer.contains("Update Maugham"), newer)
         XCTAssertFalse(newer.contains("Start a Fresh Layout"), newer)
         XCTAssertTrue(damaged.contains("Start a Fresh Layout"), damaged)
         XCTAssertFalse(damaged.contains("Update Maugham"), damaged)
-        for hint in [newer, damaged] {
+        for hint in [newer, damaged, unreadable] {
             XCTAssertTrue(hint.contains("list_canvas"), hint)
             XCTAssertFalse(hint.contains("empty"), hint)
         }
