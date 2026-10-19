@@ -38,6 +38,12 @@ should treat these as intentional.
 | Scene-break parity `---` / `***` / `###` | Editor | Publish already accepts all three; editor currently styles only `---`. Align editor styling to the same set. |
 | Ordered lists + pipe tables | Help renderer (`GuideMarkdownView`) only | The shipped guide corpus already uses both (audit A3). |
 | Blank-line paragraph grouping | Research preview | Audit A4: stop rendering each source line as its own block. |
+| Tables (pipe table, optional `Table:` caption line) | Manuscripts, editor + publish | IN per [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md). Every project kind. |
+| Footnotes (`[^n]`, `[^n]: text`) | Manuscripts, editor + publish | IN per [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md). |
+| Figures (`![Caption](path){#fig:label}` alone on a line) | Manuscripts, editor + publish | IN per [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md). Inline (non-whole-line) images stay OUT. |
+| Citations (`[@key]`) | Manuscripts, editor + publish | IN per [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md). |
+| Cross-references (`@fig:`, `@tbl:`, `@sec:`) | Manuscripts, editor + publish | IN per [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md). |
+| Section labels (`# Heading {#sec:label}`) | Manuscripts, editor + publish | IN per [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md). |
 
 ### CommonMark — OUT (confirmed intentional)
 
@@ -46,7 +52,7 @@ should treat these as intentional.
 | Underscore emphasis `_x_` in prose | Asterisk-only stays (documented mental model; `_` belongs to Fountain underline). **Alignment fix:** prose publish currently italicizes `_x_` incl. intraword (`snake_case`); remove `_` handling from prose publish so it matches the editor. |
 | Setext headings | `---` is the scene-break idiom; precedence conflict is permanent. Document. |
 | Indented (4-space) code blocks | Footgun for writers who indent. Document. |
-| Code blocks / tables in manuscripts + publish | Not writer content (philosophy). Fence guard above is a degradation fix, not support. |
+| Code blocks in manuscripts + publish | Not writer content (philosophy). Fence guard above is a degradation fix, not support. (Tables moved IN: [ADR 0033](../../adr/0033-report-elements-in-manuscripts.md).) |
 | Link publishing, reference links, autolinks, link titles, inline images in manuscripts | Research owns images; links degrade visibly (acceptable). Editor keeps its existing inline-link styling. |
 | Entities, multi-backtick code spans | Edge machinery, no writer payoff. |
 | Punctuation-flanking + rule-of-3 emphasis | Whitespace flanking is correct for prose; unbalanced-runs-degrade-to-literal is a safe failure mode. Documented divergence from reference parsers. |

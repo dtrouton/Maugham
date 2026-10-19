@@ -2,6 +2,7 @@
 
 - **Status:** Implemented (2026-07-06, branch `feat/commonmark-fountain-expansion`)
 - **Date:** 2026-07-06
+- **Partly superseded by [0033](0033-report-elements-in-manuscripts.md):** tables, footnotes, figures, citations, cross-references and section labels are now IN for manuscripts. Everything else below stands.
 
 ## Context
 
