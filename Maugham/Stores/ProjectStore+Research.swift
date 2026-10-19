@@ -410,6 +410,8 @@ extension ProjectStore {
         copy.title = newTitle
         copy.addedAt = Date()
         copy.children = source.children?.map { Self.researchFreshIds($0) }
+        // A copy must not share its source's citation keys (`[@key]` would be ambiguous).
+        copy = copy.rekeyingCitations(existing: manifest.research.citationKeys)
 
         if let sourcePath = source.path {
             // File or folder — copy on disk.

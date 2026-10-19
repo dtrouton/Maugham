@@ -88,3 +88,25 @@ extension Array where Element == ResearchItem {
         return keys
     }
 }
+
+extension ResearchItem {
+    /// A copy whose citations (this item's and every descendant's) carry
+    /// fresh keys, each suggested against `existing` plus the keys assigned so
+    /// far in this copy. Every other citation field is kept.
+    public func rekeyingCitations(existing: Set<String>) -> ResearchItem {
+        var taken = existing
+        return rekeyed(taken: &taken)
+    }
+
+    private func rekeyed(taken: inout Set<String>) -> ResearchItem {
+        var copy = self
+        if var info = copy.citation {
+            info.key = CitationKey.suggest(
+                authors: info.authors, year: info.year, title: info.sourceTitle ?? title, existing: taken)
+            taken.insert(info.key)
+            copy.citation = info
+        }
+        copy.children = children?.map { $0.rekeyed(taken: &taken) }
+        return copy
+    }
+}

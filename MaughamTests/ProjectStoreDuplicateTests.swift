@@ -136,4 +136,25 @@ final class ProjectStoreDuplicateTests: XCTestCase {
         }
         await ds.close()
     }
+
+    func test_duplicateResearchItem_givesTheCopyAFreshCitationKey() async throws {
+        let (_, store, _) = try await makeNovel()
+        let info = CitationInfo(key: "gartner2026", authors: ["Gartner"], year: 2026, pages: "4")
+        store.manifest.research.append(ResearchItem(id: "r-src", title: "Src", type: .asset, kind: .link,
+                                                    url: "https://example.com", citation: info))
+        let copy = try await store.duplicateResearchItem(id: "r-src")
+        XCTAssertEqual(copy.citation?.key, "gartner2026a")
+        XCTAssertEqual(copy.citation?.pages, "4")
+        XCTAssertEqual(store.manifest.research.first { $0.id == "r-src" }?.citation?.key, "gartner2026")
+    }
+
+    func test_duplicateResearchGroup_rekeysCitedChildren() async throws {
+        let (_, store, _) = try await makeNovel()
+        let child = ResearchItem(id: "r-kid", title: "Kid", type: .asset, kind: .link, url: "https://example.com",
+                                 citation: CitationInfo(key: "gartner2026", authors: ["Gartner"], year: 2026))
+        store.manifest.research.append(ResearchItem(id: "g-src", title: "G", type: .group, children: [child]))
+        let copy = try await store.duplicateResearchItem(id: "g-src")
+        XCTAssertEqual(copy.children?.first?.citation?.key, "gartner2026a")
+        XCTAssertEqual(store.manifest.research.citationKeys, ["gartner2026", "gartner2026a"])
+    }
 }

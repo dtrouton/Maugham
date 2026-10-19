@@ -9,6 +9,22 @@ final class CitationInfoTests: XCTestCase {
         XCTAssertEqual(CitationKey.suggest(authors: [], year: nil, title: "The State of AI", existing: []), "state")
     }
 
+    func test_suggest_alwaysYieldsAValidKey() {
+        for authors in [["Müller"], ["García Márquez"], ["林"], []] {
+            XCTAssertTrue(CitationKey.isValid(CitationKey.suggest(authors: authors, year: 2020, title: "", existing: [])), "\(authors)")
+        }
+    }
+
+    func test_rekeyingCitations_freshKeysForItemAndChildren() {
+        let child = ResearchItem(id: "c", title: "c", type: .asset,
+                                 citation: CitationInfo(key: "gartner2026", authors: ["Gartner"], year: 2026, pages: "9"))
+        let group = ResearchItem(id: "g", title: "g", type: .group, children: [child])
+        let copy = group.rekeyingCitations(existing: ["gartner2026"])
+        XCTAssertEqual(copy.children?.first?.citation?.key, "gartner2026a")
+        XCTAssertEqual(copy.children?.first?.citation?.pages, "9")
+        XCTAssertEqual(group.children?.first?.citation?.key, "gartner2026")
+    }
+
     func test_suggest_skipsEmptyAuthorsAndFallsBack() {
         XCTAssertEqual(CitationKey.suggest(authors: ["  ", "Ada Lovelace"], year: 1843, title: "t", existing: []), "lovelace1843")
         XCTAssertEqual(CitationKey.suggest(authors: [], year: nil, title: "A to Z", existing: []), "source")
