@@ -78,7 +78,7 @@ final class AdmissionPermitTests: XCTestCase {
     private func manifestFromAnOlderBuild() throws {
         var manifest = try ProjectManifest.makeDecoder()
             .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
-        manifest.schemaVersion = ProjectManifest.currentSchemaVersion - 1
+        manifest.schemaVersion = ProjectManifest.narrowingSchemaVersion - 1
         try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
     }
 
@@ -179,7 +179,7 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertNotNil(event.unsigned,
                         "a narrowing event carries the book's photograph")
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion,
             "and older builds are shut out before the event exists")
         XCTAssertEqual(try registry().person(stranger.fingerprint)?.role,
                        Permit.reviewerRole)
@@ -434,7 +434,7 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertFalse(event.mark.isEmpty,
                        "and the mark says where the new permit begins")
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion)
     }
 
     // MARK: - The silent admission stays outside all of it (Task 3's carry)

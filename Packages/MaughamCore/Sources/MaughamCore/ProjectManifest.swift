@@ -157,7 +157,19 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// not-yet-updated Mac; a book made on this build starts at 10 through the
     /// init default, as every bump has. As with every bump since M1A, this
     /// makes the milestone a **paired Mac + phone release**.
+    ///
+    /// The narrowing gate stays where it was: it raises a book to
+    /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book
+    /// with no v10 content still leaves it open to a v0.42 Mac.
     public static let currentSchemaVersion = 10
+
+    /// **The schema the permit layer requires** — the number the narrowing
+    /// gate (`DocumentStore.gateOldBuildsOut`) and its heal raise a narrowed
+    /// book to. A build without a permit layer (v0.40 and before) refuses it;
+    /// a v0.42 build, which has one, reads it. Deliberately not
+    /// `currentSchemaVersion`: a later bump for unrelated content must not
+    /// shut permit-capable builds out of every narrowed book.
+    public static let narrowingSchemaVersion = 9
 
     /// **The one way a manifest becomes bytes for disk** (report foundations,
     /// schema 10). The number becomes

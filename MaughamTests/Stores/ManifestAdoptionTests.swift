@@ -574,7 +574,7 @@ final class ManifestAdoptionTests: XCTestCase {
         let gate = Task { @MainActor in
             let data = try await ds.readManifest()
             try await ds.writeManifest(ProjectManifest.raising(
-                data, toAtLeast: ProjectManifest.currentSchemaVersion))
+                data, toAtLeast: ProjectManifest.narrowingSchemaVersion))
         }
         for _ in 0..<20 { await Task.yield() }
 

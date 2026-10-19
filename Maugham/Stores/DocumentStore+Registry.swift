@@ -192,8 +192,10 @@ extension DocumentStore {
     ///
     /// ## What it touches
     ///
-    /// Only the number, and only upwards, and only once: a book already at this
-    /// build's schema is left byte-identical, so the SECOND narrowing writes no
+    /// Only the number, and only upwards, and only once: a book already at
+    /// `ProjectManifest.narrowingSchemaVersion` — the permit layer's schema,
+    /// never `currentSchemaVersion` (report foundations, ruling R5) — is left
+    /// byte-identical, so the SECOND narrowing writes no
     /// manifest at all — and a non-narrowing admission, revocation, retirement
     /// or rename never gets here. The bytes go through `writeManifest`, the
     /// store's own coordinated door, through `ProjectManifest.encodeForDisk` (never
@@ -219,9 +221,9 @@ extension DocumentStore {
         do {
             let manifest = try ProjectManifest.decodeGuardingSchema(
                 try await readManifest())
-            if manifest.schemaVersion < ProjectManifest.currentSchemaVersion {
+            if manifest.schemaVersion < ProjectManifest.narrowingSchemaVersion {
                 var raised = manifest
-                raised.schemaVersion = ProjectManifest.currentSchemaVersion
+                raised.schemaVersion = ProjectManifest.narrowingSchemaVersion
                 try await writeManifest(
                     try ProjectManifest.encodeForDisk(raised))
             }
@@ -236,8 +238,8 @@ extension DocumentStore {
         // writes is a newer build's manifest, and lowering it is the forward-
         // data-loss `decodeGuardingSchema` exists to refuse.
         if let live = projectStore,
-           live.manifest.schemaVersion < ProjectManifest.currentSchemaVersion {
-            live.manifest.schemaVersion = ProjectManifest.currentSchemaVersion
+           live.manifest.schemaVersion < ProjectManifest.narrowingSchemaVersion {
+            live.manifest.schemaVersion = ProjectManifest.narrowingSchemaVersion
         }
     }
 

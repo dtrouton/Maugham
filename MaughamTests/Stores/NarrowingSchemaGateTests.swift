@@ -140,7 +140,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
         _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion,
             "a build without a permit layer must now refuse this book")
     }
 
@@ -190,7 +190,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
             permit: .reviewer)
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion)
     }
 
     /// **`changePermit(everyRecordOf:)` gates ONCE, first** — before the first
@@ -205,7 +205,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
 
         XCTAssertEqual(moved.count, 1)
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion)
     }
 
     func test_thePluralVerbRefusesEntirelyWhenTheGateCannotBeWritten() async throws {
@@ -288,7 +288,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
             person: stranger.fingerprint, to: .bookAuthor)
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion)
     }
 
     // MARK: - The gate has to STICK
@@ -314,11 +314,11 @@ final class NarrowingSchemaGateTests: XCTestCase {
         try await projectStore.renameStructureItem(id: "doc-test", newTitle: "C1a")
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion,
             "the writer's next rename must not un-gate a narrowed book")
         XCTAssertEqual(
             projectStore.manifest.schemaVersion,
-            ProjectManifest.currentSchemaVersion)
+            ProjectManifest.narrowingSchemaVersion)
     }
 
     /// **CRITICAL 1, route (a): ANOTHER Mac's store, holding the manifest at
@@ -350,14 +350,14 @@ final class NarrowingSchemaGateTests: XCTestCase {
         try await admitStranger(gating)
         _ = try await gating.changePermit(person: stranger.fingerprint, to: .reviewer)
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion)
 
         // B goes on working, knowing nothing about any of it.
         try await elsewhereProject.renameStructureItem(
             id: "doc-test", newTitle: "Chapter One")
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion,
             "a store that does not know the book was narrowed must not be able "
             + "to un-gate it")
         XCTAssertEqual(
@@ -407,7 +407,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
         try await unwired.renameStructureItem(id: "doc-test", newTitle: "Chapter One")
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion,
             "the path that runs before a DocumentStore exists cannot un-gate a "
             + "book either")
         XCTAssertEqual(try onDiskTitle(), "Chapter One")
@@ -437,7 +437,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
         _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
         XCTAssertEqual(
             projectStore.manifest.schemaVersion,
-            ProjectManifest.currentSchemaVersion,
+            ProjectManifest.narrowingSchemaVersion,
             "in memory: gated this session")
 
         // A LATER build's manifest arrives mid-session — iCloud, or a Mac
@@ -498,7 +498,7 @@ final class NarrowingSchemaGateTests: XCTestCase {
         await store.healTheSchemaGateIfNarrowed()
 
         XCTAssertEqual(
-            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+            try manifestSchemaOnDisk(), ProjectManifest.narrowingSchemaVersion)
     }
 
     /// **And never an un-narrowed one, byte-for-byte.** A book with a register
@@ -581,5 +581,36 @@ final class NarrowingSchemaGateTests: XCTestCase {
         }
         XCTAssertNil(try registry().person(stranger.fingerprint),
                      "and nobody was let in")
+    }
+
+    // MARK: - Ruling R5: narrowing raises to the permit layer's schema only
+
+    /// **Narrowing a schema-9 book with no v10 content leaves it at 9** —
+    /// for the gate AND the heal. 9 is the permit layer's schema
+    /// (`narrowingSchemaVersion`), and a v0.42 Mac has the permit layer: a
+    /// gate that raised to `currentSchemaVersion` would shut it out of a book
+    /// that gained nothing it cannot read. Only v10 content raises a book to
+    /// 10 (`ProjectManifest.encodeForDisk`).
+    func test_narrowingASchemaNineBookWithNoV10ContentLeavesItAtNine() async throws {
+        XCTAssertEqual(ProjectManifest.narrowingSchemaVersion, 9)
+        try writeManifestSchema(9)
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        try await admitStranger(store)
+        let before = try manifestBytes()
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        await store.healTheSchemaGateIfNarrowed()
+
+        XCTAssertEqual(try manifestSchemaOnDisk(), 9)
+        XCTAssertEqual(try manifestBytes(), before, "the gate had nothing to write")
+        XCTAssertEqual(projectStore.manifest.schemaVersion, 9)
+
+        // And the writer's next ordinary save keeps it there.
+        try await projectStore.renameStructureItem(id: "doc-test", newTitle: "C1e")
+        XCTAssertEqual(try manifestSchemaOnDisk(), 9)
     }
 }

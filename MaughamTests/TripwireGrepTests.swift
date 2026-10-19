@@ -10385,10 +10385,12 @@ final class TripwireGrepTests: XCTestCase {
     ///   `changePermit(everyRecordOf:)` and the sheet's `admit`. A verb that
     ///   stopped calling it lets a v0.40 Mac into a narrowed book, where it
     ///   re-asserts a reviewer's refused text under its own book-author key.
-    /// - `currentSchemaVersion` ASSIGNMENT — the two doors that may raise a
-    ///   book's number (the raise-only write door, and the live store it
-    ///   syncs) plus `StatementAdoption`'s own `< 4` migration. Anything else
-    ///   is a number written without the raise-only rule.
+    /// - `narrowingSchemaVersion` ASSIGNMENT — the narrowing gate's two
+    ///   raises (the manifest it writes, and the live store it syncs), both in
+    ///   `gateOldBuildsOut` (ruling R5: the permit layer's schema, never
+    ///   `currentSchemaVersion`). `currentSchemaVersion` ASSIGNMENT —
+    ///   `StatementAdoption`'s own `< 4` migration only. Anything else is a
+    ///   number written without the raise-only rule.
     /// - `sendHeldWordsToInbox` — §7.4's held-line door. One production
     ///   caller: History's held row, where the sentence and the control sit
     ///   together.
@@ -10405,8 +10407,10 @@ final class TripwireGrepTests: XCTestCase {
             "type:DocumentStore": 4,
         ],
         "schemaVersion = ProjectManifest.currentSchemaVersion": [
-            "type:DocumentStore": 2,
             "ProjectStore+StatementAdoption.swift": 1,
+        ],
+        "schemaVersion = ProjectManifest.narrowingSchemaVersion": [
+            "type:DocumentStore": 2,
         ],
         "documentStore.sendHeldWordsToInbox(": ["HistoryPane.swift": 1],
     ]

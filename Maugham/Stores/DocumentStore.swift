@@ -834,7 +834,9 @@ public final class DocumentStore {
     /// ## The rule, both directions
     ///
     /// A book whose register carries a narrowing permit and whose manifest is
-    /// below this build's schema is raised. **A book with no narrowing permit
+    /// below `ProjectManifest.narrowingSchemaVersion` is raised to it — never
+    /// to `currentSchemaVersion`, which would shut permit-capable builds out
+    /// of a book that gained nothing they cannot read (ruling R5). **A book with no narrowing permit
     /// is never touched** — no register at all, or a register in which everyone
     /// is still an author of the whole book, means nothing about who may write
     /// what has changed and shutting older Macs out of it would be a gate
@@ -863,7 +865,7 @@ public final class DocumentStore {
     func healTheSchemaGateIfNarrowed() async {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let onDisk = ProjectManifest.schemaVersion(ofFileAt: manifestURL),
-              onDisk < ProjectManifest.currentSchemaVersion else { return }
+              onDisk < ProjectManifest.narrowingSchemaVersion else { return }
 
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
@@ -884,9 +886,9 @@ public final class DocumentStore {
             let data = try await readManifest()
             try await writeManifest(
                 ProjectManifest.raising(
-                    data, toAtLeast: ProjectManifest.currentSchemaVersion))
+                    data, toAtLeast: ProjectManifest.narrowingSchemaVersion))
             documentStoreLog.info(
-                "Raised the manifest schema of a narrowed book from \(onDisk, privacy: .public) to \(ProjectManifest.currentSchemaVersion, privacy: .public) at \(projectURL.lastPathComponent, privacy: .public)")
+                "Raised the manifest schema of a narrowed book from \(onDisk, privacy: .public) to \(ProjectManifest.narrowingSchemaVersion, privacy: .public) at \(projectURL.lastPathComponent, privacy: .public)")
         } catch {
             documentStoreLog.error(
                 "Could not raise the manifest schema of a narrowed book at \(projectURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
