@@ -221,7 +221,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 ### Add a manuscript element
 1. Recognise it: a block in `ManuscriptBlocks.swift` (over `MarkdownBlockParser`), or an inline in `ManuscriptInlineScanner.swift`. A label it carries is read by `ManuscriptLabel.swift`.
 2. Index and diagnose it in `ManuscriptIndex.swift`: record what it defines or cites, and report each way it can be wrong.
-3. Publishing's AST and the editor's tokenizer consume it next, each reading the same recognised element rather than re-parsing the text.
+3. Nothing consumes the layer yet. Publishing's AST and the editor's tokenizer are where a new element will need handling once they read it, each reading the recognised element rather than re-parsing the text.
 
 Checks: the manuscript grammar tests in `MaughamCoreTests`.
 

@@ -6,7 +6,7 @@
 
 Maugham began as an editor for creative writing. Its goal is now every kind of writing, with business reports first and long-form non-fiction after.
 
-[ADR 0022](0022-commonmark-fountain-ledger.md) ruled tables out of manuscripts and publishing ("not writer content"). It also left out reference links, inline images and anything else a report needs. That was right for fiction. It is wrong for a report.
+[ADR 0022](0022-commonmark-fountain-ledger.md) ruled tables out of manuscripts and publishing; its ledger design (`docs/superpowers/specs/2026-07-06-commonmark-fountain-expansion-design.md`) called them "not writer content". It also left out reference links, inline images and anything else a report needs. That was right for fiction. It is wrong for a report.
 
 The 2026-10-17 foundations audit (findings C3 and C4) named the gap. Denver ruled on it on 2026-10-19:
 
@@ -27,7 +27,7 @@ Each has exactly one form on disk (spec §3.1). The editor writes these forms an
 | Element | On disk |
 |---|---|
 | Table | GFM pipe table, with an optional caption line directly below it: `Table: Q3 revenue {#tbl:q3}` |
-| Footnote reference | `[^n]`, inline |
+| Footnote reference | `[^n]`, inline. The label is any label; output numbers footnotes in order. |
 | Footnote definition | `[^n]: text`, a block of its own |
 | Figure | `![Caption](../research/path.png){#fig:label}`, alone on a line. The path is relative to the document. |
 | Citation | `[@key]`, `[@key, p. 12]`, `[@a; @b]` |
@@ -64,7 +64,7 @@ Every element is text inside an ordinary paragraph. A pipe table, with its capti
 
 ### 5. One reader, in MaughamCore.
 
-`MarkdownBlockParser` and one inline scanner read these forms. Mac and phone share them (tripwire 19). The phone shows the forms as plain text for now and never mangles them.
+`MarkdownBlockParser` and one inline scanner read these forms. Mac and phone share them (tripwire 19). The phone reader renders a pipe table as a table, and a `Table: a | b` caption line below it shows as one more data row. It shows the other forms as plain text and never mangles them.
 
 ## Consequences
 

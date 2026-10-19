@@ -25,6 +25,24 @@ final class CitationInfoTests: XCTestCase {
         XCTAssertEqual(group.children?.first?.citation?.key, "gartner2026")
     }
 
+    func test_rekeyingCollidingCitations_rekeysOnlyTheCollidingAndRepeatedKeys() {
+        let kids = [
+            ResearchItem(id: "a", title: "a", type: .asset,
+                         citation: CitationInfo(key: "gartner2026", authors: ["Gartner"], year: 2026, pages: "9")),
+            ResearchItem(id: "b", title: "b", type: .asset,
+                         citation: CitationInfo(key: "gartner2026a", authors: ["Gartner"], year: 2026)),
+            ResearchItem(id: "c", title: "c", type: .asset,
+                         citation: CitationInfo(key: "gartner2026a", authors: ["Gartner"], year: 2026)),
+        ]
+        let group = ResearchItem(id: "g", title: "g", type: .group, children: kids)
+        let out = group.rekeyingCollidingCitations(existing: ["gartner2026"])
+        // a collides with `existing`; b is kept, so the fresh key skips it; c repeats b.
+        XCTAssertEqual(out.children?.map { $0.citation?.key }, ["gartner2026b", "gartner2026a", "gartner2026c"])
+        XCTAssertEqual(out.children?.first?.citation?.pages, "9")
+        let clean = ResearchItem(id: "g", title: "g", type: .group, children: Array(kids.prefix(2)))
+        XCTAssertEqual(clean.rekeyingCollidingCitations(existing: ["other"]), clean)
+    }
+
     func test_suggest_skipsEmptyAuthorsAndFallsBack() {
         XCTAssertEqual(CitationKey.suggest(authors: ["  ", "Ada Lovelace"], year: 1843, title: "t", existing: []), "lovelace1843")
         XCTAssertEqual(CitationKey.suggest(authors: [], year: nil, title: "A to Z", existing: []), "source")

@@ -58,7 +58,9 @@ public struct ManuscriptIndex: Sendable {
     public let diagnostics: [ManuscriptDiagnostic]
 
     /// Indexes `docs` in binder order. The caller excludes Fountain documents;
-    /// `citationKeys` are the project's research keys.
+    /// `citationKeys` are the project's research keys. Each `text` is derived
+    /// from the op log, so its lines break on `\n` only; a `\r` left in a line
+    /// defeats label parsing on it.
     public init(docs: [Doc], citationKeys: Set<String>) {
         var labels: [ManuscriptLabel: (docID: String, line: Int)] = [:]
         var cited: [String] = []

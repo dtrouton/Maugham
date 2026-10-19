@@ -234,6 +234,18 @@ extension ProjectStore {
         }
     }
 
+    /// The citation keys of every research item in the Trash, each read
+    /// through `restoreRoute`, as a restore would read it.
+    func trashedResearchCitationKeys() async -> Set<String> {
+        var keys = Set<String>()
+        for entry in (try? await trashStore.list()) ?? [] {
+            if case .research(let item)? = try? restoreRoute(for: entry) {
+                keys.formUnion([item].citationKeys)
+            }
+        }
+        return keys
+    }
+
     // MARK: - Per-tree restore
 
     private func restoreStructureItem(
@@ -309,6 +321,9 @@ extension ProjectStore {
         let pruned = pruneResearchMissingFromDisk(item)
         item = pruned.item
         report.unreturned.append(contentsOf: pruned.dropped)
+        // A key minted while this item sat in the Trash may now be live: the
+        // restored item yields it, so `[@key]` keeps one meaning.
+        item = item.rekeyingCollidingCitations(existing: manifest.research.citationKeys)
 
         var siblings = childrenOfResearch(parentId: targetParentId)
         let clampedIndex = max(0, min(pending?.originalIndex ?? 0, siblings.count))

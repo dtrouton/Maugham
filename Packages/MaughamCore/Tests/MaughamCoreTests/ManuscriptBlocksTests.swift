@@ -201,6 +201,19 @@ final class ManuscriptBlocksTests: XCTestCase {
         XCTAssertEqual(blocks(line), [.other(.paragraph(lines: [line]))])
     }
 
+    /// The parser takes `![a](./x.png) ![b](./y.png)` as one solo image; the
+    /// figure rule refuses it, so it passes through as the parser's block.
+    func test_soloImage_twoImagesOnALine_isOtherNotAFigure() {
+        let line = "![a](./x.png) ![b](./y.png)"
+        let parsed = MarkdownBlockParser.parseWithLineRanges(line).map(\.block)
+        guard case .soloImage? = parsed.first, parsed.count == 1 else {
+            return XCTFail("premise: the parser reads the line as one solo image, got \(parsed)")
+        }
+        XCTAssertEqual(blocks(line), parsed.map { .other($0) })
+        XCTAssertEqual(blocks("![c](./x.png)"),
+                       [.figure(caption: "c", path: "./x.png", label: nil)])
+    }
+
     func test_figure_captionMayContainBrackets() {
         XCTAssertEqual(blocks("![Revenue [2026]](a.png)"),
                        [.figure(caption: "Revenue [2026]", path: "a.png", label: nil)])
@@ -329,6 +342,7 @@ final class ManuscriptBlocksTests: XCTestCase {
         "```\nunterminated fence\nstill inside",
         "| a | b |\n|---|---|\n| 1 | 2 |\nTable: Revenue | EMEA {#tbl:rev}",
         "[^1]: First.\n[^2]: Second.\n  more\n\nafter",
+        "![a](./x.png) ![b](./y.png)\n\n![c](./x.png)",
     ]
 
     func test_everyOtherBlockIsTheParsersBlockOverTheSameLines() {

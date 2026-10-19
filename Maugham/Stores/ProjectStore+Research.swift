@@ -399,6 +399,8 @@ extension ProjectStore {
     /// Link → new entry with same URL. Group → recursive copy with fresh ids.
     public func duplicateResearchItem(id: String) async throws -> ResearchItem {
         beginStructuralVerb(); defer { endStructuralVerb() }
+        // Keys held in the Trash count too: a restore would bring them back.
+        let trashedKeys = await trashedResearchCitationKeys()
         guard let source = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
@@ -407,11 +409,14 @@ extension ProjectStore {
 
         var copy = source
         copy.id = Self.newId(prefix: source.type == .group ? "res-grp" : "res")
+        copy.children = source.children?.map { Self.researchFreshIds($0) }
+        // A copy must not share a citation key (`[@key]` would be ambiguous).
+        // Keyed before the rename, so a key stemmed from the title uses the
+        // source's title, not "Copy of …".
+        copy = copy.rekeyingCitations(
+            existing: manifest.research.citationKeys.union(trashedKeys))
         copy.title = newTitle
         copy.addedAt = Date()
-        copy.children = source.children?.map { Self.researchFreshIds($0) }
-        // A copy must not share its source's citation keys (`[@key]` would be ambiguous).
-        copy = copy.rekeyingCitations(existing: manifest.research.citationKeys)
 
         if let sourcePath = source.path {
             // File or folder — copy on disk.

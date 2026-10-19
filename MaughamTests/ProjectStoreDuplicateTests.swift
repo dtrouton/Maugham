@@ -157,4 +157,65 @@ final class ProjectStoreDuplicateTests: XCTestCase {
         XCTAssertEqual(copy.children?.first?.citation?.key, "gartner2026a")
         XCTAssertEqual(store.manifest.research.citationKeys, ["gartner2026", "gartner2026a"])
     }
+
+    /// With no authors and no source title the key stems from the title; the
+    /// copy's comes from the source's title, never "Copy of …" (stem `copy`).
+    func test_duplicateResearchItem_withNoAuthors_keysFromTheSourcesTitleNotCopyOf() async throws {
+        let (_, store, _) = try await makeNovel()
+        store.manifest.research.append(ResearchItem(
+            id: "r-src", title: "Quarterly Revenue", type: .asset, kind: .link,
+            url: "https://example.com", citation: CitationInfo(key: "quarterly")))
+        let copy = try await store.duplicateResearchItem(id: "r-src")
+        XCTAssertEqual(copy.title, "Copy of Quarterly Revenue")
+        XCTAssertEqual(copy.citation?.key, "quarterlya")
+    }
+
+    /// A key held by an item in the Trash is not free: duplicating after
+    /// trashing the original must not re-mint it, or the restore makes two
+    /// items with one key.
+    func test_duplicateResearchItem_avoidsTheKeysOfTrashedResearch() async throws {
+        let (_, store, _) = try await makeNovel()
+        let gartner = { (key: String) in CitationInfo(key: key, authors: ["Gartner"], year: 2026) }
+        store.manifest.research.append(ResearchItem(id: "r-a", title: "A", type: .asset, kind: .link,
+                                                    url: "https://example.com/a", citation: gartner("gartner2026")))
+        store.manifest.research.append(ResearchItem(id: "r-b", title: "B", type: .asset, kind: .link,
+                                                    url: "https://example.com/b", citation: gartner("gartner2026a")))
+        try await store.deleteResearchItem(id: "r-a")
+        XCTAssertFalse(store.manifest.research.citationKeys.contains("gartner2026"), "premise: A is in the Trash")
+
+        let copy = try await store.duplicateResearchItem(id: "r-b")
+        XCTAssertEqual(copy.citation?.key, "gartner2026b")
+
+        try await store.restoreLastDeletion()
+        let keys = Self.allKeys(store.manifest.research)
+        XCTAssertEqual(keys.sorted(), ["gartner2026", "gartner2026a", "gartner2026b"])
+        XCTAssertEqual(store.manifest.research.first { $0.id == "r-a" }?.citation?.key, "gartner2026")
+    }
+
+    /// A restored item whose key is now live elsewhere yields it and takes a
+    /// fresh one; the live item keeps its key.
+    func test_restoringTrashedResearch_whoseKeyIsNowLive_rekeysTheRestoredItem() async throws {
+        let (_, store, _) = try await makeNovel()
+        store.manifest.research.append(ResearchItem(
+            id: "r-a", title: "A", type: .asset, kind: .link, url: "https://example.com/a",
+            citation: CitationInfo(key: "gartner2026", authors: ["Gartner"], year: 2026, pages: "7")))
+        try await store.deleteResearchItem(id: "r-a")
+        store.manifest.research.append(ResearchItem(
+            id: "r-c", title: "C", type: .asset, kind: .link, url: "https://example.com/c",
+            citation: CitationInfo(key: "gartner2026", authors: ["Gartner"], year: 2026)))
+
+        try await store.restoreLastDeletion()
+        let keys = Self.allKeys(store.manifest.research)
+        XCTAssertEqual(Set(keys).count, keys.count, "keys stay unique: \(keys)")
+        XCTAssertEqual(store.manifest.research.first { $0.id == "r-c" }?.citation?.key, "gartner2026")
+        let restored = store.manifest.research.first { $0.id == "r-a" }
+        XCTAssertEqual(restored?.citation?.key, "gartner2026a")
+        XCTAssertEqual(restored?.citation?.pages, "7")
+    }
+
+    private static func allKeys(_ items: [ResearchItem]) -> [String] {
+        items.flatMap { item in
+            (item.citation.map { [$0.key] } ?? []) + allKeys(item.children ?? [])
+        }
+    }
 }

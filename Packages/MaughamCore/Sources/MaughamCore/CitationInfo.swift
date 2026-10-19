@@ -98,6 +98,35 @@ extension ResearchItem {
         return rekeyed(taken: &taken)
     }
 
+    /// A copy in which only the citations whose key is in `existing`, or
+    /// repeats an earlier key in this copy, get fresh keys; every other key is
+    /// kept. A fresh key avoids `existing` and every key in this copy.
+    public func rekeyingCollidingCitations(existing: Set<String>) -> ResearchItem {
+        var taken = existing.union([self].citationKeys)
+        var kept = Set<String>()
+        return rekeyedIfColliding(existing: existing, taken: &taken, kept: &kept)
+    }
+
+    private func rekeyedIfColliding(
+        existing: Set<String>, taken: inout Set<String>, kept: inout Set<String>
+    ) -> ResearchItem {
+        var copy = self
+        if var info = copy.citation {
+            if existing.contains(info.key) || kept.contains(info.key) {
+                info.key = CitationKey.suggest(
+                    authors: info.authors, year: info.year, title: info.sourceTitle ?? title, existing: taken)
+                taken.insert(info.key)
+                copy.citation = info
+            } else {
+                kept.insert(info.key)
+            }
+        }
+        copy.children = children?.map {
+            $0.rekeyedIfColliding(existing: existing, taken: &taken, kept: &kept)
+        }
+        return copy
+    }
+
     private func rekeyed(taken: inout Set<String>) -> ResearchItem {
         var copy = self
         if var info = copy.citation {

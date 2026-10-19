@@ -52,8 +52,10 @@ public enum ManuscriptBlocks {
                     out.append((.table(header: header, rows: rows, caption: nil, label: nil), lines))
                 }
 
-            case .soloImage(let altText, let path, _):
-                out.append((.figure(caption: altText, path: path, label: nil), lines))
+            case .soloImage(_, _, let rawLine):
+                // The parser's image rule is looser than ours (two images on
+                // one line pass it); read the raw line by the figure rule.
+                out.append((figure(rawLine) ?? .other(block), lines))
 
             case .paragraph(let paraLines):
                 if paraLines.count == 1, let figure = figure(paraLines[0]) {

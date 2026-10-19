@@ -159,6 +159,7 @@ Two things deliberately live elsewhere:
 - **The settle runs on the NEXT main-actor turn** (`scheduleStructuralSettle`), so a verb's rollback in its `catch` lands before any adoption. `DocumentStore.structuralVerbsSettled` then archives the held manifest if the verb saved after it, else adopts it.
 - **`readManifest()` waits for verbs and held manifests to settle** (`waitForStructuralVerbs`) and takes on unannounced bytes before returning. Never call it from inside a verb.
 - **A creation path that calls `writeManifest(` directly reads the starter before it writes anything** (`ProjectFactory`'s public callers): `StructuralVerbCensusTests` wants no await ahead of that write.
+- Every manifest written to disk goes through `ProjectManifest.encodeForDisk`, which stamps the content floor so an older build refuses rather than strips v10 content; narrowing raises only to `narrowingSchemaVersion` (`TripwireGrepTests.test_manifestBytesForDiskComeFromOneFunction`).
 - **A piece open here that another device moved or trashed leaves the registry and `stopRendering()` before it closes**, so its flush keeps the last keystrokes and never writes a phantom `.md` at the old path.
 - **`Document.close()` is single-flight**: the adoption and `EditorHost`'s reload both close a moved piece.
 - **A piece that left closes with a `MaughamEvent.postNotice`.** It says *moved to Trash by <who>* only when `TrashStore.list()` holds that id (`<who>` is the entry's `trashedBy`, or *another device* for an older entry with none); otherwise it says `DocumentStore.removedElsewhereNotice`. Absence from the structure is not trash.
@@ -347,7 +348,6 @@ Two things deliberately live elsewhere:
 - **The retry converges**: the node id is `cap-<entryId>`, and the image arm asks `CanvasCapture.existingNode` (via `CanvasClaudeWrite.liveModel`) before `ingestCanvasAsset`.
 - **There is no MCP write path onto the canvas from the inbox.**
 - **`InboxTranscriptionWorker` is poked on every inbox change**, audio or not, because an `.m4a` and its manifest row arrive in either order.
-- Every manifest written to disk goes through `ProjectManifest.encodeForDisk`, which stamps the content floor so an older build refuses rather than strips v10 content; narrowing raises only to `narrowingSchemaVersion` (`TripwireGrepTests.test_manifestBytesForDiskComeFromOneFunction`).
 
 ## Recipes
 
