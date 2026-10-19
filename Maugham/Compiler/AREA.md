@@ -235,7 +235,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`DiagnosticsStore.preview` never persists, never touches the drift ring, never raises the badge.** Every run ending without an answer calls `discardPreview` (a re-read of the sidecar): `finish`'s failure and unusable-output arms, `cancel()` and `shutdown()`.
 - **A preview's rows carry no fates**: `DiagnosticsPane.offersDurableActions(state:)` withholds Answer and Promote while this document's check is `.running`.
 - **`DiagnosticsStore.dismiss` refuses while `previewing.contains(docId)`**, in memory and on disk, so a future per-note mutator inherits it (`test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`).
-- **`RunState`'s run cases carry a `RunKind`**: `headerState` matches `.check`, `ReviewRoundCockpit.phase` `.round`; each names the other loop's run window-wide (`otherLoopLine`), refusing its Run and offering Cancel.
+- **`RunState`'s run cases carry a `RunKind`**: `headerState` matches `.check`, `ReviewRoundCockpit.phase` `.round`; `otherLoopLine` names the other loop's run or one elsewhere; Run refuses, Cancel offered.
 - **A check note is answerable mid-round only because `persist` writes each previewing slot's FINISHED answer** (`finishedBeforePreview`), never a half-report.
 
 ### A strain's four fates

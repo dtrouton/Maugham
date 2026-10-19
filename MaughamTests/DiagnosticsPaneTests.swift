@@ -320,7 +320,60 @@ final class DiagnosticsPaneTests: XCTestCase {
                                         noteCount: 0, docId: "doc-b"),
             .clean(lastRun: run),
             "control: the pane's OWN check still matches by document")
-        XCTAssertNil(DiagnosticsPane.otherLoopLine(runState: checkOnA, docId: "doc-b"))
+        // **Flipped by #83:** the check on A holds the window's one session,
+        // so ⌘R on B waits \u{2014} and the header says whose run it waits for.
+        XCTAssertEqual(
+            DiagnosticsPane.otherLoopLine(runState: checkOnA, docId: "doc-b",
+                                          titleOf: { $0 == "doc-a" ? "The Ferry" : nil }),
+            "A check is running on \u{201C}The Ferry\u{201D} \u{2014} \u{2318}R waits until it finishes.")
+    }
+
+    /// **A check on another piece is named, and ⌘R waits** (#83). Cancel is
+    /// offered, Reread and the cold-start Read are refused up front, and the
+    /// pane's own state is still the last check here.
+    func test_theHeaderNamesAuthorsCheckOnAnotherPiece() {
+        let run = makeRun()
+        let checkOnA = CompilerOrchestrator.RunState.running(
+            docId: "doc-a", kind: .check, checking: counts(new: 3, revised: 0))
+        let state = DiagnosticsPane.headerState(
+            runState: checkOnA, lastRun: run, noteCount: 2, docId: "doc-b")
+        XCTAssertEqual(state, .idle(lastRun: run), "the pane keeps its own last check")
+        let line = DiagnosticsPane.otherLoopLine(
+            runState: checkOnA, docId: "doc-b", titleOf: { _ in "The Ferry" })
+        XCTAssertNotNil(line)
+        XCTAssertTrue(DiagnosticsPane.offersCancel(state: state, otherLoopLine: line),
+                      "Cancel stops the one session's check, wherever it reads")
+        XCTAssertTrue(DiagnosticsPane.refusesColdStartRead(otherLoopLine: line),
+                      "the cold-start Read is refused up front, not on press")
+        XCTAssertFalse(DiagnosticsPane.refusesColdStartRead(otherLoopLine: nil),
+                       "control: with nothing in flight the cold-start Read is live")
+        XCTAssertTrue(DiagnosticsPane.refusesColdStartRead(
+            otherLoopLine: DiagnosticsPane.otherLoopLine(
+                runState: .running(docId: "doc-a", kind: .round,
+                                   checking: counts(new: 1, revised: 0)),
+                docId: "doc-b")),
+            "a round anywhere refuses the cold-start Read too")
+    }
+
+    /// **No title, no id** (#83 ruling).
+    func test_theHeaderSaysAnotherPieceWhenTheTitleIsUnknown() {
+        let checkOnA = CompilerOrchestrator.RunState.running(
+            docId: "doc-a", kind: .check, checking: counts(new: 3, revised: 0))
+        let line = DiagnosticsPane.otherLoopLine(runState: checkOnA, docId: "doc-b")
+        XCTAssertEqual(line, "A check is running on another piece \u{2014} \u{2318}R waits until it finishes.")
+        XCTAssertFalse(line?.contains("doc-a") ?? true, "the raw id is never shown")
+    }
+
+    /// **The same document still shows its own check running** (#83 control):
+    /// no other-loop line, and the header reads `.running`.
+    func test_thisDocumentsCheckStillReadsAsRunning() {
+        let checkHere = CompilerOrchestrator.RunState.running(
+            docId: "doc-b", kind: .check, checking: counts(new: 3, revised: 0))
+        XCTAssertNil(DiagnosticsPane.otherLoopLine(
+            runState: checkHere, docId: "doc-b", titleOf: { _ in "Should not be asked" }))
+        guard case .running = DiagnosticsPane.headerState(
+            runState: checkHere, lastRun: makeRun(), noteCount: 0, docId: "doc-b")
+        else { return XCTFail("this piece's own check reads as running") }
     }
 
     /// **A round that died is Review's failure, not a check's** (#77 F7).

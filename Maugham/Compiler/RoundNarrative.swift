@@ -428,4 +428,33 @@ enum RoundNarrative {
     static func runRoundTitle(editorName: String) -> String {
         "Run \(editorName)\u{2019}s round"
     }
+
+    /// **A run of this loop on ANOTHER piece** (#83) — the line both loops'
+    /// surfaces draw while the window's one session reads a different
+    /// document. Review's says Run waits; Author's says \u{2318}R waits (F7's
+    /// keys). The piece is named by its title in curly quotes, or "another
+    /// piece" when the manifest cannot name it: never the raw document id,
+    /// which is not prose.
+    static func runElsewhereLine(kind: RunKind, title: String?) -> String {
+        let piece: String
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            piece = "\u{201C}\(title)\u{201D}"
+        } else {
+            piece = "another piece"
+        }
+        switch kind {
+        case .round:
+            return "A round is running on \(piece) \u{2014} Run waits until it finishes."
+        case .check:
+            return "A check is running on \(piece) \u{2014} \u{2318}R waits until it finishes."
+        }
+    }
+
+    /// **The one title lookup for `runElsewhereLine`** (#83): pure, over the
+    /// manifest structure the host already holds, so naming the other piece
+    /// adds no observable state. `nil` when nothing names the id — the caller
+    /// falls back to "another piece", never to the id.
+    static func pieceTitle(of docId: String, in structure: [StructureItem]?) -> String? {
+        structure.flatMap { TreeWalk.find(id: docId, in: $0)?.title }
+    }
 }
