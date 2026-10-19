@@ -11781,3 +11781,84 @@ extension TripwireGrepTests {
                        "exactly the twelve code spellings:\n" + offenders.joined(separator: "\n"))
     }
 }
+
+// MARK: - Every spawned process is a named one; every `claude` spawn is sealed
+
+/// **Every production process launch lives in a named file with a count, and
+/// the files that launch `claude` pass `--tools ""`.**
+///
+/// `--tools ""` is what seals a spawned `claude` off from the writer's disk:
+/// without it the built-in Read/Glob/Grep reach any file in the working
+/// directory, whatever `--allowedTools` says (ADR 0028 §2). The two spawners'
+/// argument lists are pinned by their own tests
+/// (`ClaudeCLISessionTests.test_spawnArgumentsMatchTheSpike`,
+/// `DeclaredWorldDeriverTests`). This census closes the gap those tests
+/// cannot see: a THIRD place that starts a process. A new launch anywhere in
+/// `Maugham/` fails here until it is added to `processLaunchers`; a new
+/// `claude` launcher also goes in `claudeLaunchers`, gets an argument-list
+/// test of its own, and joins `AgentRoster` (Compiler guide).
+extension TripwireGrepTests {
+    /// File → number of launch lines. Counts, not just files, so a second
+    /// launch inside a listed file is a decision someone makes here.
+    static let processLaunchers: [String: Int] = [
+        "ClaudeCLISession.swift": 2,     // the warm session + the login-shell `which claude` probe
+        "DeclaredWorldDeriver.swift": 1, // the one-shot derivation call
+        "UpdateInstaller.swift": 3,      // bash/python3 probes and the relaunch
+        "EPUBZipPackager.swift": 1,      // /usr/bin/zip
+        "TectonicInvoker.swift": 1,      // tectonic
+    ]
+
+    /// The listed files that launch `claude` itself.
+    static let claudeLaunchers: Set<String> = [
+        "ClaudeCLISession.swift", "DeclaredWorldDeriver.swift",
+    ]
+
+    static let processLaunchPatterns = ["Process()", "Process.run(", "NSTask", "posix_spawn"]
+
+    private func processLaunchHits(in dir: URL) throws -> [String: Int] {
+        let hits = try grepSwift(
+            in: dir, patterns: Self.processLaunchPatterns,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+        var counts: [String: Int] = [:]
+        for hit in hits {
+            if let file = hit.split(separator: ":").first { counts[String(file), default: 0] += 1 }
+        }
+        return counts
+    }
+
+    func test_everyProcessLaunchIsNamedAndEveryClaudeLaunchIsSealed() throws {
+        XCTAssertEqual(
+            try processLaunchHits(in: sourceDir), Self.processLaunchers,
+            "a process launch was added, moved or removed. Update "
+            + "`processLaunchers`; if it starts `claude`, add it to "
+            + "`claudeLaunchers`, pass `--tools \"\"`, and pin its argv in a test.")
+        XCTAssertTrue(Self.claudeLaunchers.isSubset(of: Self.processLaunchers.keys))
+
+        let fm = FileManager.default
+        for file in Self.claudeLaunchers {
+            guard let url = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil)?
+                .compactMap({ $0 as? URL }).first(where: { $0.lastPathComponent == file }) else {
+                XCTFail("\(file) is listed as a claude launcher but was not found"); continue
+            }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertTrue(text.contains("\"--tools\", \"\""),
+                          "\(file) launches claude without `--tools \"\"`")
+        }
+    }
+
+    /// CONTROL: the census sees a planted launch in each spelling, and not a
+    /// comment that names one.
+    func test_theProcessLaunchCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-spawn-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        // A comment naming Process() is not a launch.
+        func a() { let p = Process(); p.arguments = ["-p"] }
+        func b() throws { try Process.run(url, arguments: []) }
+        """.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try processLaunchHits(in: tmp), ["Rogue.swift": 2])
+    }
+}
