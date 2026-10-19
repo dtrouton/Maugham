@@ -5,7 +5,9 @@ public struct ManuscriptLabel: Hashable, Sendable {
     /// The three label kinds a manuscript may carry.
     public enum Kind: String, Sendable, CaseIterable { case fig, tbl, sec }
 
+    /// What the label names: a figure, a table or a section.
     public let kind: Kind
+    /// The part after the colon; matches `[A-Za-z0-9][A-Za-z0-9_-]*`.
     public let name: String
 
     /// The label as written after `#` or `@`, e.g. `"fig:revenue"`.

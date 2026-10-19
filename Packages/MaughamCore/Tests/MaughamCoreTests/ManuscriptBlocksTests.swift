@@ -130,7 +130,29 @@ final class ManuscriptBlocksTests: XCTestCase {
                                caption: "Q3", label: label(.fig, "q3"))])
     }
 
+    /// The parser keeps a `|`-bearing caption as a row; the layer takes it
+    /// back from the raw line, so `|` and `\|` survive.
+    func test_table_captionContainingAPipe_isTheCaptionNotARow() {
+        let parsed = ManuscriptBlocks.parse(tableSource + "\nTable: Revenue | EMEA \\| APAC {#tbl:rev}")
+        XCTAssertEqual(parsed.map(\.block),
+                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                               caption: "Revenue | EMEA \\| APAC", label: label(.tbl, "rev"))])
+        XCTAssertEqual(parsed.map(\.lines), [0..<4])
+    }
+
+    func test_table_unicodeCaption() {
+        XCTAssertEqual(blocks(tableSource + "\nTable: Revenue — Q3 ✓ {#tbl:q3}"),
+                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                               caption: "Revenue — Q3 ✓", label: label(.tbl, "q3"))])
+    }
+
     // MARK: - Figures
+
+    func test_figure_unicodeCaption() {
+        XCTAssertEqual(blocks("![Café ✨ chart](../research/a.png){#fig:x}"),
+                       [.figure(caption: "Café ✨ chart", path: "../research/a.png",
+                                label: label(.fig, "x"))])
+    }
 
     func test_figure_inItsOnDiskForm() {
         let parsed = ManuscriptBlocks.parse("![Revenue by quarter](../research/rev.png){#fig:revenue}")
@@ -203,6 +225,34 @@ final class ManuscriptBlocksTests: XCTestCase {
         XCTAssertEqual(parsed.map(\.lines), [0..<2])
     }
 
+    func test_footnoteDefinitions_stackedWithoutABlankLine_areSeparate() {
+        let parsed = ManuscriptBlocks.parse("[^1]: First.\n[^2]: Second.\n  more")
+        XCTAssertEqual(parsed.map(\.block), [
+            .footnoteDefinition(label: "1", text: "First."),
+            .footnoteDefinition(label: "2", text: "Second.\nmore"),
+        ])
+        XCTAssertEqual(parsed.map(\.lines), [0..<1, 1..<3])
+    }
+
+    func test_footnoteDefinition_leadingWhitespaceOfTheTextIsTrimmed() {
+        XCTAssertEqual(blocks("[^1]:    Spaced."),
+                       [.footnoteDefinition(label: "1", text: "Spaced.")])
+    }
+
+    func test_footnoteDefinition_emptyFirstLine_textStartsOnTheNextLine() {
+        XCTAssertEqual(blocks("[^1]:\n    Body one\n    body two"),
+                       [.footnoteDefinition(label: "1", text: "Body one\nbody two")])
+    }
+
+    func test_footnoteLabelRule() {
+        for good in ["1", "note-a", "_x", "-", "A_9"] {
+            XCTAssertTrue(ManuscriptBlocks.isValidFootnoteLabel(good), good)
+        }
+        for bad in ["", "a b", "a:b", "é", "a]"] {
+            XCTAssertFalse(ManuscriptBlocks.isValidFootnoteLabel(bad), bad)
+        }
+    }
+
     func test_footnoteDefinition_insideAListItem_staysOther() {
         XCTAssertEqual(blocks("- [^1]: x"),
                        [.other(.list(ordered: false, items: [["[^1]: x"]]))])
@@ -248,8 +298,8 @@ final class ManuscriptBlocksTests: XCTestCase {
 
     // MARK: - Superset of the block parser
 
-    /// Inputs from `MarkdownBlockParityCorpusTests` and the block parser's
-    /// range corpus. The layer may only re-read blocks; every `.other` must be
+    /// Copies the inputs of `MarkdownBlockParityCorpusTests` and the block
+    /// parser's range corpus (both private there), plus report inputs. The layer may only re-read blocks; every `.other` must be
     /// exactly what the parser produced over the same lines.
     private static let corpus: [String] = [
         "first line\nsecond line",
@@ -277,6 +327,8 @@ final class ManuscriptBlocksTests: XCTestCase {
         "\n\n   \nleading blanks then text\n\n\n",
         "no trailing newline at all",
         "```\nunterminated fence\nstill inside",
+        "| a | b |\n|---|---|\n| 1 | 2 |\nTable: Revenue | EMEA {#tbl:rev}",
+        "[^1]: First.\n[^2]: Second.\n  more\n\nafter",
     ]
 
     func test_everyOtherBlockIsTheParsersBlockOverTheSameLines() {
