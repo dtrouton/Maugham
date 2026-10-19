@@ -40,8 +40,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `IntentStrip.swift` — the writer's signature line above the prose.
 - `ReviewModeIndicator.swift`, `TranslationReviewIndicator.swift` — the pills over the editor in review / translation review.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
-- `MCPBannerModel.swift`, `MCPNoteBanner.swift` — the transient "Claude added a note" banner and its state.
-- `BackupRecoveryBanner.swift` — the refused-backup banner with its Restore remedy.
+- `MCPBannerModel.swift`, `MCPNoteBanner.swift` — the transient "Claude added a note" banner.
+- `BackupRecoveryBanner.swift`, `ManifestRestoredBanner.swift` — the refused-backup banner (Restore); the put-back-manifest note.
 - `SharingStatusPill.swift` — *Shared* / *Shared by <owner>*: an indicator, never a role.
 - `ViewOnlyShareNotice.swift` — the banner over a read-only iCloud share (`ProjectWindow.shareIsReadOnly`).
 - `ProjectShareSheetPresenter.swift` — File → Share Project via iCloud… (`NSSharingServicePicker`).
