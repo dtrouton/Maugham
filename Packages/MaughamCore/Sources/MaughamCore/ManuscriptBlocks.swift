@@ -91,7 +91,7 @@ public enum ManuscriptBlocks {
 
     // The caption may contain `]` but not `](`, so two images on a line never
     // read as one. The path stops at whitespace.
-    private static let imageRegex = try! NSRegularExpression(
+    static let imageRegex = try! NSRegularExpression(
         pattern: #"^!\[((?:[^\]]|\](?!\())*)\]\(([^)\s]+)\)$"#)
 
     /// The footnote label rule (any label, per the spec). The inline

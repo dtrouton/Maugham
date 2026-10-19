@@ -24,12 +24,18 @@ public struct ManuscriptLabel: Hashable, Sendable {
     }
 
     /// True when `name` matches `[A-Za-z0-9][A-Za-z0-9_-]*` (ASCII only).
+    /// Citation keys follow the same rule.
     public static func isValidName(_ name: String) -> Bool {
         guard let first = name.unicodeScalars.first, isAlnum(first) else { return false }
-        return name.unicodeScalars.allSatisfy { isAlnum($0) || $0 == "_" || $0 == "-" }
+        return name.unicodeScalars.allSatisfy(isNameScalar)
     }
 
-    private static func isAlnum(_ s: Unicode.Scalar) -> Bool {
+    /// True for a character a name may contain: `[A-Za-z0-9_-]`.
+    static func isNameScalar(_ s: Unicode.Scalar) -> Bool {
+        isAlnum(s) || s == "_" || s == "-"
+    }
+
+    static func isAlnum(_ s: Unicode.Scalar) -> Bool {
         ("a"..."z").contains(s) || ("A"..."Z").contains(s) || ("0"..."9").contains(s)
     }
 }
