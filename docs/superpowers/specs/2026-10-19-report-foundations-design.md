@@ -41,10 +41,10 @@ A new ADR (0033) supersedes ADR 0022's exclusions for these elements, and the le
 
 | Element | On disk | Op-log shape |
 |---|---|---|
-| Table | GFM pipe table, optional caption line `Table: Q3 revenue {#tbl:q3}` directly above or below | one paragraph (pipe tables contain no blank line) |
+| Table | GFM pipe table, optional caption line `Table: Q3 revenue {#tbl:q3}` directly below it (no blank line between) | one paragraph, caption included (pipe tables contain no blank line) |
 | Footnote reference | `[^n]` inline (`n` is any label; output numbers them in order) | inside its paragraph |
 | Footnote definition | `[^n]: text`, a block of its own | one paragraph |
-| Figure | `![Caption](research/path.png){#fig:label}` alone on a line | one paragraph |
+| Figure | `![Caption](../research/path.png){#fig:label}` alone on a line; the path is relative to the document, as Pandoc and every Markdown viewer resolve it | one paragraph |
 | Citation | `[@key]`, `[@key, p. 12]`, `[@a; @b]` | inside its paragraph |
 | Cross-reference | `@fig:label`, `@tbl:label`, `@sec:label` | inside its paragraph |
 | Section label | `# Heading {#sec:label}` | the heading's paragraph |
@@ -62,7 +62,7 @@ Parsing lives in MaughamCore's `MarkdownBlockParser`, which already reads pipe t
 
 No new `OpKind` is needed: every element is text inside ordinary paragraphs.
 
-**Fence fix.** `ParagraphParser` is fence-unaware, so a fenced block containing a blank line splits into two paragraphs (already noted at `ProjectAST.Section.anchors`). Fix it in this milestone: a paragraph that opens a fence runs to the fence's close. The fix needs a pinned test that a fence with an internal blank line is one paragraph, and the existing bootstrap and materializer tests must stay green.
+**Fence fix — dropped (plan 1 ruling, 2026-10-19).** Making `ParagraphParser` fence-aware would turn the hidden `¶id` anchor line of an already-split fence's second half into literal text inside the merged fence, on the per-keystroke hot path. No element in this milestone contains a blank line, so the fix buys nothing here; code fences stay unsupported writer content, as ADR 0022 says.
 
 ### 3.4 Research gains citation fields
 
@@ -209,7 +209,6 @@ The milestone is too big for one plan. CLAUDE.md rule 11 applies: build plan 1, 
 
 1. **Grammar and storage:**
    - the Core parser and inline scanner;
-   - the fence fix;
    - research citation fields;
    - the manifest profile and schema 10;
    - ADR 0033.
@@ -234,7 +233,6 @@ The milestone is too big for one plan. CLAUDE.md rule 11 applies: build plan 1, 
 
 - Core:
   - parser tests for each element, including malformed forms (an unclosed `[^`, a table without a delimiter row, `{#fig:}` with no label);
-  - the fence fix;
   - citeKey suggestion and deduplication;
   - manifest round-trip at schema 10, and schema-9 files still opening.
 - Publish:
