@@ -87,6 +87,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ParagraphID.swift` — the four-character paragraph id, its alphabet and `mintUnique(excluding:)` (tripwires 8, 23).
 - `ParagraphParser.swift` — splits anchored Markdown into paragraphs by blank lines; the per-keystroke hot path.
 - `MarkdownBlockParser.swift` — `MarkdownBlock` and the one block-level Markdown parser every surface shares.
+- `ManuscriptBlocks.swift` — the report block layer over that parser: labelled headings, captioned tables, figures, footnote definitions.
+- `ManuscriptLabel.swift` — `ManuscriptLabel` (`fig`/`tbl`/`sec`) and `ManuscriptAttributes.split`, the trailing `{#kind:name}` reader.
 - `MarkdownDisplayFilter.swift` — strips the op-log anchors for display; the single anchor-stripping source.
 - `InlineEmphasisScanner.swift` — flattens asterisk emphasis into runs and marker ranges for any renderer.
 - `EmphasisTraits.swift` — the bold/italic option set an emphasis run carries.
