@@ -88,6 +88,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/statements/proposals/<key>.json` | `StatementProposalStore` | one pending proposal per key |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
+| `.maugham/manifest.shadow.json` (+ `.sha256`) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt manifest self-heals from it, a MISSING one is put back from it on open (never while an `.icloud` placeholder says it is still downloading), and `BackupCoordinator.projectKey` reads its id when the manifest is gone (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
 | `.maugham/bible.<deviceSlug>.json` | `BibleStore` (Compiler) | the bible ledger and graduated keys, per device |
@@ -161,6 +162,7 @@ Two things deliberately live elsewhere:
 - **A piece open here that another device moved or trashed leaves the registry and `stopRendering()` before it closes**, so its flush keeps the last keystrokes and never writes a phantom `.md` at the old path.
 - **`Document.close()` is single-flight**: the adoption and `EditorHost`'s reload both close a moved piece.
 - **A piece that left closes with a `MaughamEvent.postNotice`.** It says *moved to Trash by <who>* only when `TrashStore.list()` holds that id (`<who>` is the entry's `trashedBy`, or *another device* for an older entry with none); otherwise it says `DocumentStore.removedElsewhereNotice`. Absence from the structure is not trash.
+- **A restored copy is its own book**: `BackupRestore.renewIdentity` gives it a new manifest id and a matching shadow, so its backups and the phone's captures never share the original's (#92). ⌘S and a named checkpoint (⌘⇧S) back up through one call, `CheckpointFlashDecision.backUp` (#90).
 - **The editor never binds a closed `Document`**: `EditorHost.needsReload` answers true for an `isClosed` one, so a piece returning at the same path reopens.
 
 ### Word counts and the session
