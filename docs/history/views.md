@@ -116,3 +116,12 @@ See CLAUDE.md for the full list; the ones touching Views are:
 - **Find is `ProjectWindow.treeFindActive`** (window `@State`, untouched by a persona switch) **replacing the column while it's up, with `ProjectSearchView`'s `.onExitCommand` the one way back down** (✕ and Escape both call `ProjectSearchView.close()`).
 - **A drag onto the tree is scope**: `TreeDropIntent.classify` decides an internal drag by lookup (never by the shape of an id), and `TreeDropIntent.classifyExternal` routes a Finder file, a browser bitmap, a paste, or Add File's folder import to the same creation verbs.
 - **Signed op log P3b (2026-09-20) gives this directory the register's own surfaces**: `PermitControl` is the ONE place a surface turns a display choice into a `Permit` (tripwire 49) and is shared by the admission sheet and People & Devices' *Change…*/*Re-admit*, which press `DocumentStore.changePermit(everyRecordOf:to:)` — the label-wide verb, never the single-record one (`TripwireGrepTests.test_noViewPressesTheSingleRecordPermitVerb`); `LoadQuestions` is the pure model behind the load's questions (the *Sam started X — is it hers?* sheet, whose *Theirs* and *Not now* are both remembered device-locally) — asked only on a Mac holding its own root record (`NewPieceModifier.questions` → `AdmissionDecision.askingRoot`, ruling AA); `SetAsideDoor` is the pure model behind §7.4's TWO doors on History — a set-aside record's, and a held span's (`HeldLineNoticeRow`) — each offering what is LEFT rather than once, remembered per `<opId>#<paragraphId>`; and `PieceWriters` answers whose piece is whose for the Inspector and the outline's Writer column, reading the TIMELINE and never a record's permit fields (tripwire 43), over `TrustTable.myChain` (my root's chain plus every adopted root's).
+
+## Moved from the guide by the plan 5 final-review fixes (2026-10-19)
+
+Clauses cut from `Maugham/Views/AREA.md` to make room for the cross-guide pointers; the rule each qualified is still in the guide.
+
+- Tripwire 55's bullet: "— the second toggle answering `type == .screenplay` inline is how a tree bug shipped".
+- `TreeScrollProbe`'s bullet: "Deleting it and its three call sites changes no behaviour."
+- The dark-mode bullet: "**Dark-mode propagation to side panes has regressed twice**: re-check it after theme changes."
+- The navigation bullet: "a `.project`-scoped navigate may move a background window, as intended."

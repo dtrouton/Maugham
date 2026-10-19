@@ -30,7 +30,7 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 
 ## The code, area by area
 
-Each directory with an `AREA.md` asks you to read it before editing anything there.
+Each directory with an `AREA.md` asks you to read it before editing anything there. Some rules live in another guide: Core's op-log, trust and permit files are ruled by the OpLog guide, and a guide's *Outside this folder* list names files whose rules it carries (the folder's own guide points back).
 
 - [`Packages/MaughamCore/Sources/MaughamCore/AREA.md`](../Packages/MaughamCore/Sources/MaughamCore/AREA.md) — the shared package both apps build on: a map of every file, its rules, and recipes.
 - [`Maugham/OpLog/AREA.md`](../Maugham/OpLog/AREA.md) — the op log, the signed chain, the register and permits.

@@ -1,6 +1,6 @@
 # Publish — area guide
 
-PDF and EPUB publishing through the bundled tectonic: the publish config and its imprints, the AST built from the op log, the LaTeX and XHTML body emitters, the compilers and their mint gate, the publication catalogue and republish, preview and sample compiles, and the translation coverage gate. The department desk's runs (translators, designer) are driven from `Maugham/Compiler/` and drawn in `Maugham/Views/`; their publish-side doors are here. What the body emitter produces is `Maugham/Resources/PublishStarter/EMISSION.md`, generated from `EmissionContract.swift`. The one rule from CLAUDE.md: **edit `EmissionContract.swift`, never `EMISSION.md`; keep `style_file` inside its `\begingroup`.** The area carries tripwires 13, 17 and 20. The narrative and history behind the rules below are in `docs/history/publish.md`.
+PDF and EPUB publishing through the bundled tectonic: the publish config and its imprints, the AST built from the op log, the LaTeX and XHTML body emitters, the compilers and their mint gate, the publication catalogue and republish, preview and sample compiles, and the translation coverage gate. The department desk's runs (translators, designer) are driven from `Maugham/Compiler/` and drawn in `Maugham/Views/`; their publish-side doors are here. What the body emitter produces is `Maugham/Resources/PublishStarter/EMISSION.md`, generated from `EmissionContract.swift`. The one rule from CLAUDE.md: **edit `EmissionContract.swift`, never `EMISSION.md`; keep `style_file` inside its `\begingroup`.** The area carries tripwires 13, 17, 20 and 54. The narrative and history behind the rules below are in `docs/history/publish.md`.
 
 ## Map
 
@@ -74,6 +74,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - **Manuscript text is read from the op log**, never the `.md` (tripwire 20): `ProjectStoreASTSource` derives each piece (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`; a non-manuscript read carries `// adr-0018-ok:`).
 
 ### Formats
+- **The Fountain extension is spelled in `DocumentFormat` only; ask it, never a `"fountain"` literal** (tripwire 54, `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`).
 - **A format this build cannot produce is refused at the door.** `PublishConfig.Format` decodes a name a newer build wrote as `.unknown(raw)`, kept verbatim so the config re-encodes unchanged (ADR 0015). `allCases` is only what this build produces, so `.unknown` never reaches a picker.
 - **The refusal comes before anything format-dependent runs**: no job, no collision check, no version mint, no `EMISSION.md` refresh, no dry-run verdict. `CompileOrchestrator.compile` and `PreviewCompiler.preview` return `.failed` with `PublishConfigValidator.formatError`'s sentence (log excerpt `unproducible_format: <raw>`). `Republisher` throws `RepublishError.unproducibleFormat`, which MCP reports as an invalid argument. The words are `PublishFormatRefusal`'s (`PublishFormatToleranceTests`).
 
@@ -125,7 +126,7 @@ Start at the Core guide's recipe "Add a block kind to the text model" (`Packages
 ## Pointers
 - ADRs: 0013 (the publishing pipeline), 0015 (persisted schema evolution), 0022 (the grammar ledger), 0024 (the translation layer), 0030 (translator, reader, collator; directives as rulings).
 - `docs/guide/publishing.md` (Imprints, Bilingual editions) and `docs/guide/publish-department.md`.
-- `docs/tripwires.md` rows 13, 17, 20.
+- `docs/tripwires.md` rows 13, 17, 20, 54.
 - Tests: `MaughamTests/Publish/` (notably `EmissionContractTests`, `PublishMintGateTests`, `PublishConfigImprintResolutionTests`, `BilingualPDFTests`, `TranslationCoverageGateTests`, `PublishFormatToleranceTests`), `CompileOrchestratorTests`, `RepublisherTests`.
 - Neighbouring guides: `Maugham/Compiler/AREA.md` (the translator and designer orchestrators, the round's state machine and briefings), `Maugham/Views/AREA.md` (the department desk, the gate, the round report), `Maugham/MCP/AREA.md` (the publishing tools), `Packages/MaughamCore/Sources/MaughamCore/AREA.md` (the block parser, `ProductionRole`).
 - History: `docs/history/publish.md`.

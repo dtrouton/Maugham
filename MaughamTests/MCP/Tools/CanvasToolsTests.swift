@@ -964,7 +964,7 @@ final class CanvasToolsTests: XCTestCase {
                        + "must supply")
     }
 
-    /// **The membrane check** (MCP tripwire 6). A write tool needs justification,
+    /// **The membrane check** (`Maugham/MCP/AREA.md`, Rules → "The membrane"). A write tool needs justification,
     /// and the justification is that the canvas is a planning surface in the
     /// parallel plane: nothing here is manuscript, and nothing reaches the
     /// manuscript except through promotion, which is a writer act. That argument
@@ -998,7 +998,7 @@ final class CanvasToolsTests: XCTestCase {
                                  CanvasStore.sidecarRelativePath],
                        "add_canvas_scraps writes canvas.md and canvas.json and "
                        + "nothing else. A manuscript, a research note or a manifest "
-                       + "in this set is the membrane breached (MCP tripwire 6): "
+                       + "in this set is the membrane breached (Maugham/MCP/AREA.md, Rules → \"The membrane\"): "
                        + "Claude does not originate manuscript text, and the canvas "
                        + "reaches it only through promotion, which is a writer act.")
         XCTAssertFalse(changed.isEmpty,

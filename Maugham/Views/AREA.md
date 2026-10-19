@@ -1,13 +1,13 @@
 # Views — area guide
 
-The SwiftUI view layer of the project window and the app's other windows. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49, 51, 52 and 55. The why behind each rule is in `docs/history/views.md`.
+The SwiftUI view layer of the project window and the app's other windows. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52 and 55.
 
 ## Map
 
-Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CLAUDE.md routes here.
+Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CLAUDE.md routes here. **→ Compiler** / **→ Canvas**: that guide's Rules also govern the file (search for its name or types).
 
 ### The window family
-- `ProjectWindow.swift` — the root view: `body` (at the Release type-check ceiling), the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`, `pressPaletteWallDoor`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
+- `ProjectWindow.swift` — the root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`, `pressPaletteWallDoor`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute` and `CentreCover`, and `ProjectWindow.centreRoute(…)`: what the centre column shows, as one exhaustive value (tripwires 6, 27, 30).
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount (with `CanvasReadOnlyNotice` in a top `.safeAreaInset` over a refused layout file), `manuscriptEditor` (the `EditorHost` + altitude + one cover `ZStack`), the board's open-notes counts and `refreshOpenNotes` (tripwires 2, 6, 30).
 - `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute`), hidden arm, and its environment's services.
@@ -20,11 +20,11 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `PersonaModifier.swift` — the `.maughamSetPersona` handler and `applyPersonaChange`.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph` / `.maughamNavigateToScene` receivers.
-- `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show.
+- `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
 - `TranslationReviewModifier.swift` — this window's translation-review selection and the reveal's window half.
 - `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane decided from the posture, pure) and its modifier.
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
-- `CompilerRunModifier.swift` — the run keys' delivery path and the session's teardown (`roster.shutdownAll()`).
+- `CompilerRunModifier.swift` — the run keys' delivery path and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — keeps the subject naming a row that still exists; keyed on the structure.
 - `ResearchRevealModifier.swift` — an arriving research subject in Plan reveals the column that shows it.
@@ -115,7 +115,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Review/AnnotationsQueueToolbar.swift` — the queue's toolbar, measured to fit its column.
 - `Maugham/Views/Review/AnnotationScope.swift` — This Piece / All Pieces (`AnnotationScope`, `AnnotationScopePolicy`, `AnnotationScopeSections`).
 - `Maugham/Views/Review/AnnotationPassFilter.swift` — the queue's pass filter.
-- `Maugham/Views/Review/ReviewRoundCockpit.swift` — the round cockpit strip; `BoundedHeightLayout`.
+- `Maugham/Views/Review/ReviewRoundCockpit.swift` — the round cockpit strip; `BoundedHeightLayout`. **→ Compiler**
 - `Maugham/Views/Review/ReviewBoardPane.swift` — Review's pieces × passes board; `ReviewBoardChipVerbs`, `ReviewBoardOpenNotes`.
 - `Maugham/Views/Review/ReviewBoardRows.swift` — the board's pre-order row flattening.
 - `Maugham/Views/Review/RunWhenDocumentOpens.swift` — wait for a piece to open, then run its round.
@@ -124,17 +124,17 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.
 - `StatementEditorHost.swift` — the statement's editor host; `StatementTextTarget`.
-- `RulingsStratum.swift` — the rulings under a statement's essay; `StatementSurfaceVerbs`.
-- `BibleStratum.swift` — what Claude read off the manuscript, the Intent pane's third stratum.
+- `RulingsStratum.swift` — the rulings under a statement's essay; `StatementSurfaceVerbs`. **→ Compiler**
+- `BibleStratum.swift` — what Claude read off the manuscript, the Intent pane's third stratum. **→ Compiler**
 - `StatementProposalBanner.swift` / `StatementProposalDiff.swift` — the proposal gate's view and line diff.
-- `LetterSection.swift` — the editorial letter on screen, one view with two hosts.
-- `TurnClauseOffer.swift`, `LetterKeep.swift` — *Add to intent* and *Keep this letter*.
-- `LessonLedgerVerbs.swift` — the ledger's three verbs and `LessonOffer`; the one file that writes the ledger.
+- `LetterSection.swift` — the editorial letter on screen, one view with two hosts. **→ Compiler**
+- `TurnClauseOffer.swift`, `LetterKeep.swift` — *Add to intent* and *Keep this letter*. **→ Compiler**
+- `LessonLedgerVerbs.swift` — the ledger's three verbs and `LessonOffer`. **→ Compiler**
 - `QueueLedgerVerbs.swift` — the queue's two doors into the ledger.
 - `QueryRuling.swift` — answer a translator's query as a ruling (`QueryRulingSheet`).
-- `FirstReaderRuling.swift` — answer the first reader's note into her statement; `RulingDestination`.
+- `FirstReaderRuling.swift` — answer the first reader's note into her statement; `RulingDestination`. **→ Compiler**
 
-### Compiler surfaces
+### Compiler surfaces (→ Compiler: "Ingest, the sidecar and the mint", "Streaming and the preview", "The derivation trigger and the bible")
 - `DiagnosticsPane.swift` — Author's compiler report; the reader picker; `DiagnosticsPostures`.
 - `AskField.swift` — Ask about…, one field shape in two homes.
 - `CompilerModelMenu.swift` — the depth picker in both homes.
@@ -143,10 +143,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/PublishPreviewCentre.swift` — `PublishCentre`, `PublishCentreNotice`, the book preview, the notice banner, `PublishPreviewModifier`.
 - `Maugham/Views/Publish/DepartmentPane.swift` — the department desk (⌘⌥K), values in.
 - `Maugham/Views/Publish/DepartmentPaneHost.swift` — the desk's disk work and verbs.
-- `Maugham/Views/Publish/DepartmentRunState.swift`, `Maugham/Views/Publish/DepartmentDesignRow.swift`, `Maugham/Views/Publish/DepartmentCompileState.swift` — the desk's run, design and compile decisions as values.
+- `Maugham/Views/Publish/DepartmentRunState.swift`, `Maugham/Views/Publish/DepartmentDesignRow.swift`, `Maugham/Views/Publish/DepartmentCompileState.swift` — the desk's run, design and compile decisions as values. **→ Compiler**
 - `Maugham/Views/Publish/DepartmentCastSheet.swift` — name / add a language / rename on the desk.
 - `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — the desk's Compile… and its runner.
-- `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs.
+- `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs. **→ Compiler**
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
 - `Maugham/Views/Publish/ExportsListView.swift` — the tree's Exports footer.
 - `Maugham/Views/Publish/InspectorPublishSection.swift` — per-piece publish overrides in the inspector.
@@ -158,7 +158,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TranslatorsNote.swift` — Translator's note… (⌘⌥C).
 
 ### History, rewind, checkpoints, restore
-- `HistoryPane.swift` — the forensic timeline, its notices, the project section; `HeldLineNoticeRow`, `SetAsideRecordsDisclosure`.
+- `HistoryPane.swift` — the forensic timeline, its notices, the project section; `HeldLineNoticeRow`, `SetAsideRecordsDisclosure`. Tripwire 50.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
 - `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts.
@@ -212,7 +212,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`PermitControl` is the one place a surface builds a `Permit`** (`Permit.permit(offering:pieces:)` / `Permit.rung(of:)`), and holds only the WORDS for each rung (tripwire 49): `TripwireGrepTests.test_aSurfaceBuildsAPermitInOnePlace`.
 - **What a Mac may offer is asked of `Posture` through one door**: a surface draws from `DocumentStore.posture(forDocId:)`, a verb acts on `settledPosture(forDocId:as:)`, then `.allows(.someVerb)`; no surface names a permit or builds a `Posture`, and the files that may ask the permit are `TripwireGrepTests.postureAskAllowed`, by file and spelling (tripwire 51): `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`.
 - **A manuscript writer outside the editor asks its posture first, and each call is a named site in `manuscriptWriterCallSites`** (tripwire 52): `TripwireGrepTests.test_everyManuscriptWriterOutsideTheEditorIsANamedSite`, `test_everyGuardedDocumentMutatorIsClassified`.
-- **Ask a project's kind or a document's format by capability or an exhaustive switch, never by equality** — the second toggle answering `type == .screenplay` inline is how a tree bug shipped (tripwire 55): `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality`.
+- **Ask a project's kind or a document's format by capability or an exhaustive switch, never by equality** (tripwire 55): `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality`.
 
 ### The window body and its family
 - **When `ProjectWindow.body` hits "unable to type-check this expression in reasonable time", extract a `ViewModifier`**: the body is at the Release type-check ceiling, so window behaviour lives in modifiers and a column arm is a call.
@@ -239,12 +239,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Personas
 - **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — the centre question is `centresTheCanvas` / `showsManuscriptDocuments`, the wall `showsPaletteWall`, Exports `showsExports`, Publish `previewsThePublishedBook`, Review's read-only centre `editsResearchInTheCentre`: `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
-- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`'s `pressPaletteWallDoor`, `CanvasClaudeArrivalModifier`, `TreeTravel`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`. A new site is added to `personaDecisionSites` by name.
+- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`'s `pressPaletteWallDoor`, `CanvasClaudeArrivalModifier`, `TreeTravel`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
 - **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2). `CanvasClaudeArrivalModifier.show` does not record the departing segment (a look is not a choice); `ManuscriptNavigation.go` does.
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
 - **The window publishes its persona to the menu bar from `PersonaModifier.body` alone** (`.focusedSceneValue(\.persona, …)`, read by `MaughamApp`'s run items): `RunMenuTitlesTests.test_theWindowPublishesItsPersonaFromThePersonaModifierAlone`. The value is a title only ([ADR 0031](../../docs/adr/0031-the-persona-is-an-input-to-the-run.md)).
-- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author; a `.project`-scoped navigate may move a background window, as intended. Every navigation receiver routes through it; count the array in `ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`, never a number in prose.
+- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author; a `.project`-scoped navigate may move a background window. Every navigation receiver routes through it; count the array in `ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`, never a number in prose.
 - **A double-click on a tree row travels to Author only where the centre is the canvas** (`TreeTravel.treeTravelDestination`), through `applyPersonaChange`, never `ManuscriptNavigation`. It posts `.maughamTreeTravel` with the row's own tag, never `state.selection`. The rows it reaches are `TreeTravelGestureAttachmentTests.expectations`.
 
 ### The subject and the tree
@@ -271,7 +271,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Every drop closure returns `Bool` down to the row's `.dropDestination`**; a `Void` closure accepts and discards: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`, `test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
 - **`TreeSectionDerivation` takes manifest values only** (no store, no disk); use the by-item overload on the body path (tripwire 4). A Collection's piece-scoped roots never leak into the shared list (`TreeSectionDerivationTests`).
 - **Link Research… is offered only where `researchRouting(for:)` answers `.sharedPlusLink`** (`ResearchLinkPickerTests`).
-- **`TreeScrollProbe` installs only in a dev build outside xctest** (`MAUGHAM_TREE_SCROLL_PROBE=0` disables it); trust its `settled` lines, never `installed`. Deleting it and its three call sites changes no behaviour.
+- **`TreeScrollProbe` installs only in a dev build outside xctest** (`MAUGHAM_TREE_SCROLL_PROBE=0` disables it); trust its `settled` lines, never `installed`.
 
 ### Research subjects and the palette wall
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt`.
@@ -293,7 +293,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
 - **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss (✕/Escape, document, subject, a pane change without a persona change) clears `studied`; hide (persona veto, ⌘⌥I, ⌘\) only takes it off screen.
-- **Dark-mode propagation to side panes has regressed twice**: re-check it after theme changes.
+- **Re-check dark-mode propagation to side panes after theme changes.**
 
 ### Events, modals and sheets
 - **Pick an event's scope at the post site** (`.keyWindow` for menu commands, `.project(id:)` for data events, `.allWindows` for genuine fan-out) **and subscribe with the matching helper** (`.onKeyWindowCommand`, `.onProjectEvent`, `.onGlobalEvent`); never hand-roll a filter or an `isKeyWindow` guard in a receiver ([ADR 0021](../../docs/adr/0021-scoped-window-events.md)).
@@ -429,6 +429,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
 
 ### History, recovery and rewind
+- **`HistoryPane` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).
 - **Every History notice is a `static`**, pinnable without mounting; count them, never a number in prose.
 - **History never performs a load of its own**: provenance counts are read off the open `Document`.
 - **Disk reads happen in `reload()`, never `body`** (tripwire 4).
@@ -500,7 +501,7 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 ## Pointers
 - `docs/history/views.md` — the old guide, word for word: every rule's why and where it came from.
 - ADR 0005 as amended by ADR 0025 (personas); ADR 0021 (window events); ADR 0023 (undo); ADR 0030 (the department desk, the round report, the reveal); ADR 0031; ADR 0032 (posture and register surfaces).
-- `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49, 51, 52, 55.
+- `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
 - Specs: `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
 - Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.
 - Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `PersonaPaneRegistryTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests` (both rewind entry points reach one modal), and the Views censuses in `TripwireGrepTests`.

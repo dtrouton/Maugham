@@ -7,6 +7,7 @@ Shared by the Mac app and the phone (tripwire 19: anything both surfaces touch i
 Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests.test_everyCoreSourceFileIsOnTheCoreMap` fails when a file is missing.
 
 ### The op log (storage, chain, seals)
+Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("Chain, identity and seals", "The load seam", "A foreign stream that got shorter", "Sealed segments and cost"); read them before editing here.
 - `Op.swift` — the on-disk envelope of one operation, with its `Provenance` bag of optional fields.
 - `OpKind.swift` — the closed set of op kinds; every permission and derivation switch is exhaustive over it.
 - `SynthesisSource.swift` — typed cause of a synthesised op (rewind, pending recovery, anchor splice…); snake_case on disk (tripwire 12).
@@ -41,6 +42,7 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - `SweepReason.swift` — why an orphan-annotation sweep is pending, carrying the removed paragraph ids.
 
 ### Trust and the register
+Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The register and trust", "Chain, identity and seals", "The unsigned door, scope and a piece of her own"); read them before editing here.
 - `RegistryRecord.swift` — the signed registry records (device, person, claim, forgotten person key) and `RegistryDirectory`'s cases.
 - `RegistryCanonical.swift` — the one definition of the bytes a registry signature covers (tripwire 42).
 - `RegistryWriter.swift` — the one door that signs and writes registry records and spells their directories (tripwire 40).
@@ -59,6 +61,7 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - `DeviceStanding.swift` — what this device is to one book, in one sentence, for the Mac and the phone.
 
 ### Permits and posture
+Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The permit", "The load seam", "The unsigned door, scope and a piece of her own"); read them before editing here.
 - `Permit.swift` — the rungs, `Permit.allows` (the one table over `OpKind`), load-emission and judging-actor rules (tripwires 44, 48).
 - `PermitEvent.swift` — the signed registry record of a permit change, with its mark and snapshot.
 - `PermitMark.swift` — where a permit changed, as chain positions every device can check.
@@ -73,6 +76,7 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - `PostureDoor.swift` — the one place a `LocalWritePermit` becomes a `Posture`, on Mac and phone (tripwire 51).
 
 ### The person key
+Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key", "The register and trust"); read them before editing here.
 - `PersonKey.swift` — the per-person `P256` key kept in iCloud Keychain; the one production software key (tripwire 36).
 - `PersonKeyStore.swift` — where the person key lives: the keychain store, the in-memory store, and `PersonKeyStoreChoice`.
 - `RegistryPersonClaim.swift` — the claim inside a device record that it belongs to a person key, signed by that key.
@@ -175,7 +179,8 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - `BackupRestore.swift` — lists and restores backup generations.
 
 ## Rules
-- Shared by both surfaces means implemented here once; the phone never re-implements the Mac (tripwire 19; `docs/superpowers/notes/cross-surface-contracts.md`).
+- **The op log, trust, permit and person-key files here are governed by `Maugham/OpLog/AREA.md` → Rules**, which owns their rules because the Mac is where they bind. Before editing a file under the Map headings "The op log", "Trust and the register", "Permits and posture" or "The person key", read the OpLog Rules sections that heading names. The bullets below name each census; the OpLog guide gives the why.
+- Shared by both surfaces means implemented here once; the phone never re-implements the Mac (tripwire 19, `TripwirePhoneGrepTest`; `docs/superpowers/notes/cross-surface-contracts.md`).
 - Imports are Foundation, CryptoKit, Security and `os` only. No AppKit, UIKit or SwiftUI; no third-party packages.
 - Cross-module API is `public`; let the build say what needs it.
 - Derivations are pure: ids, timestamps and the clock are arguments. A `Logger` line is the only side channel.
@@ -184,22 +189,23 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - Adding a `ProjectType` case bumps `ProjectManifest.currentSchemaVersion`.
 - `ProjectType` is polymorphic; Collection references are Mac-local.
 - Manifest `modified` must round-trip through ISO8601 with whole-second rounding.
-- Switches over `OpKind`, `ReviewStatus`, `ProjectType` and `DocumentFormat` carry no `default:`, so a new case is a compile error. Ask kind and format by capability, never by `==` (tripwire 55); the Fountain extension is spelled only in `DocumentFormat` (tripwire 54).
-- Mint paragraph ids with `mintUnique(excluding:)`; test literals use the id alphabet (tripwires 23, 8).
-- `SynthesisSource` is a typed enum; adding a cause adds a case (tripwire 12).
-- Variant names and socket paths live only in `BuildVariant` (tripwire 13).
-- Every JSONL stream is partitioned per device; never one shared file (tripwire 17). Filenames take a `DeviceSlug` (tripwire 24).
-- Closed manuscripts are read through `DerivedManuscript`, never the `.md` (tripwire 20). Anchors are stripped only by `MarkdownDisplayFilter`; don't add a target-local copy.
-- Device ids come from `DeviceIdentity`/`LocalIdentities`; no host names (tripwire 35).
-- No software private key outside `PersonKey.swift` and `DeviceIdentity+Testing.swift` (tripwire 36).
-- Seal lines are recognised in `OpLogChain` only (tripwire 37).
-- An `async` function in the `OpLogStore` split's six files says `@MainActor`: isolation does not move with the text (tripwire 56).
-- A load names a `DeviceActor`, and the load's own emissions are the author's (tripwires 38, 48).
-- Trust closures are built from `TrustTable` verdicts, never a Bool (tripwire 39).
-- Registry records are written through `RegistryWriter`, by three caller files only, over `RegistryCanonical`'s bytes (tripwires 40, 41, 42).
-- The role check reads `PermitTimeline`; `Permit.allows` and `Deriver.appliesToManuscript` are the only tables (tripwires 43, 44).
-- Partition call sites, the write-side permit and rung comparisons stay in their named homes (tripwires 45, 46, 47).
-- The unsigned door's decisions each have one home (tripwire 49); a `Posture` is built only in `PostureDoor` (tripwire 51).
+- Switches over `OpKind`, `ReviewStatus`, `ProjectType` and `DocumentFormat` carry no `default:`, so a new case is a compile error. Ask kind and format by capability, never by `==` (tripwire 55, `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality`); the Fountain extension is spelled only in `DocumentFormat` (tripwire 54, `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`).
+- Mint paragraph ids with `mintUnique(excluding:)`; test literals use the id alphabet (tripwires 23, 8: `TripwireGrepTests.test_noBareParagraphIDMintInProduction`, `test_paragraphIdLiteralsInTestsUseValidAlphabet`).
+- `SynthesisSource` is a typed enum; adding a cause adds a case (tripwire 12; enforced by the compiler).
+- Variant names and socket paths live only in `BuildVariant` (tripwire 13, `TripwireGrepTests.test_noHardcodedIdentityStringsInMacSources`).
+- Every JSONL stream is partitioned per device; never one shared file (tripwire 17, `OpLogStoreSegmentTests.test_legacyFile_neverSealed`). Filenames take a `DeviceSlug` (tripwire 24: the compiler and `OpLogFilenameContractTests`).
+- Closed manuscripts are read through `DerivedManuscript`, never the `.md` (tripwire 20, `TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`). Anchors are stripped only by `MarkdownDisplayFilter`; don't add a target-local copy.
+- Device ids come from `DeviceIdentity`/`LocalIdentities`; no host names (tripwire 35, `TripwireGrepTests.test_noHostnameIdentity`).
+- No software private key outside `PersonKey.swift` and `DeviceIdentity+Testing.swift` (tripwire 36, `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`).
+- Seal lines are recognised in `OpLogChain` only (tripwire 37, `TripwireGrepTests.test_sealLinesAreRecognisedInOpLogChainOnly`).
+- An `async` function in the `OpLogStore` split's six files says `@MainActor`: isolation does not move with the text (tripwire 56, `OpLogClassifierIsolationTests`).
+- A load names a `DeviceActor`, and the load's own emissions are the author's (tripwires 38, 48: `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`, `test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly`).
+- Trust closures are built from `TrustTable` verdicts, never a Bool (tripwire 39, `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable`).
+- Registry records are written through `RegistryWriter`, by three caller files only, over `RegistryCanonical`'s bytes (tripwires 40, 41, 42: `TripwireGrepTests.test_registryRecordsAreWrittenThroughRegistryWriterOnly`, `test_theRegistrysWritersAreThreeFiles`, `RegistryCanonicalCensusTests`).
+- The role check reads `PermitTimeline`; `Permit.allows` and `Deriver.appliesToManuscript` are the only tables (tripwires 43, 44: `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField`, `test_thePermissionTableIsSpelledInThePermitLayerOnly`).
+- Partition call sites, the write-side permit and rung comparisons stay in their named homes (tripwires 45, 46, 47: `TripwireGrepTests.test_thePartitionsCallSitesAreExactlyTheNamedList`, `test_theWriteSidePermitQuestionHasOneFunction`, `test_aPermitRungIsComparedOnlyInThePermitLayer`).
+- The unsigned door's decisions each have one home (tripwire 49, `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly` and its siblings); a `Posture` is built only in `PostureDoor` (tripwire 51, `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`).
+- The held-line and schema call sites in `OpLogDeviceState.swift` (`acknowledgedLosses`, `expectedStreams(`) and `StreamCensus` are counted per file (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`): a new call site updates `countedLists`.
 - The person key's doors are counted in `PersonKeyCensusTests` (tripwire 53).
 - Run `./scripts/test.sh core` after any change here, then both app schemes; tests build under `TestTemp`.
 
@@ -239,10 +245,10 @@ Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `
 Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the kind-equality census.
 
 ## Pointers
-- The op log's behaviour and history: `Maugham/OpLog/AREA.md`
+- `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files (see the first Rules bullet), and the op log's behaviour.
 - ADR 0032 (signed op log), ADR 0015 (schema evolution), ADR 0019 (clean derived .md), ADR 0022 (grammar ledger)
 - `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share and why it lives here.
-- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–49, 51 and 53–56: the tripwires the Rules above cite.
+- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51 and 53–56: the tripwires the Rules above cite.
 - Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). Worth knowing: `DocBudgetTests` (this map's census), `SchemaEvolutionToleranceTests`, `FountainTokenizerDifferentialTests` (the parser against its frozen reference), `MarkdownBlockParserTests`, `OpLogChainTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; the app-side censuses are in `MaughamTests/TripwireGrepTests.swift` and `MaughamTests/PersonKeyCensusTests.swift`.
 - Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md` (the phone's consumers).
 - No history file: this guide was written in the template and nothing has been moved out of it.

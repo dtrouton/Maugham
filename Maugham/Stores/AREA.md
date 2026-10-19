@@ -44,9 +44,9 @@ Every file in `Maugham/Stores/` appears once.
 ### Small stores and helpers
 - `DebounceScheduler.swift` — cancel-and-restart task helper; the 750 ms autosave window.
 - `RecentsStore.swift` — recently opened project folders (UserDefaults).
-- `SessionLog.swift` — the session event log type (`.maugham/sessions.json`).
+- `SessionLog.swift` — the session event log type (.maugham/sessions.json).
 - `SessionTracker.swift` — the active writing session in memory (`shiftBaseline(by:)`, idle threshold).
-- `UIState.swift` — per-project UI state (`.maugham/ui-state.json`), `AuthorReaderChoice`.
+- `UIState.swift` — per-project UI state (.maugham/ui-state.json), `AuthorReaderChoice`.
 - `TrashStore.swift` — `<project>/.trash/` entries, `TrashSubject`, `sweep()`, `permanentlyDelete`.
 - `LetGoRecord.swift` — per-device ids of pieces let go from Trash. Tripwires 17, 24.
 - `RemovedElsewhere.swift` — the derivation of pieces that left the structure without going to Trash.
@@ -67,7 +67,7 @@ Every file in `Maugham/Stores/` appears once.
 - `InboxTranscriptionWorker.swift` — serial worker running an injected `Transcriber`; `WhisperKitTranscriber.swift` is production (Apple Silicon only).
 
 ### The `.maugham/` layout
-Everything derived lives under `.maugham/`, and each path has one owner.
+Everything derived lives under `.maugham/` (two exceptions below), and each path has one owner.
 
 | Path | Owner | What it is |
 |---|---|---|
@@ -78,22 +78,23 @@ Everything derived lives under `.maugham/`, and each path has one owner.
 | `.maugham/conflicts/` | `Document` (diverged/external `.md` backups) and `DocumentStore` (`manifest-<ts>.json` archives) | conflict backups |
 | `.maugham/conflicts/quarantined-ops/` | `OpLogQuarantine` (OpLog) | set-aside op-log history: a moved unreadable file (`.file`, offered back by Retry) or a copy of a run of lines this device did not write (`.lines`, content-deduped, never returned: `ReturnOutcome.setAsideByProvenance`), each with a `<name>.quarantine.json` |
 | `.maugham/conflicts/quarantine/` | `IntegrityQuarantine` (Core) | op-log lines that failed to decode, content-deduped |
-| `.maugham/sessions.json` | `SessionLog`, written by `DocumentStore.appendSessionEvent` | session events |
-| `.maugham/ui-state.json` | `UIState`, read and written by `DocumentStore` | window and pane state |
+| .maugham/sessions.json | `SessionLog`, written by `DocumentStore.appendSessionEvent` | session events |
+| .maugham/ui-state.json | `UIState`, read and written by `DocumentStore` | window and pane state |
 | `.maugham/scratch/` | `DocumentStore` (rename scratch) | transient; safe to nuke |
 | `.maugham/let-go/let-go.<slug>.jsonl` | `LetGoRecord` (written by `TrashStore.permanentlyDelete`/`sweep`) | per device: ids this device emptied, deleted or swept from Trash |
 | `.maugham/inbox/` | `InboxStore` | `inbox.<slug>.jsonl` per device, plus `text/`, `images/`, `audio/` |
 | `.maugham/devices/`, `.maugham/people/` (`claims/`, `events/`) | `RegistryWriter` (Core) | the book's register (tripwire 40) |
-| `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | `spec.md`, `files/<path>`, `proposal.json`, then `scratch/` and `backup/` |
+| `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | spec.md, `files/<path>`, proposal.json, then `scratch/` and `backup/` |
 | `.maugham/statements/proposals/<key>.json` | `StatementProposalStore` | one pending proposal per key |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
-| `.maugham/canvas.json` | `CanvasStore` (Canvas) | the canvas layout |
+| .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
+| `.maugham/bible.<deviceSlug>.json` | `BibleStore` (Compiler) | the bible ledger and graduated keys, per device |
 
 Two things deliberately live elsewhere:
 - **The Trash is `<project>/.trash/`** (`TrashStore.trashRoot`), not under `.maugham/`.
-- **This device's key material** is in `DeviceState.directory` (`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`): one key blob and token per `DeviceActor` (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the others) and one `op-log-state.json`. It must never sync: a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account. Under XCTest the path gains an `xctest-worker-<pid>` leaf, so parallel workers never share a key or a head.
+- **This device's key material** is in `DeviceState.directory` (`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`): one key blob and token per `DeviceActor` (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the others) and one op-log-state.json. It must never sync: a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account. Under XCTest the path gains an `xctest-worker-<pid>` leaf, so parallel workers never share a key or a head.
 
 ## Rules
 
@@ -144,8 +145,8 @@ Two things deliberately live elsewhere:
 - **A bespoke move commits step by step, so choose every destination before the first step runs.**
 - **A note and its `<slug>_assets/` dedup jointly through the one helper, `researchDedupedNotePair`**: the stem must be free for the note AND for `<stem>_assets` (an orphaned assets folder makes a leaf-only dedup collide). It takes an `isTaken` predicate; the batch mover also unions its in-flight claims. A note with no assets folder dedups on the leaf alone. Never write a second copy.
 - **`moveResearchItems` builds ONE `RenamePlan` for the whole batch** (files, group folders with descendant path rewrites, each note's `<slug>_assets/`) and calls `relocate(plan:)` once. Validation (unknown ids, cycles, role-guarded cross-scope moves) runs before any file call and fails the whole batch. `.link` items move in the manifest only. The single-item `moveResearchItem` routes through the same plan builder, the one place that knows a note travels with its assets.
-- **`deleteResearchItems(ids:)` is one validation pass, one `trashResearchItemCore` per id, one manifest save.** A `.link` takes `TrashStore.recordManifestOnlyTrash` (a `meta.json`, no file), so a pathless item never reaches the file mover.
-- **A new mover of user content routes through one of the three entry points.** Raw moves are allowed only with an `// internal-move:` marker, and only for: `promotePieceToProject`'s staging moves; their inverse in `rollbackPromotionStaging`; the no-`DocumentStore` fallback branches (unit tests, and `ProjectStore.load`, which runs before `ProjectSession.open` sets `documentStore`). Empty-file scaffolding, `.maugham-link.json` and manifest writes, scratch writes and `executeCopy` (Duplicate) are out of scope.
+- **`deleteResearchItems(ids:)` is one validation pass, one `trashResearchItemCore` per id, one manifest save.** A `.link` takes `TrashStore.recordManifestOnlyTrash` (a meta.json, no file), so a pathless item never reaches the file mover.
+- **A new mover of user content routes through one of the three entry points.** Raw moves are allowed only with an `// internal-move:` marker, and only for: `promotePieceToProject`'s staging moves; their inverse in `rollbackPromotionStaging`; the no-`DocumentStore` fallback branches (unit tests, and `ProjectStore.load`, which runs before `ProjectSession.open` sets `documentStore`). Empty-file scaffolding, .maugham-link.json and manifest writes, scratch writes and `executeCopy` (Duplicate) are out of scope.
 - **The staging rollback stays raw**: the close and flush already ran, and `relocateUserContent` throws and would re-enter a `DocumentStore` the promotion has closed. A compensation must not throw over the error it compensates.
 - **A failed promotion moves its staged files BACK from a record, never a re-derivation**: each staging helper returns its `PromotionStagedMove`, and `rollbackPromotionStaging` walks them in reverse (`research/` has no op log, so deleting the staging tree loses it). A failed move-back logs loudly and leaves the staging tree standing; one stranded path does not abort the rest; a tree already gone means the promotion completed. Its test seam, `afterStaging:`, cannot throw.
 - **Palette card writes go through `paletteCoordinatedWrite(_:to:)`**, never a raw `.write(to:)`. The funnel's no-`DocumentStore` fallback is the one raw write, marked `// palette-coordinated-write: <reason>` (`TripwireGrepTests.test_noRawWriteInPaletteStore`).
@@ -201,7 +202,7 @@ Two things deliberately live elsewhere:
 - **The Trash is `<project>/.trash/`**, swept of entries over 30 days at `ProjectStore.load`.
 - **Every entry records a `TrashSubject`** (`manuscriptItem`, `researchItem`, `captureAsset`, `internalArtifact`); `moveToTrash` will not compile without one. It decides which tree a restore rewires; an old entry without one falls back to the shape sniff and is REFUSED if it matches neither tree.
 - **`list()` is the writer's view; `entriesIncludingInternal()` is all of it**, used by disposal and `restoreTrashEntry`.
-- **Neither hides an entry it cannot read** (RULING-7): a Maugham-named folder with a missing or undecodable `meta.json` is an `isUnreadable` entry titled `TrashEntry.unreadableTitle`; restore refuses naming the cause; disposal reaches it. A folder whose name Maugham did not write (RULING-9) and an empty folder get no row.
+- **Neither hides an entry it cannot read** (RULING-7): a Maugham-named folder with a missing or undecodable meta.json is an `isUnreadable` entry titled `TrashEntry.unreadableTitle`; restore refuses naming the cause; disposal reaches it. A folder whose name Maugham did not write (RULING-9) and an empty folder get no row.
 - **`mintEntryFolder` claims a folder name** (`withIntermediateDirectories: false`; a taken name takes the next number). **Keep the timestamp a PREFIX**: the sweep dates entries by parsing the name (RULING-39).
 - **"Empty Trash" walks the directory** (`TrashStore.entryFolderIds()`, not cached `trashEntries`) and throws `trashNotEmptied` after re-listing. Never put a `try?` in that loop.
 - **The restore destination is the caller's** (`restore(trashId:to:)`, RULING-41): `TrashStore` knows nothing about manifests.
@@ -210,12 +211,12 @@ Two things deliberately live elsewhere:
 - **The Trash is claim-covered**: read `register/reconciliation/Trash.{claims,filings}.json` before changing delete or restore; changing pinned behaviour updates the claim and filing in the same commit.
 
 ### Statements
-- **A statement is a `Statement` in `ProjectManifest.statements`** whose content is an ordinary `Document` at the project root (`intent.md`, `intent/<slug>.md`, `visual-language.md`, `editions/<lang>.md`).
+- **A statement is a `Statement` in `ProjectManifest.statements`** whose content is an ordinary `Document` at the project root (intent.md, `intent/<slug>.md`, visual-language.md, `editions/<lang>.md`).
 - **Look a statement up by SCOPE in the manifest**: no path prefix, no filename convention in the read path. The pure halves are Core's (`StatementLookup.statement(in:kind:scope:)`, `StatementConvention.newPath(kind:scope:documentSlug:)`).
 - **Absence is valid and free**: `statement(kind:scope:)` returns nil and mints, stamps and logs nothing (`read_craft_intent` promises this).
 - **`createStatement` refuses rather than redirects**: a scope that is not a manuscript document throws `.structureMissing`; a `(kind, scope)` with no storage row throws `.statementHasNoStorage`.
 - **`createStatement` refuses an unsafe path**: an edition brief whose tag fails `TranslationRecord.isValidLanguageTag` verbatim throws `.languageTagInvalid`; every path goes through `SafeRelativePath.resolve(_:under:)` (`.statementPathUnsafe`). Both throw before any directory or manifest row (`EditionBriefStatementTests`).
-- **Creation never takes an occupied path** (`vacantStatementPath` steers to `intent-2.md`): registering over an untracked file would own the writer's bytes.
+- **Creation never takes an occupied path** (`vacantStatementPath` steers to intent-2.md): registering over an untracked file would own the writer's bytes.
 - **The slug is derived from the title once, at creation**; identity is the manifest `id`, and a statement's path moves through the typed mover.
 - **`createStatement` is idempotent.**
 - **`withStatementDocument(_:session:_:)` is the ONE statement open-and-mutate dance**: the live `Document` via `openStatementDocument(id:)`, then the open gate, a re-ask inside it, then a transient `Document.load`/mutate/awaited `close`. The lookup plus mutate does not suspend. A throwing closure writes nothing, and the transient `Document` closes on that path too.
@@ -230,7 +231,7 @@ Two things deliberately live elsewhere:
 
 ### Statement and canvas asset wells
 - **`ingestCanvasAsset(image:)`/`(fileURL:)` are the one pair that gives a canvas item a file**; every route is a caller. The Finder drop takes the file twin, the browser bitmap the image twin (`CanvasAssetIngest`, `CanvasExternalDrop`); never route one case through the other twin, which would leave half the pair with no caller. A research drag ingests nothing.
-- **`canvas_assets/` is at the project root beside `canvas.md`, content not derived state**: deleting `.maugham/canvas.json` must never cost the photographs.
+- **`canvas_assets/` is at the project root beside `canvas.md`, content not derived state**: deleting .maugham/canvas.json must never cost the photographs.
 - **A well's name is derived and never spelled**: `ImagePasteHandler.wellURL(forNoteAt:in:)` builds `<slug>_assets` from the file's name and creates nothing. `TripwireGrepTests.test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell` (the files that may call `ImagePasteHandler.saveAndReference*`) and `test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode`.
 - **The canvas pair returns a PROJECT-RELATIVE path** (`CanvasItemReference.owned(path:)`), resolved through `ProjectStore.resolveImageRef(_:relativeTo:)`: never absolute, `file://` or the Markdown ref.
 - **Image writes into a well are uncoordinated** (new files, unique names, written once); manuscripts and card markdown still route through `DocumentStore`.
@@ -279,7 +280,7 @@ Two things deliberately live elsewhere:
 - **`DesignProposalStore.stage` takes `designerName:` from its caller** and never resolves `designerRole()`.
 - **`stage` supersedes every pending proposal project-wide**, never an approved one.
 - **`list()` reads newest-first and skips an unreadable folder** rather than throwing.
-- **`Status` decodes with an `.unknown(String)` that re-encodes losslessly**: `proposal.json` is rewritten in place.
+- **`Status` decodes with an `.unknown(String)` that re-encodes losslessly**: proposal.json is rewritten in place.
 - **`.maugham/design/` is derived and deletable, except while a promotion stands**: that proposal's `backup/` is the only copy of the displaced templates, so `delete(id:)` throws `.promotionBackupStands(id:)` until `ProposalPromotion.revert` or `.finalize`. `backupDir(id:)` is spelled on the store.
 - **`StatementProposalStore` never writes a statement**: the one write into an essay is `StatementProposalGate.adopt`, a writer's click. `stage` supersedes the slot and returns the proposal re-read from disk; `validate`/`glossaryLines` check a brief's `## Rulings` and refuse rulings in visual language. Craft intent has no key (`ProposableStatement` has no case).
 - **The ring keeps the newest 10 rounds per language, and its next number outlives the ring**, so a trimmed round's number is never re-minted.

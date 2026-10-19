@@ -10,28 +10,39 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 3_031,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason. +19: the Maugham/Models row names its two real guides (final fix wave); +92 at the foundations merge: tripwire rows 54–56 (plans 6/7's censuses), the type-keyed census line, AgentRoster in the Compiler row
+        "CLAUDE.md": 3_030,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason. +19: the Maugham/Models row names its two real guides (final fix wave); +92 at the foundations merge: tripwire rows 54–56 (plans 6/7's censuses), the type-keyed census line, AgentRoster in the Compiler row; −1 plan 5 final-review fixes: the trash is not under `.maugham/` (it is `<project>/.trash/`, TrashStore.trashRoot), so it leaves the derived list
         "docs/tripwires.md": 6_774,  // ratchet: actual size; +485 at the foundations merge: rows 54–56, the census-key paragraph, rows 17/24/39/46 name the OpLogStore split's homes; −17 plan 5 T9: rows 37–48 drop the old OpLog area-tripwire numbers
         "docs/testing/TROUBLESHOOTING.md": 4_406,  // ratchet: actual size; +28 over 4,378 for the line naming the old CLAUDE.md phrases comments still cite
-        "docs/INDEX.md": 417,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session; +15: the docs/history line (plan 5)
+        "docs/INDEX.md": 454,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session; +15: the docs/history line (plan 5); +37 plan 5 final-review fixes: the cross-guide routing sentence (Core → OpLog Rules, Outside-this-folder lists point back)
         "Maugham/Canvas/AREA.md": 7_955,  // plan 5: re-templated, +271 review fixes (47,971 → 7,681 → this; tripwire 33, split bullets, narrative-only rules), +3 T9: the Stores pointer names its sections; the narrative is in docs/history/canvas.md
         "Maugham/OpLog/AREA.md": 7_986,  // plan 5: re-templated (30,412 → this), +228 review fixes (each tripwire names its census, the load's suspension points); the narrative is in docs/history/oplog.md
-        "Maugham/Views/AREA.md": 7_987,  // plan 5: re-templated, +115 review fixes (28,289 → 7,872 → this; queue filters, Publish ordering, statement host, desk rules); the narrative is in docs/history/views.md
+        "Maugham/Views/AREA.md": 7_999,  // plan 5: re-templated, +115 review fixes (28,289 → 7,872 → this; queue filters, Publish ordering, statement host, desk rules); the narrative is in docs/history/views.md; +12 final-review fixes (→ Compiler / → Canvas pointers on the Map, tripwire 50's HistoryPane bullet; four qualifying clauses moved to docs/history/views.md to stay under the cap)
         "Maugham/Compiler/AREA.md": 7_858,  // plan 5: re-templated, +117 review fixes (23,782 → 7,741 → this; confinement of a raw spawn, the cross-lane count's one site, window hand-off); the narrative is in docs/history/compiler.md
-        "Maugham/Stores/AREA.md": 7_628,  // plan 5: re-templated, +285 review fixes (16,389 → 7,343 → this; tripwires 49/50, inbox promote order, backup-signature step); the narrative is in docs/history/stores.md
-        "Maugham/MCP/AREA.md": 5_845,  // plan 5: re-templated, +193 review fixes (8,687 → 5,651 → this; permit via PostureDoor, tripwire test names, task-op and tripwire 52 censuses), +1 T9: the OpLog pointer names its section; the narrative is in docs/history/mcp.md
+        "Maugham/Stores/AREA.md": 7_646,  // plan 5: re-templated, +285 review fixes (16,389 → 7,343 → this; tripwires 49/50, inbox promote order, backup-signature step); the narrative is in docs/history/stores.md; +18 final-review fixes (the bible sidecar row, the layout's two exceptions; runtime names un-backticked so the guide joins pathCheckedDocs)
+        "Maugham/MCP/AREA.md": 5_873,  // plan 5: re-templated, +193 review fixes (8,687 → 5,651 → this; permit via PostureDoor, tripwire test names, task-op and tripwire 52 censuses), +1 T9: the OpLog pointer names its section; the narrative is in docs/history/mcp.md; +28 final-review fixes (the membrane bullet names the publishing and propose tools' destinations)
         "MaughamPhone/AREA.md": 4_163,  // plan 5: re-templated, +130 review fixes (5,007 → 4,033 → this; tripwires 37–41, 54, 55); the narrative is in docs/history/phone.md
-        "Maugham/Editor/AREA.md": 3_138,  // plan 5: re-templated, +151 review fixes (3,673 → 3,012 → this; TokenRestyleWindow is test-only, ResearchNoteEditor owns an EditorControl, the scroll-snap premise), −25 T9: the "Editor AREA tripwire 9" bridge line dropped (comments re-pointed); the narrative is in docs/history/editor.md
+        "Maugham/Editor/AREA.md": 3_158,  // plan 5: re-templated, +151 review fixes (3,673 → 3,012 → this; TokenRestyleWindow is test-only, ResearchNoteEditor owns an EditorControl, the scroll-snap premise), −25 T9: the "Editor AREA tripwire 9" bridge line dropped (comments re-pointed); the narrative is in docs/history/editor.md; +20 final-review fixes (tripwire 54's bullet)
         "Maugham/Updates/AREA.md": 3_997,  // plan 5: re-templated, +5 review fixes (4,089 → 3,992 → this); the narrative is in docs/history/updates.md
-        "Maugham/Publish/AREA.md": 2_127,  // plan 5: re-templated, +30 review fixes (1,073 → 2,097 → this: the Map names all 54 files, two recipes added; tripwire bullets name their tests); the narrative is in docs/history/publish.md
-        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_193,  // plan 5: +108, Pointers filled (tripwire rows, tests, neighbours); +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities
+        "Maugham/Publish/AREA.md": 2_147,  // plan 5: re-templated, +30 review fixes (1,073 → 2,097 → this: the Map names all 54 files, two recipes added; tripwire bullets name their tests); the narrative is in docs/history/publish.md; +20 final-review fixes (tripwire 54's bullet)
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_453,  // plan 5: +108, Pointers filled (tripwire rows, tests, neighbours); +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities; +260 plan 5 final-review fixes: each op-log/trust/permit/person-key Map heading and the first Rules bullet route to the OpLog guide's Rules, every tripwire bullet names its census, tripwire 50's bullet
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
         "CLAUDE.md": 515,  // ratchet: actual size; the hard cap is 1,000 characters (foundations plan 1) — raise only with a reason
+        // Every area guide: the same 1,000-character cap as Core's (plan 5 final-review fixes).
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 1_000,
+        "Maugham/Canvas/AREA.md": 1_000,
+        "Maugham/OpLog/AREA.md": 1_000,
+        "Maugham/Views/AREA.md": 1_000,
+        "Maugham/Compiler/AREA.md": 1_000,
+        "Maugham/Stores/AREA.md": 1_000,
+        "Maugham/MCP/AREA.md": 1_000,
+        "MaughamPhone/AREA.md": 1_000,
+        "Maugham/Updates/AREA.md": 1_000,
+        "Maugham/Editor/AREA.md": 1_000,
+        "Maugham/Publish/AREA.md": 1_000,
     ]
 
     /// Docs whose backticked file names must name a file that exists.
@@ -45,6 +56,7 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md",
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",
+        "Maugham/Stores/AREA.md",
         "Maugham/MCP/AREA.md",
         "MaughamPhone/AREA.md",
         "Maugham/Updates/AREA.md",
@@ -143,8 +155,13 @@ final class DocBudgetTests: XCTestCase {
 
     /// The problem with a guide's headings, or nil when `## Map`, `## Rules`,
     /// `## Recipes`, `## Pointers` each appear as a heading line, in that order.
+    /// Lines inside a ``` fence are code, not headings, and are dropped first.
     static func templateProblem(in text: String) -> String? {
-        let headings = text.components(separatedBy: "\n").filter { $0.hasPrefix("## ") }
+        var inFence = false
+        let headings = text.components(separatedBy: "\n").filter { line in
+            if line.hasPrefix("```") { inFence.toggle(); return false }
+            return !inFence && line.hasPrefix("## ")
+        }
         var from = headings.startIndex
         for want in ["## Map", "## Rules", "## Recipes", "## Pointers"] {
             guard let at = headings[from...].firstIndex(of: want) else {
@@ -209,6 +226,30 @@ final class DocBudgetTests: XCTestCase {
         return missing
     }
 
+    /// The `.swift` files (repo-relative) a guide's Map must name: every one
+    /// under the guide's own folder, recursively.
+    static func swiftFiles(besideGuide guide: String) -> [String] {
+        let folder = (guide as NSString).deletingLastPathComponent
+        let root = repoRoot.appendingPathComponent(folder)
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        else { return [] }
+        var files: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            files.append(folder + "/" + String(url.path.dropFirst(root.path.count + 1)))
+        }
+        return files.sorted()
+    }
+
+    /// The files a Map does not name. A file is named when the guide holds it
+    /// in backticks by its bare name (`` `Foo.swift` ``) or by a path ending in
+    /// it (`` `Maugham/Views/Publish/Foo.swift` ``).
+    static func mapMisses(in guide: String, files: [String]) -> [String] {
+        files.filter { path in
+            let name = (path as NSString).lastPathComponent
+            return !guide.contains("`\(name)`") && !guide.contains("/\(name)`")
+        }
+    }
+
     // MARK: - The censuses
 
     func test_everyBudgetedDocIsWithinItsWordCeiling() throws {
@@ -252,6 +293,18 @@ final class DocBudgetTests: XCTestCase {
         XCTAssertFalse(files.isEmpty, "the control: no Core files found means the scan reads nothing")
         let missing = files.filter { !area.contains("`\($0)`") }
         XCTAssertEqual(missing, [], "Core files missing from Packages/MaughamCore/Sources/MaughamCore/AREA.md's Map")
+    }
+
+    /// Every guide's Map names every Swift file in its folder (Review Focus 2
+    /// of plan 5, made a census by its final review). Core's own test above
+    /// stays; this one generalises it.
+    func test_everyAreaGuidesMapNamesEveryFileInItsFolder() throws {
+        for guide in Self.templatedGuides {
+            let files = Self.swiftFiles(besideGuide: guide)
+            XCTAssertFalse(files.isEmpty, "the control: no Swift files found beside \(guide)")
+            let missing = Self.mapMisses(in: try Self.read(guide), files: files)
+            XCTAssertEqual(missing, [], "\(guide)'s Map does not name these files in its folder")
+        }
     }
 
     func test_untaggedDocsCarryNoMilestoneTag() throws {
@@ -346,6 +399,14 @@ final class DocBudgetTests: XCTestCase {
                         "a missing Recipes is reported")
         XCTAssertNotNil(Self.templateProblem(in: good.replacingOccurrences(of: "## Rules", with: "### Rules")),
                         "a ### heading is not a ## heading")
+        XCTAssertNotNil(Self.templateProblem(in: "## Map\n```\n## Rules\n```\n## Recipes\n## Pointers\n"),
+                        "a heading inside a code fence is not a heading")
+        XCTAssertNil(Self.templateProblem(in: "## Map\n```\n## not a heading\n```\n## Rules\n## Recipes\n## Pointers\n"))
+        XCTAssertEqual(Self.mapMisses(in: "- `A.swift` and `Maugham/Views/Sub/B.swift`; not C.swift",
+                                      files: ["Maugham/Views/A.swift", "Maugham/Views/Sub/B.swift",
+                                              "Maugham/Views/C.swift", "Maugham/Views/AB.swift"]),
+                       ["Maugham/Views/C.swift", "Maugham/Views/AB.swift"],
+                       "an unbackticked or partial name is a miss")
         XCTAssertEqual(Self.wordCount("one two\nthree\t four  "), 4)
         XCTAssertEqual(Self.longestLine("ab\nabcde\n"), 5)
         XCTAssertEqual(Self.milestoneTags(in: "Shipped in P3c plan 2, Task 4, fix round 1, on 2026-10-17."),

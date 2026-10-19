@@ -1,6 +1,6 @@
 # Editor — area guide
 
-The NSTextView-backed editing surface and the SwiftUI bridge that exposes it as a binding: text storage, tokenizing and styling, cursor and scroll management, smart typography, find-match and annotation navigation, focus dimming, image paste, wiki-link and checkbox hit-testing, screenplay Tab-cycling, the review render and the translation-review badges. It is the most fragile area in the codebase: every cursor race the project has had lived here. The one rule from CLAUDE.md: **the `EditorHost` binding is fragile (tripwires 2, 3, 6, 7).** The area also carries tripwires 1, 4, 5 and 33. The narrative and history behind the rules below are in `docs/history/editor.md`.
+The NSTextView-backed editing surface and the SwiftUI bridge that exposes it as a binding: text storage, tokenizing and styling, cursor and scroll management, smart typography, find-match and annotation navigation, focus dimming, image paste, wiki-link and checkbox hit-testing, screenplay Tab-cycling, the review render and the translation-review badges. It is the most fragile area in the codebase: every cursor race the project has had lived here. The one rule from CLAUDE.md: **the `EditorHost` binding is fragile (tripwires 2, 3, 6, 7).** The area also carries tripwires 1, 4, 5, 33 and 54. The narrative and history behind the rules below are in `docs/history/editor.md`.
 
 ## Map
 
@@ -74,6 +74,7 @@ debounced burst flush → op log + autosave → eventual disk write → Document
 - **The binding setter's side effects are part of the contract**: `recordEditorTextWrite` → `recordWordCount`/`recordSessionActivity` (`EditorBindingSideEffectsTests`).
 - **`EditorCoordinator` records the cursor into `Document.recordCursorAt(_:)` on selection change**: `Document.setFullText` reads it as `preEditCursor` to align a cut-and-paste of anchored task lines between paragraphs.
 - **No `NSTextStorage` subclass fronting several files** (tripwire 1, prose only): AppKit's layout, undo and selection caches cannot be steered from a subclass, and multi-file screenplay is dead.
+- **The Fountain extension is spelled in `DocumentFormat` only; ask it, never a `"fountain"` literal** (tripwire 54, `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`).
 
 ### TextKit, caret and paste
 - **The editor is pinned to TextKit 1**: `EditorSurface.makeNSView` touches `textView.layoutManager` once, which downgrades the view for good, so `MaughamTextView.drawInsertionPoint` can clamp the empty-line caret to glyph height (`CaretHeightTests`). **That `_ = textView.layoutManager` line looks unused; it is load-bearing — don't remove it.**
@@ -151,7 +152,7 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 
 ## Pointers
 - ADRs: 0017 (the editor control plane), 0019 (clean derived `.md`), 0021 (scoped window events), 0023 (op-log-backed undo), 0024 (the translation layer), 0032 (the signed op log, posture).
-- `docs/tripwires.md` rows 1–7, 21, 33.
+- `docs/tripwires.md` rows 1–7, 21, 33, 54.
 - Tests: `EditorIntegrationHarness` and `EditorIntegrationHarnessTests` (the binding contract), `EditorBindingSideEffectsTests`, `DeferredRestyleTests`, `WindowedTypographyEquivalenceTests`, `CaretHeightTests`, `EditorAppearanceChangeTests`, `EditorControlBridgeTests`, `EditorUndoStackClearTests`, `ScriptUpdateScopingTests`, `ReviewPaletteTests`, `StatementEditorMountTests`, `PostureMembraneTests`. Editor tests live in `MaughamTests/Editor/`.
 - Where to start: prose tokenizing in `Maugham/Editor/Tokenizer/MarkdownTokenizer.swift` and `ProseMode.swift`, then `retokenizeAndStyle`; screenplay in `ScreenplayMode.swift`, then `FountainTokenizer.swift` (the parser), then the coordinator's screenplay path; cursor, selection or external text: re-read the binding contract above before touching `EditorHost.swift` or `EditorSurface.swift`.
 - Smoke (manual, user-driven): launch → create Novel → type → ⌘Q → relaunch → reopen from Recents → sentence intact.
