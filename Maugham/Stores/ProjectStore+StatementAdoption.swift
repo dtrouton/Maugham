@@ -20,9 +20,13 @@ extension ProjectStore {
     /// Deliberately a fixed number and **not** `ProjectManifest.currentSchemaVersion`:
     /// the gate means "this manifest was written before statements existed", so
     /// a future bump to 5 must not re-run adoption across every schema-4
-    /// project. The STAMP below writes `currentSchemaVersion`, because what this
-    /// build saves is this build's shape.
-    private static var statementsSchemaVersion: Int { 4 }
+    /// project. The STAMP below writes this number too, not
+    /// `currentSchemaVersion` (report foundations, fix round 1): adoption adds
+    /// only the `statements` section, and a book that jumped to the current
+    /// number would shut out every build that can read statements for content
+    /// it does not have. Later content raises it through
+    /// `ProjectManifest.encodeForDisk`'s content floor.
+    static var statementsSchemaVersion: Int { 4 }
 
     /// Adopt legacy craft intent, once. Called from `ProjectStore.load` after
     /// `healPaletteRolesEagerly` (which stamps the durable `role` the detection
@@ -67,7 +71,7 @@ extension ProjectStore {
         // shift it — `createStatement` and `deleteResearchItems` each set it —
         // because moving the writer's words between files genuinely changes the
         // project.
-        manifest.schemaVersion = ProjectManifest.currentSchemaVersion
+        manifest.schemaVersion = Self.statementsSchemaVersion
         do {
             try await saveManifest()
         } catch {

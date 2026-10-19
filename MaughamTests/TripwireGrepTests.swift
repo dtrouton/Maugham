@@ -10388,8 +10388,9 @@ final class TripwireGrepTests: XCTestCase {
     /// - `narrowingSchemaVersion` ASSIGNMENT — the narrowing gate's two
     ///   raises (the manifest it writes, and the live store it syncs), both in
     ///   `gateOldBuildsOut` (ruling R5: the permit layer's schema, never
-    ///   `currentSchemaVersion`). `currentSchemaVersion` ASSIGNMENT —
-    ///   `StatementAdoption`'s own `< 4` migration only. Anything else is a
+    ///   `currentSchemaVersion`). `currentSchemaVersion` ASSIGNMENT — none:
+    ///   `StatementAdoption`'s `< 4` migration stamps the statements schema
+    ///   (4), and a new book takes the init default. Anything else is a
     ///   number written without the raise-only rule.
     /// - `sendHeldWordsToInbox` — §7.4's held-line door. One production
     ///   caller: History's held row, where the sentence and the control sit
@@ -10406,9 +10407,7 @@ final class TripwireGrepTests: XCTestCase {
         "gateOldBuildsOut": [
             "type:DocumentStore": 4,
         ],
-        "schemaVersion = ProjectManifest.currentSchemaVersion": [
-            "ProjectStore+StatementAdoption.swift": 1,
-        ],
+        "schemaVersion = ProjectManifest.currentSchemaVersion": [:],
         "schemaVersion = ProjectManifest.narrowingSchemaVersion": [
             "type:DocumentStore": 2,
         ],
@@ -11852,10 +11851,50 @@ extension TripwireGrepTests {
 
     // MARK: - Manifest bytes for disk come from one function (schema 10)
 
-    /// The files that may spell the manifest encoder, each with its reason.
-    /// `ProjectManifest.swift` is the door itself (`encodeForDisk`).
-    static let manifestEncoderAllowed: [String: String] = [
-        "ProjectManifest.swift": "defines makeEncoder() and encodeForDisk, the one door",
+    /// The spellings that turn a value into JSON bytes. `makeEncoder()` is
+    /// flagged in EVERY production file; the other two only in a file that
+    /// names `ProjectManifest`, the only files that could be encoding one.
+    static let manifestEncoderSpellings = ["makeEncoder()", "JSONEncoder()", ".encode("]
+
+    /// Files that may spell an encoder, each with its reason. `lines: nil`
+    /// allows the whole file; otherwise only those exact (trimmed) lines, so a
+    /// file that writes the manifest through the door elsewhere still trips
+    /// on a new raw encode.
+    static let manifestEncoderAllowed: [String: (reason: String, lines: Set<String>?)] = [
+        "ProjectManifest.swift": ("defines makeEncoder() and encodeForDisk, the one door", nil),
+        // Link files, session logs, UI state and trash metadata, beside
+        // manifest writes that go through the door.
+        "ProjectStore+CollectionPieces.swift": ("the piece's .maugham-link.json encoder", [
+            "let encoder = JSONEncoder()",
+            "let linkData = try encoder.encode(linkFile)",
+            "try encoder.encode(linkFile).write(to: linkURL, options: .atomic)",
+        ]),
+        "ProjectStore+References.swift": ("a reference piece's .maugham-link.json", nil),
+        "DocumentStore.swift": ("the sessions log and ui-state.json, never the manifest", [
+            "let encoder = JSONEncoder()",
+            "let data = try encoder.encode(next)",
+            "let data = try JSONEncoder().encode(state)",
+        ]),
+        "ProjectStore+Structure.swift": ("a trashed structure item's metadata", [
+            "let metadata = try JSONEncoder().encode(item)",
+        ]),
+        // MCP projections: response DTOs built FROM the manifest, never written to it.
+        "ProjectTools.swift": ("MCP project/metadata/outline projections", nil),
+        "FirstReaderTools.swift": ("MCP first-reader response", nil),
+        "TestProjectTools.swift": ("MCP test-tool response", nil),
+        // Codable `encode(to:)` bodies: container writes, not bytes.
+        "UIState.swift": ("UIState.encode(to:) containers", nil),
+        "ActivePassMemory.swift": ("ActivePassMemory.encode(to:) container", nil),
+        "ProjectProfile.swift": ("ProjectProfile.encode(to:) single-value container",
+                                 ["try c.encode(rawValue)"]),
+        "ResearchItem.swift": ("ResearchRole.encode(to:) single-value container",
+                               ["try container.encode(rawValue)"]),
+        "ProductionRole.swift": ("ProductionRole.Role.encode(to:) container",
+                                 ["try container.encode(rawValue)"]),
+        "Statement.swift": ("Statement kinds' encode(to:) containers",
+                            ["try container.encode(rawValue)"]),
+        // The phone's recents store: dates and ids, keyed by manifest id.
+        "RecentsTracker.swift": ("phone recents (captured/opened dates)", nil),
     ]
 
     /// Every production root: the Mac app, the phone, and Core's sources.
@@ -11866,12 +11905,28 @@ extension TripwireGrepTests {
     }
 
     private func manifestEncoderOffenders(in roots: [URL]) throws -> [String] {
-        try grepSwift(
-            in: roots,
-            patterns: ["makeEncoder()"],
-            allowed: Set(Self.manifestEncoderAllowed.keys),
-            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
-            extraOffender: nil)
+        var offenders: [String] = []
+        for root in roots {
+            guard let walker = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let name = url.lastPathComponent
+                let allowance = Self.manifestEncoderAllowed[name]
+                if let allowance, allowance.lines == nil { continue }
+                let text = try String(contentsOf: url, encoding: .utf8)
+                let namesManifest = text.contains("ProjectManifest")
+                for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("//") { continue }
+                    let hit = trimmed.contains("makeEncoder()")
+                        || (namesManifest && Self.manifestEncoderSpellings.contains { trimmed.contains($0) })
+                    guard hit else { continue }
+                    if let lines = allowance?.lines, lines.contains(trimmed) { continue }
+                    offenders.append("\(name):\(i + 1): \(trimmed)")
+                }
+            }
+        }
+        return offenders
     }
 
     /// **A manifest reaches disk through `ProjectManifest.encodeForDisk` only.**
@@ -11879,21 +11934,25 @@ extension TripwireGrepTests {
     /// That door raises `schemaVersion` to `contentSchemaFloor`: a manifest
     /// carrying a profile, switches or a citation is written at 10, so an
     /// older build refuses it rather than re-saving it without them (Codable
-    /// drops unknown keys). A second spelling of the encoder is a write site
-    /// that skips the floor — the old build then opens the book and silently
-    /// strips the writer's report settings and citations.
+    /// drops unknown keys). A second spelling of an encoder in a file that
+    /// handles manifests is a write site that may skip the floor — the old
+    /// build then opens the book and silently strips the writer's report
+    /// settings and citations.
     func test_manifestBytesForDiskComeFromOneFunction() throws {
         let offenders = try manifestEncoderOffenders(in: manifestEncodeRoots)
         XCTAssertTrue(offenders.isEmpty,
-            "A production file encodes a manifest with `makeEncoder()` instead of "
-            + "`ProjectManifest.encodeForDisk`, which skips the schema-10 content floor. "
-            + "Route it through `encodeForDisk`, or (for a verbatim backup of other bytes) "
-            + "allow-list the file in `manifestEncoderAllowed` with a reason. Offenders:\n"
+            "A production file that names ProjectManifest encodes JSON outside "
+            + "`ProjectManifest.encodeForDisk`, which may skip the schema-10 content floor. "
+            + "Route a manifest through `encodeForDisk`; for bytes that are provably not a "
+            + "manifest, allow-list the file (or the exact line) in `manifestEncoderAllowed` "
+            + "with a reason. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
 
-    /// CONTROL: a planted file spelling the encoder both ways is caught, its
-    /// comment is not, and the same text under the allowed NAME passes.
+    /// CONTROL: every spelling is caught in a file naming ProjectManifest, a
+    /// comment is not, a file that never names it is not caught for
+    /// `JSONEncoder()`, a whole-file allowance passes, and a line allowance
+    /// admits only its own lines.
     func test_theManifestEncoderCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
@@ -11901,18 +11960,33 @@ extension TripwireGrepTests {
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
         let text = """
-        // A comment may name ProjectManifest.makeEncoder().
+        // A comment may name ProjectManifest.makeEncoder() and JSONEncoder().encode(manifest).
         let a = try ProjectManifest.makeEncoder().encode(manifest)
         let e = ProjectManifest.makeEncoder()
+        let b = try JSONEncoder().encode(manifest)
+        let c = try encoder.encode(manifest)
         """
         try text.write(to: tmp.appendingPathComponent("SecondDoor.swift"), atomically: true, encoding: .utf8)
+        try "let d = try JSONEncoder().encode(somethingElse)\n"
+            .write(to: tmp.appendingPathComponent("Unrelated.swift"), atomically: true, encoding: .utf8)
         let offenders = try manifestEncoderOffenders(in: [tmp])
-        XCTAssertEqual(offenders.count, 2, offenders.joined(separator: "\n"))
+        XCTAssertEqual(offenders.count, 4, offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.allSatisfy { $0.hasPrefix("SecondDoor.swift:") }, offenders.description)
-
         try fm.removeItem(at: tmp.appendingPathComponent("SecondDoor.swift"))
+
+        // The whole-file allowance.
         try text.write(to: tmp.appendingPathComponent("ProjectManifest.swift"), atomically: true, encoding: .utf8)
         XCTAssertEqual(try manifestEncoderOffenders(in: [tmp]), [])
+        try fm.removeItem(at: tmp.appendingPathComponent("ProjectManifest.swift"))
+
+        // A line allowance admits its own line and nothing else.
+        try """
+        // ProjectManifest
+        let data = try JSONEncoder().encode(state)
+        let raw = try JSONEncoder().encode(manifest)
+        """.write(to: tmp.appendingPathComponent("DocumentStore.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try manifestEncoderOffenders(in: [tmp]),
+                       ["DocumentStore.swift:3: let raw = try JSONEncoder().encode(manifest)"])
     }
 
     /// CONTROL: the census sees a planted launch in each spelling, and not a

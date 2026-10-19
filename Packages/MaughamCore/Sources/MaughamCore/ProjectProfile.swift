@@ -80,6 +80,8 @@ extension ProjectManifest {
     /// profile, switches, or any research item (groups' children included)
     /// with citation details; otherwise 0. `encodeForDisk` raises to it.
     public var contentSchemaFloor: Int {
+        // 10 is the schema that INTRODUCED this content, fixed for ever; never
+        // `currentSchemaVersion`, or every later bump would raise these books.
         if profile != nil || switches != nil { return 10 }
         return Self.anyCitation(in: research) ? 10 : 0
     }

@@ -127,7 +127,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// own project). That is not the gate — it is what every schema bump has
     /// always done — but it is worth saying plainly: a project created here
     /// will not open on v0.40, narrowed or not, and the release notes should
-    /// say so.
+    /// say so. (Since report foundations a book made here starts at 10 — see
+    /// 9 → 10 below.)
     ///
     /// **And once raised it is never lowered.** `ProjectManifest.raising` is
     /// the rule and both manifest write doors obey it, because the file is one
@@ -478,10 +479,11 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     ///
     /// Without the clamp the rule reached a state worse than the one it was
     /// written to fix. A manifest from a LATER build can land on disk
-    /// mid-session — `DocumentStore.handleManifestChanged` decodes an incoming
-    /// manifest without `decodeGuardingSchema`, so nothing on that path refuses
-    /// one — and the next ordinary save would then take that foreign number as
-    /// its floor and stamp **this build's own content with it**. Two failures in
+    /// mid-session — when this was written `DocumentStore.handleManifestChanged`
+    /// decoded an incoming manifest without `decodeGuardingSchema`, and a file
+    /// can still arrive with no presenter callback at all (a write this window
+    /// never hears about before its own save) — and the next ordinary save
+    /// would then take that foreign number as its floor and stamp **this build's own content with it**. Two failures in
     /// one write: content labelled with a schema nobody here knows, and a file
     /// this build refuses on its next launch (`SchemaTooNewError`) — a
     /// self-lockout that neither v0.40 nor round 1's predecessor had.
@@ -490,11 +492,12 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// Above that it writes exactly what it wrote before any of this existed:
     /// its own number.
     ///
-    /// **The mid-session too-new manifest is a PRE-EXISTING gap** (the
-    /// degrade-and-resave `decodeGuardingSchema` guards at OPEN and nothing
-    /// guards during a session). This clamp neither widens nor closes it — it
-    /// keeps this rule from making it worse. Closing it means a store that
-    /// stops writing when a too-new manifest arrives, which is a roadmap item.
+    /// **The mid-session too-new manifest is now refused where it is SEEN**:
+    /// `handleManifestChanged` decodes through `decodeGuardingSchema`, keeps
+    /// this window's copy and archives the incoming bytes. What it cannot see —
+    /// a too-new file landing between two saves with no callback — is what
+    /// this clamp still answers: this build writes its own number over it
+    /// (`writeManifest` logs that) rather than one it could not reopen.
     public static func raising(_ outgoing: Data, toAtLeast floor: Int?) -> Data {
         guard let floor,
               let mine = schemaVersion(of: outgoing),

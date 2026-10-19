@@ -333,9 +333,9 @@ final class StatementAdoptionTests: XCTestCase {
         let statement = try XCTUnwrap(first.statement(kind: .intent, scope: .project))
         let adopted = try await derivedText(of: statement, in: url)
         XCTAssertEqual(adopted, "The intent.")
-        XCTAssertEqual(try onDisk(url).schemaVersion,
-                       ProjectManifest.currentSchemaVersion,
-                       "the post-adoption save must write the new schema version")
+        XCTAssertEqual(try onDisk(url).schemaVersion, 4,
+                       "the post-adoption save writes the statements schema, never "
+                       + "currentSchemaVersion: adoption adds no later content")
 
         // The writer makes a craft-intent-shaped note after the migration. It is
         // theirs; adoption is over and must not touch it.
@@ -375,8 +375,9 @@ final class StatementAdoptionTests: XCTestCase {
         XCTAssertTrue(first.manifest.statements.isEmpty, "nothing to adopt, nothing minted")
 
         let stamped = try onDisk(url)
-        XCTAssertEqual(stamped.schemaVersion, ProjectManifest.currentSchemaVersion,
-                       "a project with no intent must still be stamped, or it is rescanned forever")
+        XCTAssertEqual(stamped.schemaVersion, 4,
+                       "a project with no intent must still be stamped (at the statements "
+                       + "schema, not the current one), or it is rescanned forever")
         XCTAssertEqual(stamped.modified, before.modified,
                        "stamping a schema version is not a content edit — `modified` must not shift")
 
@@ -559,8 +560,7 @@ final class StatementAdoptionTests: XCTestCase {
         XCTAssertEqual(
             TreeWalk.collect(in: store.manifest.research) { $0.role == .craftIntent }.count, 1,
             "and the note stays where it is — adoption removes nothing it did not adopt")
-        XCTAssertEqual(try onDisk(url).schemaVersion,
-                       ProjectManifest.currentSchemaVersion, "still stamped, still once")
+        XCTAssertEqual(try onDisk(url).schemaVersion, 4, "still stamped, still once")
     }
 
     /// A craft-intent item with **no file** has no prose to adopt, so adoption
