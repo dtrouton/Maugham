@@ -96,6 +96,19 @@ final class ManuscriptIndexTests: XCTestCase {
                        [diag(.labelOnWrongElement(label("fig:results")), "a", 15)])
     }
 
+    func test_focus1_proseBracesAreNotMalformedLabels() {
+        let idx = index(["Write {#fig:x} mid-line to show the syntax.", "",
+                         "A sentence that ends in {#fig:}", "",
+                         "# Sets {#x} and {y}"])
+        XCTAssertEqual(idx.diagnostics, [])
+    }
+
+    func test_aMixedBracketsKeyIsCited() {
+        let idx = index(["![C](c.png){#fig:a}", "", "See [@fig:a; @smith]."])
+        XCTAssertEqual(idx.citedKeys, ["smith"])
+        XCTAssertEqual(idx.diagnostics, [])
+    }
+
     // MARK: - Each other diagnostic
 
     func test_unresolvedCrossReferenceAndUnknownKey() {

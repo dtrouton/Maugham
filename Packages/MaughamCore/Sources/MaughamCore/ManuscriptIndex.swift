@@ -171,7 +171,10 @@ public struct ManuscriptIndex: Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasSuffix("}"),
               let open = trimmed.range(of: "{#", options: .backwards) else { return nil }
-        return String(trimmed[open.lowerBound...])
+        let block = trimmed[open.lowerBound...]
+        // `{#x} and {y}` ends in some other brace pair, not in a `{#…}` block.
+        guard !block.dropLast().contains("}") else { return nil }
+        return String(block)
     }
 
     /// A one-line paragraph that is a figure line but for its malformed

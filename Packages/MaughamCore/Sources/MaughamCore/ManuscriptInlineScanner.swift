@@ -25,11 +25,15 @@ public enum ManuscriptInline: Equatable, Sendable {
 
 /// Finds footnote references, citations and cross-references in text.
 /// Nothing inside a backtick code span or after a backslash is read. A marker
-/// never spans a line break.
+/// never spans a line break. `[@a;]`, `[@eq:1]` and `[@doe:2020]` give
+/// nothing: a key has no colon, and an empty item voids the bracket.
 public enum ManuscriptInlineScanner {
     /// Every marker in `text`, with its UTF-16 NSRange (the editor's unit), in order.
     /// A bracketed cross-reference covers the whole bracket when it holds one
-    /// label; with several labels, each covers its own `@kind:name`.
+    /// label; with several labels, each covers its own `@kind:name`. A bracket
+    /// mixing keys and labels gives one citation of its keys, covering the
+    /// first key's item, plus one cross-reference per label, covering its own
+    /// `@kind:name`, so no two ranges overlap.
     public static func scan(_ text: String) -> [(marker: ManuscriptInline, range: NSRange)] {
         var scanner = Scanner(text: text)
         return scanner.run()
@@ -91,11 +95,12 @@ public enum ManuscriptInlineScanner {
             return j + 1
         }
 
-        /// `[@key, locator; @key]` as a citation, or `[@kind:name; …]` as
-        /// cross-references. Anything else is not a bracket form: scanning
-        /// resumes after the `[`, so a label inside still reads bare.
+        /// `[@key, locator; @key]` as a citation, `[@kind:name; …]` as
+        /// cross-references, or a mix of both. Anything else (an empty item, a
+        /// label with a locator, a `[` inside a locator) is not a bracket form:
+        /// scanning resumes after the `[`, so a label inside still reads bare.
         mutating func bracket(_ start: Int) -> Int {
-            enum Item { case key(String, String?), label(ManuscriptLabel, NSRange, hasLocator: Bool) }
+            enum Item { case key(String, String?, NSRange), label(ManuscriptLabel, NSRange, hasLocator: Bool) }
             var items: [Item] = []
             var p = start + 1
             while true {
@@ -113,20 +118,24 @@ public enum ManuscriptInlineScanner {
                 } else if !ManuscriptLabel.isValidName(token) {
                     return start + 1
                 }
-                let itemRange = NSRange(location: itemStart, length: p - itemStart)
+                var itemEnd = p
                 p = skipSpaces(p)
                 var locator: String?
                 if at(p) == comma {
                     let from = p + 1
                     p = from
-                    while p < u.count, u[p] != semicolon, u[p] != closeBracket, u[p] != newline { p += 1 }
+                    while p < u.count, u[p] != semicolon, u[p] != closeBracket,
+                          u[p] != newline, u[p] != openBracket { p += 1 }
                     let trimmed = string(from, p).trimmingCharacters(in: .whitespaces)
                     locator = trimmed.isEmpty ? nil : trimmed
+                    itemEnd = p
+                    while itemEnd > from, u[itemEnd - 1] == space || u[itemEnd - 1] == tab { itemEnd -= 1 }
                 }
+                let itemRange = NSRange(location: itemStart, length: itemEnd - itemStart)
                 if let label {
                     items.append(.label(label, itemRange, hasLocator: locator != nil))
                 } else {
-                    items.append(.key(token, locator))
+                    items.append(.key(token, locator, itemRange))
                 }
                 if at(p) == semicolon { p += 1; continue }
                 guard at(p) == closeBracket else { return start + 1 }
@@ -134,20 +143,28 @@ public enum ManuscriptInlineScanner {
                 break
             }
             let whole = NSRange(location: start, length: p - start)
-            let keys = items.compactMap { item -> CitationItem? in
-                if case .key(let k, let loc) = item { return CitationItem(key: k, locator: loc) }
-                return nil
+            var keys: [CitationItem] = []
+            var firstKeyRange: NSRange?
+            var labels: [(ManuscriptLabel, NSRange)] = []
+            for item in items {
+                switch item {
+                case .key(let k, let loc, let r):
+                    keys.append(CitationItem(key: k, locator: loc))
+                    if firstKeyRange == nil { firstKeyRange = r }
+                case .label(let l, let r, let hasLocator):
+                    guard !hasLocator else { return start + 1 }
+                    labels.append((l, r))
+                }
             }
-            if keys.count == items.count {
+            if labels.isEmpty {
                 out.append((.citation(keys), whole))
-                return p
+            } else if keys.isEmpty {
+                for (l, r) in labels { out.append((.crossRef(l), labels.count == 1 ? whole : r)) }
+            } else {
+                var found: [(marker: ManuscriptInline, range: NSRange)] = labels.map { (.crossRef($0.0), $0.1) }
+                found.append((.citation(keys), firstKeyRange!))
+                out.append(contentsOf: found.sorted { $0.range.location < $1.range.location })
             }
-            let labels = items.compactMap { item -> (ManuscriptLabel, NSRange)? in
-                if case .label(let l, let r, false) = item { return (l, r) }
-                return nil
-            }
-            guard labels.count == items.count else { return start + 1 }
-            for (l, r) in labels { out.append((.crossRef(l), labels.count == 1 ? whole : r)) }
             return p
         }
 
@@ -158,7 +175,9 @@ public enum ManuscriptInlineScanner {
             let token = readName(&p)
             guard at(p) == colon, ManuscriptLabel.Kind(rawValue: token) != nil else { return start + 1 }
             p += 1
-            let name = readName(&p)
+            var name = readName(&p)
+            // Trailing `_` and `-` close the sentence, not the name (as Pandoc reads them).
+            while let last = name.last, last == "_" || last == "-" { name.removeLast(); p -= 1 }
             guard let label = ManuscriptLabel(reference: token + ":" + name) else { return start + 1 }
             out.append((.crossRef(label), NSRange(location: start, length: p - start)))
             return p

@@ -108,10 +108,36 @@ final class ManuscriptInlineScannerTests: XCTestCase {
         XCTAssertEqual(markers("[@a\n]"), [])
     }
 
-    func test_aMixedBracketFallsBackToItsBareCrossReference() {
-        // A label first with a key after it is not a citation; the label
-        // still reads as a bare cross-reference.
-        XCTAssertEqual(markers("[@fig:a; @smith]"), [.crossRef(label("fig:a"))])
+    func test_aMixedBracketGivesItsCitationAndItsCrossReferences() {
+        let text = "[@fig:a; @smith, p. 2; @tbl:b; @jones]"
+        XCTAssertEqual(markers(text), [.crossRef(label("fig:a")),
+                                       .citation([CitationItem(key: "smith", locator: "p. 2"),
+                                                  CitationItem(key: "jones", locator: nil)]),
+                                       .crossRef(label("tbl:b"))])
+        // Each covers its own item; none overlaps another.
+        XCTAssertEqual(spans(text), ["@fig:a", "@smith, p. 2", "@tbl:b"])
+    }
+
+    func test_voidBracketsGiveNothing() {
+        // A key has no colon, and an empty item voids the bracket.
+        XCTAssertEqual(markers("[@a;]"), [])
+        XCTAssertEqual(markers("[@eq:1]"), [])
+        XCTAssertEqual(markers("[@doe:2020]"), [])
+    }
+
+    func test_aBracketInsideALocatorVoidsTheBracket() {
+        XCTAssertEqual(markers("[@a, see [x]]"), [])
+    }
+
+    func test_trailingUnderscoreAndHyphenAreNotPartOfABareName() {
+        XCTAssertEqual(markers("_see @fig:a_"), [.crossRef(label("fig:a"))])
+        XCTAssertEqual(spans("_see @fig:a_"), ["@fig:a"])
+        XCTAssertEqual(markers("@tbl:b-- and"), [.crossRef(label("tbl:b"))])
+        XCTAssertEqual(markers("@sec:a-b"), [.crossRef(label("sec:a-b"))])
+    }
+
+    func test_anEscapedBackslashLeavesTheCitationReal() {
+        XCTAssertEqual(markers(#"\\[@a]"#), [.citation([CitationItem(key: "a", locator: nil)])])
     }
 
     // MARK: - Ranges
