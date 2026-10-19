@@ -1885,6 +1885,19 @@ extension Document {
                 documentLog.error("repairRejectedButSpliced: \(pid, privacy: .public) drifted since the accept for \(id, privacy: .public) — declining rather than writing over the writer's edit")
                 continue
             }
+            // #84 (Denver's ruling (a)): never into a piece nobody has claimed.
+            // The repair carries manuscript text, and a book author's text
+            // CLAIMS a piece somebody else started — setting the starter's
+            // held words aside on every Mac, through an act nobody performed.
+            // The stamp below says yes (the yield "widens nothing and refuses
+            // nothing"), so the yield is asked here. The disagreement stands
+            // visibly and loses nothing; the trigger persists, so a later
+            // merge repairs it once the piece is claimed. Not the merge that
+            // brings the claim: `DocumentStore` re-stamps after this pass.
+            if let starter = localWritePermit.unsettledStarter {
+                documentLog.info("repairRejectedButSpliced: \(id, privacy: .public) is in a piece \(starter.deviceId, privacy: .public) started and nobody has claimed — leaving the disagreement until it is")
+                continue
+            }
             let restored = applied.prior ?? ""
             do {
                 // `automation: true` — nothing the writer did produced this
