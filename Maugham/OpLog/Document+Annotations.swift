@@ -1846,6 +1846,11 @@ extension Document {
     /// (RULING-5's refusal-rather-than-guess, and the constitution's first
     /// must). The disagreement survives, visibly, with a row to act on.
     ///
+    /// WAITS while the piece is unsettled (`localWritePermit.unsettledStarter`,
+    /// #84): the repair signs as the author, so writing now would claim a piece
+    /// somebody else started. The race stays detectable, and a merge after the
+    /// piece is claimed repairs it.
+    ///
     /// Does NOT recompute display text — the merge path that calls it does
     /// that once for everything, and its pure-append test wants the
     /// pre-merge `displayText` intact until then.
