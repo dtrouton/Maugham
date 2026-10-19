@@ -136,6 +136,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `StructureItem.swift` — a binder node (group or document), including `startedBy` and pass states.
 - `TreeNode.swift` — the id-keyed tree protocol and the generic `TreeWalk` walkers.
 - `ResearchItem.swift` — a research tree node and its identity-bearing `ResearchRole`.
+- `CitationInfo.swift` — a research item's citation details and `CitationKey`, which validates and suggests `[@key]` keys.
 - `PieceKind.swift` — a Collection piece: loose document or reference to another project.
 - `PaletteCard.swift` — the sensory-palette card model, its parser and canonical renderer.
 - `PaletteConvention.swift` — palette and craft-intent paths and filenames shared by both surfaces.

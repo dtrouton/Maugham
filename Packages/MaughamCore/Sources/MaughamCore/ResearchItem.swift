@@ -98,6 +98,8 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
     /// Optional so legacy manifests decode with `nil`; a nil or `.unknown`
     /// role means "no durable marker" and falls back to path/filename.
     public var role: ResearchRole?
+    /// Optional citation details (`[@key]`); absent in legacy manifests.
+    public var citation: CitationInfo?
 
     public init(
         id: String,
@@ -111,7 +113,8 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
         links: [String]? = nil,
         addedAt: Date? = nil,
         children: [ResearchItem]? = nil,
-        role: ResearchRole? = nil
+        role: ResearchRole? = nil,
+        citation: CitationInfo? = nil
     ) {
         self.id = id
         self.title = title
@@ -125,5 +128,6 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
         self.addedAt = addedAt
         self.children = children
         self.role = role
+        self.citation = citation
     }
 }
