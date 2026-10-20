@@ -9,6 +9,25 @@ final class CitationInfoTests: XCTestCase {
         XCTAssertEqual(CitationKey.suggest(authors: [], year: nil, title: "The State of AI", existing: []), "state")
     }
 
+    /// "Surname, Given" keys on the part before the comma, as `CitationStyle`
+    /// prints it; without a comma the last word is the surname.
+    func test_suggest_readsTheSurnameBeforeAComma() {
+        XCTAssertEqual(CitationKey.suggest(authors: ["Lovelace, Ada"], year: 1843, title: "x", existing: []), "lovelace1843")
+        XCTAssertEqual(CitationKey.suggest(authors: ["García Márquez, Gabriel"], year: nil, title: "x", existing: []), "garciamarquez")
+        XCTAssertEqual(CitationKey.suggest(authors: [", Ada"], year: nil, title: "x", existing: []), "ada",
+                       "nothing before the comma: the last word, as before")
+    }
+
+    /// One reader, two fallbacks: the comma rule is shared, and only what an
+    /// uncommaed name yields differs (the key's last word; the label's whole name).
+    func test_theSurnameReaderIsSharedByTheKeyAndTheLabel() {
+        XCTAssertEqual(CitationName.surname(of: "Lovelace, Ada", otherwise: .lastWord), "Lovelace")
+        XCTAssertEqual(CitationName.surname(of: "Lovelace, Ada", otherwise: .wholeName), "Lovelace")
+        XCTAssertEqual(CitationName.surname(of: "Ada Lovelace", otherwise: .lastWord), "Lovelace")
+        XCTAssertEqual(CitationName.surname(of: "Ada Lovelace", otherwise: .wholeName), "Ada Lovelace")
+        XCTAssertEqual(CitationName.surname(of: " , Ada", otherwise: .wholeName), " , Ada")
+    }
+
     func test_suggest_alwaysYieldsAValidKey() {
         for authors in [["Müller"], ["García Márquez"], ["林"], []] {
             XCTAssertTrue(CitationKey.isValid(CitationKey.suggest(authors: authors, year: 2020, title: "", existing: [])), "\(authors)")

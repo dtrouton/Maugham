@@ -42,7 +42,10 @@ struct InspectorResearchPanel: View {
                 }
                 if item.type != .group {
                     Divider()
+                    // Keyed on the item: a selection change makes a fresh
+                    // section, so no commit of item A's draft can land on B.
                     InspectorCitationSection(store: store, item: item)
+                        .id(item.id)
                     Divider()
                 }
                 if let added = item.addedAt {

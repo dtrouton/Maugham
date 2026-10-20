@@ -41,7 +41,7 @@ public enum CitationKey {
     public static func suggest(authors: [String], year: Int?, title: String, existing: Set<String>) -> String {
         var raw: String?
         if let author = authors.first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-            raw = author.split(whereSeparator: \.isWhitespace).last.map(String.init)
+            raw = CitationName.surname(of: author, otherwise: .lastWord)
         } else {
             raw = title.split(whereSeparator: { !$0.isLetter }).map(String.init).first { $0.count > 3 }
         }
@@ -74,6 +74,27 @@ public enum CitationKey {
         return String(plain.lowercased().unicodeScalars.filter {
             ("a"..."z").contains($0) || ("0"..."9").contains($0)
         }.map(Character.init))
+    }
+}
+
+/// **The one reader of an author's surname**, shared by the key
+/// (`CitationKey.suggest`) and the printed label (`CitationStyle`), so the key
+/// `[@lovelace1843]` and the label "(Lovelace 1843)" cannot read one name two
+/// ways. "Surname, Given" is the part before the comma. Without a comma the
+/// two callers differ only in the fallback: a key stems from the last word,
+/// a label prints the name whole (a corporate author, "World Bank").
+enum CitationName {
+    enum Fallback { case lastWord, wholeName }
+
+    static func surname(of author: String, otherwise fallback: Fallback) -> String {
+        if let comma = author.firstIndex(of: ",") {
+            let head = author[..<comma].trimmingCharacters(in: .whitespaces)
+            if !head.isEmpty { return head }
+        }
+        switch fallback {
+        case .wholeName: return author
+        case .lastWord: return author.split(whereSeparator: \.isWhitespace).last.map(String.init) ?? author
+        }
     }
 }
 

@@ -97,16 +97,18 @@ final class UpdateResearchCitationToolTests: XCTestCase {
         await ds.close()
     }
 
-    /// The shape: an item with no citation carries no `citation` key; one
-    /// with a citation reports all seven fields, null where unset.
-    func test_listResearchReportsTheCitationOnlyWhereThereIsOne() async throws {
+    /// The shape: an item with no citation reports `citation: null`; one with
+    /// a citation reports all seven fields, null where unset; the other
+    /// optional fields keep their old form (absent when nil).
+    func test_listResearchReportsACitationOrNullOnEveryItem() async throws {
         let (registry, _, ds, pid) = try await makeRegistry()
         let listed = try await ListResearchTool.handle(
             paramsJSON: try JSONSerialization.data(withJSONObject: ["project_id": pid]), registry: registry)
         let tree = try XCTUnwrap(try JSONSerialization.jsonObject(with: listed) as? [String: Any])
         let items = try XCTUnwrap(tree["items"] as? [[String: Any]])
         let a = try XCTUnwrap(items.first { $0["id"] as? String == "r-a" })
-        XCTAssertNil(a["citation"])
+        XCTAssertTrue(a["citation"] is NSNull, "null rather than vanishing: \(a)")
+        XCTAssertNil(a["children"], "an asset's children stay absent, as before")
         let b = try XCTUnwrap(items.first { $0["id"] as? String == "r-b" })
         let cite = try XCTUnwrap(b["citation"] as? [String: Any])
         XCTAssertEqual(Set(cite.keys),

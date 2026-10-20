@@ -131,19 +131,13 @@ public enum CitationStyle {
 
     private static func name(_ e: CitationLibrary.Entry) -> String {
         let authors = e.info.authors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }.map(surname)
+            .filter { !$0.isEmpty }.map { CitationName.surname(of: $0, otherwise: .wholeName) }
         switch authors.count {
         case 0: return titleText(e)
         case 1: return authors[0]
         case 2: return "\(authors[0]) and \(authors[1])"
         default: return "\(authors[0]) et al."
         }
-    }
-
-    private static func surname(_ author: String) -> String {
-        guard let comma = author.firstIndex(of: ",") else { return author }
-        let head = author[..<comma].trimmingCharacters(in: .whitespaces)
-        return head.isEmpty ? author : head
     }
 
     /// nil when equal.

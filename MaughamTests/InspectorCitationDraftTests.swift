@@ -75,6 +75,33 @@ final class InspectorCitationDraftTests: XCTestCase {
         XCTAssertTrue(CitationDraft.refusal(ProjectStoreError.structureMissing).hasPrefix("Couldn’t save the citation"))
     }
 
+    // MARK: - The section is keyed on its item
+
+    /// The section's drafts are `@State`, and a commit runs in a `Task` that
+    /// captured the item's id. Mounted without `.id(item.id)`, SwiftUI keeps
+    /// one section across a selection change, so a draft typed for item A
+    /// could be committed against B, or B shown with A's draft. A source
+    /// census, since pressing a control and waiting is out (tripwire 33).
+    static func mountsTheSectionKeyedOnItsItem(_ source: String) -> Bool {
+        source.range(of: #"InspectorCitationSection\(store: store, item: item\)\s*\.id\(item\.id\)"#,
+                     options: .regularExpression) != nil
+    }
+
+    func test_thePanelMountsTheCitationSectionKeyedOnItsItem() throws {
+        let panel = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/InspectorResearchPanel.swift")
+        let source = try String(contentsOf: panel, encoding: .utf8)
+        XCTAssertTrue(Self.mountsTheSectionKeyedOnItsItem(source))
+    }
+
+    func test_theKeyedMountCensusWouldCatchAnUnkeyedMount() {
+        XCTAssertFalse(Self.mountsTheSectionKeyedOnItsItem(
+            "InspectorCitationSection(store: store, item: item)\n    .padding()"))
+        XCTAssertTrue(Self.mountsTheSectionKeyedOnItsItem(
+            "InspectorCitationSection(store: store, item: item)\n        .id(item.id)"))
+    }
+
     /// Authors go through the tags chip list, but an author may be written
     /// "Surname, Given" (`CitationStyle` reads the surname before the comma),
     /// so the authors field takes a typed line whole.

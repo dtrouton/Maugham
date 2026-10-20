@@ -56,6 +56,7 @@ final class CitationEditTests: XCTestCase {
 
     func test_aValidCitationIsStoredAndReachesDiskThroughTheContentFloor() async throws {
         let (url, store, ds) = try await makeNovel()
+        store.manifest.schemaVersion = 9
         store.manifest.research.append(link("r-a"))
         let accessed = Date(timeIntervalSince1970: 1_780_000_000)
         let info = CitationInfo(key: "gartner2026", authors: ["Gartner"], sourceTitle: "Hype Cycle",
@@ -66,8 +67,8 @@ final class CitationEditTests: XCTestCase {
         await ds.close()
         let reloaded = try await ProjectStore.load(from: url)
         XCTAssertEqual(TreeWalk.find(id: "r-a", in: reloaded.manifest.research)?.citation, info)
-        XCTAssertGreaterThanOrEqual(reloaded.manifest.schemaVersion, 10,
-            "a citation is v10 content: the manifest door raises the schema")
+        XCTAssertEqual(reloaded.manifest.schemaVersion, 10,
+            "a citation is v10 content: the manifest door raises a schema-9 book to 10")
     }
 
     func test_fieldsAreTrimmedAndBlankAuthorsDropped() async throws {

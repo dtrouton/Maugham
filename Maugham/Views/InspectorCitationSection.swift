@@ -98,6 +98,7 @@ struct InspectorCitationSection: View {
                 HStack(spacing: 6) {
                     TextField("e.g. smith2026", text: $draft.key, onCommit: commit)
                         .textFieldStyle(.plain)
+                        .help("Renaming a key doesn't update [@key] citations already in the manuscript.")
                     Button("Suggest", action: suggest)
                         .buttonStyle(.link)
                         .help("Fill in a key from the first author's surname and the year")
@@ -154,6 +155,7 @@ struct InspectorCitationSection: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help("Clear the accessed date")
+                .accessibilityLabel("Clear accessed date")
             }
         } else {
             Button("Add date") {
