@@ -107,7 +107,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// Most recent token list, captured each time we retokenize. Used by
     /// click routing to look up wiki-link ranges hit-tested by mouseDown.
-    var lastTokens: [Token] = []
+    /// Setting it drops the figure-thumbnail marks derived from it.
+    var lastTokens: [Token] = [] {
+        didSet { figureThumbnailMarksCache = nil }
+    }
 
     /// Most recent FountainScript from ScreenplayMode parsing. nil for prose
     /// modes. Updated each time retokenizeAndStyle runs. Source for
@@ -277,6 +280,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The most recent figure ingest, so a caller (a test) can await it
     /// instead of polling.
     var figureIngestTask: Task<Void, Never>?
+
+    /// Resolves a figure path as written to its image file, from THIS
+    /// document's own path (plan 3a Task 7, `FigureImageResolver`). Built by
+    /// `EditorHost`, which knows the document's project-relative path and the
+    /// project URL; nil on every other surface, which therefore draws no
+    /// thumbnail. Called off the main thread (it stats the disk).
+    var figureImageResolver: FigureThumbnailStore.Resolve?
+    /// The thumbnail overlay, installed by `syncFigureThumbnailOverlay` when
+    /// this surface shows thumbnails (`FigureThumbnailOverlay.swift`).
+    weak var figureThumbnailOverlay: FigureThumbnailOverlay?
+    /// Decoded thumbnails and what each written path resolved to. Made with
+    /// the overlay; the overlay reads it per draw, and it never blocks.
+    var figureThumbnailStore: FigureThumbnailStore?
+    /// The figure lines in `lastTokens`, derived on the first draw after a
+    /// retokenize (never per draw, tripwire 4). Cleared by `lastTokens`.
+    var figureThumbnailMarksCache: [FigureThumbnailLayout.Mark]?
 
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
@@ -697,6 +716,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // genuine light/dark flip afterwards restyles.
         lastEffectiveAppearanceName = textView.effectiveAppearance.name
         retokenizeAndStyle()
+        // The figure thumbnails (plan 3a Task 7), on a surface that shows them.
+        syncFigureThumbnailOverlay()
         if let location = initialCursorLocation {
             let length = (textView.string as NSString).length
             let clamped = max(0, min(location, length))

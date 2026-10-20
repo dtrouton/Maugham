@@ -708,7 +708,10 @@ struct EditorHost: View {
                 typography: ProjectStore.effectiveTypography(
                     override: store.manifest.typography,
                     userDefault: userPreferences.typography),
-                mode: WritingModeFactory.mode(for: path),
+                // The manuscript editor reserves room under each figure line
+                // for its thumbnail (plan 3a Task 7), drawn by the overlay the
+                // `figureImageResolver` below turns on. The two go together.
+                mode: WritingModeFactory.mode(for: path, figureThumbnails: true),
                 typewriterScroll: userPreferences.typewriterScroll,
                 sentenceFocus: userPreferences.sentenceFocus,
                 paragraphFocus: userPreferences.paragraphFocus,
@@ -807,6 +810,14 @@ struct EditorHost: View {
                 },
                 figureFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)
+                },
+                // The thumbnail under each figure line (plan 3a Task 7): a
+                // figure path resolves from this document's own project-relative
+                // path, as publishing resolves it. Called off the main thread.
+                figureImageResolver: { [projectURL = store.url] figurePath in
+                    FigureImageResolver.resolve(
+                        figurePath, piecePath: path, projectURL: projectURL,
+                        allowed: FigureThumbnailStore.triedExtensions)
                 }),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in

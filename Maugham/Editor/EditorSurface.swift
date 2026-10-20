@@ -100,6 +100,11 @@ struct EditorSurfaceConfiguration {
         var figureImporter: (@MainActor (URL) async throws -> String)? = nil
         /// Where a figure that could not be made is told (a sentence).
         var figureFailureReporter: (@MainActor (String) -> Void)? = nil
+        /// Resolves a figure path as written, from the document's own path, for
+        /// the thumbnail drawn under each figure line (plan 3a Task 7,
+        /// `FigureThumbnailOverlay`). Wired by `EditorHost`, together with a
+        /// mode that reserves the thumbnails' space; nil elsewhere.
+        var figureImageResolver: FigureThumbnailStore.Resolve? = nil
     }
 
     /// Review-mode annotation authoring plus the resolvers the crafted render
@@ -224,6 +229,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         coordinator.figureImporter = pp.figureImporter
         coordinator.figureFailureReporter = pp.figureFailureReporter
+        coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
@@ -482,6 +488,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.figureFailureReporter = pp.figureFailureReporter
+        context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider
@@ -856,6 +863,9 @@ final class MaughamTextView: NSTextView {
         // left inset) on resize too (Task 12).
         coordinator?.layoutTranslationBadgeOverlay(in: self)
         coordinator?.translationBadgeOverlay?.needsDisplay = true
+
+        // Re-frame the figure-thumbnail overlay (covers the view) too.
+        coordinator?.layoutFigureThumbnailOverlay(in: self)
     }
 
     func installGutter(coordinator: EditorCoordinator) {

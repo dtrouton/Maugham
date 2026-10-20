@@ -6,9 +6,19 @@ import AppKit
 public struct ProseMode: WritingMode {
     private let tokenizer: MarkdownTokenizer
     private static let wordsPerMinute = 200
+    /// Whether each figure line's paragraph reserves the space its thumbnail
+    /// is drawn in (plan 3a Task 7, `FigureThumbnailOverlay`): extra
+    /// `paragraphSpacing` of `FigureThumbnailLayout.reservedHeight`. True only
+    /// for the manuscript editor (`EditorHost`, through
+    /// `WritingModeFactory.mode(for:figureThumbnails:)`), the one surface that
+    /// draws thumbnails. A research note and a statement share this mode and
+    /// keep the default false: no thumbnail, so no gap.
+    public let reservesFigureThumbnails: Bool
 
-    public init(tokenizer: MarkdownTokenizer = MarkdownTokenizer()) {
+    public init(tokenizer: MarkdownTokenizer = MarkdownTokenizer(),
+                reservesFigureThumbnails: Bool = false) {
         self.tokenizer = tokenizer
+        self.reservesFigureThumbnails = reservesFigureThumbnails
     }
 
     public func tokenize(_ text: String) -> [Token] {
@@ -92,6 +102,10 @@ public struct ProseMode: WritingMode {
 
         storage.beginEditing()
         storage.setAttributes(bodyAttrs, range: window)
+        if reservesFigureThumbnails {
+            reserveFigureThumbnailSpace(in: storage, tokens: tokens, window: window,
+                                        body: bodyAttrs[.paragraphStyle] as? NSParagraphStyle)
+        }
 
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
@@ -327,6 +341,36 @@ public struct ProseMode: WritingMode {
         case .tableBlock:
             // Structure only: how a caret finds its table. No styling.
             return [:]
+        }
+    }
+
+    /// Gives each figure line's paragraph room for its thumbnail: the body
+    /// paragraph style with `FigureThumbnailLayout.reservedHeight` more
+    /// `paragraphSpacing`. An attribute, never a character (tripwires 1, 26).
+    ///
+    /// Keyed on the LINE, not the token, and clipped to the window: a windowed
+    /// paint that covers only part of a figure line (the caption, say) has just
+    /// reset that part to the body style, so it must put the spacing back on
+    /// exactly that part, as the whole-document paint does
+    /// (`WindowedTypographyEquivalenceTests`' thumbnail cases).
+    private func reserveFigureThumbnailSpace(
+        in storage: NSTextStorage, tokens: [Token], window: NSRange, body: NSParagraphStyle?
+    ) {
+        let text = storage.string as NSString
+        var figureStyle: NSParagraphStyle?
+        for token in tokens {
+            guard FigureThumbnailLayout.figurePath(closing: token, in: text) != nil
+            else { continue }
+            let line = text.lineRange(for: NSRange(location: token.range.location, length: 0))
+            let painted = NSIntersectionRange(line, window)
+            guard painted.length > 0 else { continue }
+            if figureStyle == nil {
+                let style = (body?.mutableCopy() as? NSMutableParagraphStyle)
+                    ?? NSMutableParagraphStyle()
+                style.paragraphSpacing += FigureThumbnailLayout.reservedHeight
+                figureStyle = style
+            }
+            storage.addAttribute(.paragraphStyle, value: figureStyle!, range: painted)
         }
     }
 

@@ -412,6 +412,39 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
     }
 
+    // MARK: - The figure thumbnail's reserved space (plan 3a Task 7)
+    //
+    // A manuscript's ProseMode gives each figure line a `paragraphSpacing`
+    // tall enough for its thumbnail. The windowed paint must add and remove it
+    // exactly as the whole-document paint does.
+
+    func test_thumbnail_editTheFigureCaption() {
+        let edit = Edit(replace: "Revenue by year", with: "Revenue by fiscal year")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)
+    }
+
+    func test_thumbnail_editTheFigurePath() {
+        let edit = Edit(replace: "../research/rev.png", with: "../research/revenue.png")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)
+    }
+
+    func test_thumbnail_aLineUnderTheFigureTakesTheSpaceAway() {
+        let edit = Edit(replace: "{#fig:revenue}", with: "{#fig:revenue}\nand a second line")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)
+    }
+
+    func test_thumbnail_closingTheBracketMakesTheFigureAndItsSpace() {
+        let unmade = reportDoc.replacingOccurrences(of: "](../research/rev.png)",
+                                                    with: "](../research/rev.png")
+        let edit = Edit(replace: "rev.png{#fig", with: "rev.png){#fig")
+        assertEquivalent(doc: unmade, edit: edit, mode: .manuscript)
+    }
+
+    func test_thumbnail_proseEditElsewhereKeepsTheSpace() {
+        let edit = Edit(replace: "A closing paragraph", with: "A short closing paragraph")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)
+    }
+
     // MARK: - The typing window's cap
 
     /// A 250 KB document with single newlines and no blank line is ONE block.
@@ -439,7 +472,9 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
 
     // MARK: - Equivalence harness
 
-    private enum ModeKind { case screenplay, prose }
+    /// `.manuscript` is the manuscript editor's ProseMode, which reserves the
+    /// figure thumbnails' space; `.prose` is every other prose surface's.
+    private enum ModeKind { case screenplay, prose, manuscript }
 
     private struct Edit {
         let replace: String
@@ -507,6 +542,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         switch mode {
         case .screenplay: return ScreenplayMode().tokenize(text)
         case .prose:      return ProseMode().tokenize(text)
+        case .manuscript: return ProseMode(reservesFigureThumbnails: true).tokenize(text)
         }
     }
 
@@ -517,8 +553,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
             m.applyTypography(
                 in: storage, theme: theme, typography: .screenplayDefaults,
                 tokens: m.tokenize(text), parsedScript: FountainTokenizer().parse(text))
-        case .prose:
-            let m = ProseMode()
+        case .prose, .manuscript:
+            let m = ProseMode(reservesFigureThumbnails: mode == .manuscript)
             m.applyTypography(
                 in: storage, theme: theme, typography: .defaults,
                 tokens: m.tokenize(text), wikiLinkResolver: nil)
@@ -539,8 +575,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
                 in: storage, theme: theme, typography: .screenplayDefaults,
                 tokens: tokens, parsedScript: FountainTokenizer().parse(text),
                 restyleWindow: window)
-        case .prose:
-            let m = ProseMode()
+        case .prose, .manuscript:
+            let m = ProseMode(reservesFigureThumbnails: mode == .manuscript)
             m.applyTypography(
                 in: storage, theme: theme, typography: .defaults,
                 tokens: tokens, wikiLinkResolver: nil, restyleWindow: window)
