@@ -57,7 +57,12 @@ final class TypingLatencyProbeTests: XCTestCase {
     /// a fixed lexicon, every 7th carrying a `[[Linked Note]]` wiki link and
     /// every 11th a `- [ ] task` checkbox line — the prose facets the scanner
     /// pays for. Seeded so the corpus is identical across machines/runs.
-    static func generateProse(bytes: Int) -> String {
+    ///
+    /// `report: true` mixes in the report elements the tokenizer pays for too:
+    /// a citation every 5th paragraph, a cross-reference every 6th, a footnote
+    /// reference every 4th (its definition paragraph follows), a captioned
+    /// 3-column table every 13th and a labelled figure line every 17th.
+    static func generateProse(bytes: Int, report: Bool = false) -> String {
         let lexicon = [
             "morning", "harbour", "the", "she", "remembered", "a", "letter",
             "between", "them", "quietly", "and", "then", "nothing", "moved",
@@ -77,6 +82,28 @@ final class TypingLatencyProbeTests: XCTestCase {
             var paragraph = words.joined(separator: " ") + "."
             if paragraphIndex % 11 == 0 {
                 paragraph += "\n- [ ] task \(paragraphIndex)"
+            }
+            if report {
+                if paragraphIndex % 5 == 0 {
+                    paragraph = String(paragraph.dropLast()) + " [@source\(paragraphIndex), p. 12]."
+                }
+                if paragraphIndex % 6 == 0 { paragraph += " See @fig:chart-\(paragraphIndex)." }
+                if paragraphIndex % 4 == 0 {
+                    paragraph += "[^n\(paragraphIndex)]"
+                    paragraph += "\n\n[^n\(paragraphIndex)]: A note on \(words[0]) and \(words[1])."
+                }
+                if paragraphIndex % 13 == 0 {
+                    paragraph += """
+                    \n\n| \(words[0]) | \(words[1]) | Year |
+                    |:---|:---:|---:|
+                    | \(words[2]) | *\(words[3])* | 19\(paragraphIndex % 100) |
+                    | \(words[4]) [@source\(paragraphIndex)] | \(words[5]) | 20\(paragraphIndex % 10)0 |
+                    Table: The \(words[6]) table {#tbl:t\(paragraphIndex)}
+                    """
+                }
+                if paragraphIndex % 17 == 0 {
+                    paragraph += "\n\n![The \(words[0]) chart](../research/c\(paragraphIndex).png){#fig:chart-\(paragraphIndex)}"
+                }
             }
             out += paragraph + "\n\n"
             paragraphIndex += 1
@@ -453,6 +480,39 @@ final class TypingLatencyProbeTests: XCTestCase {
         ==============================================
         """)
         await pdoc.close()
+    }
+
+    /// The prose tokenize budget (report foundations plan 3a, Task 2). The
+    /// tokenizer runs over the WHOLE document on every keystroke
+    /// (`retokenizeAndStyle`), so its cost is the typing cost. Fixture-free:
+    /// the 250 KB `generateProse` corpus with every report element mixed in.
+    ///
+    /// Measured on the dev machine (Debug, test host), 2026-10-20: ~36 ms
+    /// median (the tokenizer before the report passes took ~24 ms on the same
+    /// corpus). The budget, 100 ms, is about 2× that plus headroom for a
+    /// loaded parallel gate or a slower CI runner, and it still trips on a
+    /// quadratic regression, not on noise: with the old O(tokens²)
+    /// `tokens.contains(where:)` overlap check put back (`TokenClaims`
+    /// replaced it), the same corpus measured ~207 ms.
+    func test_proseTokenizeOfAReportCorpusStaysWithinBudget() {
+        let budgetMs = 100.0
+        let text = Self.generateProse(bytes: 250_000, report: true)
+        let mode = ProseMode()
+        _ = mode.tokenize(text)   // warm-up
+        let clock = ContinuousClock()
+        var runs: [Duration] = []
+        for _ in 0..<5 {
+            let t = clock.now
+            _ = mode.tokenize(text)
+            runs.append(clock.now - t)
+        }
+        runs.sort()
+        let median = runs[runs.count / 2]
+        let ms = Double(median.components.attoseconds) / 1e15
+            + Double(median.components.seconds) * 1000
+        print("PROSE-TOKENIZE-BUDGET: \(text.utf8.count) bytes, median \(ms) ms (budget \(budgetMs) ms)")
+        XCTAssertLessThanOrEqual(ms, budgetMs,
+            "tokenizing a 250 KB report manuscript took \(ms) ms, over the \(budgetMs) ms budget")
     }
 
     /// M3 (spec §7) assertion: the typing-path pause-edge batch — what the

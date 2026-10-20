@@ -322,6 +322,96 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         assertEquivalent(doc: proseDoc, edit: edit, mode: .prose)
     }
 
+    // MARK: - Report element cases (plan 3a Task 2)
+
+    /// Every report element, between ordinary prose paragraphs.
+    private var reportDoc: String {
+        "Opening paragraph with *emphasis* before the findings.\n\n"
+            + ReportTokenizerTests.reportSample
+            + "\n\nA closing paragraph after everything else."
+    }
+
+    func test_report_editInsideATableHeaderCell() {
+        let edit = Edit(replace: "| Name |", with: "| Full name |")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_editInsideATableBodyCell() {
+        let edit = Edit(replace: "| Grace |", with: "| Grace Hopper |")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    /// Breaking the delimiter row un-makes the table: the header row two
+    /// lines up loses its bold although its own text did not change. The
+    /// typing path must repaint the whole block, not just the edited line.
+    func test_report_breakingTheDelimiterRowUnboldsTheHeader() {
+        let edit = Edit(replace: "|:-----|-----:|", with: "|:-----|--x--:|")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    /// The reverse: completing the delimiter row makes the header bold.
+    func test_report_completingTheDelimiterRowBoldsTheHeader() {
+        let broken = reportDoc.replacingOccurrences(of: "|:-----|-----:|", with: "|:-----|--x--:|")
+        let edit = Edit(replace: "|:-----|--x--:|", with: "|:-----|-----:|")
+        assertEquivalent(doc: broken, edit: edit, mode: .prose)
+    }
+
+    func test_report_editTheTableCaption() {
+        let edit = Edit(replace: "Engines of note", with: "Engines of real note")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_editInsideACitation() {
+        let edit = Edit(replace: "[@gartner2026, p. 12]", with: "[@gartner2026, pp. 12-14]")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_unmakingACitation() {
+        let edit = Edit(replace: "[@gartner2026, p. 12]", with: "[gartner2026, p. 12]")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_editInsideAFootnoteDefinition() {
+        let edit = Edit(replace: "Figures are nominal", with: "Figures are strictly nominal")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_editAFootnoteReference() {
+        let edit = Edit(replace: "shows.[^1]", with: "shows.[^12]")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_editTheFigureLine() {
+        let edit = Edit(replace: "Revenue by year", with: "Revenue by fiscal year")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    /// A second line under the figure makes it a two-line paragraph, which is
+    /// no longer a figure: the untouched figure line above loses its styling.
+    func test_report_aLineUnderTheFigureUnmakesIt() {
+        let edit = Edit(replace: "{#fig:revenue}", with: "{#fig:revenue}\nand a second line")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    /// A blank line between the table and its caption detaches the caption.
+    func test_report_aBlankLineDetachesTheCaption() {
+        let edit = Edit(replace: "| Grace | 1952 |\n", with: "| Grace | 1952 |\n\n")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    func test_report_editTheHeadingLabel() {
+        let edit = Edit(replace: "{#sec:findings}", with: "{#sec:finding}")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
+    /// Prose typed straight above a table (no blank line) un-makes the table.
+    func test_report_proseJoinedAboveATableUnmakesIt() {
+        // The anchor stops short of `[^1]`: a replace over it would wipe its
+        // attributes in a way NSTextView's minimal edit never does.
+        let edit = Edit(replace: "\n\n| Name", with: "\n| Name")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
+    }
+
     // MARK: - Equivalence harness
 
     private enum ModeKind { case screenplay, prose }
@@ -358,23 +448,34 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         XCTAssertEqual(storageA.length, (newText as NSString).length,
                        "edit produced wrong storage length", file: file, line: line)
 
-        let decision = TokenRestyleWindow.decide(
-            oldTokens: oldTokens,
-            newTokens: newTokens,
-            storageLength: storageA.length)
-        let window: NSRange?
-        switch decision {
-        case .noChange:      window = NSRange(location: 0, length: 0)
-        case .window(let r): window = r
-        case .fullDocument:  window = nil
-        }
-        applyWindowed(storageA, tokens: newTokens, mode: mode, window: window)
-
         // ----- Storage B: new text styled whole-doc from scratch -----
         let storageB = NSTextStorage(string: newText)
         applyWhole(storageB, text: newText, mode: mode)
 
-        assertStoragesEqual(storageA, storageB, file: file, line: line)
+        // Two windows, each checked from the same edited storage: the token
+        // diff (the oracle) and the typing path's own character diff widened
+        // to blank-line blocks (`TypingRestyleWindow.changedBlockWindow`, what
+        // `performDeferredRestyle` and `paintLiveWindowed` actually paint).
+        let decision = TokenRestyleWindow.decide(
+            oldTokens: oldTokens,
+            newTokens: newTokens,
+            storageLength: storageA.length)
+        let tokenWindow: NSRange?
+        switch decision {
+        case .noChange:      tokenWindow = NSRange(location: 0, length: 0)
+        case .window(let r): tokenWindow = r
+        case .fullDocument:  tokenWindow = nil
+        }
+        let typingWindow = TypingRestyleWindow.changedBlockWindow(
+            old: oldText as NSString, new: newText as NSString)
+            ?? NSRange(location: 0, length: 0)
+
+        for (name, window) in [("token-diff", tokenWindow), ("typing-path", typingWindow)] {
+            let edited = NSMutableAttributedString(attributedString: storageA)
+            let windowed = NSTextStorage(attributedString: edited)
+            applyWindowed(windowed, tokens: newTokens, mode: mode, window: window)
+            assertStoragesEqual(windowed, storageB, label: name, file: file, line: line)
+        }
     }
 
     private func tokenize(_ text: String, mode: ModeKind) -> [Token] {
@@ -428,20 +529,22 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
     private func assertStoragesEqual(
         _ a: NSTextStorage,
         _ b: NSTextStorage,
+        label: String,
         file: StaticString,
         line: UInt
     ) {
-        XCTAssertEqual(a.length, b.length, "storage length diverged",
+        XCTAssertEqual(a.length, b.length, "[\(label)] storage length diverged",
                        file: file, line: line)
         guard a.length == b.length else { return }
-        for i in 0..<a.length {
+        var diverged = 0
+        for i in 0..<a.length where diverged < 3 {
             let attrsA = a.attributes(at: i, effectiveRange: nil)
             let attrsB = b.attributes(at: i, effectiveRange: nil)
             let keys = Set(attrsA.keys).union(attrsB.keys)
-            for key in keys {
-                XCTAssertTrue(
-                    attributeValuesEqual(attrsA[key], attrsB[key], key: key),
-                    "attribute \(key.rawValue) diverged at index \(i): "
+            for key in keys where !attributeValuesEqual(attrsA[key], attrsB[key], key: key) {
+                diverged += 1
+                XCTFail(
+                    "[\(label)] attribute \(key.rawValue) diverged at index \(i): "
                         + "windowed=\(String(describing: attrsA[key])) "
                         + "whole=\(String(describing: attrsB[key]))",
                     file: file, line: line)

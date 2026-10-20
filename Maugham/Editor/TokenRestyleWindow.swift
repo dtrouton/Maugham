@@ -127,3 +127,73 @@ enum TokenRestyleWindow {
         a.range.length == b.range.length && a.kind == b.kind
     }
 }
+
+/// The window the TYPING path paints (`performDeferredRestyle` and
+/// `paintLiveWindowed`): a character diff, not a token diff (Editor AREA.md,
+/// "Restyle, scroll and typewriter").
+enum TypingRestyleWindow {
+    /// Smallest BLOCK-aligned character range (in NEW-text coordinates)
+    /// covering everything that changed between `old` and `new`, via a common-
+    /// prefix / common-suffix scan (the divergence is localized near the edit,
+    /// so this is cheap even on a long document). Returns nil when identical or
+    /// the new text is empty. Token-free, so it works for plain prose.
+    ///
+    /// Expanded to whole blank-line blocks, not just lines, because a line's
+    /// styling can depend on the other lines of its block: a table's header is
+    /// bold only while the delimiter row below it is valid, a figure line is a
+    /// figure only while it is alone in its paragraph, emphasis is
+    /// paragraph-scoped, and a screenplay cue's trailing `^` makes the dialogue
+    /// under it dual. A line-only window left those lines stale
+    /// (`WindowedTypographyEquivalenceTests`' typing-path legs).
+    static func changedBlockWindow(old: NSString, new: NSString) -> NSRange? {
+        guard let lines = changedLineWindow(old: old, new: new) else { return nil }
+        return widenToBlankLineBlocks(lines, in: new)
+    }
+
+    /// `range` grown backward and forward over every non-blank line next to
+    /// it, so it starts and ends on a blank line (or the text's ends).
+    static func widenToBlankLineBlocks(_ range: NSRange, in text: NSString) -> NSRange {
+        var lower = range.location
+        while lower > 0 {
+            let previous = text.lineRange(for: NSRange(location: lower - 1, length: 0))
+            if isBlank(previous, in: text) { break }
+            lower = previous.location
+        }
+        var upper = NSMaxRange(range)
+        while upper < text.length {
+            let next = text.lineRange(for: NSRange(location: upper, length: 0))
+            if isBlank(next, in: text) || next.length == 0 { break }
+            upper = NSMaxRange(next)
+        }
+        return NSRange(location: lower, length: upper - lower)
+    }
+
+    private static func isBlank(_ line: NSRange, in text: NSString) -> Bool {
+        for i in line.location..<NSMaxRange(line) {
+            switch text.character(at: i) {
+            case 0x20, 0x09, 0x0A, 0x0D: continue
+            default: return false
+            }
+        }
+        return true
+    }
+
+    /// The changed range expanded to whole lines (`paragraphRange`).
+    private static func changedLineWindow(old: NSString, new: NSString) -> NSRange? {
+        let oldLen = old.length, newLen = new.length
+        if newLen == 0 { return nil }
+        var prefix = 0
+        let maxPrefix = min(oldLen, newLen)
+        while prefix < maxPrefix,
+              old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+        if prefix == oldLen, prefix == newLen { return nil }  // identical
+        var suffix = 0
+        let maxSuffix = min(oldLen, newLen) - prefix
+        while suffix < maxSuffix,
+              old.character(at: oldLen - 1 - suffix)
+                == new.character(at: newLen - 1 - suffix) { suffix += 1 }
+        let loc = min(prefix, newLen - 1)
+        let len = max(0, min(newLen - prefix - suffix, newLen - loc))
+        return new.paragraphRange(for: NSRange(location: loc, length: len))
+    }
+}

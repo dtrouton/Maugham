@@ -139,6 +139,15 @@ public struct ProseMode: WritingMode {
                     attrs[.strikethroughColor] = palette.syntaxPunctuation
                 }
                 storage.addAttributes(attrs, range: token.range)
+            } else if case .tableHeader = token.kind {
+                // An overlay: embolden whatever font the cell's own tokens
+                // (emphasis, a footnote reference) already set. Clipped to the
+                // window, so text outside it is never re-emboldened.
+                let range = NSIntersectionRange(token.range, window)
+                storage.enumerateAttribute(.font, in: range) { value, sub, _ in
+                    let font = (value as? NSFont) ?? baseFont
+                    storage.addAttribute(.font, value: Self.addingBold(to: font), range: sub)
+                }
             } else if case .invisibleAnchor = token.kind {
                 // Fully transparent — anchor must remain in NSTextStorage for
                 // the setFullText round-trip but must be invisible to the writer.
@@ -283,6 +292,53 @@ public struct ProseMode: WritingMode {
         case .invisibleAnchor:
             // Handled inline in applyTypography. Return [:] here.
             return [:]
+
+        // Report elements (plan 3a). The raw text stays visible, styled
+        // quietly; resolved labels are plan 3b's drawn overlay.
+        case .tableSyntax, .footnoteLabel, .figureSyntax, .attributeBlock:
+            return [.foregroundColor: palette.syntaxPunctuation]
+
+        case .tableCaption:
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize
+            ) ?? baseFont
+            return [.font: italic, .foregroundColor: palette.syntaxPunctuation]
+
+        case .footnoteReference:
+            let small = NSFont(
+                descriptor: baseFont.fontDescriptor,
+                size: (baseFont.pointSize * 0.7).rounded()
+            ) ?? baseFont
+            return [.font: small,
+                    .baselineOffset: (baseFont.pointSize * 0.35).rounded(),
+                    .foregroundColor: Self.quietTint(palette)]
+
+        case .citation, .crossReference:
+            return [.foregroundColor: Self.quietTint(palette)]
+
+        case .tableHeader:
+            // Handled inline in applyTypography (adds the bold trait on top
+            // of whatever font the cell's own tokens set).
+            return [:]
+
+        case .tableBlock:
+            // Structure only: how a caret finds its table. No styling.
+            return [:]
         }
+    }
+
+    /// The tint for citations, cross-references and footnote references: the
+    /// theme's link colour folded halfway toward body text, so it reads as a
+    /// reference without competing with a real (underlined) link.
+    static func quietTint(_ palette: ThemePalette) -> NSColor {
+        palette.link.blended(withFraction: 0.45, of: palette.bodyText) ?? palette.link
+    }
+
+    /// `font` with the bold trait added to the traits it already has.
+    private static func addingBold(to font: NSFont) -> NSFont {
+        let traits = font.fontDescriptor.symbolicTraits.union(.bold)
+        return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(traits),
+                      size: font.pointSize) ?? font
     }
 }

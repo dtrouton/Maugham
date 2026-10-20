@@ -24,8 +24,9 @@ Every source file in `Maugham/Editor/` appears once.
 - `ProseMode.swift` — the Markdown mode.
 - `ScreenplayMode.swift` — the Fountain mode: tokens from the shared parser, per-element paragraph styling, page count.
 - `Token.swift` — `Token` and `Token.Kind`, including `taskBody` and `invisibleAnchor`.
-- `TokenRestyleWindow.swift` — a `(kind, length)` token-diff window. Production no longer calls it: the typing path windows by character diff (`changedParagraphWindow`), and a token diff is forbidden below. It is kept as the oracle for `WindowedTypographyEquivalenceTests` and `TypingLatencyProbeTests`.
+- `TokenRestyleWindow.swift` — the typing path's character-diff window, and the `(kind, length)` token-diff oracle for `WindowedTypographyEquivalenceTests`.
 - `Maugham/Editor/Tokenizer/MarkdownTokenizer.swift` — the prose tokenizer; emphasis is paragraph-scoped through the shared `InlineEmphasisScanner`.
+- `Maugham/Editor/Tokenizer/ReportBlocks.swift` — report-element tokens (tables, figures, footnotes, citations).
 - `Maugham/Editor/Tokenizer/BlankLineBlocks.swift` — blank-line-delimited blocks, so emphasis scans per paragraph.
 - `Maugham/Editor/Tokenizer/SmartTypography.swift` — em dash, ellipsis and curly-quote substitution.
 - `MarkdownCheckboxTokenizer.swift` — the editor's checkbox attribute; the shared scanner is `Maugham/OpLog/InlineTaskScanners.swift`.
@@ -83,7 +84,7 @@ debounced burst flush → op log + autosave → eventual disk write → Document
 ### Restyle, scroll and typewriter
 - **A whole-document `setAttributes` snaps a long scrolled document toward the top**: it invalidates all layout, which AppKit re-lays out from the top. Each path below either avoids it (a local window) or re-asserts caret and scroll itself.
 - **Don't add work inside `applyTypography`** on either path. It takes a `restyleWindow`, and window ≡ whole document is pinned by `WindowedTypographyEquivalenceTests`.
-- **The typing path is mode-gated on `WritingMode.defersRestyleWhileTyping`.** Both branches restyle only the changed paragraphs found by a character diff (`changedParagraphWindow`), never a token diff: plain prose has no tokens, so a token window falls back to whole-document and snaps scroll. A local `setAttributes` does not move scroll, so AppKit's caret-following autoscroll is left alone.
+- **The typing path is mode-gated on `WritingMode.defersRestyleWhileTyping`.** Both branches restyle only the changed blank-line blocks found by a character diff (`TypingRestyleWindow.changedBlockWindow`), never a token diff: plain prose has no tokens, so a token window falls back to whole-document and snaps scroll. A local `setAttributes` does not move scroll, so AppKit's caret-following autoscroll is left alone.
   - Prose defers the repaint to the burst's trailing edge (`scheduleDeferredRestyle` → `performDeferredRestyle`, `restyleSettleDelayMs` = 300 ms), diffing against `burstBaselineText`, snapshotted in `shouldChangeTextIn`. Deferral is what stops emphasis flicker. The whole-document branch survives only as a no-baseline fallback.
   - Screenplay paints live and windowed on the keystroke (`paintLiveWindowed`, diffed against `liveRestyleBaseline`), because a styling lag on element-heavy text reads as sluggishness. The cursor restore in `textDidChange` covers its jostle.
   - **Don't re-introduce a per-keystroke origin restore, a whole-document settle or live paint, or a token diff** (`DeferredRestyleTests.test_settleRestyleIsWindowedNotWholeDocument`, `test_screenplayRestylesLiveWhileTyping`, `test_screenplayLiveRestyleIsWindowedNotWholeDocument`).

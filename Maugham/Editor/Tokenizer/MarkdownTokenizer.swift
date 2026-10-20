@@ -5,9 +5,10 @@ import MaughamCore
 /// for syntax highlighting. Asterisk emphasis (incl. `***both***`, nesting,
 /// and `~~strikethrough~~`) is paragraph-scoped via the shared
 /// `InlineEmphasisScanner` (see the emphasis pass below) — nested emphasis IS
-/// handled, contrary to this header's old claim. Does not handle tables or
-/// fenced-code syntax highlighting; see `markdown-syntax.md` for the full
-/// documented subset.
+/// handled, contrary to this header's old claim. The report elements
+/// (tables, figure lines, footnotes, citations, cross-references, `{#…}`
+/// labels) come from `ReportBlocks`. Does not handle fenced-code syntax
+/// highlighting; see `markdown-syntax.md` for the full documented subset.
 public struct MarkdownTokenizer: Sendable {
 
     public init() {}
@@ -18,6 +19,16 @@ public struct MarkdownTokenizer: Sendable {
         let fullRange = NSRange(location: 0, length: nsText.length)
 
         var tokens: [Token] = []
+        // Every claimed range, so "the first claim wins" is a range-set query
+        // rather than a scan of every token so far (that scan was
+        // O(tokens²) per document, paid on every keystroke).
+        var claims = TokenClaims()
+        // Overlays appended after the gap fill (see the end of this function).
+        var overlayTokens: [Token] = []
+        // The blank-line blocks, enumerated once and shared by the per-block
+        // passes (report blocks, emphasis, inline markers).
+        var blocks: [NSRange] = []
+        BlankLineBlocks.enumerate(nsText, in: fullRange) { blocks.append($0) }
 
         // Horizontal rule / scene break: ^ {0,3}(-{3,}|\*{3}|#{3})\s*$
         // Runs FIRST so a lone `***` or `###` line is claimed as a rule
@@ -32,7 +43,7 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?m)^ {0,3}(-{3,}|\*{3}|#{3})\s*$"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 return [Token(range: match.range(at: 1), kind: .horizontalRule)]
             }
 
@@ -40,16 +51,25 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?m)^(#{1,6})\s+([^\n]*)"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 let hashes = match.range(at: 1)
-                let content = match.range(at: 2)
+                var content = match.range(at: 2)
                 let level = nsText.substring(with: hashes).count
-                return [
+                var out = [
                     Token(range: NSRange(location: hashes.location,
                                           length: content.location - hashes.location),
                           kind: .syntaxPunctuation),
-                    Token(range: content, kind: .heading(level: level)),
                 ]
+                // A trailing `{#sec:x}` is a label, not heading text.
+                if let label = Self.trailingAttributeBlock(in: nsText, line: content) {
+                    var end = label.location
+                    while end > content.location,
+                          [0x20, 0x09].contains(nsText.character(at: end - 1)) { end -= 1 }
+                    content.length = end - content.location
+                    out.append(Token(range: label, kind: .attributeBlock))
+                }
+                out.append(Token(range: content, kind: .heading(level: level)))
+                return out
             }
 
         // Asterisk emphasis (*, **, ***, nesting) + `~~strikethrough~~` via the
@@ -58,32 +78,34 @@ public struct MarkdownTokenizer: Sendable {
         // crosses a blank line (spec ledger: paragraph-scoped emphasis, which
         // inverts the old per-line rule). Backslash escapes are faded as syntax
         // punctuation so `\*literal\*` reads as literal asterisks.
-        BlankLineBlocks.enumerate(nsText, in: fullRange) { blockRange in
+        //
+        // The report blocks (tables, figure lines, footnote-definition labels)
+        // are claimed FIRST, so a pipe is never swallowed by an emphasis run
+        // that crosses cells and a row starting `- |` never reads as a list.
+        for blockRange in blocks {
+            ReportBlocks.tokenize(block: blockRange, in: nsText,
+                                  into: &tokens, overlays: &overlayTokens,
+                                  claims: &claims)
+        }
+
+        for blockRange in blocks {
             let block = nsText.substring(with: blockRange)
             let scan = InlineEmphasisScanner.scan(block as NSString,
                                                   options: [.strikethrough])
             for run in scan.runs {
                 let r = NSRange(location: blockRange.location + run.range.location,
                                 length: run.range.length)
-                let tok = Token(range: r, kind: .emphasis(run.traits))
-                if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
-                    tokens.append(tok)
-                }
+                claims.claimIfFree(Token(range: r, kind: .emphasis(run.traits)), into: &tokens)
             }
             for marker in scan.markers {
                 let r = NSRange(location: blockRange.location + marker.location,
                                 length: marker.length)
-                let tok = Token(range: r, kind: .syntaxPunctuation)
-                if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
-                    tokens.append(tok)
-                }
+                claims.claimIfFree(Token(range: r, kind: .syntaxPunctuation), into: &tokens)
             }
             for esc in scan.escapes {
                 let r = NSRange(location: blockRange.location + esc.location,
                                 length: esc.length)
-                if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
-                    tokens.append(Token(range: r, kind: .syntaxPunctuation))
-                }
+                claims.claimIfFree(Token(range: r, kind: .syntaxPunctuation), into: &tokens)
             }
         }
 
@@ -91,7 +113,7 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"`([^`\n]+)`"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 let outer = match.range(at: 0)
                 let inner = match.range(at: 1)
                 let openPunct = NSRange(location: outer.location, length: 1)
@@ -103,13 +125,23 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
+        // Footnote references, citations and cross-references, from the
+        // shared scanner (it skips code spans and escapes itself), per block.
+        // BEFORE the link pass, so `[@a](x)` and `[^1](x)` are claimed as
+        // markers, not links. After emphasis: a marker inside an emphasis run
+        // stays part of the run, as a link there does.
+        for blockRange in blocks {
+            ReportBlocks.tokenizeInlineMarkers(block: blockRange, in: nsText,
+                                               into: &tokens, claims: &claims)
+        }
+
         // Link: (?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)
         // Negative lookbehind excludes `![alt](url)` image syntax — its
         // `[alt](url)` tail is not a link and must not be link-styled.
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 let outer = match.range(at: 0)
                 let labelInner = match.range(at: 1)
                 let href = match.range(at: 2)
@@ -134,7 +166,7 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"\[\[([^\[\]\n]+?)\]\]"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 let outer = match.range(at: 0)
                 let inner = match.range(at: 1)
                 let title = nsText
@@ -158,7 +190,7 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?m)^(\s*)- \[( |x|X)\] (.+?)(\s+<!--t-[0123456789abcdefghjkmnpqrstvwxyz]{6}-->)?$"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 let indent = match.range(at: 1)
                 let dashRange = NSRange(
                     location: indent.location + indent.length,
@@ -220,12 +252,20 @@ public struct MarkdownTokenizer: Sendable {
             }
         }
 
+        // A line inside a table is a row, never a list item or a quote
+        // (`- | a |` is a header or body row whose first cell is `-`).
+        var tableLines = IndexSet()
+        for t in overlayTokens where t.kind == .tableBlock {
+            tableLines.insert(integersIn: t.range.location..<NSMaxRange(t.range))
+        }
+
         // List marker: ^(\s*)([-*+]|\d+\.)\s
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?m)^(\s*)([-*+]|\d+\.)\s"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
                 let marker = match.range(at: 2)
+                guard !tableLines.contains(marker.location) else { return [] }
                 return [Token(range: marker, kind: .listMarker)]
             }
 
@@ -233,7 +273,8 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?m)^(>)\s"#,
-            into: &tokens) { match in
+            into: &tokens, claims: &claims) { match in
+                guard !tableLines.contains(match.range(at: 1).location) else { return [] }
                 return [Token(range: match.range(at: 1), kind: .blockquote)]
             }
 
@@ -248,7 +289,33 @@ public struct MarkdownTokenizer: Sendable {
         // inside a task body) — that is intentional; addAttributes in the paint
         // pass applies them in order, so finer-grained inline tokens win.
         merged.append(contentsOf: taskBodyTokens)
+        // The report overlays (`tableHeader`, `tableBlock`) likewise sit on
+        // top of the main stream: a header cell keeps its own emphasis or
+        // citation token, and the block token is unstyled.
+        merged.append(contentsOf: overlayTokens)
         return merged
+    }
+
+    /// The whole table (header row through caption line) whose range holds
+    /// `location`, from a token stream this tokenizer produced. A caret just
+    /// after the table's last character counts as inside it. nil outside any
+    /// table.
+    static func tableBlockRange(containing location: Int, in tokens: [Token]) -> NSRange? {
+        tokens.first {
+            $0.kind == .tableBlock
+                && location >= $0.range.location && location <= NSMaxRange($0.range)
+        }?.range
+    }
+
+    /// The range of a valid trailing `{#kind:name}` block on `line` (the
+    /// rule is `ManuscriptAttributes.split`'s), or nil.
+    static func trailingAttributeBlock(in text: NSString, line: NSRange) -> NSRange? {
+        guard line.length >= 4,
+              text.character(at: NSMaxRange(line) - 1) == UInt16(UInt8(ascii: "}")) else { return nil }
+        let open = text.range(of: "{#", options: .backwards, range: line)
+        guard open.location != NSNotFound,
+              ManuscriptAttributes.split(text.substring(with: line)).label != nil else { return nil }
+        return NSRange(location: open.location, length: NSMaxRange(line) - open.location)
     }
 
     // MARK: - Helpers
@@ -258,18 +325,14 @@ public struct MarkdownTokenizer: Sendable {
         fullRange: NSRange,
         pattern: String,
         into tokens: inout [Token],
+        claims: inout TokenClaims,
         _ build: (NSTextCheckingResult) -> [Token]
     ) {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
         regex.enumerateMatches(in: nsText as String, options: [], range: fullRange) { match, _, _ in
             guard let match else { return }
-            // Skip if any of the new tokens overlap with already-classified ranges
-            let candidates = build(match)
-            for c in candidates {
-                if !tokens.contains(where: { $0.range.intersection(c.range) != nil }) {
-                    tokens.append(c)
-                }
-            }
+            // Skip any new token that overlaps an already-classified range.
+            for c in build(match) { claims.claimIfFree(c, into: &tokens) }
         }
     }
 
@@ -289,5 +352,37 @@ public struct MarkdownTokenizer: Sendable {
             result.append(Token(range: gap, kind: .plain))
         }
         return result
+    }
+}
+
+/// The ranges the tokenizer has claimed so far. A candidate overlapping any
+/// of them is dropped ("the first claim wins"), with exactly the overlap rule
+/// `NSRange.intersection` gives: positive-length ranges overlap when they
+/// share a character; a zero-length range at `loc` overlaps a positive one
+/// covering `loc` (start ≤ loc < end); two zero-length ranges never do.
+/// An `IndexSet` makes each query logarithmic, where the old
+/// `tokens.contains(where:)` scan made the whole tokenize O(tokens²).
+struct TokenClaims {
+    private var covered = IndexSet()
+    /// Locations of the zero-length tokens claimed so far (rare: an empty
+    /// heading at the end of the text).
+    private var empties: [Int] = []
+
+    func overlaps(_ r: NSRange) -> Bool {
+        if r.length == 0 { return covered.contains(r.location) }
+        if covered.intersects(integersIn: r.location..<NSMaxRange(r)) { return true }
+        return empties.contains { $0 >= r.location && $0 < NSMaxRange(r) }
+    }
+
+    /// Appends `token` to `tokens` and claims its range unless it overlaps
+    /// an earlier claim.
+    mutating func claimIfFree(_ token: Token, into tokens: inout [Token]) {
+        guard !overlaps(token.range) else { return }
+        tokens.append(token)
+        if token.range.length == 0 {
+            empties.append(token.range.location)
+        } else {
+            covered.insert(integersIn: token.range.location..<NSMaxRange(token.range))
+        }
     }
 }

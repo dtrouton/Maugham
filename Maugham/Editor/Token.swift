@@ -41,6 +41,42 @@ public struct Token: Equatable, Sendable {
         /// space for markdown line tasks). Painted fully transparent so the
         /// anchor lives in NSTextStorage without being visible to the writer.
         case invisibleAnchor
+
+        // MARK: Report elements (report foundations plan 3a)
+        //
+        // None carries an associated value: `TokenRestyleWindow`'s oracle
+        // compares `(kind, length)`, so a value that could change without the
+        // text changing (a resolved "Figure 3") would make it disagree. The
+        // resolved labels are plan 3b's drawn overlay, never a token payload.
+
+        /// A table's unescaped `|` pipes, and its whole delimiter row.
+        case tableSyntax
+        /// One header-row cell's text (trimmed). An OVERLAY: appended after
+        /// the gap fill like `taskBody`, so emphasis, citations and footnote
+        /// references inside a header cell keep their own tokens; the paint
+        /// adds the bold trait on top of whatever font they set.
+        case tableHeader
+        /// A table's `Table: …` caption line, up to its `{#…}` block.
+        case tableCaption
+        /// The whole table, header row through caption line. An OVERLAY with
+        /// no styling of its own: it is how a caret finds its enclosing table
+        /// (`MarkdownTokenizer.tableBlockRange(containing:in:)`).
+        case tableBlock
+        /// `[^label]` inside a sentence.
+        case footnoteReference
+        /// `[^label]:` at the head of a footnote definition.
+        case footnoteLabel
+        /// `[@key]`, `[@key, p. 12]`, `[@a; @b]` (as `ManuscriptInlineScanner`
+        /// ranges it).
+        case citation
+        /// `@fig:name`, or `[@fig:name]` in brackets.
+        case crossReference
+        /// A figure line's `![` and its `](path)`; the caption between stays
+        /// prose.
+        case figureSyntax
+        /// A trailing `{#kind:name}` label on a heading, a table caption or a
+        /// figure line.
+        case attributeBlock
     }
 
     public let range: NSRange

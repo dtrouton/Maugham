@@ -328,28 +328,11 @@ extension EditorCoordinator {
         onElementChanged?(currentElementAbbreviation(in: textView))
     }
 
-    /// Smallest paragraph-aligned character range (in NEW-text coordinates)
-    /// covering everything that changed between `old` and `new`, via a common-
-    /// prefix / common-suffix scan (the divergence is localized near the edit,
-    /// so this is cheap even on a long document). Expanded to whole paragraphs so
-    /// paragraph-level attributes re-apply cleanly. Returns nil when identical or
-    /// the new text is empty. Token-free, so it works for plain prose.
+    /// The typing path's paint window: `TypingRestyleWindow.changedBlockWindow`
+    /// (the character diff widened to whole blank-line blocks). Pinned by
+    /// `WindowedTypographyEquivalenceTests`.
     private func changedParagraphWindow(old: NSString, new: NSString) -> NSRange? {
-        let oldLen = old.length, newLen = new.length
-        if newLen == 0 { return nil }
-        var prefix = 0
-        let maxPrefix = min(oldLen, newLen)
-        while prefix < maxPrefix,
-              old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
-        if prefix == oldLen, prefix == newLen { return nil }  // identical
-        var suffix = 0
-        let maxSuffix = min(oldLen, newLen) - prefix
-        while suffix < maxSuffix,
-              old.character(at: oldLen - 1 - suffix)
-                == new.character(at: newLen - 1 - suffix) { suffix += 1 }
-        let loc = min(prefix, newLen - 1)
-        let len = max(0, min(newLen - prefix - suffix, newLen - loc))
-        return new.paragraphRange(for: NSRange(location: loc, length: len))
+        TypingRestyleWindow.changedBlockWindow(old: old, new: new)
     }
 
     /// Posts `.maughamScriptDidUpdate` carrying `script`. When `debounced`,
