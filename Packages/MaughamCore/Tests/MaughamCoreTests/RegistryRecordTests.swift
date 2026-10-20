@@ -257,4 +257,38 @@ final class RegistryRecordTests: XCTestCase {
 
         XCTAssertEqual(try RegistryCanonical.bytes(of: back), bytes)
     }
+
+    // MARK: - DeviceRecord round trip (#102 SW6)
+
+    /// Every field set, claim present and absent: encode then decode must give
+    /// back an equal record. A field missing from `CodingKeys` or `init(from:)`
+    /// fails here.
+    func test_aDeviceRecordWithEveryFieldSetRoundTrips() throws {
+        let creds = OpLogChain.Credentials(key: "k1", pub: "p1", sig: "s1")
+        let claim = PersonClaim(
+            personKey: "pk", personPub: "pp", name: "Denver",
+            sig: OpLogChain.Credentials(key: "k2", pub: "p2", sig: "s2"))
+
+        for personClaim in [claim, nil] as [PersonClaim?] {
+            let record = DeviceRecord(
+                device: "aaaa", name: "Denver's Mac", kind: .unknown("tablet"),
+                actors: ["author": "aaaa", "assistant": "bbbb", "future": "cccc"],
+                madeAt: Date(timeIntervalSince1970: 1_700_000_000),
+                retiredAt: Date(timeIntervalSince1970: 1_800_000_000),
+                personClaim: personClaim, sig: creds)
+
+            let bytes = try RegistryCanonical.bytes(of: record)
+            let back = try RegistryCanonical.decoder().decode(DeviceRecord.self, from: bytes)
+
+            XCTAssertEqual(back, record)
+            XCTAssertEqual(back.device, record.device)
+            XCTAssertEqual(back.name, record.name)
+            XCTAssertEqual(back.kind, record.kind)
+            XCTAssertEqual(back.actors, record.actors)
+            XCTAssertEqual(back.madeAt, record.madeAt)
+            XCTAssertEqual(back.retiredAt, record.retiredAt)
+            XCTAssertEqual(back.personClaim, record.personClaim)
+            XCTAssertEqual(back.sig, record.sig)
+        }
+    }
 }
