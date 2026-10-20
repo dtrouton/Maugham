@@ -92,6 +92,29 @@ final class CitationStyleTests: XCTestCase {
         XCTAssertFalse(text.contains(". ."))
     }
 
+    /// I2 (final review): the a/b letter the in-text label carries is printed
+    /// in the References entry's year too, or "(Smith 2026a)" matches nothing.
+    func test_sameNameAndYear_theReferenceEntryCarriesTheInTextLetter() {
+        let out = CitationStyle.disambiguated([
+            entry("b", authors: ["Smith, Jane"], sourceTitle: "Zebra"),
+            entry("a", authors: ["Smith, Jane"], sourceTitle: "Apple")])
+        XCTAssertEqual(out.map { CitationStyle.inText([CitationItem(key: $0.entry.info.key, locator: nil)],
+                                                      labels: [$0.entry.info.key: $0.label]) },
+                       ["(Smith 2026a)", "(Smith 2026b)"])
+        XCTAssertEqual(out.map { CitationStyle.referenceEntry($0.entry, label: $0.label).map(\.text).joined() },
+                       ["Smith, Jane. 2026a. Apple.", "Smith, Jane. 2026b. Zebra."])
+    }
+
+    /// A no-year duplicate reads "n.d.-a" in both places (never "n.d.a").
+    func test_sameNameNoYear_theLetterFollowsAHyphenInBothPlaces() {
+        let out = CitationStyle.disambiguated([
+            entry("b", authors: ["Gartner"], year: nil, sourceTitle: "Two"),
+            entry("a", authors: ["Gartner"], year: nil, sourceTitle: "One")])
+        XCTAssertEqual(out.map(\.label), ["Gartner n.d.-a", "Gartner n.d.-b"])
+        XCTAssertEqual(out.map { CitationStyle.referenceEntry($0.entry, label: $0.label).map(\.text).joined() },
+                       ["Gartner. n.d.-a. One.", "Gartner. n.d.-b. Two."])
+    }
+
     func test_library_walksChildren_firstDuplicateWins_andListsKeys() {
         let child = ResearchItem(id: "child", title: "Child", type: .asset,
                                  citation: CitationInfo(key: "k", year: 1))

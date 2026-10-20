@@ -80,12 +80,16 @@ public enum CitationStyle {
             guard counts[f]! > 1 else { return (e, b) }
             let n = seen[f, default: 0]
             seen[f] = n + 1
-            return (e, b + letters(n))
+            // "2026a", but "n.d.-a": a letter straight after "n." reads as
+            // part of the abbreviation (Chicago's form).
+            return (e, b + (e.info.year == nil ? "-" : "") + letters(n))
         }
     }
 
     /// "Author(s). Year. *Title*. Publisher. URL (accessed 3 March 2026)."
-    /// Omitted parts drop with their punctuation.
+    /// Omitted parts drop with their punctuation. The year is the label's own
+    /// (`disambiguated`'s), letter and all — "2026a.", "n.d.-a." — so an
+    /// in-text "(Smith 2026a)" finds its entry.
     public static func referenceEntry(_ entry: CitationLibrary.Entry, label: String) -> [Run] {
         let info = entry.info
         var runs: [Run] = []
@@ -96,7 +100,7 @@ public enum CitationStyle {
         let authors = info.authors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         if !authors.isEmpty { sentence(ensurePeriod(authors.joined(separator: "; "))) }
-        sentence(info.year.map { "\($0)." } ?? "n.d.")
+        sentence(ensurePeriod(yearPart(of: label, entry: entry)))
         if !runs.isEmpty { runs.append(Run(text: " ", italic: false)) }
         runs.append(Run(text: titleText(entry), italic: true))
         runs.append(Run(text: ".", italic: false))
@@ -109,6 +113,16 @@ public enum CitationStyle {
     }
 
     // MARK: - Private
+
+    /// The label after its name: "2026a" from "Smith 2026a". A label that is
+    /// not this entry's (never, from `disambiguated`) falls back to the year.
+    private static func yearPart(of label: String, entry: CitationLibrary.Entry) -> String {
+        let head = name(entry) + " "
+        if label.hasPrefix(head), label.count > head.count {
+            return String(label.dropFirst(head.count))
+        }
+        return entry.info.year.map(String.init) ?? "n.d."
+    }
 
     private static func titleText(_ e: CitationLibrary.Entry) -> String {
         if let t = e.info.sourceTitle, !t.isEmpty { return t }

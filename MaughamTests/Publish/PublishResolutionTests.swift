@@ -206,6 +206,9 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.references.count, 2)
         XCTAssertEqual(r.referenceKeys, ["s1", "s2"], "the cited keys, in References order")
         XCTAssertEqual(r.references.first?.first?.text, "Smith, Jane.")
+        XCTAssertEqual(r.references.map { $0.map(\.text).joined() },
+                       ["Smith, Jane. 2026a. Alpha.", "Smith, John. 2026b. Beta."],
+                       "each entry carries its in-text letter (I2)")
         XCTAssertEqual(r.problems, [])
     }
 
