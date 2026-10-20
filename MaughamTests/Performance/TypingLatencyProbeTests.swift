@@ -498,8 +498,7 @@ final class TypingLatencyProbeTests: XCTestCase {
     func test_proseTokenizeOfAReportCorpusScalesLinearly() {
         let small = Self.generateProse(bytes: 125_000, report: true)
         let large = Self.generateProse(bytes: 500_000, report: true)
-        let t125 = Self.medianTokenizeMs(small)
-        let t500 = Self.medianTokenizeMs(large)
+        let (t125, t500) = Self.fastestTokenizeMs(small, large)
         let ratio = t500 / t125
         XCTAssertLessThan(ratio, 8,
             "tokenize time grew \(ratio)× for 4× the text (125 KB \(t125) ms → 500 KB \(t500) ms): "
@@ -508,21 +507,29 @@ final class TypingLatencyProbeTests: XCTestCase {
             "tokenizing a 500 KB report manuscript took \(t500) ms (catastrophe guard)")
     }
 
-    /// Median of 5 `ProseMode.tokenize` runs after one warm-up, in ms.
-    private static func medianTokenizeMs(_ text: String) -> Double {
+    /// The FASTEST of 7 `ProseMode.tokenize` runs of each text, in ms, after
+    /// one warm-up each, the two texts' runs interleaved (whole-branch review
+    /// M6). A loaded gate only ever adds time, so the minimum is the run least
+    /// disturbed by it; interleaving puts any load that comes and goes on both
+    /// sides of the ratio alike. A median of separate batches let a load that
+    /// shifted between the batches skew the ratio.
+    private static func fastestTokenizeMs(_ a: String, _ b: String) -> (Double, Double) {
         let mode = ProseMode()
-        _ = mode.tokenize(text)
+        _ = mode.tokenize(a)
+        _ = mode.tokenize(b)
         let clock = ContinuousClock()
-        var runs: [Double] = []
-        for _ in 0..<5 {
+        func ms(_ text: String) -> Double {
             let t = clock.now
             _ = mode.tokenize(text)
             let d = clock.now - t
-            runs.append(Double(d.components.seconds) * 1000
-                        + Double(d.components.attoseconds) / 1e15)
+            return Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
         }
-        runs.sort()
-        return runs[runs.count / 2]
+        var fastestA = Double.infinity, fastestB = Double.infinity
+        for _ in 0..<7 {
+            fastestA = min(fastestA, ms(a))
+            fastestB = min(fastestB, ms(b))
+        }
+        return (fastestA, fastestB)
     }
 
     /// M3 (spec §7) assertion: the typing-path pause-edge batch — what the
