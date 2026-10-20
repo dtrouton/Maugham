@@ -4685,7 +4685,7 @@ final class CompilerRunCommandTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: harness.diagnostics.roundHistory(docId: docId),
                 run: harness.diagnostics.lastRun(docId: docId),
-                annotations: []),
+                annotations: [], passes: []),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
     }
 
@@ -5782,7 +5782,7 @@ final class CompilerRunCommandTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: fx.diagnostics.roundHistory(docId: "ch-1"),
                 run: fx.diagnostics.lastRun(docId: "ch-1"),
-                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil))),
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil)), passes: []),
             "Since round 1: 0 resolved \u{00b7} 2 persisting \u{00b7} 0 new",
             "a same-lane re-raise adds no clause to the line")
     }
@@ -6152,7 +6152,7 @@ final class CompilerRunCommandTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: fx.diagnostics.roundHistory(docId: "ch-1"),
                 run: fx.diagnostics.lastRun(docId: "ch-1"),
-                annotations: queue),
+                annotations: queue, passes: []),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 0 new")
     }
 
@@ -6354,7 +6354,7 @@ final class CompilerRunCommandTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: fx.diagnostics.roundHistory(docId: "ch-1"),
                 run: structuralTwo,
-                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil))),
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil)), passes: []),
             "Since round 1: 0 resolved \u{00b7} 1 persisting \u{00b7} 0 new",
             "counted once, as persisting, with no cross-lane clause beside it")
 
@@ -6378,7 +6378,7 @@ final class CompilerRunCommandTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: fx.diagnostics.roundHistory(docId: "ch-1"),
                 run: lineTwo,
-                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil))),
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil)), passes: []),
             "Since round 1: 0 resolved \u{00b7} 1 persisting \u{00b7} 0 new")
 
         // **The mirror: a lane holding neither counts ONE, not two.** Both open

@@ -692,7 +692,11 @@ struct DiagnosticsPane: View {
                 // the moment the state leaves `.running`.
                 if case .running = state {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(Self.headerCopy(for: state, wetInk: wetInk, now: context.date))
+                        // No queue read at 1 Hz: `.running` never reaches
+                        // the `.clean` arm the queue feeds.
+                        Text(Self.headerCopy(
+                            for: state, wetInk: wetInk, now: context.date,
+                            annotations: [], passes: []))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -999,9 +1003,12 @@ struct DiagnosticsPane: View {
     /// `annotations`/`passes` feed `RoundNarrative.openElsewhere` (#53) — the
     /// queue and the ladder, so the cross-lane arm is live: a finding the
     /// writer has since settled in the other pass gives the seal back.
+    /// REQUIRED, not defaulted: an empty queue over a new run reads as nothing
+    /// held elsewhere, and the seal would stand over a finding the writer is
+    /// holding — #42 I1's false clean bill.
     static func headerCopy(
         for state: HeaderState, wetInk: WetInk = .none, now: Date = Date(),
-        annotations: [Annotation] = [], passes: [ReviewPass] = []
+        annotations: [Annotation], passes: [ReviewPass]
     ) -> String {
         switch state {
         case .neverRun:
@@ -1841,7 +1848,7 @@ struct DiagnosticsPane: View {
     static func emptyState(
         for state: HeaderState, wetInk: WetInk = .none,
         readerName: String = AuthorReader.nobody.editorName,
-        annotations: [Annotation] = [], passes: [ReviewPass] = []
+        annotations: [Annotation], passes: [ReviewPass]
     ) -> (title: String, symbol: String, description: String) {
         // **Ordered above every arm below**, including the failure and
         // never-run ones, is deliberate only in appearance: `wetInk` is

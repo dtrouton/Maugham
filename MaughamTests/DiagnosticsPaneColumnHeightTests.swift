@@ -62,7 +62,7 @@ private struct ThreeColumnHarness<Detail: View>: View {
 private struct UnbreakableSentencePane: View {
     var body: some View {
         VStack(spacing: 0) {
-            Text(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date())))
+            Text(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []))
                 .font(.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8).padding(.vertical, 6)
@@ -232,7 +232,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
     /// told nothing — so it must wrap rather than truncate. It does, without the
     /// modifier: same measurement, same reasoning, the longer sentence.
     func test_theHeadersFailureSentenceStillWraps() {
-        assertWraps(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date())),
+        assertWraps(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []),
                     font: .caption, at: 240)
     }
 

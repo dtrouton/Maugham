@@ -292,12 +292,12 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_aFirstRoundsCostIsASentenceOfItsOwn() {
         var run = makeRun(round: 1, passId: "line", freshEyes: nil)
         XCTAssertNil(
-            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: []),
+            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: [], passes: []),
             "no comparison, no fresh eyes and no timing is nothing to say")
 
         run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
         XCTAssertEqual(
-            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: []),
+            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: [], passes: []),
             "Read in 4m 12s.")
     }
 
@@ -409,7 +409,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertEqual(
             ReviewRoundCockpit.reportLine(
                 history: [makeRecord(round: 2, passId: "copyedit")],
-                run: run, annotations: []),
+                run: run, annotations: [], passes: []),
             "Fresh eyes \u{00b7} round 3",
             "a fresh-eyes round says what it IS, in the slot the comparison "
             + "would have taken")
@@ -419,7 +419,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let run = makeRun(round: 3, passId: "copyedit", freshEyes: nil)
         let line = ReviewRoundCockpit.reportLine(
             history: [makeRecord(round: 2, passId: "copyedit")],
-            run: run, annotations: [])
+            run: run, annotations: [], passes: [])
         XCTAssertEqual(line, "Since round 2: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
     }
 
@@ -428,9 +428,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_theReportLineIsSilentForAPasslessRun() {
         XCTAssertNil(ReviewRoundCockpit.reportLine(
             history: [], run: makeRun(round: nil, passId: nil, freshEyes: nil),
-            annotations: []))
+            annotations: [], passes: []))
         XCTAssertNil(ReviewRoundCockpit.reportLine(
-            history: [], run: nil, annotations: []))
+            history: [], run: nil, annotations: [], passes: []))
     }
 
     // MARK: - The empty queue teaches the loop

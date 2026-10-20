@@ -65,7 +65,7 @@ struct ReviewRoundCockpit: View {
     let round: Int?
     let phase: RunPhase
     /// What the last round says about itself — the fresh-eyes header or the
-    /// since-last-round comparison, resolved by `reportLine(history:run:annotations:)`.
+    /// since-last-round comparison, resolved by `reportLine(history:run:annotations:passes:)`.
     /// `nil` when there is no round to report on.
     let reportLine: String?
     /// **When the round in flight began, and how far it has got** (spec
@@ -352,7 +352,7 @@ struct ReviewRoundCockpit: View {
     /// candidates read it through the one projection, `openElsewhere`.
     static func reportLine(
         history: [RoundRecord], run: CompilerRun?, annotations: [Annotation],
-        passes: [ReviewPass] = []
+        passes: [ReviewPass]
     ) -> String? {
         let line = RoundNarrative.freshEyesHeader(
             run: run, annotations: annotations, passes: passes)

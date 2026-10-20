@@ -231,7 +231,7 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
     func test_thePlantedOffenderIsSeenByTheSameMeasurement() async throws {
         let window = try await mountColumns {
             VStack(spacing: 0) {
-                Text(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date())))
+                Text(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []))
                     .font(.caption)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8).padding(.vertical, 6)

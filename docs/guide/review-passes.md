@@ -151,8 +151,10 @@ that you've settled since the last one, notes from an earlier round still
 open in front of you, and notes this round raised. A finding this round
 raised that you're holding in another pass's lane is counted separately, and
 named — *"1 still open in Structural"*, or *"2 still open in Structural and
-Line"* — since the three counts read only the pass the round was run in. Like
-them it's live: settle that note in Structural and the clause goes. (A round
+Line"* — since the three counts read only the pass the round was run in. A
+note from one of your Author checks, which are filed in no lane, is named
+*"your checks"*. Like the three counts it's live: settle that note in
+Structural and the clause goes. (A round
 filed before this version says *"1 was already open in another lane"*.) Round numbers are per pass, but the memory is the document's, not
 any one pass's: Maugham remembers a document's last six finished rounds,
 across every pass it's been worked through. Run enough rounds in other

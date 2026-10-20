@@ -192,7 +192,7 @@ enum RoundNarrative {
     /// what names the lane a matched note is open in.
     static func sinceLastRoundLine(
         history: [RoundRecord], run: CompilerRun?, annotations: [Annotation],
-        passes: [ReviewPass] = []
+        passes: [ReviewPass]
     ) -> String? {
         guard let run, let round = run.round, run.freshEyes != true else { return nil }
         guard let previous = history.last(where: {
@@ -256,8 +256,8 @@ enum RoundNarrative {
         let heldIn = laneNames(lanes, passes: passes)
         return (clause: "\(count) still open in \(heldIn)",
                 sentence: count == 1
-                    ? "1 finding this check raised is still open in \(heldIn)."
-                    : "\(count) findings this check raised are still open in \(heldIn).")
+                    ? "1 finding it raised is still open in \(heldIn)."
+                    : "\(count) findings it raised are still open in \(heldIn).")
     }
 
     /// **The lanes holding a finding, in words** — "Structural", "Structural
@@ -265,14 +265,18 @@ enum RoundNarrative {
     ///
     /// Named through `ReviewPass.pass(id:in:)` and its `laneDisplayName`, the
     /// one spelling the board uses (the coach answers her editor's name), in
-    /// ladder order. A lane with no name — a passless check's notes, or a
-    /// pass the project no longer lists — is never drawn as its raw id: it
-    /// reads "another lane" ("other lanes" for several), last.
+    /// ladder order. Nothing is ever drawn as its raw id: a note filed in no
+    /// lane is an Author check's and reads "your checks" (a check is "filed
+    /// in no lane", so "another lane" would name a lane that does not exist),
+    /// listed like a pass after the ladder; a pass the project no longer
+    /// lists reads "another lane" ("other lanes" for several), last.
     static func laneNames(_ lanes: Set<String?>, passes: [ReviewPass]) -> String {
         var named: [(rank: Int, name: String)] = []
         var unnamed = 0
+        var checks = false
         for lane in lanes {
-            guard let id = lane, let pass = ReviewPass.pass(id: id, in: passes) else {
+            guard let id = lane else { checks = true; continue }
+            guard let pass = ReviewPass.pass(id: id, in: passes) else {
                 unnamed += 1
                 continue
             }
@@ -282,6 +286,7 @@ enum RoundNarrative {
         var words = named
             .sorted { ($0.rank, $0.name) < ($1.rank, $1.name) }
             .map(\.name)
+        if checks { words.append("your checks") }
         if unnamed == 1 { words.append("another lane") }
         if unnamed > 1 { words.append("other lanes") }
         guard let last = words.popLast() else { return "another lane" }
@@ -348,7 +353,7 @@ enum RoundNarrative {
     /// Read through `openElsewhere`, the since-line's own projection, so it
     /// is live too (#53).
     static func freshEyesHeader(
-        run: CompilerRun?, annotations: [Annotation] = [], passes: [ReviewPass] = []
+        run: CompilerRun?, annotations: [Annotation], passes: [ReviewPass]
     ) -> String? {
         guard let run, run.freshEyes == true else { return nil }
         var header = "Fresh eyes"

@@ -182,7 +182,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             checking: counts(new: 457, revised: 0), since: since,
             progress: RunProgress(thinkingTokens: 12_400, at: since))
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: state, now: since.addingTimeInterval(130)),
+            DiagnosticsPane.headerCopy(for: state, now: since.addingTimeInterval(130), annotations: [], passes: []),
             "Checking 457 new paragraphs\u{2026} 2m 10s \u{00b7} thinking (12k tokens)")
     }
 
@@ -190,9 +190,9 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// exactly what it did before.
     func test_theIdleHeaderCarriesReadIn() throws {
         var run = makeRun()
-        XCTAssertFalse(DiagnosticsPane.headerCopy(for: .idle(lastRun: run)).contains("read in"))
+        XCTAssertFalse(DiagnosticsPane.headerCopy(for: .idle(lastRun: run), annotations: [], passes: []).contains("read in"))
         run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
-        XCTAssertTrue(DiagnosticsPane.headerCopy(for: .idle(lastRun: run))
+        XCTAssertTrue(DiagnosticsPane.headerCopy(for: .idle(lastRun: run), annotations: [], passes: [])
             .hasSuffix(" \u{00b7} read in 4m 12s"))
     }
 
@@ -203,13 +203,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// because the sentence is what the writer reads.
     func test_theCleanHeaderCarriesReadIn() throws {
         var run = makeRun()
-        let untimed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        let untimed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run), annotations: [], passes: [])
         XCTAssertTrue(untimed.hasPrefix("Nothing to flag. Last checked "), untimed)
         XCTAssertFalse(untimed.contains("read in"),
                        "a run filed before timing existed says what it always did: \(untimed)")
 
         run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
-        let timed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        let timed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run), annotations: [], passes: [])
         XCTAssertEqual(timed,
                        String(untimed.dropLast()) + " \u{00b7} read in 4m 12s.",
                        "the suffix belongs inside the sentence, before the full stop")
@@ -224,20 +224,20 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theRunningHeaderSaysWhatItIsReading() {
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(
-                for: .running(checking: counts(new: 14, revised: 0), since: nil, progress: nil)),
+                for: .running(checking: counts(new: 14, revised: 0), since: nil, progress: nil), annotations: [], passes: []),
             "Checking 14 new paragraphs\u{2026}")
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(
-                for: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil)),
+                for: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil), annotations: [], passes: []),
             "Checking 1 new paragraph\u{2026}",
             "one paragraph is not \u{201C}1 new paragraphs\u{201D}")
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(
-                for: .running(checking: counts(new: 0, revised: 3), since: nil, progress: nil)),
+                for: .running(checking: counts(new: 0, revised: 3), since: nil, progress: nil), annotations: [], passes: []),
             "Checking 3 revised paragraphs\u{2026}")
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(
-                for: .running(checking: counts(new: 14, revised: 3), since: nil, progress: nil)),
+                for: .running(checking: counts(new: 14, revised: 3), since: nil, progress: nil), annotations: [], passes: []),
             "Checking 14 new and 3 revised paragraphs\u{2026}")
     }
 
@@ -248,7 +248,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theRunningHeaderIsTotalOverCountsADeltaCannotHave() {
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(
-                for: .running(checking: counts(new: 0, revised: 0), since: nil, progress: nil)),
+                for: .running(checking: counts(new: 0, revised: 0), since: nil, progress: nil), annotations: [], passes: []),
             "Checking\u{2026}")
         XCTAssertNil(RoundNarrative.paragraphPhrase(counts(new: 0, revised: 0)))
     }
@@ -257,7 +257,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// sentences about the same two numbers are two things that can disagree.
     func test_theEmptyPaneNamesTheSameDeltaTheHeaderDoes() {
         let empty = DiagnosticsPane.emptyState(
-            for: .running(checking: counts(new: 14, revised: 3), since: nil, progress: nil))
+            for: .running(checking: counts(new: 14, revised: 3), since: nil, progress: nil), annotations: [], passes: [])
         XCTAssertEqual(empty.title, "Checking\u{2026}")
         XCTAssertTrue(empty.description.contains("14 new and 3 revised paragraphs"),
                       "got: \(empty.description)")
@@ -593,7 +593,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(state,
                        .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil),
                        "a section arriving must not end the wait")
-        XCTAssertEqual(DiagnosticsPane.headerCopy(for: state), "Checking 1 new paragraph\u{2026}")
+        XCTAssertEqual(DiagnosticsPane.headerCopy(for: state, annotations: [], passes: []), "Checking 1 new paragraph\u{2026}")
     }
 
     /// **Opening the pane mid-check must not blink the report away.**
@@ -918,17 +918,17 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// that died never looked. Each state's copy is asserted rather than
     /// falling through to a `default:`.
     func test_emptyState_neverSealsARunThatDidNotHappen() {
-        let failed = DiagnosticsPane.emptyState(for: .failed(.cliNotFound, at: Date()))
+        let failed = DiagnosticsPane.emptyState(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: [])
         XCTAssertNotEqual(failed.symbol, "checkmark.seal")
         XCTAssertFalse(failed.title.contains("Nothing to flag"))
 
         let running = DiagnosticsPane.emptyState(
-            for: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil))
+            for: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil), annotations: [], passes: [])
         XCTAssertNotEqual(running.symbol, "checkmark.seal")
         XCTAssertFalse(running.title.contains("Nothing to flag"))
 
-        XCTAssertEqual(DiagnosticsPane.emptyState(for: .neverRun).title, "Not checked yet")
-        XCTAssertEqual(DiagnosticsPane.emptyState(for: .clean(lastRun: makeRun())).title,
+        XCTAssertEqual(DiagnosticsPane.emptyState(for: .neverRun, annotations: [], passes: []).title, "Not checked yet")
+        XCTAssertEqual(DiagnosticsPane.emptyState(for: .clean(lastRun: makeRun()), annotations: [], passes: []).title,
                        "Nothing to flag.")
     }
 
@@ -941,7 +941,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// things. The clean run's line now says what it lost.
     func test_aRunThatDiscardedEveryNote_saysSoInsteadOfAClaimingCleanBill() {
         let run = makeRun(droppedDangling: 3)
-        let line = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        let line = DiagnosticsPane.headerCopy(for: .clean(lastRun: run), annotations: [], passes: [])
 
         XCTAssertTrue(line.contains("Nothing to flag."),
             "the run genuinely raised nothing that could be placed")
@@ -952,7 +952,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertFalse(line.lowercased().contains("unknown paragraph"),
             "the parser's vocabulary is not the writer's, and it reads as their fault")
 
-        let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: run))
+        let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: run), annotations: [], passes: [])
         XCTAssertNotEqual(empty.symbol, "checkmark.seal",
             "the seal is for a run with nothing to say, not one that was mistranscribed")
         XCTAssertNotEqual(empty.symbol, "exclamationmark.triangle",
@@ -965,11 +965,11 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// and says nothing more.
     func test_aGenuinelyCleanRunKeepsTheSealAndSaysNothingMore() {
         let run = makeRun(droppedDangling: 0)
-        let line = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        let line = DiagnosticsPane.headerCopy(for: .clean(lastRun: run), annotations: [], passes: [])
 
         XCTAssertTrue(line.hasPrefix("Nothing to flag."))
         XCTAssertFalse(line.contains("discarded"), "got: \(line)")
-        XCTAssertEqual(DiagnosticsPane.emptyState(for: .clean(lastRun: run)).symbol,
+        XCTAssertEqual(DiagnosticsPane.emptyState(for: .clean(lastRun: run), annotations: [], passes: []).symbol,
                        "checkmark.seal")
     }
 
@@ -1165,7 +1165,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_coach() {
         let reader = AuthorReader.coach(ReviewPass.coachPreset)
         let header = DiagnosticsPane.readerCopy(for: reader)
-        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName)
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName, annotations: [], passes: [])
         XCTAssertTrue(header.contains("Le Guin"), "got: \(header)")
         XCTAssertTrue(empty.description.contains("Le Guin"), "got: \(empty.description)")
     }
@@ -1173,13 +1173,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_nobody() {
         let reader = AuthorReader.nobody
         let header = DiagnosticsPane.readerCopy(for: reader)
-        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName)
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName, annotations: [], passes: [])
         XCTAssertTrue(header.contains("Claude"), "got: \(header)")
         XCTAssertTrue(empty.description.contains("Claude"), "got: \(empty.description)")
     }
 
     func test_emptyState_neverRun_promiseNamesTheGivenReader() {
-        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: "Le Guin")
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: "Le Guin", annotations: [], passes: [])
         XCTAssertEqual(empty.description, "Press \u{2318}R and Le Guin reads what you've written.")
     }
 
@@ -1188,7 +1188,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// (and every OTHER `emptyState` test in this file, which passes no
     /// `readerName`) keeps its old behaviour.
     func test_emptyState_neverRun_defaultsToClaudeWhenNoReaderIsGiven() {
-        let empty = DiagnosticsPane.emptyState(for: .neverRun)
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, annotations: [], passes: [])
         XCTAssertEqual(empty.description, "Press \u{2318}R and Claude reads what you've written.")
     }
 
@@ -2157,25 +2157,25 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theCleanCopyDefersToWhatWentToTheQueue() {
         let queued = makeRun(mintedNotes: 1)
         XCTAssertTrue(
-            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued))
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued), annotations: [], passes: [])
                 .hasPrefix("1 note went to your queue."),
-            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued)))
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued), annotations: [], passes: []))
         XCTAssertFalse(
-            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued))
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued), annotations: [], passes: [])
                 .contains("Nothing to flag"))
         XCTAssertEqual(
-            DiagnosticsPane.emptyState(for: .clean(lastRun: queued)).title,
+            DiagnosticsPane.emptyState(for: .clean(lastRun: queued), annotations: [], passes: []).title,
             "Notes in your queue")
 
         // Zero and nil both mean "nothing went anywhere", and neither may
         // invent a sentence claiming a count.
         for nothing in [makeRun(mintedNotes: 0), makeRun()] {
             XCTAssertTrue(
-                DiagnosticsPane.headerCopy(for: .clean(lastRun: nothing))
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: nothing), annotations: [], passes: [])
                     .hasPrefix("Nothing to flag."),
                 "a run that queued nothing must still be allowed to say so")
             XCTAssertEqual(
-                DiagnosticsPane.emptyState(for: .clean(lastRun: nothing)).symbol,
+                DiagnosticsPane.emptyState(for: .clean(lastRun: nothing), annotations: [], passes: []).symbol,
                 "checkmark.seal")
         }
         XCTAssertNil(DiagnosticsPane.queuedNotesSentence(nil))
@@ -2186,11 +2186,11 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// news — the discard is the footnote it has always been.
     func test_theQueuedSentenceOutranksTheDiscardFootnote() {
         let both = makeRun(droppedDangling: 2, mintedNotes: 3)
-        let header = DiagnosticsPane.headerCopy(for: .clean(lastRun: both))
+        let header = DiagnosticsPane.headerCopy(for: .clean(lastRun: both), annotations: [], passes: [])
         XCTAssertTrue(header.hasPrefix("3 notes went to your queue."), header)
         XCTAssertTrue(header.contains("were discarded"), header)
         XCTAssertEqual(
-            DiagnosticsPane.emptyState(for: .clean(lastRun: both)).title,
+            DiagnosticsPane.emptyState(for: .clean(lastRun: both), annotations: [], passes: []).title,
             "Notes in your queue",
             "the discard arm took the empty state back to a seal over a run "
             + "that queued three notes")
@@ -2208,10 +2208,10 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// is silent because there is nothing behind it to be "since".
     func test_theCleanCopyDefersToWhatWasAlreadyOpenInAnotherLane() {
         let elsewhere = makeRun(openInOtherLanes: 1)
-        let header = DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere))
+        let header = DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), annotations: [], passes: [])
         XCTAssertTrue(header.hasPrefix("Nothing new to flag."), header)
 
-        let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: elsewhere))
+        let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: elsewhere), annotations: [], passes: [])
         XCTAssertEqual(empty.title, "Nothing new to flag.")
         XCTAssertTrue(
             empty.description.contains(
@@ -2222,7 +2222,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                        + empty.description)
 
         // Plural, from the one helper both wordings live in.
-        let many = DiagnosticsPane.emptyState(for: .clean(lastRun: makeRun(openInOtherLanes: 2)))
+        let many = DiagnosticsPane.emptyState(for: .clean(lastRun: makeRun(openInOtherLanes: 2)), annotations: [], passes: [])
         XCTAssertTrue(
             many.description.contains("was already open in other passes' queues"),
             many.description)
@@ -2234,10 +2234,10 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theSealStandsOverARoundThatCrossedNoLane() {
         for quiet in [makeRun(openInOtherLanes: 0), makeRun()] {
             XCTAssertTrue(
-                DiagnosticsPane.headerCopy(for: .clean(lastRun: quiet))
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: quiet), annotations: [], passes: [])
                     .hasPrefix("Nothing to flag."),
-                DiagnosticsPane.headerCopy(for: .clean(lastRun: quiet)))
-            let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: quiet))
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: quiet), annotations: [], passes: []))
+            let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: quiet), annotations: [], passes: [])
             XCTAssertEqual(empty.title, "Nothing to flag.")
             XCTAssertEqual(empty.symbol, "checkmark.seal")
             XCTAssertEqual(
@@ -2253,11 +2253,11 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theQueuedSentenceOutranksTheCrossLaneClause() {
         let both = makeRun(mintedNotes: 2, openInOtherLanes: 1)
         XCTAssertTrue(
-            DiagnosticsPane.headerCopy(for: .clean(lastRun: both))
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: both), annotations: [], passes: [])
                 .hasPrefix("2 notes went to your queue."),
-            DiagnosticsPane.headerCopy(for: .clean(lastRun: both)))
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: both), annotations: [], passes: []))
         XCTAssertEqual(
-            DiagnosticsPane.emptyState(for: .clean(lastRun: both)).title,
+            DiagnosticsPane.emptyState(for: .clean(lastRun: both), annotations: [], passes: []).title,
             "Notes in your queue")
     }
 
@@ -2269,9 +2269,9 @@ final class DiagnosticsPaneTests: XCTestCase {
         let elsewhere = makeRun(openInOtherLanes: 1)
         for ink in [DiagnosticsPane.WetInk.showing, .settled] {
             XCTAssertTrue(
-                DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink)
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink, annotations: [], passes: [])
                     .hasPrefix("Nothing to flag."),
-                DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink))
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink, annotations: [], passes: []))
         }
     }
 
@@ -2301,7 +2301,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(held.title, "Nothing new to flag.")
         XCTAssertTrue(
             held.description.hasPrefix(
-                "1 finding this check raised is still open in Structural."),
+                "1 finding it raised is still open in Structural."),
             held.description)
 
         let settled = [note(.stetted)]
