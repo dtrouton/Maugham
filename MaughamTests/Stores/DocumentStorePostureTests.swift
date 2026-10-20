@@ -685,7 +685,7 @@ final class DocumentStorePostureTests: XCTestCase {
         XCTAssertEqual(store.posture(forDocId: Self.docId), .author)
         XCTAssertEqual(store.posture(forDocId: "doc-not-open"), .author)
         XCTAssertEqual(cache.identityNeedsForTesting(about: projectURL), 0,
-                       "no registry was resolved, anywhere")
+                       "no registry was resolved for this book")
         XCTAssertEqual(cache.identityNeedsForTesting(about: nil), 0,
                        "nor the identity asked about no project at all")
 
@@ -719,6 +719,10 @@ final class DocumentStorePostureTests: XCTestCase {
     /// ("0")` — while the per-project count keeps the resolve where it
     /// belongs: the registered book's, none of the next one's. The other seams
     /// are left as they are, so nothing here reaches this machine's own keys.
+    ///
+    /// **This test pins the defect it reproduces.** If the seam is ever pinned
+    /// per store (#97), these assertions flip: delete this test then. The
+    /// per-project assertions in the registerless test still stand.
     func test_aLateRefreshFromAnotherBookResolvesInTheInstalledCache() async throws {
         beASigningMac()
         _ = try makeForeignRoot()

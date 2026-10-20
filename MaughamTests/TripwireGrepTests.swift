@@ -5010,8 +5010,9 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Self-check: the census FIRES on a planted offender — directly, through a
     /// method, through a computed property, through a method in an extension
-    /// (this file's or another's) and through a hook assigned a method
-    /// reference — and stays quiet on `@State`,
+    /// (this file's or another's), through a hook assigned a method reference,
+    /// and as a stored closure property assigned whole — and stays quiet on `@State`,
+    /// the `itemIndex` value copy,
     /// the allowed names, member access on something else, labels and comments.
     /// It also refuses (throws) when it cannot find `load()` or its closures.
     func test_canvasLoadClosureCensusFiresOnAPlantedOffender() throws {
@@ -5039,6 +5040,7 @@ final class TripwireGrepTests: XCTestCase {
                 model.onSceneReplacedByUndo = { tidy() }
                 model.onTick = tick
                 model.onLater = self.later
+                model.onHook = selectTheProjectRow
             }
             private func rebuild(subject: Int) { _ = self.itemIndex }
             private func tidy() { _ = currentTitle }
@@ -5058,11 +5060,12 @@ final class TripwireGrepTests: XCTestCase {
         """
         let census = try Self.canvasLoadClosureCensus(of: planted, extensions: [elsewhere])
         XCTAssertEqual(census.callbacks.sorted(),
-                       ["beforeFlush", "onLater", "onRevealRequested", "onSceneChangedExternally",
+                       ["beforeFlush", "onHook", "onLater", "onRevealRequested", "onSceneChangedExternally",
                         "onSceneReplacedByUndo", "onTick"],
-            "Self-check: every `model.<callback> = {` and every hook assigned a view "
-            + "method is found, and the plain `model.itemIndex = itemIndex` value "
-            + "copy is not a capture.")
+            "Self-check: every `model.<callback> = {`, every hook assigned a view "
+            + "method and every hook assigned a stored closure property is found, "
+            + "and the allow-listed `model.itemIndex = itemIndex` value copy is not "
+            + "a capture.")
         XCTAssertEqual(Set(census.forbidden),
                        ["subject", "pieceTitles", "itemIndex", "selectTheProjectRow"],
             "Self-check: the forbidden list is derived from the source — plain "
@@ -5070,13 +5073,15 @@ final class TripwireGrepTests: XCTestCase {
             + "never a computed property.")
         XCTAssertEqual(census.offenders.sorted(), [
             "beforeFlush → rebuild → itemIndex",
+            "onHook → selectTheProjectRow",
             "onLater → later → helper → pieceTitles",
             "onRevealRequested → selectTheProjectRow",
             "onSceneReplacedByUndo → tidy → currentTitle → pieceTitles",
             "onTick → tick → subject",
         ], "Self-check: a read through `self.`, through a method (#57's shape), "
             + "through a computed property, through an extension in the same file "
-            + "or another, and through a method-reference hook are each caught; "
+            + "or another, through a method-reference hook and a stored closure "
+            + "assigned whole are each caught; "
             + "`@State`, the allowed names, `model.subject`, an argument label, a "
             + "comment and a nested type's extension are not.")
 
@@ -5131,6 +5136,13 @@ final class TripwireGrepTests: XCTestCase {
     /// changes) are the same object for the life of one window's canvas.
     private static let canvasLoadClosureAllowedReads: Set<String> = ["model", "projectRoot", "thumbnails"]
 
+    /// Plain stored properties `load()` may assign to the model directly
+    /// (`model.x = name`), because the assignment is a VALUE copy made now and
+    /// kept current elsewhere — `itemIndex`, which the body's `.onChange`
+    /// re-copies. Any other forbidden name assigned whole is a stored closure
+    /// (or a value nobody refreshes) handed over frozen, and is an offender.
+    private static let canvasLoadValueCopies: Set<String> = ["itemIndex"]
+
     private struct CanvasLoadClosureCensusFailure: Error, CustomStringConvertible {
         let description: String
     }
@@ -5145,7 +5157,9 @@ final class TripwireGrepTests: XCTestCase {
     ///    allowed set, as `callback → member → … → property`.
     /// Members come from the struct body and from every `extension CanvasView`
     /// (not `CanvasView.Nested`) in `text` and in `extensions`. A hook assigned
-    /// a view method (`model.x = someMethod`) is walked like a closure.
+    /// a view method (`model.x = someMethod`) is walked like a closure, and one
+    /// assigned a forbidden stored property outside `canvasLoadValueCopies` is
+    /// itself an offender.
     /// It throws when it cannot find the struct, `load()` or a single closure.
     private static func canvasLoadClosureCensus(of text: String, extensions: [String] = []) throws
         -> (callbacks: [String], forbidden: [String], reachedMembers: Set<String>, offenders: [String]) {
@@ -5269,13 +5283,19 @@ final class TripwireGrepTests: XCTestCase {
 
         // `model.<hook> = someViewMethod` captures the view exactly as a closure
         // does; the "body" walked is the bare name, which the walk below then
-        // follows. A plain value (`model.itemIndex = itemIndex`) is a copy made
-        // now, not a capture, and is left alone.
+        // follows. So does `model.<hook> = someStoredClosure` — a plain stored
+        // property handed over whole is frozen at first appear just as a read
+        // inside a closure is — and its bare name is then itself the offender.
+        // A value copy (`model.itemIndex = itemIndex`, refreshed from the body
+        // on change) is made now, not captured, and is excused by name alone:
+        // `canvasLoadValueCopies`.
         let reference = try NSRegularExpression(
             pattern: #"\bmodel\.([A-Za-z_]\w*)\s*=\s*(?:self\.)?([A-Za-z_]\w*)\b(?!\s*[.(\[?!])"#)
         for m in reference.matches(in: load, range: NSRange(load.startIndex..., in: load)) {
             guard let callback = group(m, 1, in: load), let target = group(m, 2, in: load),
-                  memberBodies[target] != nil else { continue }
+                  memberBodies[target] != nil
+                    || (forbidden.contains(target) && !canvasLoadValueCopies.contains(target))
+            else { continue }
             closures.append((callback, target))
         }
         // An identifier that is not a member access (`model.subject`), not a

@@ -268,7 +268,18 @@ struct DiagnosticsPane: View {
     /// assumption and is left alone: that is a pre-existing question about
     /// where a note lands, not about what this line counts.)
     private var queueAnnotations: [Annotation] {
-        guard let document = paneDocument else { return [] }
+        visibleQueue ?? []
+    }
+
+    /// **The queue, or `nil` when this pane cannot see one** (#53 final
+    /// review) — what the header and the empty state hand
+    /// `RoundNarrative.openElsewhere`. `queueAnnotations`' empty answer is a
+    /// legitimate "no notes to draw", but to the cross-lane arm an empty queue
+    /// says the finding held elsewhere has been settled, and the seal would
+    /// stand over it while a newly selected piece loads. Unseen is passed as
+    /// unseen, and that arm falls back to the run's stored count.
+    private var visibleQueue: [Annotation]? {
+        guard let document = paneDocument else { return nil }
         _ = document.annotationsVersion
         return document.annotations(filter: AnnotationFilter(statuses: nil))
     }
@@ -824,7 +835,7 @@ struct DiagnosticsPane: View {
 
     private var headerLine: String {
         Self.headerCopy(for: state, wetInk: wetInk,
-                        annotations: queueAnnotations, passes: reviewPasses)
+                        annotations: visibleQueue, passes: reviewPasses)
     }
 
     /// The ladder the cross-lane clause names its lanes from (#53) — empty
@@ -1005,10 +1016,11 @@ struct DiagnosticsPane: View {
     /// writer has since settled in the other pass gives the seal back.
     /// REQUIRED, not defaulted: an empty queue over a new run reads as nothing
     /// held elsewhere, and the seal would stand over a finding the writer is
-    /// holding — #42 I1's false clean bill.
+    /// holding — #42 I1's false clean bill. `nil` is "this pane cannot see the
+    /// queue" (`visibleQueue`), which keeps the run's stored count instead.
     static func headerCopy(
         for state: HeaderState, wetInk: WetInk = .none, now: Date = Date(),
-        annotations: [Annotation], passes: [ReviewPass]
+        annotations: [Annotation]?, passes: [ReviewPass]
     ) -> String {
         switch state {
         case .neverRun:
@@ -1220,7 +1232,7 @@ struct DiagnosticsPane: View {
                         thisCheckSection
                         let empty = Self.emptyState(
                             for: state, wetInk: wetInk, readerName: reader.editorName,
-                            annotations: queueAnnotations, passes: reviewPasses)
+                            annotations: visibleQueue, passes: reviewPasses)
                         ContentUnavailableView(
                             empty.title,
                             systemImage: empty.symbol,
@@ -1848,7 +1860,7 @@ struct DiagnosticsPane: View {
     static func emptyState(
         for state: HeaderState, wetInk: WetInk = .none,
         readerName: String = AuthorReader.nobody.editorName,
-        annotations: [Annotation], passes: [ReviewPass]
+        annotations: [Annotation]?, passes: [ReviewPass]
     ) -> (title: String, symbol: String, description: String) {
         // **Ordered above every arm below**, including the failure and
         // never-run ones, is deliberate only in appearance: `wetInk` is

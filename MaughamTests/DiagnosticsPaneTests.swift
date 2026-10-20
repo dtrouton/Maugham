@@ -2315,6 +2315,37 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(sealed.symbol, "checkmark.seal")
     }
 
+    /// **A queue the pane cannot see is not an empty queue** (#53 final
+    /// review). With no matching document — none open, or a newly selected
+    /// piece still loading — the pane passes `nil`, and a new run's held
+    /// finding keeps the stored count's past-tense sentence rather than the
+    /// seal: `[]` would have filtered its ids to nothing and affirmed "Nothing
+    /// to flag." over a finding the writer is holding elsewhere.
+    func test_anUnseenQueueKeepsTheStoredCountInsteadOfTheSeal() {
+        let run = makeRun(openInOtherLanes: 1, openInOtherLanesNoteIds: ["n-1"])
+        let passes = ReviewPass.presets
+
+        XCTAssertTrue(
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: run),
+                                       annotations: nil, passes: passes)
+                .hasPrefix("Nothing new to flag."))
+        let unseen = DiagnosticsPane.emptyState(
+            for: .clean(lastRun: run), annotations: nil, passes: passes)
+        XCTAssertEqual(unseen.title, "Nothing new to flag.")
+        XCTAssertEqual(unseen.symbol, "tray.full")
+        XCTAssertTrue(
+            unseen.description.hasPrefix(
+                "What this check raised was already open in another pass's queue."),
+            unseen.description)
+
+        // The contrast that makes `nil` load-bearing: an empty, VISIBLE queue
+        // is a settled one, and the seal is right there.
+        XCTAssertEqual(
+            DiagnosticsPane.emptyState(
+                for: .clean(lastRun: run), annotations: [], passes: passes).symbol,
+            "checkmark.seal")
+    }
+
     // MARK: - Excerpt chips (requirement 3)
 
     /// **No paragraph id is rendered anywhere on this pane.** Every reference

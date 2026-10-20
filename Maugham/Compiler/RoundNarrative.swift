@@ -232,10 +232,18 @@ enum RoundNarrative {
     ///
     /// `annotations` is the document's queue in any state (the filtering is
     /// here); `passes` is the project's ladder.
+    ///
+    /// **`nil` annotations means the caller cannot see the queue** — the
+    /// Diagnostics pane with no matching document, or one still loading —
+    /// which is not the same as an empty queue (#53 final review). An empty
+    /// queue would filter a new run's ids to nothing and give the seal back
+    /// over a finding the writer is holding elsewhere (#42 I1's false clean
+    /// bill); unseen falls back to the stored count's past-tense sentence,
+    /// which stays true whatever the queue now holds.
     static func openElsewhere(
-        run: CompilerRun, annotations: [Annotation], passes: [ReviewPass]
+        run: CompilerRun, annotations: [Annotation]?, passes: [ReviewPass]
     ) -> (clause: String, sentence: String)? {
-        guard let ids = run.openInOtherLanesNoteIds else {
+        guard let ids = run.openInOtherLanesNoteIds, let annotations else {
             return openInOtherLanes(run.openInOtherLanes)
         }
         let matched = Set(ids)
