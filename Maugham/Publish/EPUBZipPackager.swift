@@ -51,6 +51,19 @@ public enum EPUBZipPackager {
             try cover.data.write(to: oebps.appendingPathComponent(cover.filename),
                                  options: .atomic)
         }
+        // Figure images (R-P2-7), copied file to file, never through memory.
+        // The compile's prepare already read each one whole to name it, so a
+        // copy that fails here lost its file in between: the compile throws
+        // rather than ship a manifest item with nothing behind it.
+        if !pkg.images.isEmpty {
+            let images = oebps.appendingPathComponent("images", isDirectory: true)
+            try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+            for image in pkg.images {
+                // adr-0018-ok: research image packaged into the EPUB
+                try FileManager.default.copyItem(at: image.source,
+                                                 to: images.appendingPathComponent(image.filename))
+            }
+        }
 
         // 4. zip: mimetype first uncompressed, then the rest compressed.
         if FileManager.default.fileExists(atPath: output.path) {

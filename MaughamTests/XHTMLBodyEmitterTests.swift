@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class XHTMLBodyEmitterTests: XCTestCase {
@@ -498,5 +499,313 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains(
             #"<p class="scene-heading" id="p-en-aaaa">INT. ROOM - DAY</p>"#), xhtml)
         XCTAssertFalse(xhtml.contains("<a "), xhtml)
+    }
+}
+
+// MARK: - report elements (report foundations plan 2, Task 6)
+
+/// A book of prose pieces whose paragraphs reconcile, so every node knows its
+/// `¶id`; the context carries the switches and the citable research.
+private struct XHTMLReportBook: ProjectASTBuilder.Source {
+    let pieces: [(id: String, paragraphs: [(id: String, text: String)])]
+    var context: PublishContext = .empty
+    func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+        pieces.map { piece in
+            .init(pieceID: piece.id, title: "Title \(piece.id)", mode: .prose,
+                  displayText: piece.paragraphs.map(\.text).joined(separator: "\n\n"),
+                  paragraphs: piece.paragraphs)
+        }
+    }
+    func publishContext() -> PublishContext { context }
+}
+
+final class XHTMLReportElementEmitterTests: XCTestCase {
+
+    private static let ids = ["a1b2", "c3d4", "e5f6", "g7h8", "j9k0", "m1n2", "p3q4", "r5s6",
+                              "t7v8", "w9x0", "y1z2", "b3c4"]
+
+    private static func context(numberSections: Bool = false, lists: Bool = false,
+                                research: [ResearchItem] = []) -> PublishContext {
+        PublishContext(
+            library: CitationLibrary(items: research), profile: .report,
+            switches: (numberSections: numberSections, listOfFigures: lists, listOfTables: lists),
+            projectURL: nil, piecePaths: [:])
+    }
+
+    private func book(_ paragraphs: [String], numberSections: Bool = false,
+                      lists: Bool = false, research: [ResearchItem] = []) -> XHTMLReportBook {
+        XHTMLReportBook(
+            pieces: [("a", paragraphs.enumerated().map { (Self.ids[$0.offset], $0.element) })],
+            context: Self.context(numberSections: numberSections, lists: lists, research: research))
+    }
+
+    /// The body with the book's resolution, and the body without one.
+    private func bodies(_ source: ProjectASTBuilder.Source,
+                        figureFiles: [String: [Int: String]] = [:],
+                        labelHrefs: [ManuscriptLabel: String] = [:],
+                        anchorTag: String? = nil,
+                        crossLinks: [(tag: String, href: String)] = []) throws -> (resolved: String, plain: String) {
+        let ast = try ProjectASTBuilder.build(from: source)
+        let resolution = try PublishResolution.forCompile(source: source, bodyTag: nil,
+                                                          imageAllowed: EPUBCompiler.imageAllowed)
+        return (XHTMLBodyEmitter.emit(ast, anchorTag: anchorTag, crossLinks: crossLinks,
+                                      resolution: resolution, figureFiles: figureFiles,
+                                      labelHrefs: labelHrefs),
+                XHTMLBodyEmitter.emit(ast, anchorTag: anchorTag, crossLinks: crossLinks))
+    }
+
+    private func smith() -> ResearchItem {
+        ResearchItem(id: "r1", title: "Annual Report", type: .asset,
+                     citation: CitationInfo(key: "smith2026", authors: ["Smith, Jane"],
+                                            sourceTitle: "Annual Report", year: 2026))
+    }
+
+    private func label(_ reference: String) throws -> ManuscriptLabel {
+        try XCTUnwrap(ManuscriptLabel(reference: reference))
+    }
+
+    // MARK: tables
+
+    func test_table_rendersWithItsNumberedCaptionHeadAndAlignedCells() throws {
+        let (resolved, plain) = try bodies(book([
+            "| Item & co | 100% |\n|:--|--:|\n| a_b | <#1> |\nTable: Sales & costs {#tbl:sales}",
+        ]))
+        XCTAssertTrue(resolved.contains("""
+            <table>
+            <caption id="lbl-tbl-sales"><span class="caption-number">Table 1.</span> Sales &amp; costs</caption>
+            <thead>
+            <tr><th style="text-align:left">Item &amp; co</th><th style="text-align:right">100%</th></tr>
+            </thead>
+            <tbody>
+            <tr><td style="text-align:left">a_b</td><td style="text-align:right">&lt;#1&gt;</td></tr>
+            </tbody>
+            </table>
+            """), resolved)
+        XCTAssertFalse(resolved.contains("Table: "), "no literal source with a resolution: \(resolved)")
+        XCTAssertTrue(plain.contains("Table: Sales &amp; costs {#tbl:sales}"),
+                      "the nil-resolution path keeps the literal source: \(plain)")
+        XCTAssertFalse(plain.contains("<table"), plain)
+    }
+
+    /// R-S9: a table with no caption line still prints "Table n.", and its
+    /// caption carries the element id the list of tables links to.
+    func test_uncaptionedTable_stillPrintsItsNumber_andAShortRowIsPadded() throws {
+        let (resolved, _) = try bodies(book(["| a | b | c |\n|---|:-:|---|\n| 1 | 2 |"]))
+        XCTAssertTrue(resolved.contains("""
+            <caption id="tbl-1"><span class="caption-number">Table 1.</span></caption>
+            <thead>
+            <tr><th>a</th><th style="text-align:center">b</th><th>c</th></tr>
+            </thead>
+            <tbody>
+            <tr><td>1</td><td style="text-align:center">2</td><td></td></tr>
+            </tbody>
+            """), resolved)
+    }
+
+    /// The paragraph anchor keeps the element's own `id` (the anchor
+    /// contract); the label rides the caption, so neither id is lost.
+    func test_aTaggedTable_keepsTheParagraphAnchorOnTheTable() throws {
+        let (resolved, _) = try bodies(book(["| a |\n|---|\n| 1 |\nTable: T {#tbl:t}"]), anchorTag: "en")
+        XCTAssertTrue(resolved.contains("""
+            <table id="p-en-a1b2">
+            <caption id="lbl-tbl-t"><span class="caption-number">Table 1.</span> T</caption>
+            """), resolved)
+    }
+
+    // MARK: figures
+
+    func test_figure_rendersItsStagedImageAltAndNumberedCaption() throws {
+        let (resolved, plain) = try bodies(
+            book(["Intro.", "![Revenue & 50%](../research/r.png){#fig:rev_q1}"]),
+            figureFiles: ["a": [1: "images/0123abcd.png"]])
+        XCTAssertTrue(resolved.contains("""
+            <figure>
+            <img id="lbl-fig-rev_q1" src="images/0123abcd.png" alt="Revenue &amp; 50%"/>
+            <figcaption><span class="caption-number">Figure 1.</span> Revenue &amp; 50%</figcaption>
+            </figure>
+            """), resolved)
+        XCTAssertTrue(plain.contains("<p>![Revenue &amp; 50%](../research/r.png) {#fig:rev_q1}</p>"), plain)
+    }
+
+    /// R-S9 for figures: an empty caption still prints "Figure n.", and the
+    /// alt text falls back to the number. Unlabelled, its id is `fig-<n>`.
+    func test_uncaptionedFigure_stillPrintsItsNumber() throws {
+        let (resolved, _) = try bodies(book(["![](../research/r.png)"]),
+                                       figureFiles: ["a": [0: "images/ab.png"]])
+        XCTAssertTrue(resolved.contains("""
+            <img id="fig-1" src="images/ab.png" alt="Figure 1"/>
+            <figcaption><span class="caption-number">Figure 1.</span></figcaption>
+            """), resolved)
+    }
+
+    /// A figure the compiler could not stage is unresolved: its literal
+    /// source, still addressable by its id so a link or a list entry lands.
+    func test_figureWithNoStagedFile_rendersItsLiteralSource() throws {
+        let (resolved, _) = try bodies(book(["![Chart](../research/c.png){#fig:c}"]))
+        XCTAssertFalse(resolved.contains("<figure"), resolved)
+        XCTAssertFalse(resolved.contains("<img"), resolved)
+        XCTAssertTrue(resolved.contains("<p><span id=\"lbl-fig-c\">![Chart](../research/c.png) {#fig:c}</span></p>"),
+                      resolved)
+    }
+
+    // MARK: footnotes
+
+    func test_footnote_isANoterefAndAnAsideAtTheEndOfTheSection_andARepeatHasNoSecondId() throws {
+        let (resolved, plain) = try bodies(book([
+            "First[^a] and second[^b], again[^a].", "[^b]: Bee & co.", "[^a]: Ay_1.",
+        ]))
+        XCTAssertTrue(resolved.contains(
+            "<p>First<sup><a epub:type=\"noteref\" href=\"#fn-1\" id=\"fnref-1\">1</a></sup>"
+            + " and second<sup><a epub:type=\"noteref\" href=\"#fn-2\" id=\"fnref-2\">2</a></sup>,"
+            + " again<sup><a epub:type=\"noteref\" href=\"#fn-1\">1</a></sup>.</p>"), resolved)
+        XCTAssertTrue(resolved.hasSuffix("""
+            <aside epub:type="footnote" id="fn-1"><p><a href="#fnref-1">1</a> Ay_1.</p></aside>
+            <aside epub:type="footnote" id="fn-2"><p><a href="#fnref-2">2</a> Bee &amp; co.</p></aside>
+            </section>
+            """), resolved)
+        XCTAssertFalse(resolved.contains("[^"), resolved)
+        // R-S6: the nil-resolution path prints the refs literally and appends
+        // each definition as a literal paragraph at the end of the section.
+        XCTAssertTrue(plain.contains("<p>First[^a] and second[^b], again[^a].</p>"), plain)
+        XCTAssertTrue(plain.hasSuffix("""
+            <p>[^a]: Ay_1.</p>
+            <p>[^b]: Bee &amp; co.</p>
+            </section>
+            """), plain)
+        XCTAssertFalse(plain.contains("<aside"), plain)
+    }
+
+    func test_footnoteWithNoDefinition_rendersLiterally() throws {
+        let (resolved, _) = try bodies(book(["Dangling[^nope]."]))
+        XCTAssertTrue(resolved.contains("<p>Dangling[^nope].</p>"), resolved)
+        XCTAssertFalse(resolved.contains("<aside"), resolved)
+    }
+
+    /// A note inside a note gets its own aside in the same file, after its
+    /// parent's; a note in a caption, a cell or a heading is the same pair.
+    /// The asides read in number order, whatever order the refs rendered in
+    /// (a table's caption renders before its cells).
+    func test_nestedAndPlacedNotes_allEndTheirSection() throws {
+        let (resolved, _) = try bodies(book([
+            "# Scope[^h]",
+            "| Cell[^c] |\n|---|\n| x |\nTable: Cap[^t]",
+            "Body[^n].",
+            "[^h]: On heading.", "[^c]: In cell.", "[^t]: In caption.",
+            "[^n]: Outer[^m].", "[^m]: Inner.",
+        ]))
+        XCTAssertTrue(resolved.contains(
+            "<h2>Scope<sup><a epub:type=\"noteref\" href=\"#fn-1\" id=\"fnref-1\">1</a></sup></h2>"), resolved)
+        XCTAssertTrue(resolved.hasSuffix("""
+            <aside epub:type="footnote" id="fn-1"><p><a href="#fnref-1">1</a> On heading.</p></aside>
+            <aside epub:type="footnote" id="fn-2"><p><a href="#fnref-2">2</a> In cell.</p></aside>
+            <aside epub:type="footnote" id="fn-3"><p><a href="#fnref-3">3</a> In caption.</p></aside>
+            <aside epub:type="footnote" id="fn-4"><p><a href="#fnref-4">4</a> Outer<sup><a epub:type="noteref" href="#fn-5" id="fnref-5">5</a></sup>.</p></aside>
+            <aside epub:type="footnote" id="fn-5"><p><a href="#fnref-5">5</a> Inner.</p></aside>
+            </section>
+            """), resolved)
+    }
+
+    /// R-P2-3 across files: the EPUB emits one section per call, and the
+    /// second piece's `[^1]` continues the book's count rather than restarting.
+    func test_footnotesNumberContinuouslyAcrossTwoSectionFiles() throws {
+        let source = XHTMLReportBook(pieces: [
+            ("a", [("a1b2", "One[^1]."), ("c3d4", "[^1]: First.")]),
+            ("b", [("e5f6", "Two[^1]."), ("g7h8", "[^1]: Second.")]),
+        ], context: Self.context())
+        let ast = try ProjectASTBuilder.build(from: source)
+        let r = try PublishResolution.forCompile(source: source, bodyTag: nil,
+                                                 imageAllowed: EPUBCompiler.imageAllowed)
+        let files = ast.sections.map { XHTMLBodyEmitter.emit(ProjectAST(sections: [$0]), resolution: r) }
+        XCTAssertTrue(files[0].contains(##"href="#fn-1" id="fnref-1">1</a>"##), files[0])
+        XCTAssertTrue(files[0].contains(#"<aside epub:type="footnote" id="fn-1">"#), files[0])
+        XCTAssertTrue(files[1].contains(##"href="#fn-2" id="fnref-2">2</a>"##), files[1])
+        XCTAssertTrue(files[1].contains(##"<aside epub:type="footnote" id="fn-2"><p><a href="#fnref-2">2</a> Second.</p></aside>"##),
+                      files[1])
+        XCTAssertFalse(files[1].contains("fn-1"), "each aside lives in its reference's file: \(files[1])")
+    }
+
+    // MARK: citations and cross-references
+
+    func test_citation_rendersItsResolvedText_unknownKeysLiterally() throws {
+        let (resolved, plain) = try bodies(book(
+            ["As shown [@smith2026, p. 3]; not [@ghost]."], research: [smith()]))
+        XCTAssertTrue(resolved.contains("<p>As shown (Smith 2026, p. 3); not [@ghost].</p>"), resolved)
+        XCTAssertTrue(plain.contains("As shown [@smith2026, p. 3]"), plain)
+    }
+
+    /// The href names the target's own section file; a target this compile
+    /// doesn't emit has no href and reads as its text, unlinked.
+    func test_crossRef_linksIntoAnotherSectionsFile_orReadsItsTextWithoutAnHref() throws {
+        let source = book(["![Chart](../research/c.png){#fig:chart}", "See @fig:chart and @tbl:none."])
+        let href = "section-002.xhtml#lbl-fig-chart"
+        let (linked, plain) = try bodies(source, figureFiles: ["a": [0: "images/c.png"]],
+                                         labelHrefs: [try label("fig:chart"): href])
+        XCTAssertTrue(linked.contains(
+            "<p>See <a href=\"section-002.xhtml#lbl-fig-chart\">Figure 1</a> and @tbl:none.</p>"), linked)
+        XCTAssertTrue(plain.contains("<p>See @fig:chart and @tbl:none.</p>"), plain)
+        let (unlinked, _) = try bodies(source, figureFiles: ["a": [0: "images/c.png"]])
+        XCTAssertTrue(unlinked.contains("<p>See Figure 1 and @tbl:none.</p>"), unlinked)
+    }
+
+    /// In a multi-body compile every body carries the same labels and notes,
+    /// so each id names its body, as the PDF's anchors do.
+    func test_aMultiBodyEmit_tagsEveryReportId() throws {
+        let (resolved, _) = try bodies(
+            book(["![Chart](../research/c.png){#fig:chart}", "![Two](../research/d.png)",
+                  "| a |\n|---|\n| 1 |", "Note[^x].", "[^x]: Text."]),
+            figureFiles: ["a": [0: "images/c.png", 1: "images/d.png"]],
+            anchorTag: "sr", crossLinks: [(tag: "en", href: "section-en-001.xhtml")])
+        for id in [#"id="lbl-sr-fig-chart""#, #"id="fig-sr-2""#, #"id="tbl-sr-1""#,
+                   ##"href="#fn-sr-1" id="fnref-sr-1""##, #"id="fn-sr-1""#, ##"href="#fnref-sr-1""##] {
+            XCTAssertTrue(resolved.contains(id), "missing \(id) in \(resolved)")
+        }
+        XCTAssertEqual(XHTMLBodyEmitter.labelID(try label("fig:chart"), tag: "sr"), "lbl-sr-fig-chart")
+        XCTAssertEqual(XHTMLBodyEmitter.labelID(try label("fig:chart"), tag: nil), "lbl-fig-chart")
+    }
+
+    // MARK: headings
+
+    func test_numberedHeading_carriesItsNumberAndItsLabelId() throws {
+        let (resolved, plain) = try bodies(book(
+            ["# Intro {#sec:intro}", "## Scope", "See @sec:intro."], numberSections: true),
+            labelHrefs: [try label("sec:intro"): "section-001.xhtml#lbl-sec-intro"])
+        XCTAssertTrue(resolved.contains("""
+            <h2><span id="lbl-sec-intro"><span class="section-number">1</span> Intro</span></h2>
+            <h3><span class="section-number">1.1</span> Scope</h3>
+            """), resolved)
+        XCTAssertTrue(resolved.contains("<p>See <a href=\"section-001.xhtml#lbl-sec-intro\">Section 1</a>.</p>"),
+                      resolved)
+        XCTAssertTrue(plain.contains("<h2>Intro {#sec:intro}</h2>"), plain)
+        let (unnumbered, _) = try bodies(book(["# Intro"], numberSections: false))
+        XCTAssertTrue(unnumbered.contains("<h2>Intro</h2>"), unnumbered)
+    }
+
+    // MARK: References
+
+    func test_references_areAnXHTMLSectionOfTheCitedSources() throws {
+        let source = book(["Cited [@smith2026]."], research: [smith()])
+        let r = try PublishResolution.forCompile(source: source, bodyTag: nil,
+                                                 imageAllowed: EPUBCompiler.imageAllowed)
+        XCTAssertEqual(XHTMLBodyEmitter.references(r.references), """
+            <section class="references">
+            <h1>References</h1>
+            <p class="reference">Smith, Jane. 2026. <em>Annual Report</em>.</p>
+            </section>
+            """)
+    }
+
+    // MARK: escaping
+
+    func test_everyTextPathEscapes() throws {
+        let (resolved, _) = try bodies(book([
+            "# A < B & C {#sec:x}",
+            "| x<y | \"z\" |\n|---|---|\n| u & v | 'w' |\nTable: C&D <b>",
+            "![A <b> & \"c\"](../research/r.png)",
+            "N[^q].", "[^q]: <i>&",
+        ], numberSections: true), figureFiles: ["a": [2: "images/r.png"]])
+        for raw in ["A < B", "x<y", "C&D", "<b>", "<i>", "u & v", "\"c\""] {
+            XCTAssertFalse(resolved.contains(raw), "\(raw) reached XHTML unescaped: \(resolved)")
+        }
+        XCTAssertTrue(resolved.contains(#"alt="A &lt;b&gt; &amp; &quot;c&quot;""#), resolved)
     }
 }

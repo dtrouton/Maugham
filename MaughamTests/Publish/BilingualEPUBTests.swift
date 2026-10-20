@@ -204,13 +204,15 @@ final class BilingualEPUBTests: XCTestCase {
     // MARK: - one body: the declared byte change
 
     /// The ONE thing that is not byte-identical for a single body, and it is
-    /// deliberate: a section document now says what language it is written in.
-    /// Everything else about the document is the text captured at `f1b646b5`.
+    /// deliberate: a section document now says what language it is written in,
+    /// and (report foundations plan 2, Task 6) declares the `epub:` namespace
+    /// its noterefs and footnote asides use. Everything else about the
+    /// document is the text captured at `f1b646b5`.
     func test_theSingleBodySectionDocumentsGainTheLanguageAttributes() async throws {
         let epub = try await compileSingleBody(baseConfig())
         let section = try epubEntryText("OEBPS/section-001.xhtml", inEPUBAt: epub)
         XCTAssertTrue(section.contains(
-            #"<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">"#),
+            #"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">"#),
             "the section's <html> must declare its language. It was:\n\(section)")
         // The rest of the document is unmoved: same head, same wrapper.
         XCTAssertTrue(section.hasPrefix("""

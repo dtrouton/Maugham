@@ -383,6 +383,7 @@ struct FilteredASTSource: ProjectASTBuilder.Source {
     }
     func publishContext() -> PublishContext { base.publishContext() }
     var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
+    var isWholeBook: Bool { (sectionIDs?.isEmpty ?? true) && base.isWholeBook }
 }
 
 /// F1: wraps any `ProjectASTBuilder.Source`, dropping pieces whose id is in the
@@ -403,4 +404,5 @@ struct IncludeFilteredASTSource: ProjectASTBuilder.Source {
     /// section still numbers and resolves over the whole book.
     func publishContext() -> PublishContext { base.publishContext() }
     var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
+    var isWholeBook: Bool { excludedSectionIDs.isEmpty && base.isWholeBook }
 }

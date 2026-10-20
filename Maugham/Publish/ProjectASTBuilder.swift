@@ -49,6 +49,15 @@ public enum ProjectASTBuilder {
         /// every publishable piece and emits only its own. A requirement for
         /// the same dispatch reason as `publishContext()`.
         var resolutionScope: Source { get }
+
+        /// True when this source IS its whole book — it filters no piece out —
+        /// so the AST a compiler built from it is the AST `resolutionScope`
+        /// would build, and the resolution can reuse it rather than derive
+        /// every piece from the op log a second time
+        /// (`PublishResolution.forCompile(source:built:…)`). A filtering
+        /// wrapper answers false while its filter removes anything, else its
+        /// base's answer. A requirement for the same dispatch reason.
+        var isWholeBook: Bool { get }
     }
 
     public static func build(from source: Source) throws -> ProjectAST {
@@ -320,4 +329,8 @@ extension ProjectASTBuilder.Source {
     /// Defaulted to `self`: a source that filters nothing is its own whole
     /// book. A filtering wrapper answers its base's.
     public var resolutionScope: ProjectASTBuilder.Source { self }
+
+    /// Defaulted to true, with `resolutionScope`'s `self`: a source that
+    /// filters nothing is its own whole book.
+    public var isWholeBook: Bool { true }
 }

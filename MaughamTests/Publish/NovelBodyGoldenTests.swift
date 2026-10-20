@@ -107,4 +107,22 @@ final class NovelBodyGoldenTests: XCTestCase {
                                                crossLinks: [(tag: "sr", href: "section-sr-003.xhtml")]),
                          "novel-golden-body.xhtml")
     }
+
+    /// Every EPUB compile now passes the book's resolution (Task 6): the same
+    /// novel emits the same XHTML bytes WITH one, whatever its list switches.
+    /// The golden is the emitter body only — the section document around it
+    /// (`EPUBOPFWriter.sectionXHTML`, which gained `xmlns:epub`) is not in it.
+    func test_xhtmlBody_withTheBooksResolution_isByteIdenticalToTheGolden() throws {
+        let ast = try ProjectASTBuilder.build(from: NovelSource())
+        for on in [false, true] {
+            var context = PublishContext.empty
+            context.switches = (numberSections: false, listOfFigures: on, listOfTables: on)
+            let resolution = PublishResolution.resolve(ast, context: context, bodyTag: nil,
+                                                       imageAllowed: EPUBCompiler.imageAllowed)
+            try assertGolden(XHTMLBodyEmitter.emit(ast, anchorTag: "en",
+                                                   crossLinks: [(tag: "sr", href: "section-sr-003.xhtml")],
+                                                   resolution: resolution),
+                             "novel-golden-body.xhtml")
+        }
+    }
 }

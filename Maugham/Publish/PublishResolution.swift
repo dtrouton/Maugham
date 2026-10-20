@@ -115,6 +115,20 @@ public struct PublishResolution: Sendable {
                        bodyTag: bodyTag, imageAllowed: imageAllowed)
     }
 
+    /// `forCompile`, given the AST the compiler already built from `source`
+    /// for emitting: when `source.isWholeBook` that AST IS the whole book, and
+    /// it is resolved as it stands — an ordinary compile derives its
+    /// manuscript from the op log once, not twice. A subset source still
+    /// builds its whole book.
+    public static func forCompile(source: ProjectASTBuilder.Source, built ast: ProjectAST,
+                                  bodyTag: String?, imageAllowed: Set<String>) throws -> PublishResolution {
+        guard source.isWholeBook else {
+            return try forCompile(source: source, bodyTag: bodyTag, imageAllowed: imageAllowed)
+        }
+        return resolve(ast, context: source.resolutionScope.publishContext(),
+                       bodyTag: bodyTag, imageAllowed: imageAllowed)
+    }
+
     /// - Parameter imageAllowed: the output's lowercase image extensions (R-P2-7).
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
                                imageAllowed: Set<String>) -> PublishResolution {

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 public struct EPUBCompiler {
 
@@ -118,6 +119,9 @@ public struct EPUBCompiler {
         // must not have its archive rearranged underneath it.
         var sections: [EPUBPackage.Section] = []
         var languages: [String] = []
+        var images: [EPUBPackage.Image] = []
+        var listOfFigures: [EPUBPackage.ListEntry] = []
+        var listOfTables: [EPUBPackage.ListEntry] = []
         // Resolved for ALL bodies before any of them is emitted: a slugline
         // links to the SAME piece in every OTHER body, so a body cannot be
         // emitted knowing only its own tag.
@@ -126,7 +130,16 @@ public struct EPUBCompiler {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
             let ast = try ProjectASTBuilder.build(from: body.source)
-            let ownSections = zip(ast.sections.indices, ast.sections).map { (i, s) in
+            // R-S3: the body's resolution over its WHOLE book and its images,
+            // through the one per-body door the gate shares.
+            let prepared = try Self.prepare(body: body,
+                                            bodyTag: bodies.count > 1 ? body.displayTag : nil,
+                                            built: ast)
+            let resolution = prepared.resolution
+            let pieces = ast.sections.map(\.pieceID)
+            let labelHrefs = Self.labelHrefs(resolution, emittedPieces: pieces, tag: tag,
+                                             bodyCount: bodies.count)
+            var ownSections = zip(ast.sections.indices, ast.sections).map { (i, s) in
                 EPUBPackage.Section(
                     id: bodies.count == 1 ? "s\(i + 1)" : "s-\(tag)-\(i + 1)",
                     filename: Self.sectionFilename(tag: tag, index: i,
@@ -142,11 +155,36 @@ public struct EPUBCompiler {
                             (tag: $0,
                              href: Self.sectionFilename(tag: $0, index: i,
                                                         bodyCount: bodies.count))
-                        }),
+                        },
+                        resolution: resolution,
+                        figureFiles: prepared.figureFiles,
+                        labelHrefs: labelHrefs),
                     language: body.displayTag)
+            }
+            // R-P2-5: the body's References, its own file at the end of the
+            // body, in the spine and the contents; only when it cites.
+            if !resolution.references.isEmpty {
+                ownSections.append(EPUBPackage.Section(
+                    id: bodies.count == 1 ? "refs" : "refs-\(tag)",
+                    filename: Self.referencesFilename(tag: tag, bodyCount: bodies.count),
+                    title: "References",
+                    xhtmlBody: XHTMLBodyEmitter.references(resolution.references),
+                    language: body.displayTag))
             }
             sections.append(contentsOf: ownSections)
             languages.append(body.displayTag)
+            images += prepared.images
+            // R-P2-6: the lists are the FIRST body's — a later body captions
+            // the same numbers, and would list every element twice.
+            if index == 0 {
+                let idTag = bodies.count > 1 ? tag : nil
+                listOfFigures = Self.listEntries(.fig, resolution.listOfFigures, resolution: resolution,
+                                                 emittedPieces: pieces, tag: tag, idTag: idTag,
+                                                 bodyCount: bodies.count)
+                listOfTables = Self.listEntries(.tbl, resolution.listOfTables, resolution: resolution,
+                                                emittedPieces: pieces, tag: tag, idTag: idTag,
+                                                bodyCount: bodies.count)
+            }
 
             let assembled = ownSections.map { $0.xhtmlBody }.joined(separator: "\n")
             try? assembled.write(to: build.appendingPathComponent("body.\(tag).xhtml"),
@@ -204,7 +242,8 @@ public struct EPUBCompiler {
                 checkpointID: "",
                 compiledAtISO8601: ISO8601DateFormatter().string(from: Date())),
             sections: sections, cover: cover, stylesheetCSS: css,
-            languages: languages)
+            languages: languages, images: images,
+            listOfFigures: listOfFigures, listOfTables: listOfTables)
 
         if let id = jobID {
             await jobManager.updatePhase(jobID: id, phase: .compiling)
@@ -260,6 +299,127 @@ public struct EPUBCompiler {
         bodyCount == 1
             ? String(format: "section-%03d.xhtml", index + 1)
             : "section-\(tag)-" + String(format: "%03d", index + 1) + ".xhtml"
+    }
+
+    /// Where a body's References live: `references.xhtml`, or
+    /// `references-<tag>.xhtml` beside the other bodies' when there are several.
+    static func referencesFilename(tag: String, bodyCount: Int) -> String {
+        bodyCount == 1 ? "references.xhtml" : "references-\(tag).xhtml"
+    }
+
+    // MARK: - report elements (report foundations plan 2)
+
+    /// One body's resolution and the images its figures show.
+    struct PreparedBody {
+        var resolution: PublishResolution
+        /// pieceID → node index → the image's path inside `OEBPS/`
+        /// (`images/<hash>.<ext>`): `XHTMLBodyEmitter.emit`'s `figureFiles`.
+        var figureFiles: [String: [Int: String]]
+        /// What the package copies into `OEBPS/images/`, one per figure (the
+        /// package keeps each filename once).
+        var images: [EPUBPackage.Image]
+    }
+
+    /// The image formats an EPUB reading system must show (R-P2-7).
+    static let imageAllowed: Set<String> = ["png", "jpg", "jpeg", "gif", "svg"]
+
+    /// The OPF media type of each format in `imageAllowed`; nil for any other.
+    static func mediaType(forExtension ext: String) -> String? {
+        switch ext.lowercased() {
+        case "png":         return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif":         return "image/gif"
+        case "svg":         return "image/svg+xml"
+        default:            return nil
+        }
+    }
+
+    /// R-S3: one body's resolution over its whole book, then each resolved
+    /// image named by its content hash. The ONE place an EPUB body is
+    /// resolved, so the gate can later share it, as `PDFCompiler.prepare` is.
+    ///
+    /// Naming an image reads it through (streamed, `FigureImageResolver
+    /// .contentHash`), so an image that can't be read is found HERE, before a
+    /// word is emitted: `stagingFailed` makes it an `imageUnreadable` problem
+    /// and its figure renders as its literal source. The bytes themselves are
+    /// copied only at packaging time (`EPUBZipPackager`).
+    ///
+    /// - Parameters:
+    ///   - bodyTag: the body's language for its problems' `[tag]` prefix
+    ///     (R-P2-8); nil for a single-body compile.
+    ///   - built: the AST the compile already built from `body.source`, reused
+    ///     when that source is its whole book; nil builds it.
+    static func prepare(body: BodyPlan.Body, bodyTag: String?,
+                        built: ProjectAST? = nil) throws -> PreparedBody {
+        var resolution = try built.map {
+            try PublishResolution.forCompile(source: body.source, built: $0, bodyTag: bodyTag,
+                                             imageAllowed: imageAllowed)
+        } ?? PublishResolution.forCompile(source: body.source, bodyTag: bodyTag,
+                                          imageAllowed: imageAllowed)
+        var figureFiles: [String: [Int: String]] = [:]
+        var images: [EPUBPackage.Image] = []
+        for (piece, files) in resolution.figureFiles.sorted(by: { $0.key < $1.key }) {
+            for (index, source) in files.sorted(by: { $0.key < $1.key }) {
+                let ext = source.pathExtension.lowercased()
+                // `imageAllowed` already refused any other format; this is the
+                // second line of defence, never a manifest item without a type.
+                guard let type = mediaType(forExtension: ext) else {
+                    resolution.stagingFailed(pieceID: piece, nodeIndex: index,
+                                             reason: "an EPUB can't show .\(ext) images")
+                    continue
+                }
+                do {
+                    let image = EPUBPackage.Image(
+                        filename: try FigureImageResolver.contentHash(of: source) + "." + ext,
+                        source: source, mediaType: type)
+                    images.append(image)
+                    figureFiles[piece, default: [:]][index] = image.href
+                } catch {
+                    resolution.stagingFailed(pieceID: piece, nodeIndex: index,
+                                             reason: error.localizedDescription)
+                }
+            }
+        }
+        return PreparedBody(resolution: resolution, figureFiles: figureFiles, images: images)
+    }
+
+    /// Each label's href in this body: the section file its target's piece is
+    /// emitted in, plus the label's id. A target in a piece this compile does
+    /// not emit (a preview or an excluding imprint) gets none: its
+    /// cross-reference reads as its resolved text, unlinked.
+    static func labelHrefs(_ resolution: PublishResolution, emittedPieces: [String],
+                           tag: String, bodyCount: Int) -> [ManuscriptLabel: String] {
+        let files = fileIndex(emittedPieces)
+        var hrefs: [ManuscriptLabel: String] = [:]
+        for (label, target) in resolution.targets {
+            guard let i = files[target.pieceID] else { continue }
+            hrefs[label] = sectionFilename(tag: tag, index: i, bodyCount: bodyCount) + "#"
+                + XHTMLBodyEmitter.labelID(label, tag: bodyCount > 1 ? tag : nil)
+        }
+        return hrefs
+    }
+
+    /// The nav's list of figures or tables (R-P2-6): every listed element this
+    /// compile emits, linked to its id in its section file.
+    private static func listEntries(_ kind: ManuscriptLabel.Kind,
+                                    _ list: [PublishResolution.ListEntry],
+                                    resolution: PublishResolution, emittedPieces: [String],
+                                    tag: String, idTag: String?, bodyCount: Int) -> [EPUBPackage.ListEntry] {
+        let files = fileIndex(emittedPieces)
+        return list.compactMap { entry in
+            guard let i = files[entry.target.pieceID] else { return nil }
+            let id = XHTMLBodyEmitter.elementAddress(kind, number: entry.number, target: entry.target,
+                                                     resolution: resolution, tag: idTag)
+            return .init(title: XHTMLBodyEmitter.listTitle(kind, number: entry.number, caption: entry.caption,
+                                                           resolution: resolution,
+                                                           pieceID: entry.target.pieceID),
+                         href: sectionFilename(tag: tag, index: i, bodyCount: bodyCount) + "#" + id)
+        }
+    }
+
+    /// pieceID → its section's index in this body.
+    private static func fileIndex(_ pieces: [String]) -> [String: Int] {
+        Dictionary(pieces.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private func makeOutputFilename(

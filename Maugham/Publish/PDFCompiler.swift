@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 import MaughamCore
 
 public struct PDFCompiler {
@@ -372,7 +371,7 @@ public struct PDFCompiler {
             for (index, source) in files.sorted(by: { $0.key < $1.key }) {
                 do {
                     try FileManager.default.createDirectory(at: figures, withIntermediateDirectories: true)
-                    let hash = try contentHash(of: source)
+                    let hash = try FigureImageResolver.contentHash(of: source)
                     let name = hash + "." + source.pathExtension.lowercased()
                     let destination = figures.appendingPathComponent(name)
                     try stage(source, to: destination, hash: hash)
@@ -395,7 +394,7 @@ public struct PDFCompiler {
     private static func stage(_ source: URL, to destination: URL, hash: String) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: destination.path) {
-            if (try? contentHash(of: destination)) == hash { return }
+            if (try? FigureImageResolver.contentHash(of: destination)) == hash { return }
             try fm.removeItem(at: destination)
         }
         let partial = destination.deletingLastPathComponent()
@@ -412,16 +411,6 @@ public struct PDFCompiler {
         }
     }
 
-    /// The first 16 hex digits of the file's SHA-256, read in chunks.
-    private static func contentHash(of url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url) // adr-0018-ok: research image hashed for its staged name
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined().prefix(16).description
-    }
 
     /// `build/metadata.tex`: the first body's `metadataBlock`, plus a guarded
     /// `\usepackage` for each element kind the book has — graphicx for a

@@ -52,6 +52,10 @@ public enum EPUBOPFWriter {
         for s in pkg.sections {
             lines.append("    <item id=\"\(XHTMLEscape.attribute(s.id))\" href=\"\(XHTMLEscape.attribute(s.filename))\" media-type=\"application/xhtml+xml\"/>")
         }
+        // Figure images: manifest items, never spine entries (R-P2-7).
+        for image in pkg.images {
+            lines.append("    <item id=\"img-\(XHTMLEscape.attribute(image.filename))\" href=\"\(XHTMLEscape.attribute(image.href))\" media-type=\"\(XHTMLEscape.attribute(image.mediaType))\"/>")
+        }
         if let cover = pkg.cover {
             lines.append("    <item id=\"cover-image\" href=\"\(XHTMLEscape.attribute(cover.filename))\" media-type=\"\(XHTMLEscape.attribute(cover.mediaType))\" properties=\"cover-image\"/>")
         }
@@ -108,8 +112,24 @@ public enum EPUBOPFWriter {
             if current != nil { lines.append("  </ol>") }
         }
         lines.append("</nav>")
+        // R-P2-6: the lists of figures and tables, each only when it has an
+        // entry, so a book without them ships the nav it always did.
+        lines += listNav(type: "loi", heading: "List of Figures", entries: pkg.listOfFigures)
+        lines += listNav(type: "lot", heading: "List of Tables", entries: pkg.listOfTables)
         lines.append("</body></html>")
         return lines.joined(separator: "\n")
+    }
+
+    private static func listNav(type: String, heading: String,
+                                entries: [EPUBPackage.ListEntry]) -> [String] {
+        guard !entries.isEmpty else { return [] }
+        return ["<nav epub:type=\"\(type)\" id=\"\(type)\">",
+                "  <h1>\(heading)</h1>",
+                "  <ol>"]
+            + entries.map {
+                "    <li><a href=\"\(XHTMLEscape.attribute($0.href))\">\(XHTMLEscape.escape($0.title))</a></li>"
+            }
+            + ["  </ol>", "</nav>"]
     }
 
     /// Wraps a section's body XHTML in a full XHTML 5 document.
@@ -120,11 +140,15 @@ public enum EPUBOPFWriter {
     /// its translation in the source language. This is a byte change for a
     /// single-body book too, and deliberately so: a section that does not say
     /// what language it is in is the defect, not the divergence.
+    ///
+    /// It declares `xmlns:epub` (report foundations plan 2): a footnote's
+    /// `epub:type="noteref"` and `epub:type="footnote"` are not well-formed
+    /// XML without it, and a document that never uses the prefix is unharmed.
     public static func sectionXHTML(for section: EPUBPackage.Section) -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE html>
-        <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="\(XHTMLEscape.attribute(section.language))" lang="\(XHTMLEscape.attribute(section.language))">
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="\(XHTMLEscape.attribute(section.language))" lang="\(XHTMLEscape.attribute(section.language))">
         <head>
           <meta charset="utf-8"/>
           <title>\(XHTMLEscape.escape(section.title))</title>
