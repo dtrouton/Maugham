@@ -571,7 +571,8 @@ public enum RegistryAdmission {
         /// Let in; the record it DECIDED (unsigned — the caller reads back).
         case admitted(PersonRecord)
         /// Recognised, but this build cannot install that person's permit
-        /// silently; the device goes to the sheet. The reason, in words.
+        /// silently, or their devices disagree about it (`permitsAgree`);
+        /// the device goes to the sheet. The reason, in words.
         case declined(String)
         /// `Recognition` said ask.
         case notRecognised
@@ -588,6 +589,8 @@ public enum RegistryAdmission {
     /// - `.knownPerson(p)` → `p`'s label and `p`'s CURRENT timeline permit,
     ///   read off `table` (tripwire 43 — never the record's fields).
     /// - A permit this build cannot read (`.unjudgeable`) is declined.
+    /// - A `.knownPerson` whose standing records hold DIFFERENT permits is
+    ///   declined (`permitsAgree`, SW2): no representative is picked.
     /// - **A narrowing permit carries the book's GOVERNING photograph
     ///   forward** — `table.unsignedSnapshot?.mark`, the same value
     ///   `DocumentStore.sweptUnsignedSnapshot` returns for an already-narrowed
@@ -633,7 +636,17 @@ public enum RegistryAdmission {
         let person: PersonRecord
         switch recognition {
         case .ownDevice(let root): person = root
-        case .knownPerson(let known): person = known
+        case .knownPerson(let known):
+            // SW2: the representative's permit is everybody's only while the
+            // label's standing records agree — see `permitsAgree`.
+            guard permitsAgree(
+                underLabelOf: known, table: table, within: registry,
+                thisRoot: root.fingerprint)
+            else {
+                return .declined(
+                    "\(known.label)'s devices hold different permits, so the writer says which this one gets")
+            }
+            person = known
         case .ask: return .notRecognised
         }
         let permit = table.timeline(forPerson: person.person).current
@@ -655,6 +668,42 @@ public enum RegistryAdmission {
             reason: PermitEvent.recognisedReason,
             in: projectURL, by: root, within: registry,
             memory: nil, now: now, presenter: presenter))
+    }
+
+    /// **Do all of a recognised person's standing records hold ONE permit?**
+    /// (2026-10-18 sweep, SW2.) `.knownPerson` carries one representative
+    /// record — the lowest-fingerprint standing holder — and a new device
+    /// gets that record's timeline permit. That is right only while every
+    /// standing record of the label holds the same permit, which
+    /// `DocumentStore.changePermit(everyRecordOf:to:)` (the Mac app's verb)
+    /// keeps true by moving them together. Its
+    /// write loop can still stop part way (`PermitChangePartlyApplied`, a
+    /// surfaced error), leaving Sam's Mac a reviewer and Sam's iPad an
+    /// author, and the representative could then be the stale, broader one.
+    ///
+    /// So the invariant is CHECKED here, not assumed: when this chain's
+    /// standing records under the label disagree, `admitRecognised` picks
+    /// none of them and declines — the device goes to the sheet, exactly as
+    /// `Recognition`'s `.ask` would send it, and the writer decides. A
+    /// stranger is never affected: this only ever turns silent into a
+    /// question. Permits are compared by `Permit`'s own equality on each
+    /// record's timeline (tripwire 43: never the record's fields), never
+    /// against a rung (tripwire 47). Revoked records are left out, as
+    /// `DocumentStore.changePermit(everyRecordOf:to:)` leaves them out; only
+    /// this root's chain counts, `Recognition.recognise`'s rule.
+    nonisolated private static func permitsAgree(
+        underLabelOf person: PersonRecord, table: TrustTable,
+        within registry: Registry, thisRoot: String
+    ) -> Bool {
+        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
+        let permits = registry.people
+            .filter {
+                chain.contains($0.person) && !$0.isRevoked
+                    && TrustTable.sharesLabel($0.label, person.label)
+            }
+            .map { table.timeline(forPerson: $0.person).current }
+        guard let first = permits.first else { return true }
+        return permits.allSatisfy { $0 == first }
     }
 
     /// **Is a remembered label, in THIS book, a person narrowed below the

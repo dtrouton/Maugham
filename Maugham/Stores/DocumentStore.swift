@@ -252,6 +252,16 @@ public final class DocumentStore {
     /// draws it.
     internal var personClaimProblem: String?
 
+    /// **This open changed whose device this Mac is** (#103): its record held
+    /// a verified claim for one person key and now names another, so every
+    /// other Mac will ask about it again. Session-scoped — People & Devices
+    /// says it once (`PeopleAndDevicesModel.personKeyChangedNotice`) until
+    /// the writer dismisses it.
+    private(set) var personKeyChanged = false
+
+    /// The writer read the notice: People & Devices stops drawing it.
+    func dismissPersonKeyChange() { personKeyChanged = false }
+
     /// **The silent admissions run one at a time** (Task 6 fix round). Each
     /// pass reads the registry, decides, and writes; two overlapping refreshes
     /// would both read *nobody here yet* and both admit — two arrival events
@@ -279,7 +289,8 @@ public final class DocumentStore {
     /// `.remove`), and `RegistryPresence.declareDevice` writes the record,
     /// re-writing it with `.keep` when the claim is refused. What stays here
     /// is the Mac's saying of it: a problem is logged as a `.fault` and
-    /// returned for `personClaimProblem`.
+    /// returned for `personClaimProblem`, and a change of person key is
+    /// returned for `personKeyChanged`.
     ///
     /// Throws what the registry read and write throw, exactly as the bare
     /// `ensureDeviceRecord` it replaces did.
@@ -288,15 +299,19 @@ public final class DocumentStore {
         in url: URL, identities: LocalIdentities, name: String,
         claim: (intent: PersonClaimIntent, problem: String?),
         presenter: NSFilePresenter?
-    ) throws -> String? {
-        let problem = try RegistryPresence.declareDevice(
+    ) throws -> RegistryPresence.DeviceDeclaration {
+        let declared = try RegistryPresence.declareDeviceReporting(
             in: url, identities: identities, name: name, kind: .mac,
             presenter: presenter, claim: claim)
-        if let problem {
+        if let problem = declared.problem {
             documentStoreLog.fault(
                 "this Mac: \(problem, privacy: .public) — in \(url.lastPathComponent, privacy: .public); the record keeps the claim it had")
         }
-        return problem
+        if declared.personKeyChanged {
+            documentStoreLog.info(
+                "this Mac now claims a different person key in \(url.lastPathComponent, privacy: .public)")
+        }
+        return declared
     }
 
     /// One line per thing a recognition pass did, and one per link it was
@@ -397,12 +412,14 @@ public final class DocumentStore {
             PersonKey.findOrCreate(in: personKeyStore, seedName: writersName)
         }.value
         do {
-            store.personClaimProblem = try declareThisMac(
+            let declared = try declareThisMac(
                 in: url, identities: Document.loadIdentities, name: thisMacsName,
                 claim: RegistryPresence.claimIntent(
                     forDevice: Document.loadIdentities.author.fingerprint,
                     personKey: personKey),
                 presenter: store.presenter)
+            store.personClaimProblem = declared.problem
+            store.personKeyChanged = declared.personKeyChanged
             try RegistryPresence.ensureRootIfEmpty(
                 in: url, identities: Document.loadIdentities,
                 writerName: thisWritersName, presenter: store.presenter)
@@ -418,18 +435,32 @@ public final class DocumentStore {
             //
             // Its own `do`, so a recognition that could not read does not also
             // cost the remembered admission below.
+            //
+            // **Both open-time passes run in `serialisingSilentAdmission`**
+            // (2026-10-18 sweep, SW3), the queue the mid-session verbs use.
+            // Nothing can race them today: the folder presenter is registered
+            // by now, but nothing it reaches before `open` returns calls a
+            // silent verb (`registryChanged` admits nobody, and no window
+            // exists yet to refresh the sheet). That is a fact about timing;
+            // the queue (per store) makes "one silent admission at a time" a
+            // fact about the code.
             do {
-                let pass = try RegistryPresence.admitRecognised(
-                    in: url, identities: Document.loadIdentities,
-                    cache: Document.loadRegistryCache,
-                    mark: {
-                        try DocumentStore.rememberedAdmissionMark(
-                            forPerson: $0, in: url,
-                            identities: Document.loadIdentities,
+                let recognised = await store.serialisingSilentAdmission {
+                    Result {
+                        try RegistryPresence.admitRecognised(
+                            in: url, identities: Document.loadIdentities,
                             cache: Document.loadRegistryCache,
-                            state: Document.loadDeviceState)
-                    },
-                    presenter: store.presenter)
+                            mark: {
+                                try DocumentStore.rememberedAdmissionMark(
+                                    forPerson: $0, in: url,
+                                    identities: Document.loadIdentities,
+                                    cache: Document.loadRegistryCache,
+                                    state: Document.loadDeviceState)
+                            },
+                            presenter: store.presenter)
+                    }
+                }
+                let pass = try recognised.get()
                 logRecognition(pass, in: url)
                 if pass.changedTheRegister {
                     store.invalidateTrust()
@@ -462,18 +493,22 @@ public final class DocumentStore {
             // A sweep that throws skips the silent admission and does not
             // block the open: the `catch` below logs it, the devices already
             // admitted stand, and the next open runs the whole thing again.
-            let admitted = try RegistryPresence.admitRemembered(
-                in: url, identities: Document.loadIdentities,
-                cache: Document.loadRegistryCache,
-                memory: Document.loadAdmissionMemory,
-                mark: {
-                    try DocumentStore.rememberedAdmissionMark(
-                        forPerson: $0, in: url,
-                        identities: Document.loadIdentities,
+            let admitted = try await store.serialisingSilentAdmission {
+                Result {
+                    try RegistryPresence.admitRemembered(
+                        in: url, identities: Document.loadIdentities,
                         cache: Document.loadRegistryCache,
-                        state: Document.loadDeviceState)
-                },
-                presenter: store.presenter)
+                        memory: Document.loadAdmissionMemory,
+                        mark: {
+                            try DocumentStore.rememberedAdmissionMark(
+                                forPerson: $0, in: url,
+                                identities: Document.loadIdentities,
+                                cache: Document.loadRegistryCache,
+                                state: Document.loadDeviceState)
+                        },
+                        presenter: store.presenter)
+                }
+            }.get()
             for record in admitted {
                 documentStoreLog.info(
                     "admitted \(DeviceCode.short(record.person), privacy: .public) as \(record.label, privacy: .public) in \(url.lastPathComponent, privacy: .public), remembered from an earlier book")

@@ -27,10 +27,9 @@ import XCTest
 /// a type key: it stays keyed `MaughamPhone/<file>`.
 ///
 /// **The roots are the Mac, MaughamCore AND the phone, and the phone's
-/// allow-list is EMPTY** (controller ruling, plan 1 Task 8 fix round). Plan 1
-/// has no phone construction point; plan 2's phone store-injection file and
-/// any phone signing site must be registered here DELIBERATELY, as a
-/// `MaughamPhone/<file>` key. A phone file is keyed by that prefix, so a phone
+/// allow-list is exactly the `MaughamPhone/<file>`-keyed entries below.** A
+/// phone construction or signing site must be registered here DELIBERATELY, as
+/// a `MaughamPhone/<file>` key. A phone file is keyed by that prefix, so a phone
 /// file that happens to share an allow-listed Mac file's NAME is never absorbed
 /// into the Mac's allowance.
 ///
@@ -60,7 +59,7 @@ final class PersonKeyCensusTests: XCTestCase {
     /// DEFINES both stores and constructs neither. A second construction is a
     /// second answer to *may a test host reach the keychain* — and the wrong
     /// answer creates a synchronizable item on the developer's own Apple ID
-    /// from a gate worker. (The phone's construction file is plan 2's.)
+    /// from a gate worker. (The phone's construction file is the `MaughamPhone/`-keyed entry.)
     static let storeConstruction: [Site] = [
         Site(pattern: #"KeychainPersonKeyStore\("#,
              sample: "KeychainPersonKeyStore(accessGroup: g)",
@@ -71,12 +70,12 @@ final class PersonKeyCensusTests: XCTestCase {
              expected: ["PersonKeyAccess.swift": 1,
                         "MaughamPhone/PhonePersonKeyAccess.swift": 1]),
         // The store's one consumer per surface: the Mac's open, and the
-        // phone's declaration on its first write in a book (plan 2 Task 1 —
-        // `PhonePersonKeyAccess.store` matches this spelling by design, so
+        // phone's declaration on its first write in a book
+        // (`PhonePersonKeyAccess.store` matches this spelling by design, so
         // the phone's reader is counted here rather than escaping).
         // `storeForTesting` is a different identifier (no `\b` match).
         // The decision (and the team id) is Core's; each surface asks it once,
-        // from its own construction file (plan 2 Task 1 fix round).
+        // from its own construction file.
         Site(pattern: #"PersonKeyStoreChoice\.choose\("#,
              sample: "PersonKeyStoreChoice.choose(injected: i, isTestHost: h)",
              expected: ["PersonKeyAccess.swift": 1,

@@ -59,6 +59,9 @@ public enum RegistryPresence {
     /// present and unreadable refuses the whole thing (RULING-54), because a
     /// device that re-declares itself over a folder it could only half read is
     /// deciding something by accident.
+    ///
+    /// The bare answer is the file; `ensureDeviceRecordReporting` answers it
+    /// with whether the write changed whose device this is.
     @discardableResult
     nonisolated public static func ensureDeviceRecord(
         in projectURL: URL,
@@ -69,13 +72,53 @@ public enum RegistryPresence {
         presenter: NSFilePresenter? = nil,
         personClaim intent: PersonClaimIntent = .keep
     ) throws -> URL? {
+        try ensureDeviceRecordReporting(
+            in: projectURL, identities: identities, name: name, kind: kind,
+            now: now, presenter: presenter, personClaim: intent).file
+    }
+
+    /// **What `ensureDeviceRecord` did** — the file it wrote, if any, and
+    /// whether that write changed whose device this is (#103).
+    public struct DeviceRecordOutcome: Equatable, Sendable {
+        /// The record written, or nil when nothing was.
+        public let file: URL?
+        /// A standing VERIFIED claim for one person key was replaced by a
+        /// claim for ANOTHER (an Apple ID key reset): every other Mac stops
+        /// recognising this device as the old key's person and asks about it
+        /// again. Never a first claim (none → a key), never `.keep`, never
+        /// `.remove` — dropping a claim is the writer's own act.
+        ///
+        /// **Known limit:** it compares against the record on disk only, so a
+        /// change across a claim-less record is not reported — K1, then a
+        /// record written with no claim (an older build, or
+        /// `writeOwnRecordAgain`), then K2 at a later open reads as a first
+        /// claim, although other Macs knew this device as K1's.
+        public let personKeyChanged: Bool
+
+        public init(file: URL?, personKeyChanged: Bool = false) {
+            self.file = file
+            self.personKeyChanged = personKeyChanged
+        }
+    }
+
+    /// `ensureDeviceRecord`, answering what it did (`DeviceRecordOutcome`).
+    /// The one body: the bare verb is this, less the report.
+    nonisolated public static func ensureDeviceRecordReporting(
+        in projectURL: URL,
+        identities: LocalIdentities,
+        name: String,
+        kind: DeviceKind,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil,
+        personClaim intent: PersonClaimIntent = .keep
+    ) throws -> DeviceRecordOutcome {
         // MINTS, and should: this is a write path, and naming an actor is the
         // writer's act (`LocalIdentities`' lazy rule). Everything after this
         // ENUMERATES, so no other actor's key is minted by declaring oneself.
         let author = identities.author
         guard author.canSign else {
             reportUnsigned()
-            return nil
+            return DeviceRecordOutcome(file: nil)
         }
 
         var actors: [String: String] = [:]
@@ -114,21 +157,33 @@ public enum RegistryPresence {
             claim = verified
         }
         if let existing {
-            guard existing.retiredAt == nil else { return nil }
+            guard existing.retiredAt == nil else { return DeviceRecordOutcome(file: nil) }
             // The claim is compared by its FACTS, never its signature: ECDSA
             // is randomized, so a claim signed afresh at each open would
             // otherwise rewrite the record at every open.
             if existing.name == name, existing.kind == kind, existing.actors == actors,
                standingClaim?.facts == claim?.facts {
-                return nil
+                return DeviceRecordOutcome(file: nil)
             }
+        }
+
+        // Whose device this is changed only when a claim that HELD names
+        // another key than the one replacing it (Denver's ruling on #103):
+        // both present, keys differ. A first claim, a kept one and a removed
+        // one are all excluded by needing both sides.
+        let personKeyChanged: Bool
+        if let before = standingClaim?.personKey, let after = claim?.personKey {
+            personKeyChanged = before != after
+        } else {
+            personKeyChanged = false
         }
 
         let record = DeviceRecord(
             device: author.fingerprint, name: name, kind: kind, actors: actors,
             madeAt: existing?.madeAt ?? now(), personClaim: claim)
-        return try RegistryWriter.write(
+        let file = try RegistryWriter.write(
             record, signedBy: author, in: projectURL, presenter: presenter)
+        return DeviceRecordOutcome(file: file, personKeyChanged: personKeyChanged)
     }
 
     // MARK: - A key named after the open (P3b smoke find F6)
@@ -712,7 +767,9 @@ public enum RegistryPresence {
         /// Logged by the caller, never thrown: a refusal means *do not link*.
         public let refusedLinks: [String]
         /// Recognised devices NOT admitted, and why — a permit this build
-        /// cannot write for them. They reach the sheet like any stranger.
+        /// cannot write for them, or a person whose devices hold different
+        /// permits (`RegistryAdmission.permitsAgree`). They reach the sheet
+        /// like any stranger.
         public let declined: [String]
 
         public static let nothing = RecognitionPass(
@@ -1019,17 +1076,44 @@ extension RegistryPresence {
         kind: DeviceKind, presenter: NSFilePresenter? = nil,
         claim: (intent: PersonClaimIntent, problem: String?)
     ) throws -> String? {
-        var problem = claim.problem
+        try declareDeviceReporting(
+            in: projectURL, identities: identities, name: name, kind: kind,
+            presenter: presenter, claim: claim).problem
+    }
+
+    /// **What a declaration said** — the problem, if any, and whether the
+    /// record now names a different person key than the claim that stood
+    /// (`DeviceRecordOutcome.personKeyChanged`, #103). The Mac says the
+    /// second in People & Devices; the phone has no such pane yet.
+    public struct DeviceDeclaration: Equatable, Sendable {
+        public let problem: String?
+        public let personKeyChanged: Bool
+
+        public init(problem: String?, personKeyChanged: Bool = false) {
+            self.problem = problem
+            self.personKeyChanged = personKeyChanged
+        }
+    }
+
+    /// `declareDevice`, answering what it did. A claim the record refuses is
+    /// re-written with `.keep`, which never changes the key.
+    nonisolated public static func declareDeviceReporting(
+        in projectURL: URL, identities: LocalIdentities, name: String,
+        kind: DeviceKind, presenter: NSFilePresenter? = nil,
+        claim: (intent: PersonClaimIntent, problem: String?)
+    ) throws -> DeviceDeclaration {
         do {
-            try ensureDeviceRecord(
+            let outcome = try ensureDeviceRecordReporting(
                 in: projectURL, identities: identities, name: name, kind: kind,
                 presenter: presenter, personClaim: claim.intent)
+            return DeviceDeclaration(
+                problem: claim.problem, personKeyChanged: outcome.personKeyChanged)
         } catch let refused as PersonClaimError {
-            problem = "the person claim was refused by this device's own record: \(refused)"
             try ensureDeviceRecord(
                 in: projectURL, identities: identities, name: name, kind: kind,
                 presenter: presenter, personClaim: .keep)
+            return DeviceDeclaration(
+                problem: "the person claim was refused by this device's own record: \(refused)")
         }
-        return problem
     }
 }

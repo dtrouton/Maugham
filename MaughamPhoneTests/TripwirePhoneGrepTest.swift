@@ -862,6 +862,66 @@ final class TripwirePhoneGrepTest: XCTestCase {
             "reading where a record lives is not writing one")
     }
 
+    // MARK: - The phone never mints a person key (#102 SW5)
+
+    /// The spellings that create a person key. The phone FINDS one
+    /// (`PersonKey.find`, behind `PhoneDeviceRecord.findPersonKey`) and never
+    /// mints: a phone that minted would fork the person from the Mac that
+    /// holds the writer's key. Tripwire 53's Mac census counts
+    /// `findOrCreate`'s one call site; this is its phone twin, banning the
+    /// whole minting surface under `MaughamPhone/`.
+    private let personKeyMintSpellings = [
+        "PersonKey.findOrCreate(", ".findOrCreate(in:", ".createIfAbsent(", "PersonKey.mintItem(",
+    ]
+
+    func test_thePhoneNeverMintsAPersonKey() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+
+        let offenders = try grepSwiftDir(
+            in: sourceDir,
+            patterns: personKeyMintSpellings,
+            excludeLine: admissionExcludeLine,
+            extraOffender: { _ in false })
+
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source mints a person key. The phone only finds the key "
+            + "the Mac minted; minting here forks the person. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    func test_thePersonKeyMintCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("phone-mint-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name PersonKey.findOrCreate( freely.
+        let a = PersonKey.findOrCreate(seedName: "x")
+        let b = store.createIfAbsent(item)
+        let d = SomeAlias.findOrCreate(in: store, seedName: "y")
+        let e = PersonKey.mintItem(seed)
+        let c = PersonKey.find(in: store)
+        """.write(to: tmp.appendingPathComponent("PhoneMints.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwiftDir(
+            in: tmp,
+            patterns: personKeyMintSpellings,
+            excludeLine: admissionExcludeLine,
+            extraOffender: { _ in false })
+
+        XCTAssertEqual(offenders.count, 4,
+            "Self-check: all four spellings should be caught, and neither the comment "
+            + "nor the find-only read. Caught:\n" + offenders.joined(separator: "\n"))
+        XCTAssertFalse(offenders.contains(where: { $0.contains("let c") }),
+            "finding the key is not minting it")
+    }
+
     // MARK: - The phone reads annotations judged, and its chained stores only
     //         write (P3c plan 2, Task 5)
 

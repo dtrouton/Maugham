@@ -100,7 +100,11 @@ public enum Recognition: Equatable, Sendable {
     /// record the root actually linked), else the lowest-fingerprint standing
     /// record of the label — `otherPersonHolding`'s convention, so two runs
     /// name the same record, and never a revoked one, whose timeline would be
-    /// the wrong permit.
+    /// the wrong permit. Its permit stands for the person's only while every
+    /// standing record of the label holds the same one; this function reads
+    /// no permit, so `RegistryAdmission.admitRecognised` checks that
+    /// (`permitsAgree`, SW2) and sends a person whose records disagree to the
+    /// sheet.
     ///
     /// The claim is taken from the caller only as the registry's own verified
     /// answer: a claim that is not `registry.verifiedPersonClaims[device]` is

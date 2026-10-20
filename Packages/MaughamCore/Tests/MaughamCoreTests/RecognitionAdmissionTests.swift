@@ -288,6 +288,96 @@ final class RecognitionAdmissionTests: XCTestCase {
                         samsPhone.author.fingerprint])
     }
 
+    // MARK: - SW2: a person whose devices disagree about their permit is asked
+
+    /// Sam's Mac and Sam's iPad, both admitted as "Sam" and both carrying
+    /// Sam's key. Answers (Mac, iPad).
+    private func samWithTwoDevices() throws -> (LocalIdentities, LocalIdentities) {
+        try rootHere()
+        let samsMac = try declare("Sam's Mac", kind: .mac, claimBy: samKey)
+        let samsIPad = try declare("Sam's iPad", kind: .phone, claimBy: samKey)
+        for (device, name) in [(samsMac, "Sam's Mac"), (samsIPad, "Sam's iPad")] {
+            try RegistryAdmission.admit(
+                device: device.author.fingerprint, label: "Sam", ownName: name,
+                in: projectURL, by: mine.author, cache: cache, memory: memory)
+        }
+        return (samsMac, samsIPad)
+    }
+
+    private func demote(_ device: LocalIdentities) throws {
+        try RegistryAdmission.changePermit(
+            person: device.author.fingerprint, role: Permit.reviewerRole,
+            scope: Permit.bookScope, pieces: [], mark: .nothingApplied,
+            unsigned: .nothingApplied,
+            in: projectURL, by: mine.author, cache: cache)
+    }
+
+    /// The 2026-10-18 sweep's SW2: `changePermit(everyRecordOf:)` stopped
+    /// part way (`PermitChangePartlyApplied`), so Sam's Mac is a reviewer and
+    /// Sam's iPad still an author. Recognition must not pick one of the two
+    /// for Sam's new phone — whichever sorts lowest could be the stale,
+    /// broader one. The phone goes to the sheet.
+    func test_aPersonWhoseDevicesHoldDifferentPermitsIsAskedNotSilentlyAdmitted() throws {
+        let (samsMac, samsIPad) = try samWithTwoDevices()
+        try demote(samsMac)   // ...and the loop stopped before the iPad.
+        XCTAssertNotEqual(try currentPermit(of: samsMac.author.fingerprint),
+                          try currentPermit(of: samsIPad.author.fingerprint),
+                          "precondition: Sam's two records disagree")
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+
+        // The writer once named this phone "Sam" at a sheet in another book,
+        // so the memory path WOULD reach for it — the worst case for it.
+        memory.remember(samsPhone.author.fingerprint, label: "Sam", ownName: "Sam's iPhone")
+
+        let pass = try recognise()
+        let remembered = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: cache, memory: memory)
+
+        XCTAssertNil(try registry().person(samsPhone.author.fingerprint), "the sheet asks")
+        XCTAssertTrue(pass.admitted.isEmpty)
+        XCTAssertEqual(pass.declined.count, 1)
+        XCTAssertTrue(pass.declined.first?.contains("different permits") ?? false,
+                      "said in words, for the log: \(pass.declined)")
+        XCTAssertTrue(remembered.isEmpty, "nor does the memory path let it in")
+        XCTAssertTrue(try events(about: samsPhone.author.fingerprint).isEmpty)
+    }
+
+    /// The twin: Sam's records AGREE (both demoted — the whole act applied),
+    /// so Sam's new phone still joins silently, with that one permit.
+    func test_aPersonWhoseDevicesAgreeStillJoinsSilentlyWithThatPermit() throws {
+        let (samsMac, samsIPad) = try samWithTwoDevices()
+        try demote(samsMac)
+        try demote(samsIPad)
+        let samsPermit = try currentPermit(of: samsMac.author.fingerprint)
+        XCTAssertNotEqual(samsPermit, .bookAuthor, "precondition: Sam is narrowed")
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+
+        let pass = try recognise()
+
+        XCTAssertEqual(pass.admitted.map(\.person), [samsPhone.author.fingerprint])
+        XCTAssertTrue(pass.declined.isEmpty)
+        XCTAssertEqual(try registry().person(samsPhone.author.fingerprint)?.label, "Sam")
+        XCTAssertEqual(try currentPermit(of: samsPhone.author.fingerprint), samsPermit)
+    }
+
+    /// A REVOKED record's older permit is no disagreement: the revoked iPad
+    /// is out of the act, as `changePermit(everyRecordOf:)` leaves it out, so
+    /// Sam's phone joins with the standing Mac's permit.
+    func test_aRevokedRecordsOlderPermitDoesNotMakeThePersonAQuestion() throws {
+        let (samsMac, samsIPad) = try samWithTwoDevices()
+        try RegistryAdmission.revoke(
+            person: samsIPad.author.fingerprint, in: projectURL,
+            by: mine.author, highestOpIdSeen: nil, cache: cache)
+        try demote(samsMac)
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+
+        let pass = try recognise()
+
+        XCTAssertEqual(pass.admitted.map(\.person), [samsPhone.author.fingerprint])
+        XCTAssertEqual(try currentPermit(of: samsPhone.author.fingerprint),
+                       try currentPermit(of: samsMac.author.fingerprint))
+    }
+
     // MARK: - Strangers still ask
 
     func test_aStrangerWithASelfGeneratedClaimIsNotAdmitted() throws {

@@ -131,11 +131,17 @@ Maugham still asks, with the device's own claim shown on the panel, when:
 - the Apple ID it carries is linked to somebody else in this book;
 - every device of that person's has been revoked here;
 - you have told this book to forget that Apple ID (see *The list* below);
-- or, occasionally, the book can't yet settle what that person may write.
+- or, occasionally, the book can't yet settle what that person may write, for
+  instance when a change to their permit reached only some of their devices.
 
 Without iCloud Keychain, or on a device that can't reach it, nothing is
 different from before: the device is asked about once, and after that it goes
 in silently. Nothing is ever held back because a key is missing.
+
+If a Mac's own key changes (after an iCloud Keychain reset, say), People &
+Devices, in each book where that Mac carried the old key, says *This Mac now
+belongs to a different person key, so your other Macs will ask about it
+again.* until you press Dismiss or close the book.
 
 Each recognised arrival is a dated entry in History: *Denver's iPhone joined as
 you — recognised by your Apple ID.*, or *Sam's iPad joined as Sam — recognised
