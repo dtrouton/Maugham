@@ -4900,8 +4900,13 @@ final class TripwireGrepTests: XCTestCase {
     /// that property, so a frozen view value handed in is caught. A helper held
     /// in `@State`, or made by a factory method and stored, would escape it.
     ///
-    /// One helper never names another: a helper is built only in a `CanvasView`
-    /// computed property and handed what it needs (the controller's ruling).
+    /// One helper never builds another: a helper is built only in a `CanvasView`
+    /// computed property and handed what it needs (the controller's ruling). A
+    /// sibling surface file may HOLD one it was handed, as a bare `let x: T`
+    /// line under `Maugham/Canvas/`, and nothing more. **A held helper is frozen
+    /// for any later work its holder schedules**: a `Task` or escaping closure in
+    /// the holder would read the held helper's build-time values, so a handler
+    /// that holds a helper schedules no such work.
     /// Vacuous while the list holds only `CanvasView.swift`; the planted
     /// companion below is what proves each route fires.
     func test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly() throws {
@@ -4924,7 +4929,12 @@ final class TripwireGrepTests: XCTestCase {
     /// holding it as a bare `let` (one that builds it fires), an extension of the
     /// file's own type and of `CanvasView`, a nested function, and a
     /// `class func` in a helper class
-    /// (which must not register a type called `func`). A type NOT on the list
+    /// (which must not register a type called `func`). The hold's carve-out is
+    /// pinned narrow: a sibling surface file holding the helper as a `var`,
+    /// taking it as a parameter or calling its static member fires, and so does
+    /// the bare `let` hold in a same-named file outside `Maugham/Canvas/` (the
+    /// two `CanvasKeyGrip.swift` copies are identical, so exactly one offender
+    /// for that name means the path alone decided it). A type NOT on the list
     /// is not checked at all, and a missing listed file throws.
     func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
         let base = try SourceTree.plantedTree([
@@ -4967,6 +4977,27 @@ final class TripwireGrepTests: XCTestCase {
                     func again() { _ = CanvasKeyHandler(model: keys.model) }
                 }
                 """,
+            "Maugham/Canvas/CanvasKeyVarHolder.swift": """
+                struct CanvasKeyVarHolder {
+                    var keys: CanvasKeyHandler
+                }
+                """,
+            "Maugham/Canvas/CanvasKeyTaker.swift": """
+                struct CanvasKeyTaker {
+                    func take(_ keys: CanvasKeyHandler) {}
+                }
+                """,
+            "Maugham/Canvas/CanvasKeyCaller.swift": """
+                struct CanvasKeyCaller {
+                    let model: CanvasModel
+                    func f() { CanvasKeyHandler.delete(model: model) }
+                }
+                """,
+            "Maugham/Views/CanvasKeyGrip.swift": """
+                struct CanvasKeyGrip {
+                    let keys: CanvasKeyHandler
+                }
+                """,
             "Maugham/Canvas/RegionInspector.swift": """
                 struct RegionInspector {
                     let model: CanvasModel
@@ -5002,12 +5033,18 @@ final class TripwireGrepTests: XCTestCase {
 
         let planted = try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift", "CanvasKeyHandler.swift",
-                                       "CanvasKeyGrip.swift", "CanvasKeyRebuilder.swift"])
-        XCTAssertEqual(planted.walked, 9, "Self-check: the walk read the planted tree")
+                                       "CanvasKeyGrip.swift", "CanvasKeyRebuilder.swift",
+                                       "CanvasKeyVarHolder.swift", "CanvasKeyTaker.swift",
+                                       "CanvasKeyCaller.swift"])
+        XCTAssertEqual(planted.walked, 13, "Self-check: the walk read the planted tree")
         XCTAssertEqual(planted.offenders, [
+            "CanvasKeyCaller.swift names CanvasKeyHandler",
+            "CanvasKeyGrip.swift names CanvasKeyHandler",
             "CanvasKeyHandler.swift declares a top-level func",
             "CanvasKeyHandler.swift extends CanvasModel",
             "CanvasKeyRebuilder.swift names CanvasKeyHandler",
+            "CanvasKeyTaker.swift names CanvasKeyHandler",
+            "CanvasKeyVarHolder.swift names CanvasKeyHandler",
             "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
                 + "@State private var pass: CanvasKeyHandler?",
             "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
@@ -5019,9 +5056,11 @@ final class TripwireGrepTests: XCTestCase {
         ], "Self-check: every route from another column into a surface file must "
             + "fire — building, holding, a static call, an extension of another "
             + "type, a top-level function, and in the view a helper held in `@State` "
-            + "or made by a factory, and a sibling surface file building one — and no "
-            + "control may (the `keyHandler` computed property and a sibling's bare "
-            + "held `let` stay quiet).")
+            + "or made by a factory, and a sibling surface file building one, holding "
+            + "it as a `var`, taking it as a parameter or calling its static member, "
+            + "and a bare `let` hold outside `Maugham/Canvas/` — and no control may "
+            + "(the `keyHandler` computed property and a sibling's bare held `let` "
+            + "stay quiet).")
 
         let offTheList = try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift"])
