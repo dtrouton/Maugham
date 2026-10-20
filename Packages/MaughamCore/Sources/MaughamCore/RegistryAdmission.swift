@@ -675,7 +675,8 @@ public enum RegistryAdmission {
     /// record — the lowest-fingerprint standing holder — and a new device
     /// gets that record's timeline permit. That is right only while every
     /// standing record of the label holds the same permit, which
-    /// `changePermit(everyRecordOf:)` keeps true by moving them together. Its
+    /// `DocumentStore.changePermit(everyRecordOf:to:)` (the Mac app's verb)
+    /// keeps true by moving them together. Its
     /// write loop can still stop part way (`PermitChangePartlyApplied`, a
     /// surfaced error), leaving Sam's Mac a reviewer and Sam's iPad an
     /// author, and the representative could then be the stale, broader one.
@@ -688,9 +689,9 @@ public enum RegistryAdmission {
     /// question. Permits are compared by `Permit`'s own equality on each
     /// record's timeline (tripwire 43: never the record's fields), never
     /// against a rung (tripwire 47). Revoked records are left out, as
-    /// `changePermit(everyRecordOf:)` leaves them out; only this root's chain
-    /// counts, `Recognition.recognise`'s rule.
-    nonisolated static func permitsAgree(
+    /// `DocumentStore.changePermit(everyRecordOf:to:)` leaves them out; only
+    /// this root's chain counts, `Recognition.recognise`'s rule.
+    nonisolated private static func permitsAgree(
         underLabelOf person: PersonRecord, table: TrustTable,
         within registry: Registry, thisRoot: String
     ) -> Bool {

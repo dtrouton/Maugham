@@ -325,6 +325,10 @@ final class RecognitionAdmissionTests: XCTestCase {
                           "precondition: Sam's two records disagree")
         let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
 
+        // The writer once named this phone "Sam" at a sheet in another book,
+        // so the memory path WOULD reach for it — the worst case for it.
+        memory.remember(samsPhone.author.fingerprint, label: "Sam", ownName: "Sam's iPhone")
+
         let pass = try recognise()
         let remembered = try RegistryPresence.admitRemembered(
             in: projectURL, identities: mine, cache: cache, memory: memory)
