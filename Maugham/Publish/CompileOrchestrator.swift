@@ -89,6 +89,30 @@ public struct CompileOrchestrator {
     /// republish prefix their excerpt with it; the desk reads THIS constant.
     public static let publishProblemsLogExcerpt = "publish_problems: "
 
+    /// **Every `.failed` excerpt this door (and the coverage gate it runs)
+    /// spells before the problem gate judges the book** — a refusal or a
+    /// failure that says nothing about the manuscript's problems, so the
+    /// desk leaves an open problems list alone (final review M3). Anything
+    /// else — the typesetter's log, the EPUB's empty excerpt, an occupied
+    /// destination — came after the gate passed the book. `thrown_after_start`
+    /// may fall on either side and is counted here: leaving a list alone is
+    /// the safe half. `DepartmentCompileStateTests` reads every excerpt the
+    /// two files spell and fails on one this list doesn't name.
+    public static let beforeTheProblemGateLogExcerpts: [String] = [
+        unproducibleFormatLogExcerpt, "no config", unknownImprintLogExcerpt,
+        "thrown_before_start: ", "invalid_languages: ", "invalid_config: ",
+        "publications catalog unreadable", "version_without_language: ",
+        "no_source_version: ", "no_source_publication: ", "not_rebindable: ",
+        "version_collision: ", mintInFlightLogExcerpt,
+        "no_translation_layer: ", "translation_stale: ",
+        "thrown_after_start: ",
+    ]
+
+    /// Whether a `.failed` with this excerpt stopped before the problem gate.
+    public static func stoppedBeforeTheProblemGate(logExcerpt: String) -> Bool {
+        beforeTheProblemGateLogExcerpts.contains(where: logExcerpt.hasPrefix)
+    }
+
     public let maughamVersion: String
     public let tectonicVersion: String
 

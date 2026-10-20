@@ -445,7 +445,9 @@ final class DeskCompileRunnerTests: XCTestCase {
             level: .error, file: nil, line: nil, message: "it broke", contextLines: [])
         XCTAssertEqual(
             DepartmentCompileState.settled(after: .failed(errors: [diag], logExcerpt: "")),
-            DepartmentCompileState(phase: .failed("it broke"), isRunning: false))
+            DepartmentCompileState(phase: .failed("it broke"), isRunning: false,
+                                   judgedTheManuscript: true),
+            "a tool's failure comes after the problem gate judged the book")
 
         XCTAssertEqual(
             DepartmentCompileState.settled(after: .failed(

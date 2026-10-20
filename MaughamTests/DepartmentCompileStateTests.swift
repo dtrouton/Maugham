@@ -165,6 +165,53 @@ final class DepartmentCompileStateTests: XCTestCase {
         }
     }
 
+    /// The other side of M3: a TeX or packaging failure comes AFTER the
+    /// problem gate, which judged the book and found nothing — so an open list
+    /// clears, as it would after a clean compile. The tool's log is the
+    /// excerpt (the EPUB's is empty; an occupied destination names itself).
+    func test_aTeXOrPackagingFailureOnABookThatPassedTheGate_clearsAnOpenList() {
+        let running = DepartmentCompileState(
+            phase: .running(format: .pdf, languages: [], imprint: nil), isRunning: true)
+        func failed(_ excerpt: String) -> DepartmentCompileState {
+            DepartmentCompileState.settled(after: .failed(
+                errors: [Diagnostic(level: .error, file: "template.tex", line: 3,
+                                    message: "Undefined control sequence", contextLines: [])],
+                logExcerpt: excerpt))
+        }
+        for excerpt in ["note: Running TeX ...\n! Undefined control sequence.", "",
+                        "output_path_occupied: Book-v1.0.pdf"] {
+            let state = failed(excerpt)
+            XCTAssertEqual(state.phase, .failed("Undefined control sequence"), "premise: a failure")
+            XCTAssertEqual(DepartmentCompileState.settledProblems(from: running, to: state), [],
+                           "\(excerpt.prefix(20)): the gate judged the book clean — the list clears")
+        }
+    }
+
+    /// Every `.failed` excerpt the orchestrator and the coverage gate spell
+    /// before the problem gate is named in the one list the desk reads, so a
+    /// new refusal can't silently clear an open list. The publish-problems
+    /// marker is the gate itself.
+    func test_everyFailureExcerptBeforeTheGate_isInTheList() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        var spelled: [String] = []
+        for file in ["Maugham/Publish/CompileOrchestrator.swift", "Maugham/Publish/TranslationCoverage.swift"] {
+            let text = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            let regex = try NSRegularExpression(pattern: #"(?:logExcerpt: |LogExcerpt = )"([^"\\]*)"#)
+            for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                spelled.append(String(text[Range(match.range(at: 1), in: text)!]))
+            }
+        }
+        XCTAssertGreaterThan(spelled.count, 12, "premise: the census reads the excerpts: \(spelled)")
+        for literal in spelled where literal != CompileOrchestrator.publishProblemsLogExcerpt {
+            XCTAssertTrue(CompileOrchestrator.stoppedBeforeTheProblemGate(logExcerpt: literal + "x"),
+                          "\(literal) is not in CompileOrchestrator.beforeTheProblemGateLogExcerpts")
+        }
+        XCTAssertFalse(CompileOrchestrator.stoppedBeforeTheProblemGate(
+            logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt + "2 errors"))
+        XCTAssertFalse(CompileOrchestrator.stoppedBeforeTheProblemGate(logExcerpt: "planted: a TeX log"),
+                       "control: a log the list doesn't name reached the gate")
+    }
+
     func test_theOtherRefusalsAndOutcomesCarryNoProblems() {
         let diag = Diagnostic(level: .error, file: nil, line: nil,
                               message: "no such imprint", contextLines: [])

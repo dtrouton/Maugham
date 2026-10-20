@@ -65,6 +65,14 @@ struct DepartmentCompileState: Equatable {
     /// Problems** (`offersShowProblems`), and these are exactly what it shows.
     var problems: [TectonicLogParser.Diagnostic] = []
 
+    /// Whether the last compile reached the problem gate, which judged the
+    /// manuscript — so its `problems` are the book's whole list, empty
+    /// included. False for a refusal or a failure that stopped before it
+    /// (`CompileOrchestrator.stoppedBeforeTheProblemGate`) and for any
+    /// state that isn't a settled `.failed`/`.refused`; `settledProblems`
+    /// reads it.
+    var judgedTheManuscript: Bool = false
+
     /// Whether the desk offers **Show Problems** — whenever the last compile
     /// left problems behind, whatever else the line says.
     var offersShowProblems: Bool { !problems.isEmpty }
@@ -132,7 +140,7 @@ struct DepartmentCompileState: Equatable {
                 return DepartmentCompileState(
                     phase: .refused(Self.refusedForProblems(
                         errorCount > 0 ? errorCount : problems.count)),
-                    isRunning: false, problems: problems)
+                    isRunning: false, problems: problems, judgedTheManuscript: true)
             }
             let message = errors.first?.message ?? Self.failedWithoutADiagnostic
             // The orchestrator's own markers, read rather than re-typed. Three
@@ -160,8 +168,9 @@ struct DepartmentCompileState: Equatable {
             // A typesetter or packaging failure carries the book's problems
             // after its own errors; the line is the tool's, and the problems
             // stay reachable behind Show Problems.
-            return DepartmentCompileState(phase: .failed(message), isRunning: false,
-                                          problems: problems)
+            return DepartmentCompileState(
+                phase: .failed(message), isRunning: false, problems: problems,
+                judgedTheManuscript: !CompileOrchestrator.stoppedBeforeTheProblemGate(logExcerpt: logExcerpt))
 
         case .cancelled:
             return DepartmentCompileState(phase: .idle, isRunning: false,
@@ -209,10 +218,11 @@ struct DepartmentCompileState: Equatable {
     /// (fix round 1, I3) — nil when nothing settled: the state is still
     /// running, was already settled, or settled idle (a cancel, which says
     /// nothing new about the book). Nil too for a refusal or a failure that
-    /// carries no problem (final review M3): a version collision, a coverage
-    /// block or an unknown imprint stops the compile before the problem gate
-    /// judges the manuscript, so it says nothing about the list the writer is
-    /// working down. The host hands a non-nil answer to
+    /// never reached the problem gate (final review M3): a version collision,
+    /// a coverage block or an unknown imprint says nothing about the list the
+    /// writer is working down. A typesetter or packaging failure on a book the
+    /// gate passed clean settles with `[]`, and the list clears
+    /// (`judgedTheManuscript`). The host hands a non-nil answer to
     /// `PublishCentreModel.refreshProblems(_:)`.
     static func settledProblems(from old: DepartmentCompileState,
                                 to new: DepartmentCompileState)
@@ -222,7 +232,8 @@ struct DepartmentCompileState: Equatable {
         case .idle, .running:
             return nil
         case .refused, .failed:
-            return new.problems.isEmpty ? nil : new.problems
+            guard new.problems.isEmpty else { return new.problems }
+            return new.judgedTheManuscript ? [] : nil
         case .completed:
             return new.problems
         }
