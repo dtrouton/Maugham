@@ -218,12 +218,11 @@ enum SinceLastRound {
         /// re-raise of one open in ANOTHER pass's lane is in none of these
         /// three counts and cannot be: this whole computation reads only its
         /// own lane (decision 1), by design. That case is carried on the run
-        /// instead — `CompilerRun.openInOtherLanes`, recorded by the mint
-        /// itself — and `RoundNarrative.sinceLastRoundLine` appends it to the
-        /// sentence as "were already open in other lanes" (#42 F-H), past
-        /// tense because it is a snapshot the mint took while these three are
-        /// recomputed live. It is not derived here, and nothing here changes
-        /// to accommodate it.
+        /// instead — `CompilerRun.openInOtherLanesNoteIds`, the notes the mint
+        /// itself matched — and `RoundNarrative.sinceLastRoundLine` appends
+        /// the ones still open, by pass, as "1 still open in Structural"
+        /// (#42 F-H, live since #53 through `RoundNarrative.openElsewhere`).
+        /// It is not derived here, and nothing here changes to accommodate it.
         let new: Int
     }
 

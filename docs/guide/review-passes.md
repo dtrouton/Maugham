@@ -148,9 +148,12 @@ so nothing you do at the desk moves a pass's count. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
 — counted from your own queue: notes from an earlier round of this pass
 that you've settled since the last one, notes from an earlier round still
-open in front of you, and notes this round raised. A note you're holding in
-another pass's lane is counted separately — *"1 was already open in another
-lane"* — since the three counts read only the pass the round was run in. Round numbers are per pass, but the memory is the document's, not
+open in front of you, and notes this round raised. A finding this round
+raised that you're holding in another pass's lane is counted separately, and
+named — *"1 still open in Structural"*, or *"2 still open in Structural and
+Line"* — since the three counts read only the pass the round was run in. Like
+them it's live: settle that note in Structural and the clause goes. (A round
+filed before this version says *"1 was already open in another lane"*.) Round numbers are per pass, but the memory is the document's, not
 any one pass's: Maugham remembers a document's last six finished rounds,
 across every pass it's been worked through. Run enough rounds in other
 passes and a pass you haven't touched in a while ages out of that memory —
@@ -164,7 +167,7 @@ not on anything a previous round found — that's the point of asking for fresh 
 says so at the top, in place of the since-last-round line: *"Fresh eyes"*, or
 *"Fresh eyes · round 3"* when it's also filed against a pass. A cold read that
 re-raised something you're holding in another pass says that here too —
-*"Fresh eyes · round 3 · 1 was already open in another lane"* — since the
+*"Fresh eyes · round 3 · 1 still open in Structural"* — since the
 since-last-round line it stands in for isn't there to carry it.
 
 ## The drift mark

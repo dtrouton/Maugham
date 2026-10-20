@@ -347,12 +347,17 @@ struct ReviewRoundCockpit: View {
     /// **And what the round cost** (spec 2026-09-09 §5), as one clause on the
     /// end — empty over a run filed before timing existed, and absent
     /// entirely when there is no line to hang it on.
+    ///
+    /// `passes` names the lane a cross-lane clause points at (#53); both
+    /// candidates read it through the one projection, `openElsewhere`.
     static func reportLine(
-        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation]
+        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation],
+        passes: [ReviewPass] = []
     ) -> String? {
-        let line = RoundNarrative.freshEyesHeader(run: run)
+        let line = RoundNarrative.freshEyesHeader(
+            run: run, annotations: annotations, passes: passes)
             ?? RoundNarrative.sinceLastRoundLine(
-                history: history, run: run, annotations: annotations)
+                history: history, run: run, annotations: annotations, passes: passes)
         guard let line else {
             // **A lane's first round has no round to be "since"** (fix round
             // 1), so there is no sentence for the suffix to hang on —

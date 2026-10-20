@@ -77,6 +77,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                          freshEyes: Bool? = nil,
                          mintedNotes: Int? = nil,
                          openInOtherLanes: Int? = nil,
+                         openInOtherLanesNoteIds: [String]? = nil,
                          letter: Letter? = nil,
                          kind: RunKind? = nil,
                          readerName: String? = nil) -> CompilerRun {
@@ -87,6 +88,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                            clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
                            passId: passId, round: round, freshEyes: freshEyes,
                            mintedNotes: mintedNotes, openInOtherLanes: openInOtherLanes,
+                           openInOtherLanesNoteIds: openInOtherLanesNoteIds,
                            kind: kind, readerName: readerName, letter: letter)
     }
 
@@ -2271,6 +2273,46 @@ final class DiagnosticsPaneTests: XCTestCase {
                     .hasPrefix("Nothing to flag."),
                 DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink))
         }
+    }
+
+    /// **The seal arm reads the since-line's live projection** (#53). A check
+    /// whose finding is still open in Structural names it; once the writer
+    /// settles that note, the same stored run gets its seal back — the header
+    /// and the empty state agreeing, on every render.
+    func test_theCrossLaneSealArmIsLiveAndNamesThePass() {
+        let run = makeRun(openInOtherLanes: 1, openInOtherLanesNoteIds: ["n-1"])
+        func note(_ status: AnnotationStatus) -> Annotation {
+            Annotation(
+                id: "n-1", kind: .query, paragraphId: "a1b2", body: "How long?",
+                suggestedText: nil, priorText: nil, createdAt: Date(timeIntervalSince1970: 1),
+                createdBySession: nil, status: status, userResponse: nil, resolvedAt: nil,
+                isStale: false, reviewPassId: "structural", compilerRunId: "run-0",
+                compilerRound: 1, compilerFingerprint: "f-1")
+        }
+        let passes = ReviewPass.presets
+
+        let open = [note(.open)]
+        XCTAssertTrue(
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: run),
+                                       annotations: open, passes: passes)
+                .hasPrefix("Nothing new to flag."))
+        let held = DiagnosticsPane.emptyState(
+            for: .clean(lastRun: run), annotations: open, passes: passes)
+        XCTAssertEqual(held.title, "Nothing new to flag.")
+        XCTAssertTrue(
+            held.description.hasPrefix(
+                "1 finding this check raised is still open in Structural."),
+            held.description)
+
+        let settled = [note(.stetted)]
+        XCTAssertTrue(
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: run),
+                                       annotations: settled, passes: passes)
+                .hasPrefix("Nothing to flag."))
+        let sealed = DiagnosticsPane.emptyState(
+            for: .clean(lastRun: run), annotations: settled, passes: passes)
+        XCTAssertEqual(sealed.title, "Nothing to flag.")
+        XCTAssertEqual(sealed.symbol, "checkmark.seal")
     }
 
     // MARK: - Excerpt chips (requirement 3)

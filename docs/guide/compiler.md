@@ -372,7 +372,9 @@ held: that is the good outcome the check exists to report, not an empty pane.
 It says *"Nothing new to flag."* instead when the check did raise something
 and every bit of it was already open in another pass's queue — nothing landed
 here and nothing landed in front of you, so a clean bill would be telling you
-the check found nothing when it found what you're already holding.
+the check found nothing when it found what you're already holding. It names
+the pass — *"1 finding this check raised is still open in Structural."* — and
+it's live: settle that note there and the clean bill comes back.
 
 **Drift is one line, not a note.** When a clause has strained the same way
 across three checks running, a line appears above the conformance summary —

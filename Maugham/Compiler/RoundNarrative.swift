@@ -137,14 +137,15 @@ enum RoundNarrative {
     /// this run is not a round that can be compared.
     ///
     /// **A fourth clause joins it when the round engaged a finding the writer
-    /// is holding in another pass's lane** (#42 F-H) — "· 1 was already open
-    /// in another lane". The three counts above are lane-local by construction
+    /// is holding in another pass's lane** (#42 F-H) — "· 1 still open in
+    /// Structural". The three counts above are lane-local by construction
     /// (`SinceLastRound`'s decision 1) and the mint refuses a cross-lane
     /// re-raise, so that case fell between them and left the round reading
-    /// three zeroes. The number is not derived here: it is `CompilerRun`'s
-    /// `openInOtherLanes`, recorded by the mint at the one place fingerprints
-    /// are already compared. Zero — and a record from before the field existed
-    /// — appends nothing, so the sentence a writer already knows is unchanged.
+    /// three zeroes. WHICH notes matched is not derived here: the mint records
+    /// them on `CompilerRun.openInOtherLanesNoteIds` at the one place
+    /// fingerprints are already compared, and `openElsewhere` asks the queue,
+    /// on every render, which of them are still open (#53). Nothing still open
+    /// appends nothing, so the sentence a writer already knows is unchanged.
     ///
     /// Pure and static on `driftNote`'s mould, and for the same reason: the
     /// sentence is the pane's, the arithmetic is not. `SinceLastRound.compute`
@@ -186,8 +187,12 @@ enum RoundNarrative {
     /// nothing (the previous round's prose was superseded two runs ago) while
     /// this line still counts, because the notes themselves are still in the
     /// queue carrying the round that raised them.
+    ///
+    /// `passes` is the project's ladder (`effectiveReviewPasses`), which is
+    /// what names the lane a matched note is open in.
     static func sinceLastRoundLine(
-        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation]
+        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation],
+        passes: [ReviewPass] = []
     ) -> String? {
         guard let run, let round = run.round, run.freshEyes != true else { return nil }
         guard let previous = history.last(where: {
@@ -202,12 +207,91 @@ enum RoundNarrative {
             previousRoundAt: previous.at)
         let line = "Since round \(previousNumber): \(outcome.resolved) resolved "
             + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
-        guard let elsewhere = openInOtherLanes(run.openInOtherLanes) else { return line }
+        guard let elsewhere = openElsewhere(
+            run: run, annotations: annotations, passes: passes) else { return line }
         return line + " \u{00b7} " + elsewhere.clause
     }
 
-    /// **The cross-lane count in words** (#42 F-H) — or `nil` when there is
-    /// nothing to say: zero, or a record written before the field existed.
+    /// **The cross-lane clause, live** (#53) — the ONE projection the
+    /// since-line, `freshEyesHeader` and the Diagnostics pane's seal arm all
+    /// read, so the three cannot disagree about whether a finding is still
+    /// held elsewhere.
+    ///
+    /// A run recorded with `openInOtherLanesNoteIds` is filtered against the
+    /// queue on every render: the matched notes still open, minus any finding
+    /// that is now ALSO open in the run's own lane (own-lane presence wins,
+    /// as at the mint — that one is the since-line's *persisting*), counted
+    /// per FINDING (two open notes holding one fingerprint are one thing the
+    /// writer holds), and the lanes holding them named. Settle the other
+    /// lane's note and the clause is gone on the next render.
+    ///
+    /// A record written before the ids existed has only the count, which was
+    /// a snapshot at the mint; it keeps its past-tense sentence
+    /// (`openInOtherLanes(_:)`), the one thing a stored number can keep being
+    /// right about.
+    ///
+    /// `annotations` is the document's queue in any state (the filtering is
+    /// here); `passes` is the project's ladder.
+    static func openElsewhere(
+        run: CompilerRun, annotations: [Annotation], passes: [ReviewPass]
+    ) -> (clause: String, sentence: String)? {
+        guard let ids = run.openInOtherLanesNoteIds else {
+            return openInOtherLanes(run.openInOtherLanes)
+        }
+        let matched = Set(ids)
+        let open = annotations.filter { $0.status == .open }
+        let ownLane = Set(open.lazy
+            .filter { $0.isCompilerAuthored && $0.reviewPassId == run.passId }
+            .compactMap(\.compilerFingerprint))
+        var findings = Set<String>()
+        var lanes = Set<String?>()
+        for note in open where matched.contains(note.id) && note.reviewPassId != run.passId {
+            let finding = note.compilerFingerprint ?? note.id
+            guard !ownLane.contains(finding) else { continue }
+            findings.insert(finding)
+            lanes.insert(note.reviewPassId)
+        }
+        guard !findings.isEmpty else { return nil }
+        let count = findings.count
+        let heldIn = laneNames(lanes, passes: passes)
+        return (clause: "\(count) still open in \(heldIn)",
+                sentence: count == 1
+                    ? "1 finding this check raised is still open in \(heldIn)."
+                    : "\(count) findings this check raised are still open in \(heldIn).")
+    }
+
+    /// **The lanes holding a finding, in words** — "Structural", "Structural
+    /// and Line", "Structural, Line and Copyedit".
+    ///
+    /// Named through `ReviewPass.pass(id:in:)` and its `laneDisplayName`, the
+    /// one spelling the board uses (the coach answers her editor's name), in
+    /// ladder order. A lane with no name — a passless check's notes, or a
+    /// pass the project no longer lists — is never drawn as its raw id: it
+    /// reads "another lane" ("other lanes" for several), last.
+    static func laneNames(_ lanes: Set<String?>, passes: [ReviewPass]) -> String {
+        var named: [(rank: Int, name: String)] = []
+        var unnamed = 0
+        for lane in lanes {
+            guard let id = lane, let pass = ReviewPass.pass(id: id, in: passes) else {
+                unnamed += 1
+                continue
+            }
+            named.append((passes.firstIndex { $0.id == id } ?? passes.count,
+                          pass.laneDisplayName))
+        }
+        var words = named
+            .sorted { ($0.rank, $0.name) < ($1.rank, $1.name) }
+            .map(\.name)
+        if unnamed == 1 { words.append("another lane") }
+        if unnamed > 1 { words.append("other lanes") }
+        guard let last = words.popLast() else { return "another lane" }
+        return words.isEmpty ? last : words.joined(separator: ", ") + " and " + last
+    }
+
+    /// **The cross-lane count in words, for a LEGACY record** (#42 F-H) — one
+    /// written before `openInOtherLanesNoteIds` existed, which only
+    /// `openElsewhere` reads through. `nil` when there is nothing to say:
+    /// zero, or a record written before the count existed either.
     ///
     /// **One function returning BOTH wordings, rather than two functions.** The
     /// three surfaces that say this phrase it differently — the since-line
@@ -260,11 +344,17 @@ enum RoundNarrative {
     /// and a Fresh Eyes round whose every finding was already open in another
     /// pass is exactly the round a writer would otherwise read as "found
     /// nothing".
-    static func freshEyesHeader(run: CompilerRun?) -> String? {
+    ///
+    /// Read through `openElsewhere`, the since-line's own projection, so it
+    /// is live too (#53).
+    static func freshEyesHeader(
+        run: CompilerRun?, annotations: [Annotation] = [], passes: [ReviewPass] = []
+    ) -> String? {
         guard let run, run.freshEyes == true else { return nil }
         var header = "Fresh eyes"
         if let round = run.round { header += " \u{00b7} round \(round)" }
-        if let elsewhere = openInOtherLanes(run.openInOtherLanes) {
+        if let elsewhere = openElsewhere(
+            run: run, annotations: annotations, passes: passes) {
             header += " \u{00b7} " + elsewhere.clause
         }
         return header

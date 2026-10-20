@@ -188,6 +188,48 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(reread, run, "the whole record, not only the new field")
     }
 
+    /// **The matched notes' ids are additive-optional too** (#53). A sidecar
+    /// written with only the count decodes with no ids and keeps rendering the
+    /// past-tense sentence it always said; one carrying the ids round-trips
+    /// them and renders live.
+    func test_aSidecarWithOnlyTheCrossLaneCountDecodesWithoutIds_andRendersTheOldSentence() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = DiagnosticsStore.sidecarURL(
+            projectRoot: project, docId: "docCountOnly", device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"clauseHistory":[],"diagnostics":[],\
+            "run":{"at":"2026-08-15T09:00:00Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JRUN","lastOpId":"op1","mintedNotes":0,\
+            "model":"sonnet","openInOtherLanes":1,"passId":"line","round":2}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: "docCountOnly")
+        let old = try XCTUnwrap(store.lastRun(docId: "docCountOnly"),
+                                "the record must still load")
+        XCTAssertEqual(old.openInOtherLanes, 1, "control: the count still decodes")
+        XCTAssertNil(old.openInOtherLanesNoteIds)
+        XCTAssertEqual(
+            RoundNarrative.openElsewhere(run: old, annotations: [],
+                                         passes: ReviewPass.presets)?.clause,
+            "1 was already open in another lane",
+            "a record from before the ids keeps the sentence it always said")
+
+        var run = makeRun(passId: "line", round: 3)
+        run.openInOtherLanes = 1
+        run.openInOtherLanesNoteIds = ["01JNOTE"]
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: "docIds")
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: "docIds")
+        let reread = try XCTUnwrap(reopened.lastRun(docId: "docIds"))
+        XCTAssertEqual(reread.openInOtherLanesNoteIds, ["01JNOTE"])
+        XCTAssertEqual(reread, run)
+    }
+
     /// **The field is legacy on the way in and empty on the way out** (M4 P1
     /// Task 5). The decode above is what keeps a sidecar written before this
     /// milestone readable; this is the other direction, read as raw JSON rather

@@ -6239,14 +6239,29 @@ final class CompilerRunCommandTests: XCTestCase {
                        "one finding is one note across lanes; got \(notes.map(\.body))")
         XCTAssertEqual(notes.first?.reviewPassId, "structural",
                        "\u{2026}and it stays in the lane that raised it")
+        // **Which note, not only how many** (#53): the run records the id the
+        // mint matched, so the clause below can be filtered live.
+        XCTAssertEqual(lineTwo.openInOtherLanesNoteIds, notes.map(\.id))
 
+        let passes = fx.store.manifest.effectiveReviewPasses
         XCTAssertEqual(
             RoundNarrative.sinceLastRoundLine(
                 history: fx.diagnostics.roundHistory(docId: "ch-1"),
                 run: fx.diagnostics.lastRun(docId: "ch-1"),
-                annotations: queue),
+                annotations: queue, passes: passes),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
-            + "\u{00b7} 1 was already open in another lane")
+            + "\u{00b7} 1 still open in Structural")
+
+        // **Live**: the writer settles it in Structural, and the same stored
+        // run's line drops the clause on the next render.
+        try await fx.document.rejectAnnotation(id: try XCTUnwrap(notes.first).id)
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: fx.diagnostics.roundHistory(docId: "ch-1"),
+                run: fx.diagnostics.lastRun(docId: "ch-1"),
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil)),
+                passes: passes),
+            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
     }
 
     /// **One fingerprint, two OPEN notes, two lanes — and a round in EITHER of
@@ -6386,6 +6401,15 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(
             fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 2,
             "and no round minted a third copy")
+        // Both notes are recorded (#53), and the live clause still counts ONE
+        // finding while naming both lanes holding it, in ladder order.
+        XCTAssertEqual(Set(proof.openInOtherLanesNoteIds ?? []), Set(open.map(\.id)))
+        XCTAssertEqual(
+            RoundNarrative.openElsewhere(
+                run: proof,
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil)),
+                passes: fx.store.manifest.effectiveReviewPasses)?.clause,
+            "1 still open in Structural and Line")
     }
 
     /// **A Cancel inside the mint window leaves the stale finish nothing to

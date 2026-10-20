@@ -367,12 +367,19 @@ extension CompilerOrchestrator.Environment {
                 // must stay distinguishable from "held, by a passless note" —
                 // which `lanes.contains(context.passId)` gets right for a
                 // passless run without a special case.
+                //
+                // **And the ids of the notes holding each one** (#53), so the
+                // run can record WHICH notes it matched elsewhere and the
+                // since-line can ask the queue, live, whether they are still
+                // open and in which pass.
                 var taken: [String: Set<String?>] = [:]
+                var holders: [String: [String]] = [:]
                 for annotation in document.annotations(
                     filter: AnnotationFilter(statuses: [.open])
                 ) where annotation.isCompilerAuthored {
                     guard let fingerprint = annotation.compilerFingerprint else { continue }
                     taken[fingerprint, default: []].insert(annotation.reviewPassId)
+                    holders[fingerprint, default: []].append(annotation.id)
                 }
                 var minted = 0
                 // By fingerprint, not by occurrence and not by matched note: a
@@ -447,8 +454,13 @@ extension CompilerOrchestrator.Environment {
                 // Owed exactly once, and only if something really landed —
                 // `sweepOrphanedAnnotations`' rule, for its reason.
                 if minted > 0 { document.announceAnnotationsChanged() }
+                // Every holder of a finding counted elsewhere is in another
+                // lane by construction (own-lane presence kept it out of
+                // `elsewhere`). Sorted so the record is stable run to run.
                 return CompilerOrchestrator.MintOutcome(
-                    minted: minted, openInOtherLanes: elsewhere.count)
+                    minted: minted, openInOtherLanes: elsewhere.count,
+                    openInOtherLanesNoteIds: elsewhere.sorted()
+                        .flatMap { holders[$0] ?? [] })
             },
             recordFacts: { [weak bible] candidates in
                 // `record` dedupes on `(subject, fact)` itself, so a second run

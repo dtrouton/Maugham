@@ -246,6 +246,12 @@ final class CompilerOrchestrator {
         /// Per FINDING, not per matched note: two notes holding one fingerprint
         /// are one thing the writer is holding elsewhere.
         let openInOtherLanes: Int
+        /// **The notes behind that count** (#53): every open note in another
+        /// lane holding one of those findings, by id. Recorded so the clause
+        /// can be filtered live at render (`RoundNarrative.openElsewhere`)
+        /// rather than stand as a snapshot. Defaulted so a double that only
+        /// answers the counts still builds.
+        var openInOtherLanesNoteIds: [String] = []
 
         /// A mint that did not happen: no document to write to, or no note
         /// worth writing.
@@ -1424,6 +1430,7 @@ final class CompilerOrchestrator {
                              // cross-lane count is the same fact seen from the
                              // other side, so it is nil for the same reason.
                              mintedNotes: nil, openInOtherLanes: nil,
+                             openInOtherLanesNoteIds: nil,
                              // A turn still arriving has resolved nothing, so
                              // there is nothing yet to say it cost — nil for
                              // the two counts' own reason, one line up.
@@ -1497,7 +1504,7 @@ final class CompilerOrchestrator {
         kind: RunKind, readerName: String?,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
         stage: DraftStage?, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?,
-        timing: RunTiming?
+        openInOtherLanesNoteIds: [String]?, timing: RunTiming?
     ) -> CompilerRun {
         // **The letter's one mutable field, stamped here** (spec §3.4). The
         // position is the run's, not the model's: it is derived app-side at
@@ -1591,6 +1598,8 @@ final class CompilerOrchestrator {
             // the since-line, which is a check that did engage the piece
             // reported as one that found nothing in it.
             openInOtherLanes: openInOtherLanes,
+            // Which notes, so the clause reads the queue live (#53).
+            openInOtherLanesNoteIds: openInOtherLanesNoteIds,
             // **Which loop asked** (two loops P1). Stamped in the one `record`
             // spelling for every other field's reason — the preview and the
             // answer must describe one verb, and a run whose kind changed at
@@ -1916,6 +1925,7 @@ final class CompilerOrchestrator {
                 outcome: outcome, scenePosition: scenePosition, stage: stage, ask: ask,
                 mintedNotes: mint.minted,
                 openInOtherLanes: mint.openInOtherLanes,
+                openInOtherLanesNoteIds: mint.openInOtherLanesNoteIds,
                 // **Read off the session that ran the turn** (spec 2026-09-09
                 // §5), here rather than at the keystroke because it is the one
                 // thing on the record that is not known until the answer
