@@ -1846,6 +1846,11 @@ extension Document {
     /// (RULING-5's refusal-rather-than-guess, and the constitution's first
     /// must). The disagreement survives, visibly, with a row to act on.
     ///
+    /// WAITS while the piece is unsettled (`localWritePermit.unsettledStarter`,
+    /// #84): the repair signs as the author, so writing now would claim a piece
+    /// somebody else started. The race stays detectable, and a merge after the
+    /// piece is claimed repairs it.
+    ///
     /// Does NOT recompute display text — the merge path that calls it does
     /// that once for everything, and its pure-append test wants the
     /// pre-merge `displayText` intact until then.
@@ -1883,6 +1888,19 @@ extension Document {
             let live = paragraphs[pid] ?? ""
             guard live == (applied.next ?? "") else {
                 documentLog.error("repairRejectedButSpliced: \(pid, privacy: .public) drifted since the accept for \(id, privacy: .public) — declining rather than writing over the writer's edit")
+                continue
+            }
+            // #84 (Denver's ruling (a)): never into a piece nobody has claimed.
+            // The repair carries manuscript text, and a book author's text
+            // CLAIMS a piece somebody else started — setting the starter's
+            // held words aside on every Mac, through an act nobody performed.
+            // The stamp below says yes (the yield "widens nothing and refuses
+            // nothing"), so the yield is asked here. The disagreement stands
+            // visibly and loses nothing; the trigger persists, so a later
+            // merge repairs it once the piece is claimed. Not the merge that
+            // brings the claim: `DocumentStore` re-stamps after this pass.
+            if let starter = localWritePermit.unsettledStarter {
+                documentLog.info("repairRejectedButSpliced: \(id, privacy: .public) is in a piece \(starter.deviceId, privacy: .public) started and nobody has claimed — leaving the disagreement until it is")
                 continue
             }
             let restored = applied.prior ?? ""

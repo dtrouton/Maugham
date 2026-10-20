@@ -717,8 +717,12 @@ struct AnnotationsPane: View {
                 // no editor is refused before it starts.
                 round: cockpitRound(diagnostics, docId: document.docId,
                                     passId: pass?.id),
+                // A round on another piece is named by its manifest title
+                // (#83) — a pure lookup over the store this pane holds.
                 phase: ReviewRoundCockpit.phase(
-                    runState: orchestrator.runState, docId: document.docId),
+                    runState: orchestrator.runState, docId: document.docId,
+                    titleOf: { RoundNarrative.pieceTitle(
+                        of: $0, in: store.manifest.structure) }),
                 reportLine: cockpitReportLine(diagnostics, docId: document.docId),
                 // **The live round's clock** (spec 2026-09-09 §5): the strip
                 // draws the wait, and the orchestrator is the one thing that

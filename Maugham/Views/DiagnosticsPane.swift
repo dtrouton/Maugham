@@ -558,28 +558,51 @@ struct DiagnosticsPane: View {
     static let reviewsRoundIsRunningLine =
         "Review's round is running \u{2014} \u{2318}R waits until it finishes."
 
-    /// **The one line this pane says about the OTHER loop's run** — `nil`
-    /// unless a ROUND is running, on ANY document (#77 F7 review ruling). The
+    /// **The one line this pane says about a run that is not its own here** —
+    /// `nil` unless a ROUND is running, on ANY document (#77 F7 review
+    /// ruling), or a check on another piece (#83, below). The
     /// pane's own states match by document (`headerState`), but the session
     /// is the window's: ⌘R here is refused while a round reads any piece, and
     /// a header that read idle over a refusal would be a dead control. It
     /// sits beside the header's own state rather than replacing it — the last
     /// check is still the last check — and ⌘R stays refused by the
     /// orchestrator's in-flight guard exactly as it was; this only says why
-    /// before the press rather than after it. `docId` is kept so the call
-    /// site reads like every other per-pane decision.
+    /// before the press rather than after it.
+    ///
+    /// **And THIS loop's check on ANOTHER piece** (#83): the same session
+    /// rule, so ⌘R here waits for it too, and the line names the piece it is
+    /// reading (`RoundNarrative.runElsewhereLine`) by `titleOf` — a pure
+    /// lookup the pane builds from the manifest, asked only for that arm. A
+    /// check on this piece is the header's own `.running`, never this line.
     static func otherLoopLine(
-        runState: CompilerOrchestrator.RunState, docId: String
+        runState: CompilerOrchestrator.RunState, docId: String,
+        titleOf: (String) -> String? = { _ in nil }
     ) -> String? {
-        if case .running(_, .round, _) = runState { return reviewsRoundIsRunningLine }
-        return nil
+        switch runState {
+        case .running(_, .round, _):
+            return reviewsRoundIsRunningLine
+        case .running(let runDocId, .check, _) where runDocId != docId:
+            return RoundNarrative.runElsewhereLine(kind: .check, title: titleOf(runDocId))
+        default:
+            return nil
+        }
+    }
+
+    /// **Whether the cold-start offer's Read refuses** (#83): whenever the
+    /// other-loop line is showing, the window's one session is another run's,
+    /// and a Read pressed into it would only flash a refusal. (A check on
+    /// this piece takes the pane off `.neverRun`, so the offer is not drawn
+    /// at all then.) Pure, so the dead-control rule is assertable unmounted.
+    static func refusesColdStartRead(otherLoopLine: String?) -> Bool {
+        otherLoopLine != nil
     }
 
     /// **Whether the header offers Cancel** — over this pane's own check in
     /// flight, and over the other loop's run wherever it is (#77 F7 review
     /// ruling): the session is the window's, and a writer standing in Author
-    /// while Review's round holds it must not be stranded in the wrong tab.
-    /// Both Cancels call the one `orchestrator.cancel()`.
+    /// while Review's round holds it must not be stranded in the wrong tab
+    /// (nor on the wrong piece, while a check reads another one, #83).
+    /// Every Cancel calls the one `orchestrator.cancel()`.
     static func offersCancel(state: HeaderState, otherLoopLine: String?) -> Bool {
         if case .running = state { return true }
         return otherLoopLine != nil
@@ -778,7 +801,9 @@ struct DiagnosticsPane: View {
     /// This view's one reading of the other loop's run — `orchestrator.runState`
     /// through the pure `otherLoopLine`, scoped to this document.
     private var otherLoopLine: String? {
-        Self.otherLoopLine(runState: orchestrator.runState, docId: docId)
+        Self.otherLoopLine(
+            runState: orchestrator.runState, docId: docId,
+            titleOf: { id in RoundNarrative.pieceTitle(of: id, in: store?.manifest.structure) })
     }
 
     private var isRunningState: Bool {
@@ -1372,6 +1397,10 @@ struct DiagnosticsPane: View {
                     orchestrator.runRequested(docId: docId, kind: .check)
                 }
                     .buttonStyle(.borderedProminent)
+                    // Refused up front while another run holds the session
+                    // (#83), saying whose run it waits for.
+                    .disabled(Self.refusesColdStartRead(otherLoopLine: otherLoopLine))
+                    .help(otherLoopLine ?? Self.coldStartOfferSentence)
             }
         }
         .padding(24)

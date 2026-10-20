@@ -98,15 +98,78 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// **The falsification this task's second reader exists for.** The run
     /// state is per WINDOW; the cockpit is per DOCUMENT. Drop the
     /// `runDocId == docId` scope and a run on chapter 2 makes chapter 1's
-    /// cockpit claim it is being checked and refuse its own Run button.
-    func test_anotherDocumentsRunLeavesThisCockpitIdle() {
+    /// cockpit claim it is being checked — drawing chapter 2's counts as
+    /// its own round.
+    ///
+    /// **Flipped by #83:** the round elsewhere still holds the window's one
+    /// session, so Run here is refused up front and the strip NAMES the piece
+    /// being read rather than sitting idle over a Run that refuses on press.
+    /// What stays true is the scope: the strip's own status line is still
+    /// its report line, never the other piece's "Reading the whole piece…".
+    func test_anotherDocumentsRoundIsNamedAndNeverDrawnAsThisCockpitsOwn() {
         let elsewhere = CompilerOrchestrator.RunState.running(
             docId: "ch-2", kind: .round, checking: CompilerOrchestrator.DeltaCounts(new: 4, revised: 1))
 
+        let phase = ReviewRoundCockpit.phase(
+            runState: elsewhere, docId: "ch-1",
+            titleOf: { $0 == "ch-2" ? "The Ferry" : nil })
+        XCTAssertEqual(phase, .roundIsRunningElsewhere(title: "The Ferry"))
         XCTAssertEqual(
-            ReviewRoundCockpit.phase(runState: elsewhere, docId: "ch-1"), .idle,
-            "a run on ANOTHER document must leave this cockpit idle \u{2014} the "
-            + "run state is per window, the cockpit is per document")
+            ReviewRoundCockpit.statusLine(phase: phase, reportLine: "Read in 4m 12s.",
+                                          runSince: nil, runProgress: nil),
+            "Read in 4m 12s.",
+            "the strip's own status line stays its report line \u{2014} the run state "
+            + "is per window, the cockpit is per document")
+        XCTAssertEqual(
+            ReviewRoundCockpit.otherLoopLine(phase: phase),
+            "A round is running on \u{201C}The Ferry\u{201D} \u{2014} Run waits until it finishes.")
+        XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phase),
+                      "Run is refused up front, never enabled-and-refusing on press (#83)")
+        XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phase),
+                      "Cancel stops the one session's run, as on F7's line")
+    }
+
+    /// **No title, no id** (#83 ruling): a piece the manifest cannot name is
+    /// "another piece", never its raw document id.
+    func test_anotherDocumentsRoundWithNoTitleSaysAnotherPiece() {
+        let elsewhere = CompilerOrchestrator.RunState.running(
+            docId: "ch-2", kind: .round, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
+        let unnamed = ReviewRoundCockpit.phase(
+            runState: elsewhere, docId: "ch-1", titleOf: { _ in nil })
+        XCTAssertEqual(unnamed, .roundIsRunningElsewhere(title: nil))
+        let line = ReviewRoundCockpit.otherLoopLine(phase: unnamed)
+        XCTAssertEqual(line, "A round is running on another piece \u{2014} Run waits until it finishes.")
+        XCTAssertFalse(line?.contains("ch-2") ?? true, "the raw id is never shown")
+        // A blank title is no title.
+        XCTAssertEqual(
+            ReviewRoundCockpit.otherLoopLine(phase: ReviewRoundCockpit.phase(
+                runState: elsewhere, docId: "ch-1", titleOf: { _ in "  " })),
+            "A round is running on another piece \u{2014} Run waits until it finishes.")
+        // The default lookup names nothing, so it falls back the same way.
+        XCTAssertEqual(ReviewRoundCockpit.phase(runState: elsewhere, docId: "ch-1"),
+                       .roundIsRunningElsewhere(title: nil))
+    }
+
+    /// **The same document still shows its own round running** (#83 control):
+    /// the new case is for another piece only, and never asks for a title.
+    func test_thisDocumentsRoundStillReadsAsRunning() {
+        let counts = CompilerOrchestrator.DeltaCounts(new: 2, revised: 0)
+        let here = CompilerOrchestrator.RunState.running(docId: "ch-1", kind: .round, checking: counts)
+        let phase = ReviewRoundCockpit.phase(
+            runState: here, docId: "ch-1", titleOf: { _ in "Should not be asked" })
+        XCTAssertEqual(phase, .running(counts))
+        XCTAssertNil(ReviewRoundCockpit.otherLoopLine(phase: phase))
+    }
+
+    /// The title lookup the mount passes in reads the manifest's structure,
+    /// nested items included, and names nothing it cannot find.
+    func test_thePieceTitleComesFromTheManifestStructure() {
+        let structure = [StructureItem(
+            id: "part", title: "Part One", type: .group,
+            children: [StructureItem(id: "ch-2", title: "The Ferry", type: .document)])]
+        XCTAssertEqual(RoundNarrative.pieceTitle(of: "ch-2", in: structure), "The Ferry")
+        XCTAssertNil(RoundNarrative.pieceTitle(of: "ch-9", in: structure))
+        XCTAssertNil(RoundNarrative.pieceTitle(of: "ch-2", in: nil))
     }
 
     // MARK: - Each loop shows its own run (#77 F7)
@@ -182,8 +245,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let roundOnA = CompilerOrchestrator.RunState.running(
             docId: "ch-a", kind: .round,
             checking: CompilerOrchestrator.DeltaCounts(new: 2, revised: 0))
-        XCTAssertEqual(ReviewRoundCockpit.phase(runState: roundOnA, docId: "ch-b"), .idle,
-                       "control: the cockpit's OWN round still matches by document")
+        let roundPhaseOnB = ReviewRoundCockpit.phase(runState: roundOnA, docId: "ch-b")
+        XCTAssertNotEqual(roundPhaseOnB, .running(CompilerOrchestrator.DeltaCounts(new: 2, revised: 0)),
+                          "control: the cockpit's OWN round still matches by document")
+        XCTAssertEqual(roundPhaseOnB, .roundIsRunningElsewhere(title: nil),
+                       "a round on another piece is named, not idle (#83)")
     }
 
     /// **A check that died is Author's failure, not a round's** (#77 F7): the

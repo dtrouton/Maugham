@@ -158,7 +158,9 @@ struct ReviewRoundCockpit: View {
     ///
     /// A separate type from `CompilerOrchestrator.RunState` because that state
     /// is per WINDOW and this strip is per DOCUMENT: a run on another chapter
-    /// is nothing this strip has anything to say about, in any of its states.
+    /// is never drawn as this strip's own run or failure. It is only ever
+    /// NAMED, in one line, because it holds the session Run would need
+    /// (`.roundIsRunningElsewhere`, #83).
     ///
     /// **`.failed` is a case here, and it was not until Denver's 2026-08-18
     /// smoke.** This enum used to hold `idle` and `running` alone, on the
@@ -190,6 +192,15 @@ struct ReviewRoundCockpit: View {
         /// (the review's rulings: window-wide, so Run never sits idle over a
         /// refusal, and cancellable, so the writer is not stranded here).
         case authorsCheckIsRunning
+        /// **A ROUND is running on ANOTHER piece** (#83). The same session
+        /// rule as `.authorsCheckIsRunning`: the round holds the window's one
+        /// session, so Run here would refuse on press, and an idle strip over
+        /// that refusal is a dead control. The strip keeps its own state,
+        /// names the other piece in one line, refuses Run and offers Cancel.
+        /// `title` is the other piece's manifest title, or `nil` when nothing
+        /// names it — never its id. Carrying the RUN's piece here does not
+        /// store this strip's own subject (see the type's opening note).
+        case roundIsRunningElsewhere(title: String?)
     }
 
     // MARK: - The decisions, pure
@@ -198,7 +209,8 @@ struct ReviewRoundCockpit: View {
     /// first one is** (`DiagnosticsPane.headerState`'s `where runDocId == docId`).
     ///
     /// Drop the scope and a run on chapter 2 makes chapter 1's strip claim it
-    /// is being checked and refuse its own Run button — the same defect the
+    /// is being checked, drawing chapter 2's counts as its own round — the
+    /// same defect the
     /// header's `where` clauses exist to prevent, in a second surface. The
     /// failure arm needs it for the sharper half of the same reason: a red line
     /// over chapter 1 about a death in chapter 2 is a lie the strip would keep
@@ -212,8 +224,13 @@ struct ReviewRoundCockpit: View {
     /// before the state is ever set, so a second filter here would be a copy of
     /// that rule with nothing keeping the two in step (`CompilerRunCommandTests`
     /// pins the orchestrator's half).
+    ///
+    /// `titleOf` names the piece a round ELSEWHERE is reading (#83) — a pure
+    /// lookup the mount builds from the manifest it already holds
+    /// (`RoundNarrative.pieceTitle`). It is asked only for that arm.
     static func phase(
-        runState: CompilerOrchestrator.RunState, docId: String
+        runState: CompilerOrchestrator.RunState, docId: String,
+        titleOf: (String) -> String? = { _ in nil }
     ) -> RunPhase {
         // **Each loop shows its own run** (#77 F7): a round is this strip's,
         // a check on the same document is named rather than drawn as one, and
@@ -226,6 +243,9 @@ struct ReviewRoundCockpit: View {
         // every piece, and an idle strip over that refusal is a dead control.
         case .running(_, .check, _):
             return .authorsCheckIsRunning
+        // A round on ANOTHER piece (#83): the same window-wide refusal, named.
+        case .running(let runDocId, .round, _):
+            return .roundIsRunningElsewhere(title: titleOf(runDocId))
         case .failed(let runDocId, .round, let failure, let at) where runDocId == docId:
             return .failed(failure, at: at)
         default:
@@ -565,7 +585,7 @@ struct ReviewRoundCockpit: View {
         case .failed(let failure, _): return RoundNarrative.failureCopy(failure)
         // The strip's own state under the other loop's line, never replaced
         // by it (#77 F7, Denver's ruling: "its own state plus the line").
-        case .idle, .authorsCheckIsRunning: return reportLine
+        case .idle, .authorsCheckIsRunning, .roundIsRunningElsewhere: return reportLine
         }
     }
 
@@ -578,30 +598,37 @@ struct ReviewRoundCockpit: View {
     /// The one line this strip says about the OTHER loop's run (#77 F7), or
     /// `nil`. Drawn under the strip's own status line rather than in place
     /// of it.
+    /// A round on another piece names that piece (#83,
+    /// `RoundNarrative.runElsewhereLine`).
     static func otherLoopLine(phase: RunPhase) -> String? {
-        if case .authorsCheckIsRunning = phase { return authorsCheckIsRunningLine }
-        return nil
+        switch phase {
+        case .authorsCheckIsRunning: return authorsCheckIsRunningLine
+        case .roundIsRunningElsewhere(let title):
+            return RoundNarrative.runElsewhereLine(kind: .round, title: title)
+        case .idle, .running, .failed: return nil
+        }
     }
 
     /// **Whether Run and Fresh Eyes refuse on the phase alone** — a round in
-    /// flight, or Author's check holding the one session (#77 F7). The
+    /// flight, Author's check holding the one session (#77 F7), or a round on
+    /// another piece holding it (#83). The
     /// refusal is exactly what it was before the run state carried a kind,
     /// when a check on this document read `.running` here. `.failed` never
     /// refuses (see `runRow`'s doc).
     static func refusesRun(phase: RunPhase) -> Bool {
         switch phase {
-        case .running, .authorsCheckIsRunning: return true
+        case .running, .authorsCheckIsRunning, .roundIsRunningElsewhere: return true
         case .idle, .failed: return false
         }
     }
 
     /// **Cancel is offered over ANY run holding the session** — a round in
-    /// flight, and Author's check (#77 F7 review ruling), so a writer who
-    /// pressed ⌘R and walked into Review is not stranded in the wrong tab.
-    /// Both reach the one `orchestrator.cancel()` through `onCancel`.
+    /// flight, Author's check (#77 F7 review ruling), and a round on another
+    /// piece (#83), so a writer is never stranded on the wrong document.
+    /// All reach the one `orchestrator.cancel()` through `onCancel`.
     static func offersCancel(phase: RunPhase) -> Bool {
         switch phase {
-        case .running, .authorsCheckIsRunning: return true
+        case .running, .authorsCheckIsRunning, .roundIsRunningElsewhere: return true
         case .idle, .failed: return false
         }
     }

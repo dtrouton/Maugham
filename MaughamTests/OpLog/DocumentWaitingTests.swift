@@ -802,6 +802,167 @@ final class DocumentWaitingTests: XCTestCase {
                        "and this Mac signed nothing for it")
     }
 
+    // MARK: - (4) The repair waits for a claimed piece (#84, Denver's ruling (a))
+
+    /// The race the repair exists for, made on this Mac: a suggestion accepted
+    /// here (its text spliced in), then a peer's reject that never saw the
+    /// accept arriving through the shared log. The reject is newer, so it wins
+    /// the status; the text still holds the suggestion. Returns the open
+    /// document BEFORE the merge that brings the reject.
+    private struct SplicedRace {
+        let doc: Document
+        let pid: String
+        let annotationId: String
+        let original: String
+        let suggested: String
+    }
+
+    private func makeSplicedRace() async throws -> SplicedRace {
+        let docURL = try makeProject()
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s-race", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let original = try XCTUnwrap(doc.paragraph(id: pid))
+        let suggested = "A replaced paragraph."
+        let aid = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid, body: "try this",
+            suggestedText: suggested,
+            author: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        try await doc.acceptAnnotation(id: aid, userResponse: nil)
+        XCTAssertEqual(doc.paragraph(id: pid), suggested,
+                       "precondition: the accept spliced the suggestion in")
+        return SplicedRace(doc: doc, pid: pid, annotationId: aid,
+                           original: original, suggested: suggested)
+    }
+
+    /// A peer device's op, written to the shared log the way a synced file
+    /// arrives; newer than everything this Mac wrote.
+    private func appendPeerOp(
+        _ kind: OpKind, to race: SplicedRace, annotation: Bool = true
+    ) async throws {
+        let docId = race.doc.docId
+        try await OpLogStore(projectURL: projectURL).append(
+            Op(opId: ULID.generate(), docId: docId, at: Date(),
+               device: "peer-mac", session: "peer-session", kind: kind,
+               changes: annotation
+                   ? []
+                   : [.init(paragraphId: race.pid, prior: race.suggested,
+                            next: race.suggested)],
+               sequence: nil,
+               provenance: annotation
+                   ? Op.Provenance(
+                       sessionId: "peer-session",
+                       sourceAnnotationId: race.annotationId,
+                       userResponse: "not in this scene")
+                   : nil))
+    }
+
+    /// The stamp `LocalWritePermitBuilder` gives a book author's hand in a
+    /// piece somebody else started and nobody has claimed (Ruling U). Built
+    /// by hand here, as `DocumentStorePostureTests` does for the pure half:
+    /// the builder's own derivation of it is pinned there, and this suite is
+    /// about what the repair does with the fact.
+    private static let unsettled = LocalWritePermit(
+        permit: .bookAuthor, actor: .author, documentClass: .piece(docId),
+        startedHere: false,
+        unsettledStarter: .init(deviceId: "author-kit", name: "Kit"))
+
+    /// The same hand once the piece is settled — the starter arm has closed,
+    /// and everything else about the stamp is as it was.
+    private static let settled = LocalWritePermit(
+        permit: .bookAuthor, actor: .author, documentClass: .piece(docId),
+        startedHere: false)
+
+    private func repairs(in doc: Document) -> [Op] {
+        doc.opLogSnapshot.filter { $0.provenance?.synthesisSource == .rejectConvergence }
+    }
+
+    private func status(_ doc: Document, _ id: String) -> AnnotationStatus? {
+        doc.annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }?.status
+    }
+
+    /// **Unsettled: the repair writes nothing.** The repair's text would
+    /// CLAIM the piece in the author's name and set the starter's held words
+    /// aside on every Mac — an act nobody performed. The stamp says yes (the
+    /// yield "widens nothing and refuses nothing"), so the repair must ask the
+    /// yield itself. The disagreement stands, visibly: the text keeps the
+    /// suggestion, the note reads rejected, and nothing is lost.
+    func test_theRepairWritesNothingIntoAPieceNobodyHasClaimed() async throws {
+        let race = try await makeSplicedRace()
+        race.doc.stamp(localWritePermit: Self.unsettled)
+        // The merge flushes this Mac's own un-bursted typing first (E3a) —
+        // here the accept's splice. That is the writer's own act, not the
+        // repair; flush it now so the count below sees only the merge's own.
+        try await race.doc.flushBurstNow()
+        let linesBefore = try ops(of: identities.author).count
+
+        try await appendPeerOp(.claudeReject, to: race)
+        try await race.doc.handleExternalLogChange()
+
+        XCTAssertTrue(repairs(in: race.doc).isEmpty, "no repair line was made")
+        XCTAssertEqual(try ops(of: identities.author).count, linesBefore,
+                       "and this Mac signed nothing for it")
+        XCTAssertEqual(race.doc.paragraph(id: race.pid), race.suggested,
+                       "the text is exactly what it was")
+        XCTAssertEqual(status(race.doc, race.annotationId), .rejected,
+                       "and the note still reads the reject that won")
+        await race.doc.close()
+    }
+
+    /// **Settled control: the repair is exactly today's.** The same hand, the
+    /// same race, the piece claimed — the text goes back, signed as the author.
+    func test_theRepairStillRepairsASettledPiece() async throws {
+        let race = try await makeSplicedRace()
+        race.doc.stamp(localWritePermit: Self.settled)
+
+        try await appendPeerOp(.claudeReject, to: race)
+        try await race.doc.handleExternalLogChange()
+
+        XCTAssertEqual(repairs(in: race.doc).count, 1)
+        XCTAssertEqual(repairs(in: race.doc).first?.device, identities.author.deviceId)
+        XCTAssertEqual(race.doc.paragraph(id: race.pid), race.original)
+        XCTAssertEqual(status(race.doc, race.annotationId), .rejected)
+        await race.doc.close()
+    }
+
+    /// **Once the piece settles, a later merge repairs it.** The skip is not
+    /// a drop: the trigger (the reject is the status winner, the accept the
+    /// newest payload, the text unmoved) persists, so the repair retries at
+    /// the next merge that applies another device's op.
+    ///
+    /// Note the ORDER, which is production's: `DocumentStore` re-stamps
+    /// (`restampWhereItsStarterArmMayHaveClosed`) AFTER `handleExternalLogChange`
+    /// returns, so the merge that brings the claiming text still runs the
+    /// repair against the OLD, unsettled stamp and skips. The stamp lifts
+    /// between merges — modelled here by stamping the settled permit — and it
+    /// is the merge after THAT which repairs. Nothing re-runs the repair on the
+    /// re-stamp itself (Denver's ruling (a), not (b)).
+    func test_aLaterMergeRepairsOnceThePieceIsClaimed() async throws {
+        let race = try await makeSplicedRace()
+        race.doc.stamp(localWritePermit: Self.unsettled)
+        try await appendPeerOp(.claudeReject, to: race)
+        try await race.doc.handleExternalLogChange()
+        XCTAssertTrue(repairs(in: race.doc).isEmpty, "precondition: skipped while unsettled")
+
+        // The piece is claimed; DocumentStore's re-stamp lifts the yield.
+        race.doc.stamp(localWritePermit: Self.settled)
+        // The stamp alone repairs nothing — no merge has run.
+        XCTAssertEqual(race.doc.paragraph(id: race.pid), race.suggested)
+
+        // The next peer op, for any reason, brings the next merge.
+        try await appendPeerOp(.typingBurst, to: race, annotation: false)
+        try await race.doc.handleExternalLogChange()
+
+        XCTAssertEqual(repairs(in: race.doc).count, 1, "the later merge repaired it")
+        XCTAssertEqual(race.doc.paragraph(id: race.pid), race.original)
+        XCTAssertEqual(status(race.doc, race.annotationId), .rejected)
+        XCTAssertEqual(repairs(in: race.doc).first?.provenance?.userResponse,
+                       "not in this scene", "carrying the winning reject's reason")
+        await race.doc.close()
+    }
+
     // MARK: - Neutrality
 
     /// **A keyless / P2-era / registry-less book is exactly what it was.** No

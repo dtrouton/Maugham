@@ -114,7 +114,9 @@ it shows the detail. **A run in flight can be cancelled right there** —
 a Cancel button sits beside the checking line for as long as the round is
 running, the same control Diagnostics offers, and pressing it lands you back
 at Run round with nothing held against you: it's the same as a round you
-simply hadn't asked for. **The last round's letter is one line under the
+simply hadn't asked for. While Author's check is running, or a round on
+another piece, the strip says so — naming the piece when it's a round on
+another one — and offers Cancel; Run waits until it finishes. **The last round's letter is one line under the
 status line** — the one thing it would have you fix, or what it read the piece
 to be about — and clicking it folds the whole letter open right there, the
 same letter Author shows in Diagnostics, with the same jumps, **Accept as
