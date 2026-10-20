@@ -143,6 +143,28 @@ final class DepartmentCompileStateTests: XCTestCase {
             "a second press refused mid-run is not a settle")
     }
 
+    /// M3 (final review): a compile turned away before the problem gate ran
+    /// — a version collision, a coverage block, an unknown imprint — judged
+    /// nothing about the manuscript, so an open problems list stays as it is.
+    func test_aRefusalThatNeverReachedTheProblemGate_leavesAnOpenListAlone() {
+        let running = DepartmentCompileState(
+            phase: .running(format: .pdf, languages: [], imprint: nil), isRunning: true)
+        func failed(_ message: String, _ excerpt: String) -> DepartmentCompileState {
+            DepartmentCompileState.settled(after: .failed(
+                errors: [Diagnostic(level: .error, file: nil, line: nil, message: message, contextLines: [])],
+                logExcerpt: excerpt))
+        }
+        let collision = failed("version 1.0 already exists", "version_collision: 1.0/en/pdf")
+        let coverage = failed("3 paragraphs are untranslated", "translation_stale: sr")
+        let imprint = failed("no imprint named x", CompileOrchestrator.unknownImprintLogExcerpt + "x")
+        XCTAssertEqual(collision.phase, .failed("version 1.0 already exists"), "premise: a failure")
+        XCTAssertEqual(imprint.phase, .refused("no imprint named x"), "premise: a refusal")
+        for state in [collision, coverage, imprint] {
+            XCTAssertNil(DepartmentCompileState.settledProblems(from: running, to: state),
+                         "\(state.phase) judged nothing: the open list keeps its problems")
+        }
+    }
+
     func test_theOtherRefusalsAndOutcomesCarryNoProblems() {
         let diag = Diagnostic(level: .error, file: nil, line: nil,
                               message: "no such imprint", contextLines: [])
