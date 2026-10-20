@@ -37,6 +37,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasDragHandler.swift` — `handleDrag`: each gesture's press, move and release and its undo bracket; `pressStartsALine`; built per call by `CanvasView` (tripwire 32).
 - `CanvasClickHandler.swift` — `handleClick`: select, enter a scrap or make one; writes `selectionWhenPressed` first; built per call by `CanvasView`.
 - `CanvasKeyHandler.swift` — `deleteSelection` (⌫, refused mid-gesture) and `escapeAsksForTheWholeBoard`; built per call by `CanvasView` (tripwire 32).
+- `CanvasDropHandler.swift` — `handleDrop` (a research row or inbox capture) and `handleExternalDrop` (a photograph); holds no sibling helper; built per call by `CanvasView`, whose `body` keeps both drop modifiers in order.
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
 
 ### State, persistence, undo

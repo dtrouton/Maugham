@@ -1,0 +1,183 @@
+import SwiftUI
+
+/// `CanvasView`'s drops: a research row or an inbox capture (`handleDrop`) and
+/// a photograph from the Finder or a browser (`handleExternalDrop`) — over
+/// bindings to the view's own `camera`, `revision` and `dropError`. Each
+/// returns whether the drop was taken; the two modifiers that deliver them,
+/// and their order, stay on `CanvasView.body`.
+///
+/// Built fresh per call by `CanvasView.dropHandler` and never stored; built
+/// nowhere else (tripwire 32's surface census). **It holds no sibling
+/// helper**: two of its paths finish in a `Task`, and a helper held here
+/// would be frozen at build time for that later work (tripwire 57). What the
+/// `Task` bodies write after the await, `dropError` and `model.selection`,
+/// goes through the binding and the model, so the write lands in live state.
+@MainActor
+struct CanvasDropHandler {
+    let model: CanvasModel
+    let itemIndex: CanvasItemIndex
+    let captureDrop: CanvasCaptureDrop
+    let assetIngest: CanvasAssetIngest
+    @Binding var camera: CanvasCamera
+    @Binding var revision: Int
+    @Binding var dropError: String?
+
+    // MARK: - Drops
+
+    /// A research row dropped on the canvas (spec §8A.1).
+    ///
+    /// **This method decides nothing.** `CanvasDrop.decide` is a pure function
+    /// over the payload, the scene and the item index, and `CanvasDrop.apply` owns
+    /// the undo bracket and the membership — because SwiftUI's drop delivery has
+    /// no seam a test can post into, so what a drop *means* has to be answerable
+    /// somewhere a test can reach exhaustively. What is left here is the camera
+    /// (a view's own state) and the selection, and that this modifier is mounted
+    /// at all is pinned by a census rather than by a test.
+    ///
+    /// **The first payload only, which is the house pattern rather than a
+    /// shortcut.** `ResearchRow`'s own `.dropDestination` takes `ids.first`, and
+    /// every `.draggable(id)` source in the app sends exactly one — the research
+    /// tree's multi-selection is expanded by the *receiver* (`ResearchView`'s
+    /// `ResearchSelectionSync.expandedDragIds`) rather than travelling in the
+    /// payload, and this receiver deliberately does not expand it: the canvas
+    /// cannot see the binder's selection, and inventing a rule from it would be a
+    /// second answer to "what did the writer drag". A batch that really does
+    /// arrive as several payloads is the external file drop, which is its own
+    /// modifier with its own arrangement rule.
+    ///
+    /// Returns whether anything happened, so a payload this canvas has no card for
+    /// is declined and the drag springs back rather than reporting success.
+    ///
+    /// **Two id spaces arrive here as of 1C-d Task 12, and `CanvasDrop.payload`
+    /// tells them apart before anything else runs** (spec §8A.4). An inbox
+    /// capture's ULID and a research item id are not tellable apart, so the inbox
+    /// row sends a PREFIXED payload; without the destructuring, `decide` would
+    /// look the ULID up in `CanvasItemIndex`, not find it, and refuse the drag
+    /// with nothing said. See `CanvasDrop`'s own doc comment for why the prefix
+    /// breaks the house's raw-id pattern deliberately.
+    func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
+        guard let payload = payloads.first else { return false }
+        if case .capture(let entryID) = CanvasDrop.payload(payload) {
+            // Read-only (issue #44): springs back before the send, so no asset is
+            // copied and the entry stays new; the canvas's notice says why.
+            guard CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)
+            else { return false }
+            return handleCaptureDrop(entryID, at: viewPoint)
+        }
+        switch CanvasDrop.decide(payload: payload,
+                                 at: camera.contentPoint(fromView: viewPoint),
+                                 in: model.scene, index: itemIndex) {
+        case .ignored:
+            return false
+
+        case .reveal(let id):
+            // Not gated (issue #44): a reveal selects and moves the camera and
+            // changes nothing, so it works on a read-only canvas too.
+            // The item is already here. Say so by SHOWING it — a drop that
+            // silently did nothing is indistinguishable from a broken surface,
+            // which is this task's named failure. The card is not moved: that
+            // would be a geometry-driven change to something the writer placed.
+            //
+            // The camera moves even when the card was already on screen, and that
+            // is a real cost rather than an oversight: this view has no viewport
+            // outside the `Canvas` closure (no `GeometryReader`, by design), so
+            // "is it visible already" is not a question it can ask.
+            guard let node = model.scene.node(id) else { return false }
+            model.selection = .node(id)
+            camera.bring(node.origin, toViewPoint: CanvasCamera.revealViewPoint)
+            // The selection is read inside the draw closure, where a model value
+            // is not in SwiftUI's dependency graph — `handleClick`'s single-click
+            // arm bumps for the same reason. `revision` and never `sceneRevision`:
+            // nothing structural happened.
+            revision += 1
+            return true
+
+        case .create(let node):
+            guard CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)
+            else { return false }
+            CanvasDrop.apply(node, in: model)
+            // Selected, so the right-hand column shows the reference's own arm and
+            // the writer can see what landed. Outside the bracket: a snapshot
+            // carries the scene and the scrap text, never the selection.
+            model.selection = .node(node.id)
+            return true
+        }
+    }
+
+    /// An inbox capture dropped on the canvas (spec §8A.4) — the **third** caller
+    /// of this drop target, beside the research drag and the external file drop.
+    ///
+    /// **This method decides nothing either.** Everything the send does — reading
+    /// the capture, refusing one with nothing in it, ingesting a photograph,
+    /// writing the canvas inside one undo bracket and flipping the entry
+    /// `.promoted` only after all of it has succeeded — is
+    /// `InboxStore.sendToCanvas`, which a test can reach without a window. What is
+    /// left here is the drop point, the selection and the alert.
+    ///
+    /// **The capture lands where it was dropped, and the canvas gains no placement
+    /// rule for it** (§8A.4's amendment). That is the whole reason the drag is the
+    /// primary route: the writer has already said where.
+    ///
+    /// **The camera does NOT move**, unlike the command route's `CanvasCapture.show`
+    /// — the card arrived under the pointer, so a jump would be to somewhere the
+    /// writer is already looking.
+    ///
+    /// The content point is resolved **before** the await, exactly as the external
+    /// drop does it: `camera` can move under a drop that takes a moment (a coast
+    /// finishing, a rewind), and the capture belongs where the writer let go of it.
+    private func handleCaptureDrop(_ entryID: String, at viewPoint: CGPoint) -> Bool {
+        let contentPoint = camera.contentPoint(fromView: viewPoint)
+        Task {
+            do {
+                let id = try await captureDrop.send(entryID, contentPoint)
+                // Selected so the right-hand column shows the capture's own
+                // inspector arm. Outside the bracket: a snapshot carries the scene
+                // and the scrap text, never the selection.
+                model.selection = .node(id)
+            } catch {
+                dropError = error.localizedDescription
+            }
+        }
+        return true
+    }
+
+    /// A photograph dropped from the Finder or a browser (spec §8A.1).
+    ///
+    /// **This method decides nothing either.** Classification is
+    /// `DropClassification`'s — the canvas is its fifth adopter and adds no rule
+    /// of its own — and everything after it is `CanvasExternalDrop`'s, which is
+    /// where a test can reach it. What is left here is the camera, the selection
+    /// and the alert, which are this view's own state.
+    ///
+    /// **The return value is synchronous and the work is not**, which is what the
+    /// modifier's signature requires: `accepts` is a pasteboard question with an
+    /// immediate answer, so a drag carrying neither a file nor an image is
+    /// declined outright and springs back — a refusal the writer can see — while
+    /// the ingestion, which reads and writes files, runs in a `Task`.
+    ///
+    /// The content point is resolved **before** the await: `camera` can move
+    /// under a drop that takes a moment (a coast finishing, a rewind), and the
+    /// photograph belongs where the writer let go of it.
+    func handleExternalDrop(_ providers: [NSItemProvider],
+                                    at viewPoint: CGPoint) -> Bool {
+        // Read-only (issue #44): refused BEFORE `ingest`, which copies into
+        // `canvas_assets/` first — a refused drop must strand no copy there.
+        guard CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)
+        else { return false }
+        let accepted = providers.filter { CanvasExternalDrop.accepts($0) }
+        guard !accepted.isEmpty else { return false }
+        let contentPoint = camera.contentPoint(fromView: viewPoint)
+        Task {
+            let outcome = await CanvasExternalDrop.ingest(providers: accepted,
+                                                          using: assetIngest)
+            let made = CanvasExternalDrop.apply(paths: outcome.paths,
+                                                at: contentPoint, in: model)
+            // Selected so the right-hand column shows the picture's own inspector
+            // arm. Outside the bracket: a snapshot carries the scene and the
+            // scrap text, never the selection.
+            if let first = made.first { model.selection = .node(first) }
+            dropError = outcome.message
+        }
+        return true
+    }
+}

@@ -369,12 +369,16 @@ final class PromotionCommandTests: XCTestCase {
              + "learn what a picture produced, no way to open it, and no way to "
              + "discover the artifact had been deleted — which is CLAUDE.md rule "
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
-            ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)",
-                                                 "CanvasDrop.apply(",
-                                                 "CanvasExternalDrop.ingest(",
-                                                 "CanvasExternalDrop.apply(",
-                                                 "CanvasDrop.payload(",
-                                                 "captureDrop.send("],
+            ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)"],
+             "1C-d Task 10's drop MOUNT, which stays on `CanvasView.body` with its "
+             + "partner `.onDrop` (tripwire 33's order pin); the landing verbs it "
+             + "reaches live in `CanvasDropHandler` since the canvasview-split, and "
+             + "the entry below says why each is held"),
+            ("type:CanvasDropHandler", ["CanvasDrop.apply(",
+                                        "CanvasExternalDrop.ingest(",
+                                        "CanvasExternalDrop.apply(",
+                                        "CanvasDrop.payload(",
+                                        "captureDrop.send("],
              "1C-d Task 10's drop target. `CanvasDrop` is a pure decision plus a "
              + "model verb, both fully testable with nothing mounting them — and "
              + "SwiftUI's drop delivery has no seam a test can post a drag session "
@@ -702,7 +706,7 @@ final class PromotionCommandTests: XCTestCase {
         // `body` with a closure that reaches nothing, which no drop test and no
         // drop-route tripwire can see.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+            try missingTokens(in: "type:CanvasDropHandler",
                               required: ["CanvasExternalDrop.ingest(",
                                          "CanvasNotAnExternalDrop.ingest("]),
             ["CanvasNotAnExternalDrop.ingest("],
@@ -713,7 +717,7 @@ final class PromotionCommandTests: XCTestCase {
         // two lines go missing would be the only instrument holding the route,
         // holding nothing.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+            try missingTokens(in: "type:CanvasDropHandler",
                               required: ["CanvasDrop.payload(",
                                          "CanvasDrop.notARealClassifier(",
                                          "captureDrop.send(",

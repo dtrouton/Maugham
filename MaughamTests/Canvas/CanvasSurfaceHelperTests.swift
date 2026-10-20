@@ -543,4 +543,93 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         XCTAssertEqual(model.selection, .node(scrapID),
                        "Escape cleared the canvas selection; the project row does not")
     }
+
+    // MARK: - CanvasDropHandler
+
+    private let droppedNoteID = "rn01"
+
+    @MainActor
+    private struct DropHandlerFixture {
+        let model: CanvasModel
+        let itemIndex: CanvasItemIndex
+        let camera = SurfaceHelperBox(CanvasCamera())
+        let revision = SurfaceHelperBox(0)
+        let dropError = SurfaceHelperBox<String?>(nil)
+
+        var handler: CanvasDropHandler {
+            CanvasDropHandler(model: model,
+                              itemIndex: itemIndex,
+                              captureDrop: .unavailable,
+                              assetIngest: .unavailable,
+                              camera: camera.binding,
+                              revision: revision.binding,
+                              dropError: dropError.binding)
+        }
+    }
+
+    private var droppedNoteIndex: CanvasItemIndex {
+        CanvasItemIndex(entriesByID: [
+            droppedNoteID: .init(title: "The falls at night", kind: .researchNote),
+        ])
+    }
+
+    /// **A payload this canvas has no card for is declined, and changes
+    /// nothing** — so the drag springs back rather than reporting success
+    /// (`handleDrop`'s doc). No mounted test can drive a drag session; the
+    /// decision itself is `CanvasDropTests`'. This pins the handler's arm: no
+    /// selection, no camera move, no redraw tick, no alert, no undo bracket.
+    func test_aPayloadOfAnUnknownIdIsDeclinedAndChangesNothing() throws {
+        let model = modelWithASelectedScrap()
+        let fixture = DropHandlerFixture(model: model, itemIndex: droppedNoteIndex)
+        let scene = model.scene
+
+        XCTAssertFalse(fixture.handler.handleDrop(["zz99"], at: CGPoint(x: 300, y: 300)),
+                       "a payload with no index entry was reported as taken")
+
+        XCTAssertEqual(model.scene, scene, "a declined drop changed the scene")
+        XCTAssertEqual(model.selection, .node(scrapID), "a declined drop moved the selection")
+        XCTAssertEqual(fixture.camera.value, CanvasCamera(), "a declined drop moved the camera")
+        XCTAssertEqual(fixture.revision.value, 0, "a declined drop ticked the redraw counter")
+        XCTAssertNil(fixture.dropError.value, "a declined drop raised an alert")
+        XCTAssertFalse(model.isInGesture)
+        XCTAssertFalse(fixture.handler.handleDrop([], at: .zero),
+                       "an empty payload list was reported as taken")
+    }
+
+    /// **A read-only canvas refuses `.place`** (issue #44): a research row
+    /// dropped on a refused sidecar springs back, and the selection does not
+    /// point at a card that was never made. `CanvasDrop.apply`'s own backstop
+    /// would keep the scene unchanged without the gate, so the return value and
+    /// the selection are what bite. The ORDER is pinned in source by
+    /// `CanvasEditGateTests.test_theCanvasAsksTheGateBeforeEachAct`. The control
+    /// is the same drop on a writable model, which makes the card and selects it.
+    func test_aReadOnlyCanvasRefusesToPlaceADroppedRow() throws {
+        let point = CGPoint(x: 300, y: 300)
+
+        let writable = CanvasModel()
+        let control = DropHandlerFixture(model: writable, itemIndex: droppedNoteIndex)
+        XCTAssertTrue(control.handler.handleDrop([droppedNoteID], at: point),
+                      "control: a known id on a writable canvas is placed")
+        XCTAssertEqual(writable.scene.nodes.count, 1, "control: the drop made one card")
+        XCTAssertEqual(writable.selection, writable.scene.nodes.first.map { .node($0.id) },
+                       "control: the placed card is selected")
+
+        let root = TestTemp.root.appendingPathComponent("drop-read-only-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sidecar = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try "not json at all".write(to: sidecar, atomically: true, encoding: .utf8)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        defer { model.detach() }
+        XCTAssertTrue(model.isReadOnly, "precondition: the damaged layout file was refused")
+
+        let fixture = DropHandlerFixture(model: model, itemIndex: droppedNoteIndex)
+        XCTAssertFalse(fixture.handler.handleDrop([droppedNoteID], at: point),
+                       "a read-only canvas took a research drop")
+        XCTAssertTrue(model.scene.nodes.isEmpty, "a read-only canvas placed a card")
+        XCTAssertNil(model.selection, "a refused drop selected a card that was never made")
+        XCTAssertFalse(model.isInGesture)
+    }
 }
