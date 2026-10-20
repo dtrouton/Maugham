@@ -117,6 +117,23 @@ final class CitationEditTests: XCTestCase {
         }
     }
 
+    /// Two commits racing across the trash scan's await — the inspector's and
+    /// Claude's, or two quick inspector commits — must not both take one key
+    /// (whole-branch review M7): the second sees the first's write.
+    func test_twoConcurrentCommitsNeverBothClaimOneKey() async throws {
+        let (_, store, _) = try await makeNovel()
+        store.manifest.research.append(link("r-a"))
+        store.manifest.research.append(link("r-b"))
+        async let first: Error? = { do { try await store.updateCitation(
+            researchId: "r-a", CitationInfo(key: "same2026")); return nil } catch { return error } }()
+        async let second: Error? = { do { try await store.updateCitation(
+            researchId: "r-b", CitationInfo(key: "same2026")); return nil } catch { return error } }()
+        let outcomes = await [first, second]
+        let holders = ["r-a", "r-b"].filter { citation(of: $0, in: store)?.key == "same2026" }
+        XCTAssertEqual(holders.count, 1, "both items took the key")
+        XCTAssertEqual(outcomes.compactMap { $0 as? CitationEditError }, [.duplicateKey("same2026")])
+    }
+
     func test_itsOwnKeyUnchangedIsAccepted() async throws {
         let (_, store, _) = try await makeNovel()
         store.manifest.research.append(link("r-a", "gartner2026"))

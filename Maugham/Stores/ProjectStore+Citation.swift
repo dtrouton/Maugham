@@ -44,16 +44,21 @@ extension ProjectStore {
 
     public func updateCitation(researchId: String, _ citation: CitationInfo?) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
+        guard findResearchItem(id: researchId, in: manifest.research) != nil else {
+            throw ProjectStoreError.structureMissing
+        }
+        let trashed = await trashedResearchCitationKeys()
+        // Everything from here to the write is ONE main-actor turn, with no
+        // await (whole-branch review M7): the item, its own key and the live
+        // keys are read after the trash scan, so a commit that interleaved
+        // across that await — the inspector's and Claude's, or two quick
+        // inspector commits — is seen, and two items never take one key.
         guard let item = findResearchItem(id: researchId, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
         let cleaned = try Self.validatedCitation(
             citation, ownKey: item.citation?.key,
-            taken: await citationKeysTaken(byOtherThan: researchId))
-        // Re-read across the trash scan's await: the item may have gone.
-        guard findResearchItem(id: researchId, in: manifest.research) != nil else {
-            throw ProjectStoreError.structureMissing
-        }
+            taken: liveCitationKeys(byOtherThan: researchId).union(trashed))
         mutateResearchItem(id: researchId) { $0.citation = cleaned }
         manifest.modified = Date()
         try await saveManifest()
@@ -82,6 +87,13 @@ extension ProjectStore {
     /// Every live key except `researchId`'s own, plus every trashed key. The
     /// item's descendants still count: only its own key is its to keep.
     func citationKeysTaken(byOtherThan researchId: String) async -> Set<String> {
+        let trashed = await trashedResearchCitationKeys()
+        return liveCitationKeys(byOtherThan: researchId).union(trashed)
+    }
+
+    /// Every live key except `researchId`'s own: synchronous, so the door
+    /// reads it in the same turn as its write.
+    func liveCitationKeys(byOtherThan researchId: String) -> Set<String> {
         var live = Set<String>()
         func walk(_ items: [ResearchItem]) {
             for item in items {
@@ -90,7 +102,7 @@ extension ProjectStore {
             }
         }
         walk(manifest.research)
-        return live.union(await trashedResearchCitationKeys())
+        return live
     }
 
     /// The door's rules as a pure function: the cleaned citation to store
