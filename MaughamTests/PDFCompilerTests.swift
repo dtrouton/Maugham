@@ -160,4 +160,30 @@ final class PDFCompilerTests: XCTestCase {
         XCTAssertTrue(reason.contains("../research/gone.png"), reason)
         XCTAssertEqual(r.problems.first?.paragraphID, "e5f6")
     }
+
+    /// m1: a staged copy a crash cut short is not reused: a file whose hash no
+    /// longer matches its name is replaced, and a stale `.partial` is cleared.
+    func test_stageFigures_replacesATruncatedCopy_andClearsAStalePartial() throws {
+        let project = tmp.appendingPathComponent("Truncated")
+        let research = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
+        let bytes = Data((0..<64).map { UInt8($0) })
+        try bytes.write(to: research.appendingPathComponent("a.png"))
+        let publish = project.appendingPathComponent(".maugham/publish")
+        let paragraphs = [(id: "a1b2", text: "![One](../research/a.png)")]
+
+        var first = try resolution(paragraphs, project: project)
+        let path = try XCTUnwrap(PDFCompiler.stageFigures(of: &first, publishDir: publish, pathPrefix: "")["a"]?[0])
+        let staged = publish.appendingPathComponent(path)
+        try bytes.prefix(10).write(to: staged)   // the interrupted copy
+        let partial = staged.deletingLastPathComponent()
+            .appendingPathComponent(staged.lastPathComponent + ".partial")
+        try Data([1]).write(to: partial)          // a stale temporary
+
+        var again = try resolution(paragraphs, project: project)
+        XCTAssertEqual(PDFCompiler.stageFigures(of: &again, publishDir: publish, pathPrefix: "")["a"]?[0], path)
+        XCTAssertEqual(try Data(contentsOf: staged), bytes, "the truncated copy was replaced")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path), "no temporary left behind")
+        XCTAssertTrue(again.problems.isEmpty, "\(again.problems)")
+    }
 }

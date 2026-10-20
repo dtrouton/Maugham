@@ -164,7 +164,7 @@ public struct PDFCompiler {
                                       anchorTag: tag, crossLinkTags: others,
                                       resolution: prepared[index].resolution,
                                       figureFiles: prepared[index].figureFiles,
-                                      opensWithLists: index == 0).write(
+                                      isFirstBody: index == 0).write(
                 to: build.appendingPathComponent("body.\(tag).tex"),
                 atomically: true, encoding: .utf8)
             try Self.metadataBlock(config: body.config, label: label).write(
@@ -372,12 +372,10 @@ public struct PDFCompiler {
             for (index, source) in files.sorted(by: { $0.key < $1.key }) {
                 do {
                     try FileManager.default.createDirectory(at: figures, withIntermediateDirectories: true)
-                    let name = try contentHash(of: source) + "." + source.pathExtension.lowercased()
+                    let hash = try contentHash(of: source)
+                    let name = hash + "." + source.pathExtension.lowercased()
                     let destination = figures.appendingPathComponent(name)
-                    if !FileManager.default.fileExists(atPath: destination.path) {
-                        // adr-0018-ok: research image staged for the compile
-                        try FileManager.default.copyItem(at: source, to: destination)
-                    }
+                    try stage(source, to: destination, hash: hash)
                     staged[piece, default: [:]][index] = pathPrefix + "build/figures/" + name
                 } catch {
                     resolution.stagingFailed(pieceID: piece, nodeIndex: index,
@@ -386,6 +384,32 @@ public struct PDFCompiler {
             }
         }
         return staged
+    }
+
+    /// Puts `source` at `destination` whole or not at all. A file already
+    /// there is reused only when its own hash still matches its name: a copy
+    /// a crash cut short (before this rule, or by a disk filling up) would
+    /// otherwise be reused by every later compile. The copy lands under a
+    /// temporary name in the same folder, any stale one removed first, and is
+    /// moved into place.
+    private static func stage(_ source: URL, to destination: URL, hash: String) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            if (try? contentHash(of: destination)) == hash { return }
+            try fm.removeItem(at: destination)
+        }
+        let partial = destination.deletingLastPathComponent()
+            .appendingPathComponent(destination.lastPathComponent + ".partial")
+        if fm.fileExists(atPath: partial.path) { try fm.removeItem(at: partial) }
+        // adr-0018-ok: research image staged for the compile
+        try fm.copyItem(at: source, to: partial)
+        do {
+            try fm.moveItem(at: partial, to: destination)
+        } catch {
+            // Another figure of the same file got there first: keep it.
+            try? fm.removeItem(at: partial)
+            guard fm.fileExists(atPath: destination.path) else { throw error }
+        }
     }
 
     /// The first 16 hex digits of the file's SHA-256, read in chunks.

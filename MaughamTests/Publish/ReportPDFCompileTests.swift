@@ -79,7 +79,16 @@ final class ReportPDFCompileTests: XCTestCase {
             |:--|--:|
             | Q1[^cell] | 100% |
             | Q2 | #120_x |
+            | [draft] | x |
+            | [@ghost] | y |
             Table: Sales_by quarter & cost {#tbl:sales}
+
+            | [note] | b |
+            |---|---|
+            | *star* | z |
+
+            - [draft] first item
+            - second item
 
             ## Method {#sec:method}
 
@@ -136,15 +145,31 @@ final class ReportPDFCompileTests: XCTestCase {
         for expected in ["Figure 1", "Table 1", "References", "(Smith 2026, p. 12)", "(Smith 2026)",
                          "Smith, Jane. 2026.", "Annual Report", "Section 1.1",
                          "Revenue by quarter", "Sales_by quarter & cost", "Sales & costs", "100%",
-                         "#120_x", "The first note.", "A caption note.", "A cell note."] {
+                         "#120_x", "The first note.", "A caption note.", "A cell note.",
+                         // I1/m4: rows, a header and a list item opening with `[`.
+                         "[draft] x", "[@ghost] y", "[note] b", "star z", "[draft] first item",
+                         // R-S9: the uncaptioned table still prints its number.
+                         "Table 2"] {
             XCTAssertTrue(text.contains(expected), "missing \(expected) in:\n\(text)", file: file, line: line)
         }
-        for forbidden in ["??", "[@", "@fig", "@tbl", "@sec", "[^", "{#"] {
+        // `[@ghost]` is an unknown key and prints literally; no known key does.
+        for forbidden in ["??", "[@smith", "@fig", "@tbl", "@sec", "[^", "{#"] {
             XCTAssertFalse(text.contains(forbidden), "printed \(forbidden) in:\n\(text)", file: file, line: line)
         }
     }
 
-    // MARK: - the three templates
+    // MARK: - the templates
+
+    /// I1 in a non-Report book: `[@ghost]` is only a warning there, so the
+    /// compile goes ahead — and a row opening with it must not kill it.
+    func test_aNonReportBook_withARowOpeningWithAnUnknownKey_compiles() async throws {
+        store.manifest.profile = nil
+        try await store.saveManifest()
+        let result = try await compile(label: "novel")
+        let text = try text(of: result)
+        XCTAssertTrue(text.contains("[@ghost] y") && text.contains("[draft] x"), text)
+        XCTAssertTrue(text.contains("Table 1") && text.contains("Table 2"), text)
+    }
 
     func test_theCurrentStarter_rendersTheReport() async throws {
         let starter = try String(contentsOf: publish.appendingPathComponent("preamble.tex"), encoding: .utf8)

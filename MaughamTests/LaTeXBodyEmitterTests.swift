@@ -770,12 +770,12 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
     private func bodies(_ source: ProjectASTBuilder.Source,
                         figureFiles: [String: [Int: String]] = [:],
                         crossLinkTags: [String] = [],
-                        opensWithLists: Bool = true) throws -> (resolved: String, plain: String) {
+                        isFirstBody: Bool = true) throws -> (resolved: String, plain: String) {
         let ast = try ProjectASTBuilder.build(from: source)
         let resolution = try PublishResolution.forCompile(source: source, bodyTag: nil,
                                                           imageAllowed: ["png"])
         return (LaTeXBodyEmitter.emit(ast, crossLinkTags: crossLinkTags, resolution: resolution,
-                                      figureFiles: figureFiles, opensWithLists: opensWithLists),
+                                      figureFiles: figureFiles, isFirstBody: isFirstBody),
                 LaTeXBodyEmitter.emit(ast, crossLinkTags: crossLinkTags))
     }
 
@@ -804,14 +804,64 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
         XCTAssertFalse(plain.contains("MaughamTable"), plain)
     }
 
-    func test_uncaptionedTable_isAPlainTable_andAlignmentNoneIsL() throws {
+    /// R-S9: a table with no caption line is still numbered, so it still
+    /// prints "Table n" — a `@tbl:` reference always lands on a visible number.
+    /// Its list entry is `\\relax`, so longtable lists it as the float does.
+    func test_uncaptionedTable_stillPrintsItsNumber_andAlignmentNoneIsL() throws {
         let (resolved, _) = try bodies(book(["| a | b | c |\n|---|:-:|---|\n| 1 | 2 | 3 |"]))
         XCTAssertTrue(resolved.contains("""
             \\setcounter{table}{0}
-            \\begin{MaughamPlainTable}{lcl}{a & b & c}
+            \\begin{MaughamTable}{lcl}{\\relax}{}{a & b & c}
             1 & 2 & 3 \\\\
-            \\end{MaughamPlainTable}
+            \\end{MaughamTable}
             """), resolved)
+    }
+
+    /// I1: `\\\\` peeks past spaces for `[` and `*`, so a row (or a header,
+    /// which follows one inside the longtable branch) that opens with either
+    /// is guarded by `\\relax`, or the compile dies with "Missing number".
+    func test_aRowOrHeaderOpeningWithABracketOrStar_isGuarded() throws {
+        let (resolved, _) = try bodies(book([
+            "| [h] | b |\n|---|---|\n| [draft] | x |\n| [@ghost] | y |\n| plain | z |",
+        ]))
+        XCTAssertTrue(resolved.contains("""
+            \\begin{MaughamTable}{ll}{\\relax}{}{\\relax [h] & b}
+            \\relax [draft] & x \\\\
+            \\relax [@ghost] & y \\\\
+            plain & z \\\\
+            """), resolved)
+        XCTAssertEqual(LaTeXBodyEmitter.rowStart("*x & y"), "\\relax *x & y")
+        XCTAssertEqual(LaTeXBodyEmitter.rowStart("  [x"), "\\relax   [x")
+        XCTAssertEqual(LaTeXBodyEmitter.rowStart("x & [y]"), "x & [y]")
+    }
+
+    /// m4: `\\item` reads a following `[` as its label argument.
+    func test_aListItemOpeningWithABracket_keepsIt() throws {
+        let (resolved, plain) = try bodies(book(["- [draft] first\n- second [x]"]))
+        for body in [resolved, plain] {
+            XCTAssertTrue(body.contains("\\item\\relax [draft] first\n\\item second [x]"), body)
+        }
+    }
+
+    /// m2: a bilingual book's later body captions the same numbers; its
+    /// figures and tables keep their captions but stay out of the lists.
+    func test_aLaterBody_keepsItsElementsOutOfTheLists() throws {
+        let source = book(["| a |\n|---|\n| 1 |\nTable: T", "![F](../research/f.png)"], lists: true)
+        let files = ["a": [1: "build/figures/f.png"]]
+        let (first, _) = try bodies(source, figureFiles: files)
+        XCTAssertFalse(first.contains("\\renewcommand{\\addcontentsline}"), first)
+        let (later, _) = try bodies(source, figureFiles: files, isFirstBody: false)
+        XCTAssertTrue(later.contains("""
+            \\begingroup\\renewcommand{\\addcontentsline}[3]{}
+            \\setcounter{table}{0}
+            \\begin{MaughamTable}{l}{T}{T}{a}
+            1 \\\\
+            \\end{MaughamTable}
+            \\endgroup
+            \\begingroup\\renewcommand{\\addcontentsline}[3]{}
+            \\setcounter{figure}{0}
+            """), later)
+        XCTAssertTrue(later.contains("\\end{figure}\n\\endgroup"), later)
     }
 
     /// The environments are defined in the body, guarded, with a longtable
@@ -827,7 +877,7 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
             \\newenvironment{MaughamTable}[4]{\\begin{table}[htbp]\\centering\\caption[{#2}]{#3}\\begin{tabular}{#1}#4\\\\\\hline}{\\end{tabular}\\end{table}}
             \\fi\\fi
             """), withTable)
-        XCTAssertTrue(withTable.contains("\\ifdefined\\MaughamPlainTable\\else\\ifdefined\\longtable"), withTable)
+        XCTAssertFalse(withTable.contains("MaughamPlainTable"), "every table is captioned (R-S9)")
         let (without, _) = try bodies(book(["Just prose."]))
         XCTAssertFalse(without.contains("MaughamTable"), without)
     }
@@ -998,7 +1048,7 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
             \\begin{prose}{Title a}
             """), resolved)
         XCTAssertFalse(plain.contains("listof"), plain)
-        let (second, _) = try bodies(source, figureFiles: files, opensWithLists: false)
+        let (second, _) = try bodies(source, figureFiles: files, isFirstBody: false)
         XCTAssertFalse(second.contains("listof"), "only the first body opens with the lists: \(second)")
         let (off, _) = try bodies(book(["| a |\n|---|\n| 1 |"], lists: false))
         XCTAssertFalse(off.contains("listof"), off)

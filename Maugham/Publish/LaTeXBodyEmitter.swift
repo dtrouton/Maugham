@@ -34,20 +34,22 @@ public enum LaTeXBodyEmitter {
     ///     `PublishResolution.figureFiles`, whose resolved files the compiler
     ///     staged. A figure without an entry, or whose path is not a safe TeX
     ///     argument, renders as its literal source.
-    ///   - opensWithLists: whether this body opens with the lists of figures
-    ///     and tables (R-P2-6): the first rendered body only.
+    ///   - isFirstBody: the first rendered body opens with the lists of
+    ///     figures and tables (R-P2-6), and only its figures and tables enter
+    ///     them: a later body (a bilingual book's second half) captions the
+    ///     same numbers, and would list every element twice.
     public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig(),
                             anchorTag: String? = nil,
                             crossLinkTags: [String] = [],
                             resolution: PublishResolution? = nil,
                             figureFiles: [String: [Int: String]] = [:],
-                            opensWithLists: Bool = true) -> String {
+                            isFirstBody: Bool = true) -> String {
         var lines: [String] = prologue
         if let resolution {
             if ast.sections.contains(where: { $0.nodes.contains(where: isTable) }) {
                 lines += tableEnvironments
             }
-            if opensWithLists {
+            if isFirstBody {
                 if !resolution.listOfFigures.isEmpty {
                     lines.append("\\ifdefined\\listoffigures\\listoffigures\\clearpage\\fi")
                 }
@@ -59,7 +61,8 @@ public enum LaTeXBodyEmitter {
         for (index, section) in ast.sections.enumerated() {
             let scope = Scope(section: section, resolution: resolution,
                               figureFiles: figureFiles[section.pieceID] ?? [:],
-                              labelTag: crossLinkTags.isEmpty ? nil : anchorTag)
+                              labelTag: crossLinkTags.isEmpty ? nil : anchorTag,
+                              listsItsElements: isFirstBody)
             emit(section: section, isFirst: index == 0, config: config,
                  anchorTag: anchorTag, crossLinkTags: crossLinkTags, scope: scope, into: &lines)
         }
@@ -88,6 +91,9 @@ public enum LaTeXBodyEmitter {
         /// the same labels, so its anchors must name it or a link would land
         /// in the first language. Nil for a single body: `lbl-<kind>-<name>`.
         let labelTag: String?
+        /// False in every body after the first: its figures and tables keep
+        /// their captions but stay out of the lists (`isFirstBody`).
+        let listsItsElements: Bool
         /// Footnote labels already set in this piece: a second reference to
         /// one is a mark, never a second copy of its text.
         var setNotes = Set<String>()
@@ -96,11 +102,12 @@ public enum LaTeXBodyEmitter {
         var pending: [String] = []
 
         init(section: ProjectAST.Section, resolution: PublishResolution?,
-             figureFiles: [Int: String], labelTag: String?) {
+             figureFiles: [Int: String], labelTag: String?, listsItsElements: Bool) {
             self.section = section
             self.resolution = resolution
             self.figureFiles = figureFiles
             self.labelTag = labelTag
+            self.listsItsElements = listsItsElements
         }
 
         var pieceID: String { section.pieceID }
@@ -128,13 +135,19 @@ public enum LaTeXBodyEmitter {
         }
     }
 
-    /// `MaughamTable` (captioned) and `MaughamPlainTable`, each guarded so a
-    /// template that defines its own wins, each with two branches decided by
-    /// what the preamble loaded: a `longtable` that repeats its header on
-    /// every page (the caption on the first page only; `\caption[]` keeps the
-    /// repeat out of the list of tables), or — a preamble without longtable —
-    /// a `table` float around a plain `tabular`. Emitted only into a body that
-    /// has a table, so every other body keeps its three prologue lines.
+    /// `MaughamTable`, guarded so a template that defines its own wins, with
+    /// two branches decided by what the preamble loaded: a `longtable` that
+    /// repeats its header on every page (the caption on the first page only;
+    /// `\caption[]` keeps the repeat out of the list of tables), or — a
+    /// preamble without longtable — a `table` float around a plain `tabular`.
+    /// Every table is captioned, so its number is always visible (R-S9).
+    /// Emitted only into a body that has a table, so every other body keeps
+    /// its three prologue lines.
+    ///
+    /// A `\\` peeks past spaces for `*` and `[`: the header (`#4`) and every
+    /// row that follows one are guarded by `rowStart`, never by a trailing
+    /// `\\\relax` — that would start a cell, so a following `\hline` is a
+    /// misplaced `\noalign` and the last row grows an empty one.
     private static let tableEnvironments: [String] = [
         "\\ifdefined\\MaughamTable\\else\\ifdefined\\longtable",
         "\\newenvironment{MaughamTable}[4]{\\begin{longtable}{#1}\\caption[{#2}]{#3}\\\\#4\\\\\\hline"
@@ -143,13 +156,37 @@ public enum LaTeXBodyEmitter {
         "\\newenvironment{MaughamTable}[4]{\\begin{table}[htbp]\\centering\\caption[{#2}]{#3}"
             + "\\begin{tabular}{#1}#4\\\\\\hline}{\\end{tabular}\\end{table}}",
         "\\fi\\fi",
-        "\\ifdefined\\MaughamPlainTable\\else\\ifdefined\\longtable",
-        "\\newenvironment{MaughamPlainTable}[2]{\\begin{longtable}{#1}#2\\\\\\hline\\endhead}{\\end{longtable}}",
-        "\\else",
-        "\\newenvironment{MaughamPlainTable}[2]{\\begin{table}[htbp]\\centering"
-            + "\\begin{tabular}{#1}#2\\\\\\hline}{\\end{tabular}\\end{table}}",
-        "\\fi\\fi",
     ]
+
+    /// What follows a `\\` must not open with `[` or `*` (after spaces), or
+    /// `\\` reads it as its optional argument or star — "Missing number" on a
+    /// cell that reads `[draft]` or a literal `[@ghost]`. Such a row starts
+    /// with `\relax`; any other is left as it is.
+    static func rowStart(_ row: String) -> String {
+        let first = row.first { $0 != " " }
+        return first == "[" || first == "*" ? "\\relax " + row : row
+    }
+
+    /// A list entry's short caption: `\relax` when the caption has no text, so
+    /// the element is still listed under its number (longtable drops an entry
+    /// whose short caption is empty; the kernel's float keeps it).
+    private static func listEntry(_ short: String) -> String {
+        short.isEmpty ? "\\relax" : short
+    }
+
+    /// In a body after the first, the element keeps its caption but its list
+    /// entry is gobbled: `\addcontentsline` is a no-op inside this group, in a
+    /// longtable and a float alike (`\caption[]` would quiet only longtable;
+    /// the kernel's float lists an empty short caption too).
+    private static func openUnlisted(_ scope: Scope, into out: inout [String]) {
+        guard !scope.listsItsElements else { return }
+        out.append("\\begingroup\\renewcommand{\\addcontentsline}[3]{}")
+    }
+
+    private static func closeUnlisted(_ scope: Scope, into out: inout [String]) {
+        guard !scope.listsItsElements else { return }
+        out.append("\\endgroup")
+    }
 
     /// R-P2-5: one unnumbered section closing the body, in the contents, its
     /// entries a hanging-indent list built only from kernel commands.
@@ -391,7 +428,10 @@ public enum LaTeXBodyEmitter {
             let env = ordered ? "enumerate" : "itemize"
             out.append("\\begin{\(env)}")
             for item in items {
-                out.append("\\item \(emitInline(item, scope))")
+                // `\item` peeks for `[` as its label argument: an item whose
+                // text opens with one would lose it to the label.
+                let text = emitInline(item, scope)
+                out.append((text.hasPrefix("[") ? "\\item\\relax " : "\\item ") + text)
             }
             out.append("\\end{\(env)}")
         case .verbatim(let lines):
@@ -427,8 +467,8 @@ public enum LaTeXBodyEmitter {
     }
 
     /// `\begin{MaughamTable}{<colspec>}{<short caption>}{<caption>}{<header>}`,
-    /// the body's rows, `\end{MaughamTable}` — or `MaughamPlainTable` without
-    /// a caption. The counter is set first so `\caption` prints the
+    /// the body's rows, `\end{MaughamTable}`; a table without a caption line
+    /// gets an empty caption, so its number still prints (R-S9). The counter is set first so `\caption` prints the
     /// resolution's number in any subset. Cells, headers and captions defer
     /// their footnotes; the texts follow the table.
     private static func emitTable(number: Int, index: Int, header: [[ProjectAST.Inline]],
@@ -449,21 +489,18 @@ public enum LaTeXBodyEmitter {
                 column < cells.count ? emitInline(cells[column], scope, deferred: true) : ""
             }.joined(separator: " & ")
         }
+        openUnlisted(scope, into: &out)
         out.append("\\setcounter{table}{\(number - 1)}")
         if let a = scope.anchor(label, kind: .tbl, index: index, text: "Table \(number)") {
             out.append(a)
         }
-        let env: String
-        if let caption {
-            env = "MaughamTable"
-            let long = emitInline(caption, scope, deferred: true)
-            out.append("\\begin{\(env)}{\(spec)}{\(plainText(caption, scope))}{\(long)}{\(row(header))}")
-        } else {
-            env = "MaughamPlainTable"
-            out.append("\\begin{\(env)}{\(spec)}{\(row(header))}")
-        }
-        for r in rows { out.append(row(r) + " \\\\") }
-        out.append("\\end{\(env)}")
+        // R-S9: captioned or not, the table prints "Table n".
+        let text = caption ?? []
+        out.append("\\begin{MaughamTable}{\(spec)}{\(listEntry(plainText(text, scope)))}"
+                   + "{\(emitInline(text, scope, deferred: true))}{\(rowStart(row(header)))}")
+        for r in rows { out.append(rowStart(row(r)) + " \\\\") }
+        out.append("\\end{MaughamTable}")
+        closeUnlisted(scope, into: &out)
         scope.flush(into: &out)
     }
 
@@ -475,6 +512,7 @@ public enum LaTeXBodyEmitter {
                                    file: String, label: ManuscriptLabel?,
                                    scope: Scope, into out: inout [String]) {
         let short = plainText(caption, scope)
+        openUnlisted(scope, into: &out)
         out.append("\\setcounter{figure}{\(number - 1)}")
         out.append("\\begin{figure}[htbp]")
         out.append("\\centering")
@@ -483,8 +521,9 @@ public enum LaTeXBodyEmitter {
         }
         out.append("\\ifdefined\\includegraphics\\includegraphics[width=\\linewidth]{\(file)}"
                    + "\\else\\fbox{\\parbox{0.9\\linewidth}{\\centering \(short)}}\\fi")
-        out.append("\\caption[{\(short)}]{\(emitInline(caption, scope, deferred: true))}")
+        out.append("\\caption[{\(listEntry(short))}]{\(emitInline(caption, scope, deferred: true))}")
         out.append("\\end{figure}")
+        closeUnlisted(scope, into: &out)
         scope.flush(into: &out)
     }
 
