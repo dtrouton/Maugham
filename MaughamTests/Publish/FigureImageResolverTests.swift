@@ -124,6 +124,34 @@ final class FigureImageResolverTests: XCTestCase {
         expectUnreadable(resolve("../research/absent.png", from: "manuscript/ch1.md"))
     }
 
+    /// The project spelled through `/private` (as `TestTemp` / `$TMPDIR` can
+    /// be): `resolvingSymlinksInPath` maps existing folders to `/var/…` but
+    /// leaves a missing file's `/private` spelling alone, so a missing file
+    /// must be caught before the containment check, not misreported as
+    /// outside research.
+    func test_aMissingFile_underAPrivatePrefixedProjectURL_isUnreadableNotNotLocal() {
+        let path = project.standardizedFileURL.path
+        let privateSpelling = path.hasPrefix("/private/") ? path : "/private" + path
+        let privateProject = URL(fileURLWithPath: privateSpelling)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: privateProject.appendingPathComponent("research").path),
+                      "premise: the /private spelling names the same project")
+        expectUnreadable(FigureImageResolver.resolve(
+            "../research/absent.png", piecePath: "manuscript/ch1.md",
+            projectURL: privateProject, allowed: png))
+        XCTAssertEqual(
+            FigureImageResolver.resolve("../research/x.png", piecePath: "manuscript/ch1.md",
+                                        projectURL: privateProject, allowed: png),
+            .file(privateProject.appendingPathComponent("research/x.png").resolvingSymlinksInPath()))
+    }
+
+    /// A sibling whose name merely starts with `research` is not research.
+    func test_aResearchOldFolder_isNotLocal() throws {
+        try FileManager.default.createDirectory(
+            at: project.appendingPathComponent("research-old"), withIntermediateDirectories: true)
+        try Data([0x89]).write(to: project.appendingPathComponent("research-old/x.png"))
+        XCTAssertEqual(resolve("../research-old/x.png", from: "manuscript/ch1.md"), .notLocal)
+    }
+
     func test_aDirectory_isUnreadable() throws {
         try FileManager.default.createDirectory(
             at: project.appendingPathComponent("research/folder.png"), withIntermediateDirectories: true)

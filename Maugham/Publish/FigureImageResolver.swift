@@ -59,7 +59,15 @@ public enum FigureImageResolver {
                 + "(it shows \(allowed.sorted().joined(separator: ", ")))")
         }
 
-        // 2. The disk: resolve symlinks, then re-check containment.
+        // 2. The disk. Existence first, on the unresolved URL (a stat that
+        // follows links, so a dangling link is missing too): a missing file
+        // keeps its `/private/var/…` spelling through `resolvingSymlinksInPath`
+        // while its existing folders resolve to `/var/…`, so letting it reach
+        // the containment check would misreport it as outside research.
+        guard FileManager.default.fileExists(atPath: appending(target, to: projectURL).path) else {
+            return .unreadable("there is no file at \(path)")
+        }
+        // Then resolve symlinks and re-check containment.
         let project = projectURL.resolvingSymlinksInPath()
         let rootURL = appending(root, to: projectURL).resolvingSymlinksInPath()
         let fileURL = appending(target, to: projectURL).resolvingSymlinksInPath()
