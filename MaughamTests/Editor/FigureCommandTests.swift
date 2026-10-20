@@ -252,13 +252,116 @@ final class FigureCommandTests: XCTestCase {
             // The writer types while the copy runs: above the paragraph, and in it.
             m.textView.insertText("Zero. ", replacementRange: NSRange(location: 0, length: 0))
             m.textView.insertText("!", replacementRange: NSRange(location: 15, length: 0))
+            m.textView.setSelectedRange(NSRange(location: 16, length: 0))   // after "Two!"
             return "research/a.png"
         })
         let image = try pngFile(named: "a.png")
+        m.window.makeFirstResponder(m.textView)
         await m.coordinator.beginFigureIngest([image], at: 9)?.value
         XCTAssertEqual(m.textView.string,
                        "Zero. One.\n\n![Caption](research/a.png){#fig:a}\n\nTwo! three.")
+        // The writer typed on: their caret stays after "Two!" (whole-branch
+        // review I2), never yanked to the caption.
+        let caret = m.textView.selectedRange()
+        XCTAssertEqual(caret.length, 0)
+        XCTAssertTrue((m.textView.string as NSString).substring(to: caret.location).hasSuffix("Two!"),
+                      "the caret moved to \(caret)")
+    }
+
+    // MARK: - A figure landing after the writer moved on (whole-branch review I2)
+
+    /// The writer drops a picture, then focuses something else while it copies
+    /// (the inspector, find). The line lands; the focus and the selection stay.
+    func test_aFigureLandingWhileTheFocusIsElsewhereTakesNeitherTheFocusNorTheSelection() async throws {
+        var m: Mounted!
+        let elsewhere = NSTextView(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
+        m = try mount("Intro.\n\nBody text.", importer: { _ in
+            m.window.contentView?.addSubview(elsewhere)
+            m.window.makeFirstResponder(elsewhere)
+            return "research/a.png"
+        })
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: 2, length: 3))
+        let image = try pngFile(named: "a.png")
+        await m.coordinator.beginFigureIngest([image], at: (m.textView.string as NSString).length)?.value
+        XCTAssertEqual(m.textView.string, "Intro.\n\nBody text.\n\n![Caption](research/a.png){#fig:a}",
+                       "the line still lands")
+        XCTAssertTrue(m.window.firstResponder === elsewhere, "the figure took the focus")
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 2, length: 3),
+                       "the figure moved the writer's selection")
+    }
+
+    /// The writer, still in the manuscript, moves the caret while it copies:
+    /// the line lands above, and their caret rides the edit.
+    func test_aFigureLandingAfterTheCaretMovedKeepsTheCaretShiftedThroughTheEdit() async throws {
+        var m: Mounted!
+        m = try mount("Intro.\n\nBody text.", importer: { _ in
+            m.textView.setSelectedRange(NSRange(location: 12, length: 0))   // "Body|"
+            return "research/a.png"
+        })
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let image = try pngFile(named: "a.png")
+        await m.coordinator.beginFigureIngest([image], at: 0)?.value
+        let line = "![Caption](research/a.png){#fig:a}\n\n"
+        XCTAssertEqual(m.textView.string, line + "Intro.\n\nBody text.")
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: 12 + (line as NSString).length, length: 0))
+        XCTAssertTrue(m.window.firstResponder === m.textView)
+    }
+
+    /// The control: a writer still where they were gets the caption selected.
+    func test_aFigureLandingWithTheWriterStillThereSelectsTheCaption() async throws {
+        let m = try mount("Intro.", importer: { _ in "research/a.png" })
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: 6, length: 0))
+        await m.coordinator.beginFigureIngest([try pngFile(named: "a.png")], at: 6)?.value
         XCTAssertEqual(selected(m), "Caption")
+    }
+
+    /// An input method composing when the copy finishes: the line waits until
+    /// the composition ends, then lands without touching it.
+    func test_aFigureWaitsOutAComposition() async throws {
+        var m: Mounted!
+        m = try mount("Intro.\n\nBody", importer: { _ in
+            m.textView.setSelectedRange(NSRange(location: 12, length: 0))
+            m.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                                     replacementRange: m.textView.selectedRange())
+            return "research/a.png"
+        })
+        m.window.makeFirstResponder(m.textView)
+        var waits = 0
+        m.coordinator.figureCompositionWait = {
+            waits += 1
+            XCTAssertFalse(m.textView.string.contains("!["), "the line landed mid-composition")
+            XCTAssertTrue(m.textView.hasMarkedText())
+            if waits == 2 { m.textView.unmarkText() }
+        }
+        await m.coordinator.beginFigureIngest([try pngFile(named: "a.png")], at: 0)?.value
+        XCTAssertEqual(waits, 2)
+        XCTAssertEqual(m.textView.string, "![Caption](research/a.png){#fig:a}\n\nIntro.\n\nBodyか")
+        XCTAssertEqual(m.box.reported, [])
+    }
+
+    /// A composition that outlasts every wait: nothing lands, the composition
+    /// is untouched, and the writer is told.
+    func test_aFigureGivesUpOnACompositionThatOutlastsTheWaits() async throws {
+        var m: Mounted!
+        m = try mount("Intro.", importer: { _ in
+            m.textView.setSelectedRange(NSRange(location: 6, length: 0))
+            m.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                                     replacementRange: m.textView.selectedRange())
+            return "research/a.png"
+        })
+        m.window.makeFirstResponder(m.textView)
+        var waits = 0
+        m.coordinator.figureCompositionWait = { waits += 1 }
+        m.coordinator.figureCompositionWaitLimit = 3
+        await m.coordinator.beginFigureIngest([try pngFile(named: "a.png")], at: 0)?.value
+        XCTAssertEqual(waits, 3)
+        XCTAssertEqual(m.textView.string, "Intro.か")
+        XCTAssertTrue(m.textView.hasMarkedText(), "the composition was disturbed")
+        XCTAssertEqual(m.box.reported, [EditorCoordinator.compositionFailureMessage])
     }
 
     func test_aDocumentThatIsNoLongerOpenGetsNothing() async throws {
@@ -282,6 +385,7 @@ final class FigureCommandTests: XCTestCase {
     /// would join it. `applyCommandEdit` closes its own group.
     func test_anAsyncFigureIsItsOwnUndoStepWithTheDefaultGrouping() async throws {
         let m = try mount("Intro", importer: { _ in "research/a.png" })
+        m.window.makeFirstResponder(m.textView)
         let undo = try XCTUnwrap(m.textView.undoManager)
         XCTAssertTrue(undo.groupsByEvent, "the premise: the default grouping")
         let image = try pngFile(named: "a.png")

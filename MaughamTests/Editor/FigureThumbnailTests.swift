@@ -444,6 +444,115 @@ final class FigureThumbnailTests: XCTestCase {
             lowestThumbnailBottom(m.textView) + m.textView.textContainerInset.height)
     }
 
+    // MARK: - The last line through the real surface (whole-branch review I1)
+    //
+    // The room must hold whatever order AppKit's own mid-edit resize and the
+    // retokenize land in: through a Route A figure at the end, and through
+    // typing into a trailing figure's caption. No runloop spin and no clock:
+    // layout is forced, then the frame is read.
+
+    private final class Box { var text: String; init(_ t: String) { text = t } }
+
+    private static func maughamTextView(in view: NSView?) -> MaughamTextView? {
+        guard let view else { return nil }
+        if let tv = view as? MaughamTextView { return tv }
+        for sub in view.subviews { if let tv = maughamTextView(in: sub) { return tv } }
+        return nil
+    }
+
+    private func mountedSurface(_ text: String) throws -> (MaughamTextView, EditorCoordinator) {
+        let box = Box(text)
+        var configuration = EditorSurfaceConfiguration(
+            presentation: .init(theme: .light, typography: .defaults,
+                                mode: ProseMode(reservesFigureThumbnails: true),
+                                typewriterScroll: false, sentenceFocus: false,
+                                paragraphFocus: false, showElementGutter: false),
+            control: EditorControl())
+        configuration.answersInsertCommands = true
+        configuration.paragraphProviders.figureImporter = { _ in "../research/a.png" }
+        configuration.paragraphProviders.figureImageResolver = { _ in .notLocal }
+        let window = TestWindow.mount(
+            EditorSurface(text: Binding(get: { box.text }, set: { box.text = $0 }),
+                          configuration: configuration),
+            size: CGSize(width: 700, height: 500), as: KeyTestWindow.self)
+        addTeardownBlock { @MainActor in window.reportsKey = false; window.close() }
+        let tv = try XCTUnwrap(Self.maughamTextView(in: window.contentView))
+        let coordinator = try XCTUnwrap(tv.delegate as? EditorCoordinator)
+        window.makeFirstResponder(tv)
+        return (tv, coordinator)
+    }
+
+    private func assertHoldsTheTrailingThumbnail(_ tv: MaughamTextView, _ what: String,
+                                                 file: StaticString = #filePath, line: UInt = #line) {
+        tv.layoutManager?.ensureLayout(for: tv.textContainer!)
+        XCTAssertGreaterThanOrEqual(
+            tv.frame.maxY, lowestThumbnailBottom(tv) + tv.textContainerInset.height,
+            "\(what): the thumbnail draws past the text view's frame", file: file, line: line)
+    }
+
+    func test_lastLine_aFigureInsertedAtTheEndGetsItsRoom() async throws {
+        let (tv, coordinator) = try mountedSurface(filler)
+        XCTAssertEqual(coordinator.figureTrailingRoom, 0, "precondition: prose ends the text")
+        let end = (tv.string as NSString).length
+        await coordinator.beginFigureIngest([TestTemp.root.appendingPathComponent("a.png")],
+                                            at: end)?.value
+        XCTAssertTrue(tv.string.hasSuffix("![Caption](../research/a.png){#fig:a}"), tv.string)
+        assertHoldsTheTrailingThumbnail(tv, "a figure inserted at the end")
+    }
+
+    func test_lastLine_typingIntoATrailingFiguresCaptionKeepsTheRoom() throws {
+        let (tv, _) = try mountedSurface(filler + "\n\n![Last](../research/last.png)")
+        assertHoldsTheTrailingThumbnail(tv, "precondition: mounted")
+        let caption = (tv.string as NSString).range(of: "Last")
+        tv.setSelectedRange(NSRange(location: NSMaxRange(caption), length: 0))
+        for character in ["x", "y"] {
+            tv.insertText(character, replacementRange: tv.selectedRange())
+            assertHoldsTheTrailingThumbnail(tv, "after typing \(character) into the caption")
+        }
+    }
+
+    /// The question is the text's, whatever the tokens say (I1).
+    func test_endsOnFigureLine_readsTheTextItself() {
+        let cases: [(String, Bool)] = [
+            ("Prose.\n\n![A](a.png)", true),
+            ("![A](a.png){#fig:a}", true),
+            ("Prose.\n\n![A](a.png)\n", false),          // a newline after: its spacing lays out
+            ("Prose.\n![A](a.png)", false),                // two lines, one paragraph: not a figure
+            ("Prose.\n\n![A](a.png", false),              // unfinished
+            ("Prose with ![A](a.png) inside.", false),
+            ("Prose.\n\n  \n![A](a.png)", true),          // a whitespace line is blank
+            ("", false),
+        ]
+        for (text, expected) in cases {
+            XCTAssertEqual(FigureThumbnailLayout.endsOnFigureLine(text as NSString), expected, text)
+        }
+    }
+
+    // MARK: - The decode follows the column (whole-branch review M4)
+
+    func test_store_aWidenedColumnDecodesAgainSharply() async throws {
+        let png = TestTemp.root.appendingPathComponent("wide.png")
+        try writePNG(to: png, width: 1600, height: 200)
+        let store = store(resolving: ["wide.png": png])
+        func width(_ column: CGFloat) async -> Int? {
+            _ = store.thumbnail(for: "wide.png", columnWidth: column, backingScale: 1)
+            await store.pendingWork(for: "wide.png")?.value
+            guard case .image(let image, _)? = store.thumbnail(
+                for: "wide.png", columnWidth: column, backingScale: 1) else { return nil }
+            return image.width
+        }
+        let narrow = await width(200)
+        XCTAssertEqual(narrow, 200)
+        let wide = await width(800)
+        XCTAssertEqual(wide, 800, "the small decode was kept and would draw upscaled")
+        XCTAssertEqual(store.decodeCount, 2)
+        let narrowAgain = await width(200)
+        XCTAssertEqual(narrowAgain, 200)
+        XCTAssertEqual(store.decodeCount, 2, "the first decode is still in the cache")
+        _ = await width(220)
+        XCTAssertEqual(store.decodeCount, 2, "a few points wider is the same bucket")
+    }
+
     /// A figure-free manuscript never repaints its overlay on an edit (M5);
     /// the control, with a figure in view, does.
     func test_mounted_noFigureNoRepaint() throws {

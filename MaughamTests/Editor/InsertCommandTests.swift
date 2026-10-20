@@ -246,6 +246,35 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(note.textView.string, "Research note.")
     }
 
+    // MARK: - Only the focused editor answers (whole-branch review M1)
+
+    /// A statement pane or a research note in the same window holds the focus:
+    /// ⌘⇧T is not the manuscript's, so it neither writes there nor takes the
+    /// focus over. The control: the manuscript focused, and a non-text view
+    /// (the binder) focused, both answer.
+    func test_anotherTextInputWithTheFocusKeepsTheInsertOutOfTheManuscript() throws {
+        let m = try mount("Chapter.")
+        let sibling = NSTextView(frame: NSRect(x: 0, y: 0, width: 80, height: 20))
+        m.window.contentView?.addSubview(sibling)
+        m.window.makeFirstResponder(sibling)
+        XCTAssertTrue(m.window.firstResponder === sibling, "precondition: the sibling has the focus")
+
+        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
+        MaughamEvent.post(.maughamInsertFigure, to: .keyWindow)
+        XCTAssertEqual(m.textView.string, "Chapter.", "an insert reached the unfocused manuscript")
+        XCTAssertTrue(m.window.firstResponder === sibling, "the insert pulled the focus over")
+
+        m.window.makeFirstResponder(nil)                  // a non-text view: the window itself
+        MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
+        XCTAssertEqual(m.textView.string, "Chapter.[^1]\n\n[^1]: ",
+                       "with no text input focused the manuscript still answers")
+
+        m.window.makeFirstResponder(m.textView)
+        try asOneEvent(m) { MaughamEvent.post(.maughamInsertTable, to: .keyWindow) }
+        XCTAssertTrue(m.textView.string.contains("| Column 1 |"), "the focused manuscript answers")
+    }
+
     // MARK: - Census: who may say "this surface answers Insert"
 
     /// The files allowed to name `answersInsertCommands`: its two declarations,

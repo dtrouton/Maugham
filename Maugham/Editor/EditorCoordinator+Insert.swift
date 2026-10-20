@@ -46,9 +46,18 @@ extension EditorCoordinator {
     /// `range` and `selection` are UTF-16 ranges; `selection` is in the text
     /// AFTER the replace. Returns false — changing nothing — when the editor
     /// is detached, the range is out of bounds, or the membrane refuses.
+    ///
+    /// **`landing: .deferred`** is for an edit that lands after the event that
+    /// asked for it (an async figure, whole-branch review I2). It never takes
+    /// the focus, and when the writer has moved on — the text view is not the
+    /// first responder, or `writerMoved` (the caller's reading of the
+    /// selection or text since the request) — it keeps the writer's own
+    /// selection, shifted through the edit, and does not scroll. Otherwise it
+    /// selects `selection`, as the immediate landing does.
     @discardableResult
     func applyCommandEdit(replacing range: NSRange, with replacement: String,
-                          selecting selection: NSRange, actionName: String) -> Bool {
+                          selecting selection: NSRange, actionName: String,
+                          landing: CommandLanding = .immediate) -> Bool {
         guard !isDetached, let textView, let storage = textView.textStorage,
               range.location >= 0, NSMaxRange(range) <= storage.length else { return false }
         // The membrane's predicate first: an ended EMPTY group is not dropped,
@@ -76,17 +85,54 @@ extension EditorCoordinator {
         guard textView.shouldChangeText(in: range, replacementString: replacement) else {
             return false
         }
+        let writersSelection = textView.selectedRange()
+        let keepsWritersSelection: Bool
+        switch landing {
+        case .immediate: keepsWritersSelection = false
+        case .deferred(let writerMoved):
+            keepsWritersSelection = writerMoved || textView.window?.firstResponder !== textView
+        }
         storage.replaceCharacters(in: range, with: replacement)
         textView.didChangeText()
         undo?.setActionName(actionName)
+        if keepsWritersSelection {
+            let kept = Self.selection(writersSelection, shiftedByReplacing: range,
+                                      withLength: (replacement as NSString).length)
+            let location = min(max(0, kept.location), storage.length)
+            textView.setSelectedRange(NSRange(
+                location: location, length: min(kept.length, storage.length - location)))
+            return true
+        }
         let location = min(max(0, selection.location), storage.length)
         let target = NSRange(location: location,
                              length: min(max(0, selection.length), storage.length - location))
         textView.setSelectedRange(target)
         textView.scrollRangeToVisible(target)
         if typewriterScroll { scrollSelectionToVerticalCenter(in: textView) }
-        textView.window?.makeFirstResponder(textView)
+        if case .immediate = landing { textView.window?.makeFirstResponder(textView) }
         return true
+    }
+
+    /// How a Route A edit lands (`applyCommandEdit`).
+    enum CommandLanding: Equatable {
+        /// In the event that asked for it: select, scroll, take the focus.
+        case immediate
+        /// After the event (an async figure): never take the focus; keep the
+        /// writer's selection when they have moved on.
+        case deferred(writerMoved: Bool)
+    }
+
+    /// `selection` (in the text before the edit) carried through replacing
+    /// `range` with `length` characters: after the edit it shifts, before it
+    /// stays, and a selection the edit overlapped collapses to the edit's end.
+    nonisolated static func selection(_ selection: NSRange, shiftedByReplacing range: NSRange,
+                                      withLength length: Int) -> NSRange {
+        let delta = length - range.length
+        if selection.location >= NSMaxRange(range) {
+            return NSRange(location: selection.location + delta, length: selection.length)
+        }
+        if NSMaxRange(selection) <= range.location { return selection }
+        return NSRange(location: range.location + length, length: 0)
     }
 
     /// Whether a command may write text now: the question the membrane
@@ -102,18 +148,31 @@ extension EditorCoordinator {
 
     /// `applyCommandEdit` for a `ReportInsert.Edit`.
     @discardableResult
-    func applyCommandEdit(_ edit: ReportInsert.Edit, actionName: String) -> Bool {
+    func applyCommandEdit(_ edit: ReportInsert.Edit, actionName: String,
+                          landing: CommandLanding = .immediate) -> Bool {
         applyCommandEdit(replacing: edit.replacedRange, with: edit.replacement,
-                         selecting: edit.selection, actionName: actionName)
+                         selecting: edit.selection, actionName: actionName, landing: landing)
     }
 
     // MARK: - The Insert menu
 
     /// The scope context the Insert observers filter against: the key-window
-    /// context every window command uses, and only on a manuscript surface.
+    /// context every window command uses, only on a manuscript surface, and
+    /// only while no OTHER text input holds the window's focus (whole-branch
+    /// review M1): with a statement, a research note or an inspector field
+    /// focused, the command is not the manuscript's, and must neither write
+    /// into it nor pull the focus over. The manuscript focused, or a non-text
+    /// view (the binder), still answers.
     func insertCommandContext() -> EventReceiverContext? {
-        guard answersInsertCommands else { return nil }
+        guard answersInsertCommands, !anotherTextInputHasTheFocus else { return nil }
         return receiverContext(.keyWindow)
+    }
+
+    /// Whether the window's first responder is a text view other than this
+    /// editor's: a sibling `EditorSurface`, or a field's field editor.
+    var anotherTextInputHasTheFocus: Bool {
+        guard let textView, let responder = textView.window?.firstResponder else { return false }
+        return responder !== textView && responder is NSText
     }
 
     /// Whether this editor makes figures (plan 3a Task 6,
@@ -130,7 +189,7 @@ extension EditorCoordinator {
     func insertTable() {
         guard answersInsertCommands, let textView else { return }
         let at = NSMaxRange(textView.selectedRange())
-        let blocks = MarkdownTokenizer.tableBlockRange(containing: at, in: lastTokens)
+        let blocks = tableBlockRange(containing: at)
             .map { [$0] } ?? []
         // Asked per command, never per keystroke: the labels the project's
         // OTHER manuscript documents define (a Report refuses a duplicate).

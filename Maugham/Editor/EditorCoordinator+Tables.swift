@@ -21,6 +21,28 @@ struct TableTidyState {
         pending = nil
         pendingAnchor = nil
     }
+
+    /// Carries both anchors through one character edit, as `NSTextStorage`
+    /// reports it (`editedRange` in the text AFTER the edit), the way
+    /// `FigureIngest.Anchor` carries a figure's point (whole-branch review
+    /// I3): an edit wholly before a table's start shifts it, one at or after
+    /// it leaves it, and one that replaced the start forgets it. A forgotten
+    /// pending anchor cancels its tidy.
+    mutating func noteEdit(editedRange: NSRange, changeInLength delta: Int) {
+        anchor = Self.shifted(anchor, editedRange: editedRange, delta: delta)
+        guard pendingAnchor != nil else { return }
+        pendingAnchor = Self.shifted(pendingAnchor, editedRange: editedRange, delta: delta)
+        if pendingAnchor == nil { cancelPending() }
+    }
+
+    static func shifted(_ anchor: Int?, editedRange: NSRange, delta: Int) -> Int? {
+        guard let anchor else { return nil }
+        let start = editedRange.location
+        let replacedEnd = start + editedRange.length - delta      // in the text BEFORE
+        if start >= anchor { return anchor }
+        if replacedEnd <= anchor { return anchor + delta }
+        return nil
+    }
 }
 
 // EditorCoordinator — pipe tables: Tab and Shift-Tab move by cell, Return at a
@@ -40,8 +62,8 @@ extension EditorCoordinator {
     func caretTable(in textView: NSTextView) -> CaretTable? {
         let selection = textView.selectedRange()
         let ns = textView.string as NSString
-        guard let range = MarkdownTokenizer.tableBlockRange(containing: selection.location,
-                                                            in: lastTokens),
+        guard !tokensDescribeAnEarlierText,
+              let range = tableBlockRange(containing: selection.location),
               NSMaxRange(range) <= ns.length,
               NSMaxRange(selection) <= NSMaxRange(range) else { return nil }
         let block = ns.substring(with: range)
@@ -116,12 +138,17 @@ extension EditorCoordinator {
     /// Return at the end of a body row (only spaces after the caret on its
     /// line): a new empty row after it, the caret in its first cell, the table
     /// re-aligned — one edit. Return anywhere on an empty LAST body row leaves
-    /// the table (`leaveTable`). Anywhere else Return is AppKit's.
+    /// the table (`leaveTable`). Return anywhere on the header row goes to the
+    /// first body row (`enterFirstBodyRow`). Anywhere else Return is AppKit's.
     private func addTableRow(in textView: NSTextView) -> Bool {
         let selection = textView.selectedRange()
         guard selection.length == 0, let at = caretTable(in: textView),
-              let cell = TableText.cell(at: selection.location - at.range.location, in: at.block),
-              cell.row >= 1 else { return false }
+              let cell = TableText.cell(at: selection.location - at.range.location, in: at.block)
+        else { return false }
+        guard cell.row >= 1 else {
+            enterFirstBodyRow(at, in: textView)
+            return true
+        }
         if cell.row == at.table.rows.count,
            at.table.rows[cell.row - 1].allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
             leaveTable(at, in: textView)
@@ -140,6 +167,33 @@ extension EditorCoordinator {
         applyTableEdit(at, formatted, selecting: NSRange(location: caret, length: 0),
                        actionName: "Add Table Row")
         return true
+    }
+
+    /// Return on the header row (Denver's ruling on the whole-branch review's
+    /// M2): the caret goes to the first body row's first cell, a body row
+    /// added first when there is none. It never splits the table — a newline
+    /// between the header and the delimiter row would dissolve it into prose.
+    /// The table re-aligns, as on Tab; nothing to re-align or add moves only.
+    private func enterFirstBodyRow(_ at: CaretTable, in textView: NSTextView) {
+        var table = at.table
+        if table.rows.isEmpty { table.rows.append(Array(repeating: "", count: table.header.count)) }
+        let formatted = table.formatted()
+        if formatted == at.block {
+            let caret = TableText.offset(ofCell: 1, 0, in: at.block)
+            select(NSRange(location: caret, length: 0), in: at, textView)
+            return
+        }
+        let adds = at.table.rows.isEmpty
+        let applied = applyTableEdit(
+            at, formatted,
+            selecting: NSRange(location: TableText.offset(ofCell: 1, 0, in: formatted), length: 0),
+            actionName: adds ? "Add Table Row" : "Tidy Table")
+        // Refused (a read-only posture): still move, through the text as it
+        // is — when there is a body row to move to.
+        if !applied, !adds {
+            select(NSRange(location: TableText.offset(ofCell: 1, 0, in: at.block), length: 0),
+                   in: at, textView)
+        }
     }
 
     /// Return on an empty last body row (R-S4): the row goes (unless it is the
@@ -202,17 +256,31 @@ extension EditorCoordinator {
     /// callback's stack. An undo or redo moving the selection schedules
     /// nothing (re-tidying what ⌘Z just untidied would eat the redo and every
     /// undo step behind it), and neither does a composing input method.
+    ///
+    /// A selection change posted while an edit is landing (AppKit posts one
+    /// inside `replaceCharacters`, before the retokenize) is read against
+    /// stale tokens, so it is ignored: `textDidChange` asks again once the
+    /// tokens are fresh, and the anchors ride the edit on their own
+    /// (`TableTidyState.noteEdit`) — whole-branch review I3.
+    ///
+    /// Moving straight from one table into another leaves the first: it is
+    /// scheduled as any other leave would be (whole-branch review M3 — Insert
+    /// Table from inside a table lands its new table after it).
     func noteSelectionForTableTidy(in textView: NSTextView) {
-        guard !tableTidy.isApplying, !textView.hasMarkedText() else { return }
+        guard !tableTidy.isApplying, !tokensDescribeAnEarlierText,
+              !textView.hasMarkedText() else { return }
         if let undo = textView.undoManager, undo.isUndoing || undo.isRedoing {
             tableTidy.anchor = nil
             tableTidy.cancelPending()
             return
         }
         let selection = textView.selectedRange()
-        let touched = MarkdownTokenizer.tableBlockRange(containing: selection.location, in: lastTokens)
-            ?? MarkdownTokenizer.tableBlockRange(containing: NSMaxRange(selection), in: lastTokens)
+        let touched = tableBlockRange(containing: selection.location)
+            ?? tableBlockRange(containing: NSMaxRange(selection))
         if let touched {
+            if let left = tableTidy.anchor, left != touched.location {
+                scheduleTableTidy(at: left)
+            }
             tableTidy.anchor = touched.location
             if tableTidy.pendingAnchor == touched.location { tableTidy.cancelPending() }
         } else if let anchor = tableTidy.anchor {
@@ -251,7 +319,8 @@ extension EditorCoordinator {
             return
         }
         let ns = textView.string as NSString
-        guard let range = MarkdownTokenizer.tableBlockRange(containing: anchor, in: lastTokens),
+        guard !tokensDescribeAnEarlierText,
+              let range = tableBlockRange(containing: anchor),
               NSMaxRange(range) <= ns.length else { return }
         let selection = textView.selectedRange()
         guard selection.location > NSMaxRange(range) || NSMaxRange(selection) < range.location
@@ -270,6 +339,8 @@ extension EditorCoordinator {
         tableTidy.isApplying = true
         defer { tableTidy.isApplying = false }
         applyCommandEdit(replacing: range, with: formatted, selecting: kept, actionName: "Tidy Table")
-        tableTidy.anchor = nil
+        // The writer may be in ANOTHER table (they left this one for it, M3):
+        // that one stays remembered.
+        tableTidy.anchor = tableBlockRange(containing: textView.selectedRange().location)?.location
     }
 }

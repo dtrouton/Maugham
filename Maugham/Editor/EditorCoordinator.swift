@@ -107,12 +107,57 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// Most recent token list, captured each time we retokenize. Used by
     /// click routing to look up wiki-link ranges hit-tested by mouseDown.
-    /// Setting it drops the figure-thumbnail marks derived from it.
+    /// Setting it drops the figure-thumbnail marks derived from it, and
+    /// derives, in ONE pass, what the per-keystroke and per-caret-move
+    /// questions read (whole-branch review M5): the sorted table blocks
+    /// (`tableBlockRange(containing:)`) and whether any figure line exists.
     var lastTokens: [Token] = [] {
         didSet {
             figureThumbnailMarksCache = nil
+            tokensDescribeAnEarlierText = false
+            var tables: [NSRange] = []
+            var figures = false
+            for token in lastTokens {
+                switch token.kind {
+                case .tableBlock: tables.append(token.range)
+                case .figureSyntax: figures = true
+                default: break
+                }
+            }
+            tableBlockRanges = tables.sorted { $0.location < $1.location }
+            hasFigureLines = figures
             figureThumbnailTokensDidChange()
         }
+    }
+
+    /// The `.tableBlock` ranges in `lastTokens`, sorted (derived with them).
+    private(set) var tableBlockRanges: [NSRange] = []
+    /// Whether `lastTokens` holds any figure line (derived with them).
+    private(set) var hasFigureLines = false
+
+    /// True from a character edit to the text storage until the retokenize
+    /// that follows it: `lastTokens` then describe the text BEFORE the edit,
+    /// so nothing may place an offset against them (whole-branch review I3 —
+    /// AppKit posts a selection change inside `replaceCharacters`, before
+    /// `textDidChange` retokenizes). Set by `storageEditObserver`, cleared by
+    /// `lastTokens`.
+    private(set) var tokensDescribeAnEarlierText = false
+    /// Watches this editor's text storage for character edits: marks the
+    /// tokens stale and carries the table-tidy anchors through the edit.
+    private var storageEditObserver: NSObjectProtocol?
+
+    /// The table block containing `location` (its ends included), by binary
+    /// search over `tableBlockRanges` — `MarkdownTokenizer.tableBlockRange`'s
+    /// answer without a walk of every token.
+    func tableBlockRange(containing location: Int) -> NSRange? {
+        var lo = 0, hi = tableBlockRanges.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if tableBlockRanges[mid].location <= location { lo = mid + 1 } else { hi = mid }
+        }
+        guard lo > 0 else { return nil }
+        let range = tableBlockRanges[lo - 1]
+        return location <= NSMaxRange(range) ? range : nil
     }
 
     /// Most recent FountainScript from ScreenplayMode parsing. nil for prose
@@ -283,6 +328,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The most recent figure ingest, so a caller (a test) can await it
     /// instead of polling.
     var figureIngestTask: Task<Void, Never>?
+    /// How a landed figure waits out an input method's composition: a short
+    /// sleep, so a composition of a few seconds is outlasted without spinning
+    /// (`beginFigureIngest`). A test hands in its own, so nothing waits on a
+    /// clock.
+    var figureCompositionWait: () async -> Void = {
+        try? await Task.sleep(for: .milliseconds(100))
+    }
+    /// How many waits before the figure gives up: about 30 seconds.
+    var figureCompositionWaitLimit = 300
 
     /// Resolves a figure path as written to its image file, from THIS
     /// document's own path (plan 3a Task 7, `FigureImageResolver`). Built by
@@ -690,6 +744,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if let token = insertFigureObserver {
             NotificationCenter.default.removeObserver(token)
         }
+        if let token = storageEditObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
@@ -720,6 +777,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // `viewDidChangeEffectiveAppearance` (same appearance) is a no-op; only a
         // genuine light/dark flip afterwards restyles.
         lastEffectiveAppearanceName = textView.effectiveAppearance.name
+        observeStorageEdits(of: textView)
         retokenizeAndStyle()
         // The figure thumbnails (plan 3a Task 7), on a surface that shows them.
         syncFigureThumbnailOverlay()
@@ -779,6 +837,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
+        if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
+        storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is
         // dropped: a doc switch recreates the EditorSurface via `.id(path)`,
         // and the NEW text view is seeded in `makeNSView` — no
@@ -1203,6 +1263,31 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if isReviewMode {
             recomputeReviewMarks()
             refreshReviewOverlays()
+        }
+        // The selection changes AppKit posted inside the edit were read
+        // against stale tokens and ignored (`noteSelectionForTableTidy`); read
+        // the caret's table once more now the tokens describe this text.
+        noteSelectionForTableTidy(in: textView)
+    }
+
+    /// One observer per attach on the storage's `didProcessEditing`, which
+    /// `NSTextStorage` posts for every character edit, whoever makes it, BEFORE
+    /// its layout managers (and so the text view's selection) hear of it.
+    private func observeStorageEdits(of textView: NSTextView) {
+        if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
+        storageEditObserver = nil
+        guard let storage = textView.textStorage else { return }
+        storageEditObserver = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+        ) { [weak self] note in
+            guard let storage = note.object as? NSTextStorage,
+                  storage.editedMask.contains(.editedCharacters) else { return }
+            let range = storage.editedRange, delta = storage.changeInLength
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.tokensDescribeAnEarlierText = true
+                self.tableTidy.noteEdit(editedRange: range, changeInLength: delta)
+            }
         }
     }
 

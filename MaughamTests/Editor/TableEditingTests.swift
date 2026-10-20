@@ -33,7 +33,8 @@ final class TableEditingTests: XCTestCase {
         var selected: String { (textView.string as NSString).substring(with: textView.selectedRange()) }
     }
 
-    private func mount(_ text: String) throws -> Mounted {
+    private func mount(_ text: String,
+                       figureImporter: ((URL) async throws -> String)? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0 })
         var configuration = EditorSurfaceConfiguration(
@@ -42,6 +43,7 @@ final class TableEditingTests: XCTestCase {
                                 paragraphFocus: false, showElementGutter: false),
             control: EditorControl())
         configuration.answersInsertCommands = true
+        configuration.paragraphProviders.figureImporter = figureImporter
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
                                       as: KeyTestWindow.self)
@@ -291,11 +293,42 @@ final class TableEditingTests: XCTestCase {
         XCTAssertEqual(m.string, "| A   | B   |\n| --- | --- |\n| c   |\n d   |",
                        "mid-row Return is AppKit's")
 
-        let header = try mount(Self.tidy)
-        caret(header, at: ("| A   | B   |" as NSString).length)
-        newline(header)
-        XCTAssertEqual(header.string, "| A   | B   |\n\n| --- | --- |\n| c   | d   |",
-                       "Return at the header's end is AppKit's")
+    }
+
+    // MARK: - Return on the header row (whole-branch review M2, Denver's ruling)
+
+    func test_returnOnTheHeaderRowGoesToTheFirstBodyRowAndNeverSplitsTheTable() throws {
+        for at in [("| A   | B   |" as NSString).length, 2] {      // the header's end, and inside it
+            let m = try mount(Self.tidy)
+            caret(m, at: at)
+            newline(m, edits: false)                               // tidy: no edit, no step
+            XCTAssertEqual(m.string, Self.tidy, "Return split the table at \(at)")
+            XCTAssertEqual(m.textView.selectedRange(),
+                           NSRange(location: TableText.offset(ofCell: 1, 0, in: Self.tidy), length: 0))
+        }
+    }
+
+    func test_returnOnAnUntidyHeaderReAlignsAndGoesToTheFirstBodyRowAsOneStep() throws {
+        let m = try mount("|A|B|\n|-|-|\n|c|d|")
+        caret(m, at: 2)
+        newline(m)
+        XCTAssertEqual(m.string, Self.tidy)
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: TableText.offset(ofCell: 1, 0, in: Self.tidy), length: 0))
+        m.undo.undo()
+        XCTAssertEqual(m.string, "|A|B|\n|-|-|\n|c|d|")
+    }
+
+    func test_returnOnTheHeaderOfATableWithNoBodyRowAddsOne() throws {
+        let headerOnly = "| A   | B   |\n| --- | --- |"
+        let m = try mount(headerOnly)
+        try XCTSkipIf(TableText(parsing: headerOnly) == nil,
+                      "a header-only block is not a table here, so Return is AppKit's")
+        caret(m, at: 3)
+        newline(m)
+        XCTAssertEqual(m.string, headerOnly + "\n|     |     |")
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: TableText.offset(ofCell: 1, 0, in: m.string), length: 0))
     }
 
     // MARK: - Leaving the table
@@ -398,6 +431,117 @@ final class TableEditingTests: XCTestCase {
         XCTAssertTrue(m.coordinator.hasPendingTableTidy, "the table was forgotten")
         runTheTidy(m)
         XCTAssertEqual(m.string, "| A   | B   |\n| --- | --- |\n| c   | d   |\n\nAfter.")
+    }
+
+    // MARK: - The anchor rides every edit (whole-branch review I3)
+
+    /// A figure lands ABOVE two untidy tables while the caret is in the second.
+    /// AppKit posts a selection change inside the replace, before the
+    /// retokenize; read against the stale tokens, the old offset pointed into
+    /// the FIRST table, which was then tidied though never touched.
+    func test_aFigureLandingAboveTwoTablesNeverTidiesTheOneTheWriterDidNotTouch() async throws {
+        let t1 = "|A|B|\n|-|-|\n|c|d|"
+        let t2 = "|E|F|\n|-|-|\n|g|h|"
+        let text = "Intro\n\n" + t1 + "\n\nMid paragraph of twenty\n\n" + t2 + "\n\nEnd."
+        let m = try mount(text, figureImporter: { _ in "research/a.png" })
+        caret(m, at: (text as NSString).range(of: "|g|").location + 1)
+        assertInATable(m)
+        m.undo.groupsByEvent = true             // the ingest lands outside any event
+        await m.coordinator.beginFigureIngest(
+            [TestTemp.root.appendingPathComponent("a.png")], at: 0)?.value
+        m.undo.groupsByEvent = false
+        XCTAssertTrue(m.string.hasPrefix("![Caption](research/a.png){#fig:a}\n\nIntro"), m.string)
+        if m.coordinator.hasPendingTableTidy { runTheTidy(m) }
+        XCTAssertTrue(m.string.contains(t1), "table 1 was tidied though the writer never touched it")
+        XCTAssertTrue(m.string.contains("| E   | F   |\n| --- | --- |\n| g   | h   |"),
+                      "leaving table 2 (for the caption) did not tidy it")
+    }
+
+    /// The same geometry with the writer still working in the second table:
+    /// they move the caret while the copy runs, so the figure keeps their
+    /// selection (I2) and nothing leaves table 2 — no tidy may run at all.
+    func test_aFigureLandingAboveTablesWhileTheWriterWorksInOneTidiesNothing() async throws {
+        let t1 = "|A|B|\n|-|-|\n|c|d|"
+        let t2 = "|E|F|\n|-|-|\n|g|h|"
+        let text = "Intro\n\n" + t1 + "\n\nMid paragraph of twenty\n\n" + t2 + "\n\nEnd."
+        var m: Mounted!
+        m = try mount(text, figureImporter: { _ in
+            m.textView.setSelectedRange(NSRange(location: (text as NSString).range(of: "|h|").location + 1,
+                                                length: 0))
+            return "research/a.png"
+        })
+        caret(m, at: (text as NSString).range(of: "|g|").location + 1)
+        assertInATable(m)
+        m.undo.groupsByEvent = true
+        await m.coordinator.beginFigureIngest(
+            [TestTemp.root.appendingPathComponent("a.png")], at: 0)?.value
+        m.undo.groupsByEvent = false
+        assertInATable(m)
+        if m.coordinator.hasPendingTableTidy { runTheTidy(m) }
+        XCTAssertTrue(m.string.contains(t1), "table 1 was tidied though the writer never touched it")
+        XCTAssertTrue(m.string.contains(t2), "table 2 was tidied with the writer still in it")
+        caret(m, before: "End")
+        runTheTidy(m)
+        XCTAssertTrue(m.string.contains(t1))
+        XCTAssertTrue(m.string.contains("| E   | F   |\n| --- | --- |\n| g   | h   |"),
+                      "leaving table 2 did not tidy it")
+    }
+
+    /// Typing at a table's very end, inside it, schedules nothing (the stale
+    /// read used to think the caret had left).
+    func test_typingAtATablesEndSchedulesNoTidy() throws {
+        let m = try mount("|A|B|\n|-|-|\n|c|d|\n\nAfter.")
+        caret(m, at: ("|A|B|\n|-|-|\n|c|d|" as NSString).length)
+        assertInATable(m)
+        type("x", m)
+        XCTAssertFalse(m.coordinator.hasPendingTableTidy, "a keystroke inside the table was read as leaving it")
+    }
+
+    /// Text typed above a remembered table moves it; the anchor follows, so
+    /// leaving still tidies THAT table.
+    func test_theRememberedTableIsFollowedThroughTypingAboveIt() throws {
+        let m = try mount("Top\n\n|A|B|\n|-|-|\n|c|d|\n\nAfter.")
+        caret(m, before: "c")
+        let anchor = try XCTUnwrap(m.coordinator.tableTidy.anchor)
+        // Typed above it by another route (find/replace, a sync's insert) while
+        // the caret stays in the table.
+        m.coordinator.tableTidy.isApplying = true
+        let keep = m.textView.selectedRange()
+        asOneEvent(m) { m.textView.insertText("More words ", replacementRange: NSRange(location: 0, length: 0)) }
+        m.textView.setSelectedRange(NSRange(location: keep.location + 11, length: 0))
+        m.coordinator.tableTidy.isApplying = false
+        XCTAssertEqual(m.coordinator.tableTidy.anchor, anchor + 11)
+        caret(m, before: "After")
+        runTheTidy(m)
+        XCTAssertTrue(m.string.contains("| A   | B   |\n| --- | --- |\n| c   | d   |"), m.string)
+    }
+
+    // MARK: - Leaving one table for another (whole-branch review M3)
+
+    func test_insertingATableFromInsideAnUntidyOneTidiesTheOneLeft() throws {
+        let untidy = "|A|B|\n|-|-|\n|c|d|"
+        let m = try mount(untidy)
+        caret(m, before: "c")
+        asOneEvent(m) { m.coordinator.insertTable() }
+        XCTAssertTrue(m.string.hasPrefix(untidy + "\n\n"), "the new table lands after: \(m.string)")
+        assertInATable(m)
+        XCTAssertTrue(m.coordinator.hasPendingTableTidy, "leaving for the new table scheduled nothing")
+        runTheTidy(m)
+        XCTAssertTrue(m.string.hasPrefix(Self.tidy + "\n\n"), m.string)
+        assertInATable(m)
+        XCTAssertNotNil(m.coordinator.tableTidy.anchor, "the new table is no longer remembered")
+    }
+
+    func test_movingStraightIntoAnotherTableTidiesTheOneLeft() throws {
+        let m = try mount("|A|B|\n|-|-|\n|c|d|\n\n|E|F|\n|-|-|\n|g|h|")
+        caret(m, before: "c")
+        caret(m, before: "g")
+        XCTAssertTrue(m.coordinator.hasPendingTableTidy)
+        runTheTidy(m)
+        XCTAssertEqual(m.string, Self.tidy + "\n\n|E|F|\n|-|-|\n|g|h|")
+        XCTAssertEqual(m.selected, "", "")
+        XCTAssertEqual((m.string as NSString).substring(from: m.textView.selectedRange().location).first, "g",
+                       "the caret kept its place in the second table")
     }
 
     func test_theTidyNeverTakesTheFocusFromElsewhere() throws {

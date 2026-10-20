@@ -75,6 +75,40 @@ enum FigureThumbnailLayout {
         return out.sorted { $0.lineRange.location < $1.lineRange.location }
     }
 
+    /// Whether `text` ends on a figure line with no newline after it — the
+    /// case TextKit 1 lays out no paragraph spacing for (whole-branch review
+    /// I1). Read from the TEXT, never from tokens or marks: AppKit re-sizes
+    /// the text view while an edit is landing, before the retokenize, when
+    /// anything token-derived still describes the text before the edit.
+    ///
+    /// The last line's blank-line block (the unit the tokenizer reads,
+    /// `BlankLineBlocks`) goes through `ManuscriptBlocks.parse`, the rule the
+    /// tokenizer's figure tokens come from. O(the last paragraph), behind a
+    /// cheap `![` gate on the last line.
+    static func endsOnFigureLine(_ text: NSString) -> Bool {
+        let length = text.length
+        guard length > 0 else { return false }
+        let lastCharacter = text.character(at: length - 1)
+        guard lastCharacter != 0x0A, lastCharacter != 0x0D else { return false }
+        let lastLineStart = text.lineRange(for: NSRange(location: length - 1, length: 0)).location
+        guard text.range(of: "![", options: .literal,
+                         range: NSRange(location: lastLineStart, length: length - lastLineStart)
+        ).location != NSNotFound else { return false }
+        var blockStart = lastLineStart
+        while blockStart > 0 {
+            let previous = text.lineRange(for: NSRange(location: blockStart - 1, length: 0))
+            if text.substring(with: previous).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                break
+            }
+            blockStart = previous.location
+        }
+        let block = text.substring(with: NSRange(location: blockStart, length: length - blockStart))
+        guard let last = ManuscriptBlocks.parse(block).last, case .figure = last.block else {
+            return false
+        }
+        return true
+    }
+
     /// The marks whose line intersects `window`, found by binary search over
     /// the sorted, non-overlapping `marks`.
     static func marks(_ marks: [Mark], intersecting window: NSRange) -> [Mark] {
@@ -134,11 +168,21 @@ private let closeParen = unichar(UInt8(ascii: ")"))
 // MARK: - The cache
 
 /// A decoded image's identity: the RESOLVED file (so two spellings of one
-/// path share an entry) and its modification date (so a re-saved image is a
-/// new entry).
+/// path share an entry), its modification date (so a re-saved image is a
+/// new entry) and the column's decode bucket (so a widened column, or a
+/// Retina screen, decodes again rather than upscaling a small decode —
+/// whole-branch review M4).
 struct FigureThumbnailKey: Hashable, Sendable {
     let path: String
     let modified: Date?
+    var bucket: Int = 0
+
+    /// The column's width in device pixels, in steps of `bucketPixels`: a
+    /// window dragged a few points wider decodes nothing new.
+    static let bucketPixels: CGFloat = 64
+    static func bucket(columnWidth: CGFloat, backingScale: CGFloat) -> Int {
+        Int((max(0, columnWidth) * max(1, backingScale) / bucketPixels).rounded(.up))
+    }
 }
 
 /// A small least-recently-used cache. Main-thread only (the store's).
@@ -233,7 +277,11 @@ final class FigureThumbnailStore {
     ///   - backingScale: the screen's, so the decode is sharp and no larger.
     func thumbnail(for path: String, columnWidth: CGFloat, backingScale: CGFloat) -> Thumbnail? {
         let entry = known[path]
-        let stale = entry.map { now().timeIntervalSince($0.checkedAt) >= Self.recheckInterval } ?? true
+        let bucket = FigureThumbnailKey.bucket(columnWidth: columnWidth, backingScale: backingScale)
+        let stale = entry.map {
+            now().timeIntervalSince($0.checkedAt) >= Self.recheckInterval
+                || ($0.key.map { $0.bucket != bucket } ?? false)
+        } ?? true
         if stale, work[path] == nil {
             start(path, columnWidth: columnWidth, backingScale: backingScale)
         }
@@ -253,9 +301,10 @@ final class FigureThumbnailStore {
 
     private func start(_ path: String, columnWidth: CGFloat, backingScale: CGFloat) {
         let resolve = self.resolve
+        let bucket = FigureThumbnailKey.bucket(columnWidth: columnWidth, backingScale: backingScale)
         work[path] = Task { [weak self] in
             let found = await Task.detached(priority: .utility) {
-                Self.locate(path, resolve: resolve)
+                Self.locate(path, bucket: bucket, resolve: resolve)
             }.value
             guard !Task.isCancelled else { return }
             await self?.finish(path, found: found, columnWidth: columnWidth,
@@ -312,13 +361,14 @@ final class FigureThumbnailStore {
 
     /// The resolver's answer plus the file's modification date: a stat, never
     /// a read.
-    nonisolated private static func locate(_ path: String, resolve: Resolve) -> Located {
+    nonisolated private static func locate(_ path: String, bucket: Int,
+                                           resolve: Resolve) -> Located {
         switch resolve(path) {
         case .file(let url):
             if url.pathExtension.lowercased() == "svg" { return .notShown(svgMessage) }
             let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey])
                 .contentModificationDate
-            return .file(FigureThumbnailKey(path: url.path, modified: modified), url)
+            return .file(FigureThumbnailKey(path: url.path, modified: modified, bucket: bucket), url)
         case .notLocal, .unreadable:
             return .notShown(notFoundMessage)
         }
@@ -449,8 +499,7 @@ final class FigureThumbnailOverlay: NSView {
     /// Skipped when there is no figure now and none was in view at the last
     /// draw: a figure-free manuscript never repaints its overlay.
     @objc private func repaint(_ note: Notification) {
-        guard lastVisibleFigureCount > 0
-                || coordinator?.figureThumbnailMarks.isEmpty == false else { return }
+        guard lastVisibleFigureCount > 0 || coordinator?.hasFigureLines == true else { return }
         repaintRequests += 1
         needsDisplay = true
     }
@@ -585,25 +634,38 @@ extension EditorCoordinator {
     /// TextKit 1 lays out no paragraph spacing after a final paragraph with no
     /// newline, so `MaughamTextView` adds this to its height instead
     /// (`heightHoldingATrailingFigure`). Zero otherwise. Text-derived.
+    ///
+    /// Asked of the text itself (`FigureThumbnailLayout.endsOnFigureLine`),
+    /// never of the marks: `setFrameSize` asks it mid-edit, before the
+    /// retokenize (whole-branch review I1).
     var figureTrailingRoom: CGFloat {
-        guard let last = figureThumbnailMarks.last, let textView,
-              NSMaxRange(last.lineRange) == (textView.string as NSString).length else { return 0 }
+        guard showsFigureThumbnails, let textView,
+              FigureThumbnailLayout.endsOnFigureLine(textView.string as NSString) else { return 0 }
         return FigureThumbnailLayout.reservedHeight
     }
 
-    /// After a retokenize: re-size the text view when the trailing room
-    /// changed (a figure became, or stopped being, the last line), and
-    /// repaint the overlay when there are figures or were some in view.
+    /// After a retokenize: hold the room for a trailing figure, and repaint
+    /// the overlay when there are figures or were some in view.
+    ///
+    /// While there is room, the frame is re-asserted after EVERY retokenize,
+    /// not only when the room flips: `sizeToFit` never calls `setFrameSize`
+    /// when the layout's size already equals the frame, and AppKit's own
+    /// mid-edit resize can land before this (whole-branch review I1). The
+    /// re-assert grows the frame only when it falls short, so it costs one
+    /// comparison on a keystroke that changes nothing. Losing the room shrinks
+    /// through `sizeToFit`, as before.
     func figureThumbnailTokensDidChange() {
         guard showsFigureThumbnails, let textView else { return }
         let room = figureTrailingRoom
-        if room != lastFigureTrailingRoom {
-            lastFigureTrailingRoom = room
-            // Only on a flip (rare): AppKit re-sizes, through the override.
+        let flipped = room != lastFigureTrailingRoom
+        lastFigureTrailingRoom = room
+        if room > 0, let maugham = textView as? MaughamTextView {
+            maugham.holdTrailingFigureRoom()
+        } else if flipped {
             textView.sizeToFit()
         }
         if let overlay = figureThumbnailOverlay,
-           overlay.lastVisibleFigureCount > 0 || !figureThumbnailMarks.isEmpty {
+           overlay.lastVisibleFigureCount > 0 || hasFigureLines {
             overlay.needsDisplay = true
         }
     }

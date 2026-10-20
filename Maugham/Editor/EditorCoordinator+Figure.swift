@@ -29,6 +29,15 @@ extension EditorCoordinator {
     /// (a piece flip detaches the coordinator, `.id(path)`) gets nothing.
     /// Several images land one after another, in order. Files in
     /// `removingAfterwards` (a paste's temporary PNG) are deleted when done.
+    ///
+    /// The line lands after the event that asked for it, so it lands
+    /// `.deferred` (whole-branch review I2): it never takes the focus, and a
+    /// writer who has moved on — typed, moved the caret, or focused another
+    /// view — keeps their selection; only a writer still where they were gets
+    /// `Caption` selected. While an input method is composing it waits
+    /// (`figureCompositionWait`, at most `figureCompositionWaitLimit` times),
+    /// then gives up and says so: committing or moving the selection would
+    /// break the composition.
     @discardableResult
     func beginFigureIngest(_ urls: [URL], at location: Int,
                            removingAfterwards temporary: [URL] = []) -> Task<Void, Never>? {
@@ -40,6 +49,9 @@ extension EditorCoordinator {
         }
         let tracker = FigureAnchorTracker(
             anchor: FigureIngest.Anchor(point: location, in: textView.string), storage: storage)
+        // Where the writer's selection was when they asked (or when the last
+        // figure of this ingest landed): moved since means they moved on.
+        var writersSelection = textView.selectedRange()
         let task = Task { @MainActor [weak self] in
             defer {
                 tracker.stop()
@@ -54,17 +66,31 @@ extension EditorCoordinator {
                     return
                 }
                 guard let self, !self.isDetached, self.textView === textView else { return }
+                var waits = 0
+                while textView.hasMarkedText() {
+                    guard waits < self.figureCompositionWaitLimit else {
+                        self.figureFailureReporter?(Self.compositionFailureMessage)
+                        return
+                    }
+                    waits += 1
+                    await self.figureCompositionWait()
+                    guard !self.isDetached, self.textView === textView else { return }
+                }
                 let stem = url.deletingPathExtension().lastPathComponent
+                let writerMoved = tracker.anchor.edited
+                    || textView.selectedRange() != writersSelection
                 guard let end = self.writeFigure(path: path, stem: stem,
                                                  at: tracker.anchor.location(
                                                     in: textView.string,
-                                                    caret: NSMaxRange(textView.selectedRange())))
+                                                    caret: NSMaxRange(textView.selectedRange())),
+                                                 writerMoved: writerMoved)
                 else {
                     self.figureFailureReporter?(
                         "The picture is in research, but this document can’t be written to now.")
                     return
                 }
                 tracker.anchor = FigureIngest.Anchor(point: end, in: textView.string)
+                writersSelection = textView.selectedRange()
             }
         }
         figureIngestTask = task
@@ -74,20 +100,26 @@ extension EditorCoordinator {
     /// One figure line at `location` through Route A. Returns the end of the
     /// written line (where a following figure goes), or nil when the membrane
     /// refused.
-    private func writeFigure(path: String, stem: String, at location: Int) -> Int? {
+    private func writeFigure(path: String, stem: String, at location: Int,
+                             writerMoved: Bool) -> Int? {
         guard let textView else { return nil }
         let text = textView.string
         let names = FigureIngest.existingFigureNames(
             in: text, elsewhere: projectLabelsElsewhere?() ?? [])
         let line = FigureIngest.figureLine(
             path: path, label: FigureIngest.figureLabel(stem: stem, existing: names))
-        let blocks = MarkdownTokenizer.tableBlockRange(containing: location, in: lastTokens)
+        let blocks = tableBlockRange(containing: location)
             .map { [$0] } ?? []
         let edit = FigureIngest.figureEdit(in: text, at: location, tableBlocks: blocks, line: line)
-        guard applyCommandEdit(edit, actionName: "Insert Figure") else { return nil }
+        guard applyCommandEdit(edit, actionName: "Insert Figure",
+                               landing: .deferred(writerMoved: writerMoved)) else { return nil }
         return edit.selection.location - FigureIngest.captionRange.location
             + (line as NSString).length
     }
+
+    /// What the writer is told when a composition outlasted every wait.
+    static let compositionFailureMessage =
+        "The picture is in research, but it wasn’t placed while you were composing text. Insert it again from research."
 
     /// Removes a paste's temporary PNG (`FigureIngest.removeTemporary`).
     private static func remove(_ temporary: [URL]) {
