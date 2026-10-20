@@ -370,6 +370,53 @@ final class FigureCommandTests: XCTestCase {
         XCTAssertEqual(asked, 0)
     }
 
+    /// A browser's Copy Image (fix round 2): the bitmap beside an `<img>`-only
+    /// HTML fragment, and no `.string`. There are no words to paste — `super`
+    /// would paste nothing — so the picture is the paste.
+    func test_aBrowserImageWithOnlyAnImgTagMakesAFigure() async throws {
+        let m = try mount("", importer: { _ in "research/web.png" })
+        let pasteboard = privatePasteboard()
+        pasteboard.declareTypes([.tiff, .html], owner: nil)
+        pasteboard.setData(Self.picture().tiffRepresentation, forType: .tiff)
+        pasteboard.setString(#"<meta charset="utf-8"><img src="https://example.com/a.png" alt="">"#,
+                             forType: .html)
+
+        XCTAssertTrue(m.coordinator.pasteFigure(from: pasteboard))
+        await m.coordinator.figureIngestTask?.value
+        XCTAssertTrue(m.textView.string.hasPrefix("![Caption](research/web.png)"), m.textView.string)
+    }
+
+    /// Safari also offers RTFD whose only content is the image attachment.
+    func test_aBrowserImageWithAnAttachmentOnlyRTFDMakesAFigure() async throws {
+        let m = try mount("", importer: { _ in "research/web.png" })
+        let tiff = try XCTUnwrap(Self.picture().tiffRepresentation)
+        let attachment = NSAttributedString(attachment: NSTextAttachment(data: tiff, ofType: "public.tiff"))
+        let rtfd = try XCTUnwrap(attachment.rtfd(from: NSRange(location: 0, length: attachment.length),
+                                                 documentAttributes: [:]))
+        let pasteboard = privatePasteboard()
+        pasteboard.declareTypes([.tiff, .rtfd], owner: nil)
+        pasteboard.setData(tiff, forType: .tiff)
+        pasteboard.setData(rtfd, forType: .rtfd)
+
+        XCTAssertTrue(m.coordinator.pasteFigure(from: pasteboard))
+        await m.coordinator.figureIngestTask?.value
+        XCTAssertTrue(m.textView.string.hasPrefix("![Caption](research/web.png)"), m.textView.string)
+    }
+
+    /// HTML with words in it is text, even with no `.string` beside it.
+    func test_htmlWithWordsIsTextEvenWithoutAPlainString() throws {
+        let pasteboard = privatePasteboard()
+        pasteboard.declareTypes([.tiff, .html], owner: nil)
+        pasteboard.setData(Self.picture().tiffRepresentation, forType: .tiff)
+        pasteboard.setString("<p>Hello&nbsp;<img src=\"a.png\"></p>", forType: .html)
+        XCTAssertTrue(FigureIngest.carriesText(pasteboard))
+        pasteboard.clearContents()
+        pasteboard.declareTypes([.string, .tiff], owner: nil)
+        pasteboard.setString(" \n", forType: .string)
+        pasteboard.setData(Self.picture().tiffRepresentation, forType: .tiff)
+        XCTAssertFalse(FigureIngest.carriesText(pasteboard), "whitespace is not words")
+    }
+
     /// A Finder copy of a non-image file carries its icon as an image too.
     func test_aCopiedTextFileWithItsIconKeepsTodaysBehaviour() throws {
         var asked = 0

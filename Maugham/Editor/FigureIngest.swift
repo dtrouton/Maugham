@@ -214,11 +214,50 @@ enum FigureIngest {
         return UTType(filenameExtension: url.pathExtension.lowercased())?.conforms(to: .pdf) == true
     }
 
-    /// Whether a pasteboard carries any text flavour. A paste that does is
-    /// the text's, even with an image beside it (fix round 1, C1).
+    /// Whether a pasteboard carries WORDS. A paste that does is the text's,
+    /// even with an image beside it (fix round 1, C1): Word, Pages and Excel
+    /// always put a `.string` beside their PDF or TIFF rendering. A browser's
+    /// Copy Image puts the bitmap beside an `<img>`-only HTML fragment (Safari
+    /// also an attachment-only RTFD) and often no `.string` — no words, and
+    /// `super` would paste nothing, so that is the picture's (fix round 2).
+    ///
+    /// Words are a `.string` that is not blank, or RTF, RTFD or HTML whose text
+    /// is not just whitespace and attachment characters (U+FFFC). HTML is read
+    /// by stripping tags, never through WebKit's importer, which would fetch
+    /// the `<img>`'s source.
     static func carriesText(_ pasteboard: NSPasteboard) -> Bool {
-        let text: Set<NSPasteboard.PasteboardType> = [.string, .rtf, .rtfd, .html]
-        return (pasteboard.types ?? []).contains(where: text.contains)
+        let types = pasteboard.types ?? []
+        if let plain = pasteboard.string(forType: .string), hasWords(plain) { return true }
+        if types.contains(.rtfd), let data = pasteboard.data(forType: .rtfd),
+           let text = NSAttributedString(rtfd: data, documentAttributes: nil)?.string,
+           hasWords(text) { return true }
+        if types.contains(.rtf), let data = pasteboard.data(forType: .rtf),
+           let text = NSAttributedString(rtf: data, documentAttributes: nil)?.string,
+           hasWords(text) { return true }
+        if types.contains(.html), let html = pasteboard.string(forType: .html),
+           hasWords(textOfHTML(html)) { return true }
+        return false
+    }
+
+    /// Anything but whitespace and the attachment character.
+    private static func hasWords(_ text: String) -> Bool {
+        text.unicodeScalars.contains {
+            !CharacterSet.whitespacesAndNewlines.contains($0) && $0 != "\u{FFFC}"
+        }
+    }
+
+    /// The visible text of an HTML fragment, roughly: `<script>`, `<style>`
+    /// and `<head>` dropped, every other tag removed, and the space entities
+    /// read as spaces. Enough to tell words from none.
+    private static func textOfHTML(_ html: String) -> String {
+        var text = html
+        for pattern in ["(?is)<(script|style|head)\\b.*?</\\1>", "(?s)<!--.*?-->", "(?s)<[^>]*>"] {
+            text = text.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
+        }
+        for entity in ["&nbsp;", "&#160;", "&#xa0;", "&#xA0;"] {
+            text = text.replacingOccurrences(of: entity, with: " ")
+        }
+        return text
     }
 
     // MARK: - R-S5 what is copied as it is

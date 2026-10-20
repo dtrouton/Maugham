@@ -30,15 +30,18 @@ extension EditorCoordinator {
     ///    re-assert (one would race fast typing, as `textDidChange` documents);
     ///    with typewriter scroll on, the caret is centred;
     /// 5. names the undo step `actionName` ("Undo Insert Table");
-    /// 6. **closes its own undo group when it runs outside any event** (Task 6
-    ///    fix round 1, I2): a figure lands in a Task continuation and a table
-    ///    tidy on the next runloop, where no event's group is open. With
-    ///    `groupsByEvent` the implicit group opened there stays open until the
-    ///    NEXT event ends, so the writer's next typing would join this step
-    ///    (`CanvasModel` records the same trap). At `groupingLevel == 0` the
-    ///    edit is bracketed in a group of its own; inside an event (a menu
-    ///    item, a key) the event's group is the step, as before
-    ///    (`FigureCommandTests.test_anAsyncFigureIsItsOwnUndoStepWithTheDefaultGrouping`).
+    /// 6. **brackets the edit in an undo group of its own whenever none is
+    ///    open** (Task 6 fix rounds 1–2, I2). `NSUndoManager` opens its
+    ///    implicit event group LAZILY, at the first registration — so
+    ///    `groupingLevel` is usually 0 inside a key or menu event as well as
+    ///    in a Task continuation (a figure) or on the next runloop (a table
+    ///    tidy), and the bracket runs, synchronously, in all of them. That is
+    ///    safe because each caller makes ONE registration per event, so the
+    ///    bracket is exactly the step the event would have been. Outside an
+    ///    event it is what keeps the step closed: an implicit group opened
+    ///    there stays open until the NEXT event ends, and the writer's next
+    ///    typing would join it (`CanvasModel` records the same trap;
+    ///    `FigureCommandTests.test_anAsyncFigureIsItsOwnUndoStepWithTheDefaultGrouping`).
     ///
     /// `range` and `selection` are UTF-16 ranges; `selection` is in the text
     /// AFTER the replace. Returns false — changing nothing — when the editor
