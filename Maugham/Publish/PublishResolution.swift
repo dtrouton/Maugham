@@ -452,8 +452,9 @@ private struct Pass {
 
 /// A heading's inlines as plain text, for a section reference that has no
 /// number: markup dropped, a footnote marker dropped, any other report marker
-/// as its literal source.
-private enum PlainText {
+/// as its literal source. Internal so the editor's `ReferenceIndex` names a
+/// section exactly as a section reference with no number prints it.
+enum PlainText {
     static func of(_ inlines: [ProjectAST.Inline]) -> String {
         inlines.map { inline -> String in
             switch inline {

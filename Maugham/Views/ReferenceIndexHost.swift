@@ -172,8 +172,8 @@ final class ReferenceIndexHost {
         if staleAll || words == nil { words = project.words() }
         var pieces: [(docId: String, text: String?)] = []
         var kept: [String: Entry] = [:]
-        for item in ProjectStoreASTSource.publishablePieces(in: project.structure()) {
-            guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay else {
+        for (item, readablePath) in ReferenceIndex.readablePieces(in: project.structure()) {
+            guard let path = readablePath else {
                 pieces.append((item.id, nil))
                 continue
             }

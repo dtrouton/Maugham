@@ -119,6 +119,35 @@ final class ReferenceIndexTests: XCTestCase {
         ], "a screenplay is never read")
     }
 
+    /// M4: a section's text drops markup and footnote markers, as publishing's
+    /// unnumbered section reference prints it.
+    func test_aSectionIsNamedByItsPlainHeadingText() {
+        let index = Self.build([Self.doc("a", "a.md")],
+                               ["a": "## The *quiet* **method**[^1] {#sec:m}\n\n[^1]: Note."])
+        XCTAssertEqual(index.target(for: Self.label("sec:m"))?.text, "The quiet method")
+    }
+
+    /// M3: a citation inside a fenced code block is not cited, as publishing
+    /// never reads one; the same key outside the fence is. A CLOSED fence is
+    /// already one backtick code span to the inline scanner, so the case the
+    /// block-level skip exists for is a fence left open to the end of the piece.
+    func test_aCitationInFencedCodeIsNotCited() {
+        let research = [
+            Self.source("1", key: "smithA", authors: ["Smith, Jane"], year: 2026, title: "Alpha"),
+            Self.source("2", key: "smithB", authors: ["Smith, Jane"], year: 2026, title: "Beta"),
+        ]
+        let fenced = Self.build([Self.doc("a", "a.md")],
+                                ["a": "Prose [@smithA].\n\n```\nexample [@smithB]\nstill code"],
+                                research: research)
+        XCTAssertEqual(fenced.source(forKey: "smithA")?.label, "Smith 2026",
+                       "only smithA is cited, so it needs no letter")
+        let both = Self.build([Self.doc("a", "a.md")],
+                              ["a": "Prose [@smithA] and [@smithB].\n\n```\nexample\nstill code"],
+                              research: research)
+        XCTAssertEqual(both.source(forKey: "smithA")?.label, "Smith 2026a",
+                       "control: before the fence, a citation counts")
+    }
+
     func test_elementWordsNameTheNumbers() {
         let index = ReferenceIndex.build(
             structure: [Self.doc("a", "a.md")], research: [],
@@ -330,6 +359,15 @@ final class ReferenceIndexTests: XCTestCase {
             "control.referenceIndexVersion = $0",
             "referenceIndex.index.labelsDefined(excluding: doc.docId)",
             ".onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }",
+            // The piece just left is read again from its flushed op log at the
+            // switch itself, not only from the new mount's `.onAppear` (I1).
+            "documentStore.unregister(path: priorPath)\n"
+                + "            // The piece just left, now flushed and closed: the reference\n"
+                + "            // index reads it again from its op log, whatever the new\n"
+                + "            // document's mount does (plan 3b Task 1 fix round 1, I1).\n"
+                + "            referenceIndex.invalidate(.piece(prior.docId))",
+            // Another device's sync of a closed piece.
+            "referenceIndex.invalidate(.piece(changed))",
         ] {
             XCTAssertTrue(host.contains(needle), "EditorHost no longer says: \(needle)")
         }

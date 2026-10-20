@@ -18,6 +18,12 @@ import MaughamCore
 /// (`ReferenceIndexTests.test_figureAndTableNumbersMatchPublishing`). An
 /// imprint that drops sections can number differently, and that is accepted
 /// (R-3b-2). A section shows its heading's own text, never a number.
+///
+/// **"Cited" is the pieces' text, not publishing's AST**, which diverges in one
+/// way: a `[@key]` inside an unused footnote definition counts here, where
+/// publishing walks only the definitions a piece references. A citation in a
+/// fenced code block is skipped, as publishing skips it. The divergence can
+/// only move an a/b letter.
 struct ReferenceIndex: Equatable, Sendable {
 
     /// A live research item with a citation key.
@@ -149,10 +155,16 @@ struct ReferenceIndex: Equatable, Sendable {
         init(text: String) {
             var elements: [Element] = []
             var labels = Set<ManuscriptLabel>()
-            for (block, _) in ManuscriptBlocks.parse(text) {
+            var fences: [Range<Int>] = []
+            for (block, lines) in ManuscriptBlocks.parse(text) {
                 switch block {
+                case .other(.fence):
+                    fences.append(lines)
                 case .heading(_, let heading, let label):
-                    elements.append(.heading(text: heading, label: label))
+                    // Markup and footnote markers dropped, as publishing's
+                    // unnumbered section reference prints the heading.
+                    elements.append(.heading(text: PlainText.of(InlineParser.parse(heading)),
+                                             label: label))
                     if let label { labels.insert(label) }
                 case .table(_, _, _, let caption, let label):
                     elements.append(.table(caption: caption, label: label))
@@ -166,11 +178,35 @@ struct ReferenceIndex: Equatable, Sendable {
             }
             var cited: [String] = []
             var seen = Set<String>()
-            for (marker, _) in ManuscriptInlineScanner.scan(text) {
-                guard case .citation(let items) = marker else { continue }
+            let lineStarts = fences.isEmpty ? [] : Self.lineStarts(text)
+            func inFence(_ location: Int) -> Bool {
+                guard !fences.isEmpty else { return false }
+                // The line holding `location`: the last line start at or before it.
+                var lo = 0, hi = lineStarts.count
+                while lo < hi {
+                    let mid = (lo + hi) / 2
+                    if lineStarts[mid] <= location { lo = mid + 1 } else { hi = mid }
+                }
+                let line = lo - 1
+                return fences.contains { $0.contains(line) }
+            }
+            for (marker, range) in ManuscriptInlineScanner.scan(text) {
+                guard case .citation(let items) = marker, !inFence(range.location) else { continue }
                 for item in items where seen.insert(item.key).inserted { cited.append(item.key) }
             }
             self.init(elements: elements, definedLabels: labels, citedKeys: cited)
+        }
+
+        /// The UTF-16 offset each line starts at (line 0 at 0), splitting on
+        /// "\n" as `MarkdownBlockParser` numbers its lines.
+        private static func lineStarts(_ text: String) -> [Int] {
+            var starts = [0]
+            var offset = 0
+            for unit in text.utf16 {
+                offset += 1
+                if unit == 0x0A { starts.append(offset) }
+            }
+            return starts
         }
 
         init(elements: [Element], definedLabels: Set<ManuscriptLabel>, citedKeys: [String]) {
@@ -192,12 +228,28 @@ struct ReferenceIndex: Equatable, Sendable {
     /// Screenplays are never read.
     static func build(structure: [StructureItem], research: [ResearchItem],
                       text: (StructureItem) -> String?, words: ElementWords) -> ReferenceIndex {
-        let pieces = ProjectStoreASTSource.publishablePieces(in: structure).map { item -> Piece in
-            guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay,
-                  let body = text(item) else { return (item.id, .empty) }
-            return (item.id, PieceSummary(text: body))
+        let pieces = readablePieces(in: structure).map { piece -> Piece in
+            guard piece.readablePath != nil, let body = text(piece.item) else {
+                return (piece.item.id, .empty)
+            }
+            return (piece.item.id, PieceSummary(text: body))
         }
         return build(pieces: pieces, research: research, words: words)
+    }
+
+    /// **Which pieces the index reads, the one answer the builder and
+    /// `ReferenceIndexHost` share**: every publishable piece in publishing
+    /// order (`ProjectStoreASTSource.publishablePieces(in:)`), each with the
+    /// path to read it at, or nil for a screenplay, which is in the book but
+    /// holds no figure, table or citation and is never read.
+    static func readablePieces(in structure: [StructureItem])
+        -> [(item: StructureItem, readablePath: String?)] {
+        ProjectStoreASTSource.publishablePieces(in: structure).map { item in
+            guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay else {
+                return (item, nil)
+            }
+            return (item, path)
+        }
     }
 
     /// The index of `pieces`, already in publishing order.

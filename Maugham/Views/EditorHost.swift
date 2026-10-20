@@ -1229,6 +1229,10 @@ struct EditorHost: View {
         if let prior = document, let priorPath = priorLoadedPath {
             await prior.close()
             documentStore.unregister(path: priorPath)
+            // The piece just left, now flushed and closed: the reference
+            // index reads it again from its op log, whatever the new
+            // document's mount does (plan 3b Task 1 fix round 1, I1).
+            referenceIndex.invalidate(.piece(prior.docId))
         }
         do {
             let doc = try await Document.load(
