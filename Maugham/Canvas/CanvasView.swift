@@ -494,8 +494,8 @@ struct CanvasView: View {
                     dragHandler.handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase,
                                            shiftHeld: shiftHeld, timestamp: timestamp)
                 },
-                onDeleteKey: { deleteSelection() },
-                onEscape: { escapeAsksForTheWholeBoard() },
+                onDeleteKey: { keyHandler.deleteSelection() },
+                onEscape: { keyHandler.escapeAsksForTheWholeBoard() },
                 // The one condition `CanvasEscapeMonitor` is installed under —
                 // and it is the SUBJECT's dim rather than
                 // `escapeAsksForTheWholeBoard`'s full answer, because the monitor
@@ -1167,132 +1167,6 @@ struct CanvasView: View {
         return true
     }
 
-    // MARK: - Delete
-
-    /// ⌫, from `CanvasEventNSView.keyDown`. The one thing the canvas has never
-    /// had: 1C-a built `CanvasScene.remove`, its inverse and the "Delete Scrap"
-    /// undo step and shipped no caller for any of them, so a stray double-click
-    /// left an empty card that ⌘Z took back only until the writer clicked away.
-    ///
-    /// The region case is the one with a rule behind it: **deleting a region
-    /// never deletes cards** — the canvas owns arrangement, not existence (spec
-    /// §3.1, generalised). Its membership records die with it, which is all
-    /// `CanvasScene.removeRegion` touches. **Deleting a line is the same rule in
-    /// a second id space**: the relationship goes and both cards stay.
-    ///
-    /// Nothing selected is a no-op rather than a guess — and it says so, by
-    /// returning **whether anything was actually deleted**. `CanvasEventNSView`
-    /// sends the key on to `super` when this is `false`, so a ⌫ over an empty
-    /// selection beeps rather than being silently swallowed; the reasoning is on
-    /// `keyDown`. A selection that no longer resolves is the same answer for the
-    /// same reason: nothing went, so nothing was used.
-    ///
-    /// **It refuses outright while any gesture is open, and that is a
-    /// correctness guard rather than a nicety.** `CanvasUndo.beginGesture` takes
-    /// no snapshot when it nests and `endGesture` registers nothing until depth
-    /// reaches zero, so a delete opened inside somebody else's bracket cannot be
-    /// taken back on its own — at best it collapses into that gesture under the
-    /// wrong name, and if the bracket never closes it is not recoverable at all.
-    /// Both states are reachable: press and hold on a card (which opens "Move
-    /// Scrap") and press ⌫; or press ⌫ in the runloop turn after a double-click,
-    /// before the editor has claimed first responder, while "Edit Scrap" is open
-    /// — then quit, and `detach()` drops the stack with the card already written
-    /// away. `test_backspaceBeforeTheEditorTakesFocusCannotLoseTheCardUnrecoverably`
-    /// measured exactly that: the card and its words gone from disk with nothing
-    /// that could have brought them back.
-    ///
-    /// Refusing rather than closing the bracket first is also the honest
-    /// semantics: mid-gesture the writer is holding something, so what a delete
-    /// means is genuinely ambiguous. Returning `false` sends the key to `super`,
-    /// and the beep says so.
-    private func deleteSelection() -> Bool {
-        guard !model.isInGesture else { return false }
-        // Read-only (issue #44): the card arm's `withScene(persist: false)`
-        // would remove the card from memory, unguarded by the model.
-        guard CanvasEditGate.deletes(isReadOnly: model.isReadOnly) else { return false }
-        switch model.selection {
-        case .region(let id):
-            guard model.scene.region(id) != nil else { return false }
-            model.mutate("Delete Region") { $0.removeRegion(id) }
-        case .node(let id):
-            guard model.scene.node(id) != nil else { return false }
-            // The writer cannot be standing in it — a single click both selected
-            // it and left the open scrap — but an undo can have moved focus
-            // since, and an editor bound to a node that no longer exists is the
-            // state `.unenterableNode` already refuses to leave standing.
-            if editingNodeID == id { editFocus.leaveTheOpenScrap() }
-            // "Card" and not "Scrap": this arm deletes an item node too, and a
-            // writer who removed a photograph read *Undo Delete Scrap*. The noun
-            // is uniform across all three node steps for the reason recorded on
-            // `gestureName`, which is where the argument lives.
-            model.beginGesture("Delete Card")
-            model.withScene(persist: false) { $0.remove(id) }
-            model.removeScrapText(id)
-            model.endGesture()
-            // Another caller that does not bump the structural counter, for the
-            // same reason as the rest of them: `model.bumpSceneRevision()` below
-            // reaches this view through the mirror in `body`, so bumping here as
-            // well rebuilds the whole accessibility tree twice for one ⌫. The
-            // deleted card leaving that tree is what
-            // `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`
-            // asserts, so the delivery of that single bump is pinned rather than
-            // assumed.
-            //
-            // **No test can see this CALL today, and that is measured rather
-            // than assumed** (mutation, 2026-07-28: removing it leaves the whole
-            // mounting suite green). What it does that nothing observes is drop
-            // the deleted node's `ScrapLayout` — the filter at the end of
-            // `rebuildLayouts` — which otherwise keeps that scrap's whole
-            // `NSTextStorage` alive until some later structural change happens
-            // to run one.
-            layoutPass.rebuildLayouts(bumpsStructuralCounter: false)
-        case .line(let id):
-            guard model.scene.line(id) != nil else { return false }
-            // **A line delete never touches its cards.** The writer took back
-            // the relationship, not the things related — the mirror of a card
-            // delete, which DOES take its lines with it (`CanvasScene.remove`),
-            // because a line to a card that is gone draws into nowhere. One
-            // gesture either way, so one ⌘Z either way.
-            model.mutate("Delete Line") { $0.removeLine(id) }
-        case .none:
-            return false
-        }
-        model.selection = nil
-        // A delete IS a structural change. `CanvasView`'s own doc for
-        // `sceneRevision` used to say deletion was absent from the list because
-        // 1C-a had no delete path; this is the line that changes that.
-        model.bumpSceneRevision()
-        model.scheduleSave()
-        return true
-    }
-
-    /// **Escape: the way out of the dim** (§4.1). Returns whether the canvas used
-    /// the key — see `CanvasEventNSView.keyDown`.
-    ///
-    /// Two refusals, and neither is defensive:
-    ///
-    /// - **A mounted scrap keeps its Escape.** §4.1 rules that the canvas may
-    ///   only see the key with no editor mounted, and the responder chain
-    ///   delivers that on its own for as long as the editor holds first
-    ///   responder. This guard covers the window it does not: a scrap can be open
-    ///   while the event view still has the keyboard, which is the same window
-    ///   `deleteSelection`'s `isInGesture` guard exists for.
-    /// - **An undimmed board has nothing to leave**, so the key travels on.
-    ///   Escape means something to a great many responders above this one and a
-    ///   canvas that swallowed every one of them would look identical from here.
-    ///
-    /// It does not clear the canvas SELECTION, and that is what "the keyboard
-    /// spelling of the project row" means taken literally: clicking that row
-    /// leaves the selected card selected, so this must too. It asks the window to
-    /// name the project and stops there — the dim, the standing text and the
-    /// sweep's binding all follow from the subject, so there is exactly one
-    /// thing to change.
-    private func escapeAsksForTheWholeBoard() -> Bool {
-        guard editingNodeID == nil, subject.dimsTheBoard else { return false }
-        selectTheProjectRow()
-        return true
-    }
-
     // MARK: - Helpers, built per call
 
     /// The layout pass over this view's own `@State`, built fresh on every call
@@ -1358,5 +1232,18 @@ struct CanvasView: View {
                            straighten: $straighten,
                            layouts: $layouts,
                            revision: $revision)
+    }
+
+    /// The keys — ⌫ and Escape — over this view's own `editingNodeID`, built
+    /// per call like `layoutPass`. `deleteSelection` refuses mid-gesture
+    /// (tripwire 32), and `selectTheProjectRow` is the closure this view was
+    /// handed, read when the key arrives.
+    private var keyHandler: CanvasKeyHandler {
+        CanvasKeyHandler(model: model,
+                         subject: subject,
+                         selectTheProjectRow: selectTheProjectRow,
+                         editFocus: editFocus,
+                         layoutPass: layoutPass,
+                         editingNodeID: $editingNodeID)
     }
 }

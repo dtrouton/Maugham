@@ -416,4 +416,131 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                        "the \"New Scrap\" bracket was never closed, so \"Edit Scrap\" "
                        + "nested inside it and the card and the typing are one ⌘Z")
     }
+
+    // MARK: - CanvasKeyHandler
+
+    @MainActor
+    private struct KeyHandlerFixture {
+        let model: CanvasModel
+        var subject: CanvasSubject = .wholeProject
+        let projectRowAsks = SurfaceHelperBox(0)
+        let editingNodeID = SurfaceHelperBox<CanvasNodeID?>(nil)
+        let caretIndex = SurfaceHelperBox<Int?>(nil)
+        let lastKeystrokeAt = SurfaceHelperBox<Date?>(nil)
+        let straighten = SurfaceHelperBox(CanvasFocusStraighten())
+        let layouts = SurfaceHelperBox<[CanvasNodeID: ScrapLayout]>([:])
+        let revision = SurfaceHelperBox(0)
+        let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
+        let thumbnails = SurfaceHelperBox(CanvasThumbnails())
+        let ticket = SurfaceHelperBox(0)
+
+        var handler: CanvasKeyHandler {
+            let asks = projectRowAsks
+            return CanvasKeyHandler(model: model,
+                                    subject: subject,
+                                    selectTheProjectRow: { asks.value += 1 },
+                                    editFocus: CanvasEditFocus(model: model,
+                                                               editingNodeID: editingNodeID.binding,
+                                                               caretIndex: caretIndex.binding,
+                                                               straighten: straighten.binding,
+                                                               lastKeystrokeAt: lastKeystrokeAt.binding,
+                                                               layouts: layouts.binding,
+                                                               revision: revision.binding),
+                                    layoutPass: CanvasLayoutPass(model: model,
+                                                                 itemIndex: model.itemIndex,
+                                                                 projectRoot: URL(fileURLWithPath: "/nonexistent"),
+                                                                 thumbnails: thumbnails.binding,
+                                                                 layouts: layouts.binding,
+                                                                 itemPresentation: itemPresentation.binding,
+                                                                 thumbnailServiceTicket: ticket.binding,
+                                                                 revision: revision.binding),
+                                    editingNodeID: editingNodeID.binding)
+        }
+    }
+
+    /// **⌫ mid-gesture is refused, not nested** (tripwire 32): `deleteSelection`
+    /// returns `false` so the key goes on to `super`, and nothing is removed.
+    /// Mounted: `CanvasViewMountingEditingTests.test_backspaceDuringAnOpenDragDeletesNothing`
+    /// and `test_backspaceBeforeTheEditorTakesFocusCannotLoseTheCardUnrecoverably`.
+    /// The control is the same ⌫ once the bracket has closed.
+    func test_deleteSelectionMidGestureIsRefusedAndRemovesNothing() {
+        let model = modelWithASelectedScrap()
+        let fixture = KeyHandlerFixture(model: model)
+        model.beginGesture("Move Scrap")
+
+        XCTAssertFalse(fixture.handler.deleteSelection(),
+                       "a ⌫ inside an open gesture was used, so it nested into that bracket")
+        XCTAssertNotNil(model.scene.node(scrapID), "a ⌫ mid-gesture removed the card")
+        XCTAssertEqual(model.scraps[scrapID], "already here")
+        XCTAssertEqual(model.selection, .node(scrapID), "a refused ⌫ cleared the selection")
+
+        model.endGesture()
+        XCTAssertTrue(fixture.handler.deleteSelection(),
+                      "control: with no gesture open the same ⌫ deletes")
+        XCTAssertNil(model.scene.node(scrapID))
+        XCTAssertNil(model.selection)
+    }
+
+    /// **A selected line is removed in one step, and both its cards stay.**
+    /// Mounted: `CanvasViewMountingRegionTests.test_backspaceDeletesTheSelectedLineThroughTheRealResponderChain`
+    /// reads the scene, not the undo stack; this one reads the step's name and
+    /// takes it back with ONE undo. Attached, because a bare model has no
+    /// snapshot to register a step from.
+    func test_deleteSelectionRemovesASelectedLineInOneStep() throws {
+        let root = TestTemp.root.appendingPathComponent("key-delete-line-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        defer { model.detach() }
+        let other = CanvasNodeID("s2cd")
+        let lineID = CanvasLineID("l1ab")
+        model.withScene(persist: false) {
+            $0.insert(CanvasNode(id: scrapID, kind: .scrap,
+                                 origin: CGPoint(x: 40, y: 40), width: 240, cachedHeight: 80))
+            $0.insert(CanvasNode(id: other, kind: .scrap,
+                                 origin: CGPoint(x: 400, y: 40), width: 240, cachedHeight: 80))
+            $0.insertLine(CanvasLine(id: lineID, from: scrapID, to: other))
+        }
+        model.selection = .line(lineID)
+        XCTAssertFalse(model.undoManager.canUndo, "premise: the setup registered no step")
+
+        XCTAssertTrue(KeyHandlerFixture(model: model).handler.deleteSelection())
+
+        XCTAssertNil(model.scene.line(lineID), "the selected line is still there")
+        XCTAssertNotNil(model.scene.node(scrapID), "a line delete took a card with it")
+        XCTAssertNotNil(model.scene.node(other), "a line delete took a card with it")
+        XCTAssertNil(model.selection)
+        XCTAssertFalse(model.isInGesture)
+        XCTAssertEqual(model.undoManager.undoActionName, "Delete Line")
+        model.undoManager.undo()
+        XCTAssertNotNil(model.scene.line(lineID), "one undo did not bring the line back")
+        XCTAssertFalse(model.undoManager.canUndo, "the delete took more than one step")
+    }
+
+    /// **Escape asks for the whole board once on a dim, and never with a scrap
+    /// open.** Mounted: `CanvasViewMountingEditingTests.test_escapeOnADimmedBoardAsksForTheProjectRow`;
+    /// the open-scrap refusal has no mounted pin, because there the editor holds
+    /// the key. The control is the undimmed board, where the key travels on.
+    func test_escapeAsksForTheWholeBoardOnlyOnADimWithNoScrapOpen() {
+        let model = modelWithASelectedScrap()
+        var fixture = KeyHandlerFixture(model: model)
+
+        XCTAssertFalse(fixture.handler.escapeAsksForTheWholeBoard(),
+                       "control: an undimmed board has nothing to leave")
+        XCTAssertEqual(fixture.projectRowAsks.value, 0)
+
+        fixture.subject = .piece("ch1a")
+        fixture.editingNodeID.value = scrapID
+        XCTAssertFalse(fixture.handler.escapeAsksForTheWholeBoard(),
+                       "an Escape with a scrap open was taken from the scrap")
+        XCTAssertEqual(fixture.projectRowAsks.value, 0)
+
+        fixture.editingNodeID.value = nil
+        XCTAssertTrue(fixture.handler.escapeAsksForTheWholeBoard())
+        XCTAssertEqual(fixture.projectRowAsks.value, 1,
+                       "Escape on a dimmed board must ask for the project row exactly once")
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "Escape cleared the canvas selection; the project row does not")
+    }
 }
