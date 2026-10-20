@@ -4958,7 +4958,8 @@ final class TripwireGrepTests: XCTestCase {
     /// the way `CanvasModel.itemIndex` did.
     func test_theCanvasLoadClosuresReadNoChangingViewValue() throws {
         let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
-        let census = try Self.canvasLoadClosureCensus(of: try String(contentsOf: url, encoding: .utf8))
+        let census = try Self.canvasLoadClosureCensus(of: try String(contentsOf: url, encoding: .utf8),
+                                                      extensions: try canvasViewExtensionSources())
 
         // Loud on a parse that has drifted: these are the four #57 named, and
         // the three plain properties the issue's fix shape names. A census that
@@ -4989,8 +4990,28 @@ final class TripwireGrepTests: XCTestCase {
             + "`@State`. Offending paths:\n" + census.offenders.joined(separator: "\n"))
     }
 
+    /// Every other file under `Maugham/` that extends `CanvasView`, comments
+    /// stripped before the test: a method declared in one is a member the walk
+    /// must follow, and a split of the 2,000-line file is the likeliest way one
+    /// appears. (`CanvasView.swift`'s own extensions are read from its text.)
+    private func canvasViewExtensionSources() throws -> [String] {
+        guard let walker = FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)
+        else { return [] }
+        var sources: [String] = []
+        for case let url as URL in walker
+        where url.pathExtension == "swift" && url.lastPathComponent != Self.theCanvasSurface {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if Self.codeLines(of: text).contains(where: { $0.contains("extension CanvasView") }) {
+                sources.append(text)
+            }
+        }
+        return sources
+    }
+
     /// Self-check: the census FIRES on a planted offender — directly, through a
-    /// method, and through a computed property — and stays quiet on `@State`,
+    /// method, through a computed property, through a method in an extension
+    /// (this file's or another's) and through a hook assigned a method
+    /// reference — and stays quiet on `@State`,
     /// the allowed names, member access on something else, labels and comments.
     /// It also refuses (throws) when it cannot find `load()` or its closures.
     func test_canvasLoadClosureCensusFiresOnAPlantedOffender() throws {
@@ -5016,16 +5037,32 @@ final class TripwireGrepTests: XCTestCase {
                 }
                 model.onRevealRequested = { target in self.selectTheProjectRow() }
                 model.onSceneReplacedByUndo = { tidy() }
+                model.onTick = tick
+                model.onLater = self.later
             }
             private func rebuild(subject: Int) { _ = self.itemIndex }
             private func tidy() { _ = currentTitle }
+            private func later() { helper() }
+        }
+        extension CanvasView {
+            func helper() { _ = pieceTitles }
         }
         """
-        let census = try Self.canvasLoadClosureCensus(of: planted)
+        let elsewhere = """
+        extension CanvasView {
+            func tick() { _ = subject }
+        }
+        extension CanvasView.Inner {
+            func unrelated() { _ = itemIndex }
+        }
+        """
+        let census = try Self.canvasLoadClosureCensus(of: planted, extensions: [elsewhere])
         XCTAssertEqual(census.callbacks.sorted(),
-                       ["beforeFlush", "onRevealRequested", "onSceneChangedExternally", "onSceneReplacedByUndo"],
-            "Self-check: every `model.<callback> = {` is found, and the plain "
-            + "`model.itemIndex = itemIndex` assignment is not a closure.")
+                       ["beforeFlush", "onLater", "onRevealRequested", "onSceneChangedExternally",
+                        "onSceneReplacedByUndo", "onTick"],
+            "Self-check: every `model.<callback> = {` and every hook assigned a view "
+            + "method is found, and the plain `model.itemIndex = itemIndex` value "
+            + "copy is not a capture.")
         XCTAssertEqual(Set(census.forbidden),
                        ["subject", "pieceTitles", "itemIndex", "selectTheProjectRow"],
             "Self-check: the forbidden list is derived from the source — plain "
@@ -5033,11 +5070,30 @@ final class TripwireGrepTests: XCTestCase {
             + "never a computed property.")
         XCTAssertEqual(census.offenders.sorted(), [
             "beforeFlush → rebuild → itemIndex",
+            "onLater → later → helper → pieceTitles",
             "onRevealRequested → selectTheProjectRow",
             "onSceneReplacedByUndo → tidy → currentTitle → pieceTitles",
-        ], "Self-check: a read through `self.`, through a method (#57's shape) and "
-            + "through a computed property are each caught; `@State`, the allowed "
-            + "names, `model.subject`, an argument label and a comment are not.")
+            "onTick → tick → subject",
+        ], "Self-check: a read through `self.`, through a method (#57's shape), "
+            + "through a computed property, through an extension in the same file "
+            + "or another, and through a method-reference hook are each caught; "
+            + "`@State`, the allowed names, `model.subject`, an argument label, a "
+            + "comment and a nested type's extension are not.")
+
+        // The allow-list itself, not `@State`, is what excuses `thumbnails`:
+        // declared as a plain `let` here, reading it is still no offender.
+        let plainThumbnails = try Self.canvasLoadClosureCensus(of: """
+            struct CanvasView: View {
+                let model: CanvasModel
+                let thumbnails: CanvasThumbnails
+                var subject: CanvasSubject = .wholeProject
+                private func load() { model.beforeFlush = { _ = thumbnails } }
+            }
+            """)
+        XCTAssertEqual(plainThumbnails.forbidden, ["subject"],
+            "Self-check: a plain `thumbnails` is excused by the allow-list.")
+        XCTAssertEqual(plainThumbnails.offenders, [],
+            "Self-check: reading an allow-listed plain property is no offender.")
 
         // #57 itself, replayed on the real file: put `rebuildLayouts` back on the
         // view's own index and both scene callbacks must be named. Measured
@@ -5049,7 +5105,8 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: `rebuildLayouts` no longer spells `\(fix)`; re-point this "
             + "replay at wherever the model's index is read now.")
         let reverted = try Self.canvasLoadClosureCensus(
-            of: real.replacingOccurrences(of: fix, with: "index: itemIndex,"))
+            of: real.replacingOccurrences(of: fix, with: "index: itemIndex,"),
+            extensions: try canvasViewExtensionSources())
         XCTAssertEqual(reverted.offenders, [
             "onSceneChangedExternally → rebuildLayouts → itemIndex",
             "onSceneReplacedByUndo → rebuildLayouts → itemIndex",
@@ -5086,14 +5143,17 @@ final class TripwireGrepTests: XCTestCase {
     ///    method or computed property into that member's body, and records
     ///    every identifier that names a plain stored property outside the
     ///    allowed set, as `callback → member → … → property`.
+    /// Members come from the struct body and from every `extension CanvasView`
+    /// (not `CanvasView.Nested`) in `text` and in `extensions`. A hook assigned
+    /// a view method (`model.x = someMethod`) is walked like a closure.
     /// It throws when it cannot find the struct, `load()` or a single closure.
-    private static func canvasLoadClosureCensus(of text: String) throws
+    private static func canvasLoadClosureCensus(of text: String, extensions: [String] = []) throws
         -> (callbacks: [String], forbidden: [String], reachedMembers: Set<String>, offenders: [String]) {
         let fail = { (why: String) in CanvasLoadClosureCensusFailure(description: why) }
-        let code = SourceScan.codeLines(of: text).map(strippingStringLiterals).joined(separator: "\n")
-        let chars = Array(code)
-
-        func matchingBrace(_ open: Int) -> Int? {
+        func stripped(_ text: String) -> [Character] {
+            Array(SourceScan.codeLines(of: text).map(strippingStringLiterals).joined(separator: "\n"))
+        }
+        func matchingBrace(_ open: Int, in chars: [Character]) -> Int? {
             var depth = 0
             for i in open..<chars.count {
                 if chars[i] == "{" { depth += 1 }
@@ -5108,54 +5168,77 @@ final class TripwireGrepTests: XCTestCase {
         func group(_ m: NSTextCheckingResult, _ i: Int, in s: String) -> String? {
             Range(m.range(at: i), in: s).map { String(s[$0]) }
         }
+        /// The `{` offsets of every declaration of `CanvasView` matching `pattern` in `chars`.
+        func openings(_ pattern: String, in chars: [Character]) throws -> [Int] {
+            let code = String(chars)
+            return try NSRegularExpression(pattern: pattern)
+                .matches(in: code, range: NSRange(code.startIndex..., in: code))
+                .compactMap { Range($0.range, in: code) }
+                .map { code.distance(from: code.startIndex, to: $0.upperBound) - 1 }
+        }
 
-        guard let decl = code.range(of: #"\bstruct\s+CanvasView\b[^{]*\{"#, options: .regularExpression)
-        else { throw fail("`struct CanvasView` not found") }
-        let structOpen = code.distance(from: code.startIndex, to: decl.upperBound) - 1
-        guard let structClose = matchingBrace(structOpen)
-        else { throw fail("`struct CanvasView`'s closing brace not found") }
-
-        // Top-level members: a line that starts directly inside the struct's braces.
+        // Top-level members of a body: a line that starts directly inside its braces.
         var stored: [(name: String, isState: Bool)] = []
         var memberBodies: [String: [String]] = [:]
-        var depth = 0
-        var lineStart = structOpen + 1
-        var lineStartDepth = 0
-        func memberLine(_ start: Int, _ end: Int) {
-            let line = String(chars[start..<end])
-            let pattern = #"^\s*((?:@\w+(?:\([^)]*\))?\s+)*)((?:(?:private|fileprivate|internal|public|nonisolated|static|lazy|weak|final|override|mutating)(?:\(set\))?\s+)*)(func|let|var)\s+([A-Za-z_]\w*)(.*)$"#
-            guard let m = firstMatch(pattern, in: line),
-                  let attributes = group(m, 1, in: line),
-                  let modifiers = group(m, 2, in: line),
-                  let keyword = group(m, 3, in: line),
-                  let name = group(m, 4, in: line),
-                  let rest = group(m, 5, in: line),
-                  !modifiers.contains("static") else { return }
-            let beforeBrace = rest.split(separator: "{", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
-            let isComputed = keyword == "var" && rest.contains("{") && !beforeBrace.contains("=")
-            if keyword == "func" || isComputed {
-                // The member's body: the first `{` at member depth after its name.
-                var i = start + (line.range(of: name).map { line.distance(from: line.startIndex, to: $0.upperBound) } ?? 0)
-                var d = 0
-                while i < structClose {
-                    if chars[i] == "(" { d += 1 } else if chars[i] == ")" { d -= 1 }
-                    if chars[i] == "{" && d == 0 { break }
-                    i += 1
+        func collectMembers(of chars: [Character], open: Int, close: Int) {
+            func memberLine(_ start: Int, _ end: Int) {
+                let line = String(chars[start..<end])
+                let pattern = #"^\s*((?:@\w+(?:\([^)]*\))?\s+)*)((?:(?:private|fileprivate|internal|public|nonisolated|static|lazy|weak|final|override|mutating)(?:\(set\))?\s+)*)(func|let|var)\s+([A-Za-z_]\w*)(.*)$"#
+                guard let m = firstMatch(pattern, in: line),
+                      let attributes = group(m, 1, in: line),
+                      let modifiers = group(m, 2, in: line),
+                      let keyword = group(m, 3, in: line),
+                      let name = group(m, 4, in: line),
+                      let rest = group(m, 5, in: line),
+                      !modifiers.contains("static") else { return }
+                let beforeBrace = rest.split(separator: "{", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+                let isComputed = keyword == "var" && rest.contains("{") && !beforeBrace.contains("=")
+                if keyword == "func" || isComputed {
+                    // The member's body: the first `{` at member depth after its name.
+                    var i = start + (line.range(of: name).map { line.distance(from: line.startIndex, to: $0.upperBound) } ?? 0)
+                    var d = 0
+                    while i < close {
+                        if chars[i] == "(" { d += 1 } else if chars[i] == ")" { d -= 1 }
+                        if chars[i] == "{" && d == 0 { break }
+                        i += 1
+                    }
+                    if i < close, let end = matchingBrace(i, in: chars) {
+                        memberBodies[name, default: []].append(String(chars[(i + 1)..<end]))
+                    }
+                } else {
+                    stored.append((name, attributes.contains("@State")))
                 }
-                if i < structClose, let close = matchingBrace(i) {
-                    memberBodies[name, default: []].append(String(chars[(i + 1)..<close]))
-                }
-            } else {
-                stored.append((name, attributes.contains("@State")))
             }
+            var depth = 0
+            var lineStart = open + 1
+            var lineStartDepth = 0
+            for i in (open + 1)..<close {
+                if chars[i] == "\n" {
+                    if lineStartDepth == 0 { memberLine(lineStart, i) }
+                    lineStart = i + 1
+                    lineStartDepth = depth
+                }
+                if chars[i] == "{" { depth += 1 } else if chars[i] == "}" { depth -= 1 }
+            }
+            // A body closed on its last member's line has no newline before `}`.
+            if lineStartDepth == 0, lineStart < close { memberLine(lineStart, close) }
         }
-        for i in (structOpen + 1)..<structClose {
-            if chars[i] == "\n" {
-                if lineStartDepth == 0 { memberLine(lineStart, i) }
-                lineStart = i + 1
-                lineStartDepth = depth
+
+        let chars = stripped(text)
+        guard let structOpen = try openings(#"\bstruct\s+CanvasView\b[^{]*\{"#, in: chars).first
+        else { throw fail("`struct CanvasView` not found") }
+        guard let structClose = matchingBrace(structOpen, in: chars)
+        else { throw fail("`struct CanvasView`'s closing brace not found") }
+        collectMembers(of: chars, open: structOpen, close: structClose)
+        // Every `extension CanvasView` — in this file or any other handed in —
+        // is more of the same struct: a method there is one more place a
+        // closure's walk must be able to follow.
+        for source in [chars] + extensions.map(stripped) {
+            for open in try openings(#"\bextension\s+CanvasView\b(?!\.)[^{]*\{"#, in: source) {
+                guard let close = matchingBrace(open, in: source)
+                else { throw fail("an `extension CanvasView` never closes") }
+                collectMembers(of: source, open: open, close: close)
             }
-            if chars[i] == "{" { depth += 1 } else if chars[i] == "}" { depth -= 1 }
         }
 
         guard let loads = memberBodies["load"], loads.count == 1, let load = loads.first
@@ -5183,6 +5266,18 @@ final class TripwireGrepTests: XCTestCase {
 
         let forbidden = Set(stored.filter { !$0.isState }.map(\.name))
             .subtracting(canvasLoadClosureAllowedReads)
+
+        // `model.<hook> = someViewMethod` captures the view exactly as a closure
+        // does; the "body" walked is the bare name, which the walk below then
+        // follows. A plain value (`model.itemIndex = itemIndex`) is a copy made
+        // now, not a capture, and is left alone.
+        let reference = try NSRegularExpression(
+            pattern: #"\bmodel\.([A-Za-z_]\w*)\s*=\s*(?:self\.)?([A-Za-z_]\w*)\b(?!\s*[.(\[?!])"#)
+        for m in reference.matches(in: load, range: NSRange(load.startIndex..., in: load)) {
+            guard let callback = group(m, 1, in: load), let target = group(m, 2, in: load),
+                  memberBodies[target] != nil else { continue }
+            closures.append((callback, target))
+        }
         // An identifier that is not a member access (`model.subject`), not a
         // binding projection (`$camera`), and not an argument label (`subject:`).
         let identifier = try NSRegularExpression(pattern: #"(?<![.\w$])([A-Za-z_]\w*)(?![\w:])"#)
