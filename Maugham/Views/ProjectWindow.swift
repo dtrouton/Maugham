@@ -647,7 +647,18 @@ struct ProjectWindow: View {
             manualReview: isReviewModeOn,
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
             isTranslationReview: editorControl.translationLanguage != nil,
-            centresTheCanvas: persona.centresTheCanvas)
+            route: store.map { store in
+                // The same answer `CentreColumn.editorPane` switches on.
+                Self.centreRoute(persona: persona,
+                                 subject: selectedSubject,
+                                 projectType: store.manifest.type,
+                                 structure: store.manifest.structure,
+                                 showsPaletteWall: paletteWall.showsWall,
+                                 preview: publishCentre.preview,
+                                 proposal: publishCentre.selectedProposal,
+                                 round: publishCentre.selectedRound,
+                                 problems: publishCentre.selectedProblems)
+            })
     }
 
     /// **The drawing posture of any document this window names** — for a

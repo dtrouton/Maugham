@@ -249,10 +249,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `InsertCommandTests` counts the files that may name it.
     var answersInsertCommands = false
 
-    /// Set while `applyCommandEdit` mutates storage, so `textDidChange` leaves
-    /// the caret the command places alone — the Tab cycle's
-    /// `isApplyingTabCycle` pattern, for commands.
-    var isApplyingCommandEdit = false
+    /// The cross-reference labels the project's OTHER manuscript documents
+    /// define (plan 3a Task 4 fix round 1). **The one shared source** for a
+    /// command that mints a label: Insert Table (`tbl:`) and Insert Figure
+    /// (`fig:`, Task 6) make theirs unique against these and the live text's
+    /// own, because a Report refuses a label defined twice. Built by
+    /// `EditorHost`; asked once per command, never per keystroke. Nil on every
+    /// other surface.
+    var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)?
 
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
@@ -1068,13 +1072,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // captured range both synchronously (in case the move is in
         // retokenizeAndStyle) and on the next runloop tick (in case it's an
         // async layout-pass effect from storage.endEditing).
-        // Skip the cursor-restore when a Tab cycle or a command edit
-        // (`applyCommandEdit`) is in flight — the cycle
+        // Skip the cursor-restore when a Tab cycle is in flight — the cycle
         // method sets the cursor explicitly AFTER didChangeText (e.g.,
         // inside the opening paren on Parenthetical wrap), and the restore
         // would clobber that intent. Capture the flag now since `defer` in
         // cycle() will reset it before the async block fires.
-        let skipCursorRestore = isApplyingTabCycle || isApplyingCommandEdit
+        let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
         // NOTE: the typing fast path never paints the whole document on the
         // keystroke (prose defers to the burst-settle — `scheduleDeferredRestyle`;

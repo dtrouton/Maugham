@@ -40,16 +40,15 @@ enum ReportInsert {
     /// Insert Table selects.
     static let firstHeaderCell = NSRange(location: 2, length: ("Column 1" as NSString).length)
 
-    /// The lowest N ≥ 1 for which `tbl:table-N` is neither defined nor
-    /// referenced in `text`. **Scoped to this document**: the editor holds no
-    /// project-wide label index, so a `tbl:table-N` defined only in another
-    /// chapter is not seen. Referenced labels count too, which catches the
-    /// common case of a cross-reference here to a table elsewhere.
-    static func nextTableLabelNumber(in text: String) -> Int {
-        var used = Set<String>()
-        for (block, _) in ManuscriptBlocks.parse(text) {
-            if let label = label(of: block), label.kind == .tbl { used.insert(label.name) }
-        }
+    /// The lowest N ≥ 1 for which `tbl:table-N` is not used: not defined or
+    /// referenced in `text`, and not defined in `elsewhere` — the labels the
+    /// project's other manuscript documents define
+    /// (`EditorCoordinator.projectLabelsElsewhere`). A Report refuses a label
+    /// defined twice anywhere in the project.
+    static func nextTableLabelNumber(in text: String,
+                                     elsewhere: Set<ManuscriptLabel> = []) -> Int {
+        var used = Set(elsewhere.filter { $0.kind == .tbl }.map(\.name))
+        used.formUnion(definedLabels(in: text).filter { $0.kind == .tbl }.map(\.name))
         for (marker, _) in ManuscriptInlineScanner.scan(text) {
             if case .crossRef(let label) = marker, label.kind == .tbl { used.insert(label.name) }
         }
@@ -58,13 +57,36 @@ enum ReportInsert {
         return n
     }
 
+    /// Every label `text` DEFINES: a heading's, a table caption's or a
+    /// figure's trailing `{#kind:name}`.
+    static func definedLabels(in text: String) -> Set<ManuscriptLabel> {
+        Set(ManuscriptBlocks.parse(text).compactMap { label(of: $0.block) })
+    }
+
+    /// The labels every manuscript document in `structure` defines except
+    /// `docId`'s, each read through `text` (the host's live-or-derived
+    /// display text; nil skips it). Screenplays define none and are skipped.
+    /// The walk `EditorHost` runs per command for `projectLabelsElsewhere`.
+    static func labelsElsewhere(in structure: [StructureItem], excluding docId: String,
+                                text: (StructureItem, String) -> String?) -> Set<ManuscriptLabel> {
+        var labels = Set<ManuscriptLabel>()
+        for item in TreeWalk.collect(in: structure, where: { $0.type == .document }) {
+            guard item.id != docId, let path = item.path,
+                  !DocumentFormat.ofManuscript(path: path).isScreenplay,
+                  let body = text(item, path) else { continue }
+            labels.formUnion(definedLabels(in: body))
+        }
+        return labels
+    }
+
     /// Insert Table at `location`, as one edit. Mid-line, the table splits the
     /// paragraph onto a block of its own; at a line's edge it adds only the
     /// blank lines it needs before and after. Spaces and tabs touching the
     /// caret on its line are absorbed. Asked for inside a table (any range of
     /// `tableBlocks`, the tokenizer's `.tableBlock` ranges), it goes after that
     /// table's paragraph rather than splitting it.
-    static func tableEdit(in text: String, at location: Int, tableBlocks: [NSRange]) -> Edit {
+    static func tableEdit(in text: String, at location: Int, tableBlocks: [NSRange],
+                          labelsElsewhere: Set<ManuscriptLabel> = []) -> Edit {
         let ns = text as NSString
         var at = max(0, min(location, ns.length))
         if let block = tableBlocks.first(where: {
@@ -98,7 +120,8 @@ enum ReportInsert {
             after = "\n"                                     // open a blank line before the next
         }
 
-        let table = table(nextLabelNumber: nextTableLabelNumber(in: text))
+        let table = table(nextLabelNumber: nextTableLabelNumber(in: text,
+                                                                elsewhere: labelsElsewhere))
         let prefix = (before as NSString).length
         return Edit(
             replacedRange: NSRange(location: start, length: end - start),
@@ -113,12 +136,23 @@ enum ReportInsert {
     /// `paragraph`, separated by one blank line, as ONE replace of
     /// `[caret, end of paragraph)`. Ranges are relative to the paragraph; the
     /// caret lands at the end of the definition. n is
-    /// `lowestFreeFootnoteLabel(existing: existingLabels)`.
+    /// `lowestFreeFootnoteLabel(existing: existingLabels)`. A caret at or past
+    /// the start of its line's trailing `{#…}` block (a heading's, a caption's)
+    /// puts the ref before the block and the spaces before it, so the label
+    /// stays the line's last thing.
     static func footnote(in paragraph: String, caret: Int, existingLabels: Set<String>)
         -> (replacement: String, replacedRange: NSRange, caret: NSRange)
     {
         let ns = paragraph as NSString
-        let at = max(0, min(caret, ns.length))
+        var at = max(0, min(caret, ns.length))
+        let line = ns.lineRange(for: NSRange(location: at, length: 0))
+        let content = NSRange(location: line.location,
+                              length: contentEnd(ofLine: line, in: ns) - line.location)
+        if let block = MarkdownTokenizer.trailingAttributeBlock(in: ns, line: content) {
+            var start = block.location
+            while start > content.location, isSpaceOrTab(ns.character(at: start - 1)) { start -= 1 }
+            if at > start { at = start }
+        }
         let label = lowestFreeFootnoteLabel(existing: existingLabels)
         let tail = ns.substring(from: at)
         let replacement = "[^\(label)]" + tail + "\n\n[^\(label)]: "

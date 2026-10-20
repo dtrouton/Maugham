@@ -87,6 +87,11 @@ struct EditorSurfaceConfiguration {
         /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
         /// capture a paragraph-relative span anchor for the selection.
         var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)? = nil
+        /// The labels the project's OTHER manuscript documents define — the one
+        /// shared source for a command that mints a label (Insert Table's
+        /// `tbl:`, Insert Figure's `fig:`). Asked per command, never per
+        /// keystroke. Wired by `EditorHost`; nil elsewhere.
+        var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)? = nil
     }
 
     /// Review-mode annotation authoring plus the resolvers the crafted render
@@ -208,6 +213,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.paragraphLocator = pp.paragraphLocator
         coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
+        coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
@@ -463,6 +469,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.paragraphLocator = pp.paragraphLocator
         context.coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
+        context.coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider

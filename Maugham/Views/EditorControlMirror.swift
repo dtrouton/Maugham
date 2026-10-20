@@ -41,17 +41,19 @@ enum EditorControlMirror {
 /// a disabled item is what the writer sees, the membrane is what holds.
 enum InsertMenuGate {
     /// True only when all of these hold:
+    /// - the centre shows the bare editor — `.editor(altitude: false, cover: nil)`.
+    ///   Altitude, the canvas, a research subject, a Collection reference and
+    ///   every cover (Publish's problems and translation round draw over a
+    ///   chapter too) hide the text the insert would land in;
     /// - the editor holds a manuscript document (`posture` non-nil) whose
     ///   format takes report elements (`format`, not a screenplay);
     /// - its posture `allows(.writeText)`, and the iCloud share is writable;
-    /// - the editor is not in review mode (⌘⌥⇧R) or translation review;
-    /// - the persona's centre is the editor, not the canvas.
+    /// - the editor is not in review mode (⌘⌥⇧R) or translation review.
     static func isEnabled(posture: Posture?, format: DocumentFormat?,
                           manualReview: Bool, shareIsReadOnly: Bool,
-                          isTranslationReview: Bool, centresTheCanvas: Bool) -> Bool {
-        guard let posture, let format, !format.isScreenplay, !centresTheCanvas else {
-            return false
-        }
+                          isTranslationReview: Bool, route: CentreRoute?) -> Bool {
+        guard case .editor(altitude: false, cover: nil)? = route,
+              let posture, let format, !format.isScreenplay else { return false }
         return posture.allows(.writeText) && !shareIsReadOnly
             && !manualReview && !isTranslationReview
     }

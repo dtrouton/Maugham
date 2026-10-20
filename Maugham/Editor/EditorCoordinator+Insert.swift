@@ -24,9 +24,11 @@ extension EditorCoordinator {
     /// 3. lets `didChangeText` run the ordinary typing path
     ///    (`textDidChange` → the binding → `Document.setFullText`), with no
     ///    `applyExternalText` (tripwire 7) and no Route B undo wipe (ADR 0023 D1);
-    /// 4. places `selection`, with `isApplyingCommandEdit` set so
-    ///    `textDidChange`'s cursor restore leaves it alone (the Tab cycle's
-    ///    skip-flag pattern), and re-asserts it on the next runloop;
+    /// 4. places `selection` after `didChangeText` returns. `textDidChange`'s
+    ///    cursor restore runs synchronously inside `didChangeText`, so a
+    ///    selection set after it is final — no skip flag, and no next-runloop
+    ///    re-assert (one would race fast typing, as `textDidChange` documents);
+    ///    with typewriter scroll on, the caret is centred;
     /// 5. names the undo step `actionName` ("Undo Insert Table").
     ///
     /// `range` and `selection` are UTF-16 ranges; `selection` is in the text
@@ -40,8 +42,6 @@ extension EditorCoordinator {
         guard textView.shouldChangeText(in: range, replacementString: replacement) else {
             return false
         }
-        isApplyingCommandEdit = true
-        defer { isApplyingCommandEdit = false }
         storage.replaceCharacters(in: range, with: replacement)
         textView.didChangeText()
         textView.undoManager?.setActionName(actionName)
@@ -50,14 +50,8 @@ extension EditorCoordinator {
                              length: min(max(0, selection.length), storage.length - location))
         textView.setSelectedRange(target)
         textView.scrollRangeToVisible(target)
+        if typewriterScroll { scrollSelectionToVerticalCenter(in: textView) }
         textView.window?.makeFirstResponder(textView)
-        // Defensive reapply on the next runloop, as the Tab cycle does: a
-        // layout pass or a restyle can move the caret after this returns.
-        DispatchQueue.main.async { [weak textView] in
-            guard let textView, textView.selectedRange() != target,
-                  NSMaxRange(target) <= (textView.string as NSString).length else { return }
-            textView.setSelectedRange(target)
-        }
         return true
     }
 
@@ -84,7 +78,11 @@ extension EditorCoordinator {
         let at = NSMaxRange(textView.selectedRange())
         let blocks = MarkdownTokenizer.tableBlockRange(containing: at, in: lastTokens)
             .map { [$0] } ?? []
-        applyCommandEdit(ReportInsert.tableEdit(in: textView.string, at: at, tableBlocks: blocks),
+        // Asked per command, never per keystroke: the labels the project's
+        // OTHER manuscript documents define (a Report refuses a duplicate).
+        let elsewhere = projectLabelsElsewhere?() ?? []
+        applyCommandEdit(ReportInsert.tableEdit(in: textView.string, at: at, tableBlocks: blocks,
+                                                labelsElsewhere: elsewhere),
                          actionName: "Insert Table")
     }
 

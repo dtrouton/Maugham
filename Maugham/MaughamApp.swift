@@ -611,8 +611,7 @@ private struct InsertMenuButtons: View {
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
         .disabled(true)
-        // Reserved for plan 3b's Citation… and Cross-Reference….
-        Divider()
+        // Plan 3b adds Citation… and Cross-Reference… below a separator.
     }
 }
 

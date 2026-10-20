@@ -783,6 +783,19 @@ struct EditorHost: View {
                 },
                 paragraphRangeAtLocation: { location in
                     doc.paragraphRange(at: location)
+                },
+                // The labels the project's OTHER manuscripts define, for a
+                // command that mints one (Insert Table; Insert Figure, Task 6).
+                // Walked per command, never per keystroke: an open document's
+                // live text, else its op-log-derived text (tripwire 20).
+                projectLabelsElsewhere: { [store, documentStore] in
+                    ReportInsert.labelsElsewhere(
+                        in: store.manifest.structure, excluding: doc.docId
+                    ) { item, path in
+                        documentStore.document(for: path)?.displayText
+                            ?? (try? store.derivedCache.displayText(
+                                forDocId: item.id, in: store.url))
+                    }
                 }),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in

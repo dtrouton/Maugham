@@ -36,7 +36,8 @@ final class InsertCommandTests: XCTestCase {
     /// configuration a host would build. `answersInsertCommands` is what
     /// `EditorHost` says for a Markdown manuscript; the default (false) is what
     /// `ResearchNoteEditor` and `StatementEditorHost` build.
-    private func mount(_ text: String, answersInsertCommands: Bool = true) throws -> Mounted {
+    private func mount(_ text: String, answersInsertCommands: Bool = true,
+                       labelsElsewhere: (() -> Set<ManuscriptLabel>)? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text },
                               set: { box.text = $0; box.writes += 1 })
@@ -46,6 +47,7 @@ final class InsertCommandTests: XCTestCase {
                                 paragraphFocus: false, showElementGutter: false),
             control: EditorControl())
         configuration.answersInsertCommands = answersInsertCommands
+        configuration.paragraphProviders.projectLabelsElsewhere = labelsElsewhere
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
                                       as: KeyTestWindow.self)
@@ -159,6 +161,23 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(m.textView.string, "", "then the typing before it")
     }
 
+    /// I1: the table's label is unique across the PROJECT. The host's
+    /// `projectLabelsElsewhere` (another chapter defines `tbl:table-1`) reaches
+    /// the number, asked when the command runs.
+    func test_insertTableNumbersPastTheLabelsOtherDocumentsDefine() throws {
+        var asked = 0
+        let m = try mount("Text.", labelsElsewhere: {
+            asked += 1
+            return [ManuscriptLabel(reference: "tbl:table-1")!,
+                    ManuscriptLabel(reference: "fig:table-2")!]
+        })
+        XCTAssertEqual(asked, 0, "the walk ran before any command — it must be per command")
+        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        XCTAssertEqual(asked, 1)
+        XCTAssertTrue(m.textView.string.hasSuffix("{#tbl:table-2}"),
+                      "table-1 is taken in another chapter; got \(m.textView.string)")
+    }
+
     func test_insertFootnoteNumbersPastTheLabelsTheDocumentUses() throws {
         let m = try mount("One[^1].\n\n[^2]: Two.\n\nThree.")
         m.textView.setSelectedRange(NSRange(location: (m.textView.string as NSString).length,
@@ -258,6 +277,9 @@ final class InsertCommandTests: XCTestCase {
         let host = try SourceTree.read("Maugham/Views/EditorHost.swift")
         XCTAssertTrue(host.contains("answersInsertCommands: !DocumentFormat.ofManuscript(path: path).isScreenplay"),
                       "EditorHost no longer sets the flag, so no manuscript answers Insert")
+        XCTAssertTrue(host.contains("projectLabelsElsewhere: {"),
+                      "EditorHost no longer hands the editor the project's other labels, "
+                      + "so a table label can repeat another chapter's")
     }
 
     /// Control: a planted research-note file that sets the flag is reported.
@@ -277,22 +299,55 @@ final class InsertCommandTests: XCTestCase {
 
     func test_theMenuIsEnabledOnlyForAWritableMarkdownManuscriptInTheEditor() {
         let author = Posture(.unrestricted)
+        let bare = CentreRoute.editor(altitude: false, cover: nil)
         func gate(posture: Posture? = author, format: DocumentFormat? = .markdown,
                   review: Bool = false, share: Bool = false, translation: Bool = false,
-                  canvas: Bool = false) -> Bool {
+                  route: CentreRoute? = bare) -> Bool {
             InsertMenuGate.isEnabled(posture: posture, format: format, manualReview: review,
                                      shareIsReadOnly: share, isTranslationReview: translation,
-                                     centresTheCanvas: canvas)
+                                     route: route)
         }
         XCTAssertTrue(gate(), "a writable Markdown chapter in the editor")
         XCTAssertFalse(gate(posture: .settling), "a posture that refuses .writeText")
-        XCTAssertFalse(gate(posture: nil), "no manuscript in the editor (research, altitude)")
+        XCTAssertFalse(gate(posture: nil), "no manuscript in the editor")
         XCTAssertFalse(gate(review: true), "review mode")
         XCTAssertFalse(gate(translation: true), "translation review")
         XCTAssertFalse(gate(share: true), "a read-only iCloud share")
         XCTAssertFalse(gate(format: .fountain), "a screenplay")
         XCTAssertFalse(gate(format: nil), "no document path")
-        XCTAssertFalse(gate(canvas: true), "the canvas holds the centre")
+        XCTAssertFalse(gate(route: nil), "no project store")
+    }
+
+    /// Every centre but the bare editor hides the text an insert would land
+    /// in — the covers that draw over a CHAPTER (publish problems, a
+    /// translation round) included.
+    func test_theMenuIsDisabledUnderEveryCoverAndEveryOtherCentre() {
+        let problem = TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: "a problem",
+            contextLines: [], pieceID: "ch-1", paragraphID: "a1b2")
+        let reference = StructureItem(id: "piece-ref", title: "Linked", type: .document,
+                                      path: "pieces/ref/.maugham-link.json",
+                                      pieceKind: .reference)
+        let covers: [CentreCover] = [
+            .publishProblems([problem]),
+            .translationRound(CentreRouteTests.round),
+            .designGate(CentreRouteTests.proposal),
+            .books([CentreRouteTests.book]),
+            .notice(.neverCompiled),
+            .reviewBoard,
+        ]
+        var routes: [CentreRoute] = covers.flatMap {
+            [CentreRoute.editor(altitude: false, cover: $0), .editor(altitude: true, cover: $0)]
+        }
+        routes += [.editor(altitude: true, cover: nil), .canvas, .paletteWall,
+                   .research(id: "r1"), .reference(piece: reference)]
+        for route in routes {
+            XCTAssertFalse(
+                InsertMenuGate.isEnabled(posture: Posture(.unrestricted), format: .markdown,
+                                         manualReview: false, shareIsReadOnly: false,
+                                         isTranslationReview: false, route: route),
+                "the Insert menu is enabled under \(route)")
+        }
     }
 
     // MARK: - Shortcut census
