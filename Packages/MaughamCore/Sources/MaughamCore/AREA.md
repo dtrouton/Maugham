@@ -222,9 +222,9 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 ### Add a manuscript element
 1. Recognise it: a block in `ManuscriptBlocks.swift` (over `MarkdownBlockParser`), or an inline in `ManuscriptInlineScanner.swift`. A label it carries is read by `ManuscriptLabel.swift`.
 2. Index and diagnose it in `ManuscriptIndex.swift`: record what it defines or cites, and report each way it can be wrong.
-3. Nothing consumes the layer yet. Publishing's AST and the editor's tokenizer are where a new element will need handling once they read it, each reading the recognised element rather than re-parsing the text.
+3. Publish it, reading the recognised element rather than re-parsing the text: map it into a node or inline of `Maugham/Publish/ProjectAST.swift` in `Maugham/Publish/ProjectASTBuilder.swift` (inlines via `Maugham/Publish/InlineParser.swift`); number, resolve and report it in `Maugham/Publish/PublishResolution.swift`, with any new problem kind in `Maugham/Publish/PublishProblem.swift` and its severity in `isError`; render it in `Maugham/Publish/LaTeXBodyEmitter.swift` and `Maugham/Publish/XHTMLBodyEmitter.swift`, guarded so an old template still compiles; add a report example to `Maugham/Publish/EmissionContract.swift` and regenerate `Maugham/Resources/PublishStarter/EMISSION.md`. The editor does not read the layer yet.
 
-Checks: the manuscript grammar tests in `MaughamCoreTests`.
+Checks: the manuscript grammar tests in `MaughamCoreTests`; `PublishResolutionTests` and the emitter tests in `MaughamTests`.
 
 ### Add a block kind to the text model
 1. `MarkdownBlockParser.swift` — add the `MarkdownBlock` case and its rule in the precedence order the parser documents.

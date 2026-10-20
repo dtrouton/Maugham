@@ -77,6 +77,14 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - **Aesthetics live in `template.tex` / `styles.css`, never in the config**: the config cannot drive the engine into generic output.
 - **Manuscript text is read from the op log**, never the `.md` (tripwire 20): `ProjectStoreASTSource` derives each piece (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`; a non-manuscript read carries `// adr-0018-ok:`).
 
+### Report elements
+- **Resolution runs over the whole book, then the subset is emitted.** `PublishResolution.forCompile` resolves the source's `resolutionScope` (the unfiltered book behind any preview, include or sample filter); the compiler emits the AST built from the filtered source with that resolution. The emitters read numbers, citations and targets and never count, so a one-chapter preview still prints "Figure 7".
+- **A wrapper that overrides `resolutionScope` must override `isWholeBook` (false while it filters)**: the default `true` lets a compile resolve the subset it built as if it were the book. Every wrapper forwards `publishContext()` too (`PublishContextTests`' forwarding checks, with a planted non-forwarding wrapper as control).
+- **`PublishProblem.isError(profile:)` is the one severity table.** In a Report the error kinds block a versioned compile and a republish; in every other profile, and in every preview and sample compile, all problems are warnings. Nothing else decides severity.
+- **`FigureImageResolver` is the one path door.** A figure path is accepted only inside a research folder of the real project (`PublishContext.projectURL`, never a compiler's scratch dir); escapes are refused from the string before the disk is touched. Neither compiler reads an image path any other way.
+- **The gate resolves once and passes the result down.** The compile door resolves each body for the format's images, judges the problems, and hands those same bodies to the compiler's `resolved:` (`PublishProblemGate.resolve`); a compiler handed them stages from that resolution and never resolves again.
+- **Old templates degrade, never fail.** Every report construct is guarded at its point of use (`\ifdefined\longtable`, `\ifdefined\includegraphics`, `\ifdefined\listoffigures`), and the packages reach the preamble only through `build/metadata.tex`'s `\IfFileExists` lines, written only for a book with a figure or a table. A book without the new syntax emits byte-identical bodies. `EMISSION.md`'s report sections are the contract (`ReportPDFCompileTests` compiles an old preamble for real).
+
 ### Formats
 - **The Fountain extension is spelled in `DocumentFormat` only; ask it, never a `"fountain"` literal** (tripwire 54, `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`).
 - **A format this build cannot produce is refused at the door.** `PublishConfig.Format` decodes a name a newer build wrote as `.unknown(raw)`, kept verbatim so the config re-encodes unchanged (ADR 0015). `allCases` is only what this build produces, so `.unknown` never reaches a picker.
@@ -130,8 +138,8 @@ Start at the Core guide's recipe "Add a block kind to the text model" (`Packages
 
 ## Pointers
 - ADRs: 0013 (the publishing pipeline), 0015 (persisted schema evolution), 0022 (the grammar ledger), 0024 (the translation layer), 0030 (translator, reader, collator; directives as rulings).
-- `docs/guide/publishing.md` (Imprints, Bilingual editions) and `docs/guide/publish-department.md`.
+- `docs/guide/publishing.md` (Tables, figures, footnotes, citations and cross-references; Imprints; Bilingual editions) and `docs/guide/publish-department.md`.
 - `docs/tripwires.md` rows 13, 17, 20, 54.
-- Tests: `MaughamTests/Publish/` (notably `EmissionContractTests`, `PublishMintGateTests`, `PublishConfigImprintResolutionTests`, `BilingualPDFTests`, `TranslationCoverageGateTests`, `PublishFormatToleranceTests`), `CompileOrchestratorTests`, `RepublisherTests`.
+- Tests: `MaughamTests/Publish/` (notably `EmissionContractTests`, `PublishResolutionTests`, `PublishProblemGateTests`, `FigureImageResolverTests`, `ReportPDFCompileTests`, `ReportEPUBTests`, `PublishMintGateTests`, `PublishConfigImprintResolutionTests`, `BilingualPDFTests`, `TranslationCoverageGateTests`, `PublishFormatToleranceTests`), `CompileOrchestratorTests`, `RepublisherTests`.
 - Neighbouring guides: `Maugham/Compiler/AREA.md` (the translator and designer orchestrators, the round's state machine and briefings), `Maugham/Views/AREA.md` (the department desk, the gate, the round report), `Maugham/MCP/AREA.md` (the publishing tools), `Packages/MaughamCore/Sources/MaughamCore/AREA.md` (the block parser, `ProductionRole`).
 - History: `docs/history/publish.md`.

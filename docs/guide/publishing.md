@@ -30,6 +30,51 @@ The template, preamble, per-piece style files, and a small `config.json` live un
 
 Ask Claude: *"Set up publishing for this project."* It will scaffold the initial template and config, run a test compile, and show you the first page. From there it's an iterative conversation: describe the look you want, and Claude tunes the template until it's right.
 
+### Tables, figures, footnotes, citations and cross-references
+
+A published PDF or EPUB renders these from plain Markdown in your manuscript. Nothing is hidden in the file: what you type is what's on disk.
+
+**A table** is a pipe table, with its caption on a `Table:` line directly under it. Colons in the second row set each column's alignment (`:--` left, `:-:` centred, `--:` right):
+
+```
+| Region | Sales |
+|:--|--:|
+| North | 120 |
+Table: Sales by region {#tbl:sales}
+```
+
+Every table is numbered — "Table 1", "Table 2" — across the whole book, captioned or not. In the PDF a long table runs across pages and repeats its header row on each.
+
+**A figure** is an image alone on its own line, its caption in the brackets:
+
+```
+![The study area](../research/map.png){#fig:map}
+```
+
+The image must be in a research folder of the project — the project's `research/` folder, or a Collection piece's own `research/` — and the path is written from the piece's own file, as a Markdown previewer would read it (a chapter in `manuscript/` reaches `research/` with `../research/`). A path that leaves the project or points outside research is refused, and so is a file the output can't show: the PDF takes PNG, JPEG and PDF images; the EPUB takes PNG, JPEG, GIF and SVG. Figures are numbered "Figure 1", "Figure 2" across the book.
+
+**A footnote** is a marker in the text and a definition anywhere in the same piece:
+
+```
+A claim.[^1]
+
+[^1]: Where the claim comes from.
+```
+
+Notes are numbered continuously through the whole book, whatever you call them — `[^1]` in two chapters is two different notes. In the EPUB a note is a pop-up footnote.
+
+**A citation** names a research source by its citation key: `[@smith2026]`, with a page or other locator after a comma, `[@smith2026, p. 12]`, or several sources at once, `[@smith2026; @jones2025]`. It prints author–date — *(Smith 2026, p. 12)* — from the citation details the research source carries (its key, authors, title and year), and the book ends with a **References** list of the sources it actually cites, sorted by author.
+
+**A cross-reference** points at a label. Give a figure, a table or a heading a label in braces — `{#fig:map}`, `{#tbl:sales}`, `## Method {#sec:method}` — and write `@fig:map`, `@tbl:sales` or `@sec:method` anywhere in the book. It prints "Figure 1", "Table 2" or "Section 1.2", and in both the PDF and the EPUB it's a link. A label's name is letters, digits, `-` and `_`, starting with a letter or digit, and each label is used once in the book.
+
+**Numbering is the whole book's**, even when you preview one chapter: a figure in chapter 3 prints the same number in a preview as in the full compile, and a reference to a figure in a chapter the preview leaves out still reads correctly.
+
+**In a Report**, headings are numbered too — 1, 1.1, 1.1.1, counted from the shallowest heading level the book uses, so a report whose sections are `##` headings reads 1, 2, 3 — and a reference to a heading reads "Section 1.2". A Report also opens with a list of figures and a list of tables, when it has any. Piece titles are never numbered. In other books headings aren't numbered, and a reference to a heading prints the heading's own words.
+
+**When something doesn't resolve** — a key no research source carries, a reference to a label that doesn't exist, a footnote with no definition, an image that can't be used — it prints as you typed it, never as "??", and it's reported as a publish problem (see **Publish problems** under [Language editions and version families](#language-editions-and-version-families)). A Report refuses to compile until its errors are fixed; every other book compiles and lists them as warnings.
+
+**The problems list.** When a compile from the desk (⌘⌥K, see [The Publish Department](publish-department.md)) finds publish problems, its status line says so — *"Couldn't publish: 3 problems in the manuscript"* for a Report it refused, or *"Compiled v1.0 · 20 Oct 2026 at 15:04 — in Exports, with 2 warnings"* for a book that compiled — and **Show Problems** beside it opens the list in the centre column. Each row says Error or Warning, names its piece and says what's wrong; **Show in Manuscript** opens that piece and scrolls to the very paragraph, including a paragraph in a translated edition. **Back** returns to the book.
+
 ### Language editions and version families
 
 A publication is identified by three dimensions here — **version, language, and format** — so `1.0/en/pdf`, `1.0/es/pdf`, and `1.0/es/epub` coexist as one family. (A fourth dimension, imprint, is covered in [Imprints](#imprints) below; the book's own publications are the ones no imprint compiled.)

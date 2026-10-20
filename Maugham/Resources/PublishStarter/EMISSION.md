@@ -432,6 +432,189 @@ A. Writer\par}
 \end{screenplay}
 ```
 
+## Report elements — positive space
+
+Tables, figures, footnotes, citations, cross-references and numbered headings are emitted from the **whole book's resolution**: before any body is written, a resolution pass walks every piece of the book — never only the pieces a preview renders — and numbers, resolves and checks. The emitter reads its numbers and never counts on its own, so a preview of chapter 3 still prints "Figure 7" and a reference into an excluded chapter still resolves.
+
+The examples below run that real resolution pass, then the real emitter, over a fixed one-piece book: one research item cited as `smith2026` ("Smith, Jane", *Annual Report*, 2026), section numbering on, the lists of figures and tables off. The examples have no project on disk, so the figure example hands the emitter its staged name directly; a real compile stages the image under `build/figures/` with a 16-hex-digit content hash for a name (`0123456789abcdef` below stands in for it).
+
+### Captioned table
+
+```
+| Region | Sales |
+|:--|--:|
+| North | 120 |
+Table: Sales by region {#tbl:sales}
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\ifdefined\MaughamTable\else\ifdefined\longtable
+\newenvironment{MaughamTable}[4]{\begin{longtable}{#1}\caption[{#2}]{#3}\\#4\\\hline\endfirsthead\caption[]{#3}\\#4\\\hline\endhead}{\end{longtable}}
+\else
+\newenvironment{MaughamTable}[4]{\begin{table}[htbp]\centering\caption[{#2}]{#3}\begin{tabular}{#1}#4\\\hline}{\end{tabular}\end{table}}
+\fi\fi
+\begin{prose}{Example}
+\setcounter{table}{0}
+\hypertarget{lbl-tbl-sales}{}
+\begin{MaughamTable}{lr}{Sales by region}{Sales by region}{Region & Sales}
+North & 120 \\
+\end{MaughamTable}
+\end{prose}
+```
+
+### Figure (image staged under build/figures/)
+
+```
+![The study area](../research/map.png){#fig:map}
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\begin{prose}{Example}
+\setcounter{figure}{0}
+\begin{figure}[htbp]
+\centering
+\hypertarget{lbl-fig-map}{}
+\ifdefined\includegraphics\includegraphics[width=\linewidth]{build/figures/0123456789abcdef.png}\else\fbox{\parbox{0.9\linewidth}{\centering The study area}}\fi
+\caption[{The study area}]{The study area}
+\end{figure}
+\end{prose}
+```
+
+### Footnote
+
+```
+A claim.[^1]
+
+[^1]: Where the claim comes from.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\begin{prose}{Example}
+A claim.\footnote[1]{Where the claim comes from.}
+
+\end{prose}
+```
+
+### Citation (author–date) and References
+
+```
+As reported [@smith2026, p. 12].
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\begin{prose}{Example}
+As reported (Smith 2026, p. 12).
+
+\end{prose}
+\clearpage
+\section*{References}
+\addcontentsline{toc}{section}{References}
+\begingroup
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+\hangindent=1.5em\hangafter=1 Smith, Jane. 2026. \emph{Annual Report}.\par
+\endgroup
+```
+
+### Numbered heading and a cross-reference to it
+
+```
+## Method {#sec:method}
+
+As @sec:method describes.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\begin{prose}{Example}
+\hypertarget{lbl-sec-method}{}
+\subsection*{1\quad Method}
+\addcontentsline{toc}{subsection}{1\quad Method}
+As \MaughamCrossLink{lbl-sec-method}{Section 1} describes.
+
+\end{prose}
+```
+
+## Report elements — the contract
+
+### `MaughamTable`
+
+Every table is a `MaughamTable` environment with four arguments: the column spec (`l`/`c`/`r` from the delimiter row), the list-of-tables entry, the caption, and the header row. A body that has a table opens with a guarded definition of it; a template that defines its own `MaughamTable` wins:
+
+```latex
+\ifdefined\MaughamTable\else\ifdefined\longtable
+  … a longtable: the caption on the first page, the header repeated on every page …
+\else
+  … a table float around a plain tabular …
+\fi\fi
+```
+
+Every table prints "Table n", captioned or not, so a reference to it always lands on a visible number; an uncaptioned table's list entry is `\relax`. A row opening with `[` or `*` starts with `\relax`, so `\\` never reads it as an argument.
+
+### Old templates degrade, they don't fail
+
+An existing project never receives starter updates, so its preamble may load neither graphicx nor longtable. Each element asks at the point of use:
+
+- **No longtable** → `MaughamTable` becomes a `table` float around a plain `tabular` (one page; the header is not repeated).
+- **No graphicx** → a figure keeps its float and caption, and its image becomes its caption in a framed box: `\ifdefined\includegraphics\includegraphics[width=\linewidth]{…}\else\fbox{\parbox{0.9\linewidth}{\centering …}}\fi`.
+- **No `\listoffigures`/`\listoftables`** → the list is skipped (`\ifdefined\listoffigures\listoffigures\clearpage\fi`).
+
+### The metadata preamble additions
+
+`build/metadata.tex` is read in the **preamble** (the template's `\InputIfFileExists{build/metadata}`), the one place a `\usepackage` can still reach a preamble that predates these elements. For a book with a figure it adds `\IfFileExists{graphicx.sty}{\usepackage{graphicx}}{}`; for a book with a table, `\IfFileExists{longtable.sty}{\usepackage{longtable}}{}`. A book with neither gets exactly the metadata block it always got. A redesigned template that never inputs `build/metadata` falls back to the degradations above.
+
+### Figures are staged
+
+A figure's image must sit inside a research folder of the project; the path is written relative to the piece's own file. The PDF compile copies it to `build/figures/<content-hash>.<ext>` (PNG, JPEG or PDF) and `\includegraphics` reads that copy, so no project path — spaces and all — ever reaches TeX. The EPUB copies it to `OEBPS/images/` (PNG, JPEG, GIF or SVG). The counter is set before each `\caption` (`\setcounter{figure}{n-1}`, likewise `table`), so the resolution's number prints in any subset.
+
+### Label anchors — `lbl-<kind>-<name>`
+
+An element carrying `{#fig:map}`, `{#tbl:sales}` or `{#sec:method}` gets `\hypertarget{lbl-fig-map}{}` in LaTeX and `id="lbl-fig-map"` in XHTML. In a multi-body book every body carries the same labels, so the anchor names its body: `lbl-<tag>-<kind>-<name>` (`lbl-sr-fig-map`), and each body's references link within that body. A cross-reference is `\MaughamCrossLink{<anchor>}{<text>}` — the same command, and the same fallback, as a cross-body slugline link — reading "Figure n", "Table n", "Section 1.2", or the heading's own text when section numbering is off.
+
+### Footnotes — `\footnote[n]`
+
+Footnotes are numbered continuously across the book, and the PDF prints the resolution's number explicitly (`\footnote[n]{…}`), so the PDF and the EPUB agree even for a note inside a note. A second reference to the same note in a piece is `\footnotemark[n]`. Where `\footnote` is lost or breaks the compile — a caption, a table cell, a heading, a note's own text — the reference is `\footnotemark[n]` and its `\footnotetext[n]{…}` follows the construct. A footnote label belongs to its piece: `[^1]` in two chapters is two notes.
+
+### Numbered headings
+
+With section numbering on, headings are numbered by level across the book, relative to the shallowest heading level the book uses: a book whose sections are `##` reads 1, 2, never 0.1. Three levels are numbered; deeper ones are not. Headings stay starred (`\section*`) with the number printed in the text, because LaTeX's own counter cannot see the whole book. Piece titles are never numbered.
+
+### References and the lists
+
+In a book that cites anything, each body closes with one unnumbered **References** section (`\section*{References}`, added to the contents), listing the book's cited sources only, sorted by in-text name, then year, then title. The lists of figures and tables, when their switches are on and the book has such an element, open the **first** body; a later body of a multi-body book keeps its captions but stays out of the lists.
+
+### Keep figure and table numbering flat
+
+Maugham numbers figures and tables 1, 2, 3 across the whole book, and a cross-reference reads "Figure 3". A template on a chapter-numbered class (`book` or `report` with a numbered `\chapter`) prints `\thefigure` as "2.3", so the caption and the reference would disagree. A designer must keep `\thefigure` and `\thetable` flat (e.g. `\renewcommand{\thefigure}{\arabic{figure}}`).
+
+### Unresolved means literal
+
+An element the resolution could not resolve — an unknown citation key, a reference to a missing label, a footnote with no definition, an image that was refused or could not be staged — renders as its literal source, never "??". Each is also reported as a publish problem naming its paragraph; in a Report the error kinds refuse a versioned compile and a republish.
+
 ## Negative space — patterns the emitter does NOT give special meaning
 
 Anything not listed under "positive space" passes through as its constituent text/inline nodes. Specifically, and from real use:
@@ -439,7 +622,7 @@ Anything not listed under "positive space" passes through as its constituent tex
 - A line beginning with `:` (e.g. `: foo`) → literal paragraph text. No definition-list semantics.
 - `:*emphasis*` → a literal colon then `\emph{emphasis}`. No marker semantics.
 - `**Context: 0%**` → `\textbf{Context: 0\%}`. There is no progress-meter or status rendering — it is ordinary bold text.
-- Catch-all: any other punctuation, sigil, or convention not documented under "positive space" carries no special meaning and renders as its literal text.
+- Catch-all: any other punctuation, sigil, or convention not documented under a "positive space" section above (prose, Fountain or report elements) carries no special meaning and renders as its literal text.
 
 If you need any of these to render specially, that's a per-piece `.tex` hook.
 
