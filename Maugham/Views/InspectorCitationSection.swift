@@ -69,6 +69,31 @@ struct CitationDraft: Equatable {
     /// "2026", never "2,026".
     static var yearFormat: IntegerFormatStyle<Int> { .number.grouping(.never) }
 
+    /// The draft after the stored citation changed from `old` to `new` (a
+    /// commit landing, or Claude's `update_research_citation`), without
+    /// wiping what the writer is typing (whole-branch review M8). Field by
+    /// field: one the writer has edited away from what was stored keeps the
+    /// draft; one they have not follows the store. So a commit of one field
+    /// that lands while the writer types in the next keeps their typing, and
+    /// an external change still shows wherever the writer has not typed.
+    func merging(storedFrom old: CitationInfo?, to new: CitationInfo?,
+                 calendar: Calendar = .current) -> CitationDraft {
+        let was = CitationDraft(old, calendar: calendar)
+        let now = CitationDraft(new, calendar: calendar)
+        func pick<T: Equatable>(_ field: KeyPath<CitationDraft, T>) -> T {
+            self[keyPath: field] != was[keyPath: field] ? self[keyPath: field] : now[keyPath: field]
+        }
+        var merged = CitationDraft()
+        merged.key = pick(\.key)
+        merged.authors = pick(\.authors)
+        merged.sourceTitle = pick(\.sourceTitle)
+        merged.publisher = pick(\.publisher)
+        merged.year = pick(\.year)
+        merged.accessed = pick(\.accessed)
+        merged.pages = pick(\.pages)
+        return merged
+    }
+
     /// What the section says under a refused commit.
     static func refusal(_ error: Error) -> String {
         if let refusal = error as? CitationEditError { return refusal.localizedDescription }
@@ -137,8 +162,11 @@ struct InspectorCitationSection: View {
         }
         .task(id: item.id) { seed() }
         // A commit from here, or `update_research_citation` from Claude, lands
-        // in the manifest; the section shows what was stored.
-        .onChange(of: item.citation) { _, _ in seed() }
+        // in the manifest; the section shows what was stored — except in a
+        // field the writer is editing (`CitationDraft.merging`).
+        .onChange(of: item.citation) { old, new in
+            draft = draft.merging(storedFrom: old, to: new)
+        }
     }
 
     @ViewBuilder private var accessedControl: some View {

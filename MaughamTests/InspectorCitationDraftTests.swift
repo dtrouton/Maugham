@@ -102,6 +102,53 @@ final class InspectorCitationDraftTests: XCTestCase {
             "InspectorCitationSection(store: store, item: item)\n        .id(item.id)"))
     }
 
+    // MARK: - The re-seed keeps what the writer is typing (whole-branch review M8)
+
+    /// The writer commits the source title, then types in Publisher before the
+    /// commit lands. The landing must not wipe Publisher.
+    func test_aCommitLandingKeepsTheFieldTheWriterIsTyping() {
+        let stored = CitationInfo(key: "smith2026", authors: ["Smith"])
+        var draft = CitationDraft(stored)
+        draft.sourceTitle = "On Things"                 // committed …
+        let landed = CitationInfo(key: "smith2026", authors: ["Smith"], sourceTitle: "On Things")
+        draft.publisher = "Hachette"                    // … then typing, not yet committed
+        let merged = draft.merging(storedFrom: stored, to: landed)
+        XCTAssertEqual(merged.publisher, "Hachette", "the landing wiped the field being typed")
+        XCTAssertEqual(merged.sourceTitle, "On Things")
+        XCTAssertEqual(merged.key, "smith2026")
+    }
+
+    /// Claude's `update_research_citation` changes a field the writer has not
+    /// touched: it shows. A field they are editing keeps their draft.
+    func test_anExternalChangeShowsWhereTheWriterHasNotTyped() {
+        let stored = CitationInfo(key: "smith2026", year: 2025, pages: "1")
+        var draft = CitationDraft(stored)
+        draft.pages = "12–14"                           // being typed
+        let external = CitationInfo(key: "smith2026", year: 2026, pages: "3")
+        let merged = draft.merging(storedFrom: stored, to: external)
+        XCTAssertEqual(merged.year, 2026, "an untouched field did not follow the store")
+        XCTAssertEqual(merged.pages, "12–14")
+    }
+
+    func test_anUntouchedDraftBecomesTheStoredCitation() {
+        let stored = CitationInfo(key: "a1", authors: ["A"])
+        let new = CitationInfo(key: "b2", authors: ["B", "C"], publisher: "P", year: 2020,
+                               accessed: Self.utcDay(2026, 1, 2), pages: "9")
+        XCTAssertEqual(CitationDraft(stored).merging(storedFrom: stored, to: new), CitationDraft(new))
+    }
+
+    /// The section's re-seed goes through the merge (a census: nothing here
+    /// mounts the view or presses a control, tripwire 33).
+    func test_theSectionReSeedsThroughTheMerge() throws {
+        let file = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/InspectorCitationSection.swift")
+        let source = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertNotNil(source.range(
+            of: #"\.onChange\(of: item\.citation\)\s*\{\s*old, new in\s*draft = draft\.merging\(storedFrom: old, to: new\)"#,
+            options: .regularExpression), "the stored citation re-seeds the whole draft again")
+    }
+
     /// Authors go through the tags chip list, but an author may be written
     /// "Surname, Given" (`CitationStyle` reads the surname before the comma),
     /// so the authors field takes a typed line whole.
