@@ -389,7 +389,11 @@ final class CanvasSurfaceHelperTests: XCTestCase {
     /// **A double click on bare canvas mints one scrap and opens it at the start.**
     /// Mounted: `CanvasViewMountingEditingTests.test_aDoubleClickOnBareCanvasStillMakesOneScrapAndNoRegion`
     /// types into the new scrap and reads the disk; no mounted test reads
-    /// `caretIndex` or `selectionWhenPressed` on this path.
+    /// `caretIndex` on this path. A bare-canvas double click never moves the
+    /// selection, so `selectionWhenPressed` here pins only that it is captured;
+    /// the capture's ORDER is the single-click test's. The brackets nest by
+    /// depth, so `isInGesture` false after closing "Edit Scrap" pins that the
+    /// "New Scrap" bracket closed first.
     func test_aDoubleClickOnBareCanvasMintsOneScrapAndOpensItAtTheStart() throws {
         let model = modelWithASelectedScrap()
         let fixture = ClickHandlerFixture(model: model)
@@ -405,8 +409,11 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         XCTAssertNotNil(try XCTUnwrap(model.scene.node(id)).cachedHeight,
                         "the new scrap was not measured, so it has no frame")
         XCTAssertEqual(fixture.selectionWhenPressed.value, .node(scrapID),
-                       "`selectionWhenPressed` is not the selection from before the click")
+                       "`selectionWhenPressed` was not captured on a double click")
         XCTAssertTrue(model.isInGesture, "the typing's \"Edit Scrap\" bracket did not open")
         model.endGesture()
+        XCTAssertFalse(model.isInGesture,
+                       "the \"New Scrap\" bracket was never closed, so \"Edit Scrap\" "
+                       + "nested inside it and the card and the typing are one ⌘Z")
     }
 }

@@ -4932,9 +4932,11 @@ final class TripwireGrepTests: XCTestCase {
     /// (which must not register a type called `func`). The hold's carve-out is
     /// pinned narrow: a sibling surface file holding the helper as a `var`,
     /// taking it as a parameter or calling its static member fires, and so does
-    /// the bare `let` hold in a same-named file outside `Maugham/Canvas/` (the
-    /// two `CanvasKeyGrip.swift` copies are identical, so exactly one offender
-    /// for that name means the path alone decided it). A type NOT on the list
+    /// the bare `let` hold in a same-named file outside `Maugham/Canvas/`. The
+    /// two `CanvasKeyGrip.swift` copies share a name (the list matches by name)
+    /// but hold different helpers, so the one offender, `names CanvasKeyClock`,
+    /// says WHICH copy fired: an inverted path condition would report
+    /// `names CanvasKeyHandler` instead. A type NOT on the list
     /// is not checked at all, and a missing listed file throws.
     func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
         let base = try SourceTree.plantedTree([
@@ -4995,7 +4997,7 @@ final class TripwireGrepTests: XCTestCase {
                 """,
             "Maugham/Views/CanvasKeyGrip.swift": """
                 struct CanvasKeyGrip {
-                    let keys: CanvasKeyHandler
+                    let clock: CanvasKeyClock
                 }
                 """,
             "Maugham/Canvas/RegionInspector.swift": """
@@ -5039,7 +5041,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(planted.walked, 13, "Self-check: the walk read the planted tree")
         XCTAssertEqual(planted.offenders, [
             "CanvasKeyCaller.swift names CanvasKeyHandler",
-            "CanvasKeyGrip.swift names CanvasKeyHandler",
+            "CanvasKeyGrip.swift names CanvasKeyClock",
             "CanvasKeyHandler.swift declares a top-level func",
             "CanvasKeyHandler.swift extends CanvasModel",
             "CanvasKeyRebuilder.swift names CanvasKeyHandler",
