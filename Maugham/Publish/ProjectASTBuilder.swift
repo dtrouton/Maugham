@@ -36,6 +36,19 @@ public enum ProjectASTBuilder {
         /// unreadable op-log file held. Non-throwing sources satisfy this
         /// requirement unchanged.
         func orderedPieces() throws -> [PieceRef]
+
+        /// What publishing knows about the project beyond its text (report
+        /// foundations plan 2). A REQUIREMENT with a default (below), not an
+        /// extension-only method, so a wrapper's forwarding override is what a
+        /// call through `any Source` reaches — an extension-only method
+        /// dispatches statically and would answer `.empty` for every wrapper.
+        func publishContext() -> PublishContext
+
+        /// The WHOLE book this source is a view of. A filtering wrapper answers
+        /// its base's, so a preview or subset edition numbers and resolves over
+        /// every publishable piece and emits only its own. A requirement for
+        /// the same dispatch reason as `publishContext()`.
+        var resolutionScope: Source { get }
     }
 
     public static func build(from source: Source) throws -> ProjectAST {
@@ -296,4 +309,15 @@ public enum ProjectASTBuilder {
         return (mapped.map { ProjectAST.Node.fountain($0.node) },
                 mapped.map(\.firstLine))
     }
+}
+
+extension ProjectASTBuilder.Source {
+    /// Defaulted to `.empty`, so the test conformers that implement only
+    /// `orderedPieces()` need no change. `ProjectStoreASTSource` answers the
+    /// real one; every filtering wrapper forwards its base's.
+    public func publishContext() -> PublishContext { .empty }
+
+    /// Defaulted to `self`: a source that filters nothing is its own whole
+    /// book. A filtering wrapper answers its base's.
+    public var resolutionScope: ProjectASTBuilder.Source { self }
 }

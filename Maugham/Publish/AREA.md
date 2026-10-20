@@ -10,6 +10,8 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `ProjectStoreASTSource.swift` — bridges a live `ProjectStore` to `ProjectASTBuilder.Source`: walks the structure in binder order, reads each piece from the op log, substitutes a language's translation. Tripwire 20.
 - `ProjectAST.swift` — the target-agnostic model of a compilable project (pieces, prose and Fountain nodes, inlines).
 - `ProjectASTBuilder.swift` — pieces → `ProjectAST`; maps `MarkdownBlock`s to AST nodes.
+- `PublishContext.swift` — what a source knows beyond its text (live citations, profile, switches, the real project URL, piece paths); every filtering wrapper forwards it and `resolutionScope` to its base.
+- `FigureImageResolver.swift` — a figure path → a file inside a research folder of the real project; refuses escapes before touching the disk.
 - `InlineParser.swift` — prose inline runs over the shared `InlineEmphasisScanner`.
 - `FountainInline.swift` — Fountain inline runs (`_x_` is underline).
 - `EmphasisRunConverter.swift` — the shared converter both inline parsers use; masks protected spans.

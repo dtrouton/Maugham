@@ -1,0 +1,53 @@
+import Foundation
+import MaughamCore
+
+/// What publishing needs to know about a project beyond its pieces' text: the
+/// citable research, the profile and its switches, where the project really
+/// lives, and where each piece's file sits (a figure path is relative to it).
+///
+/// Reached through `ProjectASTBuilder.Source.publishContext()`, never through a
+/// downcast to `ProjectStoreASTSource`: the compilers hold a WRAPPED source (a
+/// body's include filter, a preview's allowlist), and a downcast on a wrapper
+/// fails silently. Every wrapper forwards it to its base.
+///
+/// `projectURL` is the source's project, never a compiler's: `SampleCompiler`
+/// compiles against a scratch copy of the publish tree and hands that scratch
+/// directory to `PreviewCompiler` as its `projectURL`, so a figure resolved
+/// against the compiler's URL would look for research in the scratch.
+public struct PublishContext: Sendable {
+    /// Built from the manifest's LIVE research: a trashed item has left
+    /// `manifest.research` for the Trash, so its key is not citable.
+    public var library: CitationLibrary
+    public var profile: ProjectProfile?
+    /// `ProjectManifest.effectiveSwitches` less `webAccess`, which is not a
+    /// publishing switch.
+    public var switches: (numberSections: Bool, listOfFigures: Bool, listOfTables: Bool)
+    /// The REAL project, never a compiler's scratch dir. Nil for a source that
+    /// has no project (tests, the emission contract's examples).
+    public var projectURL: URL?
+    /// pieceID → the project-relative path of its manuscript file.
+    public var piecePaths: [String: String]
+
+    public init(
+        library: CitationLibrary,
+        profile: ProjectProfile?,
+        switches: (numberSections: Bool, listOfFigures: Bool, listOfTables: Bool),
+        projectURL: URL?,
+        piecePaths: [String: String]
+    ) {
+        self.library = library
+        self.profile = profile
+        self.switches = switches
+        self.projectURL = projectURL
+        self.piecePaths = piecePaths
+    }
+
+    /// No research, no profile, every switch off, no project, no paths: what a
+    /// source with no project answers.
+    public static let empty = PublishContext(
+        library: CitationLibrary(items: []),
+        profile: nil,
+        switches: (numberSections: false, listOfFigures: false, listOfTables: false),
+        projectURL: nil,
+        piecePaths: [:])
+}

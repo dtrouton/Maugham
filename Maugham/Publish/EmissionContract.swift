@@ -502,12 +502,18 @@ public enum EmissionContract {
 }
 
 /// Minimal single-piece AST source for generating contract examples.
+///
+/// It wraps nothing, so it has no base to forward to: it carries its own
+/// `context` (an example that cites needs a library) and is its own whole
+/// book (the default `resolutionScope`).
 struct SinglePieceSource: ProjectASTBuilder.Source {
     let pieceID: String
     let title: String
     let mode: ProjectAST.Mode
     let text: String
+    var context: PublishContext = .empty
     func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
         [.init(pieceID: pieceID, title: title, mode: mode, displayText: text)]
     }
+    func publishContext() -> PublishContext { context }
 }

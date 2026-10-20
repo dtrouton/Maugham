@@ -88,6 +88,35 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
             .filter { $0.pieceKind != .reference && $0.path != nil }
     }
 
+    /// The project's publish context, read off the manifest and the store's
+    /// own URL — the real project, whatever directory a compiler was handed
+    /// (`SampleCompiler`'s scratch). Main-actor isolated like
+    /// `orderedPieces()`, through the same isolated conformance.
+    ///
+    /// - The library is `manifest.research`: trashing a research item moves it
+    ///   out of the manifest into the Trash (`trashResearchItemCore` →
+    ///   `removeResearchItem`), so only live sources are citable.
+    /// - Piece paths come from the SAME `publishablePieces()` walk that
+    ///   `orderedPieces()` makes, so every section has its path. A language
+    ///   rebinding (`rebound(toLanguage:)`) keeps the store, so a translated
+    ///   body answers the same context.
+    public func publishContext() -> PublishContext {
+        let manifest = projectStore.manifest
+        let switches = manifest.effectiveSwitches
+        var piecePaths: [String: String] = [:]
+        for item in publishablePieces() {
+            if let path = item.path, piecePaths[item.id] == nil { piecePaths[item.id] = path }
+        }
+        return PublishContext(
+            library: CitationLibrary(items: manifest.research),
+            profile: manifest.profile,
+            switches: (numberSections: switches.numberSections,
+                       listOfFigures: switches.listOfFigures,
+                       listOfTables: switches.listOfTables),
+            projectURL: projectStore.url,
+            piecePaths: piecePaths)
+    }
+
     private func pieceRef(
         for item: StructureItem, trust: TrustTable?
     ) throws -> ProjectASTBuilder.PieceRef? {

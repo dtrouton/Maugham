@@ -367,7 +367,12 @@ public struct PreviewCompiler {
 
 /// Wraps another `ProjectASTBuilder.Source`, filtering to a subset of pieces
 /// (an allowlist: keeps only pieces named in `sectionIDs`; nil/empty ⇒ all).
-private struct FilteredASTSource: ProjectASTBuilder.Source {
+///
+/// Forwards `publishContext()` and `resolutionScope` to its base: a preview
+/// emits its subset but resolves over the whole book, and its context is the
+/// base's real project (`PublishContextTests`). Internal, not private, so that
+/// test can hold one.
+struct FilteredASTSource: ProjectASTBuilder.Source {
     let base: ProjectASTBuilder.Source
     let sectionIDs: [String]?
     func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
@@ -376,6 +381,8 @@ private struct FilteredASTSource: ProjectASTBuilder.Source {
         let set = Set(ids)
         return all.filter { set.contains($0.pieceID) }
     }
+    func publishContext() -> PublishContext { base.publishContext() }
+    var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
 }
 
 /// F1: wraps any `ProjectASTBuilder.Source`, dropping pieces whose id is in the
@@ -392,4 +399,8 @@ struct IncludeFilteredASTSource: ProjectASTBuilder.Source {
         guard !excludedSectionIDs.isEmpty else { return all }
         return all.filter { !excludedSectionIDs.contains($0.pieceID) }
     }
+    /// Forwarded, like `FilteredASTSource`'s: an edition that excludes a
+    /// section still numbers and resolves over the whole book.
+    func publishContext() -> PublishContext { base.publishContext() }
+    var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
 }
