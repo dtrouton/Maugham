@@ -388,10 +388,12 @@ final class SegmentSealTriggerTests: XCTestCase {
         // and a verify reports when it RUNS, so a store still working on an
         // earlier test's book could land in this count. Only this book's
         // verifies are this test's; a second one of them still makes it 2.
+        // A verify with no file counts too: every production caller passes
+        // one, so a nil is a new caller that forgot, not another test's book.
         let thisBook = projectURL.resolvingSymlinksInPath().path + "/"
         nonisolated(unsafe) var verifies = 0
         OpLogChain.verifyObserverForTesting = { file in
-            if file?.resolvingSymlinksInPath().path.hasPrefix(thisBook) == true {
+            if file.map({ $0.resolvingSymlinksInPath().path.hasPrefix(thisBook) }) ?? true {
                 verifies += 1
             }
         }
