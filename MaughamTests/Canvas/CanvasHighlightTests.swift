@@ -440,6 +440,14 @@ final class CanvasHighlightTests: XCTestCase {
         try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasView.swift")
     }
 
+    /// The view and the helpers it builds per call (`CanvasSourceCensus.surfaceFiles`),
+    /// for the counts and the bans: a second call site that moves into a helper
+    /// is still counted. The draw-closure slice and the "present" checks stay
+    /// on `canvasViewSource()`, whose code does not move.
+    private func canvasSurfaceSource() throws -> String {
+        try CanvasSourceCensus.surfaceSource()
+    }
+
     /// The offender, planted: what the lazy version of this looks like. If the
     /// predicates below cannot catch it written out, they are not guarding
     /// anything.
@@ -479,7 +487,8 @@ final class CanvasHighlightTests: XCTestCase {
                       "…and what the tree names moves with a click. Without this "
                       + "trigger the dim is right once and then stale for the "
                       + "rest of the session")
-        XCTAssertFalse(src.contains(".onChange(of: revision"),
+        XCTAssertFalse(CanvasSourceCensus.commentsStripped(try canvasSurfaceSource())
+                        .contains(".onChange(of: revision"),
                        "`revision` ticks once per animation frame — keying the lit "
                        + "set on it is the same defect with an extra step")
     }
@@ -487,7 +496,7 @@ final class CanvasHighlightTests: XCTestCase {
     /// One writer. A third call site on a per-frame path would be invisible on
     /// screen, because the answer would be right every time.
     func test_theLitSetHasExactlyOneWriter() throws {
-        let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
+        let src = CanvasSourceCensus.commentsStripped(try canvasSurfaceSource())
         XCTAssertEqual(
             src.components(separatedBy: "CanvasHighlight.resolve").count - 1, 1,
             "`highlight` is resolved somewhere other than `rebuildHighlightAndTree()`")
@@ -528,7 +537,8 @@ final class CanvasHighlightTests: XCTestCase {
     /// of the `elements(…)` call's own arguments and not of the file.
     func test_theTreeAndTheDimAreDerivedFromOneResolvedValue() throws {
         let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
-        XCTAssertEqual(src.components(separatedBy: "axElements = ").count - 1, 1,
+        XCTAssertEqual(CanvasSourceCensus.commentsStripped(try canvasSurfaceSource())
+                        .components(separatedBy: "axElements = ").count - 1, 1,
                        "the accessibility tree has more than one writer, so one of "
                        + "them is deriving the dim a second time")
 

@@ -928,3 +928,53 @@ Every other signal in this file — the cooler paper, the 0° lean, `claudeTerm`
 **Creating an appearance was on this list for exactly one commit and 1C-b closed it too** — the "Cite a Card" menu under "Appears here", `RegionInspector.cite`, described under "Regions, and why membership is never geometry" above. It is recorded rather than quietly deleted because the *shape* is the thing worth remembering: `CanvasMembership.addAppearance` was persisted, drawn as a chip, listed in the inspector and removable from it, with every one of those parts under test — and no caller. That is `CanvasScene.remove`'s failure recurring inside the slice that closed it, and neither was findable by a test. `grep -rn addAppearance Maugham/` was.
 
 **This is a slice boundary, not a milestone one.** Spec §8A.1 puts **images inside milestone M1C** — "not deferred past it" — and says in the same breath that no plan may cite it as authorising their omission. Nothing here may be quoted to that end either. What 1C-a defers is the order of work, not the work.
+
+## Moved from the guide by canvasview-split Task 1 (2026-10-20)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the six Map rows the CanvasView split adds. Each is the why behind a rule that is still in the guide, under the guide section named; the rule is quoted first, then the clause as it stood.
+
+### Rendering
+
+- One SwiftUI `Canvas` draws every node: `NSScrollView` with real subviews is disqualified by measurement: SwiftUI content under magnification reports one frame at every zoom and stops taking clicks at 2×.
+- `contentStorage.textStorage = NSTextStorage(...)`: the other spelling renders perfectly and refuses every keystroke.
+- `lineFragmentPadding = 0`, `widthTracksTextView = false`, `textContainerInset = .zero`: any default shifts drawn text against edited text, and the inset moves pixels while every geometry assertion passes.
+- Every `ScrapLayout` names `textColor: CanvasRenderer.cardInk`: the default is the same colour today, so forgetting would break nothing visible.
+- No second hand-written inverse of `cardTransform`: a flipped sign doubles the caret error and a round-trip test passes either way.
+- Layer order is ground → drawn nodes → events → editor: with the event view in front, click-to-place-caret, drag-select and double-click-word all die.
+- The ground is never an overlay or a `.colorEffect` over the event view or the editor: a shader over an `NSViewRepresentable` renders a grey placeholder with nothing red.
+
+### Card metrics live in `CanvasCardMetrics`, and nowhere else
+
+- The card geometry is spelled once: a second spelling puts drawn and edited glyphs on different rects ("text jumps on focus").
+
+### Focus straightens the card
+
+- The tilt band's ceiling (`maximumTiltDegrees`): the ceiling exists because the unrotated hit test drifts from the ink by `r·θ`, which the 14 pt target must keep absorbing.
+- The editor mounts on the click and becomes visible on `isLevel`: gating the mount loses the first keystrokes; showing it on the click snaps glyphs straight over a tilted card.
+- Never `isHidden`/`.hidden()` on the invisible editor: AppKit moves first responder off a hidden view and drops it from the accessibility tree.
+
+### Regions and membership
+
+- One home, many appearances, disjoint by construction: copies were rejected.
+
+### The dim
+
+- Shorten a label by string, never by clipping the context: clipped text puts a noise floor under every two-render diff fixture.
+
+### Routes onto the canvas
+
+- A research group is accepted by the drop: the writer is pointing at a folder in their own binder.
+- A second drop of the same item reveals and never moves: moving would be a geometry-driven transition.
+
+### Ownership, counters and undo
+
+- The canvas is mounted at exactly one site: a second branch is a second view identity that resets camera and reloads everything.
+- `CanvasModel` hosts `CanvasUndo`; never reimplement it: a second mechanism loses `breakGesture`, deferred grouping, depth and the mid-gesture re-baseline.
+
+### Persistence
+
+- `flush()` on quit observes with `queue: nil`: with a queue the block may never run before exit.
+
+### Accepted costs and open questions
+
+- The focus straighten is invisible on a Claude card: inventing a lean would undo the provenance signal.

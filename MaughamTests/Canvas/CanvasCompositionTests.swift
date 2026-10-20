@@ -21,6 +21,14 @@ final class CanvasCompositionTests: XCTestCase {
             .appendingPathComponent("Maugham/Canvas/CanvasView.swift"), encoding: .utf8)
     }
 
+    /// The view and the helpers it builds per call (`CanvasSourceCensus.surfaceFiles`),
+    /// for the counts: a second call site that moves into a helper is still counted.
+    /// Slices of `body` and order checks stay on `canvasViewSource()`, whose code
+    /// does not move.
+    private func canvasSurfaceSource() throws -> String {
+        try CanvasSourceCensus.surfaceSource()
+    }
+
     /// Comment lines are excluded, exactly as
     /// `CanvasRendererTests.test_noFileInTheCanvasAreaDerivesItsOwnRasterScale`
     /// does it. A doc comment that NAMES a modifier is documentation; only code
@@ -141,7 +149,8 @@ final class CanvasCompositionTests: XCTestCase {
             "the reveal must fire from a bare subject `.onChange` — no `initial:`, "
             + "because a restored subject is not an arrival")
         XCTAssertEqual(
-            src.components(separatedBy: "bringArrivingResearchCardIntoView").count - 1, 2,
+            codeOnly(try canvasSurfaceSource())
+                .components(separatedBy: "bringArrivingResearchCardIntoView").count - 1, 2,
             "the declaration and exactly ONE caller: a second call site is either a "
             + "per-frame path or a second answer to when the camera moves")
     }
@@ -199,7 +208,8 @@ final class CanvasCompositionTests: XCTestCase {
                       "CanvasRenderer.draw must be handed the VISIBILITY id — "
                       + "passing the mount id suppresses the drawn text while an "
                       + "invisible editor draws nothing in its place")
-        XCTAssertEqual(src.components(separatedBy: "straighten.isLevel(").count - 1, 1,
+        XCTAssertEqual(codeOnly(try canvasSurfaceSource())
+                        .components(separatedBy: "straighten.isLevel(").count - 1, 1,
                        "there must be exactly one place the straighten is asked "
                        + "whether the card is level; a second is a second predicate")
     }
@@ -213,8 +223,10 @@ final class CanvasCompositionTests: XCTestCase {
                       + "mapped into canvas space before it anchors a zoom")
     }
 
+    /// A raw scan, comments included (the header's contract), over the whole
+    /// surface: a helper's moved comments are held to the same rule.
     func test_theCanvasIsNotHiddenFromAccessibility() throws {
-        let src = try canvasViewSource()
+        let src = try canvasSurfaceSource()
         XCTAssertFalse(src.contains("accessibilityHidden(true)"))
         XCTAssertFalse(src.contains("accessibilityElement(children: .ignore)"),
                        "spec §7A.6: we own the canvas AX tree — ignoring children "
@@ -277,7 +289,8 @@ final class CanvasCompositionTests: XCTestCase {
                       "the accessibility tree is built without the item facts, so a "
                       + "card that draws \"Notebook page 3\" is announced as nothing "
                       + "at all — a drawn/spoken divergence nobody decided")
-        XCTAssertEqual(src.components(separatedBy: "items: itemPresentation").count - 1, 2,
+        XCTAssertEqual(codeOnly(try canvasSurfaceSource())
+                        .components(separatedBy: "items: itemPresentation").count - 1, 2,
                        "the two consumers must BOTH be handed the same resolved value: "
                        + "two resolutions, or one consumer reading a different one, is "
                        + "how the drawn card and the spoken card come to disagree")

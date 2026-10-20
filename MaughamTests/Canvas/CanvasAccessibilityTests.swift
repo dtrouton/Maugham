@@ -442,10 +442,72 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// every momentum coast — so an `.onChange(of: revision)` here rebuilds the
     /// whole tree at 60–120 Hz through any drag, coast or focus animation.
     func test_theTreeIsNotKeyedOnTheRedrawCounter() throws {
-        XCTAssertFalse(codeOnly(try canvasViewSource()).contains(".onChange(of: revision"),
+        XCTAssertFalse(codeOnly(try canvasSurfaceSource()).contains(".onChange(of: revision"),
                        "the accessibility tree is keyed on the redraw counter — it "
                        + "will sort the scene and copy every scrap's string once "
                        + "per frame for the whole of every animation")
+    }
+
+    /// **The view's `sceneRevision` has one writer: the mirror in `body`**
+    /// (tripwire 30). Across the whole canvas surface — the view and the
+    /// helpers it builds per call — there is exactly one write to it, and it
+    /// is `sceneRevision += 1`; and nothing takes `$sceneRevision`, because a
+    /// helper handed that binding could bump the counter on its own, and every
+    /// structural bump is `model.bumpSceneRevision()`.
+    func test_theViewsStructuralCounterHasOneWriterAcrossTheSurface() throws {
+        let writes = Self.sceneRevisionWrites(
+            in: CanvasSourceCensus.commentsStripped(try canvasSurfaceSource()))
+        XCTAssertEqual(writes.assignments, ["sceneRevision += 1"],
+                       "the view's `sceneRevision` is written somewhere other than the "
+                       + "mirror `.onChange(of: model.sceneRevision) { _, _ in "
+                       + "sceneRevision += 1 }` — bump `model.bumpSceneRevision()` instead")
+        XCTAssertEqual(writes.projections, 0,
+                       "`$sceneRevision` is taken on the canvas surface: a helper holding "
+                       + "that binding is a second writer of the view's copy")
+    }
+
+    /// The companion: a second write (any spelling) and a projection, planted,
+    /// must both be counted — and the declaration, another value's member and
+    /// the reads must not.
+    func test_theStructuralCounterCensusFiresOnAPlantedSecondWriter() {
+        let planted = """
+            @State private var sceneRevision = 0
+            .onChange(of: model.sceneRevision) { _, _ in sceneRevision += 1 }
+            .onChange(of: sceneRevision) { _, _ in rebuildHighlightAndTree() }
+            private var dragHandler: CanvasDragHandler {
+                CanvasDragHandler(sceneRevision: $sceneRevision)
+            }
+            func handleDrag() { sceneRevision = sceneRevision + 1 }
+            func other() { model.sceneRevision = 3; if sceneRevision == 0 { } }
+            """
+        let writes = Self.sceneRevisionWrites(in: planted)
+        XCTAssertEqual(writes.assignments,
+                       ["sceneRevision += 1", "sceneRevision = sceneRevision + 1"],
+                       "the census must count every write and skip the declaration, "
+                       + "another value's member and the comparisons")
+        XCTAssertEqual(writes.projections, 1, "the planted `$sceneRevision` is not counted")
+    }
+
+    /// Each write to the view's `sceneRevision` (from the name to the end of
+    /// the statement), skipping the `var` declaration, another value's member
+    /// (`model.sceneRevision`) and `==`; and how many `$sceneRevision`
+    /// projections there are.
+    private static func sceneRevisionWrites(in code: String)
+        -> (assignments: [String], projections: Int) {
+        // The name not preceded by `.`, `$` or an identifier character, then an
+        // assignment operator (`=`, `+=`, `&+=`, …) that is not `==`.
+        let write = try! NSRegularExpression(
+            pattern: #"(?<![A-Za-z0-9_.$])sceneRevision\s*(?:&?[-+*/]=|=(?!=))[^};\n]*"#)
+        var assignments: [String] = []
+        for line in code.components(separatedBy: "\n") where !line.contains("var sceneRevision") {
+            let range = NSRange(line.startIndex..., in: line)
+            for match in write.matches(in: line, range: range) {
+                if let r = Range(match.range, in: line) {
+                    assignments.append(line[r].trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        return (assignments, code.components(separatedBy: "$sceneRevision").count - 1)
     }
 
     /// The children read the camera, so inline in `body` they are N synthetic
@@ -457,7 +519,7 @@ final class CanvasAccessibilityTests: XCTestCase {
         XCTAssertTrue(src.contains(".equatable()"),
                       "without .equatable() the extraction buys nothing — SwiftUI "
                       + "re-evaluates the children on every body pass")
-        XCTAssertFalse(src.contains("ForEach(axElements)"),
+        XCTAssertFalse(codeOnly(try canvasSurfaceSource()).contains("ForEach(axElements)"),
                        "the ForEach belongs in CanvasAXChildren, not in body")
     }
 
@@ -1243,6 +1305,12 @@ final class CanvasAccessibilityTests: XCTestCase {
             .deletingLastPathComponent()    // MaughamTests
             .deletingLastPathComponent()    // repo root
             .appendingPathComponent("Maugham/Canvas/CanvasView.swift"), encoding: .utf8)
+    }
+
+    /// The view and the helpers it builds per call (`CanvasSourceCensus.surfaceFiles`),
+    /// for the bans: a banned token that moves into a helper is still seen.
+    private func canvasSurfaceSource() throws -> String {
+        try CanvasSourceCensus.surfaceSource()
     }
 
     /// A doc comment that NAMES a modifier is documentation; only code counts —

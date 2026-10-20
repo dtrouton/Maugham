@@ -51,6 +51,37 @@ enum CanvasSourceCensus {
         try String(contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
+    /// The files that hold CanvasView's own code — the view and the helpers it builds per call.
+    /// Grows by one entry in each task that moves code out. Order: CanvasView.swift first.
+    ///
+    /// A census that COUNTS or BANS a token over the view's code reads all of
+    /// these (`surfaceSource()`), so a token that moves into a helper is still
+    /// seen. A census that slices `body` or checks ORDER stays on
+    /// `CanvasView.swift`, because that code does not move. Every name here is
+    /// a file in `Maugham/Canvas/`.
+    static let surfaceFiles: [String] = ["CanvasView.swift"]
+
+    /// Every `surfaceFiles` entry's text, in list order, joined by a newline.
+    /// Throws, naming the file, if a listed file is missing — a census over a
+    /// file that is not there passes for the wrong reason.
+    static func surfaceSource() throws -> String {
+        try surfaceFiles.map { name in
+            let path = "Maugham/Canvas/\(name)"
+            guard let text = try? source(at: path) else {
+                throw SurfaceFileMissing(path: path)
+            }
+            return text
+        }.joined(separator: "\n")
+    }
+
+    struct SurfaceFileMissing: Error, CustomStringConvertible {
+        let path: String
+        var description: String {
+            "CanvasSourceCensus.surfaceFiles lists '\(path)', which is not on disk. "
+            + "Take the entry out or put the file back."
+        }
+    }
+
     /// Every production `.swift` under `Maugham/`. Comments are the caller's
     /// problem — a doc comment naming a call is not a call, and
     /// `commentsStripped` below is what says so.

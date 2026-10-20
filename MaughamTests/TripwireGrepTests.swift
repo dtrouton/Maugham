@@ -4643,9 +4643,12 @@ final class TripwireGrepTests: XCTestCase {
         "CanvasModel.swift", "CanvasUndo.swift",
     ]
 
-    /// The one view that IS the canvas. Everything it does is inside its own
-    /// bracket by construction, so it uses the inside verbs.
-    private static let theCanvasSurface = "CanvasView.swift"
+    /// The one view that IS the canvas — the file tripwire 57's walk reads,
+    /// and the one file allowed to build a surface helper. The census below
+    /// skips the whole surface (`CanvasSourceCensus.surfaceFiles`): the view
+    /// and the helpers it builds per call are inside its own bracket by
+    /// construction, so they use the inside verbs.
+    private static let theCanvasViewFile = "CanvasView.swift"
 
     /// Every `CanvasModel` entry point that changes state the undo stack owns,
     /// EXCEPT the one that is safe from another column.
@@ -4692,7 +4695,7 @@ final class TripwireGrepTests: XCTestCase {
         var census: [String: [String]] = [:]
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
-            guard name != Self.theCanvasSurface,
+            guard !CanvasSourceCensus.surfaceFiles.contains(name),
                   !Self.canvasBracketDefiners.contains(name) else { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
             guard text.contains("CanvasModel") else { continue }
@@ -4809,8 +4812,9 @@ final class TripwireGrepTests: XCTestCase {
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
              "RegionInspector.swift": [Self.canvasOutsideVerb],
              "ScrapInspector.swift": [Self.canvasOutsideVerb]],
-            "The canvas's undo bracket is reached from outside `CanvasView.swift` "
-            + "by the inspector column only, using exactly one verb.\n\n"
+            "The canvas's undo bracket is reached from outside the canvas surface "
+            + "(`CanvasSourceCensus.surfaceFiles`: `CanvasView.swift` and the helpers "
+            + "it builds per call) by the inspector column only, using exactly one verb.\n\n"
             + "If you have ADDED a surface that changes the canvas scene: it must "
             + "use `CanvasModel.mutateFromInspector`, and it belongs in the "
             + "expectation above. `mutate`/`beginGesture`/`endGesture` nest "
@@ -4843,17 +4847,173 @@ final class TripwireGrepTests: XCTestCase {
     /// surface uses the inside verbs and never the outside one. Reaching for
     /// `mutateFromInspector` from `CanvasView` would close a bracket the writer
     /// is still inside.
+    ///
+    /// The surface is `CanvasSourceCensus.surfaceFiles` — the view and the
+    /// helpers it builds per call — so a `.mutate(` that moves into a helper is
+    /// still found, and each file is checked on its own so the message names
+    /// the one that reached for the outside verb.
     func test_theCanvasSurfaceItselfUsesTheInsideVerbs() throws {
-        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
-        let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
-        XCTAssertTrue(code.contains { $0.contains(".mutate(") },
-            "\(Self.theCanvasSurface) is the canvas's own surface and mutates "
-            + "through the inside verb. If this moved, the census above needs to "
-            + "know where it moved to.")
-        XCTAssertFalse(code.contains { $0.contains(Self.canvasOutsideVerb) },
-            "\(Self.theCanvasSurface) must NOT use \(Self.canvasOutsideVerb): "
-            + "close-run-reopen from inside the canvas ends a gesture the writer "
-            + "is still in the middle of.")
+        var mutating: [String] = []
+        for name in CanvasSourceCensus.surfaceFiles {
+            let code = Self.codeLines(of: try CanvasSourceCensus.source(at: "Maugham/Canvas/\(name)"))
+            if code.contains(where: { $0.contains(".mutate(") }) { mutating.append(name) }
+            XCTAssertFalse(code.contains { $0.contains(Self.canvasOutsideVerb) },
+                "\(name) is on the canvas surface and must NOT use \(Self.canvasOutsideVerb): "
+                + "close-run-reopen from inside the canvas ends a gesture the writer "
+                + "is still in the middle of.")
+        }
+        XCTAssertFalse(mutating.isEmpty,
+            "No file on the canvas surface (\(CanvasSourceCensus.surfaceFiles)) calls "
+            + "`.mutate(` any more. The surface mutates through the inside verb; if "
+            + "that call moved to a new file, add the file to "
+            + "`CanvasSourceCensus.surfaceFiles` so the census above knows where it went.")
+    }
+
+    /// **The surface's helpers are built by `CanvasView` only** (tripwire 32).
+    ///
+    /// The census above skips every file in `CanvasSourceCensus.surfaceFiles`,
+    /// because the view and the helpers it builds per call are inside its own
+    /// bracket. That exemption is only safe while nothing else can hold a
+    /// helper: `RegionInspector` building a `CanvasKeyHandler` would reach
+    /// `mutate`/`beginGesture` from another column through a file the census
+    /// never reads. So every type declared in a surface file other than
+    /// `CanvasView.swift` is built (`TypeName(`, comments stripped) only in
+    /// `CanvasView.swift` and in its own file. A static call (`TypeName.f(`)
+    /// builds nothing and is fine.
+    ///
+    /// Vacuous while the list holds only `CanvasView.swift`; the planted
+    /// companion below is what proves it fires.
+    func test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly() throws {
+        let census = try Self.canvasSurfaceHelperBuilders(
+            base: sourceDir.deletingLastPathComponent(),
+            surfaceFiles: CanvasSourceCensus.surfaceFiles)
+        XCTAssertGreaterThan(census.walked, 100,
+            "the walk found almost nothing — a builder census over an empty tree "
+            + "passes for the wrong reason")
+        XCTAssertEqual(census.offenders, [], Self.surfaceHelperBuiltElsewhere(census.offenders))
+    }
+
+    /// Self-check: a helper declared in a listed surface file and built from
+    /// another column fires; a doc comment naming the build and a static call
+    /// do not; the init spelling does; and a type NOT on the list is not
+    /// checked at all (the census is keyed by the list).
+    func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Canvas/CanvasView.swift": """
+                struct CanvasView: View {
+                    let model: CanvasModel
+                    private var keyHandler: CanvasKeyHandler { CanvasKeyHandler(model: model) }
+                }
+                """,
+            "Maugham/Canvas/CanvasKeyHandler.swift": """
+                /// Built per call by CanvasView; never write CanvasKeyHandler(model:) elsewhere.
+                @MainActor
+                struct CanvasKeyHandler {
+                    let model: CanvasModel
+                    static func asksForTheWholeBoard() -> Bool { false }
+                    func again() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }
+                }
+                """,
+            "Maugham/Canvas/RegionInspector.swift": """
+                struct RegionInspector {
+                    let model: CanvasModel
+                    func delete() { _ = CanvasKeyHandler(model: model).deleteSelection() }
+                }
+                """,
+            "Maugham/Canvas/ScrapInspector.swift": """
+                struct ScrapInspector {
+                    let model: CanvasModel
+                    func delete() { _ = CanvasKeyHandler.init(model: model) }
+                }
+                """,
+            "Maugham/Canvas/LineInspector.swift": """
+                // CanvasKeyHandler(model:) is the view's to build, not this file's.
+                struct LineInspector {
+                    let model: CanvasModel
+                    func ask() -> Bool { CanvasKeyHandler.asksForTheWholeBoard() }
+                }
+                """,
+        ])
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let planted = try Self.canvasSurfaceHelperBuilders(
+            base: base, surfaceFiles: ["CanvasView.swift", "CanvasKeyHandler.swift"])
+        XCTAssertEqual(planted.walked, 5, "Self-check: the walk read the planted tree")
+        XCTAssertEqual(planted.offenders, [
+            "RegionInspector.swift builds CanvasKeyHandler",
+            "ScrapInspector.swift builds CanvasKeyHandler",
+        ], "Self-check: a surface helper built from another column must fire, by "
+            + "either spelling; a comment and a static call must not.")
+
+        let offTheList = try Self.canvasSurfaceHelperBuilders(
+            base: base, surfaceFiles: ["CanvasView.swift"])
+        XCTAssertEqual(offTheList.offenders, [],
+            "control: a type declared in a file NOT on the surface list is not a "
+            + "surface helper, so building it elsewhere is not this census's business")
+
+        XCTAssertThrowsError(try Self.canvasSurfaceHelperBuilders(
+            base: base, surfaceFiles: ["CanvasView.swift", "CanvasGone.swift"]),
+            "a listed surface file that is not on disk must throw, not pass")
+    }
+
+    private static func surfaceHelperBuiltElsewhere(_ offenders: [String]) -> String {
+        "A canvas surface helper is built outside `CanvasView.swift` (tripwire 32). "
+        + "The bracket census skips every file in `CanvasSourceCensus.surfaceFiles`, "
+        + "so a helper built from another column reaches the inside verbs "
+        + "(`mutate`, `beginGesture`, `withScene`) where nothing checks it — the "
+        + "nested-bracket defect, with the edit on no undo step. Build it only in "
+        + "a `CanvasView` computed property; from another column, call "
+        + "`CanvasModel.mutateFromInspector`.\n" + offenders.joined(separator: "\n")
+    }
+
+    /// For each type declared (`struct`/`class`/`enum`/`actor`) in a surface
+    /// file other than `CanvasView.swift`, every production file under
+    /// `<base>/Maugham/` that builds one — `TypeName(` or `TypeName.init(`,
+    /// comments stripped — other than `CanvasView.swift` and the type's own
+    /// file. Throws when a listed surface file is missing.
+    private static func canvasSurfaceHelperBuilders(
+        base: URL, surfaceFiles: [String]
+    ) throws -> (offenders: [String], walked: Int) {
+        let canvasDir = base.appendingPathComponent("Maugham/Canvas", isDirectory: true)
+        let declaration = try NSRegularExpression(
+            pattern: #"^[ \t]*(?:@\w+(?:\([^)]*\))?\s+)*"#
+                + #"(?:(?:public|private|fileprivate|internal|package|final|indirect)\s+)*"#
+                + #"(?:struct|class|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)"#,
+            options: [.anchorsMatchLines])
+        var homes: [String: String] = [:]   // type → the surface file declaring it
+        for name in surfaceFiles {
+            let url = canvasDir.appendingPathComponent(name)
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                throw CanvasSourceCensus.SurfaceFileMissing(path: "Maugham/Canvas/\(name)")
+            }
+            guard name != theCanvasViewFile else { continue }
+            let code = CanvasSourceCensus.commentsStripped(text)
+            let range = NSRange(code.startIndex..., in: code)
+            for match in declaration.matches(in: code, range: range) {
+                if let r = Range(match.range(at: 1), in: code) { homes[String(code[r])] = name }
+            }
+        }
+
+        var offenders: [String] = []
+        var walked = 0
+        let app = base.appendingPathComponent("Maugham", isDirectory: true)
+        let walker = FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)
+        while let url = walker?.nextObject() as? URL {
+            guard url.pathExtension == "swift" else { continue }
+            walked += 1
+            let file = url.lastPathComponent
+            guard file != theCanvasViewFile, !homes.isEmpty else { continue }
+            let code = CanvasSourceCensus.commentsStripped(try String(contentsOf: url, encoding: .utf8))
+            for (type, home) in homes where file != home {
+                let builds = try NSRegularExpression(
+                    pattern: #"(?<![A-Za-z0-9_])"# + NSRegularExpression.escapedPattern(for: type)
+                        + #"(?:\.init)?\s*\("#)
+                if builds.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                    offenders.append("\(file) builds \(type)")
+                }
+            }
+        }
+        return (offenders.sorted(), walked)
     }
 
     /// Self-check: prove the census FIRES on a planted offender — a second
@@ -4957,7 +5117,7 @@ final class TripwireGrepTests: XCTestCase {
     /// window. A value the closures need that DOES change goes on the model,
     /// the way `CanvasModel.itemIndex` did.
     func test_theCanvasLoadClosuresReadNoChangingViewValue() throws {
-        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
+        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasViewFile)")
         let census = try Self.canvasLoadClosureCensus(of: try String(contentsOf: url, encoding: .utf8),
                                                       extensions: try canvasViewExtensionSources())
 
@@ -4999,7 +5159,7 @@ final class TripwireGrepTests: XCTestCase {
         else { return [] }
         var sources: [String] = []
         for case let url as URL in walker
-        where url.pathExtension == "swift" && url.lastPathComponent != Self.theCanvasSurface {
+        where url.pathExtension == "swift" && url.lastPathComponent != Self.theCanvasViewFile {
             let text = try String(contentsOf: url, encoding: .utf8)
             if Self.codeLines(of: text).contains(where: { $0.contains("extension CanvasView") }) {
                 sources.append(text)
@@ -5103,7 +5263,7 @@ final class TripwireGrepTests: XCTestCase {
         // #57 itself, replayed on the real file: put `rebuildLayouts` back on the
         // view's own index and both scene callbacks must be named. Measured
         // against c64ae740^ too, which reports exactly these two paths.
-        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
+        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasViewFile)")
         let real = try String(contentsOf: url, encoding: .utf8)
         let fix = "index: model.itemIndex,"
         XCTAssertTrue(real.contains(fix),
