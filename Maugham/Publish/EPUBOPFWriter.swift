@@ -114,8 +114,8 @@ public enum EPUBOPFWriter {
         lines.append("</nav>")
         // R-P2-6: the lists of figures and tables, each only when it has an
         // entry, so a book without them ships the nav it always did.
-        lines += listNav(type: "loi", heading: "List of Figures", entries: pkg.listOfFigures)
-        lines += listNav(type: "lot", heading: "List of Tables", entries: pkg.listOfTables)
+        lines += listNav(type: "loi", heading: pkg.listOfFiguresHeading, entries: pkg.listOfFigures)
+        lines += listNav(type: "lot", heading: pkg.listOfTablesHeading, entries: pkg.listOfTables)
         lines.append("</body></html>")
         return lines.joined(separator: "\n")
     }
@@ -124,7 +124,7 @@ public enum EPUBOPFWriter {
                                 entries: [EPUBPackage.ListEntry]) -> [String] {
         guard !entries.isEmpty else { return [] }
         return ["<nav epub:type=\"\(type)\" id=\"\(type)\">",
-                "  <h1>\(heading)</h1>",
+                "  <h1>\(XHTMLEscape.escape(heading))</h1>",
                 "  <ol>"]
             + entries.map {
                 "    <li><a href=\"\(XHTMLEscape.attribute($0.href))\">\(XHTMLEscape.escape($0.title))</a></li>"

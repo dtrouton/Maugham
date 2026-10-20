@@ -786,7 +786,7 @@ final class XHTMLReportElementEmitterTests: XCTestCase {
         let source = book(["Cited [@smith2026]."], research: [smith()])
         let r = try PublishResolution.forCompile(source: source, bodyTag: nil,
                                                  imageAllowed: EPUBCompiler.imageAllowed)
-        XCTAssertEqual(XHTMLBodyEmitter.references(r.references), """
+        XCTAssertEqual(XHTMLBodyEmitter.references(r.references, heading: r.words.references), """
             <section class="references">
             <h1>References</h1>
             <p class="reference">Smith, Jane. 2026. <em>Annual Report</em>.</p>

@@ -176,7 +176,8 @@ public enum PublishProblemGate {
     /// once per body) and resolves it over its book — the edition's (R-S15) —
     /// for one output format's images. A multi-body compile tags each body's
     /// problems with its language (R-P2-8); every body's problems carry it as
-    /// `bodyLanguage` (R-S14).
+    /// `bodyLanguage` (R-S14). Each body is resolved in its own element words,
+    /// chosen here from its folded config and nowhere else (R-S16).
     static func resolve(bodies: [BodyPlan.Body],
                         imageAllowed: Set<String>) throws -> [Body] {
         try bodies.map { body in
@@ -185,7 +186,8 @@ public enum PublishProblemGate {
                 source: body.source, built: ast,
                 bodyTag: bodies.count > 1 ? body.displayTag : nil,
                 imageAllowed: imageAllowed,
-                bodyLanguage: body.tag)
+                bodyLanguage: body.tag,
+                words: ElementWords.forBody(body.config.metadata))
             return Body(ast: ast, resolution: resolution)
         }
     }

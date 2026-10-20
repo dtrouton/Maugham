@@ -453,6 +453,10 @@ emits:
 \providecommand{\st}[1]{#1}
 \providecommand{\hypertarget}[2]{#2}
 \providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\providecommand{\figurename}{}\renewcommand{\figurename}{Figure}
+\providecommand{\tablename}{}\renewcommand{\tablename}{Table}
+\providecommand{\listfigurename}{}\renewcommand{\listfigurename}{List of Figures}
+\providecommand{\listtablename}{}\renewcommand{\listtablename}{List of Tables}
 \ifdefined\MaughamTable\else\ifdefined\longtable
 \newenvironment{MaughamTable}[4]{\begin{longtable}{#1}\caption[{#2}]{#3}\\#4\\\hline\endfirsthead\caption[]{#3}\\#4\\\hline\endhead}{\end{longtable}}
 \else
@@ -479,6 +483,10 @@ emits:
 \providecommand{\st}[1]{#1}
 \providecommand{\hypertarget}[2]{#2}
 \providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\providecommand{\figurename}{}\renewcommand{\figurename}{Figure}
+\providecommand{\tablename}{}\renewcommand{\tablename}{Table}
+\providecommand{\listfigurename}{}\renewcommand{\listfigurename}{List of Figures}
+\providecommand{\listtablename}{}\renewcommand{\listtablename}{List of Tables}
 \begin{prose}{Example}
 \setcounter{figure}{0}
 \begin{figure}[htbp]
@@ -583,6 +591,11 @@ An existing project never receives starter updates, so its preamble may load nei
 - **No graphicx** → a figure keeps its float and caption, and its image becomes its caption in a framed box: `\ifdefined\includegraphics\includegraphics[width=\linewidth]{…}\else\fbox{\parbox{0.9\linewidth}{\centering …}}\fi`.
 - **No `\listoffigures`/`\listoftables`** → the list is skipped (`\ifdefined\listoffigures\listoffigures\clearpage\fi`).
 
+Two limits the guards cannot cover:
+
+- **Two columns.** `longtable` works only in one-column mode: a template that sets the body in two columns (`twocolumn`, or a `multicols` environment around `build/body`) stops on a table with "longtable not in 1-column mode". Such a template defines its own `MaughamTable` (a `table*` float, say), which the guarded definition leaves alone.
+- **Package order.** The packages `build/metadata.tex` brings load where the template inputs it, after anything the preamble loaded first — hyperref included, which prefers to load last. A preamble that needs a fixed order loads graphicx and longtable itself, before hyperref; the `\IfFileExists` lines then load nothing new.
+
 ### The metadata preamble additions
 
 `build/metadata.tex` is read in the **preamble** (the template's `\InputIfFileExists{build/metadata}`), the one place a `\usepackage` can still reach a preamble that predates these elements. For a book with a figure it adds `\IfFileExists{graphicx.sty}{\usepackage{graphicx}}{}`; for a book with a table, `\IfFileExists{longtable.sty}{\usepackage{longtable}}{}`. A book with neither gets exactly the metadata block it always got. A redesigned template that never inputs `build/metadata` falls back to the degradations above.
@@ -603,9 +616,22 @@ Footnotes are numbered continuously across the book, and the PDF prints the reso
 
 With section numbering on, headings are numbered by level across the book, relative to the shallowest heading level the book uses: a book whose sections are `##` reads 1, 2, never 0.1. Three levels are numbered; deeper ones are not. Headings stay starred (`\section*`) with the number printed in the text, because LaTeX's own counter cannot see the whole book. Piece titles are never numbered.
 
+### The words follow the body's language
+
+"Figure", "Table", "Section", "References", "List of Figures" and "List of Tables" are printed in each body's own language: built-in words for English, Spanish, Serbian (Latin script), French, German, Italian and Portuguese, English for any other language, and any word the publish config's `metadata.element_words` names instead (per language through `language_overrides.<tag>.metadata`, under the same keys: `figure`, `table`, `section`, `references`, `list_of_figures`, `list_of_tables`). A cross-reference prints the body's word. So that a caption agrees with it, a body in a book with a figure or a table opens by setting the kernel's names — inside its `MaughamBody` group, so they never reach the next body; in English too, since a template's babel may have renamed them:
+
+```latex
+\providecommand{\figurename}{}\renewcommand{\figurename}{Slika}
+\providecommand{\tablename}{}\renewcommand{\tablename}{Tabela}
+\providecommand{\listfigurename}{}\renewcommand{\listfigurename}{Spisak slika}
+\providecommand{\listtablename}{}\renewcommand{\listtablename}{Spisak tabela}
+```
+
+A template that wants its own caption words sets them in the config, not in the preamble: the body's names win.
+
 ### References and the lists
 
-In a book that cites anything, each body closes with one unnumbered **References** section (`\section*{References}`, added to the contents), listing the book's cited sources only, sorted by in-text name, then year, then title. The lists of figures and tables, when their switches are on and the book has such an element, open the **first** body; a later body of a multi-body book keeps its captions but stays out of the lists.
+In a book that cites anything, each body closes with one unnumbered **References** section (`\section*{References}` in the body's word, added to the contents), listing the book's cited sources only, sorted by in-text name, then year, then title. The lists of figures and tables, when their switches are on and the book has such an element, open the **first** body; a later body of a multi-body book keeps its captions but stays out of the lists.
 
 ### Keep figure and table numbering flat
 

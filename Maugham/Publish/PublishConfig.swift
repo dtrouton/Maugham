@@ -60,6 +60,12 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         public var year: Int?
         public var language: String
         public var keywords: [String]
+        /// R-S16: the words this book's report elements print, each over the
+        /// built-in word for `language` (`ElementWords.forBody`). Nil — the
+        /// default — is the table's words throughout. A translated body sets
+        /// its own through `language_overrides.<tag>.metadata`, flat, under
+        /// the same keys (`effectiveMetadata(language:)`).
+        public var elementWords: ElementWordsOverride?
 
         public init(
             title: String = "Untitled",
@@ -70,7 +76,8 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             publisher: String? = nil,
             year: Int? = nil,
             language: String = "en",
-            keywords: [String] = []
+            keywords: [String] = [],
+            elementWords: ElementWordsOverride? = nil
         ) {
             self.title = title
             self.subtitle = subtitle
@@ -81,6 +88,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             self.year = year
             self.language = language
             self.keywords = keywords
+            self.elementWords = elementWords
         }
 
         // Custom encode: optional fields are emitted as explicit null
@@ -96,11 +104,69 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             try c.encodeAlways(year, forKey: .year)
             try c.encode(language, forKey: .language)
             try c.encode(keywords, forKey: .keywords)
+            try c.encodeAlways(elementWords, forKey: .elementWords)
         }
 
         enum CodingKeys: String, CodingKey {
             case title, subtitle, author, copyright, isbn
             case publisher, year, language, keywords
+            case elementWords = "element_words"
+        }
+    }
+
+    /// R-S16: `metadata.element_words` — each word a body's report elements
+    /// print in place of the built-in one for its language. Every key is
+    /// optional and a missing one keeps the built-in word; `keys` names them
+    /// as they are spelled here and in a `language_overrides` entry.
+    public struct ElementWordsOverride: Codable, Equatable, Sendable {
+        public var figure: String?
+        public var table: String?
+        public var section: String?
+        public var references: String?
+        public var listOfFigures: String?
+        public var listOfTables: String?
+
+        public init(figure: String? = nil, table: String? = nil, section: String? = nil,
+                    references: String? = nil, listOfFigures: String? = nil,
+                    listOfTables: String? = nil) {
+            self.figure = figure
+            self.table = table
+            self.section = section
+            self.references = references
+            self.listOfFigures = listOfFigures
+            self.listOfTables = listOfTables
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeAlways(figure, forKey: .figure)
+            try c.encodeAlways(table, forKey: .table)
+            try c.encodeAlways(section, forKey: .section)
+            try c.encodeAlways(references, forKey: .references)
+            try c.encodeAlways(listOfFigures, forKey: .listOfFigures)
+            try c.encodeAlways(listOfTables, forKey: .listOfTables)
+        }
+
+        /// The one spelling of the keys, for `metadata.element_words` and for
+        /// a `language_overrides` entry's flat metadata alike.
+        enum CodingKeys: String, CodingKey, CaseIterable {
+            case figure, table, section, references
+            case listOfFigures = "list_of_figures"
+            case listOfTables = "list_of_tables"
+        }
+
+        /// Sets the word a key names; false for a key that names none.
+        mutating func set(_ key: String, to value: String) -> Bool {
+            switch CodingKeys(rawValue: key) {
+            case .figure?: figure = value
+            case .table?: table = value
+            case .section?: section = value
+            case .references?: references = value
+            case .listOfFigures?: listOfFigures = value
+            case .listOfTables?: listOfTables = value
+            case nil: return false
+            }
+            return true
         }
     }
 
@@ -392,11 +458,21 @@ public struct PublishConfig: Codable, Equatable, Sendable {
     /// - otherwise: `metadata` with its `language` set to the tag (dc:language),
     ///   then the `languageOverrides[language]` dict applied over the known keys.
     ///   An explicit `language` key in the override dict wins over the raw tag.
+    ///   R-S16: the book's `element_words` are in the book's language, so a
+    ///   body in another language drops them; the override dict's
+    ///   `ElementWordsOverride` keys (`figure`, `list_of_tables`, …) set that
+    ///   body's own.
     public func effectiveMetadata(language: String?) -> Metadata {
         guard let language else { return metadata }
         var m = metadata
         m.language = language
-        guard let override = languageOverrides[language]?.metadata else { return m }
+        let override = languageOverrides[language]?.metadata ?? [:]
+        if let v = override["language"] { m.language = v }
+        if m.language != metadata.language { m.elementWords = nil }
+        for (key, value) in override {
+            var words = m.elementWords ?? ElementWordsOverride()
+            if words.set(key, to: value) { m.elementWords = words }
+        }
         if let v = override["title"]     { m.title = v }
         if let v = override["subtitle"]  { m.subtitle = v }
         if let v = override["author"]    { m.author = v }
@@ -404,7 +480,6 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         if let v = override["isbn"]      { m.isbn = v }
         if let v = override["publisher"] { m.publisher = v }
         if let v = override["year"], let y = Int(v) { m.year = y }  // unparseable ignored
-        if let v = override["language"]  { m.language = v }         // explicit key beats tag
         if let v = override["keywords"] {
             m.keywords = v.split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces) }

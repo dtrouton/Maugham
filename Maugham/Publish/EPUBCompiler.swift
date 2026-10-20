@@ -135,6 +135,8 @@ public struct EPUBCompiler {
         var images: [EPUBPackage.Image] = []
         var listOfFigures: [EPUBPackage.ListEntry] = []
         var listOfTables: [EPUBPackage.ListEntry] = []
+        var listHeadings = (figures: ElementWords.english.listOfFigures,
+                            tables: ElementWords.english.listOfTables)
         // Resolved for ALL bodies before any of them is emitted: a slugline
         // links to the SAME piece in every OTHER body, so a body cannot be
         // emitted knowing only its own tag.
@@ -182,8 +184,9 @@ public struct EPUBCompiler {
                 ownSections.append(EPUBPackage.Section(
                     id: bodies.count == 1 ? "refs" : "refs-\(tag)",
                     filename: Self.referencesFilename(tag: tag, bodyCount: bodies.count),
-                    title: "References",
-                    xhtmlBody: XHTMLBodyEmitter.references(resolution.references),
+                    title: resolution.words.references,
+                    xhtmlBody: XHTMLBodyEmitter.references(resolution.references,
+                                                           heading: resolution.words.references),
                     language: body.displayTag))
             }
             sections.append(contentsOf: ownSections)
@@ -192,6 +195,7 @@ public struct EPUBCompiler {
             // R-P2-6: the lists are the FIRST body's — a later body captions
             // the same numbers, and would list every element twice.
             if index == 0 {
+                listHeadings = (resolution.words.listOfFigures, resolution.words.listOfTables)
                 let idTag = bodies.count > 1 ? tag : nil
                 listOfFigures = Self.listEntries(.fig, resolution.listOfFigures, resolution: resolution,
                                                  emittedPieces: pieces, tag: tag, idTag: idTag,
@@ -258,7 +262,8 @@ public struct EPUBCompiler {
                 compiledAtISO8601: ISO8601DateFormatter().string(from: Date())),
             sections: sections, cover: cover, stylesheetCSS: css,
             languages: languages, images: images,
-            listOfFigures: listOfFigures, listOfTables: listOfTables)
+            listOfFigures: listOfFigures, listOfTables: listOfTables,
+            listOfFiguresHeading: listHeadings.figures, listOfTablesHeading: listHeadings.tables)
 
         if let id = jobID {
             await jobManager.updatePhase(jobID: id, phase: .compiling)

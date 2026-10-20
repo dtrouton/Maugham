@@ -213,6 +213,42 @@ final class ReportEPUBTests: XCTestCase {
         XCTAssertFalse(nav.contains("epub:type=\"lot\""), nav)
     }
 
+    // MARK: element words (R-S16)
+
+    /// The Serbian body of an en+sr edition captions, refers and titles its
+    /// References in Serbian; the nav's lists are the first body's, in English.
+    func test_aSerbianBody_figcaptionAndCrossReferenceReadSlika() async throws {
+        let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
+        let source = ProjectStoreASTSource(projectStore: store)
+        let bodies = [nil, "sr"].map { tag -> BodyPlan.Body in
+            var folded = config
+            folded.metadata = config.effectiveMetadata(language: tag)
+            return BodyPlan.Body(tag: tag, displayTag: tag ?? "en", source: source, config: folded)
+        }
+        let compiler = try EPUBCompiler(
+            projectURL: store.url, bodies: bodies, config: config, jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a", identity: "en+sr")
+        let result = try await compiler.compile(label: "words")
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
+        let epub = URL(fileURLWithPath: result.outputPath)
+
+        let one = try epubEntryText("OEBPS/section-sr-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(one.contains(#"<span class="caption-number">Slika 1.</span> Revenue &amp; cost"#), one)
+        XCTAssertTrue(one.contains(#"<span class="caption-number">Tabela 1.</span> Sales by quarter"#), one)
+        let two = try epubEntryText("OEBPS/section-sr-002.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(two.contains(#"<a href="section-sr-001.xhtml#lbl-sr-fig-rev">Slika 1</a>"#), two)
+        XCTAssertTrue(two.contains(#">Tabela 1</a>"#) && two.contains(#">Odeljak 1</a>"#), two)
+        XCTAssertFalse(one.contains("Figure") || two.contains("Figure"), "no English words in the sr body")
+        let refs = try epubEntryText("OEBPS/references-sr.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(refs.contains("<h1>Literatura</h1>"), refs)
+        let nav = try epubEntryText("OEBPS/nav.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(nav.contains(#"<a href="references-sr.xhtml">Literatura</a>"#), nav)
+        XCTAssertTrue(nav.contains("<h1>List of Figures</h1>") && nav.contains("Figure 1. Revenue"), nav)
+        let en = try epubEntryText("OEBPS/section-en-002.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(en.contains(">Figure 1</a>"), en)
+        _ = try assertEveryLinkLands(in: epub)
+    }
+
     // MARK: link integrity
 
     /// Compiles the fixture as two bodies (`en`, `sr`) over the same source,

@@ -46,6 +46,7 @@ public enum LaTeXBodyEmitter {
                             isFirstBody: Bool = true) -> String {
         var lines: [String] = prologue
         if let resolution {
+            lines += captionNames(resolution)
             if ast.sections.contains(where: { $0.nodes.contains(where: isTable) }) {
                 lines += tableEnvironments
             }
@@ -67,9 +68,27 @@ public enum LaTeXBodyEmitter {
                  anchorTag: anchorTag, crossLinkTags: crossLinkTags, scope: scope, into: &lines)
         }
         if let resolution, !resolution.references.isEmpty {
-            lines += references(resolution.references)
+            lines += references(resolution.references, heading: resolution.words.references)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// R-S16: the caption and list names the kernel prints — `\figurename`,
+    /// `\tablename`, `\listfigurename`, `\listtablename` — set to the body's
+    /// words, so "Slika 1" under a figure agrees with the "Slika 1" that
+    /// refers to it. Each is provided first (a class may lack it). English is
+    /// set too: a template's babel may have renamed them. The body is read
+    /// inside its `MaughamBody` group, so the names never leak into the next
+    /// body. Only for a book with a figure or a table — the lists exist only
+    /// then — so every other body keeps its bytes.
+    private static func captionNames(_ resolution: PublishResolution) -> [String] {
+        guard !resolution.figureNumbers.isEmpty || !resolution.tableNumbers.isEmpty else { return [] }
+        let words = resolution.words
+        return [("figurename", words.figure), ("tablename", words.table),
+                ("listfigurename", words.listOfFigures), ("listtablename", words.listOfTables)]
+            .map { name, word in
+                "\\providecommand{\\\(name)}{}\\renewcommand{\\\(name)}{\(LaTeXEscape.escape(word))}"
+            }
     }
 
     private static func isTable(_ node: ProjectAST.Node) -> Bool {
@@ -190,11 +209,12 @@ public enum LaTeXBodyEmitter {
 
     /// R-P2-5: one unnumbered section closing the body, in the contents, its
     /// entries a hanging-indent list built only from kernel commands.
-    private static func references(_ entries: [[CitationStyle.Run]]) -> [String] {
+    private static func references(_ entries: [[CitationStyle.Run]], heading: String) -> [String] {
+        let heading = LaTeXEscape.escape(heading)
         var out = [
             "\\clearpage",
-            "\\section*{References}",
-            "\\addcontentsline{toc}{section}{References}",
+            "\\section*{\(heading)}",
+            "\\addcontentsline{toc}{section}{\(heading)}",
             "\\begingroup",
             "\\setlength{\\parindent}{0pt}",
             "\\setlength{\\parskip}{0.5em}",
@@ -412,7 +432,7 @@ public enum LaTeXBodyEmitter {
             let number = index.flatMap { resolution.headingNumbers[scope.pieceID]?[$0] }
             let prefix = number.map { "\($0)\\quad " } ?? ""
             if let index, let a = scope.anchor(label, kind: .sec, index: index,
-                                               text: number.map { "Section \($0)" }) {
+                                               text: number.map { "\(resolution.words.section) \($0)" }) {
                 out.append(a)
             }
             out.append("\\\(cmd)*{\(prefix)\(emitInline(headingInlines, scope, deferred: true))}")
@@ -491,7 +511,8 @@ public enum LaTeXBodyEmitter {
         }
         openUnlisted(scope, into: &out)
         out.append("\\setcounter{table}{\(number - 1)}")
-        if let a = scope.anchor(label, kind: .tbl, index: index, text: "Table \(number)") {
+        if let a = scope.anchor(label, kind: .tbl, index: index,
+                                text: scope.resolution.map { "\($0.words.table) \(number)" }) {
             out.append(a)
         }
         // R-S9: captioned or not, the table prints "Table n".
@@ -516,7 +537,8 @@ public enum LaTeXBodyEmitter {
         out.append("\\setcounter{figure}{\(number - 1)}")
         out.append("\\begin{figure}[htbp]")
         out.append("\\centering")
-        if let a = scope.anchor(label, kind: .fig, index: index, text: "Figure \(number)") {
+        if let a = scope.anchor(label, kind: .fig, index: index,
+                                text: scope.resolution.map { "\($0.words.figure) \(number)" }) {
             out.append(a)
         }
         out.append("\\ifdefined\\includegraphics\\includegraphics[width=\\linewidth]{\(file)}"

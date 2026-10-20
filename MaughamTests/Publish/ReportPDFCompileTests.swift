@@ -241,4 +241,68 @@ final class ReportPDFCompileTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(text.components(separatedBy: "Revenue by quarter").count - 1, 3,
                                     "the framed box, the caption and the list of figures: \(text)")
     }
+
+    // MARK: - element words (R-S16)
+
+    /// The bodies of an en+sr edition, each folded to its language as
+    /// `BodyPlan` folds them, over the same text.
+    private func bilingualBodies(_ config: PublishConfig) -> [BodyPlan.Body] {
+        let source = ProjectStoreASTSource(projectStore: store)
+        return [nil, "sr"].map { tag -> BodyPlan.Body in
+            var folded = config
+            folded.metadata = config.effectiveMetadata(language: tag)
+            return BodyPlan.Body(tag: tag, displayTag: tag ?? "en", source: source, config: folded)
+        }
+    }
+
+    /// The pages of the compiled PDF, each as whitespace-folded text.
+    private func pages(of result: PDFCompiler.Result) throws -> [String] {
+        let doc = try XCTUnwrap(PDFDocument(url: URL(fileURLWithPath: result.outputPath)))
+        return (0..<doc.pageCount).map { i in
+            (doc.page(at: i)?.string ?? "").components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+    }
+
+    /// A Serbian body's caption (the kernel's `\figurename`) and its
+    /// cross-reference (the resolution's text) both read "Slika 1"; the
+    /// English body before it still reads "Figure 1" in both, and the
+    /// Serbian names do not leak back into it.
+    func test_aSerbianBody_readsSlikaInItsCaptionAndItsCrossReference() async throws {
+        let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
+        let compiler = try PDFCompiler(
+            projectURL: store.url, bodies: bilingualBodies(config), config: config,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test", identity: "en+sr")
+        let result = try await compiler.compile(label: "bilingual")
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))\n\(result.logExcerpt.suffix(3000))")
+        let pages = try pages(of: result)
+        let firstSerbian = try XCTUnwrap(pages.firstIndex { $0.contains("Slika") }, pages.joined(separator: "\n---\n"))
+        let en = pages[..<firstSerbian].joined(separator: " ")
+        let sr = pages[firstSerbian...].joined(separator: " ")
+
+        XCTAssertTrue(sr.contains("Slika 1:"), "the caption: \(sr)")
+        XCTAssertTrue(sr.contains("See Slika 1, Tabela 1 and Odeljak 1.1"), "the cross-references: \(sr)")
+        XCTAssertTrue(sr.contains("Tabela 1:") && sr.contains("Literatura"), sr)
+        XCTAssertFalse(sr.contains("Figure") || sr.contains("References"), "no English in the Serbian body: \(sr)")
+
+        XCTAssertTrue(en.contains("Figure 1:") && en.contains("See Figure 1, Table 1 and Section 1.1"), en)
+        XCTAssertTrue(en.contains("List of Figures") && en.contains("References"), en)
+        XCTAssertFalse(en.contains("Slika") || en.contains("Tabela"), "the English body: \(en)")
+        let tex = try String(contentsOf: publish.appendingPathComponent("build/body.sr.tex"), encoding: .utf8)
+        XCTAssertTrue(tex.contains("\\renewcommand{\\figurename}{Slika}"), "premise: set in the body")
+    }
+
+    /// A word the config names wins over the table, in the real PDF too.
+    func test_aConfigOverride_winsOverTheTableInThePDF() async throws {
+        var config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
+        config.languageOverrides["sr"] = .init(metadata: ["figure": "Grafikon"])
+        let compiler = try PDFCompiler(
+            projectURL: store.url, bodies: bilingualBodies(config), config: config,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test", identity: "en+sr")
+        let result = try await compiler.compile(label: "override")
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
+        let text = try pages(of: result).joined(separator: " ")
+        XCTAssertTrue(text.contains("Grafikon 1:") && text.contains("See Grafikon 1, Tabela 1"), text)
+        XCTAssertFalse(text.contains("Slika"), text)
+    }
 }

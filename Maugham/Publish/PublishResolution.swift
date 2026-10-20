@@ -26,9 +26,9 @@ public struct PublishResolution: Sendable {
     public struct Target: Sendable, Equatable {
         public let pieceID: String
         public let paragraphID: String?
-        /// "Figure 3", "Table 2", "Section 1.2", or a heading's own text when
-        /// it has no number (`numberSections` off, or deeper than the three
-        /// shallowest heading levels the book uses).
+        /// "Figure 3", "Table 2", "Section 1.2" — in the body's `words` — or
+        /// a heading's own text when it has no number (`numberSections` off,
+        /// or deeper than the three shallowest heading levels the book uses).
         public let text: String
 
         public init(pieceID: String, paragraphID: String?, text: String) {
@@ -76,6 +76,10 @@ public struct PublishResolution: Sendable {
     public let listOfFigures: [ListEntry]
     /// Every table, in book order; empty when the switch is off (R-P2-6).
     public let listOfTables: [ListEntry]
+    /// R-S16: the body's element words (`ElementWords.forBody`), which every
+    /// target text above is spelled in; the emitters print captions, the
+    /// References heading and the lists' headings from them too.
+    public let words: ElementWords
     public private(set) var problems: [PublishProblem]
     /// pieceID → node index → the figure's path as written and its `¶id`, so a
     /// staging failure can name both.
@@ -122,10 +126,12 @@ public struct PublishResolution: Sendable {
     /// does (RULING-54).
     public static func forCompile(source: ProjectASTBuilder.Source, bodyTag: String?,
                                   imageAllowed: Set<String>,
-                                  bodyLanguage: String? = nil) throws -> PublishResolution {
+                                  bodyLanguage: String? = nil,
+                                  words: ElementWords = .english) throws -> PublishResolution {
         let scope = source.resolutionScope
         return resolve(try ProjectASTBuilder.build(from: scope), context: scope.publishContext(),
-                       bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage)
+                       bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage,
+                       words: words)
     }
 
     /// `forCompile`, given the AST the compiler already built from `source`
@@ -135,21 +141,27 @@ public struct PublishResolution: Sendable {
     /// builds its whole book.
     public static func forCompile(source: ProjectASTBuilder.Source, built ast: ProjectAST,
                                   bodyTag: String?, imageAllowed: Set<String>,
-                                  bodyLanguage: String? = nil) throws -> PublishResolution {
+                                  bodyLanguage: String? = nil,
+                                  words: ElementWords = .english) throws -> PublishResolution {
         guard source.isWholeBook else {
             return try forCompile(source: source, bodyTag: bodyTag, imageAllowed: imageAllowed,
-                                  bodyLanguage: bodyLanguage)
+                                  bodyLanguage: bodyLanguage, words: words)
         }
         return resolve(ast, context: source.resolutionScope.publishContext(),
-                       bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage)
+                       bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage,
+                       words: words)
     }
 
-    /// - Parameter imageAllowed: the output's lowercase image extensions (R-P2-7).
+    /// - Parameters:
+    ///   - imageAllowed: the output's lowercase image extensions (R-P2-7).
+    ///   - words: the body's element words (R-S16); English when a caller has
+    ///     no body to ask (tests, the emission contract).
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
                                imageAllowed: Set<String>,
-                               bodyLanguage: String? = nil) -> PublishResolution {
+                               bodyLanguage: String? = nil,
+                               words: ElementWords = .english) -> PublishResolution {
         var pass = Pass(context: context, bodyTag: bodyTag, imageAllowed: imageAllowed,
-                        bodyLanguage: bodyLanguage)
+                        bodyLanguage: bodyLanguage, words: words)
         pass.headingBase = ast.sections.flatMap(\.nodes).compactMap { node -> Int? in
             guard case .prose(.heading(let level, _, _)) = node else { return nil }
             return level
@@ -176,6 +188,7 @@ public struct PublishResolution: Sendable {
         self.referenceKeys = referenceKeys
         listOfFigures = switches.listOfFigures ? pass.figures : []
         listOfTables = switches.listOfTables ? pass.tables : []
+        words = pass.words
         problems = pass.problems
     }
 }
@@ -187,6 +200,7 @@ private struct Pass {
     let bodyTag: String?
     let imageAllowed: Set<String>
     let bodyLanguage: String?
+    let words: ElementWords
 
     var targets: [ManuscriptLabel: PublishResolution.Target] = [:]
     var headingNumbers: [String: [Int: String]] = [:]
@@ -213,7 +227,8 @@ private struct Pass {
     private var citations: [[CitationItem]] = []
 
     init(context: PublishContext, bodyTag: String?, imageAllowed: Set<String>,
-         bodyLanguage: String?) {
+         bodyLanguage: String?, words: ElementWords) {
+        self.words = words
         self.context = context
         self.bodyTag = bodyTag
         self.imageAllowed = imageAllowed
@@ -236,21 +251,21 @@ private struct Pass {
                 var text = PlainText.of(inlines)
                 if context.switches.numberSections, let number = headingNumber(level: level) {
                     headingNumbers[piece, default: [:]][index] = number
-                    text = "Section \(number)"
+                    text = "\(words.section) \(number)"
                 }
                 register(label, expected: .sec, target: target(text), piece: piece, paragraph: paragraph)
                 if label == nil { checkMalformed(inlines, piece: piece, paragraph: paragraph) }
             case .table(_, _, _, let caption, let label):
                 let number = tables.count + 1
                 tableNumbers[piece, default: [:]][index] = number
-                let t = target("Table \(number)")
+                let t = target("\(words.table) \(number)")
                 tables.append((number, caption ?? [], t))
                 register(label, expected: .tbl, target: t, piece: piece, paragraph: paragraph)
                 if label == nil, let caption { checkMalformed(caption, piece: piece, paragraph: paragraph) }
             case .figure(let caption, let path, let label):
                 let number = figures.count + 1
                 figureNumbers[piece, default: [:]][index] = number
-                let t = target("Figure \(number)")
+                let t = target("\(words.figure) \(number)")
                 figures.append((number, caption, t))
                 register(label, expected: .fig, target: t, piece: piece, paragraph: paragraph)
                 resolveImage(path, piece: piece, index: index, paragraph: paragraph)

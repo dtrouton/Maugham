@@ -79,18 +79,11 @@ public enum XHTMLBodyEmitter {
         return owned.map { labelID($0, tag: tag) } ?? elementID(kind, number: number, tag: tag)
     }
 
-    /// A figure's or table's target, as the resolution built it.
+    /// A figure's or table's target, as the resolution built it — in its
+    /// words (R-S16).
     static func elementTarget(_ kind: ManuscriptLabel.Kind, number: Int, pieceID: String,
-                              paragraphID: String?) -> PublishResolution.Target {
-        .init(pieceID: pieceID, paragraphID: paragraphID, text: "\(captionWord(kind)) \(number)")
-    }
-
-    private static func captionWord(_ kind: ManuscriptLabel.Kind) -> String {
-        switch kind {
-        case .fig: return "Figure"
-        case .tbl: return "Table"
-        case .sec: return "Section"
-        }
+                              paragraphID: String?, words: ElementWords) -> PublishResolution.Target {
+        .init(pieceID: pieceID, paragraphID: paragraphID, text: "\(words.word(for: kind)) \(number)")
     }
 
     /// "Figure 3. Revenue by quarter" — "Figure 3." alone for an empty
@@ -99,15 +92,16 @@ public enum XHTMLBodyEmitter {
     static func listTitle(_ kind: ManuscriptLabel.Kind, number: Int, caption: [ProjectAST.Inline],
                           resolution: PublishResolution, pieceID: String) -> String {
         let text = plainText(caption, resolution: resolution, pieceID: pieceID)
-        return "\(captionWord(kind)) \(number)." + (text.isEmpty ? "" : " " + text)
+        return "\(resolution.words.word(for: kind)) \(number)." + (text.isEmpty ? "" : " " + text)
     }
 
     // MARK: - References
 
     /// R-P2-5: a body's References, the body of its own section file
-    /// (`references.xhtml`), one paragraph per cited source.
-    static func references(_ entries: [[CitationStyle.Run]]) -> String {
-        var out = ["<section class=\"references\">", "<h1>References</h1>"]
+    /// (`references.xhtml`), one paragraph per cited source, under the
+    /// body's word for it (`ElementWords.references`).
+    static func references(_ entries: [[CitationStyle.Run]], heading: String) -> String {
+        var out = ["<section class=\"references\">", "<h1>\(XHTMLEscape.escape(heading))</h1>"]
         for runs in entries {
             let text = runs.map { run in
                 run.italic ? "<em>\(XHTMLEscape.escape(run.text))</em>" : XHTMLEscape.escape(run.text)
@@ -165,7 +159,8 @@ public enum XHTMLBodyEmitter {
             XHTMLBodyEmitter.elementAddress(
                 kind, number: number,
                 target: XHTMLBodyEmitter.elementTarget(kind, number: number, pieceID: pieceID,
-                                                       paragraphID: section.nodeParagraphs[index]),
+                                                       paragraphID: section.nodeParagraphs[index],
+                                                       words: resolution.words),
                 resolution: resolution, tag: idTag)
         }
     }
@@ -332,7 +327,7 @@ public enum XHTMLBodyEmitter {
             var content = (number.map { "<span class=\"section-number\">\($0)</span> " } ?? "")
                 + emitInline(headingInlines, scope)
             if let index, let owned = scope.ownedHeadingLabel(label, index: index,
-                                                              text: number.map { "Section \($0)" }) {
+                                                              text: number.map { "\(resolution.words.section) \($0)" }) {
                 content = "<span id=\"\(XHTMLEscape.attribute(labelID(owned, tag: scope.idTag)))\">\(content)</span>"
             }
             out.append("<\(tag)\(idAttribute(anchor))>\(content)</\(tag)>")
@@ -361,7 +356,7 @@ public enum XHTMLBodyEmitter {
                     caption: caption, label: label)), index: nil, anchor: anchor, scope: scope, into: &out)
                 return
             }
-            emitTable(number: n, address: scope.address(.tbl, number: n, index: index, resolution: resolution),
+            emitTable(number: n, word: resolution.words.table, address: scope.address(.tbl, number: n, index: index, resolution: resolution),
                       header: header, alignments: alignments, rows: rows, caption: caption ?? [],
                       anchor: anchor, scope: scope, into: &out)
         case .figure(let caption, let path, let label):
@@ -383,8 +378,8 @@ public enum XHTMLBodyEmitter {
             let alt = plainText(caption, resolution: resolution, pieceID: scope.pieceID)
             out.append("<figure\(idAttribute(anchor))>")
             out.append("<img id=\"\(XHTMLEscape.attribute(address))\" src=\"\(XHTMLEscape.attribute(file))\""
-                       + " alt=\"\(XHTMLEscape.attribute(alt.isEmpty ? "Figure \(n)" : alt))\"/>")
-            out.append("<figcaption>\(captionHTML("Figure", number: n, caption, scope))</figcaption>")
+                       + " alt=\"\(XHTMLEscape.attribute(alt.isEmpty ? "\(resolution.words.figure) \(n)" : alt))\"/>")
+            out.append("<figcaption>\(captionHTML(resolution.words.figure, number: n, caption, scope))</figcaption>")
             out.append("</figure>")
         }
     }
@@ -395,14 +390,14 @@ public enum XHTMLBodyEmitter {
     private static func captionHTML(_ word: String, number: Int, _ caption: [ProjectAST.Inline],
                                     _ scope: Scope) -> String {
         let text = emitInline(caption, scope)
-        return "<span class=\"caption-number\">\(word) \(number).</span>" + (text.isEmpty ? "" : " " + text)
+        return "<span class=\"caption-number\">\(XHTMLEscape.escape(word)) \(number).</span>" + (text.isEmpty ? "" : " " + text)
     }
 
     /// `<table>` with its numbered `<caption>` (which carries the table's own
     /// id), a `<thead>` from the header row and a `<tbody>`. Every row has the
     /// header's column count: a short row is padded, a long one cut, as the
     /// PDF's are. An aligned column's cells say so in `style`.
-    private static func emitTable(number: Int, address: String, header: [[ProjectAST.Inline]],
+    private static func emitTable(number: Int, word: String, address: String, header: [[ProjectAST.Inline]],
                                   alignments: [TableAlignment], rows: [[[ProjectAST.Inline]]],
                                   caption: [ProjectAST.Inline], anchor: Anchor?,
                                   scope: Scope, into out: inout [String]) {
@@ -424,7 +419,7 @@ public enum XHTMLBodyEmitter {
         }
         out.append("<table\(idAttribute(anchor))>")
         out.append("<caption id=\"\(XHTMLEscape.attribute(address))\">"
-                   + captionHTML("Table", number: number, caption, scope) + "</caption>")
+                   + captionHTML(word, number: number, caption, scope) + "</caption>")
         out.append("<thead>")
         out.append(row(header, "th"))
         out.append("</thead>")

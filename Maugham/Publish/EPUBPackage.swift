@@ -129,6 +129,9 @@ public struct EPUBPackage: Sendable {
     /// The nav's `epub:type="loi"` / `"lot"` entries; empty → no such nav.
     public let listOfFigures: [ListEntry]
     public let listOfTables: [ListEntry]
+    /// The lists' headings, in the first body's words (R-S16).
+    public let listOfFiguresHeading: String
+    public let listOfTablesHeading: String
 
     public init(
         metadata: Metadata,
@@ -138,7 +141,9 @@ public struct EPUBPackage: Sendable {
         languages: [String] = [],
         images: [Image] = [],
         listOfFigures: [ListEntry] = [],
-        listOfTables: [ListEntry] = []
+        listOfTables: [ListEntry] = [],
+        listOfFiguresHeading: String = ElementWords.english.listOfFigures,
+        listOfTablesHeading: String = ElementWords.english.listOfTables
     ) {
         self.metadata = metadata
         self.sections = sections
@@ -149,5 +154,7 @@ public struct EPUBPackage: Sendable {
         self.images = images.filter { seen.insert($0.filename).inserted }
         self.listOfFigures = listOfFigures
         self.listOfTables = listOfTables
+        self.listOfFiguresHeading = listOfFiguresHeading
+        self.listOfTablesHeading = listOfTablesHeading
     }
 }

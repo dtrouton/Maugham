@@ -259,6 +259,20 @@ public enum EmissionContract {
     - **No `\\listoffigures`/`\\listoftables`** → the list is skipped \
     (`\\ifdefined\\listoffigures\\listoffigures\\clearpage\\fi`).
 
+    Two limits the guards cannot cover:
+
+    - **Two columns.** `longtable` works only in one-column mode: a \
+    template that sets the body in two columns (`twocolumn`, or a \
+    `multicols` environment around `build/body`) stops on a table with \
+    "longtable not in 1-column mode". Such a template defines its own \
+    `MaughamTable` (a `table*` float, say), which the guarded definition \
+    leaves alone.
+    - **Package order.** The packages `build/metadata.tex` brings load where \
+    the template inputs it, after anything the preamble loaded first — \
+    hyperref included, which prefers to load last. A preamble that needs a \
+    fixed order loads graphicx and longtable itself, before hyperref; the \
+    `\\IfFileExists` lines then load nothing new.
+
     ### The metadata preamble additions
 
     `build/metadata.tex` is read in the **preamble** (the template's \
@@ -312,11 +326,36 @@ public enum EmissionContract {
     with the number printed in the text, because LaTeX's own counter cannot \
     see the whole book. Piece titles are never numbered.
 
+    ### The words follow the body's language
+
+    "Figure", "Table", "Section", "References", "List of Figures" and \
+    "List of Tables" are printed in each body's own language: built-in \
+    words for English, Spanish, Serbian (Latin script), French, German, \
+    Italian and Portuguese, English for any other language, and any word the \
+    publish config's `metadata.element_words` names instead (per language \
+    through `language_overrides.<tag>.metadata`, under the same keys: \
+    `figure`, `table`, `section`, `references`, `list_of_figures`, \
+    `list_of_tables`). A cross-reference prints the body's word. So that a \
+    caption agrees with it, a body in a book with a figure or a table opens \
+    by setting the kernel's names — inside its `MaughamBody` group, so they \
+    never reach the next body; in English too, since a template's babel may \
+    have renamed them:
+
+    ```latex
+    \\providecommand{\\figurename}{}\\renewcommand{\\figurename}{Slika}
+    \\providecommand{\\tablename}{}\\renewcommand{\\tablename}{Tabela}
+    \\providecommand{\\listfigurename}{}\\renewcommand{\\listfigurename}{Spisak slika}
+    \\providecommand{\\listtablename}{}\\renewcommand{\\listtablename}{Spisak tabela}
+    ```
+
+    A template that wants its own caption words sets them in the config, \
+    not in the preamble: the body's names win.
+
     ### References and the lists
 
     In a book that cites anything, each body closes with one unnumbered \
-    **References** section (`\\section*{References}`, added to the \
-    contents), listing the book's cited sources only, sorted by in-text name, then year, then title. The \
+    **References** section (`\\section*{References}` in the body's word, \
+    added to the contents), listing the book's cited sources only, sorted by in-text name, then year, then title. The \
     lists of figures and tables, when their switches are on and the book has \
     such an element, open the **first** body; a later body of a multi-body \
     book keeps its captions but stays out of the lists.
