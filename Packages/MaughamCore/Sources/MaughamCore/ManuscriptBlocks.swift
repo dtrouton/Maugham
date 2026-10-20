@@ -5,11 +5,14 @@ import Foundation
 /// and every other `MarkdownBlock` passed through unchanged.
 /// A label may be of the wrong kind for its element; it is kept on purpose so
 /// the index can diagnose it.
+/// A table column's alignment, read from the delimiter row.
+public enum TableAlignment: Sendable, Equatable { case none, leading, center, trailing }
+
 public enum ManuscriptBlock: Equatable, Sendable {
     /// An ATX heading; `label` comes from a trailing `{#kind:name}`.
     case heading(level: Int, text: String, label: ManuscriptLabel?)
     /// A pipe table; `caption` and `label` come from the `Table:` line under it.
-    case table(header: [String], rows: [[String]], caption: String?, label: ManuscriptLabel?)
+    case table(header: [String], alignments: [TableAlignment], rows: [[String]], caption: String?, label: ManuscriptLabel?)
     /// `![caption](path)` alone on a line. The path is not validated; the
     /// index judges it.
     case figure(caption: String, path: String, label: ManuscriptLabel?)
@@ -37,19 +40,20 @@ public enum ManuscriptBlocks {
                 out.append((.heading(level: level, text: split.text, label: split.label), lines))
 
             case .table(let header, var rows, let rawLines):
+                let aligns = alignments(rawLines, count: header.count)
                 // The parser keeps a `Table: a | b` caption as a row; take it back.
                 if !rows.isEmpty, let last = rawLines.last,
                    let caption = captionLine(last) {
                     rows.removeLast()
-                    out.append((.table(header: header, rows: rows,
+                    out.append((.table(header: header, alignments: aligns, rows: rows,
                                        caption: caption.text, label: caption.label), lines))
                 } else if i < base.count, let caption = tableCaption(base[i], after: lines) {
-                    out.append((.table(header: header, rows: rows,
+                    out.append((.table(header: header, alignments: aligns, rows: rows,
                                        caption: caption.text, label: caption.label),
                                 lines.lowerBound..<base[i].lines.upperBound))
                     i += 1
                 } else {
-                    out.append((.table(header: header, rows: rows, caption: nil, label: nil), lines))
+                    out.append((.table(header: header, alignments: aligns, rows: rows, caption: nil, label: nil), lines))
                 }
 
             case .soloImage(_, _, let rawLine):
@@ -70,6 +74,23 @@ public enum ManuscriptBlocks {
                 out.append((.other(block), lines))
             }
         }
+        return out
+    }
+
+    /// One alignment per header column from the delimiter row (`rawLines[1]`),
+    /// padded with `.none` or truncated to `count`.
+    static func alignments(_ rawLines: [String], count: Int) -> [TableAlignment] {
+        let cells = rawLines.count > 1
+            ? MarkdownBlockParser.splitTableRow(rawLines[1].trimmingCharacters(in: .whitespaces)) : []
+        var out = cells.prefix(count).map { cell -> TableAlignment in
+            switch (cell.hasPrefix(":"), cell.hasSuffix(":")) {
+            case (true, true): return .center
+            case (true, false): return .leading
+            case (false, true): return .trailing
+            case (false, false): return .none
+            }
+        }
+        while out.count < count { out.append(.none) }
         return out
     }
 

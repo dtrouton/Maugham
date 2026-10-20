@@ -269,7 +269,7 @@ public enum MarkdownBlockParser {
     /// Splits a table row on unescaped `|`, trims each cell, and drops a
     /// leading/trailing empty cell produced by enclosing pipes (`| a | b |`).
     /// Verbatim port of `GuideMarkdownView.splitTableRow`.
-    private static func splitTableRow(_ line: String) -> [String] {
+    static func splitTableRow(_ line: String) -> [String] {
         var cells: [String] = []
         var current = ""
         let chars = Array(line)

@@ -96,7 +96,7 @@ public struct ManuscriptIndex: Sendable {
                     if label == nil, let raw = Self.trailingBlock(text) {
                         report(.malformedLabel(raw), lines.lowerBound)
                     }
-                case .table(_, _, let caption, let label):
+                case .table(_, _, _, let caption, let label):
                     let captionLine = lines.upperBound - 1
                     register(label, .tbl, captionLine)
                     if label == nil, let caption, let raw = Self.trailingBlock(caption) {

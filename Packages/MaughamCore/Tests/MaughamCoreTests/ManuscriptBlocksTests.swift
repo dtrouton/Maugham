@@ -87,21 +87,21 @@ final class ManuscriptBlocksTests: XCTestCase {
     func test_table_withACaptionAndLabel() {
         let parsed = ManuscriptBlocks.parse(tableSource + "\nTable: Q3 revenue {#tbl:q3}")
         XCTAssertEqual(parsed.map(\.block),
-                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]],
                                caption: "Q3 revenue", label: label(.tbl, "q3"))])
         XCTAssertEqual(parsed.map(\.lines), [0..<4])
     }
 
     func test_table_withACaptionAndNoLabel() {
         XCTAssertEqual(blocks(tableSource + "\nTable: Q3 revenue"),
-                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]],
                                caption: "Q3 revenue", label: nil)])
     }
 
     func test_table_withoutACaption() {
         let parsed = ManuscriptBlocks.parse(tableSource)
         XCTAssertEqual(parsed.map(\.block),
-                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]],
                                caption: nil, label: nil)])
         XCTAssertEqual(parsed.map(\.lines), [0..<3])
     }
@@ -109,7 +109,7 @@ final class ManuscriptBlocksTests: XCTestCase {
     func test_table_captionAfterABlankLine_isNotAttached() {
         let parsed = ManuscriptBlocks.parse(tableSource + "\n\nTable: Q3 revenue {#tbl:q3}")
         XCTAssertEqual(parsed.map(\.block), [
-            .table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]], caption: nil, label: nil),
+            .table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]], caption: nil, label: nil),
             .other(.paragraph(lines: ["Table: Q3 revenue {#tbl:q3}"])),
         ])
         XCTAssertEqual(parsed.map(\.lines), [0..<3, 4..<5])
@@ -119,14 +119,14 @@ final class ManuscriptBlocksTests: XCTestCase {
     /// consuming it would hide the second line.
     func test_table_multiLineCaptionParagraph_isNotAttached() {
         XCTAssertEqual(blocks(tableSource + "\nTable: Q3 revenue\nmore prose"), [
-            .table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]], caption: nil, label: nil),
+            .table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]], caption: nil, label: nil),
             .other(.paragraph(lines: ["Table: Q3 revenue", "more prose"])),
         ])
     }
 
     func test_table_withAWrongKindLabel_keepsIt() {
         XCTAssertEqual(blocks(tableSource + "\nTable: Q3 {#fig:q3}"),
-                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]],
                                caption: "Q3", label: label(.fig, "q3"))])
     }
 
@@ -135,15 +135,31 @@ final class ManuscriptBlocksTests: XCTestCase {
     func test_table_captionContainingAPipe_isTheCaptionNotARow() {
         let parsed = ManuscriptBlocks.parse(tableSource + "\nTable: Revenue | EMEA \\| APAC {#tbl:rev}")
         XCTAssertEqual(parsed.map(\.block),
-                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]],
                                caption: "Revenue | EMEA \\| APAC", label: label(.tbl, "rev"))])
         XCTAssertEqual(parsed.map(\.lines), [0..<4])
     }
 
     func test_table_unicodeCaption() {
         XCTAssertEqual(blocks(tableSource + "\nTable: Revenue — Q3 ✓ {#tbl:q3}"),
-                       [.table(header: ["Quarter", "Revenue"], rows: [["Q3", "12"]],
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none], rows: [["Q3", "12"]],
                                caption: "Revenue — Q3 ✓", label: label(.tbl, "q3"))])
+    }
+
+    func test_table_alignments_everyForm() {
+        let src = "| a | b | c | d |\n|---|:--|:-:|--:|\n| 1 | 2 | 3 | 4 |"
+        guard case .table(_, let aligns, _, _, _) = ManuscriptBlocks.parse(src)[0].block
+        else { return XCTFail("expected table") }
+        XCTAssertEqual(aligns, [.none, .leading, .center, .trailing])
+    }
+
+    func test_table_alignments_raggedDelimiterRow_padsAndTruncates() {
+        func aligns(_ src: String) -> [TableAlignment] {
+            guard case .table(_, let a, _, _, _) = ManuscriptBlocks.parse(src)[0].block else { return [] }
+            return a
+        }
+        XCTAssertEqual(aligns("| a | b | c |\n|:-:|\n| 1 | 2 | 3 |"), [.center, .none, .none])
+        XCTAssertEqual(aligns("| a | b |\n|--:|:--|:-:|\n| 1 | 2 |"), [.trailing, .leading])
     }
 
     // MARK: - Figures
@@ -302,7 +318,7 @@ final class ManuscriptBlocksTests: XCTestCase {
         XCTAssertEqual(parsed.map(\.block), [
             .heading(level: 1, text: "Report", label: label(.sec, "intro")),
             .other(.paragraph(lines: ["Some prose.[^1]"])),
-            .table(header: ["a", "b"], rows: [["1", "2"]], caption: "Numbers", label: label(.tbl, "nums")),
+            .table(header: ["a", "b"], alignments: [.none, .none], rows: [["1", "2"]], caption: "Numbers", label: label(.tbl, "nums")),
             .figure(caption: "Chart", path: "../research/c.png", label: label(.fig, "chart")),
             .footnoteDefinition(label: "1", text: "A note."),
         ])
