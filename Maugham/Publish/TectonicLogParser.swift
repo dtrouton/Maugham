@@ -8,6 +8,22 @@ public enum TectonicLogParser {
         public let line: Int?
         public let message: String
         public let contextLines: [String]
+        /// A publish problem's piece and paragraph (report foundations plan 2,
+        /// Task 7), so MCP and the desk can name the paragraph to jump to.
+        /// Nil for every tectonic and gate diagnostic.
+        public let pieceID: String?
+        public let paragraphID: String?
+
+        public init(level: Level, file: String?, line: Int?, message: String,
+                    contextLines: [String], pieceID: String? = nil, paragraphID: String? = nil) {
+            self.level = level
+            self.file = file
+            self.line = line
+            self.message = message
+            self.contextLines = contextLines
+            self.pieceID = pieceID
+            self.paragraphID = paragraphID
+        }
     }
 
     public enum Level: String, Equatable, Sendable {

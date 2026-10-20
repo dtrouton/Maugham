@@ -597,6 +597,38 @@ final class CompileToolsTests: XCTestCase {
         XCTAssertTrue(schema.contains("refused for a source compile"), schema)
     }
 
+    // MARK: - report foundations plan 2, Task 7: publish problems on the wire
+
+    /// A publish problem names its piece and paragraph; every other diagnostic
+    /// keeps exactly the keys it always had.
+    func testEncodeDiag_carriesPieceAndParagraphOnlyWhenPresent() {
+        let problem = CompileResponseEncoder.encode(diag: .init(
+            level: .error, file: "Manuscript/One.md", line: nil,
+            message: "No research source has the citation key nobody.", contextLines: [],
+            pieceID: "d_abc", paragraphID: "ab3x"))
+        XCTAssertEqual(problem["piece_id"] as? String, "d_abc")
+        XCTAssertEqual(problem["paragraph_id"] as? String, "ab3x")
+        XCTAssertEqual(problem["file"] as? String, "Manuscript/One.md")
+        XCTAssertNil(problem["line"])
+
+        let tectonic = CompileResponseEncoder.encode(diag: .init(
+            level: .warning, file: "body.tex", line: 12, message: "Overfull \\hbox",
+            contextLines: ["l.12"]))
+        XCTAssertEqual(Set(tectonic.keys), ["level", "message", "context_lines", "line", "file"])
+    }
+
+    /// Help describes what ships: the three doors say problems carry their ids
+    /// and that a Report refuses on them.
+    func testDescriptions_namePublishProblemsAndTheReportRefusal() {
+        for d in [CompileTool.description, RepublishTool.description] {
+            XCTAssertTrue(d.contains("piece_id") && d.contains("paragraph_id"), d)
+            XCTAssertTrue(d.contains("a Report refuses"), d)
+        }
+        XCTAssertTrue(PreviewCompileTool.description.contains("paragraph_id"))
+        XCTAssertTrue(PreviewCompileTool.description.contains("never refuses"))
+        XCTAssertTrue(CompileTool.inputSchemaJSON.contains("publish-problem check"))
+    }
+
     // MARK: - P2 Task 7: compile / preview_compile speak `languages`
 
     private func sourceLanguageTag() async throws -> String {

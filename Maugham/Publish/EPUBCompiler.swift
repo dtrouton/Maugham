@@ -7,6 +7,9 @@ public struct EPUBCompiler {
         public let outputPath: String
         public let warnings: [TectonicLogParser.Diagnostic]   // EPUB pipeline has no LaTeX warnings
         public let errors:   [TectonicLogParser.Diagnostic]
+        /// Every body's publish problems as the compile ended — see
+        /// `PDFCompiler.Result.problems`.
+        public var problems: [PublishProblem] = []
     }
 
     /// A `bodies:` array that cannot make a book.
@@ -45,6 +48,9 @@ public struct EPUBCompiler {
     /// See `PDFCompiler.replacesExistingOutput` — false by default (refuse),
     /// true only for previews.
     public let replacesExistingOutput: Bool
+    /// The bodies the door's gate already resolved over `imageAllowed` — see
+    /// `PDFCompiler.resolved`. Nil resolves here.
+    public let resolved: [PublishProblemGate.Body]?
 
     /// The designated init: a compile is its ordered bodies.
     public init(
@@ -53,9 +59,11 @@ public struct EPUBCompiler {
         maughamVersion: String, tectonicVersion: String,
         jobID: String? = nil, language: String? = nil,
         identity: String? = nil,
-        replacesExistingOutput: Bool = false
+        replacesExistingOutput: Bool = false,
+        resolved: [PublishProblemGate.Body]? = nil
     ) throws {
         guard !bodies.isEmpty else { throw NoBodies() }
+        self.resolved = resolved?.count == bodies.count ? resolved : nil
         self.projectURL = projectURL
         self.bodies = bodies
         self.config = config
@@ -126,16 +134,18 @@ public struct EPUBCompiler {
         // links to the SAME piece in every OTHER body, so a body cannot be
         // emitted knowing only its own tag.
         let tags = bodies.enumerated().map { Self.fileTag(for: $1, at: $0) }
+        // R-S3: each body's AST and its resolution over its WHOLE book — the
+        // door's gate usually made both already (`resolved`), so the book is
+        // emitted with exactly what the gate judged.
+        let bodiesResolved = try resolved ?? Self.resolve(bodies: bodies)
+        var problems: [PublishProblem] = []
         for (index, body) in bodies.enumerated() {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
-            let ast = try ProjectASTBuilder.build(from: body.source)
-            // R-S3: the body's resolution over its WHOLE book and its images,
-            // through the one per-body door the gate shares.
-            let prepared = try Self.prepare(body: body,
-                                            bodyTag: bodies.count > 1 ? body.displayTag : nil,
-                                            built: ast)
+            let ast = bodiesResolved[index].ast
+            let prepared = Self.prepare(resolution: bodiesResolved[index].resolution)
             let resolution = prepared.resolution
+            problems += resolution.problems
             let pieces = ast.sections.map(\.pieceID)
             let labelHrefs = Self.labelHrefs(resolution, emittedPieces: pieces, tag: tag,
                                              bodyCount: bodies.count)
@@ -259,7 +269,7 @@ public struct EPUBCompiler {
             guard replacesExistingOutput else {
                 let diag = OutputFilenameBuilder.occupiedDestinationRefusal(
                     destination: dest, projectURL: projectURL)
-                return Result(outputPath: "", warnings: [], errors: [diag])
+                return Result(outputPath: "", warnings: [], errors: [diag], problems: problems)
             }
             try FileManager.default.removeItem(at: dest)
         }
@@ -270,7 +280,7 @@ public struct EPUBCompiler {
         try await EPUBZipPackager.write(
             package: pkg, to: dest, workingDirectory: publish)
 
-        return Result(outputPath: dest.path, warnings: [], errors: [])
+        return Result(outputPath: dest.path, warnings: [], errors: [], problems: problems)
     }
 
     /// How a body is spelled in `section-<tag>-NNN.xhtml`, in its spine id and
@@ -351,11 +361,23 @@ public struct EPUBCompiler {
     ///     when that source is its whole book; nil builds it.
     static func prepare(body: BodyPlan.Body, bodyTag: String?,
                         built: ProjectAST? = nil) throws -> PreparedBody {
-        var resolution = try built.map {
+        let resolution = try built.map {
             try PublishResolution.forCompile(source: body.source, built: $0, bodyTag: bodyTag,
                                              imageAllowed: imageAllowed)
         } ?? PublishResolution.forCompile(source: body.source, bodyTag: bodyTag,
                                           imageAllowed: imageAllowed)
+        return prepare(resolution: resolution)
+    }
+
+    /// Every body resolved for an EPUB's images: the door's gate calls this
+    /// and hands the answer to `init(…resolved:)`.
+    static func resolve(bodies: [BodyPlan.Body]) throws -> [PublishProblemGate.Body] {
+        try PublishProblemGate.resolve(bodies: bodies, imageAllowed: imageAllowed)
+    }
+
+    /// Names the images of a resolution already made — the gate's (Task 7).
+    static func prepare(resolution: PublishResolution) -> PreparedBody {
+        var resolution = resolution
         var figureFiles: [String: [Int: String]] = [:]
         var images: [EPUBPackage.Image] = []
         for (piece, files) in resolution.figureFiles.sorted(by: { $0.key < $1.key }) {

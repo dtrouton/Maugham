@@ -402,10 +402,31 @@ public struct Republisher {
             wrap: { IncludeFilteredASTSource(
                 base: $0, excludedSectionIDs: excludedSectionIDs) })
 
+        // Report foundations plan 2, Task 7: the same problem gate as
+        // `CompileOrchestrator`, over the LIVE manuscript this republish
+        // renders — a Report that has gained a broken reference since its
+        // compile refuses here, before the stage is compiled or anything is
+        // minted. The resolved bodies go down to the compiler.
+        let problemContext = plan.first.source.resolutionScope.publishContext()
+        let resolved: [PublishProblemGate.Body]
+        switch format {
+        case .pdf: resolved = try PDFCompiler.resolve(bodies: plan.bodies)
+        case .epub: resolved = try EPUBCompiler.resolve(bodies: plan.bodies)
+        case .unknown(let raw): throw PublishFormatRefusal(raw: raw)
+        }
+        if case .refused(let problemErrors) = PublishProblemGate.judge(
+            resolved.flatMap(\.resolution.problems),
+            context: problemContext, refusesOnErrors: true) {
+            let excerpt = PublishProblemGate.logExcerpt(problemErrors)
+            await jobManager.fail(jobID: jobID, errors: problemErrors, logExcerpt: excerpt)
+            return .failed(errors: problemErrors, logExcerpt: excerpt)
+        }
+
         let outputPath: String
         let warnings: [TectonicLogParser.Diagnostic]
         let errors: [TectonicLogParser.Diagnostic]
         let logExcerpt: String
+        let problems: [PublishProblem]
 
         switch format {
         case .pdf:
@@ -414,12 +435,14 @@ public struct Republisher {
                 config: plan.first.config, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: set.singleTag,
-                identity: set.identity)
+                identity: set.identity,
+                resolved: resolved)
             let r = try await pdf.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
             errors = r.errors
             logExcerpt = r.logExcerpt
+            problems = r.problems
         case .epub:
             let e = try EPUBCompiler(
                 projectURL: stage, bodies: plan.bodies,
@@ -427,12 +450,14 @@ public struct Republisher {
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
                 language: set.singleTag,
-                identity: set.identity)
+                identity: set.identity,
+                resolved: resolved)
             let r = try await e.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
             errors = r.errors
             logExcerpt = ""
+            problems = r.problems
         case .unknown(let raw):
             // Defence in depth, unreachable from `republish`: its first check
             // (`PublishConfigValidator.formatError`) refuses every unknown
@@ -444,6 +469,19 @@ public struct Republisher {
         if !errors.isEmpty || outputPath.isEmpty {
             await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
             return .failed(errors: errors, logExcerpt: logExcerpt)
+        }
+
+        // R-S10, as at the compile door: a figure that failed to stage refuses
+        // a Report (its output is still only in the stage, which `republish`
+        // removes) and is one more warning elsewhere.
+        let problemWarnings: [TectonicLogParser.Diagnostic]
+        switch PublishProblemGate.judge(problems, context: problemContext, refusesOnErrors: true) {
+        case .refused(let problemErrors):
+            let excerpt = PublishProblemGate.logExcerpt(problemErrors)
+            await jobManager.fail(jobID: jobID, errors: problemErrors, logExcerpt: excerpt)
+            return .failed(errors: problemErrors, logExcerpt: excerpt)
+        case .passed(let all):
+            problemWarnings = all
         }
 
         // RULING-22 (M7-PB-009), the same exit `CompileOrchestrator` takes:
@@ -519,8 +557,8 @@ public struct Republisher {
 
         // Gate warnings (allow-stale fallbacks) ride alongside the
         // compiler's own warnings on the success path, matching
-        // `CompileOrchestrator.compile`.
-        let allWarnings = gateWarnings + warnings
+        // `CompileOrchestrator.compile`, and so do the publish problems.
+        let allWarnings = gateWarnings + problemWarnings + warnings
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)

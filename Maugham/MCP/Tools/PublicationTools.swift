@@ -240,7 +240,7 @@ public enum ReadPublicationPageTool: MCPTool {
 public enum RepublishTool: MCPTool {
     public static let method = "republish"
     public static let description =
-    "Recompile from a previous Publication's snapshot. Uses the snapshotted template/styles/config, not the current live ones. Produces a new Publication entry with republished_from set."
+    "Recompile from a previous Publication's snapshot. Uses the snapshotted template/styles/config, not the current live ones. Produces a new Publication entry with republished_from set. It renders the CURRENT manuscript, so publish problems are re-checked: they come back carrying piece_id and paragraph_id, and a Report refuses on the error kinds before any version is minted."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{"project_id":{"type":"string"},"snapshot_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"],"default":"pdf"},"label":{"type":"string"}},"required":["project_id","snapshot_id"]}
     """

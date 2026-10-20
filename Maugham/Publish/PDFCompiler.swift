@@ -8,6 +8,10 @@ public struct PDFCompiler {
         public let warnings: [TectonicLogParser.Diagnostic]
         public let errors:   [TectonicLogParser.Diagnostic]
         public let logExcerpt: String
+        /// Every body's publish problems as the compile ended: the gate's,
+        /// plus any figure that then failed to stage (R-S10). The caller
+        /// judges them (`PublishProblemGate.judge`); the compiler never does.
+        public var problems: [PublishProblem] = []
     }
 
     /// A `bodies:` array that cannot make a document.
@@ -49,6 +53,12 @@ public struct PDFCompiler {
     /// M7-PB-008), matching the republish path's rule; only previews pass
     /// true, because a preview's whole flow reuses its own filenames.
     public let replacesExistingOutput: Bool
+    /// The bodies the door's gate already resolved (`PublishProblemGate
+    /// .resolve`, over `imageAllowed`), one per body in order: the compile
+    /// emits with exactly the resolution the gate judged, and reads the
+    /// manuscript no second time. Nil (or a count that doesn't match
+    /// `bodies`) resolves here.
+    public let resolved: [PublishProblemGate.Body]?
 
     /// The designated init: a compile is its ordered bodies.
     public init(
@@ -60,9 +70,11 @@ public struct PDFCompiler {
         jobID: String? = nil,
         language: String? = nil,
         identity: String? = nil,
-        replacesExistingOutput: Bool = false
+        replacesExistingOutput: Bool = false,
+        resolved: [PublishProblemGate.Body]? = nil
     ) throws {
         guard !bodies.isEmpty else { throw NoBodies() }
+        self.resolved = resolved?.count == bodies.count ? resolved : nil
         self.projectURL = projectURL
         self.bodies = bodies
         self.config = config
@@ -152,12 +164,14 @@ public struct PDFCompiler {
         // before any body is written: `build/metadata.tex` loads the packages
         // the book's figures and tables need.
         // Each body's AST is built once and shared: an unfiltered body's
-        // resolution reuses it rather than derive the book a second time.
-        let asts = try bodies.map { try ProjectASTBuilder.build(from: $0.source) }
-        let prepared = try bodies.enumerated().map { index, body in
-            try Self.prepare(body: body, bodyTag: bodies.count > 1 ? body.displayTag : nil,
-                             publishDir: publish, pathPrefix: prefix, built: asts[index])
+        // resolution reuses it rather than derive the book a second time. The
+        // door's gate usually built both already (`resolved`).
+        let bodiesResolved = try resolved ?? Self.resolve(bodies: bodies)
+        let asts = bodiesResolved.map(\.ast)
+        let prepared = bodiesResolved.map {
+            Self.prepare(resolution: $0.resolution, publishDir: publish, pathPrefix: prefix)
         }
+        let problems = prepared.flatMap(\.resolution.problems)
         for (index, body) in bodies.enumerated() {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
@@ -229,7 +243,7 @@ public struct PDFCompiler {
             return Result(
                 outputPath: "",
                 warnings: warnings, errors: errors,
-                logExcerpt: invocationResult.combinedLog)
+                logExcerpt: invocationResult.combinedLog, problems: problems)
         }
 
         // Phase: writing output.
@@ -263,7 +277,8 @@ public struct PDFCompiler {
                     destination: dest, projectURL: projectURL)
                 return Result(outputPath: "",
                               warnings: warnings, errors: errors + [diag],
-                              logExcerpt: "output_path_occupied: \(dest.lastPathComponent)")
+                              logExcerpt: "output_path_occupied: \(dest.lastPathComponent)",
+                              problems: problems)
             }
             try FileManager.default.removeItem(at: dest)
         }
@@ -272,7 +287,7 @@ public struct PDFCompiler {
         return Result(
             outputPath: dest.path,
             warnings: warnings, errors: errors,
-            logExcerpt: invocationResult.combinedLog)
+            logExcerpt: invocationResult.combinedLog, problems: problems)
     }
 
     // MARK: - the wrapper
@@ -357,13 +372,26 @@ public struct PDFCompiler {
     ///     when that source is its whole book; nil builds it.
     static func prepare(body: BodyPlan.Body, bodyTag: String?, publishDir: URL,
                         pathPrefix: String, built: ProjectAST? = nil) throws -> PreparedBody {
-        var resolution = try built.map {
+        let resolution = try built.map {
             try PublishResolution.forCompile(source: body.source, built: $0, bodyTag: bodyTag,
                                              imageAllowed: imageAllowed)
         } ?? PublishResolution.forCompile(source: body.source, bodyTag: bodyTag,
                                           imageAllowed: imageAllowed)
+        return prepare(resolution: resolution, publishDir: publishDir, pathPrefix: pathPrefix)
+    }
+
+    /// Stages the figures of a resolution already made — the gate's (Task 7).
+    static func prepare(resolution: PublishResolution, publishDir: URL,
+                        pathPrefix: String) -> PreparedBody {
+        var resolution = resolution
         let staged = stageFigures(of: &resolution, publishDir: publishDir, pathPrefix: pathPrefix)
         return PreparedBody(resolution: resolution, figureFiles: staged)
+    }
+
+    /// Every body resolved for a PDF's images: the door's gate calls this and
+    /// hands the answer to `init(…resolved:)`.
+    static func resolve(bodies: [BodyPlan.Body]) throws -> [PublishProblemGate.Body] {
+        try PublishProblemGate.resolve(bodies: bodies, imageAllowed: imageAllowed)
     }
 
     /// R-P2-7: copies each resolved image into `build/figures/<sha256-prefix>.<ext>`

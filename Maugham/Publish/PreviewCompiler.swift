@@ -327,6 +327,15 @@ public struct PreviewCompiler {
             }
         }
 
+        // Report foundations plan 2, Task 7: a preview never refuses on a
+        // publish problem (R-P2-1), so there is no gate to pass before it —
+        // the compiler resolves each body once and its problems, staging
+        // failures included, ride out as warnings.
+        let problemContext = plan.first.source.resolutionScope.publishContext()
+        func problemWarnings(_ problems: [PublishProblem]) -> [TectonicLogParser.Diagnostic] {
+            PublishProblemGate.warnings(problems, context: problemContext)
+        }
+
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
@@ -337,7 +346,7 @@ public struct PreviewCompiler {
                 identity: set.identity,
                 replacesExistingOutput: true)
             let r = try await pdf.compile(label: "preview")
-            let warnings = gateWarnings + r.warnings
+            let warnings = gateWarnings + problemWarnings(r.problems) + r.warnings
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)
@@ -351,7 +360,7 @@ public struct PreviewCompiler {
                 identity: set.identity,
                 replacesExistingOutput: true)
             let r = try await e.compile(label: "preview")
-            let warnings = gateWarnings + r.warnings
+            let warnings = gateWarnings + problemWarnings(r.problems) + r.warnings
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)

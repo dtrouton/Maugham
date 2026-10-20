@@ -118,3 +118,91 @@ public struct PublishProblem: Sendable, Hashable {
         }
     }
 }
+
+// MARK: - the gate (Task 7)
+
+/// What the compile doors do with a book's publish problems (R-P2-1): a
+/// versioned compile or republish of a Report refuses on an error before its
+/// version is minted; everything else — every other profile, and every
+/// preview or sample compile — carries them as warnings. The problems come
+/// from the SAME resolution each compiler then emits with: the doors resolve
+/// once through `resolve(bodies:imageAllowed:)` and hand the result down, so
+/// what the gate judged is what the book shows.
+public enum PublishProblemGate {
+
+    /// One body's AST and its resolution over its whole book, built once and
+    /// shared by the gate and the compiler that emits it.
+    public struct Body {
+        public let ast: ProjectAST
+        public let resolution: PublishResolution
+    }
+
+    public enum Verdict: Equatable {
+        /// A Report's versioned compile with an error among its problems:
+        /// every problem as a diagnostic, errors and warnings both.
+        case refused(errors: [TectonicLogParser.Diagnostic])
+        /// Every problem as a warning; empty when the book has none.
+        case passed(warnings: [TectonicLogParser.Diagnostic])
+    }
+
+    /// Builds each body's AST once (the manuscript is read once per body) and
+    /// resolves it over its whole book for one output format's images. A
+    /// multi-body compile tags each body's problems with its language (R-P2-8).
+    static func resolve(bodies: [BodyPlan.Body],
+                        imageAllowed: Set<String>) throws -> [Body] {
+        try bodies.map { body in
+            let ast = try ProjectASTBuilder.build(from: body.source)
+            let resolution = try PublishResolution.forCompile(
+                source: body.source, built: ast,
+                bodyTag: bodies.count > 1 ? body.displayTag : nil,
+                imageAllowed: imageAllowed)
+            return Body(ast: ast, resolution: resolution)
+        }
+    }
+
+    /// The verdict over a compile's problems.
+    ///
+    /// - Parameters:
+    ///   - context: the book's (its resolution scope's) context: the profile
+    ///     that decides severity and the piece paths a diagnostic names.
+    ///   - refusesOnErrors: true for a versioned compile or a republish; false
+    ///     for a preview or a sample compile, which never refuse.
+    static func judge(_ problems: [PublishProblem], context: PublishContext,
+                      refusesOnErrors: Bool) -> Verdict {
+        let refuses = refusesOnErrors
+            && problems.contains { $0.isError(profile: context.profile) }
+        guard refuses else { return .passed(warnings: warnings(problems, context: context)) }
+        return .refused(errors: problems.map {
+            diagnostic($0, level: $0.isError(profile: context.profile) ? .error : .warning,
+                       piecePaths: context.piecePaths)
+        })
+    }
+
+    /// Every problem as a warning: a preview's or a sample compile's answer,
+    /// which never refuses.
+    static func warnings(_ problems: [PublishProblem],
+                         context: PublishContext) -> [TectonicLogParser.Diagnostic] {
+        problems.map { diagnostic($0, level: .warning, piecePaths: context.piecePaths) }
+    }
+
+    /// A problem as the one diagnostic channel carries it: `file` is the
+    /// piece's project-relative path, `line` is nil, and the ids ride along.
+    static func diagnostic(_ problem: PublishProblem, level: TectonicLogParser.Level,
+                           piecePaths: [String: String]) -> TectonicLogParser.Diagnostic {
+        TectonicLogParser.Diagnostic(
+            level: level, file: piecePaths[problem.pieceID], line: nil,
+            message: problem.message,
+            contextLines: level == .error
+                ? ["A report won't publish with this problem, so no version was minted."]
+                : [],
+            pieceID: problem.pieceID, paragraphID: problem.paragraphID)
+    }
+
+    /// The `logExcerpt` of a refusal: `CompileOrchestrator.publishProblemsLogExcerpt`
+    /// and the count of errors, so the desk tells a problem refusal from a fault.
+    static func logExcerpt(_ errors: [TectonicLogParser.Diagnostic]) -> String {
+        let count = errors.filter { $0.level == .error }.count
+        return CompileOrchestrator.publishProblemsLogExcerpt
+            + "\(count) error\(count == 1 ? "" : "s")"
+    }
+}

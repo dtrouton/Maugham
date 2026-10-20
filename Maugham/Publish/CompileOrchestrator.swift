@@ -82,6 +82,13 @@ public struct CompileOrchestrator {
     /// `DepartmentCompileState.settled(after:)` reads it as a refusal.
     public static let unproducibleFormatLogExcerpt = "unproducible_format: "
 
+    /// **The fourth**: a Report refused because its book has publish problems
+    /// that are errors (R-P2-1, `PublishProblemGate`) — a broken reference, an
+    /// unknown citation key, an image that can't be used. Not a fault: the
+    /// writer's move is to fix the paragraphs the diagnostics name. Compile and
+    /// republish prefix their excerpt with it; the desk reads THIS constant.
+    public static let publishProblemsLogExcerpt = "publish_problems: "
+
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -714,18 +721,39 @@ public struct CompileOrchestrator {
             }
         }
 
-        // F2 dry_run: short-circuit AFTER the version-collision guard and the
-        // coverage gate (both of which report a would-be failure with the
-        // standard `.failed` shape above) but BEFORE any mutation — no snapshot,
-        // no compile, no Publication, no event, no version bump, no output file.
-        // Returns the gate verdict (any allow_stale/fountain-drift warnings) so
-        // the caller can see exactly what a real compile would emit. The job
-        // terminates in the distinct `.dryRunPassed` state so a polled
-        // `compile_status` (wait_seconds:0 race) reports the dry-run outcome,
-        // not a completed job with an empty output path.
-        if dryRun {
-            await jobManager.completeDryRun(jobID: jobID, warnings: gateWarnings)
-            return .dryRunPassed(warnings: gateWarnings)
+        // Report foundations plan 2, Task 7: the book's publish problems,
+        // from each body's resolution for THIS format's images. A Report with
+        // an error refuses here, before anything is minted; everything else
+        // rides out as warnings. The resolved bodies go down to the compiler,
+        // which emits with exactly what was judged here.
+        let problemContext = plan.first.source.resolutionScope.publishContext()
+        let resolved: [PublishProblemGate.Body]
+        switch format {
+        case .pdf: resolved = try PDFCompiler.resolve(bodies: plan.bodies)
+        case .epub: resolved = try EPUBCompiler.resolve(bodies: plan.bodies)
+        case .unknown(let raw): throw PublishFormatRefusal(raw: raw)
+        }
+        switch PublishProblemGate.judge(resolved.flatMap(\.resolution.problems),
+                                        context: problemContext, refusesOnErrors: true) {
+        case .refused(let errors):
+            let excerpt = PublishProblemGate.logExcerpt(errors)
+            await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: excerpt)
+            return .failed(errors: errors, logExcerpt: excerpt)
+        case .passed(let warnings):
+            // F2 dry_run: short-circuit AFTER the version-collision guard, the
+            // coverage gate and the problem gate (each of which reports a
+            // would-be failure with the standard `.failed` shape above) but
+            // BEFORE any mutation — no snapshot, no compile, no Publication, no
+            // event, no version bump, no output file. Returns the gates'
+            // warnings (allow_stale/fountain drift, publish problems) so the
+            // caller can see exactly what a real compile would emit. The job
+            // terminates in the distinct `.dryRunPassed` state so a polled
+            // `compile_status` (wait_seconds:0 race) reports the dry-run
+            // outcome, not a completed job with an empty output path.
+            if dryRun {
+                await jobManager.completeDryRun(jobID: jobID, warnings: gateWarnings + warnings)
+                return .dryRunPassed(warnings: gateWarnings + warnings)
+            }
         }
 
         // Capture snapshot BEFORE compile so it reflects the source state used.
@@ -739,6 +767,7 @@ public struct CompileOrchestrator {
         let warnings: [TectonicLogParser.Diagnostic]
         let errors: [TectonicLogParser.Diagnostic]
         let logExcerpt: String
+        let problems: [PublishProblem]
 
         switch format {
         case .pdf:
@@ -747,12 +776,14 @@ public struct CompileOrchestrator {
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: set.singleTag,
-                identity: set.identity)
+                identity: set.identity,
+                resolved: resolved)
             let result = try await pdf.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
             errors = result.errors
             logExcerpt = result.logExcerpt
+            problems = result.problems
 
         case .epub:
             let epub = try EPUBCompiler(
@@ -761,12 +792,14 @@ public struct CompileOrchestrator {
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
                 language: set.singleTag,
-                identity: set.identity)
+                identity: set.identity,
+                resolved: resolved)
             let result = try await epub.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
             errors = result.errors
             logExcerpt = ""
+            problems = result.problems
         case .unknown(let raw):
             // Defence in depth, unreachable from `compile`: its first check
             // (`PublishConfigValidator.formatError`) refuses every unknown
@@ -778,6 +811,21 @@ public struct CompileOrchestrator {
         if !errors.isEmpty || outputPath.isEmpty {
             await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
             return .failed(errors: errors, logExcerpt: logExcerpt)
+        }
+
+        // R-S10: the compiler's problems are the gate's plus any figure that
+        // then failed to stage. In a Report that failure refuses like any
+        // other error — the output the compiler wrote is removed and nothing
+        // is minted; elsewhere it is one more warning. Never lost either way.
+        let problemWarnings: [TectonicLogParser.Diagnostic]
+        switch PublishProblemGate.judge(problems, context: problemContext, refusesOnErrors: true) {
+        case .refused(let problemErrors):
+            try? FileManager.default.removeItem(atPath: outputPath)
+            let excerpt = PublishProblemGate.logExcerpt(problemErrors)
+            await jobManager.fail(jobID: jobID, errors: problemErrors, logExcerpt: excerpt)
+            return .failed(errors: problemErrors, logExcerpt: excerpt)
+        case .passed(let all):
+            problemWarnings = all
         }
 
         // RULING-22 (M7-PB-009): the last exit before anything durable is
@@ -868,8 +916,10 @@ public struct CompileOrchestrator {
         }
 
         // Gate warnings (allow_stale fallbacks + fountain drift) ride alongside
-        // the compiler's own warnings on the success path.
-        let allWarnings = gateWarnings + warnings
+        // the compiler's own warnings on the success path, and so do the
+        // publish problems — the compiler's final list (`problemWarnings`),
+        // which holds the ones the gate passed plus any staging failure.
+        let allWarnings = gateWarnings + problemWarnings + warnings
         await jobManager.complete(
             jobID: jobID, outputPath: outputPath,
             warnings: allWarnings, errors: errors)
