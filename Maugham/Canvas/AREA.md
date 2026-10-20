@@ -203,7 +203,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 
 ### Ownership, counters and undo
 - **`CanvasModel` holds the scene, text, selection, store and recorder; `CanvasView` holds only what belongs to one view of it** (camera, layouts, focus, straighten, momentum, both counters' view copies).
-- **The view's helpers are per-call structs over `$state`, built only by `CanvasView`'s computed properties, never stored, never given `$sceneRevision`** (`TripwireGrepTests.test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly`, `CanvasAccessibilityTests.test_theViewsStructuralCounterHasOneWriterAcrossTheSurface`). A `let` copy of `@State` goes stale within one call.
+- **The view's helpers are per-call structs over `$state`, built only by `CanvasView`'s computed properties, never stored by the view, never given `$sceneRevision`** (`TripwireGrepTests.test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly`, `CanvasAccessibilityTests.test_theViewsStructuralCounterHasOneWriterAcrossTheSurface`). A `let` copy of `@State` goes stale within one call.
 - **The canvas is mounted at exactly one site** (`CentreColumn.editorPane`'s `.canvas` arm, `canvasCentre`; `RegionBindingTests` counts `canvasCentre(`). Every "is the centre the canvas" check asks `Persona.centresTheCanvas`.
 - **Three `@ObservationIgnored` hooks run model → view** (`onSceneReplacedByUndo`, `onSceneChangedExternally`, `onRevealRequested`), bound in `CanvasView.load()` and nil'd together in `detach()` (`CanvasLiveSeamTests`' assigner census). `onRevealRequested` carries a region and the model parks it until `attach()`.
 - **`CanvasModel` hosts `CanvasUndo`; never reimplement it.**

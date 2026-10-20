@@ -52,7 +52,10 @@ enum CanvasSourceCensus {
     }
 
     /// The files that hold CanvasView's own code — the view and the helpers it builds per call.
-    /// Grows by one entry in each task that moves code out. Order: CanvasView.swift first.
+    /// `CanvasView.swift` first, then exactly the files that declare a type
+    /// `CanvasView` builds in a `private var x: T { T(…) }` property. The list
+    /// is checked, not trusted: `TripwireGrepTests.test_theCanvasSurfaceListIsExactlyTheFilesTheViewBuildsFrom`
+    /// derives that set from `CanvasView.swift` and fails on a missing or stale entry.
     ///
     /// A census that COUNTS or BANS a token over the view's code reads all of
     /// these (`surfaceSource()`), so a token that moves into a helper is still

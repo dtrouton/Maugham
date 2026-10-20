@@ -4901,14 +4901,15 @@ final class TripwireGrepTests: XCTestCase {
     /// in `@State`, or made by a factory method and stored, would escape it.
     ///
     /// One helper never builds another: a helper is built only in a `CanvasView`
-    /// computed property and handed what it needs (the controller's ruling). A
-    /// sibling surface file may HOLD one it was handed, as a bare `let x: T`
-    /// line under `Maugham/Canvas/`, and nothing more. **A held helper is frozen
-    /// for any later work its holder schedules**: a `Task` or escaping closure in
-    /// the holder would read the held helper's build-time values, so a handler
-    /// that holds a helper schedules no such work.
-    /// Vacuous while the list holds only `CanvasView.swift`; the planted
-    /// companion below is what proves each route fires.
+    /// computed property and handed what it needs. A sibling surface file may
+    /// HOLD one it was handed, as a stored `let x: T` line (optionally `private`,
+    /// `fileprivate` or `internal`) under `Maugham/Canvas/`, and nothing more.
+    /// **A held helper is frozen for any later work its holder schedules**: a
+    /// `Task` or escaping closure in the holder would read the held helper's
+    /// build-time values, so a file that holds a helper contains no `Task {`,
+    /// `Task.detached`, `DispatchQueue` or `@escaping`.
+    /// Only top-level types count as helpers; a nested type is unreachable from
+    /// another file. The planted companion below proves each route fires.
     func test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly() throws {
         let census = try Self.canvasSurfaceHelperCensus(
             base: sourceDir.deletingLastPathComponent(),
@@ -4936,8 +4937,12 @@ final class TripwireGrepTests: XCTestCase {
     /// two `CanvasKeyGrip.swift` copies share a name (the list matches by name)
     /// but hold different helpers, so the one offender, `names PlantedKeyClock`,
     /// says WHICH copy fired: an inverted path condition would report
-    /// `names PlantedKeyHandler` instead. A type NOT on the list
-    /// is not checked at all, and a missing listed file throws.
+    /// `names PlantedKeyHandler` instead. Matching is by path for the view and
+    /// the helper's home too: a `CanvasView.swift` and a `PlantedKeyHandler.swift`
+    /// under `Maugham/Views/` both fire. A `private let` hold is accepted, but a
+    /// holder that schedules work (`Task {`, `@escaping`) fires. A nested type
+    /// (`ClickTarget`) is no helper, so naming it elsewhere stays quiet. A type
+    /// NOT on the list is not checked at all, and a missing listed file throws.
     func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Canvas/CanvasView.swift": """
@@ -4953,6 +4958,7 @@ final class TripwireGrepTests: XCTestCase {
                 @MainActor
                 struct PlantedKeyHandler {
                     let model: CanvasModel
+                    private enum ClickTarget { case none }
                     static func delete(model: CanvasModel) { model.mutate("Delete") { _ in } }
                     func again() -> PlantedKeyHandler { PlantedKeyHandler(model: model) }
                     func outer() { func inner() {} ; inner() }
@@ -4979,6 +4985,23 @@ final class TripwireGrepTests: XCTestCase {
                     func again() { _ = PlantedKeyHandler(model: keys.model) }
                 }
                 """,
+            "Maugham/Canvas/CanvasKeyScheduler.swift": """
+                struct CanvasKeyScheduler {
+                    private let keys: PlantedKeyHandler
+                    func later() { Task { _ = keys } }
+                    func after(_ work: @escaping () -> Void) {}
+                }
+                """,
+            "Maugham/Views/CanvasView.swift": """
+                struct ElsewhereView {
+                    let keys: PlantedKeyHandler
+                }
+                """,
+            "Maugham/Views/PlantedKeyHandler.swift": """
+                struct Namesake {
+                    func f(_ model: CanvasModel) { _ = PlantedKeyHandler(model: model) }
+                }
+                """,
             "Maugham/Canvas/CanvasKeyVarHolder.swift": """
                 struct CanvasKeyVarHolder {
                     var keys: PlantedKeyHandler
@@ -4996,7 +5019,7 @@ final class TripwireGrepTests: XCTestCase {
                 }
                 """,
             "Maugham/Views/CanvasKeyGrip.swift": """
-                struct CanvasKeyGrip {
+                struct ClockGrip {
                     let clock: PlantedKeyClock
                 }
                 """,
@@ -5027,6 +5050,7 @@ final class TripwireGrepTests: XCTestCase {
             "Maugham/Views/Unrelated.swift": """
                 struct Unrelated {
                     let rows = PlantedKeyHandlerRows()
+                    let target: ClickTarget? = nil
                     func f() { var (a, b) = (1, 2); a += b }
                 }
                 """,
@@ -5037,14 +5061,17 @@ final class TripwireGrepTests: XCTestCase {
             base: base, surfaceFiles: ["CanvasView.swift", "PlantedKeyHandler.swift",
                                        "CanvasKeyGrip.swift", "CanvasKeyRebuilder.swift",
                                        "CanvasKeyVarHolder.swift", "CanvasKeyTaker.swift",
-                                       "CanvasKeyCaller.swift"])
-        XCTAssertEqual(planted.walked, 13, "Self-check: the walk read the planted tree")
+                                       "CanvasKeyCaller.swift", "CanvasKeyScheduler.swift"])
+        XCTAssertEqual(planted.walked, 16, "Self-check: the walk read the planted tree")
         XCTAssertEqual(planted.offenders, [
             "CanvasKeyCaller.swift names PlantedKeyHandler",
             "CanvasKeyGrip.swift names PlantedKeyClock",
             "CanvasKeyRebuilder.swift names PlantedKeyHandler",
+            "CanvasKeyScheduler.swift holds a sibling helper and schedules work: @escaping",
+            "CanvasKeyScheduler.swift holds a sibling helper and schedules work: Task {",
             "CanvasKeyTaker.swift names PlantedKeyHandler",
             "CanvasKeyVarHolder.swift names PlantedKeyHandler",
+            "CanvasView.swift names PlantedKeyHandler",
             "CanvasView.swift names PlantedKeyHandler outside a building computed property: "
                 + "@State private var pass: PlantedKeyHandler?",
             "CanvasView.swift names PlantedKeyHandler outside a building computed property: "
@@ -5053,6 +5080,7 @@ final class TripwireGrepTests: XCTestCase {
             "LineInspector.swift names PlantedKeyHandler",
             "PlantedKeyHandler.swift declares a top-level func",
             "PlantedKeyHandler.swift extends CanvasModel",
+            "PlantedKeyHandler.swift names PlantedKeyHandler",
             "RegionInspector.swift names PlantedKeyHandler",
             "ScrapInspector.swift names PlantedKeyHandler",
         ], "Self-check: every route from another column into a surface file must "
@@ -5060,8 +5088,10 @@ final class TripwireGrepTests: XCTestCase {
             + "type, a top-level function, and in the view a helper held in `@State` "
             + "or made by a factory, and a sibling surface file building one, holding "
             + "it as a `var`, taking it as a parameter or calling its static member, "
-            + "and a bare `let` hold outside `Maugham/Canvas/` — and no control may "
-            + "(the `keyHandler` computed property and a sibling's bare held `let` "
+            + "and a bare `let` hold outside `Maugham/Canvas/`, a `CanvasView.swift` or "
+            + "a helper's namesake in another folder, and a holder that schedules work "
+            + "— and no control may (the `keyHandler` computed property, a sibling's "
+            + "held `let` or `private let`, and a nested `ClickTarget` named elsewhere "
             + "stay quiet).")
 
         let offTheList = try Self.canvasSurfaceHelperCensus(
@@ -5075,6 +5105,117 @@ final class TripwireGrepTests: XCTestCase {
             "a listed surface file that is not on disk must throw, not pass")
     }
 
+    /// `CanvasSourceCensus.surfaceFiles` is derived, not trusted: after
+    /// `CanvasView.swift` it must be exactly the `Maugham/Canvas/` files that
+    /// declare (or extend) a type `CanvasView.swift` builds in a
+    /// `private var x: T { T(…) }` property. A helper built but not listed would
+    /// leave its file outside every surface ban and the construction census; a
+    /// file listed but no longer built is a stale entry.
+    func test_theCanvasSurfaceListIsExactlyTheFilesTheViewBuildsFrom() throws {
+        let mismatches = try Self.canvasSurfaceListMismatches(
+            base: sourceDir.deletingLastPathComponent(),
+            surfaceFiles: CanvasSourceCensus.surfaceFiles)
+        XCTAssertEqual(mismatches, [], Self.surfaceListDrifted(mismatches))
+    }
+
+    /// Self-check: a helper built but unlisted, a helper split into an unlisted
+    /// extension file, a helper declared outside `Maugham/Canvas/`, and a listed
+    /// file the view builds nothing from all fire. Controls: a builder in a
+    /// comment, and the matching list.
+    func test_theCanvasSurfaceListCheckFiresOnAnUnlistedHelper() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Canvas/CanvasView.swift": """
+                struct CanvasView: View {
+                    private var pass: CanvasListedPass { CanvasListedPass() }
+                    private var missed: CanvasMissedHandler {
+                        CanvasMissedHandler()
+                    }
+                    private var stray: CanvasStray { CanvasStray() }
+                    // private var ghost: CanvasGhost { CanvasGhost() }
+                }
+                """,
+            "Maugham/Canvas/CanvasListedPass.swift": "struct CanvasListedPass {}\n",
+            "Maugham/Canvas/CanvasListedPass+Split.swift": "extension CanvasListedPass { func f() {} }\n",
+            "Maugham/Canvas/CanvasMissedHandler.swift": "struct CanvasMissedHandler {}\n",
+            "Maugham/Canvas/CanvasStale.swift": "struct CanvasStale {}\n",
+            "Maugham/Canvas/CanvasGhost.swift": "struct CanvasGhost {}\n",
+            "Maugham/Views/CanvasStray.swift": "struct CanvasStray {}\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        XCTAssertEqual(try Self.canvasSurfaceListMismatches(
+            base: base, surfaceFiles: ["CanvasView.swift", "CanvasListedPass.swift", "CanvasStale.swift"]), [
+            "CanvasView.swift builds CanvasStray, declared in Maugham/Views/CanvasStray.swift, outside Maugham/Canvas/",
+            "CanvasView.swift builds a helper declared in CanvasListedPass+Split.swift, which surfaceFiles does not list",
+            "CanvasView.swift builds a helper declared in CanvasMissedHandler.swift, which surfaceFiles does not list",
+            "surfaceFiles lists CanvasStale.swift, which declares no type CanvasView.swift builds",
+        ], "Self-check: an unlisted helper file, an unlisted split of a listed helper, a "
+            + "helper outside Maugham/Canvas/ and a stale entry must each fire; a builder "
+            + "in a comment must not")
+
+        XCTAssertEqual(try Self.canvasSurfaceListMismatches(
+            base: base, surfaceFiles: ["CanvasView.swift", "CanvasListedPass.swift",
+                                       "CanvasListedPass+Split.swift", "CanvasMissedHandler.swift"]), [
+            "CanvasView.swift builds CanvasStray, declared in Maugham/Views/CanvasStray.swift, outside Maugham/Canvas/",
+        ], "control: once every built helper's files are listed, only the stray remains")
+
+        XCTAssertEqual(try Self.canvasSurfaceListMismatches(
+            base: base, surfaceFiles: ["CanvasListedPass.swift", "CanvasView.swift",
+                                       "CanvasListedPass+Split.swift", "CanvasMissedHandler.swift"]).first,
+            "surfaceFiles does not start with CanvasView.swift",
+            "the view's own file must lead the list")
+    }
+
+    private static func surfaceListDrifted(_ mismatches: [String]) -> String {
+        "`CanvasSourceCensus.surfaceFiles` no longer matches what `CanvasView.swift` "
+        + "builds. Every file declaring a type the view builds in a "
+        + "`private var x: T { T(…) }` property must be on the list (else the surface "
+        + "bans and tripwire 32's construction census never read it), and nothing "
+        + "else after `CanvasView.swift`. Add or remove the entry.\n"
+        + mismatches.joined(separator: "\n")
+    }
+
+    /// The surface list derived from `CanvasView.swift` (comments stripped):
+    /// each type `T` built in a `private var x: T { T(` property, resolved by
+    /// `SourceTree.filesDeclaring` to every file declaring or extending it.
+    /// Returns how `surfaceFiles` differs from that set, sorted.
+    private static func canvasSurfaceListMismatches(
+        base: URL, surfaceFiles: [String]
+    ) throws -> [String] {
+        let viewCode = CanvasSourceCensus.commentsStripped(
+            try SourceTree.read("Maugham/Canvas/\(theCanvasViewFile)", base: base))
+        let builder = try NSRegularExpression(
+            pattern: #"\bprivate\s+var\s+[A-Za-z_]\w*\s*:\s*([A-Z][A-Za-z0-9_]*)\s*\{\s*\1\("#)
+        let built = Set(builder.matches(in: viewCode, range: NSRange(viewCode.startIndex..., in: viewCode))
+            .compactMap { Range($0.range(at: 1), in: viewCode).map { String(viewCode[$0]) } })
+
+        var mismatches: [String] = []
+        var derived: Set<String> = []
+        let canvas = "Maugham/Canvas/"
+        for type in built {
+            for path in try SourceTree.filesDeclaring(type, under: ["Maugham"], base: base) {
+                let name = String(path.dropFirst(canvas.count))
+                guard path.hasPrefix(canvas), !name.contains("/") else {
+                    mismatches.append("\(theCanvasViewFile) builds \(type), declared in \(path), outside \(canvas)")
+                    continue
+                }
+                if name != theCanvasViewFile { derived.insert(name) }
+            }
+        }
+        let listed = Set(surfaceFiles.dropFirst())
+        for name in derived.subtracting(listed) {
+            mismatches.append("\(theCanvasViewFile) builds a helper declared in \(name), which surfaceFiles does not list")
+        }
+        for name in listed.subtracting(derived) {
+            mismatches.append("surfaceFiles lists \(name), which declares no type \(theCanvasViewFile) builds")
+        }
+        mismatches.sort()
+        if surfaceFiles.first != theCanvasViewFile {
+            mismatches.insert("surfaceFiles does not start with \(theCanvasViewFile)", at: 0)
+        }
+        return mismatches
+    }
+
     private static func surfaceHelperReachedFromElsewhere(_ offenders: [String]) -> String {
         "A canvas surface file is reachable from outside `CanvasView.swift` (tripwire 32). "
         + "The bracket census skips every file in `CanvasSourceCensus.surfaceFiles`, "
@@ -5084,17 +5225,23 @@ final class TripwireGrepTests: XCTestCase {
         + "nothing checks it: the nested-bracket defect, with the edit on no undo "
         + "step. Build a helper only in a `CanvasView` computed property "
         + "(`private var x: T { T(…) }`, which tripwire 57's walk follows) and keep "
-        + "its file to its own types; from another column, call "
+        + "its file to its own types. A sibling surface file may hold one it was "
+        + "handed as a stored `let x: T` (optionally `private`, `fileprivate` or "
+        + "`internal`) on a line of its own, and then schedules no later work "
+        + "(`Task {`, `Task.detached`, `DispatchQueue`, `@escaping`): that work "
+        + "would read the held helper's build-time values. From another column, call "
         + "`CanvasModel.mutateFromInspector`.\n" + offenders.joined(separator: "\n")
     }
 
     /// The three routes into a surface file other than `CanvasView.swift`,
     /// comments stripped:
     /// - every production file under `<base>/Maugham/` that NAMES a type
-    ///   declared there (`struct`/`class`/`enum`/`actor`, uppercase-initial),
-    ///   other than `CanvasView.swift` and the type's own file — except that
-    ///   another surface file may hold one as a bare stored `let x: T` line
-    ///   (the drag handler holds the layout pass the view built);
+    ///   declared there at top level (`struct`/`class`/`enum`/`actor`,
+    ///   uppercase-initial), other than `Maugham/Canvas/CanvasView.swift` and the
+    ///   type's own file, both matched by path — except that another surface
+    ///   file may hold one as a stored `let x: T` line (the drag handler holds
+    ///   the layout pass the view built), and a file that does schedules no
+    ///   later work;
     /// - an `extension` of anything but `CanvasView` or a type the file declares;
     /// - a top-level `func`;
     /// - inside `CanvasView.swift`, a helper type named anywhere but a
@@ -5107,9 +5254,12 @@ final class TripwireGrepTests: XCTestCase {
         let canvasDir = base.appendingPathComponent("Maugham/Canvas", isDirectory: true)
         let attributesAndModifiers = #"(?:@\w+(?:\([^)]*\))?\s+)*"#
             + #"(?:(?:public|private|fileprivate|internal|package|final|indirect)\s+)*"#
-        // Uppercase-initial, so `class func`/`class var` declare nothing.
+        // Uppercase-initial, so `class func`/`class var` declare nothing. Column 0
+        // only: a nested type (`CanvasClickHandler`'s `private enum ClickTarget`)
+        // is unreachable from another file, so it is no helper to guard, and a
+        // generic nested name must not ban that name everywhere else.
         let declaration = try NSRegularExpression(
-            pattern: #"^[ \t]*"# + attributesAndModifiers
+            pattern: "^" + attributesAndModifiers
                 + #"(?:struct|class|enum|actor)\s+([A-Z][A-Za-z0-9_]*)"#,
             options: [.anchorsMatchLines])
         let topLevelExtension = try NSRegularExpression(
@@ -5173,6 +5323,10 @@ final class TripwireGrepTests: XCTestCase {
             }
         }
 
+        // Work a holder schedules runs after the call returns, so it would read
+        // the held helper's build-time values.
+        let scheduling = try NSRegularExpression(
+            pattern: #"\bTask\s*\{|\bTask\.detached\b|\bDispatchQueue\b|@escaping\b"#)
         var walked = 0
         let app = base.appendingPathComponent("Maugham", isDirectory: true)
         let walker = FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)
@@ -5180,28 +5334,44 @@ final class TripwireGrepTests: XCTestCase {
             guard url.pathExtension == "swift" else { continue }
             walked += 1
             let file = url.lastPathComponent
-            guard file != theCanvasViewFile, !homes.isEmpty else { continue }
+            // By path, not by name: a `CanvasView.swift` or a helper's namesake in
+            // another folder is another column's file.
+            func isCanvasFile(_ name: String) -> Bool {
+                url.path.hasSuffix("/Maugham/Canvas/\(name)")
+            }
+            guard !isCanvasFile(theCanvasViewFile), !homes.isEmpty else { continue }
             let code = CanvasSourceCensus.commentsStripped(try String(contentsOf: url, encoding: .utf8))
-            // Another surface file may HOLD a sibling helper the view handed it
-            // (`let layoutPass: CanvasLayoutPass`, a line of its own) and nothing
-            // more: the sibling is still built only by the view's computed
-            // property, so the walk still sees every value it carries.
-            let isSurfaceFile = surfaceFiles.contains(file)
-                && url.path.hasSuffix("/Maugham/Canvas/\(file)")
-            for (type, home) in homes where file != home {
+            // Another surface file may HOLD a sibling helper the view handed it,
+            // as a stored `let x: T` on a line of its own (`private`,
+            // `fileprivate` or `internal` allowed: the access level changes who
+            // reads the hold, not who builds it), and nothing more. The sibling
+            // is still built only by the view's computed property, so the walk
+            // still sees every value it carries.
+            let isSurfaceFile = surfaceFiles.contains(file) && isCanvasFile(file)
+            var holds = false
+            for (type, home) in homes where !isCanvasFile(home) {
                 let t = NSRegularExpression.escapedPattern(for: type)
                 var scanned = code
                 if isSurfaceFile {
-                    scanned = try NSRegularExpression(
-                        pattern: #"^[ \t]*let[ \t]+[A-Za-z_]\w*[ \t]*:[ \t]*"# + t + #"[ \t]*$"#,
+                    let hold = try NSRegularExpression(
+                        pattern: #"^[ \t]*(?:(?:private|fileprivate|internal)[ \t]+)?let[ \t]+[A-Za-z_]\w*[ \t]*:[ \t]*"#
+                            + t + #"[ \t]*$"#,
                         options: [.anchorsMatchLines])
-                        .stringByReplacingMatches(in: code, range: NSRange(code.startIndex..., in: code),
-                                                  withTemplate: "")
+                    let whole = NSRange(code.startIndex..., in: code)
+                    if hold.firstMatch(in: code, range: whole) != nil { holds = true }
+                    scanned = hold.stringByReplacingMatches(in: code, range: whole, withTemplate: "")
                 }
                 let names = try NSRegularExpression(
                     pattern: #"(?<![A-Za-z0-9_])"# + t + #"(?![A-Za-z0-9_])"#)
                 if names.firstMatch(in: scanned, range: NSRange(scanned.startIndex..., in: scanned)) != nil {
                     offenders.append("\(file) names \(type)")
+                }
+            }
+            if holds {
+                for m in scheduling.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                    let token = (code as NSString).substring(with: m.range)
+                    let entry = "\(file) holds a sibling helper and schedules work: \(token)"
+                    if !offenders.contains(entry) { offenders.append(entry) }
                 }
             }
         }
