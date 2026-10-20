@@ -283,6 +283,8 @@ final class InsertCommandTests: XCTestCase {
         "Maugham/Editor/EditorSurface.swift",
         "Maugham/Editor/EditorCoordinator.swift",
         "Maugham/Editor/EditorCoordinator+Insert.swift",
+        // The completion list opens on a manuscript surface only (plan 3b Task 2).
+        "Maugham/Editor/EditorCoordinator+Completion.swift",
         "Maugham/Views/EditorHost.swift",
     ]
 

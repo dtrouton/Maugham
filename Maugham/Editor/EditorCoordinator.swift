@@ -327,6 +327,27 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The index version last applied from `EditorControl.referenceIndexVersion`.
     private(set) var referenceIndexVersion = 0
 
+    // MARK: The completion list (plan 3b Task 2, `EditorCoordinator+Completion.swift`)
+
+    /// The sources that may open the completion list, asked in this order
+    /// (citation first, then cross-reference — Tasks 3 and 4 register them).
+    /// Empty on every surface that registers none.
+    var completionSources: [any CompletionSource] = []
+    /// The list view, a scroll-view subview installed by `EditorSurface`.
+    weak var completionList: CompletionListView?
+    /// The open list's state; nil while closed.
+    var completion: CompletionState?
+    /// What the edit `shouldChangeTextIn` last let through was; read once by
+    /// `textDidChange`.
+    var completionEditNote: CompletionEditNote?
+    /// True from a keystroke or caret move until the next runloop: a scroll
+    /// then follows the caret, and moves the list rather than closing it.
+    var completionCaretIsMoving = false
+    /// The scroll, resize and resign-key observers, armed while the list is open.
+    var completionObservers: [NSObjectProtocol] = []
+    /// True while `applyCommandEdit` writes, so its edit is never read as typing.
+    var isApplyingCommandEdit = false
+
     /// Copies a picture into this document's research and returns the figure
     /// path relative to the document (plan 3a Task 6,
     /// `FigureIngest.importImage`). Built by `EditorHost`; nil on every other
@@ -759,6 +780,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if let token = storageEditObserver {
             NotificationCenter.default.removeObserver(token)
         }
+        for token in completionObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
@@ -835,6 +859,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
         tableTidy.cancelPending()
         figureThumbnailStore?.cancelAll()
+        closeCompletion()
+        disarmCompletionObservers()
         // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
         // teardown so a coordinator SwiftUI hasn't yet released stops receiving
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
@@ -866,6 +892,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         (textView as? MaughamTextView)?.coordinator = nil
         textView = nil
         selectionToolbar = nil
+        completionList = nil
     }
 
     /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
@@ -885,6 +912,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// External (binding-side) update — replace text without disturbing user.
     func applyExternalText(_ text: String, preserveUndoStack: Bool = false) {
         applyExternalTextCallCount += 1
+        // A replaced buffer ends any completion the writer was in.
+        closeCompletion()
         // Cloud-conflict resolution replaces the whole buffer — drop any
         // debounced typing-path script post so it can't land after the
         // immediate whole-doc post this call's retokenizeAndStyle emits.
@@ -983,6 +1012,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func setLockEditing(_ locked: Bool) {
         guard lockEditing != locked else { return }
         lockEditing = locked
+        closeCompletionIfTheMembraneRefuses()
     }
 
     /// Whether a checkbox click may flip its bracket: the membrane's answer
@@ -1010,12 +1040,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func setTranslationReview(_ enabled: Bool) -> Bool {
         guard isTranslationReview != enabled else { return false }
         isTranslationReview = enabled
+        closeCompletionIfTheMembraneRefuses()
         return true
     }
 
     func setReviewMode(_ enabled: Bool) {
         guard isReviewMode != enabled else { return }
         isReviewMode = enabled
+        closeCompletionIfTheMembraneRefuses()
         guard let textView else { return }
         // Re-style from scratch so any focus-dim attributes from the prior
         // posture are cleared, then re-apply focus-dim only when not in review.
@@ -1162,6 +1194,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
+        // The completion trigger (plan 3b Task 2): what this edit is — a typed
+        // character, a deletion, or anything else — read by `textDidChange`.
+        noteEditForCompletion(in: textView, replacing: affectedCharRange, with: replacementString)
+
         // Remember the pre-burst text on the first edit of a new typing burst
         // (no settle pending) so `performDeferredRestyle` can character-diff it
         // against the post-burst text and window the restyle to just the changed
@@ -1189,6 +1225,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     func textView(_ textView: NSTextView,
                   doCommandBy commandSelector: Selector) -> Bool {
+        // The completion list's keys come first (plan 3b Task 2): with it open,
+        // Tab and Return accept even in a table cell; closed, they fall through
+        // to the arms below untouched. `complete:` is swallowed in prose.
+        if handleCompletionCommand(commandSelector, in: textView) { return true }
         // Prose: Tab, Shift-Tab and Return move through and grow a table when
         // the caret is in one; anywhere else they fall through to AppKit.
         guard mode is ScreenplayMode else {
@@ -1257,7 +1297,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // keystroke nativizes exactly once (it is byte-identical to
         // textView.string here — same MainActor slice, no intervening edit).
         retokenizeAndStyle(windowedTyping: true, nativizedText: editedText)
-        // Autocomplete trigger deferred — see milestone-3b notes.
         if !skipCursorRestore {
             // Sync restore covers paste-induced cursor jostle from
             // storage.endEditing() — that happens during retokenizeAndStyle
@@ -1291,6 +1330,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // against stale tokens and ignored (`noteSelectionForTableTidy`); read
         // the caret's table once more now the tokens describe this text.
         noteSelectionForTableTidy(in: textView)
+        // The completion list (plan 3b Task 2), with fresh tokens and the
+        // caret final: open on a typed trigger, follow, or close.
+        completionTextDidChange(in: textView)
     }
 
     /// One observer per attach on the storage's `didProcessEditing`, which
@@ -1338,6 +1380,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         updateSelectionToolbar(in: textView)
         // A caret that leaves a table schedules its tidy for the next runloop.
         noteSelectionForTableTidy(in: textView)
+        // An open completion list follows a caret inside its trigger, and
+        // closes on one that leaves it.
+        completionSelectionDidChange(in: textView)
+    }
+
+    /// AppKit's own completion (`complete:`, which F5 or a direct call reaches) is never
+    /// offered in prose: the completion list is the editor's (plan 3b Task 2).
+    func textView(_ textView: NSTextView, completions words: [String],
+                  forPartialWordRange charRange: NSRange,
+                  indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
+        mode is ScreenplayMode ? words : []
     }
 
 }

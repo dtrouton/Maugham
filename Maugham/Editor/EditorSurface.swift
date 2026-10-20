@@ -347,6 +347,15 @@ struct EditorSurface: NSViewRepresentable {
         scrollView.addSubview(toolbar)
         context.coordinator.selectionToolbar = toolbar
 
+        // The completion list (plan 3b Task 2): a scroll-view subview like the
+        // toolbar, added after it so it sits above the toolbar and above every
+        // text-view overlay (thumbnails, labels). Hidden until a trigger opens it.
+        let completionList = CompletionListView(frame: .zero)
+        completionList.isHidden = true
+        completionList.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.addSubview(completionList)
+        context.coordinator.completionList = completionList
+
         context.coordinator.attach(to: textView)
         // Hand the control-plane model to the coordinator. It observes the model
         // from here on; the per-prop pushes below remain during the parallel
@@ -623,6 +632,14 @@ final class MaughamTextView: NSTextView {
         super.drawInsertionPoint(
             in: Self.clampedCaretRect(rect, toLineHeight: Self.caretLineHeight(for: font)),
             color: color, turnedOn: flag)
+    }
+
+    /// Losing the focus closes the completion list (plan 3b Task 2): its keys
+    /// arrive through this view's `doCommandBy`, so it has no use without it.
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { coordinator?.closeCompletion() }
+        return resigned
     }
 
     override func mouseDown(with event: NSEvent) {

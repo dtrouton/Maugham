@@ -82,6 +82,10 @@ extension EditorCoordinator {
                 undo?.groupsByEvent = groupedByEvent
             }
         }
+        // A command's edit is never typing: the completion trigger reads this
+        // (`noteEditForCompletion`) through `shouldChangeTextIn` and `textDidChange`.
+        isApplyingCommandEdit = true
+        defer { isApplyingCommandEdit = false }
         guard textView.shouldChangeText(in: range, replacementString: replacement) else {
             return false
         }
