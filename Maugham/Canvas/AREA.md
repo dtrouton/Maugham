@@ -78,17 +78,17 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 ## Rules
 
 ### Rendering
-- **One SwiftUI `Canvas` draws every node; exactly one real `NSTextView` is mounted, on the scrap being edited; the camera is a manual CTM inside the draw call.** (tripwire 25; `CanvasCameraTests`, `TripwireGrepTests.test_noCanvasZoomViaScaleEffectOrMagnification`).
+- **One SwiftUI `Canvas` draws every node; exactly one real `NSTextView` is mounted, on the scrap being edited; the camera is a manual CTM inside the draw call** (tripwire 25; `CanvasCameraTests`, `TripwireGrepTests.test_noCanvasZoomViaScaleEffectOrMagnification`).
 - **`contentStorage.textStorage = NSTextStorage(...)`, never `contentStorage.attributedString = ...`** (tripwire 26; `ScrapLayoutTests.test_mountedEditorActuallyEditsTheSharedStack`).
 - **`lineFragmentPadding = 0`, `widthTracksTextView = false`, `textContainerInset = .zero`** on the shared stack (`ScrapLayoutTests` keeps a bitmap diff).
 - **Never derive the raster scale by hand**: no `backingScaleFactor`/`convertToBacking`/`convertFromBacking`/`pixelsWide`/`pixelsHigh` in this directory; `GraphicsContext.withCGContext` already hands over the right scale (`CanvasRendererTests.test_noFileInTheCanvasAreaDerivesItsOwnRasterScale`).
 - **Every `ScrapLayout` construction here names `textColor: CanvasRenderer.cardInk`** (`CanvasRendererTests.test_everyScrapLayoutInProductionNamesTheCardInk`).
 - **No `rotationEffect(` or `rotate(by:)` in this directory**; `CanvasRenderer.cardTransform` is the one card rotation and `localPoint` inverts it, never a second hand-written inverse (`CanvasRendererTests.test_noFileInTheCanvasAreaRotatesOutsideCardTransform`).
 - **Layer order is ground → drawn nodes → events → editor (frontmost)** (tripwire 27; `CanvasCompositionTests`, `ScrapEditorHostTests`).
-- **The ground is a sibling beneath the content, never an overlay or a `.colorEffect` over anything containing `CanvasEventView` or the editor**. Pass it the same live camera the draw pass uses, or the grain crawls under the cards (`CanvasCompositionTests.test_theGroundIsHandedTheLiveCameraAndTheProjectsWash`).
+- **The ground is a sibling beneath the content, never an overlay or a `.colorEffect` over anything containing `CanvasEventView` or the editor.** Pass it the same live camera the draw pass uses, or the grain crawls under the cards (`CanvasCompositionTests.test_theGroundIsHandedTheLiveCameraAndTheProjectsWash`).
 
 ### Card metrics live in `CanvasCardMetrics`, and nowhere else
-- **The card inset, card height and item-card geometry are spelled once, in `CanvasCardMetrics`**. A scrap's height is `CanvasScrapMeasure.height(of:)`; an item card's is `CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`, picture over its own aspect, then `itemPictureGap` (6), then one label line, with `itemLabelOnlyHeight` as the floor.
+- **The card inset, card height and item-card geometry are spelled once, in `CanvasCardMetrics`.** A scrap's height is `CanvasScrapMeasure.height(of:)`; an item card's is `CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`, picture over its own aspect, then `itemPictureGap` (6), then one label line, with `itemLabelOnlyHeight` as the floor.
 - **Every node has a measured height before anything reads its frame** — a node with no `cachedHeight` is neither drawn nor clickable, and `joinTarget` silently joins nothing for it. Creators write `itemLabelOnlyHeight` at creation (`CanvasDrop`, `CanvasClaudePlacement`, `CanvasCapture`); `rebuildLayouts` heals a missing height on load; `CanvasView.remeasure` re-derives both kinds per drag frame (`CanvasViewMountingSurfaceTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`, `test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`).
 - **A nil height is never persisted, and a derived height is never a reason to save**: the sidecar's copy is an optimisation, re-measured on every load.
 - **Width is authoritative and height derived, for both kinds**, so a corner drag scales a photograph and never distorts it; `CanvasInteraction.minimumCardWidth` (120) clamps every kind, with no second minimum.
@@ -99,7 +99,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **Every card and region carries a seeded tilt (FNV-1a over the id, never random per frame); the focused card animates level and settles back on blur.** `CanvasRenderer.seededRotation` takes the node or region, never a bare id, because the author decides whether it tilts.
 - **Straight means Claude**: the writer's things lean between `minimumTiltDegrees` (0.4°) and `maximumTiltDegrees` (1.0°), Claude's cards and regions are drawn at exactly 0° (`CanvasRendererTests.test_theTiltBandLeavesTrueZeroToClaude`, `test_claudesCardsAndRegionsAreDrawnExactlyStraight`).
 - **The editor MOUNTS on the click and becomes VISIBLE on `isLevel`; never merge the two.** One value (`visibleEditorNodeID`) feeds both `ScrapEditorHost.isEditorVisible` and `CanvasRenderer.draw` (tripwire 27; `CanvasCompositionTests.test_theEditorMountsOnTheClickSoNoKeystrokeIsLost`, `test_theRendererAndTheEditorSwapOnTheSamePredicate`, `ScrapEditorHostTests`, `CanvasRendererTests`).
-- **While invisible the editor is transparent to the pointer (`alphaValue` and `hitTest(_:)`); never `isHidden`/`.hidden()`**.
+- **While invisible the editor is transparent to the pointer (`alphaValue` and `hitTest(_:)`); never `isHidden`/`.hidden()`**
 - **`CanvasFocusStraighten.isSettled` compares each card to its own target, never to 1**, or the card stays level for the rest of the session; `step(elapsed:)` returns `!isSettled` for a non-positive delta on purpose (tripwire 29; `CanvasRendererTests.test_blurSettlesTheCardBackToItsSeededAngle`).
 - **Resolve the caret index in the card's unrotated space before the animation starts**, or the click point moves out from under the cursor.
 - **The editor is level by design, not because AppKit forces it** (`NSView.frameRotation` rotates a real view crisply); do not write down otherwise.
@@ -109,7 +109,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **Creation absorbs; transitions do not.** Moving or resizing never adds or removes a member. A sweep takes in every card whose CENTRE is inside it (`absorbedNodes(by:in:)`), a scrap made inside a region joins it, and a drop joins by centre (`joinTarget(for:in:)`, at `.ended` of a node move only). Those are the only geometric readings for membership; never `region.frame.contains(…)` in a move or resize path, and never `contains(node.origin)` anywhere (tripwire 31; `CanvasMembershipTests`, `CanvasRegionInteractionTests`, `CanvasViewMountingRegionTests`).
 - **`CanvasMembership` decides nothing geometric**: deciding is the gesture's job, recording is this file's. Absorption skips unmeasured and hidden cards; a card already living elsewhere is taken in and `join` moves its home.
 - **Drop ties resolve greatest overlap, then the smaller region, then the smaller id; collapsed regions are skipped** — a card that joins a collapsed region vanishes on drop. Dropping outside every region removes nothing; removal is its own act (⌫, the inspector's minus).
-- **One home, many appearances, disjoint by construction**. Home uniqueness is enforced in `CanvasMembership.join` and in `CanvasSceneCodec`'s loader, both "first in id order keeps it", the loser demoted to an appearance rather than dropped. `homeRegion` walks `scene.regions`, never `unorderedRegions` (seeded per process).
+- **One home, many appearances, disjoint by construction.** Home uniqueness is enforced in `CanvasMembership.join` and in `CanvasSceneCodec`'s loader, both "first in id order keeps it", the loser demoted to an appearance rather than dropped. `homeRegion` walks `scene.regions`, never `unorderedRegions` (seeded per process).
 - **Region drags carry residents, never visitors**; `residents` filters against the live scene.
 - **Collapse hides residents in the scene (`hiddenNodes`), not in the renderer**, so drawing, culling, hit testing and accessibility agree. `unorderedNodes` still returns hidden nodes, because `rebuildLayouts` must keep measuring them.
 - **Citing is an inspector act**: `RegionInspector.cite` (the writer's hand) and `CanvasClaudePlacement`'s `.cited` case are the only production callers of `addAppearance` (`RegionBindingTests.test_makingAnAppearanceHasAProductionCaller`, which fails when the list empties or grows). Cite a Card's offer reaches the view only through the `(sceneRevision, regionID)`-gated snapshot (`test_theOfferReachesTheViewOnlyThroughTheGatedSnapshot`); an empty offer is a sentence, not a live menu.
@@ -146,7 +146,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **`CanvasBindingOffer` reads `litNothing` and the subject's case in one `message(subject:highlight:)`**, sits beneath `CanvasEventView`, and has no timer. A piece gets `nothingBound` (sweep a region); a research subject whose card is absent gets `cardNotHere`, which names the tree and never the sweep. A group subject never gets the offer, though `litNothing` is true for one. A bound-but-empty region is not the offer state.
 - **On a dimmed board a region bound elsewhere draws and speaks that piece's name** through one resolver, `CanvasPieceTitles.boundElsewhere(_:isDimmed:)`; a deleted piece says `missingPieceName`. The map is built over the whole structure, never `pieceChoices`' routable subset.
 - **When a region's chrome bar is too narrow, its own label yields to the borrowed piece name** (`CanvasRenderer.regionLabelWidthBudget`).
-- **Shorten a label by string (`CanvasRenderer.elide`), never by clipping the context**.
+- **Shorten a label by string (`CanvasRenderer.elide`), never by clipping the context.**
 
 ### Item nodes and thumbnails
 - **`CanvasItemPresentation` is one resolved value with three consumers** (draw, measure, accessibility), resolved once per structural change at the head of `rebuildLayouts` (never per node inside the `Canvas` closure), cached on `(sceneRevision, CanvasItemIndex.fingerprint)`. The fingerprint is content-derived through `StableHash`; never `hashValue`, never `.onChange(of: index)`.
@@ -165,7 +165,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **What a drop means is a pure decision (`CanvasDrop.decide`) plus a model verb (`apply`)**; that the modifiers are mounted at all is pinned only by `PromotionCommandTests`' wiring census, since no test can post a drag session.
 - **Validation is membership in `CanvasItemIndex`**: anything not there is refused. A second id space arrives prefixed — an Inbox capture's payload is `inbox:<id>`, spelled only in `CanvasDrop.inboxPayload(for:)` and destructured first by `CanvasDrop.payload`.
 - **A research group is accepted by the drop** (where `add_canvas_scraps` refuses one as a source page).
-- **A second drop of the same item REVEALS (select and bring on screen); it never re-creates and never moves**.
+- **A second drop of the same item REVEALS (select and bring on screen); it never re-creates and never moves.**
 - **Drops, captures and Claude's writes go through `mutateFromInspector`**: a drag that begins outside the canvas has no bracket of its own, and the delivery site is not what tripwire 32 turns on.
 - **External images: never `.dropDestination(for: URL.self)`**; use `[.fileURL, .image]` providers and `DropClassification` (`TripwireGrepTests.test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination`). The external `.onDrop` is applied first (innermost) and the `String.self` destination after it.
 - **A non-image is refused before anything is copied** with `ImagePasteHandler.isIngestableImage`, so a refusal and a failure stay separate sentences (`CanvasDropTests.test_theCanvasDropStillRefusesItInItsOwnWords`). Await ingestion first, touch the scene second. Several files cascade at `CanvasClaudePlacement.cardGap`.
@@ -235,11 +235,11 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **A canvas file that exists but can't be read is refused `.unreadable`** (read-only, no fresh layout); Try Again and a bounded retry lift it in-session (#88).
 - **`CanvasModel.attach` surfaces orphan words** (text with no node) as loose cards, and drops blank ones; a refused sidecar is never written back at load.
 - **`CanvasStore.load()` reads both files directly under `// adr-0018-ok:`** — scrap text has one persisted representation, so ADR 0018's drift cannot arise.
-- **`flush()` covers app quit through `NSApplication.willTerminateNotification` with `queue: nil`**.
+- **`flush()` covers app quit through `NSApplication.willTerminateNotification` with `queue: nil`.**
 - **The crash floor: a force-quit loses up to 750 ms of typing.** The canvas has no op log behind it, so do not let "matches `DocumentStore`" imply parity.
 
 ### Accessibility
-- **We own the tree**: `CanvasAccessibility` mirrors every node in rows-then-columns order (a proximity walk with `rowBand`); never `.accessibilityElement(children: .ignore)` on the stack, and never name it or `accessibilityHidden(true)` even in a comment in `CanvasView.swift` (a raw-source scan).
+- **We own the tree**: `CanvasAccessibility` mirrors every node in rows-then-columns order (a proximity walk with `rowBand`); never `.accessibilityElement(children: .ignore)` on the stack, and never name it or `accessibilityHidden(true)` even in a comment on the canvas surface (`CanvasSourceCensus.surfaceFiles`; a raw-source scan).
 - **Elements carry content-space frames and are rebuilt from `.onChange(of: sceneRevision)`, never in `body` or from `revision`; the children live in `CanvasAXChildren` with `.equatable()`** (tripwire 30).
 - **The kind goes in the label** (`CanvasAXRole` is never published): "Scrap", "Reference" (`itemKind`), `regionKind` (`test_everyRoleNamesItselfInTheLabelBecauseTheRoleItselfIsNeverPublished`). `CanvasAccessibility.label` is the one ordering: `dimmedTerm` and `boundElsewhereTerm` first, then kind, name, `claudeTerm`, durable facts.
 - **The dimmed element is the marked one, and the dim never removes elements** (`test_aDimmedCardIsStillReachableAndStillReadsOutItsWords`); its word is not the system's "dimmed" (`test_theSpokenTermIsNotTheSystemsWordForUnavailable`).
@@ -294,7 +294,7 @@ Each is decided or deliberately open; do not record it as a bug, and do not reco
 - **The promoted `[[…]]` reads as plain text in the research pane**; the link layer reads it and renames rewrite it.
 - **Appending into a note another window has open** can be overwritten by that window's buffer — the same class as `AddNoteTool`'s.
 - **Three transient top banners can overlap**; the fix is one banner host per window, never a fourth overlay.
-- **The focus straighten is invisible on a Claude card**, which is already level.
+- **The focus straighten is invisible on a Claude card**, which is already level; inventing a lean would undo the provenance signal.
 - **Claude cannot see an owned picture's pixels**; `list_canvas` reports `provenance`, never the path. An image read keyed on a node id is a decision still owed.
 - **Open for a VoiceOver session**: the focused scrap is announced twice; a line cannot be reached to select it; two owned photographs sound identical ("Reference", "Image").
 - **Unmeasured costs on stated terms**: `ScrapInspector.association` and `CanvasAuthorLine`'s walking resolvers do scene-proportional work in a `body`, bounded by the region count; a gate exists one file over (`RegionInspector`'s `(sceneRevision, id)` cache). Never write "there is no gated way", and never write "measured" without a figure and a date.

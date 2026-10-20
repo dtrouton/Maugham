@@ -4692,10 +4692,16 @@ final class TripwireGrepTests: XCTestCase {
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
             return [:]
         }
+        // The surface is skipped by its path under `dir` (`Canvas/<file>`), not by
+        // basename, so a same-named file in another folder is still censused.
+        let root = dir.resolvingSymlinksInPath().path + "/"
+        let surfacePaths = Set(CanvasSourceCensus.surfaceFiles.map { "Canvas/\($0)" })
         var census: [String: [String]] = [:]
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
-            guard !CanvasSourceCensus.surfaceFiles.contains(name),
+            let full = url.resolvingSymlinksInPath().path
+            let relative = full.hasPrefix(root) ? String(full.dropFirst(root.count)) : full
+            guard !surfacePaths.contains(relative),
                   !Self.canvasBracketDefiners.contains(name) else { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
             guard text.contains("CanvasModel") else { continue }
@@ -4869,34 +4875,49 @@ final class TripwireGrepTests: XCTestCase {
             + "`CanvasSourceCensus.surfaceFiles` so the census above knows where it went.")
     }
 
-    /// **The surface's helpers are built by `CanvasView` only** (tripwire 32).
+    /// **The surface's helpers are named by `CanvasView` only** (tripwire 32).
     ///
     /// The census above skips every file in `CanvasSourceCensus.surfaceFiles`,
     /// because the view and the helpers it builds per call are inside its own
-    /// bracket. That exemption is only safe while nothing else can hold a
-    /// helper: `RegionInspector` building a `CanvasKeyHandler` would reach
-    /// `mutate`/`beginGesture` from another column through a file the census
-    /// never reads. So every type declared in a surface file other than
-    /// `CanvasView.swift` is built (`TypeName(`, comments stripped) only in
-    /// `CanvasView.swift` and in its own file. A static call (`TypeName.f(`)
-    /// builds nothing and is fine.
+    /// bracket. That exemption is only safe while nothing else can reach into
+    /// a surface file. Three routes would, and each is closed here:
     ///
+    /// - **Naming a helper type.** Every type declared in a surface file other
+    ///   than `CanvasView.swift` is NAMED (`TypeName`, identifier-guarded,
+    ///   comments stripped) only in `CanvasView.swift` and in its own file. That
+    ///   covers building one, holding one (`let handler: CanvasKeyHandler`) and
+    ///   calling a static member that takes the model
+    ///   (`CanvasKeyHandler.delete(model:)`), all of which reach `mutate` or
+    ///   `beginGesture` from another column through a file the census never reads.
+    /// - **Extending another type.** A surface file other than `CanvasView.swift`
+    ///   extends only `CanvasView` or a type it declares itself: an
+    ///   `extension CanvasModel { func f() { mutate(…) } }` there would be
+    ///   callable as `model.f()` from any column.
+    /// - **A top-level function**, callable from anywhere, for the same reason.
+    ///
+    /// One helper never names another: a helper is built only in a `CanvasView`
+    /// computed property and handed what it needs (the controller's ruling).
     /// Vacuous while the list holds only `CanvasView.swift`; the planted
-    /// companion below is what proves it fires.
+    /// companion below is what proves each route fires.
     func test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly() throws {
-        let census = try Self.canvasSurfaceHelperBuilders(
+        let census = try Self.canvasSurfaceHelperCensus(
             base: sourceDir.deletingLastPathComponent(),
             surfaceFiles: CanvasSourceCensus.surfaceFiles)
         XCTAssertGreaterThan(census.walked, 100,
-            "the walk found almost nothing — a builder census over an empty tree "
+            "the walk found almost nothing — a census over an empty tree "
             + "passes for the wrong reason")
-        XCTAssertEqual(census.offenders, [], Self.surfaceHelperBuiltElsewhere(census.offenders))
+        XCTAssertEqual(census.offenders, [], Self.surfaceHelperReachedFromElsewhere(census.offenders))
     }
 
-    /// Self-check: a helper declared in a listed surface file and built from
-    /// another column fires; a doc comment naming the build and a static call
-    /// do not; the init spelling does; and a type NOT on the list is not
-    /// checked at all (the census is keyed by the list).
+    /// Self-check, one planted case per route: building a helper, building it
+    /// through `.init(`, holding one, calling its static member, a surface file
+    /// extending `CanvasModel`, and a top-level function in a surface file.
+    /// Controls: a doc comment naming the helper, a longer identifier that
+    /// merely contains its name, the helper named in its own file and in
+    /// `CanvasView.swift`, an extension of the file's own type and of
+    /// `CanvasView`, a nested function, and a `class func` in a helper class
+    /// (which must not register a type called `func`). A type NOT on the list
+    /// is not checked at all, and a missing listed file throws.
     func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Canvas/CanvasView.swift": """
@@ -4910,9 +4931,20 @@ final class TripwireGrepTests: XCTestCase {
                 @MainActor
                 struct CanvasKeyHandler {
                     let model: CanvasModel
-                    static func asksForTheWholeBoard() -> Bool { false }
+                    static func delete(model: CanvasModel) { model.mutate("Delete") { _ in } }
                     func again() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }
+                    func outer() { func inner() {} ; inner() }
                 }
+                final class CanvasKeyClock {
+                    class func now() -> Int { 0 }
+                    class var rate: Int { 1 }
+                }
+                extension CanvasKeyHandler { func more() {} }
+                extension CanvasView { var keys: Int { 0 } }
+                extension CanvasModel {
+                    func deleteFromAnywhere() { mutate("Delete") { _ in } }
+                }
+                private func deleteEverything(_ model: CanvasModel) { model.mutate("Delete") { _ in } }
                 """,
             "Maugham/Canvas/RegionInspector.swift": """
                 struct RegionInspector {
@@ -4930,56 +4962,92 @@ final class TripwireGrepTests: XCTestCase {
                 // CanvasKeyHandler(model:) is the view's to build, not this file's.
                 struct LineInspector {
                     let model: CanvasModel
-                    func ask() -> Bool { CanvasKeyHandler.asksForTheWholeBoard() }
+                    func delete() { CanvasKeyHandler.delete(model: model) }
+                }
+                """,
+            "Maugham/Canvas/ItemInspector.swift": """
+                struct ItemInspector {
+                    let handler: CanvasKeyHandler
+                }
+                """,
+            "Maugham/Views/Unrelated.swift": """
+                struct Unrelated {
+                    let rows = CanvasKeyHandlerRows()
+                    func f() { var (a, b) = (1, 2); a += b }
                 }
                 """,
         ])
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let planted = try Self.canvasSurfaceHelperBuilders(
+        let planted = try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift", "CanvasKeyHandler.swift"])
-        XCTAssertEqual(planted.walked, 5, "Self-check: the walk read the planted tree")
+        XCTAssertEqual(planted.walked, 7, "Self-check: the walk read the planted tree")
         XCTAssertEqual(planted.offenders, [
-            "RegionInspector.swift builds CanvasKeyHandler",
-            "ScrapInspector.swift builds CanvasKeyHandler",
-        ], "Self-check: a surface helper built from another column must fire, by "
-            + "either spelling; a comment and a static call must not.")
+            "CanvasKeyHandler.swift declares a top-level func",
+            "CanvasKeyHandler.swift extends CanvasModel",
+            "ItemInspector.swift names CanvasKeyHandler",
+            "LineInspector.swift names CanvasKeyHandler",
+            "RegionInspector.swift names CanvasKeyHandler",
+            "ScrapInspector.swift names CanvasKeyHandler",
+        ], "Self-check: every route from another column into a surface file must "
+            + "fire — building, holding, a static call, an extension of another "
+            + "type, a top-level function — and no control may.")
 
-        let offTheList = try Self.canvasSurfaceHelperBuilders(
+        let offTheList = try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift"])
         XCTAssertEqual(offTheList.offenders, [],
-            "control: a type declared in a file NOT on the surface list is not a "
-            + "surface helper, so building it elsewhere is not this census's business")
+            "control: a file NOT on the surface list is not a surface file, so "
+            + "what it declares or extends is not this census's business")
 
-        XCTAssertThrowsError(try Self.canvasSurfaceHelperBuilders(
+        XCTAssertThrowsError(try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift", "CanvasGone.swift"]),
             "a listed surface file that is not on disk must throw, not pass")
     }
 
-    private static func surfaceHelperBuiltElsewhere(_ offenders: [String]) -> String {
-        "A canvas surface helper is built outside `CanvasView.swift` (tripwire 32). "
+    private static func surfaceHelperReachedFromElsewhere(_ offenders: [String]) -> String {
+        "A canvas surface file is reachable from outside `CanvasView.swift` (tripwire 32). "
         + "The bracket census skips every file in `CanvasSourceCensus.surfaceFiles`, "
-        + "so a helper built from another column reaches the inside verbs "
-        + "(`mutate`, `beginGesture`, `withScene`) where nothing checks it — the "
-        + "nested-bracket defect, with the edit on no undo step. Build it only in "
-        + "a `CanvasView` computed property; from another column, call "
+        + "so a helper named from another column — built, held, or called "
+        + "statically — or an extension or top-level function in a surface file "
+        + "reaches the inside verbs (`mutate`, `beginGesture`, `withScene`) where "
+        + "nothing checks it: the nested-bracket defect, with the edit on no undo "
+        + "step. Build a helper only in a `CanvasView` computed property and keep "
+        + "its file to its own types; from another column, call "
         + "`CanvasModel.mutateFromInspector`.\n" + offenders.joined(separator: "\n")
     }
 
-    /// For each type declared (`struct`/`class`/`enum`/`actor`) in a surface
-    /// file other than `CanvasView.swift`, every production file under
-    /// `<base>/Maugham/` that builds one — `TypeName(` or `TypeName.init(`,
-    /// comments stripped — other than `CanvasView.swift` and the type's own
-    /// file. Throws when a listed surface file is missing.
-    private static func canvasSurfaceHelperBuilders(
+    /// The three routes into a surface file other than `CanvasView.swift`,
+    /// comments stripped:
+    /// - every production file under `<base>/Maugham/` that NAMES a type
+    ///   declared there (`struct`/`class`/`enum`/`actor`, uppercase-initial),
+    ///   other than `CanvasView.swift` and the type's own file;
+    /// - an `extension` of anything but `CanvasView` or a type the file declares;
+    /// - a top-level `func`.
+    /// Top level is column 0, which is how every file here is indented.
+    /// Throws when a listed surface file is missing.
+    private static func canvasSurfaceHelperCensus(
         base: URL, surfaceFiles: [String]
     ) throws -> (offenders: [String], walked: Int) {
         let canvasDir = base.appendingPathComponent("Maugham/Canvas", isDirectory: true)
+        let attributesAndModifiers = #"(?:@\w+(?:\([^)]*\))?\s+)*"#
+            + #"(?:(?:public|private|fileprivate|internal|package|final|indirect)\s+)*"#
+        // Uppercase-initial, so `class func`/`class var` declare nothing.
         let declaration = try NSRegularExpression(
-            pattern: #"^[ \t]*(?:@\w+(?:\([^)]*\))?\s+)*"#
-                + #"(?:(?:public|private|fileprivate|internal|package|final|indirect)\s+)*"#
-                + #"(?:struct|class|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)"#,
+            pattern: #"^[ \t]*"# + attributesAndModifiers
+                + #"(?:struct|class|enum|actor)\s+([A-Z][A-Za-z0-9_]*)"#,
             options: [.anchorsMatchLines])
+        let topLevelExtension = try NSRegularExpression(
+            pattern: "^" + attributesAndModifiers + #"extension\s+([A-Za-z_][A-Za-z0-9_.]*)"#,
+            options: [.anchorsMatchLines])
+        let topLevelFunc = try NSRegularExpression(
+            pattern: "^" + attributesAndModifiers + #"func\s"#, options: [.anchorsMatchLines])
+        func captures(_ regex: NSRegularExpression, in code: String) -> [String] {
+            regex.matches(in: code, range: NSRange(code.startIndex..., in: code)).compactMap {
+                Range($0.range(at: 1), in: code).map { String(code[$0]) }
+            }
+        }
+
+        var offenders: [String] = []
         var homes: [String: String] = [:]   // type → the surface file declaring it
         for name in surfaceFiles {
             let url = canvasDir.appendingPathComponent(name)
@@ -4988,13 +5056,17 @@ final class TripwireGrepTests: XCTestCase {
             }
             guard name != theCanvasViewFile else { continue }
             let code = CanvasSourceCensus.commentsStripped(text)
-            let range = NSRange(code.startIndex..., in: code)
-            for match in declaration.matches(in: code, range: range) {
-                if let r = Range(match.range(at: 1), in: code) { homes[String(code[r])] = name }
+            let declared = captures(declaration, in: code)
+            for type in declared { homes[type] = name }
+            for extended in Set(captures(topLevelExtension, in: code))
+            where extended != "CanvasView" && !declared.contains(extended) {
+                offenders.append("\(name) extends \(extended)")
+            }
+            if topLevelFunc.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                offenders.append("\(name) declares a top-level func")
             }
         }
 
-        var offenders: [String] = []
         var walked = 0
         let app = base.appendingPathComponent("Maugham", isDirectory: true)
         let walker = FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)
@@ -5005,11 +5077,11 @@ final class TripwireGrepTests: XCTestCase {
             guard file != theCanvasViewFile, !homes.isEmpty else { continue }
             let code = CanvasSourceCensus.commentsStripped(try String(contentsOf: url, encoding: .utf8))
             for (type, home) in homes where file != home {
-                let builds = try NSRegularExpression(
+                let names = try NSRegularExpression(
                     pattern: #"(?<![A-Za-z0-9_])"# + NSRegularExpression.escapedPattern(for: type)
-                        + #"(?:\.init)?\s*\("#)
-                if builds.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
-                    offenders.append("\(file) builds \(type)")
+                        + #"(?![A-Za-z0-9_])"#)
+                if names.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                    offenders.append("\(file) names \(type)")
                 }
             }
         }
@@ -5073,6 +5145,27 @@ final class TripwireGrepTests: XCTestCase {
         }
         """.write(to: tmp.appendingPathComponent("CanvasSweepCommands.swift"),
                   atomically: true, encoding: .utf8)
+
+        // The surface is skipped by PATH: the real one (`Canvas/CanvasView.swift`)
+        // is exempt, a same-named file in another folder is not. Each in a tree
+        // of its own, because the census keys by basename.
+        for (folder, expected) in [("Canvas", nil), ("Views", ["mutate"])] as [(String, [String]?)] {
+            let tree = tmp.deletingLastPathComponent()
+                .appendingPathComponent("tripwire-canvas-surface-path-\(UUID().uuidString)")
+            defer { try? fm.removeItem(at: tree) }
+            let dir = tree.appendingPathComponent(folder)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try """
+            struct CanvasView {
+                let model: CanvasModel
+                func tidy() { model.mutate("Tidy") { _ in } }
+            }
+            """.write(to: dir.appendingPathComponent("CanvasView.swift"),
+                      atomically: true, encoding: .utf8)
+            XCTAssertEqual(try canvasBracketCensus(in: tree)["CanvasView.swift"], expected,
+                "Self-check: only `Canvas/CanvasView.swift` is the surface; a "
+                + "`CanvasView.swift` under \(folder)/ must \(expected == nil ? "be skipped" : "be censused").")
+        }
 
         let census = try canvasBracketCensus(in: tmp)
         XCTAssertEqual(census["CanvasSweepCommands.swift"], ["renameGesture"],

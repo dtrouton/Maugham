@@ -935,7 +935,7 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the six Map rows the 
 
 ### Rendering
 
-- One SwiftUI `Canvas` draws every node: `NSScrollView` with real subviews is disqualified by measurement: SwiftUI content under magnification reports one frame at every zoom and stops taking clicks at 2×.
+- One SwiftUI `Canvas` draws every node — `NSScrollView` with real subviews is disqualified by measurement: SwiftUI content under magnification reports one frame at every zoom and stops taking clicks at 2×.
 - `contentStorage.textStorage = NSTextStorage(...)`: the other spelling renders perfectly and refuses every keystroke.
 - `lineFragmentPadding = 0`, `widthTracksTextView = false`, `textContainerInset = .zero`: any default shifts drawn text against edited text, and the inset moves pixels while every geometry assertion passes.
 - Every `ScrapLayout` names `textColor: CanvasRenderer.cardInk`: the default is the same colour today, so forgetting would break nothing visible.
@@ -975,6 +975,3 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the six Map rows the 
 
 - `flush()` on quit observes with `queue: nil`: with a queue the block may never run before exit.
 
-### Accepted costs and open questions
-
-- The focus straighten is invisible on a Claude card: inventing a lean would undo the provenance signal.
