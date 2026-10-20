@@ -92,6 +92,14 @@ struct EditorSurfaceConfiguration {
         /// `tbl:`, Insert Figure's `fig:`). Asked per command, never per
         /// keystroke. Wired by `EditorHost`; nil elsewhere.
         var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)? = nil
+        /// Copies a picture into the document's research and returns the
+        /// figure path relative to the document (plan 3a Task 6,
+        /// `FigureIngest.importImage`). With it set on a surface that answers
+        /// the Insert menu, Insert Figure…, an image drop and an image paste
+        /// make figures. Wired by `EditorHost`; nil elsewhere.
+        var figureImporter: (@MainActor (URL) async throws -> String)? = nil
+        /// Where a figure that could not be made is told (a sentence).
+        var figureFailureReporter: (@MainActor (String) -> Void)? = nil
     }
 
     /// Review-mode annotation authoring plus the resolvers the crafted render
@@ -214,6 +222,8 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
+        coordinator.figureImporter = pp.figureImporter
+        coordinator.figureFailureReporter = pp.figureFailureReporter
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
@@ -470,6 +480,8 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         context.coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
+        context.coordinator.figureImporter = pp.figureImporter
+        context.coordinator.figureFailureReporter = pp.figureFailureReporter
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider
@@ -638,7 +650,7 @@ final class MaughamTextView: NSTextView {
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
         var types = super.readablePasteboardTypes
-        if coordinator?.imagePasteHandler != nil {
+        if coordinator?.imagePasteHandler != nil || coordinator?.answersFigures == true {
             // AppKit's menu-item validation for Edit→Paste checks
             // readablePasteboardTypes; include image types so Paste is
             // enabled when image content is on the clipboard.
@@ -674,7 +686,16 @@ final class MaughamTextView: NSTextView {
     /// route. Neither wants `super` to have a go. What is given up is `super`'s
     /// handling of a mixed pasteboard's TEXT when an image is also present, which
     /// on these two surfaces was never the intent.
+    ///
+    /// A manuscript that makes figures (plan 3a Task 6) asks
+    /// `EditorCoordinator.pasteFigure` first, under the same rule: a picture on
+    /// the pasteboard is handled there — ingested, refused or reported — and
+    /// never reaches `super`.
     override func paste(_ sender: Any?) {
+        if let coordinator, coordinator.answersFigures,
+           coordinator.pasteFigure(from: .general) {
+            return
+        }
         if let handler = coordinator?.imagePasteHandler,
            NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
            let image = NSImage(pasteboard: .general) {
@@ -684,6 +705,60 @@ final class MaughamTextView: NSTextView {
             return
         }
         super.paste(sender)
+    }
+
+    // MARK: - Dropping a picture (plan 3a Task 6)
+
+    /// What a drag of `urls` does here: nil when it is not a figure drop (the
+    /// text view's own behaviour), `[]` when the membrane refuses one (the
+    /// no-entry cursor), `.copy` when the picture will become a figure. The
+    /// one decision the drag callbacks below read.
+    func figureDragOperation(for urls: [URL]) -> NSDragOperation? {
+        guard let coordinator else { return nil }
+        switch coordinator.figureDropDecision(for: urls) {
+        case .notOurs: return nil
+        case .refuse: return []
+        case .accept: return .copy
+        }
+    }
+
+    private func draggedFileURLs(_ sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let operation = figureDragOperation(for: draggedFileURLs(sender)) else {
+            return super.draggingEntered(sender)
+        }
+        // `super` draws the drop caret where the figure will land.
+        if !operation.isEmpty { _ = super.draggingEntered(sender) }
+        return operation
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let operation = figureDragOperation(for: draggedFileURLs(sender)) else {
+            return super.draggingUpdated(sender)
+        }
+        if !operation.isEmpty { _ = super.draggingUpdated(sender) }
+        return operation
+    }
+
+    /// A figure drop never reaches `super`, which would insert the file's
+    /// path (plain text) or an attachment character into the op log. The
+    /// figure goes where the pointer let go.
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = draggedFileURLs(sender)
+        switch coordinator?.figureDropDecision(for: urls) {
+        case .accept(let images)?:
+            let at = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
+            coordinator?.beginFigureIngest(images, at: at)
+            return true
+        case .refuse?:
+            return false
+        case .notOurs?, nil:
+            return super.performDragOperation(sender)
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {

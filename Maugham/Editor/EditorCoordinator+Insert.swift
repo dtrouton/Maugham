@@ -71,6 +71,15 @@ extension EditorCoordinator {
         return receiverContext(.keyWindow)
     }
 
+    /// Whether this editor makes figures (plan 3a Task 6,
+    /// `EditorCoordinator+Figure.swift`): a surface that answers the Insert
+    /// menu — a Markdown manuscript, which only `EditorHost` says — whose host
+    /// handed it an importer. A research note, a statement and a screenplay
+    /// say no, so their drop and paste are what they always were.
+    var answersFigures: Bool {
+        answersInsertCommands && figureImporter != nil && !isDetached
+    }
+
     /// Insert ▸ Table (⌘⇧T, R-3a-5): a 3-column table on a block of its own
     /// at the caret (after the selection), its first header cell selected.
     func insertTable() {

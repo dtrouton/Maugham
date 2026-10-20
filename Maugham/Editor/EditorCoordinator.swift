@@ -244,6 +244,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// that answers the window's other commands, and must not answer these.
     private var insertTableObserver: NSObjectProtocol?
     private var insertFootnoteObserver: NSObjectProtocol?
+    /// Insert ▸ Figure… (⌘⇧I, plan 3a Task 6), gated the same way.
+    private var insertFigureObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -261,6 +263,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `EditorHost`; asked once per command, never per keystroke. Nil on every
     /// other surface.
     var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)?
+
+    /// Copies a picture into this document's research and returns the figure
+    /// path relative to the document (plan 3a Task 6,
+    /// `FigureIngest.importImage`). Built by `EditorHost`; nil on every other
+    /// surface, which is what keeps their drop and paste unchanged.
+    var figureImporter: (@MainActor (URL) async throws -> String)?
+
+    /// Where a figure that could not be made is told — the host's notice
+    /// banner, the channel the editor's other failures use.
+    var figureFailureReporter: (@MainActor (String) -> Void)?
+
+    /// The most recent figure ingest, so a caller (a test) can await it
+    /// instead of polling.
+    var figureIngestTask: Task<Void, Never>?
 
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
@@ -446,7 +462,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
     /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
     /// `maughamExitTranslationReview`, and the Insert menu's
-    /// `maughamInsertTable` and `maughamInsertFootnote` (which also ask
+    /// `maughamInsertTable`, `maughamInsertFootnote` and `maughamInsertFigure` (which also ask
     /// `answersInsertCommands`) — count the `MaughamEvent.observe` calls rather
     /// than this sentence.
     ///
@@ -602,6 +618,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.insertFootnote()
         }
+        insertFigureObserver = MaughamEvent.observe(
+            .maughamInsertFigure,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.insertFigure()
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -639,6 +661,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertFootnoteObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = insertFigureObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -720,13 +745,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
                       annotationNavigateObserver, reviewToggleObserver,
                       translationEnterObserver, translationExitObserver,
-                      insertTableObserver, insertFootnoteObserver] {
+                      insertTableObserver, insertFootnoteObserver, insertFigureObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
-        insertTableObserver = nil; insertFootnoteObserver = nil
+        insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
         // Clear the native undo stack before the text-view reference is
         // dropped: a doc switch recreates the EditorSurface via `.id(path)`,
         // and the NEW text view is seeded in `makeNSView` — no

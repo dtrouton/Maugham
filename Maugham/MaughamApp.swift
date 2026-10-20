@@ -603,14 +603,13 @@ private struct InsertMenuButtons: View {
         }
         .keyboardShortcut("n", modifiers: [.command, .shift])
         .disabled(!enabled)
-        // Nothing answers this post until plan 3a Task 6 wires the figure
-        // ingest, so the item stays disabled rather than doing nothing; Task 6
-        // replaces `true` with `!enabled`.
+        // An open panel for images; the picture is copied into the
+        // document's research and written as a figure (plan 3a Task 6).
         Button("Figure\u{2026}") {
             MaughamEvent.post(.maughamInsertFigure, to: .keyWindow)
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
-        .disabled(true)
+        .disabled(!enabled)
         // Plan 3b adds Citation… and Cross-Reference… below a separator.
     }
 }

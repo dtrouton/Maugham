@@ -15,6 +15,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+Insert.swift` — `applyCommandEdit` (Route A for commands) and the Insert menu's receivers.
 - `EditorCoordinator+Tables.swift` — pipe tables: Tab and Shift-Tab move by cell, Return adds a row, and the table tidies itself.
 - `ReportInsert.swift` — the pure text Insert Table and Insert Footnote write, and where.
+- `FigureIngest.swift` + `EditorCoordinator+Figure.swift` — figures backed by research: Insert Figure…, an image drop and an image paste copy into research (`figureImporter`) and write the figure line through Route A.
 - `EditorCoordinator+ReviewRender.swift` — the review overlays: resolving marks, the margin cards, the toolbar's annotation authoring, card actions. Tripwire 4.
 - `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
 - `EditorControl.swift` — the `@Observable` control-plane model (posture, appearance, review annotations, translation language and badges); never text (ADR 0017).
@@ -130,6 +131,7 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 ### Commands that write text
 - **A command writes through `applyCommandEdit`** (Route A): one `replaceCharacters` behind the membrane, one ⌘Z step, typing undo kept. Never Route B (`setParagraph` wipes typing undo, ADR 0023 D1).
 - **A table re-aligns (`TableText.formatted()`, through `applyCommandEdit`) only on Tab, Shift-Tab, Return or leaving it, never mid-keystroke** (Denver's ruling). The leave-tidy runs on the next runloop, never inside the selection callback, and an undo's selection change or an IME composition schedules none (`TableEditingTests`).
+- **A figure drop or paste never reaches `super`** (`MaughamTextView.performDragOperation`, `paste`): `super` would write the file's path or a `U+FFFC` into the op log. The membrane is asked before anything is copied; the line lands after the async copy at the point carried through any typing (`FigureIngest.Anchor`), never in a document the editor has left (`FigureCommandTests`).
 - **Only `EditorHost` sets `answersInsertCommands`**: a research note answers window commands and shares `ProseMode`, so without it the note takes a table (`InsertCommandTests`). The menu's enabled state is `InsertMenuGate` (`Maugham/Views/EditorControlMirror.swift`).
 
 ### Overlays and in-editor UI

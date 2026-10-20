@@ -87,12 +87,26 @@ enum ReportInsert {
     /// table's paragraph rather than splitting it.
     static func tableEdit(in text: String, at location: Int, tableBlocks: [NSRange],
                           labelsElsewhere: Set<ManuscriptLabel> = []) -> Edit {
+        blockEdit(in: text, at: location, tableBlocks: tableBlocks,
+                  block: table(nextLabelNumber: nextTableLabelNumber(in: text,
+                                                                     elsewhere: labelsElsewhere)),
+                  selectionInBlock: firstHeaderCell)
+    }
+
+    /// `block` (text with no blank line: one op-log paragraph) on a block of
+    /// its own at `location`, `selectionInBlock` selected — the placement rule
+    /// Insert Table and Insert Figure (Task 6) share. Mid-line, it splits the
+    /// paragraph; at a line's edge it adds only the blank lines it needs.
+    /// Spaces and tabs touching the caret on its line are absorbed. Inside a
+    /// table (any range of `tableBlocks`) it goes after that table's paragraph.
+    static func blockEdit(in text: String, at location: Int, tableBlocks: [NSRange],
+                          block: String, selectionInBlock: NSRange) -> Edit {
         let ns = text as NSString
         var at = max(0, min(location, ns.length))
-        if let block = tableBlocks.first(where: {
+        if let enclosing = tableBlocks.first(where: {
             at >= $0.location && at <= NSMaxRange($0) && $0.length > 0
         }) {
-            at = NSMaxRange(paragraphRange(containing: block.location, in: ns))
+            at = NSMaxRange(paragraphRange(containing: enclosing.location, in: ns))
         }
 
         let line = ns.lineRange(for: NSRange(location: at, length: 0))
@@ -120,14 +134,12 @@ enum ReportInsert {
             after = "\n"                                     // open a blank line before the next
         }
 
-        let table = table(nextLabelNumber: nextTableLabelNumber(in: text,
-                                                                elsewhere: labelsElsewhere))
         let prefix = (before as NSString).length
         return Edit(
             replacedRange: NSRange(location: start, length: end - start),
-            replacement: before + table + after,
-            selection: NSRange(location: start + prefix + firstHeaderCell.location,
-                               length: firstHeaderCell.length))
+            replacement: before + block + after,
+            selection: NSRange(location: start + prefix + selectionInBlock.location,
+                               length: selectionInBlock.length))
     }
 
     // MARK: - R-3a-6 Insert Footnote

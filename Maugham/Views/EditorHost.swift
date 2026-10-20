@@ -796,6 +796,17 @@ struct EditorHost: View {
                             ?? (try? store.derivedCache.displayText(
                                 forDocId: item.id, in: store.url))
                     }
+                },
+                // Figures backed by research (plan 3a Task 6): Insert Figure…,
+                // an image drop and an image paste copy the picture into this
+                // document's research (R-3a-3) and hand back its path relative
+                // to the document. A failure is told on the notice banner.
+                figureImporter: { [store] url in
+                    try await FigureIngest.importImage(url, documentId: doc.docId,
+                                                       documentPath: path, store: store)
+                },
+                figureFailureReporter: { [store] message in
+                    MaughamEvent.postNotice(message, projectURL: store.url)
                 }),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
