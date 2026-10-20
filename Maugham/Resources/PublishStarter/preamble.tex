@@ -21,6 +21,13 @@
 \geometry{margin=1in}
 \usepackage{titling}
 \usepackage{titlesec}
+% graphicx and longtable: a figure's image, and a table that may break across
+% pages with its header repeated. Without them the body still compiles (a
+% figure becomes its caption in a framed box, a table a float around a plain
+% tabular), and Maugham's build/metadata.tex loads them for a book that has
+% figures or tables, so they are the default here, not a requirement.
+\usepackage{graphicx}
+\usepackage{longtable}
 % hidelinks: no colored boxes or borders around links/ToC entries — links
 % stay black like body text, the right default for a print-style book.
 \usepackage[hidelinks]{hyperref}

@@ -58,7 +58,8 @@ public struct PublishResolution: Sendable {
     /// (`FigureImageResolver`), for the compilers to stage. A figure that is
     /// absent here is unresolved and renders as its literal source: its image
     /// was refused (a problem), or the source has no project to look in.
-    public let figureFiles: [String: [Int: URL]]
+    /// A compiler that then fails to stage one calls `stagingFailed`.
+    public private(set) var figureFiles: [String: [Int: URL]]
     /// `citationKey(items)` → "(Smith 2026a, p. 3)". Absent for a citation
     /// with any unknown key: it renders as its literal source.
     public let citationText: [String: String]
@@ -73,7 +74,23 @@ public struct PublishResolution: Sendable {
     public let listOfFigures: [ListEntry]
     /// Every table, in book order; empty when the switch is off (R-P2-6).
     public let listOfTables: [ListEntry]
-    public let problems: [PublishProblem]
+    public private(set) var problems: [PublishProblem]
+    /// pieceID → node index → the figure's path as written and its `¶id`, so a
+    /// staging failure can name both.
+    private let figureOrigins: [String: [Int: (path: String, paragraph: String?)]]
+
+    /// A compiler could not stage this figure's resolved image (R-P2-7): the
+    /// figure is unresolved from here on — it renders as its literal source —
+    /// and its paragraph carries an `imageUnreadable` problem. The problem
+    /// joins the end of `problems`; the order within it is not book order.
+    public mutating func stagingFailed(pieceID: String, nodeIndex: Int, reason: String) {
+        guard figureFiles[pieceID]?.removeValue(forKey: nodeIndex) != nil else { return }
+        let origin = figureOrigins[pieceID]?[nodeIndex]
+        problems.append(PublishProblem(
+            kind: .imageUnreadable("\(origin?.path ?? "the image") couldn't be copied for the compile: \(reason)"),
+            pieceID: pieceID, paragraphID: origin?.paragraph, bodyTag: bodyTag))
+    }
+    private let bodyTag: String?
 
     /// The ONE key `citationText` is looked up by; the emitters call it too,
     /// so a lookup can never disagree with what was stored. Order and
@@ -120,6 +137,8 @@ public struct PublishResolution: Sendable {
         tableNumbers = pass.tableNumbers
         footnoteNumbers = pass.footnoteNumbers
         figureFiles = pass.figureFiles
+        figureOrigins = pass.figureOrigins
+        bodyTag = pass.bodyTag
         self.citationText = citationText
         self.references = references
         self.referenceKeys = referenceKeys
@@ -142,6 +161,7 @@ private struct Pass {
     var tableNumbers: [String: [Int: Int]] = [:]
     var footnoteNumbers: [String: [String: Int]] = [:]
     var figureFiles: [String: [Int: URL]] = [:]
+    var figureOrigins: [String: [Int: (path: String, paragraph: String?)]] = [:]
     var figures: [PublishResolution.ListEntry] = []
     var tables: [PublishResolution.ListEntry] = []
     var problems: [PublishProblem] = []
@@ -248,6 +268,7 @@ private struct Pass {
                                            allowed: imageAllowed) {
         case .file(let url):
             figureFiles[piece, default: [:]][index] = url
+            figureOrigins[piece, default: [:]][index] = (path, paragraph)
         case .notLocal:
             report(.figurePathNotLocal(path), piece: piece, paragraph: paragraph)
         case .unreadable(let reason):

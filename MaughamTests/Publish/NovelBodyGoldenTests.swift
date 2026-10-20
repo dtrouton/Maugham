@@ -85,6 +85,22 @@ final class NovelBodyGoldenTests: XCTestCase {
                          "novel-golden-body.tex")
     }
 
+    /// Every real compile now passes the book's resolution (Task 5): a novel
+    /// with none of the report syntax must emit the same bytes WITH one, under
+    /// the same golden, whatever its switches (a novel may turn them on).
+    func test_latexBody_withTheBooksResolution_isByteIdenticalToTheGolden() throws {
+        let ast = try ProjectASTBuilder.build(from: NovelSource())
+        for on in [false, true] {
+            var context = PublishContext.empty
+            context.switches = (numberSections: false, listOfFigures: on, listOfTables: on)
+            let resolution = PublishResolution.resolve(ast, context: context, bodyTag: nil,
+                                                       imageAllowed: ["png", "jpg", "jpeg", "pdf"])
+            try assertGolden(LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"],
+                                                   resolution: resolution),
+                             "novel-golden-body.tex")
+        }
+    }
+
     func test_xhtmlBody_isByteIdenticalToTheGolden() throws {
         let ast = try ProjectASTBuilder.build(from: NovelSource())
         try assertGolden(XHTMLBodyEmitter.emit(ast, anchorTag: "en",

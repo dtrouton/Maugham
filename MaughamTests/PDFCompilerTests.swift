@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class PDFCompilerTests: XCTestCase {
@@ -75,5 +76,88 @@ final class PDFCompilerTests: XCTestCase {
         XCTAssertEqual(
             PDFCompiler.wrapperInputPrefix(forTemplate: "./templates/x.tex"), "../",
             "and the two rules compose")
+    }
+
+    // MARK: - report foundations plan 2, Task 5
+
+    private struct Book: ProjectASTBuilder.Source {
+        let paragraphs: [(id: String, text: String)]
+        let context: PublishContext
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "a", title: "A", mode: .prose,
+                   displayText: paragraphs.map(\.text).joined(separator: "\n\n"),
+                   paragraphs: paragraphs)]
+        }
+        func publishContext() -> PublishContext { context }
+    }
+
+    private func resolution(_ paragraphs: [(id: String, text: String)],
+                            project: URL? = nil) throws -> PublishResolution {
+        var context = PublishContext.empty
+        context.projectURL = project
+        context.piecePaths = ["a": "manuscript/a.md"]
+        return try PublishResolution.forCompile(
+            source: Book(paragraphs: paragraphs, context: context), bodyTag: nil,
+            imageAllowed: ["png", "jpg", "jpeg", "pdf"])
+    }
+
+    /// `build/metadata.tex` keeps its bytes for a book with no figure and no
+    /// table: the package lines are appended only for the element the book has.
+    func test_documentMetadata_isTheMetadataBlockUnlessTheBookHasFiguresOrTables() throws {
+        let cfg = PublishConfig(metadata: .init(title: "T", author: "A"))
+        let plain = try resolution([("a1b2", "# Heading"), ("c3d4", "Prose [^1].")])
+        XCTAssertEqual(PDFCompiler.documentMetadata(config: cfg, label: "x", resolutions: [plain]),
+                       PDFCompiler.metadataBlock(config: cfg, label: "x"))
+
+        let table = try resolution([("a1b2", "| a |\n|---|\n| 1 |")])
+        XCTAssertEqual(PDFCompiler.documentMetadata(config: cfg, label: nil, resolutions: [plain, table]),
+                       PDFCompiler.metadataBlock(config: cfg, label: nil)
+                       + "\n\\IfFileExists{longtable.sty}{\\usepackage{longtable}}{}")
+
+        let figure = try resolution([("a1b2", "![F](../research/f.png)")])
+        XCTAssertEqual(PDFCompiler.documentMetadata(config: cfg, label: nil, resolutions: [figure, table]),
+                       PDFCompiler.metadataBlock(config: cfg, label: nil)
+                       + "\n\\IfFileExists{graphicx.sty}{\\usepackage{graphicx}}{}"
+                       + "\n\\IfFileExists{longtable.sty}{\\usepackage{longtable}}{}")
+    }
+
+    /// R-P2-7: each resolved image is copied (never read into memory) into
+    /// `build/figures/` under a content-hash name, written relative to the
+    /// template's directory; two figures of one file share one copy; a copy
+    /// that fails unresolves its figure and becomes an `imageUnreadable` problem.
+    func test_stageFigures_copiesUnderAContentHashName_andAFailedCopyIsAProblem() throws {
+        let project = tmp.appendingPathComponent("Project With Spaces")
+        let research = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
+        try Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]).write(to: research.appendingPathComponent("a.png"))
+        try Data([0x89, 0x50, 0x4E, 0x47, 9]).write(to: research.appendingPathComponent("gone.png"))
+        var r = try resolution([("a1b2", "![One](../research/a.png)"),
+                                ("c3d4", "![Again](../research/a.png)"),
+                                ("e5f6", "![Gone](../research/gone.png)")], project: project)
+        XCTAssertEqual(r.figureFiles["a"]?.count, 3, "premise: all three resolve")
+        XCTAssertTrue(r.problems.isEmpty, "premise: \(r.problems)")
+        try FileManager.default.removeItem(at: research.appendingPathComponent("gone.png"))
+
+        let publish = project.appendingPathComponent(".maugham/publish")
+        let staged = PDFCompiler.stageFigures(of: &r, publishDir: publish, pathPrefix: "../")
+
+        let one = try XCTUnwrap(staged["a"]?[0])
+        XCTAssertEqual(staged["a"]?[1], one, "one file, one staged copy")
+        XCTAssertTrue(one.hasPrefix("../build/figures/"), one)
+        let name = String(one.dropFirst("../build/figures/".count))
+        XCTAssertTrue(name.hasSuffix(".png") && LaTeXSafeFilename(name) != nil, name)
+        XCTAssertEqual(name.count, 16 + ".png".count, "a 16-hex-digit sha256 prefix: \(name)")
+        let copy = publish.appendingPathComponent("build/figures/\(name)")
+        XCTAssertEqual(try Data(contentsOf: copy), Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: copy.deletingLastPathComponent().path).count, 1)
+
+        XCTAssertNil(staged["a"]?[2], "the failed copy is not staged")
+        XCTAssertNil(r.figureFiles["a"]?[2], "and is no longer resolved")
+        XCTAssertEqual(r.problems.count, 1)
+        guard case .imageUnreadable(let reason)? = r.problems.first?.kind else {
+            return XCTFail("\(r.problems)")
+        }
+        XCTAssertTrue(reason.contains("../research/gone.png"), reason)
+        XCTAssertEqual(r.problems.first?.paragraphID, "e5f6")
     }
 }

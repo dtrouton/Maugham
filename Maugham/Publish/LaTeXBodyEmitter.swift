@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Emits `body.tex` content from a `ProjectAST`. The template the writer-
 /// Claude pair authors must \input{build/body} and define the environments
@@ -18,15 +19,168 @@ public enum LaTeXBodyEmitter {
     ///     Each slugline that has an anchor is wrapped in one
     ///     `\MaughamCrossLink` per entry so a reader can jump to the same
     ///     scene in the other language. Empty for a single-language compile.
+    ///   - resolution: the WHOLE book's resolution (report foundations plan 2),
+    ///     read and never recomputed: numbers, footnotes, citations,
+    ///     cross-references, References and the lists. `nil` — every hand-built
+    ///     caller and the emission contract — renders each report element as its
+    ///     literal source (`InterimReportLiteral`) and appends each piece's
+    ///     footnote definitions as literal paragraphs (R-S6), so a body without
+    ///     one emits what it did before the plan. With one, an element the
+    ///     resolution could not resolve still renders literally: output never
+    ///     prints "??".
+    ///   - figureFiles: pieceID → top-level node index → the figure's STAGED
+    ///     image, relative to the template's directory (`build/figures/<hash>.png`
+    ///     behind the template's `../` prefix) — keyed like
+    ///     `PublishResolution.figureFiles`, whose resolved files the compiler
+    ///     staged. A figure without an entry, or whose path is not a safe TeX
+    ///     argument, renders as its literal source.
+    ///   - opensWithLists: whether this body opens with the lists of figures
+    ///     and tables (R-P2-6): the first rendered body only.
     public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig(),
                             anchorTag: String? = nil,
-                            crossLinkTags: [String] = []) -> String {
+                            crossLinkTags: [String] = [],
+                            resolution: PublishResolution? = nil,
+                            figureFiles: [String: [Int: String]] = [:],
+                            opensWithLists: Bool = true) -> String {
         var lines: [String] = prologue
+        if let resolution {
+            if ast.sections.contains(where: { $0.nodes.contains(where: isTable) }) {
+                lines += tableEnvironments
+            }
+            if opensWithLists {
+                if !resolution.listOfFigures.isEmpty {
+                    lines.append("\\ifdefined\\listoffigures\\listoffigures\\clearpage\\fi")
+                }
+                if !resolution.listOfTables.isEmpty {
+                    lines.append("\\ifdefined\\listoftables\\listoftables\\clearpage\\fi")
+                }
+            }
+        }
         for (index, section) in ast.sections.enumerated() {
+            let scope = Scope(section: section, resolution: resolution,
+                              figureFiles: figureFiles[section.pieceID] ?? [:],
+                              labelTag: crossLinkTags.isEmpty ? nil : anchorTag)
             emit(section: section, isFirst: index == 0, config: config,
-                 anchorTag: anchorTag, crossLinkTags: crossLinkTags, into: &lines)
+                 anchorTag: anchorTag, crossLinkTags: crossLinkTags, scope: scope, into: &lines)
+        }
+        if let resolution, !resolution.references.isEmpty {
+            lines += references(resolution.references)
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func isTable(_ node: ProjectAST.Node) -> Bool {
+        guard case .prose(.table) = node else { return false }
+        return true
+    }
+
+    // MARK: - report elements
+
+    /// What one section's report elements read while it is emitted: the
+    /// book's resolution, this piece's footnote definitions and staged
+    /// figures, and the notes already set. A class because the inline walk
+    /// both reads and appends to it at every depth.
+    private final class Scope {
+        let resolution: PublishResolution?
+        let section: ProjectAST.Section
+        let figureFiles: [Int: String]
+        /// The body's tag when the compile has OTHER bodies: every body carries
+        /// the same labels, so its anchors must name it or a link would land
+        /// in the first language. Nil for a single body: `lbl-<kind>-<name>`.
+        let labelTag: String?
+        /// Footnote labels already set in this piece: a second reference to
+        /// one is a mark, never a second copy of its text.
+        var setNotes = Set<String>()
+        /// `\footnotetext`s owed by a construct that cannot hold a
+        /// `\footnote` (a caption, a table cell, a heading, a note's own text).
+        var pending: [String] = []
+
+        init(section: ProjectAST.Section, resolution: PublishResolution?,
+             figureFiles: [Int: String], labelTag: String?) {
+            self.section = section
+            self.resolution = resolution
+            self.figureFiles = figureFiles
+            self.labelTag = labelTag
+        }
+
+        var pieceID: String { section.pieceID }
+
+        func anchorName(_ label: ManuscriptLabel) -> String {
+            "lbl-" + (labelTag.map { "\($0)-" } ?? "") + "\(label.kind.rawValue)-\(label.name)"
+        }
+
+        /// The label's anchor, when the resolution gave this very element the
+        /// label (right kind, not a duplicate): a target's piece, paragraph and
+        /// text all match it.
+        func anchor(_ label: ManuscriptLabel?, kind: ManuscriptLabel.Kind,
+                    index: Int, text: String?) -> String? {
+            guard let label, label.kind == kind, let target = resolution?.targets[label],
+                  target.pieceID == pieceID,
+                  target.paragraphID == section.nodeParagraphs[index],
+                  text == nil || target.text == text else { return nil }
+            return "\\hypertarget{\(anchorName(label))}{}"
+        }
+
+        /// The owed `\footnotetext`s, emptied.
+        func flush(into out: inout [String]) {
+            out += pending
+            pending.removeAll()
+        }
+    }
+
+    /// `MaughamTable` (captioned) and `MaughamPlainTable`, each guarded so a
+    /// template that defines its own wins, each with two branches decided by
+    /// what the preamble loaded: a `longtable` that repeats its header on
+    /// every page (the caption on the first page only; `\caption[]` keeps the
+    /// repeat out of the list of tables), or — a preamble without longtable —
+    /// a `table` float around a plain `tabular`. Emitted only into a body that
+    /// has a table, so every other body keeps its three prologue lines.
+    private static let tableEnvironments: [String] = [
+        "\\ifdefined\\MaughamTable\\else\\ifdefined\\longtable",
+        "\\newenvironment{MaughamTable}[4]{\\begin{longtable}{#1}\\caption[{#2}]{#3}\\\\#4\\\\\\hline"
+            + "\\endfirsthead\\caption[]{#3}\\\\#4\\\\\\hline\\endhead}{\\end{longtable}}",
+        "\\else",
+        "\\newenvironment{MaughamTable}[4]{\\begin{table}[htbp]\\centering\\caption[{#2}]{#3}"
+            + "\\begin{tabular}{#1}#4\\\\\\hline}{\\end{tabular}\\end{table}}",
+        "\\fi\\fi",
+        "\\ifdefined\\MaughamPlainTable\\else\\ifdefined\\longtable",
+        "\\newenvironment{MaughamPlainTable}[2]{\\begin{longtable}{#1}#2\\\\\\hline\\endhead}{\\end{longtable}}",
+        "\\else",
+        "\\newenvironment{MaughamPlainTable}[2]{\\begin{table}[htbp]\\centering"
+            + "\\begin{tabular}{#1}#2\\\\\\hline}{\\end{tabular}\\end{table}}",
+        "\\fi\\fi",
+    ]
+
+    /// R-P2-5: one unnumbered section closing the body, in the contents, its
+    /// entries a hanging-indent list built only from kernel commands.
+    private static func references(_ entries: [[CitationStyle.Run]]) -> [String] {
+        var out = [
+            "\\clearpage",
+            "\\section*{References}",
+            "\\addcontentsline{toc}{section}{References}",
+            "\\begingroup",
+            "\\setlength{\\parindent}{0pt}",
+            "\\setlength{\\parskip}{0.5em}",
+        ]
+        for runs in entries {
+            let text = runs.map { run in
+                run.italic ? "\\emph{\(LaTeXEscape.escape(run.text))}" : LaTeXEscape.escape(run.text)
+            }.joined()
+            out.append("\\hangindent=1.5em\\hangafter=1 \(text)\\par")
+        }
+        out.append("\\endgroup")
+        return out
+    }
+
+    /// A staged image path is safe to put inside `\includegraphics{}`: every
+    /// segment is a `..` (the template-directory prefix) or a
+    /// `LaTeXSafeFilename`. Staging names files `<sha256-prefix>.<ext>`, so a
+    /// real one always passes; this is the second line of defence.
+    static func isSafeGraphicsPath(_ path: String) -> Bool {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !path.hasPrefix("/"), let last = parts.last,
+              LaTeXSafeFilename(String(last)) != nil else { return false }
+        return parts.dropLast().allSatisfy { $0 == ".." || LaTeXSafeFilename(String($0)) != nil }
     }
 
     /// One contract, always three lines, whatever the arguments: a body that
@@ -104,7 +258,7 @@ public enum LaTeXBodyEmitter {
 
     private static func emit(section: ProjectAST.Section, isFirst: Bool,
                              config: PublishConfig, anchorTag: String?,
-                             crossLinkTags: [String], into out: inout [String]) {
+                             crossLinkTags: [String], scope: Scope, into out: inout [String]) {
         let ov = config.sections[section.pieceID]
         // A per-piece style file's `\renewcommand`s must be scoped so they
         // revert after this piece — otherwise a styled piece leaks its
@@ -146,13 +300,14 @@ public enum LaTeXBodyEmitter {
         case .prose:
             out.append("\\begin{prose}\(opt){\(title)}")
             emitNodes(of: section, anchorTag: anchorTag,
-                      crossLinkTags: crossLinkTags, into: &out)
+                      crossLinkTags: crossLinkTags, scope: scope, into: &out)
+            if scope.resolution == nil { emitLiteralFootnoteDefinitions(scope, into: &out) }
             out.append("\\end{prose}")
         case .fountain:
             out.append("\\begin{screenplay}\(opt){\(title)}")
             out.append(contentsOf: fountainProvidecommands)
             emitNodes(of: section, anchorTag: anchorTag,
-                      crossLinkTags: crossLinkTags, into: &out)
+                      crossLinkTags: crossLinkTags, scope: scope, into: &out)
             out.append("\\end{screenplay}")
         }
         if styled {
@@ -172,7 +327,8 @@ public enum LaTeXBodyEmitter {
     /// anchor placed after the text would land between a paragraph and its own
     /// terminator and split it in two.
     private static func emitNodes(of section: ProjectAST.Section, anchorTag: String?,
-                                  crossLinkTags: [String], into out: inout [String]) {
+                                  crossLinkTags: [String], scope: Scope,
+                                  into out: inout [String]) {
         for (index, node) in section.nodes.enumerated() {
             let anchor = anchorTag.flatMap { tag in
                 section.anchors[index].map {
@@ -180,36 +336,54 @@ public enum LaTeXBodyEmitter {
                 }
             }
             if let anchor { out.append("\\hypertarget{\(anchor.name)}{}") }
-            emit(node: node, anchor: anchor, into: &out)
+            emit(node: node, index: index, anchor: anchor, scope: scope, into: &out)
         }
     }
 
-    private static func emit(node: ProjectAST.Node, anchor: Anchor?,
-                             into out: inout [String]) {
+    private static func emit(node: ProjectAST.Node, index: Int, anchor: Anchor?,
+                             scope: Scope, into out: inout [String]) {
         switch node {
         // Prose has no cross-linked node kind: only a slugline links, because
         // only a slugline names a place a reader of the other language is
         // looking for. Prose still anchors, so a link HAS somewhere to land.
-        case .prose(let p):    emit(prose: p, into: &out)
-        case .fountain(let f): emit(fountain: f, anchor: anchor, into: &out)
+        case .prose(let p):    emit(prose: p, index: index, scope: scope, into: &out)
+        case .fountain(let f): emit(fountain: f, anchor: anchor, scope: scope, into: &out)
         }
     }
 
-    private static func emit(prose: ProjectAST.ProseNode, into out: inout [String]) {
+    /// - Parameter index: the node's top-level index in its section, by which
+    ///   the resolution numbers it; nil inside a blockquote, where nothing is
+    ///   numbered or labelled and a table or figure renders literally.
+    private static func emit(prose: ProjectAST.ProseNode, index: Int?, scope: Scope,
+                             into out: inout [String]) {
         switch prose {
         case .paragraph(let inlines):
-            out.append(emitInline(inlines))
+            out.append(emitInline(inlines, scope))
             out.append("")   // blank line → \par so paragraphs don't run together
         case .heading(let level, let headingInlines, let label):
-            // INTERIM (Task 6 numbers and labels it): the label prints as the
-            // literal `{#kind:name}` it was written as.
-            let inlines = headingInlines + InterimReportLiteral.labelSuffix(label)
             let cmd = ["section", "subsection", "subsubsection"][min(max(level - 1, 0), 2)]
-            out.append("\\\(cmd)*{\(emitInline(inlines))}")
-            out.append("\\addcontentsline{toc}{\(cmd)}{\(plainText(inlines))}")
+            guard let resolution = scope.resolution else {
+                // No resolution: the label prints as the literal `{#kind:name}`
+                // it was written as.
+                let inlines = headingInlines + InterimReportLiteral.labelSuffix(label)
+                out.append("\\\(cmd)*{\(emitInline(inlines, scope))}")
+                out.append("\\addcontentsline{toc}{\(cmd)}{\(plainText(inlines, scope))}")
+                return
+            }
+            // Starred, so LaTeX numbers nothing: the resolution's number is
+            // the text, in the title and its contents line alike.
+            let number = index.flatMap { resolution.headingNumbers[scope.pieceID]?[$0] }
+            let prefix = number.map { "\($0)\\quad " } ?? ""
+            if let index, let a = scope.anchor(label, kind: .sec, index: index,
+                                               text: number.map { "Section \($0)" }) {
+                out.append(a)
+            }
+            out.append("\\\(cmd)*{\(prefix)\(emitInline(headingInlines, scope, deferred: true))}")
+            out.append("\\addcontentsline{toc}{\(cmd)}{\(prefix)\(plainText(headingInlines, scope))}")
+            scope.flush(into: &out)
         case .blockquote(let nodes):
             out.append("\\begin{quote}")
-            for n in nodes { emit(prose: n, into: &out) }
+            for n in nodes { emit(prose: n, index: nil, scope: scope, into: &out) }
             out.append("\\end{quote}")
         case .sceneBreak:
             out.append("\\scenebreak")
@@ -217,7 +391,7 @@ public enum LaTeXBodyEmitter {
             let env = ordered ? "enumerate" : "itemize"
             out.append("\\begin{\(env)}")
             for item in items {
-                out.append("\\item \(emitInline(item))")
+                out.append("\\item \(emitInline(item, scope))")
             }
             out.append("\\end{\(env)}")
         case .verbatim(let lines):
@@ -228,26 +402,121 @@ public enum LaTeXBodyEmitter {
             // optional argument and killed the compile ("Missing number").
             out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\newline "))
             out.append("")   // blank line → \par, matching .paragraph
-        // INTERIM (Task 5 renders them): the literal source as a paragraph.
         case .table(let header, let alignments, let rows, let caption, let label):
-            emit(prose: .paragraph(InterimReportLiteral.table(
-                header: header, alignments: alignments, rows: rows,
-                caption: caption, label: label)), into: &out)
+            guard let index, let n = scope.resolution?.tableNumbers[scope.pieceID]?[index] else {
+                // No resolution, or not a top-level table: its literal source.
+                emit(prose: .paragraph(InterimReportLiteral.table(
+                    header: header, alignments: alignments, rows: rows,
+                    caption: caption, label: label)), index: nil, scope: scope, into: &out)
+                return
+            }
+            emitTable(number: n, index: index, header: header, alignments: alignments,
+                      rows: rows, caption: caption, label: label, scope: scope, into: &out)
         case .figure(let caption, let path, let label):
-            emit(prose: .paragraph(InterimReportLiteral.figure(
-                caption: caption, path: path, label: label)), into: &out)
+            guard let index, let n = scope.resolution?.figureNumbers[scope.pieceID]?[index],
+                  let file = scope.figureFiles[index], isSafeGraphicsPath(file) else {
+                // No resolution, an image that was refused or never staged:
+                // its literal source.
+                emit(prose: .paragraph(InterimReportLiteral.figure(
+                    caption: caption, path: path, label: label)), index: nil, scope: scope, into: &out)
+                return
+            }
+            emitFigure(number: n, index: index, caption: caption, file: file, label: label,
+                       scope: scope, into: &out)
+        }
+    }
+
+    /// `\begin{MaughamTable}{<colspec>}{<short caption>}{<caption>}{<header>}`,
+    /// the body's rows, `\end{MaughamTable}` — or `MaughamPlainTable` without
+    /// a caption. The counter is set first so `\caption` prints the
+    /// resolution's number in any subset. Cells, headers and captions defer
+    /// their footnotes; the texts follow the table.
+    private static func emitTable(number: Int, index: Int, header: [[ProjectAST.Inline]],
+                                  alignments: [TableAlignment], rows: [[[ProjectAST.Inline]]],
+                                  caption: [ProjectAST.Inline]?, label: ManuscriptLabel?,
+                                  scope: Scope, into out: inout [String]) {
+        let columns = max(header.count, 1)
+        let spec = (0..<columns).map { column -> String in
+            guard column < alignments.count else { return "l" }
+            switch alignments[column] {
+            case .none, .leading: return "l"
+            case .center:         return "c"
+            case .trailing:       return "r"
+            }
+        }.joined()
+        func row(_ cells: [[ProjectAST.Inline]]) -> String {
+            (0..<columns).map { column in
+                column < cells.count ? emitInline(cells[column], scope, deferred: true) : ""
+            }.joined(separator: " & ")
+        }
+        out.append("\\setcounter{table}{\(number - 1)}")
+        if let a = scope.anchor(label, kind: .tbl, index: index, text: "Table \(number)") {
+            out.append(a)
+        }
+        let env: String
+        if let caption {
+            env = "MaughamTable"
+            let long = emitInline(caption, scope, deferred: true)
+            out.append("\\begin{\(env)}{\(spec)}{\(plainText(caption, scope))}{\(long)}{\(row(header))}")
+        } else {
+            env = "MaughamPlainTable"
+            out.append("\\begin{\(env)}{\(spec)}{\(row(header))}")
+        }
+        for r in rows { out.append(row(r) + " \\\\") }
+        out.append("\\end{\(env)}")
+        scope.flush(into: &out)
+    }
+
+    /// A `figure` float: the image when graphicx is loaded, else its caption
+    /// in a framed box (a preamble that predates the plan, or a redesigned
+    /// template without `build/metadata`), then the caption. The counter is
+    /// set first so `\caption` prints the resolution's number in any subset.
+    private static func emitFigure(number: Int, index: Int, caption: [ProjectAST.Inline],
+                                   file: String, label: ManuscriptLabel?,
+                                   scope: Scope, into out: inout [String]) {
+        let short = plainText(caption, scope)
+        out.append("\\setcounter{figure}{\(number - 1)}")
+        out.append("\\begin{figure}[htbp]")
+        out.append("\\centering")
+        if let a = scope.anchor(label, kind: .fig, index: index, text: "Figure \(number)") {
+            out.append(a)
+        }
+        out.append("\\ifdefined\\includegraphics\\includegraphics[width=\\linewidth]{\(file)}"
+                   + "\\else\\fbox{\\parbox{0.9\\linewidth}{\\centering \(short)}}\\fi")
+        out.append("\\caption[{\(short)}]{\(emitInline(caption, scope, deferred: true))}")
+        out.append("\\end{figure}")
+        scope.flush(into: &out)
+    }
+
+    /// R-S6: with no resolution a footnote definition has nowhere to render,
+    /// so each prints as the literal paragraph it was written as, at the end
+    /// of its piece, in label order (numbers numerically).
+    private static func emitLiteralFootnoteDefinitions(_ scope: Scope, into out: inout [String]) {
+        let labels = scope.section.footnotes.keys.sorted {
+            $0.compare($1, options: .numeric) == .orderedAscending
+        }
+        for label in labels {
+            out.append(LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label) + ": ")
+                       + emitInline(scope.section.footnotes[label] ?? [], scope))
+            out.append("")
         }
     }
 
     /// Render a run of inline nodes into a single LaTeX string.
-    private static func emitInline(_ inlines: [ProjectAST.Inline]) -> String {
+    ///
+    /// - Parameter deferred: the run sits where `\footnote` is lost or breaks
+    ///   the compile (a caption, a table cell, a heading, a note's own text):
+    ///   a footnote there is `\footnotemark[n]`, and its `\footnotetext[n]`
+    ///   waits in `scope.pending` for the construct to close.
+    private static func emitInline(_ inlines: [ProjectAST.Inline], _ scope: Scope,
+                                   deferred: Bool = false) -> String {
         inlines.map { inline -> String in
             switch inline {
             case .text(let s):     return LaTeXEscape.escape(s)
-            case .emphasis(let xs): return "\\emph{\(emitInline(xs))}"
-            case .strong(let xs):   return "\\textbf{\(emitInline(xs))}"
-            case .strikethrough(let xs): return "\\st{\(emitInline(xs))}"
-            case .underline(let xs): return "\\underline{\(emitInline(xs))}"
+            case .emphasis(let xs): return "\\emph{\(emitInline(xs, scope, deferred: deferred))}"
+            case .strong(let xs):   return "\\textbf{\(emitInline(xs, scope, deferred: deferred))}"
+            case .strikethrough(let xs): return "\\st{\(emitInline(xs, scope, deferred: deferred))}"
+            case .underline(let xs): return "\\underline{\(emitInline(xs, scope, deferred: deferred))}"
             case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
             case .wikiLink(let target, let display):
                 return "\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}"
@@ -255,32 +524,69 @@ public enum LaTeXBodyEmitter {
             // be captured as `\\`'s optional/star argument. Trailing space
             // stops the control word absorbing a following letter.
             case .lineBreak:        return "\\newline "
-            // INTERIM (Task 6 resolves them): the literal source.
-            case .footnoteRef(let label): return LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label))
-            case .citation(let items):    return LaTeXEscape.escape(InterimReportLiteral.citation(items))
-            case .crossRef(let label):    return LaTeXEscape.escape(InterimReportLiteral.crossRef(label))
+            case .footnoteRef(let label): return footnote(label, scope, deferred: deferred)
+            case .citation(let items):
+                return LaTeXEscape.escape(citationText(items, scope) ?? InterimReportLiteral.citation(items))
+            case .crossRef(let label):
+                guard let target = scope.resolution?.targets[label] else {
+                    return LaTeXEscape.escape(InterimReportLiteral.crossRef(label))
+                }
+                return "\\MaughamCrossLink{\(scope.anchorName(label))}{\(LaTeXEscape.escape(target.text))}"
             }
         }.joined()
     }
 
+    private static func citationText(_ items: [CitationItem], _ scope: Scope) -> String? {
+        scope.resolution?.citationText[PublishResolution.citationKey(items)]
+    }
+
+    /// R-S8: `\footnote[n]` with the resolution's number, so the PDF and the
+    /// EPUB agree even for a note inside a note. Its first reference sets the
+    /// text; a later one in the piece is `\footnotemark[n]`. No number (no
+    /// resolution, or no definition) → the literal `[^label]`.
+    private static func footnote(_ label: String, _ scope: Scope, deferred: Bool) -> String {
+        guard let n = scope.resolution?.footnoteNumbers[scope.pieceID]?[label],
+              let definition = scope.section.footnotes[label] else {
+            return LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label))
+        }
+        guard scope.setNotes.insert(label).inserted else { return "\\footnotemark[\(n)]" }
+        // A note inside this note's text is itself a mark and a text.
+        let mark = scope.pending.count
+        let body = emitInline(definition, scope, deferred: true)
+        if deferred {
+            scope.pending.insert("\\footnotetext[\(n)]{\(body)}", at: mark)
+            return "\\footnotemark[\(n)]"
+        }
+        let nested = scope.pending[mark...].joined()
+        scope.pending.removeSubrange(mark...)
+        return "\\footnote[\(n)]{\(body)}" + nested
+    }
+
     /// Flatten inline runs to escaped plain text (no formatting commands) for
-    /// `\addcontentsline` — running `\emph`/`\textbf` through the ToC entry is
-    /// fragile, so headings appear unformatted in the contents.
-    private static func plainText(_ inlines: [ProjectAST.Inline]) -> String {
+    /// `\addcontentsline` and a caption's list entry — running `\emph`/
+    /// `\textbf` through the ToC entry is fragile, so headings appear
+    /// unformatted in the contents. A resolved footnote drops out; a citation
+    /// or cross-reference reads as it does in the text.
+    private static func plainText(_ inlines: [ProjectAST.Inline], _ scope: Scope) -> String {
         inlines.map { inline -> String in
             switch inline {
             case .text(let s):              return LaTeXEscape.escape(s)
-            case .emphasis(let xs):         return plainText(xs)
-            case .strong(let xs):           return plainText(xs)
-            case .strikethrough(let xs):    return plainText(xs)
-            case .underline(let xs):        return plainText(xs)
+            case .emphasis(let xs):         return plainText(xs, scope)
+            case .strong(let xs):           return plainText(xs, scope)
+            case .strikethrough(let xs):    return plainText(xs, scope)
+            case .underline(let xs):        return plainText(xs, scope)
             case .code(let s):              return LaTeXEscape.escape(s)
             case .wikiLink(_, let display): return LaTeXEscape.escape(display)
             case .lineBreak:                return " "
-            // INTERIM (Task 6): the literal source.
-            case .footnoteRef(let label):   return LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label))
-            case .citation(let items):      return LaTeXEscape.escape(InterimReportLiteral.citation(items))
-            case .crossRef(let label):      return LaTeXEscape.escape(InterimReportLiteral.crossRef(label))
+            case .footnoteRef(let label):
+                let numbered = scope.resolution?.footnoteNumbers[scope.pieceID]?[label] != nil
+                    && scope.section.footnotes[label] != nil
+                return numbered ? "" : LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label))
+            case .citation(let items):
+                return LaTeXEscape.escape(citationText(items, scope) ?? InterimReportLiteral.citation(items))
+            case .crossRef(let label):
+                return LaTeXEscape.escape(scope.resolution?.targets[label]?.text
+                                          ?? InterimReportLiteral.crossRef(label))
             }
         }.joined()
     }
@@ -309,7 +615,7 @@ public enum LaTeXBodyEmitter {
     ]
 
     private static func emit(fountain: ProjectAST.FountainNode, anchor: Anchor?,
-                             into out: inout [String]) {
+                             scope: Scope, into out: inout [String]) {
         switch fountain {
         case .sceneHeading(let s, let number):
             // The link WRAPS `\scene`, never the reverse: the starter's
@@ -322,13 +628,13 @@ public enum LaTeXBodyEmitter {
                 scene = "\\scene{\(LaTeXEscape.escape(s))}"
             }
             out.append(anchor?.crossLinked(scene) ?? scene)
-        case .action(let xs):       out.append("\\action{\(emitInline(xs))}")
+        case .action(let xs):       out.append("\\action{\(emitInline(xs, scope))}")
         case .character(let s):     out.append("\\character{\(LaTeXEscape.escape(s))}")
-        case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs))}")
-        case .parenthetical(let xs): out.append("\\parenthetical{\(emitInline(xs))}")
+        case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs, scope))}")
+        case .parenthetical(let xs): out.append("\\parenthetical{\(emitInline(xs, scope))}")
         case .transition(let s):    out.append("\\transition{\(LaTeXEscape.escape(s))}")
-        case .lyric(let xs):        out.append("\\lyricline{\(emitInline(xs))}")
-        case .centered(let xs):     out.append("\\centeredline{\(emitInline(xs))}")
+        case .lyric(let xs):        out.append("\\lyricline{\(emitInline(xs, scope))}")
+        case .centered(let xs):     out.append("\\centeredline{\(emitInline(xs, scope))}")
         case .pageBreak:            out.append("\\clearpage")
         case .titlePage(let fields): emitTitlePage(fields, into: &out)
         case .dualDialogue(let left, let right):
@@ -336,8 +642,8 @@ public enum LaTeXBodyEmitter {
             var rightLines: [String] = []
             // A dual-dialogue block's members are not top-level nodes, so
             // `Section.anchors` cannot name them: the BLOCK carries the anchor.
-            for n in left  { emit(fountain: n, anchor: nil, into: &leftLines) }
-            for n in right { emit(fountain: n, anchor: nil, into: &rightLines) }
+            for n in left  { emit(fountain: n, anchor: nil, scope: scope, into: &leftLines) }
+            for n in right { emit(fountain: n, anchor: nil, scope: scope, into: &rightLines) }
             out.append("\\dualdialogue{%")
             out.append(leftLines.joined(separator: "\n"))
             out.append("}{%")

@@ -19,7 +19,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `EmphasisRunConverter.swift` — the shared converter both inline parsers use; masks protected spans.
 - `FountainNodeMapper.swift` — the single bridge from the real `FountainTokenizer` to AST Fountain nodes, so publish classifies exactly as the editor does.
 - `TranslatedFountainStructure.swift` — carries a source paragraph's Fountain structure to its translation (the source element wins).
-- `LaTeXBodyEmitter.swift` — AST → `body.tex`: environments, per-piece `style_file` inside `\begingroup`, paragraph anchors, cross-links, the `\providecommand` fallbacks.
+- `LaTeXBodyEmitter.swift` — AST → `body.tex`: environments, per-piece `style_file` inside `\begingroup`, paragraph anchors, cross-links, the `\providecommand` fallbacks; with the book's `PublishResolution`, the report elements (tables, figures, footnotes, citations, cross-references, numbered headings, References, the lists), each degrading in a preamble without graphicx or longtable.
 - `XHTMLBodyEmitter.swift` — AST → the EPUB body fragment, with `id` anchors and cross-links.
 - `LaTeXEscape.swift`, `XHTMLEscape.swift` — text escaping for each target.
 - `LaTeXSafeFilename.swift` — the validated `\input{}` filename, closing TeX-argument injection.
@@ -41,7 +41,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 
 ### Compiling and the catalogue
 - `CompileOrchestrator.swift` — the one compile path: refuse, resolve, gate, mint, compile, snapshot, record; `dry_run`; the durable-progress ledger a partial failure reports. Output lands under the project's `Exports/`.
-- `PDFCompiler.swift` — the PDF compile through tectonic, under the `MaughamBody` wrapper per body.
+- `PDFCompiler.swift` — the PDF compile through tectonic, under the `MaughamBody` wrapper per body; resolves each body over its whole book (`prepare`), stages figures into `build/figures/`, and adds graphicx/longtable to `build/metadata.tex` for a book that needs them.
 - `EPUBCompiler.swift` — the EPUB compile, one sectioned XHTML per body.
 - `EPUBPackage.swift`, `EPUBOPFWriter.swift`, `EPUBContainerWriter.swift`, `EPUBZipPackager.swift` — the EPUB model, its OPF, `container.xml` and the zip.
 - `OutputFilenameBuilder.swift` — `{title}-v{version}{label_suffix}.{ext}` and title sanitising, shared by both compilers.

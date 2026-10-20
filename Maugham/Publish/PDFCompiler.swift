@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import MaughamCore
 
 public struct PDFCompiler {
 
@@ -147,12 +149,22 @@ public struct PDFCompiler {
         // sluglines link to the SAME paragraph in every OTHER body, so a body
         // cannot be emitted knowing only its own tag.
         let tags = bodies.enumerated().map { Self.fileTag(for: $1, at: $0) }
+        // Each body is resolved over ITS WHOLE BOOK and its images staged
+        // before any body is written: `build/metadata.tex` loads the packages
+        // the book's figures and tables need.
+        let prepared = try bodies.enumerated().map { index, body in
+            try Self.prepare(body: body, bodyTag: bodies.count > 1 ? body.displayTag : nil,
+                             publishDir: publish, pathPrefix: prefix)
+        }
         for (index, body) in bodies.enumerated() {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
             let ast = try ProjectASTBuilder.build(from: body.source)
             try LaTeXBodyEmitter.emit(ast, config: body.config,
-                                      anchorTag: tag, crossLinkTags: others).write(
+                                      anchorTag: tag, crossLinkTags: others,
+                                      resolution: prepared[index].resolution,
+                                      figureFiles: prepared[index].figureFiles,
+                                      opensWithLists: index == 0).write(
                 to: build.appendingPathComponent("body.\(tag).tex"),
                 atomically: true, encoding: .utf8)
             try Self.metadataBlock(config: body.config, label: label).write(
@@ -175,7 +187,13 @@ public struct PDFCompiler {
         // and hyperref's document properties read — a bilingual PDF is one
         // book, titled in its source language, and the translated half retitles
         // only inside its own `MaughamBody` group.
-        try Self.metadataBlock(config: bodies[0].config, label: label).write(
+        //
+        // Plus, for a book with figures or tables, the packages they want
+        // (`documentMetadata`): this file is read in the PREAMBLE, the one
+        // place a `\usepackage` can reach a project whose preamble predates
+        // them. The per-body files are read inside the document and never may.
+        try Self.documentMetadata(config: bodies[0].config, label: label,
+                                  resolutions: prepared.map(\.resolution)).write(
             to: build.appendingPathComponent("metadata.tex"),
             atomically: true, encoding: .utf8)
 
@@ -312,6 +330,89 @@ public struct PDFCompiler {
     /// template through `MaughamBody`'s argument.
     static func fileTag(for body: BodyPlan.Body, at index: Int) -> String {
         LaTeXSafeFilename(body.displayTag) != nil ? body.displayTag : "\(index + 1)"
+    }
+
+    // MARK: - report elements (report foundations plan 2)
+
+    /// One body's resolution and its staged figures.
+    struct PreparedBody {
+        var resolution: PublishResolution
+        /// pieceID → node index → the staged image, relative to the template's
+        /// directory: `LaTeXBodyEmitter.emit`'s `figureFiles`.
+        var figureFiles: [String: [Int: String]]
+    }
+
+    /// The image formats a PDF can show (R-P2-7).
+    static let imageAllowed: Set<String> = ["png", "jpg", "jpeg", "pdf"]
+
+    /// R-S3: one body's resolution over its whole book, then its images staged.
+    /// The ONE place a PDF body is resolved, so the gate can later share it.
+    ///
+    /// - Parameter bodyTag: the body's language for its problems' `[tag]`
+    ///   prefix (R-P2-8); nil for a single-body compile.
+    static func prepare(body: BodyPlan.Body, bodyTag: String?, publishDir: URL,
+                        pathPrefix: String) throws -> PreparedBody {
+        var resolution = try PublishResolution.forCompile(
+            source: body.source, bodyTag: bodyTag, imageAllowed: imageAllowed)
+        let staged = stageFigures(of: &resolution, publishDir: publishDir, pathPrefix: pathPrefix)
+        return PreparedBody(resolution: resolution, figureFiles: staged)
+    }
+
+    /// R-P2-7: copies each resolved image into `build/figures/<sha256-prefix>.<ext>`
+    /// — `build/` is never snapshotted, and the name keeps the project path's
+    /// spaces and specials out of TeX — and answers each staged path relative
+    /// to the template's directory (`pathPrefix`, as `\input` takes). A copy
+    /// that fails unresolves its figure (`stagingFailed`). The bytes are
+    /// streamed to hash and copied file to file, never held in memory.
+    static func stageFigures(of resolution: inout PublishResolution, publishDir: URL,
+                             pathPrefix: String) -> [String: [Int: String]] {
+        let figures = publishDir.appendingPathComponent("build/figures", isDirectory: true)
+        var staged: [String: [Int: String]] = [:]
+        for (piece, files) in resolution.figureFiles {
+            for (index, source) in files.sorted(by: { $0.key < $1.key }) {
+                do {
+                    try FileManager.default.createDirectory(at: figures, withIntermediateDirectories: true)
+                    let name = try contentHash(of: source) + "." + source.pathExtension.lowercased()
+                    let destination = figures.appendingPathComponent(name)
+                    if !FileManager.default.fileExists(atPath: destination.path) {
+                        // adr-0018-ok: research image staged for the compile
+                        try FileManager.default.copyItem(at: source, to: destination)
+                    }
+                    staged[piece, default: [:]][index] = pathPrefix + "build/figures/" + name
+                } catch {
+                    resolution.stagingFailed(pieceID: piece, nodeIndex: index,
+                                             reason: error.localizedDescription)
+                }
+            }
+        }
+        return staged
+    }
+
+    /// The first 16 hex digits of the file's SHA-256, read in chunks.
+    private static func contentHash(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url) // adr-0018-ok: research image hashed for its staged name
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined().prefix(16).description
+    }
+
+    /// `build/metadata.tex`: the first body's `metadataBlock`, plus a guarded
+    /// `\usepackage` for each element kind the book has — graphicx for a
+    /// figure, longtable for a table. A book with neither gets exactly
+    /// `metadataBlock`'s bytes.
+    static func documentMetadata(config: PublishConfig, label: String?,
+                                 resolutions: [PublishResolution]) -> String {
+        var lines = [metadataBlock(config: config, label: label)]
+        if resolutions.contains(where: { !$0.figureNumbers.isEmpty }) {
+            lines.append("\\IfFileExists{graphicx.sty}{\\usepackage{graphicx}}{}")
+        }
+        if resolutions.contains(where: { !$0.tableNumbers.isEmpty }) {
+            lines.append("\\IfFileExists{longtable.sty}{\\usepackage{longtable}}{}")
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// The `\renewcommand` block a body's metadata becomes — the same text

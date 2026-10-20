@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class LaTeXBodyEmitterTests: XCTestCase {
@@ -731,5 +732,323 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"])
         XCTAssertEqual(body.components(separatedBy: "\\hypertarget{p-").count - 1, 1, body)
         XCTAssertTrue(body.contains("\\hypertarget{p-en-aaaa}{}\n\\dualdialogue{%"), body)
+    }
+}
+
+// MARK: - report elements (report foundations plan 2, Task 5)
+
+/// A book of prose pieces whose paragraphs reconcile, so every node knows its
+/// `¶id`; the context carries the switches and the citable research.
+private struct ReportBook: ProjectASTBuilder.Source {
+    let pieces: [(id: String, paragraphs: [(id: String, text: String)])]
+    var context: PublishContext = .empty
+    func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+        pieces.map { piece in
+            .init(pieceID: piece.id, title: "Title \(piece.id)", mode: .prose,
+                  displayText: piece.paragraphs.map(\.text).joined(separator: "\n\n"),
+                  paragraphs: piece.paragraphs)
+        }
+    }
+    func publishContext() -> PublishContext { context }
+}
+
+final class LaTeXReportElementEmitterTests: XCTestCase {
+
+    private static let ids = ["a1b2", "c3d4", "e5f6", "g7h8", "j9k0", "m1n2", "p3q4", "r5s6"]
+
+    private func book(_ paragraphs: [String], numberSections: Bool = false,
+                      lists: Bool = false, research: [ResearchItem] = []) -> ReportBook {
+        ReportBook(
+            pieces: [("a", paragraphs.enumerated().map { (Self.ids[$0.offset], $0.element) })],
+            context: PublishContext(
+                library: CitationLibrary(items: research), profile: .report,
+                switches: (numberSections: numberSections, listOfFigures: lists, listOfTables: lists),
+                projectURL: nil, piecePaths: [:]))
+    }
+
+    /// The body with the book's resolution, and the body without one.
+    private func bodies(_ source: ProjectASTBuilder.Source,
+                        figureFiles: [String: [Int: String]] = [:],
+                        crossLinkTags: [String] = [],
+                        opensWithLists: Bool = true) throws -> (resolved: String, plain: String) {
+        let ast = try ProjectASTBuilder.build(from: source)
+        let resolution = try PublishResolution.forCompile(source: source, bodyTag: nil,
+                                                          imageAllowed: ["png"])
+        return (LaTeXBodyEmitter.emit(ast, crossLinkTags: crossLinkTags, resolution: resolution,
+                                      figureFiles: figureFiles, opensWithLists: opensWithLists),
+                LaTeXBodyEmitter.emit(ast, crossLinkTags: crossLinkTags))
+    }
+
+    private func smith() -> ResearchItem {
+        ResearchItem(id: "r1", title: "Annual Report", type: .asset,
+                     citation: CitationInfo(key: "smith2026", authors: ["Smith, Jane"],
+                                            sourceTitle: "Annual Report", year: 2026))
+    }
+
+    // MARK: tables
+
+    func test_table_rendersAsAMaughamTableWithItsNumberAnchorAndEscapedCells() throws {
+        let (resolved, plain) = try bodies(book([
+            "| Item & co | 100% |\n|:--|--:|\n| a_b | #1 |\nTable: Sales & costs_q1 {#tbl:sales}",
+        ]))
+        XCTAssertTrue(resolved.contains("""
+            \\setcounter{table}{0}
+            \\hypertarget{lbl-tbl-sales}{}
+            \\begin{MaughamTable}{lr}{Sales \\& costs\\_q1}{Sales \\& costs\\_q1}{Item \\& co & 100\\%}
+            a\\_b & \\#1 \\\\
+            \\end{MaughamTable}
+            """), resolved)
+        XCTAssertFalse(resolved.contains("Table: "), "no literal source with a resolution: \(resolved)")
+        XCTAssertTrue(plain.contains("Table: Sales \\& costs\\_q1 \\{\\#tbl:sales\\}"),
+                      "the nil-resolution path keeps the literal source: \(plain)")
+        XCTAssertFalse(plain.contains("MaughamTable"), plain)
+    }
+
+    func test_uncaptionedTable_isAPlainTable_andAlignmentNoneIsL() throws {
+        let (resolved, _) = try bodies(book(["| a | b | c |\n|---|:-:|---|\n| 1 | 2 | 3 |"]))
+        XCTAssertTrue(resolved.contains("""
+            \\setcounter{table}{0}
+            \\begin{MaughamPlainTable}{lcl}{a & b & c}
+            1 & 2 & 3 \\\\
+            \\end{MaughamPlainTable}
+            """), resolved)
+    }
+
+    /// The environments are defined in the body, guarded, with a longtable
+    /// branch and a table-float-around-tabular branch, so a preamble without
+    /// longtable still compiles; and only when the body has a table, so a
+    /// novel's body keeps its three prologue lines.
+    func test_tableEnvironments_areDefinedOnlyWhenTheBodyHasATable() throws {
+        let (withTable, _) = try bodies(book(["| a |\n|---|\n| 1 |\nTable: T"]))
+        XCTAssertTrue(withTable.contains("""
+            \\ifdefined\\MaughamTable\\else\\ifdefined\\longtable
+            \\newenvironment{MaughamTable}[4]{\\begin{longtable}{#1}\\caption[{#2}]{#3}\\\\#4\\\\\\hline\\endfirsthead\\caption[]{#3}\\\\#4\\\\\\hline\\endhead}{\\end{longtable}}
+            \\else
+            \\newenvironment{MaughamTable}[4]{\\begin{table}[htbp]\\centering\\caption[{#2}]{#3}\\begin{tabular}{#1}#4\\\\\\hline}{\\end{tabular}\\end{table}}
+            \\fi\\fi
+            """), withTable)
+        XCTAssertTrue(withTable.contains("\\ifdefined\\MaughamPlainTable\\else\\ifdefined\\longtable"), withTable)
+        let (without, _) = try bodies(book(["Just prose."]))
+        XCTAssertFalse(without.contains("MaughamTable"), without)
+    }
+
+    // MARK: figures
+
+    func test_figure_rendersWithGraphicsOrAFramedCaption() throws {
+        let (resolved, plain) = try bodies(
+            book(["Intro.", "![Revenue & 50%](../research/r.png){#fig:rev_q1}"]),
+            figureFiles: ["a": [1: "build/figures/0123abcd.png"]])
+        XCTAssertTrue(resolved.contains("""
+            \\setcounter{figure}{0}
+            \\begin{figure}[htbp]
+            \\centering
+            \\hypertarget{lbl-fig-rev_q1}{}
+            \\ifdefined\\includegraphics\\includegraphics[width=\\linewidth]{build/figures/0123abcd.png}\\else\\fbox{\\parbox{0.9\\linewidth}{\\centering Revenue \\& 50\\%}}\\fi
+            \\caption[{Revenue \\& 50\\%}]{Revenue \\& 50\\%}
+            \\end{figure}
+            """), resolved)
+        XCTAssertTrue(plain.contains("![Revenue \\& 50\\%](../research/r.png) \\{\\#fig:rev\\_q1\\}"), plain)
+    }
+
+    /// A figure the compiler could not stage (or whose image was refused) is
+    /// unresolved: its literal source, never a broken `\includegraphics`.
+    func test_figureWithNoStagedFile_orAnUnsafePath_rendersItsLiteralSource() throws {
+        let source = book(["![Chart](../research/c.png)"])
+        let (unstaged, _) = try bodies(source)
+        XCTAssertFalse(unstaged.contains("\\begin{figure}"), unstaged)
+        XCTAssertTrue(unstaged.contains("![Chart](../research/c.png)"), unstaged)
+        for unsafe in ["build/figures/a b.png", "build/figures/x}.png", "/abs/x.png", "build/figures/x%.png"] {
+            let (body, _) = try bodies(source, figureFiles: ["a": [0: unsafe]])
+            XCTAssertFalse(body.contains("\\includegraphics"), "\(unsafe): \(body)")
+        }
+        let (prefixed, _) = try bodies(source, figureFiles: ["a": [0: "../../build/figures/ab.png"]])
+        XCTAssertTrue(prefixed.contains("{../../build/figures/ab.png}"),
+                      "the template-directory prefix is allowed: \(prefixed)")
+    }
+
+    // MARK: footnotes
+
+    func test_footnote_rendersWithItsResolvedNumber_andARepeatIsAMark() throws {
+        let (resolved, plain) = try bodies(book([
+            "First[^a] and second[^b], again[^a].", "[^b]: Bee & co.", "[^a]: Ay_1.",
+        ]))
+        XCTAssertTrue(resolved.contains(
+            "First\\footnote[1]{Ay\\_1.} and second\\footnote[2]{Bee \\& co.}, again\\footnotemark[1]."),
+            resolved)
+        XCTAssertFalse(resolved.contains("[^"), resolved)
+        XCTAssertFalse(resolved.contains("textasciicircum"), resolved)
+        // R-S6: the nil-resolution path prints the refs literally and appends
+        // each definition as a literal paragraph at the end of the section.
+        XCTAssertTrue(plain.contains("First[\\textasciicircum{}a] and second[\\textasciicircum{}b]"), plain)
+        XCTAssertTrue(plain.contains("""
+            [\\textasciicircum{}a]: Ay\\_1.
+
+            [\\textasciicircum{}b]: Bee \\& co.
+
+            \\end{prose}
+            """), plain)
+    }
+
+    func test_footnoteWithNoDefinition_rendersLiterally() throws {
+        let (resolved, _) = try bodies(book(["Dangling[^nope]."]))
+        XCTAssertTrue(resolved.contains("Dangling[\\textasciicircum{}nope]."), resolved)
+    }
+
+    /// `\footnote` inside a caption, a table cell or a heading is lost or
+    /// breaks the compile; there the mark goes inline and the text follows
+    /// the element. A note inside a note is the same pair.
+    func test_footnotesInCaptionsCellsHeadingsAndNotes_areMarkAndTextPairs() throws {
+        let (resolved, _) = try bodies(book([
+            "# Scope[^h]",
+            "| Cell[^c] |\n|---|\n| x |\nTable: Cap[^t]",
+            "![Fig[^f]](../research/x.png)",
+            "Body[^n].",
+            "[^h]: On heading.", "[^c]: In cell.", "[^t]: In caption.", "[^f]: In figure.",
+        ], numberSections: false).withExtra("[^n]: Outer[^m].", "[^m]: Inner."),
+            figureFiles: ["a": [2: "build/figures/ab.png"]])
+        XCTAssertTrue(resolved.contains("""
+            \\section*{Scope\\footnotemark[1]}
+            \\addcontentsline{toc}{section}{Scope}
+            \\footnotetext[1]{On heading.}
+            """), resolved)
+        XCTAssertTrue(resolved.contains(
+            "\\begin{MaughamTable}{l}{Cap}{Cap\\footnotemark[3]}{Cell\\footnotemark[2]}"), resolved)
+        XCTAssertTrue(resolved.contains("""
+            \\end{MaughamTable}
+            \\footnotetext[3]{In caption.}
+            \\footnotetext[2]{In cell.}
+            """), resolved)
+        XCTAssertTrue(resolved.contains("\\caption[{Fig}]{Fig\\footnotemark[4]}\n\\end{figure}\n\\footnotetext[4]{In figure.}"),
+                      resolved)
+        XCTAssertTrue(resolved.contains(
+            "Body\\footnote[5]{Outer\\footnotemark[6].}\\footnotetext[6]{Inner.}."), resolved)
+    }
+
+    // MARK: citations and cross-references
+
+    func test_citation_rendersItsResolvedText_unknownKeysLiterally() throws {
+        let (resolved, plain) = try bodies(book(
+            ["As shown [@smith2026, p. 3]; not [@ghost]."], research: [smith()]))
+        XCTAssertTrue(resolved.contains("As shown (Smith 2026, p. 3); not [@ghost]."), resolved)
+        XCTAssertTrue(plain.contains("As shown [@smith2026, p. 3]"), plain)
+    }
+
+    func test_crossRef_linksToTheLabelAnchorWithTheTargetText() throws {
+        let source = book(["![Chart](../research/c.png){#fig:chart}", "See @fig:chart and @tbl:none."])
+        let (resolved, plain) = try bodies(source, figureFiles: ["a": [0: "build/figures/c.png"]])
+        XCTAssertTrue(resolved.contains(
+            "See \\MaughamCrossLink{lbl-fig-chart}{Figure 1} and @tbl:none."), resolved)
+        XCTAssertTrue(plain.contains("See @fig:chart and @tbl:none."), plain)
+        // In a multi-body compile every body carries the same labels, so the
+        // anchor names its body: a link never lands in the other language.
+        let ast = try ProjectASTBuilder.build(from: source)
+        let r = try PublishResolution.forCompile(source: source, bodyTag: "sr", imageAllowed: ["png"])
+        let sr = LaTeXBodyEmitter.emit(ast, anchorTag: "sr", crossLinkTags: ["en"], resolution: r,
+                                       figureFiles: ["a": [0: "build/figures/c.png"]])
+        XCTAssertTrue(sr.contains("\\hypertarget{lbl-sr-fig-chart}{}"), sr)
+        XCTAssertTrue(sr.contains("\\MaughamCrossLink{lbl-sr-fig-chart}{Figure 1}"), sr)
+    }
+
+    // MARK: headings
+
+    func test_numberedHeading_carriesItsNumberIntoTheTitleAndTheContents() throws {
+        let (resolved, plain) = try bodies(book(
+            ["# Intro {#sec:intro}", "## Scope", "See @sec:intro."], numberSections: true))
+        XCTAssertTrue(resolved.contains("""
+            \\hypertarget{lbl-sec-intro}{}
+            \\section*{1\\quad Intro}
+            \\addcontentsline{toc}{section}{1\\quad Intro}
+            \\subsection*{1.1\\quad Scope}
+            \\addcontentsline{toc}{subsection}{1.1\\quad Scope}
+            """), resolved)
+        XCTAssertTrue(resolved.contains("See \\MaughamCrossLink{lbl-sec-intro}{Section 1}."), resolved)
+        XCTAssertTrue(plain.contains("\\section*{Intro \\{\\#sec:intro\\}}"), plain)
+        let (unnumbered, _) = try bodies(book(["# Intro {#sec:intro}"], numberSections: false))
+        XCTAssertTrue(unnumbered.contains("\\section*{Intro}\n\\addcontentsline{toc}{section}{Intro}"),
+                      unnumbered)
+    }
+
+    // MARK: References and the lists
+
+    func test_references_closeTheBodyWithAHangingIndentList() throws {
+        let (resolved, plain) = try bodies(book(["Cited [@smith2026]."], research: [smith()]))
+        XCTAssertTrue(resolved.hasSuffix("""
+            \\end{prose}
+            \\clearpage
+            \\section*{References}
+            \\addcontentsline{toc}{section}{References}
+            \\begingroup
+            \\setlength{\\parindent}{0pt}
+            \\setlength{\\parskip}{0.5em}
+            \\hangindent=1.5em\\hangafter=1 Smith, Jane. 2026. \\emph{Annual Report}.\\par
+            \\endgroup
+            """), resolved)
+        XCTAssertFalse(plain.contains("References"), plain)
+        let (uncited, _) = try bodies(book(["Nothing cited."], research: [smith()]))
+        XCTAssertFalse(uncited.contains("References"), uncited)
+    }
+
+    func test_lists_openTheFirstBodyWhenSwitchedOnAndNonEmpty() throws {
+        let source = book(["| a |\n|---|\n| 1 |\nTable: T", "![F](../research/f.png)"], lists: true)
+        let files = ["a": [1: "build/figures/f.png"]]
+        let (resolved, plain) = try bodies(source, figureFiles: files)
+        XCTAssertTrue(resolved.contains("""
+            \\ifdefined\\listoffigures\\listoffigures\\clearpage\\fi
+            \\ifdefined\\listoftables\\listoftables\\clearpage\\fi
+            \\begin{prose}{Title a}
+            """), resolved)
+        XCTAssertFalse(plain.contains("listof"), plain)
+        let (second, _) = try bodies(source, figureFiles: files, opensWithLists: false)
+        XCTAssertFalse(second.contains("listof"), "only the first body opens with the lists: \(second)")
+        let (off, _) = try bodies(book(["| a |\n|---|\n| 1 |"], lists: false))
+        XCTAssertFalse(off.contains("listof"), off)
+        let (empty, _) = try bodies(book(["Prose only."], lists: true))
+        XCTAssertFalse(empty.contains("listof"), "no figures, no tables, no lists: \(empty)")
+    }
+
+    // MARK: subsets
+
+    /// A preview AST is built from a filtered source and the resolution from
+    /// the whole book; node indices are per piece, so the subset's figure
+    /// still finds its whole-book number (Figure 2, not Figure 1).
+    func test_aSubsetBody_usesTheWholeBooksNumbers() throws {
+        let whole = ReportBook(pieces: [
+            ("a", [("a1b2", "![One](../research/1.png){#fig:one}")]),
+            ("b", [("c3d4", "Text first."), ("e5f6", "![Two](../research/2.png){#fig:two}"),
+                   ("g7h8", "See @fig:one.")]),
+        ], context: book([]).context)
+        let subset = FilteredASTSource(base: whole, sectionIDs: ["b"])
+        let ast = try ProjectASTBuilder.build(from: subset)
+        XCTAssertEqual(ast.sections.map(\.pieceID), ["b"], "premise: a subset")
+        let r = try PublishResolution.forCompile(source: subset, bodyTag: nil, imageAllowed: ["png"])
+        let body = LaTeXBodyEmitter.emit(ast, resolution: r, figureFiles: ["b": [1: "build/figures/2.png"]])
+        XCTAssertTrue(body.contains("\\setcounter{figure}{1}\n\\begin{figure}[htbp]"), body)
+        XCTAssertTrue(body.contains("See \\MaughamCrossLink{lbl-fig-one}{Figure 1}."), body)
+    }
+
+    // MARK: escaping
+
+    func test_everyTextPathEscapes() throws {
+        let (resolved, _) = try bodies(book([
+            "# A & B_1 {#sec:x}",
+            "| x%y | #z |\n|---|---|\n| _u_ & | 50% |\nTable: C&D % #1 _x_",
+        ], numberSections: true))
+        for raw in ["A & B", "x%y", "| #z", "C&D", "% #1", "50% "] {
+            XCTAssertFalse(resolved.contains(raw), "\(raw) reached TeX unescaped: \(resolved)")
+        }
+        XCTAssertTrue(resolved.contains("\\section*{1\\quad A \\& B\\_1}"), resolved)
+        XCTAssertTrue(resolved.contains(
+            "\\begin{MaughamTable}{ll}{C\\&D \\% \\#1 \\_x\\_}{C\\&D \\% \\#1 \\_x\\_}{x\\%y & \\#z}"), resolved)
+        XCTAssertTrue(resolved.contains("\\_u\\_ \\& & 50\\% \\\\"), resolved)
+    }
+}
+
+private extension ReportBook {
+    /// The same book with paragraphs appended, ids continuing.
+    func withExtra(_ texts: String...) -> ReportBook {
+        let extra = ["t7v8", "w9x0", "y1z2", "b3c4"]
+        var piece = pieces[0]
+        for (i, t) in texts.enumerated() { piece.paragraphs.append((extra[i], t)) }
+        return ReportBook(pieces: [piece], context: context)
     }
 }
