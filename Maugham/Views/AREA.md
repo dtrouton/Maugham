@@ -76,7 +76,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.
 - `ResearchPreview.swift` — routes an item to its preview by kind.
 - `Maugham/Views/research/AudioPreview.swift`, `Maugham/Views/research/ImagePreview.swift`, `Maugham/Views/research/LinkPreview.swift`, `Maugham/Views/research/PDFPreview.swift`, `Maugham/Views/research/TextPreview.swift` — per-kind previews.
-- `InspectorResearchPanel.swift` — title / caption / tags / URL editor for a research item.
+- `InspectorResearchPanel.swift` — title, caption, tags, URL and citation editor for a research item.
 - `NewResearchNoteSheet.swift` — title prompt for a new note.
 - `Maugham/Views/Palette/PaletteWallView.swift` — `PaletteWallCentre`, the full-column grid of palette cards.
 - `Maugham/Views/Palette/PaletteCardTile.swift` — one card on the wall; no I/O in `body`.
@@ -100,7 +100,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `InspectorView.swift` — the selected document's inspector.
 - `PieceInspector.swift` — a Collection loose piece's inspector.
 - `ReferencePieceInspector.swift` — a Collection reference piece's inspector.
-- `InspectorLinksSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections.
+- `InspectorLinksSection.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections.
 - `PassLadder.swift` — the inspector's per-piece pass ladder; `offersRulings`.
 - `TasksPane.swift`, `TaskRow.swift` — the tasks pane (`TaskDropIntent`, `TaskRowVerbs`).
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.

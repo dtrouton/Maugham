@@ -40,6 +40,11 @@ struct InspectorResearchPanel: View {
                             .textFieldStyle(.plain)
                     }
                 }
+                if item.type != .group {
+                    Divider()
+                    InspectorCitationSection(store: store, item: item)
+                    Divider()
+                }
                 if let added = item.addedAt {
                     LabeledContent("Added") {
                         Text(added, style: .date)

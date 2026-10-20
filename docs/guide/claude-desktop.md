@@ -42,6 +42,7 @@ Write:
 - Unlink as needed
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
 - Propose an edition brief or a visual language — a draft staged for you, shown as a diff against your own text with Adopt / Discard; Claude never writes a statement for you
+- Set or remove a research source's citation details (the key a manuscript cites it by, authors, title, year…) — the same rules as the inspector's Citation section
 - Move research items (including whole groups) between shared research, a group, and a collection piece's research folder — link associations update automatically
 - Add notes, questions, craft notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
 - Add cards to your **planning canvas** — the case it is built for is a page you wrote on paper and photographed. Claude cannot choose where a card goes: everything it adds lands together in one labelled region, placed clear of your own work, with the page it read at the top of it. Its cards are drawn perfectly straight where yours lean, so a card that leans is one of yours, and one ⌘Z takes back a whole batch. See [Getting Started → What Claude can put on the canvas](getting-started.md#what-claude-can-put-on-the-canvas)

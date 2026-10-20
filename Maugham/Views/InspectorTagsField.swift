@@ -4,6 +4,11 @@ struct InspectorTagsField: View {
     @Binding var tags: [String]
     let suggestions: [String]
     let onCommit: () -> Void
+    var placeholder: String = "Add tag…"
+    /// Tags split a typed line on commas; a citation's authors do not, since
+    /// "Surname, Given" is one author (`CitationStyle` reads the surname
+    /// before the comma).
+    var splitsOnCommas: Bool = true
 
     @State private var draft: String = ""
 
@@ -11,7 +16,7 @@ struct InspectorTagsField: View {
         VStack(alignment: .leading, spacing: 8) {
             chipRow
             HStack(spacing: 6) {
-                TextField("Add tag…", text: $draft, onCommit: commitDraft)
+                TextField(placeholder, text: $draft, onCommit: commitDraft)
                     .textFieldStyle(.plain)
                     .submitLabel(.done)
             }
@@ -67,11 +72,17 @@ struct InspectorTagsField: View {
             .map { $0 }
     }
 
-    private func commitDraft() {
-        let parts = draft
-            .split(separator: ",")
+    /// The entries a typed line adds: trimmed, blanks dropped, split on
+    /// commas only when the field asks for it.
+    static func entries(from draft: String, splitsOnCommas: Bool) -> [String] {
+        let pieces = splitsOnCommas ? draft.split(separator: ",").map(String.init) : [draft]
+        return pieces
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    private func commitDraft() {
+        let parts = Self.entries(from: draft, splitsOnCommas: splitsOnCommas)
         var changed = false
         for part in parts where !tags.contains(where: { $0.lowercased() == part.lowercased() }) {
             tags.append(part)

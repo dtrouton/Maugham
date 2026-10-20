@@ -30,7 +30,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `DocumentTools.swift` — `read_document`, `search_text`; `ReadDocumentTool` is the model for a polymorphic image-or-text response with crop-on-demand, and is tripwire 54's one allow-listed tool (`read_document.mode`'s wire value); no other tool spells a `"fountain"` literal.
 - `ReferenceTools.swift` — `list_scenes`, `find_references`, `get_session_stats`.
 - `ListDocumentsByTagTool.swift` — `list_documents_by_tag`.
-- `AddNoteTool.swift` — `add_note`. `ListResearchTool.swift` — `list_research`. `ResearchLinkTools.swift` — `link_research`, `unlink_research`. `ListAllLinksTool.swift` — `list_all_links`. `MoveResearchItemTool.swift` — `move_research_item`.
+- `AddNoteTool.swift` — `add_note`. `ListResearchTool.swift` — `list_research`. `ResearchLinkTools.swift` — `link_research`, `unlink_research`. `ListAllLinksTool.swift` — `list_all_links`. `MoveResearchItemTool.swift` — `move_research_item`. `UpdateResearchCitationTool.swift` — `update_research_citation` and `ResearchCitationWire`.
 - `CraftIntentTools.swift`, `VisualLanguageTools.swift`, `EditionBriefTools.swift`, `LessonsTools.swift`, `FirstReaderTools.swift` — the five statement readers (`read_craft_intent`, `read_visual_language`, `read_edition_brief`, `read_lessons`, `read_first_reader`). Tripwire 20.
 - `StatementProposalTools.swift` — `propose_edition_brief`, `propose_visual_language`.
 - `PaletteTools.swift` — `list_palette_cards`, `read_palette_card`.
@@ -51,7 +51,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `Maugham/Help/SkillIndex.swift` — loads the bundled skills (mirrors `HelpTopicIndex`; lives in `Help/` because `get_help` also serves it).
 - `Maugham/Views/HelpClaudeDesktopSheet.swift` — the "Set up Claude Desktop…" flow and its Claude Code section; `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift` — the "Allow Claude to connect (MCP)" toggle.
 
-## Tool catalogue (60)
+## Tool catalogue (61)
 
 The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading against it. Contracts beyond one line are under Rules → Tool contracts.
 
@@ -74,10 +74,11 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 **Research / links**
 - `add_note` — a new research note under `research/` (a write tool).
-- `list_research` — research items.
+- `list_research` — research items, each with its citation details when it has some.
 - `link_research` / `unlink_research` — create or remove a research ↔ manuscript link.
 - `list_all_links` — every research–manuscript link, `piece_research` edges included.
 - `move_research_item` — batch-move research items between shared research, a group and a piece's research folder.
+- `update_research_citation` — set or remove a research item's citation details (a write tool).
 
 **The spine (statements) and the palette**
 - `read_craft_intent` — a manuscript document's or the project's craft intent.
@@ -126,7 +127,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 ### The membrane
 - **MCP never writes manuscript text, full stop**: the manuscript is the writer's, and Claude reaches it only through the parallel annotation layer. Even a tool that "feels safe" does not soften this; violating it loses the writer's trust in the whole integration (ADR 0004).
-- **A write tool may touch no manuscript; the planning plane has three destinations**: `research/` (`add_note`), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). Over the inbox MCP may read and promote only, never add or trash. What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). Beside them, the publishing tools (`write_publish_file`, `delete_publish_file`, `set_publish_config`, `set_piece_style`, `clear_piece_style`, `initialize_publish_template`, `compile`, `republish`) write the publish tree (`.maugham/publish/`, `.maugham/publications*`, `Exports/`), and the propose tools stage under `.maugham/statements/proposals/`; none is manuscript. A new destination needs its own ADR-level argument, not this list as precedent.
+- **A write tool may touch no manuscript; the planning plane has three destinations**: `research/` (`add_note`; `update_research_citation` edits citation details in the manifest), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). Over the inbox MCP may read and promote only, never add or trash. What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). Beside them, the publishing tools (`write_publish_file`, `delete_publish_file`, `set_publish_config`, `set_piece_style`, `clear_piece_style`, `initialize_publish_template`, `compile`, `republish`) write the publish tree (`.maugham/publish/`, `.maugham/publications*`, `Exports/`), and the propose tools stage under `.maugham/statements/proposals/`; none is manuscript. A new destination needs its own ADR-level argument, not this list as precedent.
 - **Think about the membrane before adding a tool**: a read tool is low-risk; a write tool needs ADR-level justification; an annotation tool belongs to the annotation layer.
 - **No tool writes a statement.** The two propose tools stage a draft that only the writer's click at `StatementPane`'s gate turns into a statement (`StatementProposalGate.adopt`). `CompilerAllowlistTests.test_noStatementWritingToolExistsAnywhereClaudeCanReach` fails on a statement writer in the catalogue as well as the compiler's allowlist; its predicate passes the two propose tools by name and catches `write_edition_brief`, `propose_craft_intent` and the like.
 - **Claude never writes the lessons ledger, the first reader, craft intent or visual language**: the ledger moves only through the writer's own verbs in Maugham (Keep as lesson / These are all choices / retire).
@@ -181,6 +182,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **`search_text` filters to `.manuscript`; ⌘⌥F does not reach a statement**, and that is a stop, not an omission.
 - **`find_references` and `list_all_links` scan manuscript documents, research note bodies (canvas promotion writes `[[…]]` into notes) and statements**, and resolve a statement's composed title (`"Craft Intent · <doc>"`) as a `[[…]]` target at lowest precedence.
 - **`move_research_item` takes exactly one of `target: "shared"`, `target_group_id`, `target_document_id`**, and wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`; read its header before touching the validation).
+- **`update_research_citation` goes through `ProjectStore.updateCitation`, the research inspector's own door**: `citation` replaces the whole set, `null` removes it, an omitted `citation` is refused, `accessed` is a UTC `YYYY-MM-DD` day, and the door's refusals (`CitationEditError`) are `invalid_argument` in the writer's words.
 - **A cross-scope move leaves explicit links (`linkedResearchIds`) untouched**: association is containment-based. A manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out and no link is minted.
 
 **Statements and the palette**

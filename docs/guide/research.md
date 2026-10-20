@@ -17,6 +17,10 @@ Groups nest — right-click + **New Group** to make a folder, drop items into it
 
 Select several items (⌘-click) to work on them together. Right-click a selection for **Move to ▸** (Shared, any group, or — in a Collection — any loose piece) and batch **Delete**. Dragging a row that's part of your selection moves the whole selection; drop it on a group to nest it there, or drop it in a different Collection section to move it between shared research and a piece's research folder. Scope moves leave your links alone: an item inside a piece is already associated by containment, so a link you added by hand goes quietly dormant while it lives there (Maugham just hides the now-redundant entry) and reappears as a link on that document if you move the item back out. An association that only ever came from containment ends when you move the item out — nothing is auto-linked in its place.
 
+### Citation details
+
+A source you cite in a manuscript as `[@key]` carries its citation details in the inspector's **Citation** section, below Caption and URL: **Key**, **Authors** (one per entry — "Ada Lovelace" or "Lovelace, Ada"), **Source title**, **Publisher**, **Year**, **Accessed** and **Pages**. **Suggest** fills in a free key from the first author's surname and the year (`lovelace1843`). A key is letters, digits, `-` and `_`, starting with a letter or digit, and no two sources share one — a source in the Trash keeps its key, since restoring it would bring it back. A citation needs a key: details without one are refused, and the reason shows under the fields with what you typed kept. Clear every field, the key last, to remove the citation. See [Publishing → Tables, figures, footnotes, citations and cross-references](publishing.md) for how a citation prints.
+
 ### Capture inbox
 
 Voice/text/photo captures from the iPhone companion app land in the Mac's capture inbox (⌘⌥B). Right-click an entry to promote it into research — three destinations:

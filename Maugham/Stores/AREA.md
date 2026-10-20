@@ -24,6 +24,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Trash.swift` — delete/restore, ⌘⌥Z (`armDeletion`, `TrashDeletion`), `emptyTrash`.
 - `ProjectStore+Metadata.swift` — inspector metadata, pass states, targets, review passes, typography.
 - `ProjectStore+Research.swift` — research CRUD, `deleteResearchItems(ids:)`, `trashResearchItemCore`, `renameResearchPath`. Tripwire 14.
+- `ProjectStore+Citation.swift` — `updateCitation(researchId:_:)`, the one door citation details are written through (inspector and MCP), and `suggestedCitationKey`.
 - `ProjectStore+ResearchMove.swift` — `moveResearchItems(ids:to:atIndex:)`, `ResearchMoveTarget`, `researchDedupedNotePair`. Tripwire 14.
 - `ProjectStore+CollectionPieces.swift` — Collection loose pieces, `movePiece`/`renamePiece`, `promotePieceToProject` and its staging rollback. Tripwire 14.
 - `ProjectStore+References.swift` — Collection project-references (Mac-local, ADR 0009): `resolveReference`, `relinkReference`.

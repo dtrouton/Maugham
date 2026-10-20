@@ -8,8 +8,10 @@ public enum ListResearchTool: MCPTool {
     public static let method = "list_research"
     public static let description =
         "List the project's research tree hierarchically. Each item has id, " +
-        "title, type (group/asset), kind, path. Use this to discover research " +
-        "items before calling find_references or read_document."
+        "title, type (group/asset), kind, path, and citation ({key, authors, " +
+        "source_title, publisher, year, accessed, pages}) when the item has " +
+        "citation details. Use this to discover research items before calling " +
+        "find_references, read_document or update_research_citation."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
@@ -27,6 +29,9 @@ public enum ListResearchTool: MCPTool {
         public let path: String?
         public let url: String?
         public let children: [Item]?
+        /// Present only when the item carries citation details; inside it,
+        /// every field is reported (`null` where unset).
+        public var citation: ResearchCitationWire? = nil
     }
 
     @MainActor
@@ -46,7 +51,8 @@ public enum ListResearchTool: MCPTool {
                 kind: r.kind.map(Self.kindString),
                 path: r.path,
                 url: r.url,
-                children: r.children.map { toItems($0) })
+                children: r.children.map { toItems($0) },
+                citation: r.citation.map(ResearchCitationWire.init))
         }
     }
 
