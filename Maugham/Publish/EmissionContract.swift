@@ -205,11 +205,13 @@ public enum EmissionContract {
 
     Tables, figures, footnotes, citations, cross-references and numbered \
     headings are emitted from the **whole book's resolution**: before any body \
-    is written, a resolution pass walks every piece of the book — never only \
-    the pieces a preview renders — and numbers, resolves and checks. The \
-    emitter reads its numbers and never counts on its own, so a preview of \
-    chapter 3 still prints "Figure 7" and a reference into an excluded \
-    chapter still resolves.
+    is written, a resolution pass walks every piece the edition includes — \
+    never only the pieces a preview renders — and numbers, resolves and \
+    checks. The emitter reads its numbers and never counts on its own, so a \
+    preview of chapter 3 still prints "Figure 7" and a reference into another \
+    included chapter still resolves. A section the edition leaves out \
+    (`include` off, or dropped by an imprint) is outside the book: it is not \
+    numbered, and a reference into it is unresolved.
 
     The examples below run that real resolution pass, then the real emitter, \
     over a fixed one-piece book: one research item cited as `smith2026` \
