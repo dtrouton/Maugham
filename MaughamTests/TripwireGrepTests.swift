@@ -4895,6 +4895,11 @@ final class TripwireGrepTests: XCTestCase {
     ///   callable as `model.f()` from any column.
     /// - **A top-level function**, callable from anywhere, for the same reason.
     ///
+    /// And inside `CanvasView.swift` itself, a helper is named only in a
+    /// `private var x: T { T(…) }` computed property: tripwire 57's walk follows
+    /// that property, so a frozen view value handed in is caught. A helper held
+    /// in `@State`, or made by a factory method and stored, would escape it.
+    ///
     /// One helper never names another: a helper is built only in a `CanvasView`
     /// computed property and handed what it needs (the controller's ruling).
     /// Vacuous while the list holds only `CanvasView.swift`; the planted
@@ -4911,11 +4916,13 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Self-check, one planted case per route: building a helper, building it
     /// through `.init(`, holding one, calling its static member, a surface file
-    /// extending `CanvasModel`, and a top-level function in a surface file.
+    /// extending `CanvasModel`, a top-level function in a surface file, and in
+    /// `CanvasView.swift` a helper held in `@State` or made by a factory method.
     /// Controls: a doc comment naming the helper, a longer identifier that
     /// merely contains its name, the helper named in its own file and in
-    /// `CanvasView.swift`, an extension of the file's own type and of
-    /// `CanvasView`, a nested function, and a `class func` in a helper class
+    /// `CanvasView.swift`'s building computed property, an extension of the
+    /// file's own type and of `CanvasView`, a nested function, and a
+    /// `class func` in a helper class
     /// (which must not register a type called `func`). A type NOT on the list
     /// is not checked at all, and a missing listed file throws.
     func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
@@ -4924,6 +4931,8 @@ final class TripwireGrepTests: XCTestCase {
                 struct CanvasView: View {
                     let model: CanvasModel
                     private var keyHandler: CanvasKeyHandler { CanvasKeyHandler(model: model) }
+                    @State private var pass: CanvasKeyHandler?
+                    func makeKeys() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }
                 }
                 """,
             "Maugham/Canvas/CanvasKeyHandler.swift": """
@@ -4985,13 +4994,19 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(planted.offenders, [
             "CanvasKeyHandler.swift declares a top-level func",
             "CanvasKeyHandler.swift extends CanvasModel",
+            "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
+                + "@State private var pass: CanvasKeyHandler?",
+            "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
+                + "func makeKeys() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }",
             "ItemInspector.swift names CanvasKeyHandler",
             "LineInspector.swift names CanvasKeyHandler",
             "RegionInspector.swift names CanvasKeyHandler",
             "ScrapInspector.swift names CanvasKeyHandler",
         ], "Self-check: every route from another column into a surface file must "
             + "fire — building, holding, a static call, an extension of another "
-            + "type, a top-level function — and no control may.")
+            + "type, a top-level function, and in the view a helper held in `@State` "
+            + "or made by a factory — and no control may (the `keyHandler` computed "
+            + "property stays quiet).")
 
         let offTheList = try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift"])
@@ -5011,7 +5026,8 @@ final class TripwireGrepTests: XCTestCase {
         + "statically — or an extension or top-level function in a surface file "
         + "reaches the inside verbs (`mutate`, `beginGesture`, `withScene`) where "
         + "nothing checks it: the nested-bracket defect, with the edit on no undo "
-        + "step. Build a helper only in a `CanvasView` computed property and keep "
+        + "step. Build a helper only in a `CanvasView` computed property "
+        + "(`private var x: T { T(…) }`, which tripwire 57's walk follows) and keep "
         + "its file to its own types; from another column, call "
         + "`CanvasModel.mutateFromInspector`.\n" + offenders.joined(separator: "\n")
     }
@@ -5022,7 +5038,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   declared there (`struct`/`class`/`enum`/`actor`, uppercase-initial),
     ///   other than `CanvasView.swift` and the type's own file;
     /// - an `extension` of anything but `CanvasView` or a type the file declares;
-    /// - a top-level `func`.
+    /// - a top-level `func`;
+    /// - inside `CanvasView.swift`, a helper type named anywhere but a
+    ///   `private var x: T { T(` computed property that builds it.
     /// Top level is column 0, which is how every file here is indented.
     /// Throws when a listed surface file is missing.
     private static func canvasSurfaceHelperCensus(
@@ -5064,6 +5082,36 @@ final class TripwireGrepTests: XCTestCase {
             }
             if topLevelFunc.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
                 offenders.append("\(name) declares a top-level func")
+            }
+        }
+
+        // Inside `CanvasView.swift`, a helper is named only where a computed
+        // property builds it: `private var x: T { T(`. Tripwire 57's walk follows
+        // such a property, so every value handed in is read where the walk looks;
+        // a helper held in `@State` or made by a factory and stored would carry a
+        // frozen view value past it.
+        if !homes.isEmpty {
+            let viewCode = CanvasSourceCensus.commentsStripped(
+                try String(contentsOf: canvasDir.appendingPathComponent(theCanvasViewFile), encoding: .utf8))
+            let whole = NSRange(viewCode.startIndex..., in: viewCode)
+            for type in homes.keys.sorted() {
+                let t = NSRegularExpression.escapedPattern(for: type)
+                let builders = try NSRegularExpression(
+                    pattern: #"\bprivate\s+var\s+[A-Za-z_]\w*\s*:\s*"# + t + #"\s*\{\s*"# + t + #"\("#)
+                    .matches(in: viewCode, range: whole).map(\.range)
+                let names = try NSRegularExpression(
+                    pattern: #"(?<![A-Za-z0-9_])"# + t + #"(?![A-Za-z0-9_])"#)
+                var lines: [String] = []
+                for m in names.matches(in: viewCode, range: whole)
+                where !builders.contains(where: { NSIntersectionRange($0, m.range).length == m.range.length }) {
+                    let line = (viewCode as NSString).lineRange(for: m.range)
+                    let text = (viewCode as NSString).substring(with: line)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !lines.contains(text) { lines.append(text) }
+                }
+                for text in lines {
+                    offenders.append("\(theCanvasViewFile) names \(type) outside a building computed property: \(text)")
+                }
             }
         }
 

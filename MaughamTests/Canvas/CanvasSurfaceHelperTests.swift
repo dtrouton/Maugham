@@ -76,9 +76,11 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                        "the default call bumps the structural counter")
     }
 
-    /// Mounted: `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
-    /// whose delete runs this rebuild (`bumpsStructuralCounter: false`) after the
-    /// card has gone.
+    /// The first DIRECT pin of the layout drop. The mounted
+    /// `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`
+    /// runs this rebuild (`bumpsStructuralCounter: false`) after the card has
+    /// gone, but pins only the visible half: the card leaves the accessibility
+    /// tree. No mounted test reads `layouts`.
     func test_rebuildLayoutsDropsALayoutWhoseNodeIsGone() {
         let model = CanvasModel()
         model.withScene(persist: false) {
@@ -123,9 +125,11 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         }
     }
 
-    /// Mounted: `CanvasViewMountingEditingTests.test_quittingAfterAPauseFoldsTheTextInWithoutMovingAnUndoBoundary`
-    /// (the quit hook's `syncActiveEdit()` folds and moves no boundary); with no
-    /// scrap open there is nothing to fold at all.
+    /// Both early returns. The first (nothing open) is the branch every
+    /// mouse-down with nothing focused runs — `handleClick` → `commitActiveEdit`
+    /// → `syncActiveEdit` — as in the bare-canvas click of
+    /// `CanvasViewMountingEditingTests.test_aDoubleClickOnBareCanvasStillMakesOneScrapAndNoRegion`.
+    /// The second is an open id whose layout has not been built.
     func test_syncActiveEditWithNoOpenScrapChangesNothing() throws {
         let model = CanvasModel()
         model.withScene(persist: false) {
@@ -144,11 +148,21 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         XCTAssertEqual(fixture.revision.value, 0, "the redraw counter ticked")
         XCTAssertNil(fixture.lastKeystrokeAt.value, "a keystroke time was recorded")
         XCTAssertEqual(model.sceneRevision, sceneRevision)
+
+        // The second guard: an open scrap with no layout has nothing to fold.
+        fixture.editingNodeID.value = scrapID
+        fixture.focus.syncActiveEdit(fromKeystroke: true)
+        XCTAssertEqual(model.scraps[scrapID], "untouched")
+        XCTAssertNil(try XCTUnwrap(model.scene.node(scrapID)).cachedHeight, "a height was written")
+        XCTAssertEqual(fixture.revision.value, 0, "the redraw counter ticked")
+        XCTAssertNil(fixture.lastKeystrokeAt.value, "a keystroke time was recorded")
     }
 
-    /// Mounted: `CanvasViewMountingEditingTests.test_aPauseInsideAScrapEndsTheStepWhereTheWriterStopped`
-    /// reads the idle beat off `lastKeystrokeAt`; clearing it at the outer
-    /// boundary is what keeps one visit's last keystroke from timing the next.
+    /// The first DIRECT pin of the clear. The mounted
+    /// `CanvasViewMountingEditingTests.test_aPauseInsideAScrapEndsTheStepWhereTheWriterStopped`
+    /// reads the idle beat off `lastKeystrokeAt` but never the clear; clearing it
+    /// at the outer boundary is what keeps one visit's last keystroke from timing
+    /// the next. This is the no-visit half of the bump guard too.
     func test_commitActiveEditClearsTheLastKeystroke() {
         let fixture = EditFocusFixture(model: CanvasModel())
         fixture.lastKeystrokeAt.value = Date()
@@ -160,5 +174,25 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                      "the outer boundary left the last keystroke standing")
         XCTAssertEqual(fixture.model.sceneRevision, sceneRevision,
                        "with no visit there is no accessibility element to refresh")
+    }
+
+    /// The other half of `commitActiveEdit`'s bump guard, which its doc calls
+    /// "the point of it": WITH a visit, the scrap's accessibility element has
+    /// been stale for the whole visit, so the structural counter moves exactly
+    /// once. A first direct pin; the mounted family reaches it on every click
+    /// out of an open scrap without counting the bump.
+    func test_commitActiveEditWithAVisitBumpsTheStructuralCounterOnce() {
+        let fixture = EditFocusFixture(model: CanvasModel())
+        fixture.editingNodeID.value = scrapID
+        fixture.lastKeystrokeAt.value = Date()
+        let sceneRevision = fixture.model.sceneRevision
+
+        fixture.focus.commitActiveEdit()
+
+        XCTAssertEqual(fixture.model.sceneRevision, sceneRevision + 1,
+                       "leaving a visited scrap must refresh the accessibility tree once")
+        XCTAssertNil(fixture.lastKeystrokeAt.value)
+        XCTAssertEqual(fixture.editingNodeID.value, scrapID,
+                       "the commit closes the gesture; leaving the scrap is `leaveTheOpenScrap`'s")
     }
 }

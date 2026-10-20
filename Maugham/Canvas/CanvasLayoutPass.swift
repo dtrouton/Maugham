@@ -142,7 +142,7 @@ struct CanvasLayoutPass {
     /// which asks the published accessibility tree whether the deleted card has
     /// left it.
     func rebuildLayouts(bumpsStructuralCounter: Bool = true,
-                                bumpsThumbnailTicket: Bool = true) {
+                        bumpsThumbnailTicket: Bool = true) {
         // FIRST, and inside this function rather than beside its callers: every
         // path that changes the scene has to re-ask what its item nodes are, and
         // the measurement below reads the answer. `resolve` decodes nothing — a
