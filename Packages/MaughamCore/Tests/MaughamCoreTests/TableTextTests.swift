@@ -63,6 +63,20 @@ final class TableTextTests: XCTestCase {
         XCTAssertEqual(TableText(parsing: bare.formatted()), bare)
     }
 
+    func test_aHeaderWithNoCellsIsNoTable() {
+        XCTAssertNil(TableText(parsing: "|\n|-|"), "a header row of no cells")
+    }
+
+    /// An empty caption with no label has no `Table:` line that could read it
+    /// back (`Table:` alone is not a caption), so none is written.
+    func test_anEmptyCaptionWithoutALabelWritesNoCaptionLine() throws {
+        let t = TableText(header: ["a"], alignments: [.none], rows: [["1"]], caption: "", label: nil)
+        XCTAssertEqual(t.formatted(), "| a   |\n| --- |\n| 1   |")
+        var expected = t
+        expected.caption = nil
+        XCTAssertEqual(TableText(parsing: t.formatted()), expected)
+    }
+
     func test_formattedNeverHoldsABlankLine() throws {
         let t = try XCTUnwrap(TableText(parsing: "| a | b |\n|---|---|\n| | |\n|  |  |"))
         XCTAssertFalse(t.formatted().contains("\n\n"))

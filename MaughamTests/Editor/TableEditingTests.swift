@@ -235,6 +235,55 @@ final class TableEditingTests: XCTestCase {
         XCTAssertEqual(m.string, Self.tidy + "\n|     |     |")
     }
 
+    // MARK: - Return on an empty last row leaves the table (R-S4)
+
+    func test_returnOnAnEmptyLastRowLeavesTheTableBelowItsCaptionAsOneUndoStep() throws {
+        let before = "Intro.\n\n" + Self.tidy + "\n|     |     |\nTable: Veg {#tbl:veg}\n\nAfter."
+        let m = try mount(before)
+        caret(m, at: (before as NSString).range(of: "|     |").location + 3)   // mid-row, not its end
+        assertInATable(m)
+
+        newline(m)
+        let after = "Intro.\n\n" + Self.tidy + "\nTable: Veg {#tbl:veg}\n\n\n\nAfter."
+        XCTAssertEqual(m.string, after, "the empty row goes; a new paragraph opens, After. a blank line below")
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: (after as NSString).range(of: "{#tbl:veg}").upperBound + 2,
+                               length: 0),
+                       "the caret waits in the new paragraph below the caption")
+        XCTAssertEqual(m.box.text, after)
+
+        m.undo.undo()
+        XCTAssertEqual(m.string, before, "one ⌘Z takes the whole leave back")
+    }
+
+    func test_returnTwiceAtTheEndOfACaptionlessTableAtTheEndOfTheTextLeavesIt() throws {
+        let m = try mount(Self.tidy)
+        caret(m, at: (m.string as NSString).length)
+        newline(m)
+        XCTAssertEqual(m.string, Self.tidy + "\n|     |     |", "the first Return adds a row")
+        newline(m)
+        XCTAssertEqual(m.string, Self.tidy + "\n\n", "the second, on that empty row, leaves")
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: (m.string as NSString).length, length: 0))
+        assertOutsideATable(m)
+    }
+
+    func test_returnOnTheOnlyEmptyRowKeepsItAndLeaves() throws {
+        let table = ReportInsert.table(nextLabelNumber: 1)
+        let m = try mount(table)
+        caret(m, at: (table as NSString).range(of: "|          |").location + 2)
+        newline(m)
+        XCTAssertEqual(m.string, table + "\n\n", "a fresh table keeps its one row")
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: (m.string as NSString).length, length: 0))
+    }
+
+    private func assertOutsideATable(_ m: Mounted, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertNil(MarkdownTokenizer.tableBlockRange(containing: m.textView.selectedRange().location,
+                                                       in: m.coordinator.lastTokens),
+                     "the caret is still in the table", file: file, line: line)
+    }
+
     func test_returnElsewhereIsAnOrdinaryNewline() throws {
         let m = try mount(Self.tidy)
         caret(m, before: " d")
@@ -311,6 +360,44 @@ final class TableEditingTests: XCTestCase {
         runTheTidy(m)
         XCTAssertEqual(m.string, "Before.\n\n| A   | B   |\n| --- | --- |\n| c   | d   |")
         XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 3, length: 0))
+    }
+
+    /// I2: a sync replacing the text is not the writer leaving a table.
+    func test_anExternalTextApplyForgetsTheTable() throws {
+        let untidy = "|A|B|\n|-|-|\n|c|d|\n\nAfter."
+        let m = try mount(untidy)
+        caret(m, before: "c")
+        assertInATable(m)
+        let synced = untidy + " Synced."
+        m.coordinator.applyExternalText(synced)
+        m.box.text = synced
+        caret(m, before: "After")
+        XCTAssertFalse(m.coordinator.hasPendingTableTidy, "a sync led to a tidy the writer didn't cause")
+        runTheTidy(m, edits: false)
+        XCTAssertEqual(m.string, synced)
+        XCTAssertEqual(m.box.text, synced, "something was written")
+    }
+
+    /// M3: a tidy that finds the writer back in its table keeps remembering it,
+    /// so leaving again still tidies.
+    func test_aTidyThatFindsTheCaretBackInTheTableStillTidiesOnTheNextLeave() throws {
+        let untidy = "|A|B|\n|-|-|\n|c|d|\n\nAfter."
+        let m = try mount(untidy)
+        caret(m, before: "c")
+        caret(m, before: "After")
+        XCTAssertTrue(m.coordinator.hasPendingTableTidy)
+        // Back in the table without the selection callback seeing it (the
+        // order a racing runloop could produce).
+        m.coordinator.tableTidy.isApplying = true
+        caret(m, before: "d")
+        m.coordinator.tableTidy.isApplying = false
+        runTheTidy(m, edits: false)
+        XCTAssertEqual(m.string, untidy, "it tidied under the writer's caret")
+
+        caret(m, before: "After")
+        XCTAssertTrue(m.coordinator.hasPendingTableTidy, "the table was forgotten")
+        runTheTidy(m)
+        XCTAssertEqual(m.string, "| A   | B   |\n| --- | --- |\n| c   | d   |\n\nAfter.")
     }
 
     func test_theTidyNeverTakesTheFocusFromElsewhere() throws {

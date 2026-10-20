@@ -774,6 +774,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         deferredRestyleTask?.cancel()
         deferredRestyleTask = nil
         burstBaselineText = nil
+        // A sync is not the writer leaving a table: forget the table and any
+        // pending tidy, so no tidy follows that the writer didn't cause.
+        tableTidy.anchor = nil
+        tableTidy.cancelPending()
         guard let textView, textView.string != text else { return }
         // Replacing the buffer out from under NSTextView invalidates every
         // native typing-undo action (they capture text-storage state; popping

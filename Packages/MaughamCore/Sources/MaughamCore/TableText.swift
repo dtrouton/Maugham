@@ -39,7 +39,8 @@ public struct TableText: Equatable, Sendable {
     public init?(parsing block: String) {
         let parsed = ManuscriptBlocks.parse(block)
         guard parsed.count == 1,
-              case .table(let header, let alignments, let rows, let caption, let label) = parsed[0].block
+              case .table(let header, let alignments, let rows, let caption, let label) = parsed[0].block,
+              !header.isEmpty
         else { return nil }
         self.header = header
         self.alignments = alignments
@@ -97,9 +98,10 @@ public struct TableText: Equatable, Sendable {
         return lines.joined(separator: "\n")
     }
 
-    /// `Table: caption {#tbl:x}`, or nil with no caption.
+    /// `Table: caption {#tbl:x}`, or nil with no caption — or an empty one
+    /// and no label, which no `Table:` line could read back.
     private var captionLine: String? {
-        guard let caption else { return nil }
+        guard let caption, !(caption.isEmpty && label == nil) else { return nil }
         let parts = [caption, label.map { "{#\($0.reference)}" }].compactMap { $0 }
             .filter { !$0.isEmpty }
         return "Table: " + parts.joined(separator: " ")

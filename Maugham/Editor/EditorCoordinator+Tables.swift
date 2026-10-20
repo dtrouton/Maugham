@@ -115,12 +115,18 @@ extension EditorCoordinator {
 
     /// Return at the end of a body row (only spaces after the caret on its
     /// line): a new empty row after it, the caret in its first cell, the table
-    /// re-aligned — one edit. Anywhere else Return is AppKit's.
+    /// re-aligned — one edit. Return anywhere on an empty LAST body row leaves
+    /// the table (`leaveTable`). Anywhere else Return is AppKit's.
     private func addTableRow(in textView: NSTextView) -> Bool {
         let selection = textView.selectedRange()
         guard selection.length == 0, let at = caretTable(in: textView),
               let cell = TableText.cell(at: selection.location - at.range.location, in: at.block),
               cell.row >= 1 else { return false }
+        if cell.row == at.table.rows.count,
+           at.table.rows[cell.row - 1].allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+            leaveTable(at, in: textView)
+            return true
+        }
         let ns = textView.string as NSString
         let line = ns.lineRange(for: NSRange(location: selection.location, length: 0))
         var end = NSMaxRange(line)
@@ -134,6 +140,31 @@ extension EditorCoordinator {
         applyTableEdit(at, formatted, selecting: NSRange(location: caret, length: 0),
                        actionName: "Add Table Row")
         return true
+    }
+
+    /// Return on an empty last body row (R-S4): the row goes (unless it is the
+    /// table's only body row — a fresh table keeps its one row), the table is
+    /// re-aligned, and a new empty paragraph opens a blank line below it (below
+    /// the caption, if any), the caret there. The newlines that followed the
+    /// table are replaced, so text after it stays a blank line away. One edit.
+    private func leaveTable(_ at: CaretTable, in textView: NSTextView) {
+        var table = at.table
+        if table.rows.count > 1 { table.rows.removeLast() }
+        let formatted = table.formatted()
+        let ns = textView.string as NSString
+        var end = NSMaxRange(at.range)
+        while end < ns.length, ns.character(at: end) == 0x0A { end += 1 }
+        let followed = end < ns.length
+        let replacement = formatted + "\n\n" + (followed ? "\n\n" : "")
+        let caret = at.range.location + (formatted as NSString).length + 2
+        tableTidy.isApplying = true
+        defer { tableTidy.isApplying = false }
+        applyCommandEdit(replacing: NSRange(location: at.range.location,
+                                            length: end - at.range.location),
+                         with: replacement, selecting: NSRange(location: caret, length: 0),
+                         actionName: "Leave Table")
+        tableTidy.cancelPending()
+        tableTidy.anchor = nil
     }
 
     /// Replaces the table with `formatted` as one Route A edit; `selection` is
@@ -224,7 +255,10 @@ extension EditorCoordinator {
               NSMaxRange(range) <= ns.length else { return }
         let selection = textView.selectedRange()
         guard selection.location > NSMaxRange(range) || NSMaxRange(selection) < range.location
-        else { return }
+        else {
+            tableTidy.anchor = range.location        // the writer is back in it
+            return
+        }
         let block = ns.substring(with: range)
         guard let table = TableText(parsing: block) else { return }
         let formatted = table.formatted()
