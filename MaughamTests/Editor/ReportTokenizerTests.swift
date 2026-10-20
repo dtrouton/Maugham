@@ -112,6 +112,7 @@ final class ReportTokenizerTests: XCTestCase {
     func test_footnoteReferenceFollowedByParensIsNotALink() {
         let text = "See[^1](x) now."
         XCTAssertEqual(texts(.footnoteReference, in: text), ["[^1]"])
+        XCTAssertTrue(texts(.syntaxPunctuation, in: text).isEmpty)
     }
 
     // MARK: - Citations and cross-references
@@ -127,6 +128,17 @@ final class ReportTokenizerTests: XCTestCase {
         XCTAssertFalse(tokenizer.tokenize(text).contains {
             if case .link = $0.kind { return true }; return false
         })
+        // The `(x)` after the citation is prose, not muted link syntax.
+        XCTAssertTrue(texts(.syntaxPunctuation, in: text).isEmpty)
+        XCTAssertEqual(texts(.plain, in: text), ["As shown ", "(x)."])
+    }
+
+    /// The whole-match drop is only for a claimed `[`: a link whose label
+    /// holds emphasis keeps its muted brackets and parentheses, as before.
+    func test_aLinkWithEmphasisInItsLabelKeepsItsSyntax() {
+        let text = "[*a*](u)"
+        XCTAssertEqual(texts(.syntaxPunctuation, in: text).filter { $0 != "*" },
+                       ["[", "]", "(", "u", ")"])
     }
 
     func test_bareAndBracketedCrossReferences() {
@@ -216,10 +228,11 @@ final class ReportTokenizerTests: XCTestCase {
 
     // MARK: - Styling
 
-    private func styled(_ text: String, theme: Theme = .light) -> NSTextStorage {
+    private func styled(_ text: String, theme: Theme = .light,
+                        typography: TypographySettings = .defaults) -> NSTextStorage {
         let storage = NSTextStorage(string: text)
         let mode = ProseMode()
-        mode.applyTypography(in: storage, theme: theme, typography: .defaults,
+        mode.applyTypography(in: storage, theme: theme, typography: typography,
                              tokens: mode.tokenize(text), wikiLinkResolver: nil)
         return storage
     }
@@ -278,6 +291,74 @@ final class ReportTokenizerTests: XCTestCase {
             XCTAssertEqual(attrs(s, at: "{#fig:")[.foregroundColor] as? NSColor, muted)
             XCTAssertEqual(attrs(s, at: "{#sec:")[.foregroundColor] as? NSColor, muted)
         }
+    }
+
+    /// The line holding a raised footnote reference is no taller than the
+    /// same line without it: the reference rides inside the line's own
+    /// ascent, so a paragraph's leading doesn't jump where a note is cited.
+    /// Measured 2026-10-20 at the default 17 pt: 24 pt either way at the
+    /// shipped 0.3× offset; at 0.6× the cited line grew to 28 pt (the
+    /// disable experiment). Checked at three sizes.
+    func test_aFootnoteReferenceDoesNotGrowItsLine() {
+        for size in [12, 17, 24] {
+            var typography = TypographySettings.defaults
+            typography.fontSize = size
+            assertFootnoteKeepsLineHeight(typography)
+        }
+    }
+
+    private func assertFootnoteKeepsLineHeight(_ typography: TypographySettings) {
+        func lineHeight(_ text: String) -> CGFloat {
+            let storage = styled(text, typography: typography)
+            let layout = NSLayoutManager()
+            let container = NSTextContainer(size: NSSize(width: 2000, height: 1e6))
+            container.lineFragmentPadding = 0
+            layout.addTextContainer(container)
+            storage.addLayoutManager(layout)
+            layout.ensureLayout(for: container)
+            return layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height
+        }
+        let plain = lineHeight("A claim worth checking.")
+        let cited = lineHeight("A claim worth checking.[^1]")
+        XCTAssertGreaterThan(plain, 0)
+        XCTAssertEqual(cited, plain, accuracy: 0.01,
+                       "at \(typography.fontSize) pt a footnote reference grew its line "
+                           + "from \(plain) to \(cited) pt")
+    }
+
+    /// Citations and cross-references must be told apart from body text in
+    /// every theme: a CIE76 ΔE of at least 10 (well past the ~2.3 just-
+    /// noticeable difference; "clearly a different colour at a glance").
+    /// Measured 2026-10-20: light 46.2, dark 30.3, sepia 12.8 (sepia's link
+    /// brown is close to its body brown, so it is the binding theme).
+    func test_theQuietTintIsDistinguishableFromBodyTextInEveryTheme() {
+        for theme in [Theme.light, .dark, .sepia] {
+            let palette = theme.palette
+            let tint = ProseMode.quietTint(palette)
+            let delta = Self.deltaE76(tint, palette.bodyText)
+            XCTAssertGreaterThanOrEqual(delta, 10,
+                "\(theme): the citation tint is only ΔE \(delta) from body text")
+        }
+    }
+
+    /// CIE76 colour difference between two colours, through sRGB → XYZ (D65)
+    /// → L*a*b*.
+    static func deltaE76(_ a: NSColor, _ b: NSColor) -> Double {
+        func lab(_ c: NSColor) -> (Double, Double, Double) {
+            let s = c.usingColorSpace(.sRGB)!
+            func lin(_ v: CGFloat) -> Double {
+                let v = Double(v)
+                return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+            }
+            let (r, g, bl) = (lin(s.redComponent), lin(s.greenComponent), lin(s.blueComponent))
+            let x = (0.4124 * r + 0.3576 * g + 0.1805 * bl) / 0.95047
+            let y = 0.2126 * r + 0.7152 * g + 0.0722 * bl
+            let z = (0.0193 * r + 0.1192 * g + 0.9505 * bl) / 1.08883
+            func f(_ t: Double) -> Double { t > 0.008856 ? cbrt(t) : 7.787 * t + 16.0 / 116 }
+            return (116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z)))
+        }
+        let (l1, a1, b1) = lab(a), (l2, a2, b2) = lab(b)
+        return ((l1 - l2) * (l1 - l2) + (a1 - a2) * (a1 - a2) + (b1 - b2) * (b1 - b2)).squareRoot()
     }
 
     /// One of everything, shared with the window-equivalence cases.

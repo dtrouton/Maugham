@@ -150,17 +150,30 @@ enum TypingRestyleWindow {
         return widenToBlankLineBlocks(lines, in: new)
     }
 
+    /// How far (UTF-16 units) the widening may grow on EACH side of the
+    /// changed lines. Blocks are op-log paragraphs, normally a few hundred
+    /// units; a table or a screenplay dialogue block fits with room to spare.
+    /// The cap exists for a document with no blank lines at all (single
+    /// newlines between paragraphs), whose one "block" is the whole text: an
+    /// uncapped widening would repaint it whole on every settle and bring back
+    /// the scroll snap. Past the cap, a context-dependent line further away
+    /// than this stays stale until the next whole-document paint (theme,
+    /// typography, attach).
+    static let maxWideningPerSide = 6_000
+
     /// `range` grown backward and forward over every non-blank line next to
-    /// it, so it starts and ends on a blank line (or the text's ends).
+    /// it, so it starts and ends on a blank line (or the text's ends), but by
+    /// no more than `maxWideningPerSide` (plus the line that crosses it) on
+    /// each side.
     static func widenToBlankLineBlocks(_ range: NSRange, in text: NSString) -> NSRange {
         var lower = range.location
-        while lower > 0 {
+        while lower > 0, range.location - lower < maxWideningPerSide {
             let previous = text.lineRange(for: NSRange(location: lower - 1, length: 0))
             if isBlank(previous, in: text) { break }
             lower = previous.location
         }
         var upper = NSMaxRange(range)
-        while upper < text.length {
+        while upper < text.length, upper - NSMaxRange(range) < maxWideningPerSide {
             let next = text.lineRange(for: NSRange(location: upper, length: 0))
             if isBlank(next, in: text) || next.length == 0 { break }
             upper = NSMaxRange(next)

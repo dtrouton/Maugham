@@ -412,6 +412,31 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         assertEquivalent(doc: reportDoc, edit: edit, mode: .prose)
     }
 
+    // MARK: - The typing window's cap
+
+    /// A 250 KB document with single newlines and no blank line is ONE block.
+    /// An edit in its middle must still paint a bounded window, not the whole
+    /// text (a whole-document `setAttributes` snaps scroll to the top).
+    func test_typingWindow_isCappedInADocumentWithNoBlankLines() {
+        let line = String(repeating: "word ", count: 16) + "end."
+        var lines: [String] = []
+        while lines.count * 85 < 250_000 { lines.append(line) }
+        let old = lines.joined(separator: "\n") as NSString
+        let mid = old.length / 2
+        let new = old.replacingCharacters(in: NSRange(location: mid, length: 0), with: "x") as NSString
+
+        let window = TypingRestyleWindow.changedBlockWindow(old: old, new: new)
+
+        let cap = TypingRestyleWindow.maxWideningPerSide
+        let lineLength = (line as NSString).length + 1
+        XCTAssertNotNil(window)
+        XCTAssertLessThanOrEqual(window?.length ?? .max, 2 * (cap + lineLength) + lineLength,
+                                 "the widening must stop at the cap on each side")
+        XCTAssertGreaterThan(window?.length ?? 0, 2 * cap,
+                             "control: below the cap the window still widens over the block")
+        XCTAssertTrue(NSLocationInRange(mid, window ?? NSRange()))
+    }
+
     // MARK: - Equivalence harness
 
     private enum ModeKind { case screenplay, prose }

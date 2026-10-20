@@ -311,7 +311,9 @@ public struct ProseMode: WritingMode {
                 size: (baseFont.pointSize * 0.7).rounded()
             ) ?? baseFont
             return [.font: small,
-                    .baselineOffset: (baseFont.pointSize * 0.35).rounded(),
+                    // 0.3×: raised clearly, yet inside the line's own ascent, so
+                    // the line doesn't grow (ReportTokenizerTests measures it).
+                    .baselineOffset: (baseFont.pointSize * 0.3).rounded(),
                     .foregroundColor: Self.quietTint(palette)]
 
         case .citation, .crossReference:

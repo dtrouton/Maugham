@@ -485,34 +485,44 @@ final class TypingLatencyProbeTests: XCTestCase {
     /// The prose tokenize budget (report foundations plan 3a, Task 2). The
     /// tokenizer runs over the WHOLE document on every keystroke
     /// (`retokenizeAndStyle`), so its cost is the typing cost. Fixture-free:
-    /// the 250 KB `generateProse` corpus with every report element mixed in.
+    /// the `generateProse` corpus with every report element mixed in.
     ///
-    /// Measured on the dev machine (Debug, test host), 2026-10-20: ~36 ms
-    /// median (the tokenizer before the report passes took ~24 ms on the same
-    /// corpus). The budget, 100 ms, is about 2× that plus headroom for a
-    /// loaded parallel gate or a slower CI runner, and it still trips on a
-    /// quadratic regression, not on noise: with the old O(tokens²)
-    /// `tokens.contains(where:)` overlap check put back (`TokenClaims`
-    /// replaced it), the same corpus measured ~207 ms.
-    func test_proseTokenizeOfAReportCorpusStaysWithinBudget() {
-        let budgetMs = 100.0
-        let text = Self.generateProse(bytes: 250_000, report: true)
+    /// The guard is a SCALING RATIO, not a wall-clock budget, so a loaded
+    /// gate or a slower CI runner can't trip it: quadrupling the text should
+    /// roughly quadruple the time (linear ≈ 4×); a quadratic tokenize gives
+    /// ≈ 16×. The ratio must stay under 8. Measured on the dev machine
+    /// (Debug, test host), 2026-10-20: 125 KB ≈ 18 ms, 500 KB ≈ 72 ms, ratio
+    /// ≈ 4.0. With the old O(tokens²) overlap check put back: 66 ms → 795 ms,
+    /// ratio ≈ 12.1, which trips it. The absolute ceiling is only a
+    /// catastrophe guard.
+    func test_proseTokenizeOfAReportCorpusScalesLinearly() {
+        let small = Self.generateProse(bytes: 125_000, report: true)
+        let large = Self.generateProse(bytes: 500_000, report: true)
+        let t125 = Self.medianTokenizeMs(small)
+        let t500 = Self.medianTokenizeMs(large)
+        let ratio = t500 / t125
+        XCTAssertLessThan(ratio, 8,
+            "tokenize time grew \(ratio)× for 4× the text (125 KB \(t125) ms → 500 KB \(t500) ms): "
+                + "something in the tokenizer has gone super-linear")
+        XCTAssertLessThan(t500, 500,
+            "tokenizing a 500 KB report manuscript took \(t500) ms (catastrophe guard)")
+    }
+
+    /// Median of 5 `ProseMode.tokenize` runs after one warm-up, in ms.
+    private static func medianTokenizeMs(_ text: String) -> Double {
         let mode = ProseMode()
-        _ = mode.tokenize(text)   // warm-up
+        _ = mode.tokenize(text)
         let clock = ContinuousClock()
-        var runs: [Duration] = []
+        var runs: [Double] = []
         for _ in 0..<5 {
             let t = clock.now
             _ = mode.tokenize(text)
-            runs.append(clock.now - t)
+            let d = clock.now - t
+            runs.append(Double(d.components.seconds) * 1000
+                        + Double(d.components.attoseconds) / 1e15)
         }
         runs.sort()
-        let median = runs[runs.count / 2]
-        let ms = Double(median.components.attoseconds) / 1e15
-            + Double(median.components.seconds) * 1000
-        print("PROSE-TOKENIZE-BUDGET: \(text.utf8.count) bytes, median \(ms) ms (budget \(budgetMs) ms)")
-        XCTAssertLessThanOrEqual(ms, budgetMs,
-            "tokenizing a 250 KB report manuscript took \(ms) ms, over the \(budgetMs) ms budget")
+        return runs[runs.count / 2]
     }
 
     /// M3 (spec §7) assertion: the typing-path pause-edge batch — what the

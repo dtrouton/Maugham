@@ -141,7 +141,11 @@ public struct MarkdownTokenizer: Sendable {
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)"#,
-            into: &tokens, claims: &claims) { match in
+            into: &tokens, claims: &claims,
+            // A match whose opening `[` already belongs to another token
+            // (`[@a](x)`, `[^1](x)`) is not a link at all: drop all of it, so
+            // the `(x)` after a citation stays prose instead of muted.
+            dropWholeMatchIfClaimed: { NSRange(location: $0.range.location, length: 1) }) { match in
                 let outer = match.range(at: 0)
                 let labelInner = match.range(at: 1)
                 let href = match.range(at: 2)
@@ -326,11 +330,13 @@ public struct MarkdownTokenizer: Sendable {
         pattern: String,
         into tokens: inout [Token],
         claims: inout TokenClaims,
+        dropWholeMatchIfClaimed: ((NSTextCheckingResult) -> NSRange)? = nil,
         _ build: (NSTextCheckingResult) -> [Token]
     ) {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
         regex.enumerateMatches(in: nsText as String, options: [], range: fullRange) { match, _, _ in
             guard let match else { return }
+            if let probe = dropWholeMatchIfClaimed, claims.overlaps(probe(match)) { return }
             // Skip any new token that overlaps an already-classified range.
             for c in build(match) { claims.claimIfFree(c, into: &tokens) }
         }
