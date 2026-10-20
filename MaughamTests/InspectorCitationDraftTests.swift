@@ -130,6 +130,20 @@ final class InspectorCitationDraftTests: XCTestCase {
         XCTAssertEqual(merged.pages, "12–14")
     }
 
+    /// A field committed with spaces round it is stored trimmed; it is not
+    /// "being typed", so a later change from Claude still shows there.
+    func test_aCommittedFieldWithSurroundingSpacesFollowsLaterChanges() {
+        var draft = CitationDraft(CitationInfo(key: "smith2026"))
+        draft.publisher = "  Hachette "
+        draft.authors = [" Smith ", "  "]
+        let committed = CitationInfo(key: "smith2026", authors: ["Smith"], publisher: "Hachette")
+        let afterCommit = draft.merging(storedFrom: CitationInfo(key: "smith2026"), to: committed)
+        let external = CitationInfo(key: "smith2026", authors: ["Smith", "Jones"], publisher: "Gallimard")
+        let merged = afterCommit.merging(storedFrom: committed, to: external)
+        XCTAssertEqual(merged.publisher, "Gallimard", "a trimmed commit was still read as dirty")
+        XCTAssertEqual(merged.authors, ["Smith", "Jones"])
+    }
+
     func test_anUntouchedDraftBecomesTheStoredCitation() {
         let stored = CitationInfo(key: "a1", authors: ["A"])
         let new = CitationInfo(key: "b2", authors: ["B", "C"], publisher: "P", year: 2020,

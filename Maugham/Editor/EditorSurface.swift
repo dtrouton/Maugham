@@ -768,6 +768,14 @@ final class MaughamTextView: NSTextView {
         }
     }
 
+    /// Grows the frame to hold a trailing figure's room when it falls short
+    /// (`EditorCoordinator.figureThumbnailTokensDidChange`, after each
+    /// retokenize). Never shrinks, so a call that changes nothing is free.
+    func holdTrailingFigureRoom() {
+        let held = heightHoldingATrailingFigure(frame.size)
+        if held.height > frame.height { setFrameSize(held) }
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(heightHoldingATrailingFigure(newSize))
         updateColumnInset()
@@ -779,14 +787,6 @@ final class MaughamTextView: NSTextView {
     /// the room itself (`EditorCoordinator.figureTrailingRoom`, derived from
     /// the text) — never by a character in the storage. Computed from the
     /// laid-out text each time, so repeated calls never accumulate.
-    /// Grows the frame to hold a trailing figure's room when it falls short
-    /// (`EditorCoordinator.figureThumbnailTokensDidChange`, after each
-    /// retokenize). Never shrinks, so a call that changes nothing is free.
-    func holdTrailingFigureRoom() {
-        let held = heightHoldingATrailingFigure(frame.size)
-        if held.height > frame.height { setFrameSize(held) }
-    }
-
     private func heightHoldingATrailingFigure(_ size: NSSize) -> NSSize {
         guard isVerticallyResizable, let room = coordinator?.figureTrailingRoom, room > 0,
               let layoutManager, let textContainer else { return size }

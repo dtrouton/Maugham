@@ -117,9 +117,13 @@ final class CitationEditTests: XCTestCase {
         }
     }
 
-    /// Two commits racing across the trash scan's await — the inspector's and
-    /// Claude's, or two quick inspector commits — must not both take one key
-    /// (whole-branch review M7): the second sees the first's write.
+    /// Pins the door's contract (whole-branch review M7): two concurrent
+    /// commits of one key — the inspector's and Claude's, or two quick
+    /// inspector commits — leave exactly one holder. This is NOT a regression
+    /// test for the fix: it passed before it too, because the trash scan
+    /// (`TrashStore`, a main-actor struct doing synchronous file I/O) never
+    /// suspends today. The fix (validate and write in one main-actor turn)
+    /// is what keeps it true once that scan really awaits.
     func test_twoConcurrentCommitsNeverBothClaimOneKey() async throws {
         let (_, store, _) = try await makeNovel()
         store.manifest.research.append(link("r-a"))

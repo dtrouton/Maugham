@@ -321,9 +321,9 @@ final class TableEditingTests: XCTestCase {
 
     func test_returnOnTheHeaderOfATableWithNoBodyRowAddsOne() throws {
         let headerOnly = "| A   | B   |\n| --- | --- |"
+        _ = try XCTUnwrap(TableText(parsing: headerOnly),
+                          "a header-only block no longer parses as a table: Return would split it")
         let m = try mount(headerOnly)
-        try XCTSkipIf(TableText(parsing: headerOnly) == nil,
-                      "a header-only block is not a table here, so Return is AppKit's")
         caret(m, at: 3)
         newline(m)
         XCTAssertEqual(m.string, headerOnly + "\n|     |     |")

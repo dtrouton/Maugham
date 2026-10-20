@@ -76,6 +76,11 @@ struct CitationDraft: Equatable {
     /// draft; one they have not follows the store. So a commit of one field
     /// that lands while the writer types in the next keeps their typing, and
     /// an external change still shows wherever the writer has not typed.
+    ///
+    /// "Edited away" is judged after the door's own trim
+    /// (`ProjectStore.nonBlank`, blank authors dropped): a field committed as
+    /// " Hachette " is stored as "Hachette" and is not dirty, so a later
+    /// change from Claude still shows there.
     func merging(storedFrom old: CitationInfo?, to new: CitationInfo?,
                  calendar: Calendar = .current) -> CitationDraft {
         let was = CitationDraft(old, calendar: calendar)
@@ -83,9 +88,18 @@ struct CitationDraft: Equatable {
         func pick<T: Equatable>(_ field: KeyPath<CitationDraft, T>) -> T {
             self[keyPath: field] != was[keyPath: field] ? self[keyPath: field] : now[keyPath: field]
         }
+        func pick(_ field: KeyPath<CitationDraft, String>) -> String {
+            let trimmed = { (s: String) in ProjectStore.nonBlank(s) ?? "" }
+            return trimmed(self[keyPath: field]) != trimmed(was[keyPath: field])
+                ? self[keyPath: field] : now[keyPath: field]
+        }
+        func pickAuthors() -> [String] {
+            let cleaned = { (a: [String]) in a.compactMap(ProjectStore.nonBlank) }
+            return cleaned(authors) != cleaned(was.authors) ? authors : now.authors
+        }
         var merged = CitationDraft()
         merged.key = pick(\.key)
-        merged.authors = pick(\.authors)
+        merged.authors = pickAuthors()
         merged.sourceTitle = pick(\.sourceTitle)
         merged.publisher = pick(\.publisher)
         merged.year = pick(\.year)
