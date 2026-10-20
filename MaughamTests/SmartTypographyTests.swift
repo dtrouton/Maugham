@@ -226,4 +226,62 @@ final class SmartTypographyTests: XCTestCase {
         )
         XCTAssertNil(result)
     }
+
+    // MARK: - Report syntax is left alone (R-3a-8)
+
+    /// Types `typed` one character at a time through `transform`, applying the
+    /// result as the coordinator would, and returns the final text.
+    private func typeThrough(_ typed: String, prefix: String = "") -> String {
+        var text = prefix
+        for ch in typed {
+            let loc = (text as NSString).length
+            if let r = SmartTypography.transform(
+                currentText: text,
+                replacementRange: NSRange(location: loc, length: 0),
+                replacement: String(ch),
+                settings: .defaults) {
+                text = (text as NSString).replacingCharacters(in: r.range, with: r.substitute)
+            } else {
+                text += String(ch)
+            }
+        }
+        return text
+    }
+
+    func test_reportSyntax_tableDelimiterRowsStayLiteral() {
+        for row in ["|---|", "| :-- | --: |", "|:-:|", "| a -- b | c... |"] {
+            XCTAssertEqual(typeThrough(row), row)
+        }
+    }
+
+    func test_reportSyntax_indentedTableRowStaysLiteral() {
+        XCTAssertEqual(typeThrough("  |---|"), "  |---|")
+    }
+
+    func test_reportSyntax_labelBlockAndCrossRefStayLiteral() {
+        XCTAssertEqual(typeThrough("{#fig:a--b}"), "{#fig:a--b}")
+        XCTAssertEqual(typeThrough("See @fig:a--b."), "See @fig:a--b.")
+        XCTAssertEqual(typeThrough("@tbl:x--y"), "@tbl:x--y")
+        XCTAssertEqual(typeThrough("@sec:x--y"), "@sec:x--y")
+    }
+
+    func test_reportSyntax_proseAfterLabelStillTransforms() {
+        XCTAssertEqual(typeThrough("{#fig:a} and--"), "{#fig:a} and—")
+        XCTAssertEqual(typeThrough("@fig:a and--"), "@fig:a and—")
+        XCTAssertEqual(typeThrough("Wait--"), "Wait—")
+    }
+
+    func test_reportSyntax_tripleHyphenOnProseLineUnchanged() {
+        // Today's behaviour, pinned: the second hyphen becomes an em dash and
+        // the third is typed after it.
+        XCTAssertEqual(typeThrough("---"), "—-")
+    }
+
+    func test_reportSyntax_onlyTheCurrentLineMatters() {
+        XCTAssertEqual(typeThrough("a--", prefix: "|x|\n"), "|x|\na—")
+    }
+
+    func test_reportSyntax_smartQuotesInATableCellStillCurl() {
+        XCTAssertEqual(typeThrough("| \"hi\" |"), "| \u{201C}hi\u{201D} |")
+    }
 }

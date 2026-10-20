@@ -33,10 +33,16 @@ public enum SmartTypography {
         replacement: String,
         settings: TypographySettings
     ) -> TransformResult? {
+        // Report syntax (table rows, `{#…}` labels, `@fig:` cross-references)
+        // is never rewritten: dashes and dots there are structure (R-3a-8).
+        // Smart quotes are unaffected.
+        let inReportSyntax = isInReportSyntax(
+            text: currentText, at: replacementRange.location)
+
         // Em dash: replacement "-" preceded by another "-".
         // Guard: only on a caret insert (no selection) — a selection being replaced
         // must never have its range expanded backward to eat the selection.
-        if settings.emDashAutoReplace, replacement == "-",
+        if settings.emDashAutoReplace, replacement == "-", !inReportSyntax,
            replacementRange.length == 0,
            replacementRange.location > 0 {
             let nsText = currentText as NSString
@@ -57,7 +63,7 @@ public enum SmartTypography {
 
         // Ellipsis: replacement "." preceded by "..".
         // Same caret-only guard as em-dash.
-        if settings.ellipsisAutoReplace, replacement == ".",
+        if settings.ellipsisAutoReplace, replacement == ".", !inReportSyntax,
            replacementRange.length == 0,
            replacementRange.location >= 2 {
             let nsText = currentText as NSString
@@ -99,6 +105,21 @@ public enum SmartTypography {
         }
 
         return nil
+    }
+
+    /// True when the caret sits on a table row (first non-space character of
+    /// the line is `|`), inside an open `{#…}` block, or right after
+    /// `@fig:` / `@tbl:` / `@sec:` plus name characters.
+    private static func isInReportSyntax(text: String, at location: Int) -> Bool {
+        let ns = text as NSString
+        let loc = min(max(location, 0), ns.length)
+        let lineStart = ns.lineRange(for: NSRange(location: loc, length: 0)).location
+        let before = ns.substring(with: NSRange(location: lineStart, length: loc - lineStart))
+        if before.drop(while: { $0 == " " || $0 == "\t" }).first == "|" { return true }
+        if let open = before.range(of: "{#", options: .backwards),
+           !before[open.upperBound...].contains("}") { return true }
+        return before.range(
+            of: "@(fig|tbl|sec):[A-Za-z0-9_-]*$", options: .regularExpression) != nil
     }
 
     /// True when the cursor is at the start of input or after whitespace —
