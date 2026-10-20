@@ -6,7 +6,7 @@ import Foundation
 /// arrived.
 ///
 /// **One value, three consumers, and that is the whole point of it.** The draw
-/// pass, the measurement pass (`CanvasView.rebuildLayouts`) and the accessibility
+/// pass, the measurement pass (`CanvasLayoutPass.rebuildLayouts`) and the accessibility
 /// tree all read the same resolved facts, so the card a writer looks at, the rect
 /// a click lands in and the sentence VoiceOver reads cannot come to different
 /// conclusions about what a card is. `layouts` is the shape being copied: a

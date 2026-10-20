@@ -145,7 +145,7 @@ final class CanvasInteractionTests: XCTestCase {
     /// way through a save. Task 5 supplied the measurement
     /// (`CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`, floored
     /// at `itemLabelOnlyHeight`) and this task added the per-frame re-derive in
-    /// `CanvasView.remeasure`, so a cleared height is refilled exactly as a
+    /// `CanvasLayoutPass.remeasure`, so a cleared height is refilled exactly as a
     /// scrap's is.
     ///
     /// **The safety property is asserted through the real delivery path** by

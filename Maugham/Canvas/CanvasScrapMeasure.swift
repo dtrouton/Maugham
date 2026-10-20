@@ -41,7 +41,7 @@ import AppKit
 /// persisted that way. That is the 1C-c3 whole-branch Critical: `CanvasScene.setWidth`
 /// clears `cachedHeight` by design, nothing on the item path refilled it, and one
 /// corner drag took the photographed page off the canvas for good. The heal in
-/// `CanvasView.rebuildLayouts` is what closes the route a producer cannot — a
+/// `CanvasLayoutPass.rebuildLayouts` is what closes the route a producer cannot — a
 /// hand-edited sidecar, and a picture that is still decoding.
 enum CanvasScrapMeasure {
 
@@ -123,7 +123,7 @@ extension CanvasCardMetrics {
     /// the inset twice, which is the same arithmetic `cardHeight(forTextHeight:)`
     /// does for a scrap.
     ///
-    /// **This is the FLOOR `CanvasView.rebuildLayouts` heals to**, and the heal is
+    /// **This is the FLOOR `CanvasLayoutPass.rebuildLayouts` heals to**, and the heal is
     /// not bookkeeping: a node with no `cachedHeight` has no `frame`, and a node
     /// with no frame is dropped by `CanvasScene.topmostNode(at:)` and
     /// `nodes(intersecting:)` alike — neither drawn nor clickable, and persisted

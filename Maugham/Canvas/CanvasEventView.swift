@@ -55,7 +55,7 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// `maximumFlickAge` and silently disarm it.
     var onDrag: ((CGPoint, CanvasDragPhase, Bool, TimeInterval) -> Void)?
     /// ⌫ / ⌦, with the canvas holding first responder. What it does with the
-    /// selection is `CanvasView.deleteSelection()`'s business, not this view's.
+    /// selection is `CanvasKeyHandler.deleteSelection()`'s business, not this view's.
     ///
     /// **It returns whether anything was actually deleted**, and that return
     /// value is the whole of `keyDown`'s decision below — see it for why the

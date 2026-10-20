@@ -179,7 +179,7 @@ final class CanvasUndo {
     ///
     /// **Why `mutate` is wrong here, and silently.** A visit to a scrap holds
     /// "Edit Scrap" open for as long as focus is in it, and *nothing on the
-    /// inspector's side of the window closes it*: `CanvasView.commitActiveEdit`
+    /// inspector's side of the window closes it*: `CanvasEditFocus.commitActiveEdit`
     /// runs from `handleClick`, which only fires for clicks on the canvas. And a
     /// double-click never reassigns `selection`, so a region selected a moment
     /// ago is still what the inspector is showing. Rename it there and through
@@ -380,7 +380,7 @@ final class CanvasUndo {
 /// When a run of typing inside one scrap becomes its own undo step.
 ///
 /// Pure, so the policy is testable without a run loop, a timer or a text view.
-/// `CanvasView.syncActiveEdit` asks these two questions on every change and
+/// `CanvasEditFocus.syncActiveEdit` asks these two questions on every change and
 /// calls `CanvasUndo.breakGesture()` when either says yes.
 ///
 /// Neither rule needs a timer: an idle beat is noticed retroactively at the next

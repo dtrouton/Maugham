@@ -267,7 +267,7 @@ struct CanvasView: View {
     /// column's region inspector reads *that* one. A view-side bump would move
     /// the accessibility tree and leave the inspector showing the membership as
     /// of the last edit made from the other column: the drop-to-join at
-    /// `handleDrag(.ended)` shipped that way, and the writer met a region that
+    /// `CanvasDragHandler.handleDrag(.ended)` shipped that way, and the writer met a region that
     /// still said "No cards live in this region yet" over a card the canvas had
     /// already drawn inside it, with the same card still offered under "Cite a
     /// Card" where choosing it did nothing at all.
@@ -331,16 +331,17 @@ struct CanvasView: View {
     /// has to ask about the selection as DRAWN, and `model.selection` is already
     /// the new one by the time a drag begins.** `CanvasEventNSView.applyMouseDown`
     /// fires `onClick` strictly before `onDrag(.began)` — a contract that file
-    /// states outright — and `handleClick` reassigns the selection to whatever is
+    /// states outright — and `CanvasClickHandler.handleClick` reassigns the selection to whatever is
     /// under the pointer. Read live at `.began`, the first press on an *unselected*
     /// card would therefore find that card selected and start a line out of a mark
     /// that was not on screen when the writer pressed: a 14 pt patch on the right
     /// edge of every card on the canvas that refuses to move it. Click, then
     /// press, is two gestures, and this is the one value that keeps them two.
     ///
-    /// Written in exactly one place — the head of `handleClick`, before anything
-    /// can move the selection — and read in exactly one, `handleDrag(.began)`. A
-    /// stale value is harmless: `pressStartsALine` also requires the selected card
+    /// Written in exactly one place — the head of `CanvasClickHandler.handleClick`,
+    /// before anything can move the selection — and read in exactly one,
+    /// `CanvasDragHandler.handleDrag(.began)`, through the binding each is handed.
+    /// A stale value is harmless: `pressStartsALine` also requires the selected card
     /// to be the one under the pointer.
     @State private var selectionWhenPressed: CanvasSelection?
 
@@ -507,7 +508,7 @@ struct CanvasView: View {
                 //
                 // Bare, and not the recorder the editor gets: this path is only
                 // reachable with no scrap focused, and every route out of a scrap
-                // runs `commitActiveEdit`, so there is never an open gesture here
+                // runs `CanvasEditFocus.commitActiveEdit`, so there is never an open gesture here
                 // for `CanvasUndo.undo()` to close. A drag's gesture closes at
                 // `.ended`, before any ⌘Z can arrive.
                 //
@@ -519,7 +520,7 @@ struct CanvasView: View {
                 // survivable for ⌘Z, which closes the open gesture through the
                 // recorder either way; it was not survivable for delete, which
                 // registered into a bracket that was not its own. Hence the
-                // `isInGesture` guard at the head of `deleteSelection()`. Anything
+                // `isInGesture` guard at the head of `CanvasKeyHandler.deleteSelection()`. Anything
                 // new hung off a key here inherits the same problem and needs the
                 // same answer.
                 undoManager: model.undoManager)
@@ -884,11 +885,11 @@ struct CanvasView: View {
             // `straighten` would go on naming a node that no longer exists. Every
             // mouse-down repairs it in passing —
             // `CanvasEventNSView.applyMouseDown` runs `onClick` strictly before
-            // `onDrag(.began)`, so `handleClick` clears the stale id before any
+            // `onDrag(.began)`, so `CanvasClickHandler.handleClick` clears the stale id before any
             // drag guard reads it — but the state is wrong in the meantime, and
             // ⇧⌘Z brings the card back and drops the writer into an editor they
             // never clicked into. This is the state `.unenterableNode` in
-            // `handleClick` already refuses to leave standing, arriving from the
+            // `CanvasClickHandler.handleClick` already refuses to leave standing, arriving from the
             // undo path instead of the click path.
             if let id = editingNodeID, model.scene.node(id) == nil { editFocus.leaveTheOpenScrap() }
             // Heights are DERIVED, so a restored scene is re-measured rather
@@ -947,7 +948,7 @@ struct CanvasView: View {
     /// `CanvasCamera.revealViewPoint`, zoom untouched. Nothing here is new
     /// geometry: the join to the board is `CanvasNodeID.item(id)`, derived and
     /// O(1), and this is the third caller of the one reveal spelling
-    /// (`onRevealRequested` and `handleDrop`'s `.reveal` arm are the others).
+    /// (`onRevealRequested` and `CanvasDropHandler.handleDrop`'s `.reveal` arm are the others).
     ///
     /// **Nothing is selected.** A drop selects because a drop is a placement the
     /// writer just made and the inspector should show it; this is a click in the
@@ -956,7 +957,7 @@ struct CanvasView: View {
     /// answer to what the window is about.
     ///
     /// **The camera moves even when the card is already on screen**, which is
-    /// `handleDrop`'s cost for `handleDrop`'s reason: this view has no
+    /// `CanvasDropHandler.handleDrop`'s cost for its reason: this view has no
     /// `GeometryReader` (the viewport exists only inside the `Canvas` closure), so
     /// *"is it visible already"* is not a question it can ask.
     ///

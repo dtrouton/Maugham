@@ -49,7 +49,7 @@ struct CanvasInteraction {
     /// **The age it measures is the WRITER'S, not ours** *(issue #34)*. Both
     /// `update(to:in:now:)` and `end(now:)` are handed `NSEvent.timestamp` by
     /// the live surface — `CanvasEventNSView`'s overrides through
-    /// `CanvasView.handleDrag` — rather than being left to default to
+    /// `CanvasDragHandler.handleDrag` — rather than being left to default to
     /// `CACurrentMediaTime()` at the moment we get round to the event. The two
     /// clocks share a base (seconds since boot), so they are directly
     /// comparable; what changed is WHOSE gap the number describes. Stamped at
@@ -309,9 +309,9 @@ struct CanvasInteraction {
             // at once, and `cachedHeight: nil` is what the sidecar persists. One
             // drag took Claude's photographed page off the canvas for good.
             //
-            // 1C-d supplied the pass: `CanvasView.rebuildLayouts` measures an
+            // 1C-d supplied the pass: `CanvasLayoutPass.rebuildLayouts` measures an
             // item card from its picture's aspect ratio, floored at
-            // `CanvasCardMetrics.itemLabelOnlyHeight`, and `CanvasView.remeasure`
+            // `CanvasCardMetrics.itemLabelOnlyHeight`, and `CanvasLayoutPass.remeasure`
             // re-derives it PER FRAME for both kinds — which is the half that
             // matters here, because a heal that only ran at `.ended` would leave
             // the card off the surface for the whole length of the gesture.
@@ -384,7 +384,7 @@ struct CanvasInteraction {
         case .resizing(let id, let startWidth, let startX):
             // §7A.3: width is authoritative, the text reflows, the height is
             // derived. `setWidth` clears the cached height for exactly that
-            // reason — `CanvasView.rebuildLayouts()` refills it when the gesture
+            // reason — `CanvasLayoutPass.rebuildLayouts()` refills it when the gesture
             // ends.
             scene.setWidth(max(Self.minimumCardWidth, startWidth + (contentPoint.x - startX)),
                            for: id)
@@ -544,7 +544,7 @@ struct CanvasInteraction {
     ///
     /// **Called BEFORE `end()`**, not after — it resolves the source card off the
     /// live mode, which `end()` clears. See the `.ended` arm of
-    /// `CanvasView.handleDrag`, where the ordering is written down beside the
+    /// `CanvasDragHandler.handleDrag`, where the ordering is written down beside the
     /// other two values that must be read before the mode goes.
     ///
     /// `hasMoved` is deliberately not cleared here, exactly as `end()` leaves it:

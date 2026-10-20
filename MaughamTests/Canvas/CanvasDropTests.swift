@@ -29,7 +29,7 @@ import XCTest
 ///   whole-branch Critical, and a new creation route is the door it arrives
 ///   through next.
 /// - **A drop that registers no undo step of its own.** A drag that starts in
-///   the binder never reaches `CanvasView.handleClick`, so it cannot close an
+///   the binder never reaches `CanvasClickHandler.handleClick`, so it cannot close an
 ///   "Edit Scrap" gesture the writer is holding open — tripwire 32, from a fifth
 ///   direction.
 @MainActor
@@ -434,7 +434,7 @@ final class CanvasDropTests: XCTestCase {
     /// **The tripwire-32 repro this route adds, and the reason the drop uses the
     /// outside verb.**
     ///
-    /// A drag that starts in the binder never reaches `CanvasView.handleClick`,
+    /// A drag that starts in the binder never reaches `CanvasClickHandler.handleClick`,
     /// which is the only thing that runs `commitActiveEdit` — so the writer can be
     /// inside a scrap with "Edit Scrap" held open when the drop lands, and
     /// **nothing on either side closes their bracket**. Through the inside verbs

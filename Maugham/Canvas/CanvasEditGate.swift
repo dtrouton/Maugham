@@ -19,7 +19,7 @@ import Foundation
 /// `ProjectWindow.shareIsReadOnly` — a lock beside the posture, never a role.
 enum CanvasEditGate {
 
-    /// The click count `CanvasView.handleClick` acts on. On a read-only canvas a
+    /// The click count `CanvasClickHandler.handleClick` acts on. On a read-only canvas a
     /// double click is a single click: it selects, and it makes no scrap, enters
     /// none and mounts no editor (tripwire 27's editor never mounts for editing).
     static func clickCount(_ clickCount: Int, isReadOnly: Bool) -> Int {

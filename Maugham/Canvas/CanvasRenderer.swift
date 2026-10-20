@@ -909,7 +909,7 @@ enum CanvasRenderer {
     /// keystroke is lost, but the editor stays invisible until the card is
     /// level. Through that window this pass keeps drawing the card's text — and
     /// it is live text, because the layout wraps the same `NSTextStorage` the
-    /// invisible editor is mutating, and `CanvasView.syncActiveEdit` bumps
+    /// invisible editor is mutating, and `CanvasEditFocus.syncActiveEdit` bumps
     /// `revision` on every keystroke. Blanking it on the click instead would
     /// leave the card empty for that beat and then fill it with axis-aligned
     /// glyphs — the jump §7A.5 was written to prevent. `CanvasView` derives this
@@ -1587,7 +1587,7 @@ enum CanvasRenderer {
     /// back through the error path.
     ///
     /// **Everything is laid out from `CanvasCardMetrics`**, which is also what
-    /// `CanvasView.rebuildLayouts` measured the card with — so the picture's rect
+    /// `CanvasLayoutPass.rebuildLayouts` measured the card with — so the picture's rect
     /// and the card's height are two readings of one arithmetic rather than two
     /// arithmetics that happen to agree (`Maugham/Canvas/AREA.md`, "Card metrics
     /// live in `CanvasCardMetrics`, and nowhere else").

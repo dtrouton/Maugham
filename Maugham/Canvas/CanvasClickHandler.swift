@@ -32,7 +32,7 @@ struct CanvasClickHandler {
     private enum ClickTarget {
         /// Bare canvas — make a scrap here.
         case emptyCanvas
-        /// A scrap this view has measured and laid out — enter it.
+        /// A scrap the view has measured and laid out — enter it.
         case scrap(node: CanvasNode, layout: ScrapLayout, frame: CGRect)
         /// A node that cannot be entered: an item node (1C-d gives those their
         /// own behaviour), or a scrap with no layout or no `cachedHeight` yet.

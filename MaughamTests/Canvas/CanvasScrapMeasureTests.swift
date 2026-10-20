@@ -98,7 +98,7 @@ final class CanvasScrapMeasureTests: XCTestCase {
     // MARK: - An item card is measured (1C-d)
 
     /// **The floor and the no-picture measurement are the same number, and they
-    /// have to be.** The floor is what `CanvasView.rebuildLayouts` heals a card to
+    /// have to be.** The floor is what `CanvasLayoutPass.rebuildLayouts` heals a card to
     /// while its photograph is still decoding; the measurement is what the card
     /// gets when there is no photograph at all. If they ever differ, a card jumps
     /// height the instant a decode fails.
@@ -198,7 +198,7 @@ final class CanvasScrapMeasureTests: XCTestCase {
 
     /// **The drawn picture and the measured card are two readings of one
     /// arithmetic.** This is the §7A.2 discipline applied to the other content
-    /// type: `CanvasCardMetrics` owns the rects, `CanvasView.rebuildLayouts`
+    /// type: `CanvasCardMetrics` owns the rects, `CanvasLayoutPass.rebuildLayouts`
     /// measures with them, and the renderer draws with them — so a card is never
     /// the wrong height for what is on it.
     func test_theMeasuredCardIsExactlyTallEnoughForThePictureAndTheLabel() throws {

@@ -4779,7 +4779,7 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// - **From the canvas**, a mutation arriving mid-gesture is the writer's
     ///   own gesture, and the right answer is to REFUSE — see
-    ///   `CanvasView.deleteSelection`'s `isInGesture` guard. Closing it would
+    ///   `CanvasKeyHandler.deleteSelection`'s `isInGesture` guard. Closing it would
     ///   end a bracket the writer still believes they hold.
     /// - **From another column**, there is no gesture of the caller's own to
     ///   protect, so close-run-reopen is correct, and it is exactly what
@@ -4802,7 +4802,7 @@ final class TripwireGrepTests: XCTestCase {
     /// argued out of this list by its delivery site: a research row dropped on the
     /// canvas *is* delivered to `CanvasView`. The site is not what this census
     /// turns on — a bracket **of its own** is. A drag that starts in the binder
-    /// never reaches `CanvasView.handleClick`, which is the only caller of
+    /// never reaches `CanvasClickHandler.handleClick`, which is the only caller of
     /// `commitActiveEdit`, so double-click bare canvas, type, then drag a research
     /// row in without touching the canvas again and the drop lands at depth 1 with
     /// nothing on either side able to close the writer's "Edit Scrap". That is the
@@ -4825,7 +4825,7 @@ final class TripwireGrepTests: XCTestCase {
             + "use `CanvasModel.mutateFromInspector`, and it belongs in the "
             + "expectation above. `mutate`/`beginGesture`/`endGesture` nest "
             + "inside the \"Edit Scrap\" gesture a focused scrap holds open — "
-            + "nothing outside `CanvasView.handleClick` closes it, and a "
+            + "nothing outside `CanvasClickHandler.handleClick` closes it, and a "
             + "double-click never reassigns the selection. Repro: double-click a "
             + "region's CHROME BAR — click 1 selects it, click 2 mints a scrap "
             + "and opens the bracket. NOT a card: AppKit sends clickCount 1 "
@@ -4841,7 +4841,7 @@ final class TripwireGrepTests: XCTestCase {
             + "(1C-d, spec §8A.4): a capture sent from the Inbox pane in the "
             + "other column, or DRAGGED out of it, and neither has a bracket of "
             + "its own — a drag that begins in a pane never reaches "
-            + "`CanvasView.handleClick`, which is the only thing that runs "
+            + "`CanvasClickHandler.handleClick`, which is the only thing that runs "
             + "`commitActiveEdit`.\n\n"
             + "From the canvas itself the answer is the opposite — refuse "
             + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
@@ -4934,34 +4934,34 @@ final class TripwireGrepTests: XCTestCase {
     /// taking it as a parameter or calling its static member fires, and so does
     /// the bare `let` hold in a same-named file outside `Maugham/Canvas/`. The
     /// two `CanvasKeyGrip.swift` copies share a name (the list matches by name)
-    /// but hold different helpers, so the one offender, `names CanvasKeyClock`,
+    /// but hold different helpers, so the one offender, `names PlantedKeyClock`,
     /// says WHICH copy fired: an inverted path condition would report
-    /// `names CanvasKeyHandler` instead. A type NOT on the list
+    /// `names PlantedKeyHandler` instead. A type NOT on the list
     /// is not checked at all, and a missing listed file throws.
     func test_theCanvasSurfaceHelperCensusFiresOnAPlantedBuilder() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Canvas/CanvasView.swift": """
                 struct CanvasView: View {
                     let model: CanvasModel
-                    private var keyHandler: CanvasKeyHandler { CanvasKeyHandler(model: model) }
-                    @State private var pass: CanvasKeyHandler?
-                    func makeKeys() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }
+                    private var keyHandler: PlantedKeyHandler { PlantedKeyHandler(model: model) }
+                    @State private var pass: PlantedKeyHandler?
+                    func makeKeys() -> PlantedKeyHandler { PlantedKeyHandler(model: model) }
                 }
                 """,
-            "Maugham/Canvas/CanvasKeyHandler.swift": """
-                /// Built per call by CanvasView; never write CanvasKeyHandler(model:) elsewhere.
+            "Maugham/Canvas/PlantedKeyHandler.swift": """
+                /// Built per call by CanvasView; never write PlantedKeyHandler(model:) elsewhere.
                 @MainActor
-                struct CanvasKeyHandler {
+                struct PlantedKeyHandler {
                     let model: CanvasModel
                     static func delete(model: CanvasModel) { model.mutate("Delete") { _ in } }
-                    func again() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }
+                    func again() -> PlantedKeyHandler { PlantedKeyHandler(model: model) }
                     func outer() { func inner() {} ; inner() }
                 }
-                final class CanvasKeyClock {
+                final class PlantedKeyClock {
                     class func now() -> Int { 0 }
                     class var rate: Int { 1 }
                 }
-                extension CanvasKeyHandler { func more() {} }
+                extension PlantedKeyHandler { func more() {} }
                 extension CanvasView { var keys: Int { 0 } }
                 extension CanvasModel {
                     func deleteFromAnywhere() { mutate("Delete") { _ in } }
@@ -4970,63 +4970,63 @@ final class TripwireGrepTests: XCTestCase {
                 """,
             "Maugham/Canvas/CanvasKeyGrip.swift": """
                 struct CanvasKeyGrip {
-                    let keys: CanvasKeyHandler
+                    let keys: PlantedKeyHandler
                 }
                 """,
             "Maugham/Canvas/CanvasKeyRebuilder.swift": """
                 struct CanvasKeyRebuilder {
-                    let keys: CanvasKeyHandler
-                    func again() { _ = CanvasKeyHandler(model: keys.model) }
+                    let keys: PlantedKeyHandler
+                    func again() { _ = PlantedKeyHandler(model: keys.model) }
                 }
                 """,
             "Maugham/Canvas/CanvasKeyVarHolder.swift": """
                 struct CanvasKeyVarHolder {
-                    var keys: CanvasKeyHandler
+                    var keys: PlantedKeyHandler
                 }
                 """,
             "Maugham/Canvas/CanvasKeyTaker.swift": """
                 struct CanvasKeyTaker {
-                    func take(_ keys: CanvasKeyHandler) {}
+                    func take(_ keys: PlantedKeyHandler) {}
                 }
                 """,
             "Maugham/Canvas/CanvasKeyCaller.swift": """
                 struct CanvasKeyCaller {
                     let model: CanvasModel
-                    func f() { CanvasKeyHandler.delete(model: model) }
+                    func f() { PlantedKeyHandler.delete(model: model) }
                 }
                 """,
             "Maugham/Views/CanvasKeyGrip.swift": """
                 struct CanvasKeyGrip {
-                    let clock: CanvasKeyClock
+                    let clock: PlantedKeyClock
                 }
                 """,
             "Maugham/Canvas/RegionInspector.swift": """
                 struct RegionInspector {
                     let model: CanvasModel
-                    func delete() { _ = CanvasKeyHandler(model: model).deleteSelection() }
+                    func delete() { _ = PlantedKeyHandler(model: model).deleteSelection() }
                 }
                 """,
             "Maugham/Canvas/ScrapInspector.swift": """
                 struct ScrapInspector {
                     let model: CanvasModel
-                    func delete() { _ = CanvasKeyHandler.init(model: model) }
+                    func delete() { _ = PlantedKeyHandler.init(model: model) }
                 }
                 """,
             "Maugham/Canvas/LineInspector.swift": """
-                // CanvasKeyHandler(model:) is the view's to build, not this file's.
+                // PlantedKeyHandler(model:) is the view's to build, not this file's.
                 struct LineInspector {
                     let model: CanvasModel
-                    func delete() { CanvasKeyHandler.delete(model: model) }
+                    func delete() { PlantedKeyHandler.delete(model: model) }
                 }
                 """,
             "Maugham/Canvas/ItemInspector.swift": """
                 struct ItemInspector {
-                    let handler: CanvasKeyHandler
+                    let handler: PlantedKeyHandler
                 }
                 """,
             "Maugham/Views/Unrelated.swift": """
                 struct Unrelated {
-                    let rows = CanvasKeyHandlerRows()
+                    let rows = PlantedKeyHandlerRows()
                     func f() { var (a, b) = (1, 2); a += b }
                 }
                 """,
@@ -5034,27 +5034,27 @@ final class TripwireGrepTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: base) }
 
         let planted = try Self.canvasSurfaceHelperCensus(
-            base: base, surfaceFiles: ["CanvasView.swift", "CanvasKeyHandler.swift",
+            base: base, surfaceFiles: ["CanvasView.swift", "PlantedKeyHandler.swift",
                                        "CanvasKeyGrip.swift", "CanvasKeyRebuilder.swift",
                                        "CanvasKeyVarHolder.swift", "CanvasKeyTaker.swift",
                                        "CanvasKeyCaller.swift"])
         XCTAssertEqual(planted.walked, 13, "Self-check: the walk read the planted tree")
         XCTAssertEqual(planted.offenders, [
-            "CanvasKeyCaller.swift names CanvasKeyHandler",
-            "CanvasKeyGrip.swift names CanvasKeyClock",
-            "CanvasKeyHandler.swift declares a top-level func",
-            "CanvasKeyHandler.swift extends CanvasModel",
-            "CanvasKeyRebuilder.swift names CanvasKeyHandler",
-            "CanvasKeyTaker.swift names CanvasKeyHandler",
-            "CanvasKeyVarHolder.swift names CanvasKeyHandler",
-            "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
-                + "@State private var pass: CanvasKeyHandler?",
-            "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
-                + "func makeKeys() -> CanvasKeyHandler { CanvasKeyHandler(model: model) }",
-            "ItemInspector.swift names CanvasKeyHandler",
-            "LineInspector.swift names CanvasKeyHandler",
-            "RegionInspector.swift names CanvasKeyHandler",
-            "ScrapInspector.swift names CanvasKeyHandler",
+            "CanvasKeyCaller.swift names PlantedKeyHandler",
+            "CanvasKeyGrip.swift names PlantedKeyClock",
+            "CanvasKeyRebuilder.swift names PlantedKeyHandler",
+            "CanvasKeyTaker.swift names PlantedKeyHandler",
+            "CanvasKeyVarHolder.swift names PlantedKeyHandler",
+            "CanvasView.swift names PlantedKeyHandler outside a building computed property: "
+                + "@State private var pass: PlantedKeyHandler?",
+            "CanvasView.swift names PlantedKeyHandler outside a building computed property: "
+                + "func makeKeys() -> PlantedKeyHandler { PlantedKeyHandler(model: model) }",
+            "ItemInspector.swift names PlantedKeyHandler",
+            "LineInspector.swift names PlantedKeyHandler",
+            "PlantedKeyHandler.swift declares a top-level func",
+            "PlantedKeyHandler.swift extends CanvasModel",
+            "RegionInspector.swift names PlantedKeyHandler",
+            "ScrapInspector.swift names PlantedKeyHandler",
         ], "Self-check: every route from another column into a surface file must "
             + "fire — building, holding, a static call, an extension of another "
             + "type, a top-level function, and in the view a helper held in `@State` "

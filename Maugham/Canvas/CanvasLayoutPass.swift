@@ -60,7 +60,7 @@ struct CanvasLayoutPass {
     /// every access.
     ///
     /// **The layout CACHE lives here; the HEIGHT arithmetic does not.** The
-    /// `ScrapLayout` objects are built and kept in this view because the mounted
+    /// `ScrapLayout` objects are built and kept in the view's `layouts` because the mounted
     /// `NSTextView` and the draw pass share one TextKit stack per scrap (tripwire
     /// 26) — that sharing is §7A.2's structural mitigation and this loop is what
     /// maintains it. The number that goes into the scene comes from
@@ -148,7 +148,7 @@ struct CanvasLayoutPass {
         // the measurement below reads the answer. `resolve` decodes nothing — a
         // miss is recorded and serviced by the `.task` in `body`.
         //
-        // **`model.itemIndex` and not this view's own** (issue #57). Two of this
+        // **`model.itemIndex` and not the view's own** (issue #57). Two of this
         // function's callers are closures the model holds — `onSceneChangedExternally`
         // and `onSceneReplacedByUndo` — and a struct's closure captures the view
         // VALUE it was made from, so through them `itemIndex` is the index of the

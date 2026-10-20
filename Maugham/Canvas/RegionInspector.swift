@@ -398,7 +398,7 @@ struct RegionInspector: View {
         // first line of its scrap, so typing into a card that is a member of the
         // selected region leaves that row's title showing the text as of the last
         // structural bump. It refreshes when the writer leaves the scrap —
-        // `CanvasView.commitActiveEdit` bumps the model's counter, so that claim
+        // `CanvasEditFocus.commitActiveEdit` bumps the model's counter, so that claim
         // is about the counter this gate actually reads, and
         // `CanvasViewMountingRegionTests.test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside`
         // is what makes it a claim rather than a hope.
@@ -784,7 +784,7 @@ struct RegionInspector: View {
     }
 
     /// The same rule ⌫ follows: the region goes and its cards stay (§3.1,
-    /// generalised). No `isInGesture` refusal like `CanvasView.deleteSelection`'s
+    /// generalised). No `isInGesture` refusal like `CanvasKeyHandler.deleteSelection`'s
     /// — that guard exists because a KEY can reach the event view mid-drag, and
     /// this button cannot be clicked while the mouse is down on the canvas.
     /// `mutateFromInspector` covers the gesture that *can* be open here.

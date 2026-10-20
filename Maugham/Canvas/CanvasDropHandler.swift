@@ -79,7 +79,7 @@ struct CanvasDropHandler {
             // would be a geometry-driven change to something the writer placed.
             //
             // The camera moves even when the card was already on screen, and that
-            // is a real cost rather than an oversight: this view has no viewport
+            // is a real cost rather than an oversight: the view has no viewport
             // outside the `Canvas` closure (no `GeometryReader`, by design), so
             // "is it visible already" is not a question it can ask.
             guard let node = model.scene.node(id) else { return false }
@@ -147,7 +147,7 @@ struct CanvasDropHandler {
     /// `DropClassification`'s — the canvas is its fifth adopter and adds no rule
     /// of its own — and everything after it is `CanvasExternalDrop`'s, which is
     /// where a test can reach it. What is left here is the camera, the selection
-    /// and the alert, which are this view's own state.
+    /// and the alert, which are the view's own state.
     ///
     /// **The return value is synchronous and the work is not**, which is what the
     /// modifier's signature requires: `accepts` is a pasteboard question with an
@@ -159,7 +159,7 @@ struct CanvasDropHandler {
     /// under a drop that takes a moment (a coast finishing, a rewind), and the
     /// photograph belongs where the writer let go of it.
     func handleExternalDrop(_ providers: [NSItemProvider],
-                                    at viewPoint: CGPoint) -> Bool {
+                            at viewPoint: CGPoint) -> Bool {
         // Read-only (issue #44): refused BEFORE `ingest`, which copies into
         // `canvas_assets/` first — a refused drop must strand no copy there.
         guard CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)

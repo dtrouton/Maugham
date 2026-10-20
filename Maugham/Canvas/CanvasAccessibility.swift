@@ -502,7 +502,7 @@ enum CanvasAccessibility {
         // A resident of a collapsed region is not drawn, not clickable and not
         // here: a VoiceOver user must not walk into cards that are not on
         // screen. `unorderedNodes` deliberately still returns them, because
-        // `CanvasView.rebuildLayouts()` must keep measuring a hidden scrap.
+        // `CanvasLayoutPass.rebuildLayouts()` must keep measuring a hidden scrap.
         for node in scene.unorderedNodes where !scene.isHidden(node.id) {
             let frame = CGRect(origin: node.origin,
                                size: CGSize(width: node.width,

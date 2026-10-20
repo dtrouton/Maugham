@@ -21,7 +21,7 @@ final class CanvasStore {
     private var terminationObserver: NSObjectProtocol?
 
     /// The owner's last chance to fold live editor text into the payload before
-    /// it is written. `CanvasView` binds this to `syncActiveEdit`, so a quit
+    /// it is written. `CanvasView` binds this to `CanvasEditFocus.syncActiveEdit`, so a quit
     /// mid-sentence writes the sentence. Calling `scheduleSave` from here is
     /// safe and is the intended use — it only queues, and `flush` cancels the
     /// queue on the very next line.

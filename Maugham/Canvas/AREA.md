@@ -17,7 +17,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `ScrapText.swift` — renders and parses `canvas.md`, the scrap text keyed by node id.
 
 ### Drawing and geometry
-- `CanvasView.swift` — the SwiftUI view: layer stack, camera, layouts cache, editing focus, the straighten, momentum, `revision`/`sceneRevision` mirror, click/drag/drop/delete handlers (tripwires 27, 30, 32). Its header comment lists its source-layout contracts.
+- `CanvasView.swift` — the SwiftUI view: every `@State` (camera, layouts, editing focus, straighten, momentum), `body`'s layer stack, the `revision`/`sceneRevision` mirror and `load()`; it builds its six helpers per call (tripwires 27, 30, 32, 57). Its header comment lists its source-layout contracts.
 - `CanvasLayoutPass.swift` — `rebuildLayouts`/`remeasure`: the `ScrapLayout` cache and every card's derived height; `CanvasView` builds it per call (tripwires 26, 57).
 - `CanvasRenderer.swift` — the one draw pass (regions, lines, cards, chips, tethers), `CanvasFocusStraighten`, `cardTransform`/`seededRotation`, `paper(for:)`, `cullingBleed`, `rotationOverhang(of:)`, `elide` (tripwires 26, 29).
 - `CanvasCamera.swift` — the manual pan/zoom transform; `bring(_:toViewPoint:)` and `revealViewPoint` (tripwire 25).
@@ -125,7 +125,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **A line is an untyped edge with an optional name; it must not gain a `kind`.** It is undirected: `[0,1]` and `[1,0]` are one line, so `connect` refuses a repeated or reversed pair (`invalid_connection`).
 - **⇧-drag from any card and a drag out of the selected card's connect mark resolve to one `Bool` (`connecting:`, no default) before `CanvasInteraction` sees anything.** The modifier is threaded through `CanvasEventNSView.applyMouseDown`, never read off `NSEvent.modifierFlags`.
 - **The connect mark is drawn only on the SELECTED card**, inside `drawCard`'s `isSelected` block; the promoted stripe and the resize triangle stay unconditional. Moving any of the three across that line is a design change.
-- **The first press on an unselected card's handle position must not connect**: read `CanvasView.selectionWhenPressed`, captured at the head of `handleClick`, never live `model.selection`. The route also requires `topmostNode(at:)` to be the selected card.
+- **The first press on an unselected card's handle position must not connect**: read `CanvasView.selectionWhenPressed`, captured at the head of `CanvasClickHandler.handleClick`, never live `model.selection`. The route also requires `topmostNode(at:)` to be the selected card.
 - **`endLine` is called above `interaction.end()`, never inside the `.ended` chain**, or no line is ever created.
 - **Endpoints are node centres; a line to an unmeasured node or to a resident of a collapsed region is neither drawn nor clickable** (`CanvasScene.drawnLines` filters `!isHidden(_:)`). `CanvasLineHit.distance` clamps at both ends and `line(at:)` takes the nearest.
 - **The label is edited in the right-hand column through `mutateFromInspector`**, never in a sheet and never through `mutate` (`LineInspector.swift` is in the tripwire 32 census).
@@ -203,6 +203,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 
 ### Ownership, counters and undo
 - **`CanvasModel` holds the scene, text, selection, store and recorder; `CanvasView` holds only what belongs to one view of it** (camera, layouts, focus, straighten, momentum, both counters' view copies).
+- **The view's helpers are per-call structs over `$state`, built only by `CanvasView`'s computed properties, never stored, never given `$sceneRevision`** (`TripwireGrepTests.test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly`, `CanvasAccessibilityTests.test_theViewsStructuralCounterHasOneWriterAcrossTheSurface`). A `let` copy of `@State` goes stale within one call.
 - **The canvas is mounted at exactly one site** (`CentreColumn.editorPane`'s `.canvas` arm, `canvasCentre`; `RegionBindingTests` counts `canvasCentre(`). Every "is the centre the canvas" check asks `Persona.centresTheCanvas`.
 - **Three `@ObservationIgnored` hooks run model → view** (`onSceneReplacedByUndo`, `onSceneChangedExternally`, `onRevealRequested`), bound in `CanvasView.load()` and nil'd together in `detach()` (`CanvasLiveSeamTests`' assigner census). `onRevealRequested` carries a region and the model parks it until `attach()`.
 - **`CanvasModel` hosts `CanvasUndo`; never reimplement it.**
@@ -214,7 +215,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **`beginGesture` opens no `UndoManager` group; tests set `groupsByEvent = false`, production must not.** An undo serviced mid-gesture re-baselines that gesture.
 - **The mounted editor has `allowsUndo = false`** (snapshots own scrap text); never delete the `undo:`/`redo:` forwarding expecting the responder chain or `undoManagerForTextView:` to take over. **⌘Z reaches the canvas stack by exactly two routes**, each an explicit `undo:`/`redo:` pair with `validateUserInterfaceItem`: `ScrapEditorContainer` (a scrap focused) and `CanvasEventNSView` (nothing focused). An `undoManager` override is not a route (`CanvasViewMountingEditingTests.test_undoIsReachableFromTheEditMenuWithNoScrapFocused`).
 - **Inside a scrap the undo granularity is the sentence**: `breakGesture()` on a finished sentence or `ScrapUndoBeat.idleSeconds` of stillness; the idle beat is asked before the keystroke is folded in, the sentence rule after.
-- **A change from the other column goes through `CanvasModel.mutateFromInspector`, never `mutate`** — it closes the open "Edit Scrap", runs, and reopens it; the reopen is load-bearing. `CanvasView` keeps `mutate`, being inside its own bracket by construction. The census is `TripwireGrepTests.test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly` — count its array (tripwire 32).
+- **A change from the other column goes through `CanvasModel.mutateFromInspector`, never `mutate`** — it closes the open "Edit Scrap", runs, and reopens it; the reopen is load-bearing. The surface (`CanvasView` and its helpers) keeps `mutate`, being inside its own bracket by construction. The census is `TripwireGrepTests.test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly` — count its array (tripwire 32).
 - **The repro for the region arm is a double-click on a region's chrome bar; for the card arm, a double-click on the card.**
 - **A caller writing scrap text from outside passes it as `mutateFromInspector(_:scrapTexts:)`, inside the bracket**; `setScrapText` before or after the call registers the words under the wrong step. The tripwire 32 census scans `Maugham/` only, so a test doing this is not caught.
 - **A replaced `ScrapLayout` must be a new instance**, never the old one mutated, so the editor's rebind shows the restored words. `mount` rebinds on layout identity (a `weak` reference compared with `!==`), never on `textView == nil` or an `ObjectIdentifier`.
@@ -224,7 +225,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **Focus is requested, not taken**: `makeFirstResponder` in `makeNSView` is a no-op; `updateNSView` re-claims it (tripwire 27; `ScrapEditorHostTests`).
 - **Zoom is bounds scaling; never `.scaleEffect`, never a re-layout.** `mount` writes both rectangles, frame then bounds, every call; do not "harden" it against external frame writes.
 - **Caret clamping is in UTF-16 units.**
-- **⌫ is `CanvasEventNSView.keyDown` → `CanvasView.deleteSelection()`**, a `keyDown` and not `deleteBackward(_:)`. The keys are `NSDeleteCharacter` (⌫) and `NSDeleteFunctionKey` (⌦); `NSBackspaceCharacter` is Ctrl-H. Keep the condition as an `if` in the case body: a `where` binds only to the last pattern.
+- **⌫ is `CanvasEventNSView.keyDown` → `CanvasKeyHandler.deleteSelection()`**, a `keyDown` and not `deleteBackward(_:)`. The keys are `NSDeleteCharacter` (⌫) and `NSDeleteFunctionKey` (⌦); `NSBackspaceCharacter` is Ctrl-H. Keep the condition as an `if` in the case body: a `where` binds only to the last pattern.
 - **A ⌫ while any gesture is open deletes nothing** (`CanvasModel.isInGesture`, tripwire 32); anything new hung off a key on this view inherits the same hazard. **⌫ never fights the editor** — while a scrap is focused the mounted `NSTextView` is first responder and deletes a character.
 - **A region delete keeps its cards; a node delete takes its words and its lines; a line delete keeps both cards** — one ⌘Z restores each whole.
 - **Nothing selected is a no-op and the key travels on to `super` (the beep)**; `deleteSelection()` reports whether anything went. The tests send a real `NSEvent` and read disk (`test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`, `test_backspaceInsideAScrapDeletesACharacterAndNotTheCard`); do not replace them with a direct call.
@@ -320,7 +321,7 @@ Checks: the tripwire 32 census, `CanvasEditGateTests`, and an undo test that ass
 1. `CanvasNode.swift` (a `CanvasNodeKind` case) or `CanvasItemReference.swift` (a provenance); answer `carriesAMark` and `isScrap`.
 2. `CanvasSceneCodec.swift` — an additive-optional field on `NodeDTO` and a `currentSchemaVersion` bump.
 3. Measure it at creation: `CanvasScrapMeasure.swift` / `CanvasCardMetrics`; heal it in `CanvasLayoutPass.rebuildLayouts` and `remeasure`.
-4. Fix every switch the compiler flags (the list is a guide; the grep is the truth) — today in `Maugham/Compiler/PinnedReferences.swift`, `CanvasRenderer.swift`, `CanvasAccessibility.swift`, `CanvasView.swift`, `Promotion.swift`, `PromotionPerformer.swift`, `PromotionSheet.swift`, `RegionInspector.swift`, `Maugham/MCP/Tools/CanvasTools.swift`, `Maugham/Views/CanvasPromotionModifier.swift`; find them with `grep -rn 'case \.scrap'`.
+4. Fix every switch the compiler flags (the list is a guide; the grep is the truth) — today in `Maugham/Compiler/PinnedReferences.swift`, `CanvasRenderer.swift`, `CanvasAccessibility.swift`, `CanvasLayoutPass.swift`, `Promotion.swift`, `PromotionPerformer.swift`, `PromotionSheet.swift`, `RegionInspector.swift`, `Maugham/MCP/Tools/CanvasTools.swift`, `Maugham/Views/CanvasPromotionModifier.swift`; find them with `grep -rn 'case \.scrap'`.
 5. For an item: `CanvasItemFacts.swift` (title, glyph, thumbnail) and `CanvasItemPresentation.swift`.
 6. Its inspector arm: a case in `RegionInspectorPane`'s `switch` and an `*Inspector.swift` that renders `CanvasAuthorLineRow` and asks `CanvasEditGate`.
 7. Its accessibility kind word: a constant in `CanvasAccessibility.swift`.
@@ -338,7 +339,7 @@ Checks: `MCPCatalogConsistencyTests`, `CanvasToolsTests`, the tripwire 32 census
 
 ### Add a region or line behaviour on the canvas
 1. The gesture in `CanvasInteraction.swift`: a pure query or a `Kind`; membership only through `joinTarget`/`absorbedNodes`, never on a move or resize.
-2. Its wiring in `CanvasView.swift` (`handleDrag`/`handleClick`), inside the view's own bracket (`mutate`/`withScene`), with `CanvasEditGate.dragBegins` asked first.
+2. Its wiring in `CanvasDragHandler.swift`/`CanvasClickHandler.swift` (`handleDrag`/`handleClick`), inside the surface's own bracket (`mutate`/`withScene`), with `CanvasEditGate.dragBegins` asked first.
 3. Record through `CanvasMembership.swift` or the scene's own verbs in `CanvasScene.swift`.
 4. Draw it in `CanvasRenderer.swift` in the existing pass order and hit-test it in the same order read backwards.
 5. Speak it in `CanvasAccessibility.swift`, rebuilt from `sceneRevision`.

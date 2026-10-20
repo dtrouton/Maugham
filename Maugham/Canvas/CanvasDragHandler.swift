@@ -68,7 +68,7 @@ struct CanvasDragHandler {
     /// the *selected* card. One answer means one implementation of what a connect
     /// drag does, so the discoverable route and the fast one cannot drift into
     /// behaving differently. It is a `static func` over its inputs rather than a
-    /// computed property on the view so it is reachable from a test without
+    /// computed property on the handler so it is reachable from a test without
     /// hosting SwiftUI — a decision one level above a primitive is exactly where
     /// this area has shipped unreachable halves before.
     ///
@@ -131,7 +131,7 @@ struct CanvasDragHandler {
     /// `pressStartsALine` — and after the focus guard rather than before it: a
     /// drag inside a focused scrap belongs to the editor, which is in front and
     /// takes the mouse itself, so asking about connect marks above that guard
-    /// would compute an answer for a press this view never sees.
+    /// would compute an answer for a press this handler never sees.
     ///
     /// **`timestamp` is the EVENT's time, and it goes exactly two places** —
     /// `interaction.update(…, now:)` and `interaction.end(now:)`, the pair that

@@ -80,7 +80,7 @@ struct CanvasKeyHandler {
             model.endGesture()
             // Another caller that does not bump the structural counter, for the
             // same reason as the rest of them: `model.bumpSceneRevision()` below
-            // reaches this view through the mirror in `body`, so bumping here as
+            // reaches the view through the mirror in `body`, so bumping here as
             // well rebuilds the whole accessibility tree twice for one ⌫. The
             // deleted card leaving that tree is what
             // `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`

@@ -212,7 +212,7 @@ public struct CanvasScene: Equatable, Sendable {
     /// Residents of a collapsed region are skipped here too — that is what makes
     /// "collapse hides its residents" one rule in the scene rather than one in
     /// the renderer and another in the hit test. `unorderedNodes` deliberately
-    /// still returns them: `CanvasView.rebuildLayouts()` must keep measuring a
+    /// still returns them: `CanvasLayoutPass.rebuildLayouts()` must keep measuring a
     /// hidden scrap, or expanding the region shows unmeasured, unclickable cards.
     public func nodes(intersecting rect: CGRect) -> [CanvasNode] {
         byID.values

@@ -141,7 +141,7 @@ enum CanvasDrop {
     /// item card's height *is* the label-only floor until its thumbnail decodes, and
     /// the decode is unbounded while the writer is holding a mouse button.
     /// `CanvasClaudePlacement` writes the same constant at creation for the same
-    /// reason, and `CanvasView.rebuildLayouts` refines it to the picture's real
+    /// reason, and `CanvasLayoutPass.rebuildLayouts` refines it to the picture's real
     /// shape on the very next pass — inside the same undo bracket, see `apply`.
     ///
     /// The drop point is the card's ORIGIN, exactly as `CanvasInteraction.createScrap`
@@ -166,7 +166,7 @@ enum CanvasDrop {
     ///
     /// **`mutateFromInspector` and not `mutate` — tripwire 32, from a fifth
     /// direction.** A drag that starts in the binder never reaches
-    /// `CanvasView.handleClick`, and `handleClick` is the only thing that runs
+    /// `CanvasClickHandler.handleClick`, and `handleClick` is the only thing that runs
     /// `commitActiveEdit`. So the writer can be inside a scrap with "Edit Scrap"
     /// held open at the moment the drop lands, and *nothing on either side of the
     /// drag closes their bracket*: double-click bare canvas, type, then drag a
@@ -177,7 +177,7 @@ enum CanvasDrop {
     /// at that sentence takes the card with it. The verb's delivery *site* is the
     /// canvas view; what tripwire 32 turns on is whether the arriving mutation has
     /// a bracket **of its own** to protect, and a drop has none, exactly as an
-    /// `add_canvas_scraps` call has none. `CanvasView.deleteSelection`'s refusal is
+    /// `add_canvas_scraps` call has none. `CanvasKeyHandler.deleteSelection`'s refusal is
     /// the other answer and is wrong here: mid-gesture a ⌫ is genuinely ambiguous,
     /// and a drop is not — refusing would make dragging a note in do nothing at
     /// all whenever the writer had a scrap open, silently.
@@ -196,7 +196,7 @@ enum CanvasDrop {
     /// same constant `CanvasClaudePlacement` writes at creation for the same
     /// reason. The refinement to the picture's real height arrives on the next
     /// line anyway — `mutateFromInspector` fires `onSceneChangedExternally`, which
-    /// `CanvasView` binds to `rebuildLayouts`, **inside this bracket** — so the
+    /// `CanvasView` binds to `CanvasLayoutPass.rebuildLayouts`, **inside this bracket** — so the
     /// re-measure belongs to the step the writer can take back.
     ///
     /// The consequence of measuring at the floor is stated rather than avoided:
@@ -432,7 +432,7 @@ enum CanvasExternalDrop {
     /// constant `CanvasDrop.decide` and `CanvasClaudePlacement` write at creation:
     /// a node with no `cachedHeight` has no `frame`, so it is neither drawn nor
     /// clickable *and* `joinTarget` returns nil for it — a join that silently
-    /// joins nothing. `CanvasView.rebuildLayouts` refines the height to the
+    /// joins nothing. `CanvasLayoutPass.rebuildLayouts` refines the height to the
     /// picture's real shape on the next pass, inside this bracket.
     ///
     /// **Several files CASCADE rather than stacking or columning.** Two cards at
