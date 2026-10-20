@@ -64,6 +64,7 @@ enum CanvasSourceCensus {
         "CanvasLayoutPass.swift",
         "CanvasEditFocus.swift",
         "CanvasDragHandler.swift",
+        "CanvasClickHandler.swift",
     ]
 
     /// Every `surfaceFiles` entry's text, in list order, joined by a newline.

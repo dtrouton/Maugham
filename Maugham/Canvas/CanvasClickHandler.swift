@@ -1,0 +1,215 @@
+import SwiftUI
+
+/// `CanvasView`'s clicks: a single click leaves whatever was open and selects;
+/// a double click enters the scrap under the pointer or makes one on bare
+/// canvas — over bindings to the view's own `@State`. It writes
+/// `selectionWhenPressed` first, which the drag handler reads at `.began`.
+///
+/// Built fresh per call by `CanvasView.clickHandler` and never stored; built
+/// nowhere else (tripwire 32's surface census).
+@MainActor
+struct CanvasClickHandler {
+    let model: CanvasModel
+    let editFocus: CanvasEditFocus
+    let layoutPass: CanvasLayoutPass
+    @Binding var selectionWhenPressed: CanvasSelection?
+    @Binding var editingNodeID: CanvasNodeID?
+    @Binding var caretIndex: Int?
+    @Binding var lastKeystrokeAt: Date?
+    @Binding var straighten: CanvasFocusStraighten
+    @Binding var layouts: [CanvasNodeID: ScrapLayout]
+    @Binding var revision: Int
+
+    // MARK: - Clicks
+
+    /// What a double click landed on. Three cases, resolved from ONE hit test.
+    ///
+    /// `CanvasScene.topmostNode(at:)` filters the whole scene, so asking twice in
+    /// one click is an avoidable `O(scene)` pass; and asking it in a `guard` with
+    /// the other conditions is how the fall-through below went missing in the
+    /// first draft. Making the third case a NAMED case is what stops it being
+    /// forgotten again.
+    private enum ClickTarget {
+        /// Bare canvas — make a scrap here.
+        case emptyCanvas
+        /// A scrap this view has measured and laid out — enter it.
+        case scrap(node: CanvasNode, layout: ScrapLayout, frame: CGRect)
+        /// A node that cannot be entered: an item node (1C-d gives those their
+        /// own behaviour), or a scrap with no layout or no `cachedHeight` yet.
+        /// Reachable TODAY — Task 5's codec round-trips item nodes deliberately,
+        /// so a sidecar written by a later build opens with them present.
+        case unenterableNode
+        /// A line. Nothing to enter and nothing to make — see the switch below.
+        case line
+    }
+
+    private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
+        guard let node = model.scene.topmostNode(at: contentPoint) else {
+            // The SAME precedence as `CanvasScene.selectionTarget`, and it has
+            // to be:
+            // the `clickCount: 1` AppKit sends first has already selected
+            // whatever this resolves to, so a double click that answered a
+            // different question would act on something the writer is not
+            // looking at.
+            return CanvasLineHit.line(at: contentPoint, in: model.scene) != nil
+                ? .line : .emptyCanvas
+        }
+        guard case .scrap = node.kind,
+              let layout = layouts[node.id],
+              let frame = node.frame else { return .unenterableNode }
+        return .scrap(node: node, layout: layout, frame: frame)
+    }
+
+    /// Single click: leave whatever was being edited. Double click: enter the
+    /// scrap under the pointer, or make one on bare canvas.
+    ///
+    /// The single/double split is the standard canvas idiom, and it is what lets
+    /// a single click start a DRAG while the editor is unmounted — with the
+    /// editor frontmost, a focused scrap owns its own mouse.
+    ///
+    /// One accepted gap, from the same fact: a click that lands here while an
+    /// editor is already mounted on the SAME scrap updates `caretIndex` but does
+    /// not move the caret, because `ScrapEditorHost` re-claims focus only on a
+    /// rebind — by design, or every camera nudge would slam the caret back. It
+    /// can only happen inside the ~120 ms window where the editor is mounted but
+    /// still invisible and therefore not taking its own clicks; once the card is
+    /// level AppKit places the caret itself, which is the whole point of putting
+    /// the editor in front. A second double-click inside a tenth of a second
+    /// keeps the first one's caret.
+    func handleClick(at contentPoint: CGPoint, clickCount: Int) {
+        // FIRST, above everything else in this method: the selection as the
+        // writer saw it when they pressed. The connect-mark drag reads it at
+        // `.began`, which runs after this whole method — see
+        // `selectionWhenPressed`.
+        selectionWhenPressed = model.selection
+        editFocus.commitActiveEdit()
+
+        // A read-only canvas (issue #44) takes a double click as a single one:
+        // it selects, and makes, enters and mounts nothing.
+        guard CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly) >= 2 else {
+            model.selection = model.scene.selectionTarget(at: contentPoint)
+            // The selection is read INSIDE the draw closure, where a model value
+            // is not in SwiftUI's dependency graph — that is what this counter
+            // is for. `revision` and never `sceneRevision`: a selection change
+            // is not a structural one.
+            //
+            // **No test can see this line today, and that is measured rather
+            // than assumed** (mutation, 2026-07-27: removing it leaves the
+            // mounting and composition suites entirely green). `leaveTheOpenScrap()`
+            // on the next line writes three pieces of `@State`, which invalidates
+            // `body` and gets the redraw for free — so the bump is currently
+            // belt and braces. It stays because that cover is incidental: a
+            // selection set from anywhere that does NOT also move focus — the
+            // inspector in the other column, a keyboard selection — has nothing
+            // else to invalidate on, and the symptom is an accent that appears
+            // whenever something unrelated next redraws.
+            revision += 1
+            editFocus.leaveTheOpenScrap()
+            model.scheduleSave()
+            return
+        }
+
+        switch clickTarget(at: contentPoint) {
+        case .scrap(let node, let layout, let frame):
+            // §7A.5 requirement 1: resolve the caret in the card's LOCAL,
+            // UNROTATED space at CLICK TIME — before the card straightens.
+            // Straightening first moves the click point out from under the
+            // cursor, and the caret lands somewhere the writer did not aim.
+            let angle = CanvasRenderer.drawnAngle(for: node, straighten: straighten)
+            let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
+            let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
+            caretIndex = layout.characterIndex(
+                at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
+
+            editingNodeID = node.id
+            lastKeystrokeAt = nil
+            // The editor mounts on this line's body pass and takes keystrokes at
+            // once; what it does not do yet is SHOW. `visibleEditorNodeID`
+            // withholds that until `straighten.isLevel(_:)`, about a tenth of a
+            // second from here, and until then the drawn text stays visible,
+            // keeps rotating, and grows as the writer types into the editor
+            // nobody can see. Spec §7A.5 calls that beat responsiveness rather
+            // than lag.
+            straighten.focus(node.id)
+            // The OUTER undo bracket for this visit. `commitActiveEdit` at the
+            // head of this method has already closed the previous one, so a
+            // click straight from one scrap into another never nests.
+            model.beginGesture("Edit Scrap")
+
+        case .emptyCanvas:
+            // Creating the card is its own step, closed before the visit opens:
+            // one ⌘Z takes back what the writer typed, a second takes back the
+            // card. Explicit begin/end rather than `mutate` — the new id has to
+            // escape the gesture, and `mutate`'s closure returns nothing.
+            model.beginGesture("New Scrap")
+            // The sentinel is never read: `withScene`'s closure is non-escaping
+            // and runs unconditionally, so `createScrap` has always assigned by
+            // the line below. (In 1C-a the equivalent `var` was genuinely
+            // reachable at its sentinel, because the recorder was optional and
+            // nil until `load()` had run; the model never is.)
+            var id = CanvasNodeID("")
+            model.withScene(persist: false) {
+                id = CanvasInteraction.createScrap(at: contentPoint, in: &$0)
+            }
+            model.setScrapText("", for: id)
+            // A new scrap has no cachedHeight, so it has no frame, so it is
+            // invisible to hit testing and culling until it is measured.
+            // `rebuildLayouts()` also bumps `sceneRevision`.
+            layoutPass.rebuildLayouts()
+            // A card made inside a region belongs to it (Denver, 2026-07-28:
+            // creation absorbs, transitions do not). AFTER the measure and not
+            // before it, because `joinTarget` reads the card's CENTRE and an
+            // unmeasured card has no frame to take one from — asked a line
+            // earlier this silently joins nothing, on every scrap the writer
+            // ever makes. Inside the "New Scrap" gesture, so one ⌘Z takes back
+            // the card and the membership together.
+            model.withScene(persist: false) {
+                if let home = CanvasInteraction.joinTarget(for: id, in: $0) {
+                    CanvasMembership.join(id, home: home, in: &$0)
+                    // The membership changed AFTER `rebuildLayouts()` bumped the
+                    // structural counter, and that bump is the only one on this
+                    // path — so without this the region inspector in the other
+                    // column is reading a scene from before the join, and the
+                    // new card is missing from "Lives here" until some unrelated
+                    // structural change happens along. It works today only
+                    // because SwiftUI reads the post-join scene in a later body
+                    // pass, which is an accident of ordering rather than a
+                    // guarantee: this is the exact shape of the stale-inspector
+                    // defect the first whole-branch review caught.
+                    model.bumpSceneRevision()
+                }
+            }
+            // Closed AFTER the measure, so the next gesture's baseline holds a
+            // card with a height. Close it before and "Edit Scrap" opens on a
+            // scene whose new node has no `cachedHeight`, so undoing the typing
+            // would restore a card with no frame — invisible to hit testing, to
+            // culling and to the renderer.
+            model.endGesture()
+            editingNodeID = id
+            caretIndex = 0
+            lastKeystrokeAt = nil
+            straighten.focus(id)
+            // Whatever the writer now types is a second, separate step.
+            model.beginGesture("Edit Scrap")
+
+        case .unenterableNode, .line:
+            // Nothing to enter, so this behaves like a single click. Falling
+            // through instead would leave `editingNodeID` and `straighten`
+            // pointing at whatever was open before: the invisible editor stays
+            // mounted on the card the writer just clicked AWAY from, and
+            // `visibleEditorNodeID` re-reveals it the moment `isLevel` fires.
+            //
+            // **A line shares this arm rather than falling to `.emptyCanvas`,
+            // and that is a real bug rather than a tidiness.** There it would
+            // mint a scrap UNDER the writer's own line — and AppKit sends
+            // `clickCount: 1` first, so that click has already selected the line
+            // and the other column is showing it. "Edit Scrap" open over a line
+            // selection is tripwire 32's own repro arriving through a new door.
+            // A double click on a line therefore opens no editor of any kind;
+            // its label is edited in the other column, which is where a region's
+            // label already is.
+            editFocus.leaveTheOpenScrap()
+        }
+        model.scheduleSave()
+    }
+}

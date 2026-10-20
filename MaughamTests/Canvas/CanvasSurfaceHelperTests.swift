@@ -297,4 +297,116 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                        "a read-only canvas began a drag")
         XCTAssertFalse(model.isInGesture, "a read-only canvas opened an undo bracket")
     }
+
+    // MARK: - CanvasClickHandler
+
+    @MainActor
+    private struct ClickHandlerFixture {
+        let model: CanvasModel
+        let selectionWhenPressed = SurfaceHelperBox<CanvasSelection?>(nil)
+        let editingNodeID = SurfaceHelperBox<CanvasNodeID?>(nil)
+        let caretIndex = SurfaceHelperBox<Int?>(nil)
+        let lastKeystrokeAt = SurfaceHelperBox<Date?>(nil)
+        let straighten = SurfaceHelperBox(CanvasFocusStraighten())
+        let layouts = SurfaceHelperBox<[CanvasNodeID: ScrapLayout]>([:])
+        let revision = SurfaceHelperBox(0)
+        let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
+        let thumbnails = SurfaceHelperBox(CanvasThumbnails())
+        let ticket = SurfaceHelperBox(0)
+
+        var handler: CanvasClickHandler {
+            CanvasClickHandler(model: model,
+                               editFocus: CanvasEditFocus(model: model,
+                                                          editingNodeID: editingNodeID.binding,
+                                                          caretIndex: caretIndex.binding,
+                                                          straighten: straighten.binding,
+                                                          lastKeystrokeAt: lastKeystrokeAt.binding,
+                                                          layouts: layouts.binding,
+                                                          revision: revision.binding),
+                               layoutPass: CanvasLayoutPass(model: model,
+                                                            itemIndex: model.itemIndex,
+                                                            projectRoot: URL(fileURLWithPath: "/nonexistent"),
+                                                            thumbnails: thumbnails.binding,
+                                                            layouts: layouts.binding,
+                                                            itemPresentation: itemPresentation.binding,
+                                                            thumbnailServiceTicket: ticket.binding,
+                                                            revision: revision.binding),
+                               selectionWhenPressed: selectionWhenPressed.binding,
+                               editingNodeID: editingNodeID.binding,
+                               caretIndex: caretIndex.binding,
+                               lastKeystrokeAt: lastKeystrokeAt.binding,
+                               straighten: straighten.binding,
+                               layouts: layouts.binding,
+                               revision: revision.binding)
+        }
+
+        func click(at point: CGPoint, clickCount: Int) {
+            handler.handleClick(at: point, clickCount: clickCount)
+        }
+    }
+
+    /// A model holding one measured scrap, selected — so a click that clears
+    /// the selection or mints a second card is visible.
+    private func modelWithASelectedScrap() -> CanvasModel {
+        let model = CanvasModel()
+        model.withScene(persist: false) {
+            $0.insert(CanvasNode(id: scrapID, kind: .scrap,
+                                 origin: CGPoint(x: 40, y: 40), width: 240, cachedHeight: 80))
+        }
+        model.setScrapText("already here", for: scrapID)
+        model.selection = .node(scrapID)
+        return model
+    }
+
+    /// **A single click on bare canvas selects nothing and leaves the open scrap.**
+    /// Mounted: `CanvasViewMountingEditingTests.test_aSingleClickSelectsTheThingUnderIt`
+    /// (its last press clears the selection on bare canvas), with no scrap open.
+    /// This one starts inside a visit, so the leave, the closed bracket and
+    /// `selectionWhenPressed` — captured BEFORE the click cleared the selection —
+    /// are pinned too.
+    func test_aSingleClickOnBareCanvasSelectsNothingAndLeavesNoScrapOpen() {
+        let model = modelWithASelectedScrap()
+        let fixture = ClickHandlerFixture(model: model)
+        fixture.editingNodeID.value = scrapID
+        fixture.caretIndex.value = 3
+        fixture.straighten.value.focus(scrapID)
+        model.beginGesture("Edit Scrap")
+
+        fixture.click(at: CGPoint(x: 900, y: 900), clickCount: 1)
+
+        XCTAssertNil(model.selection, "a click on bare canvas left something selected")
+        XCTAssertNil(fixture.editingNodeID.value, "a click on bare canvas left the scrap open")
+        XCTAssertNil(fixture.caretIndex.value)
+        XCTAssertNil(fixture.straighten.value.focusedNodeID,
+                     "the card the writer clicked away from is still straightening")
+        XCTAssertFalse(model.isInGesture, "the visit's undo bracket was left open")
+        XCTAssertEqual(model.scene.nodes.count, 1, "a single click made a scrap")
+        XCTAssertEqual(fixture.selectionWhenPressed.value, .node(scrapID),
+                       "`selectionWhenPressed` was not captured before the click "
+                       + "moved the selection — the connect-mark drag reads it")
+    }
+
+    /// **A double click on bare canvas mints one scrap and opens it at the start.**
+    /// Mounted: `CanvasViewMountingEditingTests.test_aDoubleClickOnBareCanvasStillMakesOneScrapAndNoRegion`
+    /// types into the new scrap and reads the disk; no mounted test reads
+    /// `caretIndex` or `selectionWhenPressed` on this path.
+    func test_aDoubleClickOnBareCanvasMintsOneScrapAndOpensItAtTheStart() throws {
+        let model = modelWithASelectedScrap()
+        let fixture = ClickHandlerFixture(model: model)
+
+        fixture.click(at: CGPoint(x: 900, y: 900), clickCount: 2)
+
+        let minted = model.scene.nodes.map(\.id).filter { $0 != scrapID }
+        XCTAssertEqual(minted.count, 1, "a double click on bare canvas must make exactly one scrap")
+        let id = try XCTUnwrap(minted.first)
+        XCTAssertEqual(fixture.editingNodeID.value, id, "the new scrap was not opened")
+        XCTAssertEqual(fixture.caretIndex.value, 0, "the new scrap's caret is not at its start")
+        XCTAssertEqual(fixture.straighten.value.focusedNodeID, id)
+        XCTAssertNotNil(try XCTUnwrap(model.scene.node(id)).cachedHeight,
+                        "the new scrap was not measured, so it has no frame")
+        XCTAssertEqual(fixture.selectionWhenPressed.value, .node(scrapID),
+                       "`selectionWhenPressed` is not the selection from before the click")
+        XCTAssertTrue(model.isInGesture, "the typing's \"Edit Scrap\" bracket did not open")
+        model.endGesture()
+    }
 }
