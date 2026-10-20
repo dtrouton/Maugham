@@ -18,6 +18,7 @@ Every file in `Maugham/Canvas/` appears once.
 
 ### Drawing and geometry
 - `CanvasView.swift` — the SwiftUI view: layer stack, camera, layouts cache, editing focus, the straighten, momentum, `revision`/`sceneRevision` mirror, click/drag/drop/delete handlers (tripwires 27, 30, 32). Its header comment lists its source-layout contracts.
+- `CanvasLayoutPass.swift` — `rebuildLayouts`/`remeasure`: the `ScrapLayout` cache and every card's derived height; `CanvasView` builds it per call (tripwires 26, 57).
 - `CanvasRenderer.swift` — the one draw pass (regions, lines, cards, chips, tethers), `CanvasFocusStraighten`, `cardTransform`/`seededRotation`, `paper(for:)`, `cullingBleed`, `rotationOverhang(of:)`, `elide` (tripwires 26, 29).
 - `CanvasCamera.swift` — the manual pan/zoom transform; `bring(_:toViewPoint:)` and `revealViewPoint` (tripwire 25).
 - `CanvasMaterial.swift` — every calibration constant of the canvas's look: ground, paper, tilt band, Claude's tints, dim (`dimmedAlpha(lit:)`).
@@ -32,6 +33,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasInteraction.swift` — the gesture state machine (move, resize, sweep, line), `joinTarget`, `absorbedNodes`, `isCaught`, `caughtRegions`, `sweepOutcome`, `regionHit`, `endLine`; `CanvasMomentum` (tripwire 31).
 - `CanvasEscapeMonitor.swift` — the window-scoped local `NSEvent` monitor `WindowEscapeArbiter` holds one of per window.
 - `ScrapEditorHost.swift` — the one mounted `NSTextView` (`ScrapEditorContainer`), its visibility and pointer transparency, `undo:`/`redo:` forwarding, `ScrapEditorGeometry` (tripwires 27, 28).
+- `CanvasEditFocus.swift` — the open scrap: `syncActiveEdit` (per-keystroke fold), `commitActiveEdit`, `leaveTheOpenScrap`; built per call by `CanvasView` (tripwire 28).
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
 
 ### State, persistence, undo
@@ -89,7 +91,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 
 ### Card metrics live in `CanvasCardMetrics`, and nowhere else
 - **The card inset, card height and item-card geometry are spelled once, in `CanvasCardMetrics`.** A scrap's height is `CanvasScrapMeasure.height(of:)`; an item card's is `CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`, picture over its own aspect, then `itemPictureGap` (6), then one label line, with `itemLabelOnlyHeight` as the floor.
-- **Every node has a measured height before anything reads its frame** — a node with no `cachedHeight` is neither drawn nor clickable, and `joinTarget` silently joins nothing for it. Creators write `itemLabelOnlyHeight` at creation (`CanvasDrop`, `CanvasClaudePlacement`, `CanvasCapture`); `rebuildLayouts` heals a missing height on load; `CanvasView.remeasure` re-derives both kinds per drag frame (`CanvasViewMountingSurfaceTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`, `test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`).
+- **Every node has a measured height before anything reads its frame** — a node with no `cachedHeight` is neither drawn nor clickable, and `joinTarget` silently joins nothing for it. Creators write `itemLabelOnlyHeight` at creation (`CanvasDrop`, `CanvasClaudePlacement`, `CanvasCapture`); `rebuildLayouts` heals a missing height on load; `CanvasLayoutPass.remeasure` re-derives both kinds per drag frame (`CanvasViewMountingSurfaceTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`, `test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`).
 - **A nil height is never persisted, and a derived height is never a reason to save**: the sidecar's copy is an optimisation, re-measured on every load.
 - **Width is authoritative and height derived, for both kinds**, so a corner drag scales a photograph and never distorts it; `CanvasInteraction.minimumCardWidth` (120) clamps every kind, with no second minimum.
 - **The resize target is the whole `CanvasRenderer.resizeHandleSize` corner square and the mark is the triangle below its hypotenuse, on every card of either kind.** Do not shrink the target to the ink, and never put a kind test on one without the other — the mark and the target are one decision (`CanvasInteractionTests.test_theUnmarkedHalfOfTheCornerSquareStillResizes`, `CanvasRendererTests.test_anItemNodeTakesTheSameBorderAndResizeMarkAsAScrap`).
@@ -313,7 +315,7 @@ Checks: the tripwire 32 census, `CanvasEditGateTests`, and an undo test that ass
 ### Add a node kind or an item provenance
 1. `CanvasNode.swift` (a `CanvasNodeKind` case) or `CanvasItemReference.swift` (a provenance); answer `carriesAMark` and `isScrap`.
 2. `CanvasSceneCodec.swift` — an additive-optional field on `NodeDTO` and a `currentSchemaVersion` bump.
-3. Measure it at creation: `CanvasScrapMeasure.swift` / `CanvasCardMetrics`; heal it in `CanvasView.rebuildLayouts` and `remeasure`.
+3. Measure it at creation: `CanvasScrapMeasure.swift` / `CanvasCardMetrics`; heal it in `CanvasLayoutPass.rebuildLayouts` and `remeasure`.
 4. Fix every switch the compiler flags (the list is a guide; the grep is the truth) — today in `Maugham/Compiler/PinnedReferences.swift`, `CanvasRenderer.swift`, `CanvasAccessibility.swift`, `CanvasView.swift`, `Promotion.swift`, `PromotionPerformer.swift`, `PromotionSheet.swift`, `RegionInspector.swift`, `Maugham/MCP/Tools/CanvasTools.swift`, `Maugham/Views/CanvasPromotionModifier.swift`; find them with `grep -rn 'case \.scrap'`.
 5. For an item: `CanvasItemFacts.swift` (title, glyph, thumbnail) and `CanvasItemPresentation.swift`.
 6. Its inspector arm: a case in `RegionInspectorPane`'s `switch` and an `*Inspector.swift` that renders `CanvasAuthorLineRow` and asks `CanvasEditGate`.

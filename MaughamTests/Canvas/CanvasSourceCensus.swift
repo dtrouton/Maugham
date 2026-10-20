@@ -59,7 +59,11 @@ enum CanvasSourceCensus {
     /// seen. A census that slices `body` or checks ORDER stays on
     /// `CanvasView.swift`, because that code does not move. Every name here is
     /// a file in `Maugham/Canvas/`.
-    static let surfaceFiles: [String] = ["CanvasView.swift"]
+    static let surfaceFiles: [String] = [
+        "CanvasView.swift",
+        "CanvasLayoutPass.swift",
+        "CanvasEditFocus.swift",
+    ]
 
     /// Every `surfaceFiles` entry's text, in list order, joined by a newline.
     /// Throws, naming the file, if a listed file is missing — a census over a

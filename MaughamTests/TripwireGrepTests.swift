@@ -5228,9 +5228,13 @@ final class TripwireGrepTests: XCTestCase {
                 "The census no longer derives `\(name)` as a plain stored property of "
                 + "`CanvasView`. Found: \(census.forbidden.sorted())")
         }
-        XCTAssertTrue(census.reachedMembers.contains("rebuildLayouts"),
-            "The walk no longer reaches `rebuildLayouts` from the closures — #57's "
-            + "path. Either the closures stopped calling it, or the walk went blind.")
+        // #57's path runs through `rebuildLayouts`, which now lives on
+        // `CanvasLayoutPass`; the walk reaches the view member that BUILDS the
+        // pass, and that property is where the pass's inputs are read.
+        XCTAssertTrue(census.reachedMembers.contains("layoutPass"),
+            "The walk no longer reaches `layoutPass` from the closures — #57's "
+            + "path, through the property that builds `CanvasLayoutPass`. Either "
+            + "the closures stopped calling it, or the walk went blind.")
 
         XCTAssertEqual(census.offenders, [],
             "A closure `CanvasView.load()` hands `CanvasModel` reads a plain stored "
@@ -5264,7 +5268,9 @@ final class TripwireGrepTests: XCTestCase {
     /// Self-check: the census FIRES on a planted offender — directly, through a
     /// method, through a computed property, through a method in an extension
     /// (this file's or another's), through a hook assigned a method reference,
-    /// and as a stored closure property assigned whole — and stays quiet on `@State`,
+    /// as a stored closure property assigned whole, and as a value handed to a
+    /// helper built in a computed property (`pass`) — and stays quiet on `@State`,
+    /// a `$` projection,
     /// the `itemIndex` value copy,
     /// the allowed names, member access on something else, labels and comments.
     /// It also refuses (throws) when it cannot find `load()` or its closures.
@@ -5353,22 +5359,44 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(plainThumbnails.offenders, [],
             "Self-check: reading an allow-listed plain property is no offender.")
 
-        // #57 itself, replayed on the real file: put `rebuildLayouts` back on the
-        // view's own index and both scene callbacks must be named. Measured
-        // against c64ae740^ too, which reports exactly these two paths.
+        // #57 itself, replayed on the real file: hand the layout pass the view's
+        // own index instead of the model's, and both scene callbacks must be
+        // named. Measured against c64ae740^ too (then through `rebuildLayouts`,
+        // a view method), which reported exactly these two paths.
         let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasViewFile)")
         let real = try String(contentsOf: url, encoding: .utf8)
-        let fix = "index: model.itemIndex,"
+        let fix = "itemIndex: model.itemIndex,"
         XCTAssertTrue(real.contains(fix),
-            "Self-check: `rebuildLayouts` no longer spells `\(fix)`; re-point this "
-            + "replay at wherever the model's index is read now.")
+            "Self-check: `CanvasView.layoutPass` no longer spells `\(fix)`; re-point "
+            + "this replay at wherever the model's index is handed in now.")
         let reverted = try Self.canvasLoadClosureCensus(
-            of: real.replacingOccurrences(of: fix, with: "index: itemIndex,"),
+            of: real.replacingOccurrences(of: fix, with: "itemIndex: itemIndex,"),
             extensions: try canvasViewExtensionSources())
         XCTAssertEqual(reverted.offenders, [
-            "onSceneChangedExternally → rebuildLayouts → itemIndex",
-            "onSceneReplacedByUndo → rebuildLayouts → itemIndex",
+            "onSceneChangedExternally → layoutPass → itemIndex",
+            "onSceneReplacedByUndo → layoutPass → itemIndex",
         ], "Self-check: undoing #57's fix in the real file must fire the census.")
+
+        // A surface helper built in a view computed property: the walk follows
+        // the property, so a changing view value handed in is read THERE and is
+        // caught, while a `$layouts` projection and the argument labels are not
+        // reads. `layouts` is declared plain here on purpose, so the projection
+        // is skipped for being a projection and not for being `@State`.
+        let helper = try Self.canvasLoadClosureCensus(of: """
+            struct CanvasView: View {
+                let model: CanvasModel
+                var itemIndex: CanvasItemIndex = .empty
+                var layouts: [CanvasNodeID: ScrapLayout] = [:]
+                private var pass: P { P(index: itemIndex, layouts: $layouts) }
+                private func load() { model.onSceneChangedExternally = { pass.rebuild() } }
+            }
+            """)
+        XCTAssertEqual(Set(helper.forbidden), ["itemIndex", "layouts"],
+            "Self-check: both plain properties are forbidden, so only the walk's "
+            + "own rules can excuse `$layouts`.")
+        XCTAssertEqual(helper.offenders, ["onSceneChangedExternally → pass → itemIndex"],
+            "Self-check: a helper built with a frozen view value must fire on "
+            + "`itemIndex`, and never on the `$layouts` projection.")
 
         XCTAssertThrowsError(try Self.canvasLoadClosureCensus(of: """
             struct CanvasView: View { let model: CanvasModel; private func appear() {} }
