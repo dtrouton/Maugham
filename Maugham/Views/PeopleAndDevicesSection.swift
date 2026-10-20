@@ -90,6 +90,8 @@ struct PeopleAndDevicesSection: View {
     /// person. Drawn only where the model offers it — root only, hidden
     /// elsewhere.
     var forgetPersonKey: (PeopleAndDevicesModel.PersonGroup) -> Void = { _ in }
+    /// The writer has read `model.personKeyChangedNotice` (#103).
+    var dismissPersonKeyChange: () -> Void = {}
     /// What the last verb said when it refused, or nil.
     var notice: String?
 
@@ -114,6 +116,9 @@ struct PeopleAndDevicesSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 thisMac
+                if let changed = model.personKeyChangedNotice {
+                    personKeyChangedRow(changed)
+                }
                 if claim != nil { claimRow }
                 if let notice {
                     Label(notice, systemImage: "exclamationmark.triangle")
@@ -228,6 +233,22 @@ struct PeopleAndDevicesSection: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button(ClaimDecision.verbTitle, action: claimBook)
+                .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// *This Mac now belongs to a different person key* (#103) — under this
+    /// Mac's own standing, because it is about this Mac. Information, not a
+    /// refusal, so it is not drawn in the notice's orange; Dismiss clears it
+    /// for the session.
+    private func personKeyChangedRow(_ sentence: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Label(sentence, systemImage: "info.circle")
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Dismiss", action: dismissPersonKeyChange)
                 .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -38,6 +38,13 @@ struct PeopleAndDevicesModel: Equatable {
     /// the same press to see this one's history (plan decision P2).
     static let mergeHelp = "Take everything that Mac wrote into this book"
 
+    /// **This Mac's person key changed at this open** (#103, Denver's ruling
+    /// 2026-10-20). The re-declaration is legitimate and asks nothing; this
+    /// says why every other Mac is about to ask about this one again.
+    static let personKeyChangedSentence =
+        "This Mac now belongs to a different person key, "
+        + "so your other Macs will ask about it again."
+
     /// The sentence beside Merge, which says the thing a writer would
     /// otherwise assume: adopting is not switching. This device stays on its
     /// own chain and that Mac stays on its.
@@ -1022,6 +1029,10 @@ struct PeopleAndDevicesModel: Equatable {
     /// `waitingForStarters` for the rule and `waitingLine(forDevice:)` for
     /// what a row draws.
     var waitingForStarter: [String: Int] = [:]
+    /// `personKeyChangedSentence` when this session's open changed whose
+    /// device this Mac is (`DocumentStore.personKeyChanged`), until the
+    /// writer dismisses it; nil otherwise, and in a refused read.
+    var personKeyChangedNotice: String? = nil
 
     // MARK: - Pieces waiting for their starter
 
@@ -1162,7 +1173,8 @@ struct PeopleAndDevicesModel: Equatable {
         heldWaiting: [String: [String: HeldLines.Waiting]] = [:],
         heldCaptures: [String: Int] = [:],
         declinedPieces: Set<OpLogDeviceState.DeclinedPiece> = [],
-        settledPieces: Set<OpLogDeviceState.DeclinedPiece> = []
+        settledPieces: Set<OpLogDeviceState.DeclinedPiece> = [],
+        personKeyChanged: Bool = false
     ) -> PeopleAndDevicesModel {
         if let refusal = standing.refusal {
             return PeopleAndDevicesModel(
@@ -1403,7 +1415,8 @@ struct PeopleAndDevicesModel: Equatable {
             unverifiable: unverifiable,
             waitingForStarter: waitingForStarters(
                 pieces: pieces, unopened: unopenedPieces,
-                registry: registry, table: table, me: me))
+                registry: registry, table: table, me: me),
+            personKeyChangedNotice: personKeyChanged ? personKeyChangedSentence : nil)
     }
 
     /// One person's row, with the devices whose records name them nested under

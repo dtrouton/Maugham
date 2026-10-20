@@ -252,6 +252,16 @@ public final class DocumentStore {
     /// draws it.
     internal var personClaimProblem: String?
 
+    /// **This open changed whose device this Mac is** (#103): its record held
+    /// a verified claim for one person key and now names another, so every
+    /// other Mac will ask about it again. Session-scoped — People & Devices
+    /// says it once (`PeopleAndDevicesModel.personKeyChangedNotice`) until
+    /// the writer dismisses it.
+    private(set) var personKeyChanged = false
+
+    /// The writer read the notice: People & Devices stops drawing it.
+    func dismissPersonKeyChange() { personKeyChanged = false }
+
     /// **The silent admissions run one at a time** (Task 6 fix round). Each
     /// pass reads the registry, decides, and writes; two overlapping refreshes
     /// would both read *nobody here yet* and both admit — two arrival events
@@ -279,7 +289,8 @@ public final class DocumentStore {
     /// `.remove`), and `RegistryPresence.declareDevice` writes the record,
     /// re-writing it with `.keep` when the claim is refused. What stays here
     /// is the Mac's saying of it: a problem is logged as a `.fault` and
-    /// returned for `personClaimProblem`.
+    /// returned for `personClaimProblem`, and a change of person key is
+    /// returned for `personKeyChanged`.
     ///
     /// Throws what the registry read and write throw, exactly as the bare
     /// `ensureDeviceRecord` it replaces did.
@@ -288,15 +299,19 @@ public final class DocumentStore {
         in url: URL, identities: LocalIdentities, name: String,
         claim: (intent: PersonClaimIntent, problem: String?),
         presenter: NSFilePresenter?
-    ) throws -> String? {
-        let problem = try RegistryPresence.declareDevice(
+    ) throws -> RegistryPresence.DeviceDeclaration {
+        let declared = try RegistryPresence.declareDeviceReporting(
             in: url, identities: identities, name: name, kind: .mac,
             presenter: presenter, claim: claim)
-        if let problem {
+        if let problem = declared.problem {
             documentStoreLog.fault(
                 "this Mac: \(problem, privacy: .public) — in \(url.lastPathComponent, privacy: .public); the record keeps the claim it had")
         }
-        return problem
+        if declared.personKeyChanged {
+            documentStoreLog.info(
+                "this Mac now claims a different person key in \(url.lastPathComponent, privacy: .public)")
+        }
+        return declared
     }
 
     /// One line per thing a recognition pass did, and one per link it was
@@ -397,12 +412,14 @@ public final class DocumentStore {
             PersonKey.findOrCreate(in: personKeyStore, seedName: writersName)
         }.value
         do {
-            store.personClaimProblem = try declareThisMac(
+            let declared = try declareThisMac(
                 in: url, identities: Document.loadIdentities, name: thisMacsName,
                 claim: RegistryPresence.claimIntent(
                     forDevice: Document.loadIdentities.author.fingerprint,
                     personKey: personKey),
                 presenter: store.presenter)
+            store.personClaimProblem = declared.problem
+            store.personKeyChanged = declared.personKeyChanged
             try RegistryPresence.ensureRootIfEmpty(
                 in: url, identities: Document.loadIdentities,
                 writerName: thisWritersName, presenter: store.presenter)

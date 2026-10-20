@@ -137,6 +137,11 @@ Without iCloud Keychain, or on a device that can't reach it, nothing is
 different from before: the device is asked about once, and after that it goes
 in silently. Nothing is ever held back because a key is missing.
 
+If a Mac's own key changes (after an iCloud Keychain reset, say), People &
+Devices, in each book where that Mac carried the old key, says *This Mac now
+belongs to a different person key, so your other Macs will ask about it
+again.* until you press Dismiss or close the book.
+
 Each recognised arrival is a dated entry in History: *Denver's iPhone joined as
 you — recognised by your Apple ID.*, or *Sam's iPad joined as Sam — recognised
 by their Apple ID.*

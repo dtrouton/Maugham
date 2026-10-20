@@ -553,6 +553,7 @@ struct ProjectSettingsSheet: View {
         acknowledgedLostHistory = await store.documentStore?
             .acknowledgedLostHistory() ?? DocumentStore.AcknowledgedLosses()
         let pieces = PermitControl.pieces(in: store.manifest.structure)
+        let personKeyChanged = store.documentStore?.personKeyChanged ?? false
         let url = store.url
         let loaded = await Task.detached(priority: .userInitiated) {
             () -> (PeopleAndDevicesModel, ClaimOffer?) in
@@ -612,7 +613,8 @@ struct ProjectSettingsSheet: View {
                     heldWaiting: heldWaiting,
                     heldCaptures: heldCaptures,
                     declinedPieces: declinedPieces,
-                    settledPieces: settledPieces)
+                    settledPieces: settledPieces,
+                    personKeyChanged: personKeyChanged)
                 return (model, claim)
             } catch {
                 // A registry this Mac could not read judges nobody, so there is
@@ -663,7 +665,15 @@ struct ProjectSettingsSheet: View {
             claim: claimOffer,
             claimBook: askToClaim,
             forgetPersonKey: confirmForgetPersonKey,
+            dismissPersonKeyChange: dismissPersonKeyChange,
             notice: peopleNotice)
+    }
+
+    /// The writer read *this Mac now belongs to a different person key*: the
+    /// store forgets it for the session and the pane is drawn again (#103).
+    private func dismissPersonKeyChange() {
+        store.documentStore?.dismissPersonKeyChange()
+        Task { await loadPeopleAndDevices() }
     }
 
     // MARK: - §7.2's piece questions (fix round 1, I3)

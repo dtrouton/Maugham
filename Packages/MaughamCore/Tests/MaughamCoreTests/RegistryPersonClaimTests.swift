@@ -484,4 +484,96 @@ final class RegistryPersonClaimTests: XCTestCase {
             in: projectURL, identities: mine, name: "Renamed", kind: .mac, personClaim: .keep))
         XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), made)
     }
+
+    // MARK: - A change of person key is reported (#103)
+
+    private func report(
+        _ intent: PersonClaimIntent, name: String = "Mac"
+    ) throws -> RegistryPresence.DeviceRecordOutcome {
+        try RegistryPresence.ensureDeviceRecordReporting(
+            in: projectURL, identities: mine, name: name, kind: .mac, personClaim: intent)
+    }
+
+    /// K1 → K2: a claim that held is replaced by one for another person key.
+    /// Every other Mac now asks about this one again, so the write says so.
+    func test_aDifferentPersonKeyReplacingAVerifiedClaimIsReported() throws {
+        try report(.set(try claim(for: mine, by: denver)))
+
+        let outcome = try report(.set(try claim(for: mine, by: sam)))
+
+        XCTAssertNotNil(outcome.file)
+        XCTAssertTrue(outcome.personKeyChanged)
+    }
+
+    /// None of these change whose device this is: a first claim, the same key
+    /// signed afresh, the same key carried through a rename, no claim to make
+    /// now, and a claim removed (the writer's own act).
+    func test_noOtherWriteReportsAChangeOfPersonKey() throws {
+        let first = try report(.set(try claim(for: mine, by: denver)))
+        XCTAssertNotNil(first.file)
+        XCTAssertFalse(first.personKeyChanged, "nil → K is a first claim")
+
+        let renamedSameKey = try report(.set(try claim(for: mine, by: denver)), name: "Renamed")
+        XCTAssertNotNil(renamedSameKey.file)
+        XCTAssertFalse(renamedSameKey.personKeyChanged, "K → K")
+
+        let kept = try report(.keep, name: "Renamed Again")
+        XCTAssertNotNil(kept.file)
+        XCTAssertFalse(kept.personKeyChanged, ".keep carries the claim")
+
+        let removed = try report(.remove)
+        XCTAssertNotNil(removed.file)
+        XCTAssertFalse(removed.personKeyChanged, ".remove is the writer's act")
+
+        let claimedAgain = try report(.set(try claim(for: mine, by: sam)))
+        XCTAssertNotNil(claimedAgain.file)
+        XCTAssertFalse(claimedAgain.personKeyChanged, "no claim stood, so this is a first claim")
+    }
+
+    /// Only a VERIFIED claim stands: a tampered one names nobody, so replacing
+    /// it is a first claim, not a change of key.
+    func test_replacingAClaimThatDoesNotVerifyIsNotAChangeOfPersonKey() throws {
+        try report(.keep)
+        let written = try XCTUnwrap(try registry().devices.first {
+            $0.device == mine.author.fingerprint })
+        let honest = try claim(for: mine, by: denver)
+        let broken = PersonClaim(personKey: honest.personKey, personPub: honest.personPub,
+                                 name: honest.name, sig: try claim(for: mine, by: sam).sig)
+        try RegistryWriter.write(
+            DeviceRecord(device: written.device, name: written.name, kind: written.kind,
+                         actors: written.actors, madeAt: written.madeAt, personClaim: broken),
+            signedBy: mine.author, in: projectURL)
+
+        let outcome = try report(.set(try claim(for: mine, by: sam)))
+
+        XCTAssertNotNil(outcome.file)
+        XCTAssertFalse(outcome.personKeyChanged)
+    }
+
+    /// The bare verbs answer as they always did, and `declareDeviceReporting`
+    /// carries the change — but never from a claim the record refused.
+    func test_theDeclarationCarriesTheChangeAndTheBareVerbsAreUnchanged() throws {
+        try report(.set(try claim(for: mine, by: denver)))
+
+        let refused = try RegistryPresence.declareDeviceReporting(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac,
+            claim: (.set(try claim(for: stranger, by: sam)), nil))
+        XCTAssertNotNil(refused.problem)
+        XCTAssertFalse(refused.personKeyChanged, "a refused claim is re-written as .keep")
+
+        let declared = try RegistryPresence.declareDeviceReporting(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac,
+            claim: (.set(try claim(for: mine, by: sam)), nil))
+        XCTAssertNil(declared.problem)
+        XCTAssertTrue(declared.personKeyChanged)
+
+        let bare = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac,
+            personClaim: .set(try claim(for: mine, by: denver)))
+        XCTAssertNotNil(bare, "the bare verb still answers the file")
+        XCTAssertNil(try RegistryPresence.declareDevice(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac,
+            claim: (.set(try claim(for: mine, by: sam)), nil)),
+            "the bare declaration still answers the problem only")
+    }
 }
