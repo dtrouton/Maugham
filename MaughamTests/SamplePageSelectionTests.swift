@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Task 2: `SamplePageSelection` — which pieces demonstrate the design.
@@ -156,5 +157,26 @@ final class SamplePageSelectionTests: XCTestCase {
         let census = ElementCensus.take(from: ast)
         let selection = SamplePageSelection.choose(census: census, ast: ast)
         XCTAssertEqual(selection.pieceIds, ["p1"])
+    }
+
+    func testReportKinds_pullInThePieceThatFirstHasThem() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "Intro", mode: .prose, nodes: [.paragraph("a")]),
+            .init(pieceID: "p2", title: "Results", mode: .prose, nodes: [
+                .prose(.table(header: [[.text("h")]], alignments: [.none], rows: [],
+                              caption: nil, label: nil)),
+            ]),
+            .init(pieceID: "p3", title: "Sources", mode: .prose, nodes: [
+                .paragraph([.citation([CitationItem(key: "k", locator: nil)])]),
+            ]),
+        ])
+        let census = ElementCensus.take(from: ast)
+        let selection = SamplePageSelection.choose(census: census, ast: ast)
+        XCTAssertEqual(selection.pieceIds, ["p1", "p2", "p3"])
+        XCTAssertEqual(selection.demonstrates, [
+            "chapter opener — \u{2018}Intro\u{2019}",
+            "table — \u{2018}Results\u{2019}",
+            "citation — \u{2018}Sources\u{2019}",
+        ])
     }
 }

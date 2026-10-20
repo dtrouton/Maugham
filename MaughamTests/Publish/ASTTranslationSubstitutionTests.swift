@@ -323,13 +323,20 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
                 return flatten(inlines: i)
             case .wikiLink(_, let display): return display
             case .lineBreak: return "\n"
+            case .footnoteRef(let label): return "[^\(label)]"
+            case .citation(let items): return items.map { "@" + $0.key }.joined(separator: "; ")
+            case .crossRef(let label): return "@" + label.reference
             }
         }.joined()
     }
 
     private static func flatten(node: ProjectAST.ProseNode) -> String {
         switch node {
-        case .paragraph(let i), .heading(_, let i): return flatten(inlines: i)
+        case .paragraph(let i), .heading(_, let i, _): return flatten(inlines: i)
+        case .table(let header, _, let rows, _, _):
+            return ([header] + rows).map { $0.map(flatten(inlines:)).joined(separator: " | ") }
+                .joined(separator: "\n")
+        case .figure(let caption, _, _): return flatten(inlines: caption)
         case .blockquote(let inner): return inner.map(flatten(node:)).joined(separator: "\n")
         case .list(_, let items): return items.map(flatten(inlines:)).joined(separator: "\n")
         case .verbatim(let lines): return lines.joined(separator: "\n")

@@ -33,6 +33,8 @@ public struct ElementCensus: Equatable, Sendable {
         case sceneBreak
         case list
         case verbatim
+        case table
+        case figure
 
         // Fountain block kinds
         case sceneHeading
@@ -56,6 +58,9 @@ public struct ElementCensus: Equatable, Sendable {
         case code
         case wikiLink
         case lineBreak
+        case footnote
+        case citation
+        case crossReference
     }
 
     /// Writer-facing label for one kind — the ONE spelling (`ProductionRole`'s
@@ -70,6 +75,8 @@ public struct ElementCensus: Equatable, Sendable {
         case .sceneBreak: return "scene break"
         case .list: return "list"
         case .verbatim: return "code block"
+        case .table: return "table"
+        case .figure: return "figure"
         case .sceneHeading: return "scene heading"
         case .action: return "action"
         case .character: return "character cue"
@@ -88,6 +95,9 @@ public struct ElementCensus: Equatable, Sendable {
         case .code: return "inline code"
         case .wikiLink: return "wiki-link"
         case .lineBreak: return "line break"
+        case .footnote: return "footnote"
+        case .citation: return "citation"
+        case .crossReference: return "cross-reference"
         }
     }
 
@@ -124,6 +134,12 @@ public struct ElementCensus: Equatable, Sendable {
                 record(.wikiLink, in: pieceID)
             case .lineBreak:
                 record(.lineBreak, in: pieceID)
+            case .footnoteRef:
+                record(.footnote, in: pieceID)
+            case .citation:
+                record(.citation, in: pieceID)
+            case .crossRef:
+                record(.crossReference, in: pieceID)
             }
         }
 
@@ -136,7 +152,7 @@ public struct ElementCensus: Equatable, Sendable {
             case .paragraph(let inlines):
                 record(.paragraph, in: pieceID)
                 walk(inlines, in: pieceID)
-            case .heading(_, let inlines):
+            case .heading(_, let inlines, _):
                 record(.heading, in: pieceID)
                 walk(inlines, in: pieceID)
             case .blockquote(let nested):
@@ -149,6 +165,14 @@ public struct ElementCensus: Equatable, Sendable {
                 for item in items { walk(item, in: pieceID) }
             case .verbatim:
                 record(.verbatim, in: pieceID)
+            case .table(let header, _, let rows, let caption, _):
+                record(.table, in: pieceID)
+                for cell in header { walk(cell, in: pieceID) }
+                for row in rows { for cell in row { walk(cell, in: pieceID) } }
+                if let caption { walk(caption, in: pieceID) }
+            case .figure(let caption, _, _):
+                record(.figure, in: pieceID)
+                walk(caption, in: pieceID)
             }
         }
 
@@ -194,6 +218,12 @@ public struct ElementCensus: Equatable, Sendable {
                 case .fountain(let f):
                     walk(f, in: section.pieceID)
                 }
+            }
+            // A footnote's definition is not a node, but what it holds
+            // (emphasis, a citation) is in the book all the same. Sorted, so
+            // nothing about the census depends on dictionary order.
+            for label in section.footnotes.keys.sorted() {
+                walk(section.footnotes[label] ?? [], in: section.pieceID)
             }
         }
 

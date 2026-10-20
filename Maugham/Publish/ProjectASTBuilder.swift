@@ -52,26 +52,69 @@ public enum ProjectASTBuilder {
         let stripped = MarkdownDisplayFilter.stripAnchors(piece.displayText)
         let nodes: [ProjectAST.Node]
         let starts: [Int]
+        var footnotes: [String: [ProjectAST.Inline]] = [:]
+        var footnoteStarts: [String: Int] = [:]
         switch piece.mode {
         case .prose:
             let parsed = parseProse(stripped)
             nodes = parsed.nodes
             starts = parsed.starts
+            footnotes = parsed.footnotes
+            footnoteStarts = parsed.footnoteStarts
         case .fountain:
             let parsed = parseFountain(stripped)
             nodes = parsed.nodes
             starts = parsed.starts
         }
+        let spans = paragraphSpans(for: piece, stripped: stripped)
         return .init(pieceID: piece.pieceID, title: piece.title,
                      mode: piece.mode, nodes: nodes,
-                     anchors: anchors(for: piece, starts: starts, stripped: stripped))
+                     anchors: anchors(starts: starts, spans: spans),
+                     footnotes: footnotes,
+                     nodeParagraphs: starts.enumerated().reduce(into: [:]) { out, entry in
+                         out[entry.offset] = spans?.paragraphID(atStrippedLine: entry.element)
+                     },
+                     footnoteParagraphs: footnoteStarts.reduce(into: [:]) { out, entry in
+                         out[entry.key] = spans?.paragraphID(atStrippedLine: entry.value)
+                     })
     }
 
     // MARK: - anchors
 
-    /// Node index → `¶id`, computed from the paragraph spans — never from a
-    /// re-parse, and never at the cost of a different node.
-    ///
+    /// The paragraphs' line spans in the join, plus the shift between the
+    /// join's lines and `stripped`'s. The ONLY line → `¶id` map: `anchors`,
+    /// `nodeParagraphs` and `footnoteParagraphs` all read it.
+    private struct ParagraphSpans {
+        let spans: [(range: Range<Int>, id: String)]
+        let leading: Int
+
+        /// The index of the span holding `line` of `stripped`, if any.
+        func spanIndex(atStrippedLine line: Int) -> Int? {
+            let joinedLine = line + leading
+            return spans.firstIndex(where: { $0.range.contains(joinedLine) })
+        }
+
+        func paragraphID(atStrippedLine line: Int) -> String? {
+            spanIndex(atStrippedLine: line).map { spans[$0].id }
+        }
+    }
+
+    /// Node index → `¶id` for the FIRST node each paragraph produced —
+    /// computed from the paragraph spans, never from a re-parse, and never at
+    /// the cost of a different node. Sparse by design (see `Section.anchors`).
+    private static func anchors(starts: [Int], spans: ParagraphSpans?) -> [Int: String] {
+        guard let spans else { return [:] }
+        var anchors: [Int: String] = [:]
+        var claimed = Set<Int>()
+        for (nodeIndex, start) in starts.enumerated() {
+            guard let k = spans.spanIndex(atStrippedLine: start) else { continue }
+            guard !claimed.contains(k) else { continue }   // one id per paragraph, on its FIRST node
+            claimed.insert(k)
+            anchors[nodeIndex] = spans.spans[k].id
+        }
+        return anchors
+    }
+
     /// The reconciliation is deliberately strict. `displayText` is supposed to
     /// be the paragraphs joined with the blank-line block separator (that is
     /// what `Materializer` writes and what the translated path joins), so the
@@ -79,21 +122,19 @@ public enum ProjectASTBuilder {
     /// the very string it parsed. If a source ever hands paragraphs that don't
     /// reconstitute its own display text, there is no honest alignment to be
     /// had — a guessed one would silently point a cross-link at the wrong
-    /// paragraph — so the answer is no anchors at all.
+    /// paragraph — so the answer is nil: no anchors, no node paragraphs.
     ///
     /// The one coordinate wrinkle: `stripAnchors` trims the WHOLE text's outer
     /// whitespace, so if paragraph 0 opens with a blank line the parsed text
     /// begins one or more lines later than the join does. That shift is measured
     /// off the join itself (the leading whitespace-only lines the trim ate) and
     /// reconciled against the parsed line count — if the two don't agree, the
-    /// mapping is unknown and again the answer is no anchors.
-    private static func anchors(
-        for piece: PieceRef, starts: [Int], stripped: String
-    ) -> [Int: String] {
-        guard let paragraphs = piece.paragraphs, !paragraphs.isEmpty else { return [:] }
+    /// mapping is unknown and again the answer is nil.
+    private static func paragraphSpans(for piece: PieceRef, stripped: String) -> ParagraphSpans? {
+        guard let paragraphs = piece.paragraphs, !paragraphs.isEmpty else { return nil }
 
         let joined = paragraphs.map(\.text).joined(separator: "\n\n")
-        guard MarkdownDisplayFilter.stripAnchors(joined) == stripped else { return [:] }
+        guard MarkdownDisplayFilter.stripAnchors(joined) == stripped else { return nil }
 
         let joinedLines = joined.components(separatedBy: "\n")
         var leading = 0
@@ -106,7 +147,7 @@ public enum ProjectASTBuilder {
               joinedLines[end - 1].trimmingCharacters(in: .whitespaces).isEmpty {
             end -= 1
         }
-        guard end - leading == stripped.components(separatedBy: "\n").count else { return [:] }
+        guard end - leading == stripped.components(separatedBy: "\n").count else { return nil }
 
         // Paragraph k occupies [cursor, cursor + its line count) in the join;
         // the +1 is the separator's blank line.
@@ -117,44 +158,65 @@ public enum ProjectASTBuilder {
             spans.append((cursor..<(cursor + lineCount), paragraph.id))
             cursor += lineCount + 1
         }
-
-        var anchors: [Int: String] = [:]
-        var claimed = Set<Int>()
-        for (nodeIndex, start) in starts.enumerated() {
-            let line = start + leading
-            guard let k = spans.firstIndex(where: { $0.range.contains(line) }) else { continue }
-            guard !claimed.contains(k) else { continue }   // one id per paragraph, on its FIRST node
-            claimed.insert(k)
-            anchors[nodeIndex] = spans[k].id
-        }
-        return anchors
+        return ParagraphSpans(spans: spans, leading: leading)
     }
 
     // MARK: - prose
 
     /// `stripped` is the ALREADY anchor-stripped text (the caller does that
     /// once so the anchor pass can measure against the same string).
-    private static func parseProse(
-        _ stripped: String
-    ) -> (nodes: [ProjectAST.Node], starts: [Int]) {
-        // Run the shared block parser (headings, blockquotes, scene breaks,
-        // lists, fences, multi-line paragraphs — plus the table/solo-image
-        // grammar publish degrades), then map each block to a ProseNode. The
-        // range-carrying entry point returns the same blocks `parse` does; the
-        // ranges are only read by the anchor pass.
-        let blocks = MarkdownBlockParser.parseWithLineRanges(stripped)
-        return (mapProse(blocks.map(\.block)).map(ProjectAST.Node.prose),
-                blocks.map { $0.lines.lowerBound })
+    ///
+    /// Reads plan 1's manuscript grammar: `ManuscriptBlocks` lifts labelled
+    /// headings, tables, figures and footnote definitions out of the shared
+    /// block parser's output; every other block (`.other`) maps exactly as it
+    /// always did. A footnote definition yields NO node — it goes to
+    /// `footnotes` (first definition wins) with its own start line — so
+    /// `nodes` and `starts` stay index-aligned, as with a fence's tail.
+    private static func parseProse(_ stripped: String) -> (
+        nodes: [ProjectAST.Node], starts: [Int],
+        footnotes: [String: [ProjectAST.Inline]], footnoteStarts: [String: Int]
+    ) {
+        var nodes: [ProjectAST.Node] = []
+        var starts: [Int] = []
+        var footnotes: [String: [ProjectAST.Inline]] = [:]
+        var footnoteStarts: [String: Int] = [:]
+        for (block, lines) in ManuscriptBlocks.parse(stripped) {
+            let node: ProjectAST.ProseNode
+            switch block {
+            case .heading(let level, let text, let label):
+                node = .heading(level: level, InlineParser.parse(text), label: label)
+            case .table(let header, let alignments, let rows, let caption, let label):
+                node = .table(header: header.map(InlineParser.parse),
+                              alignments: alignments,
+                              rows: rows.map { $0.map(InlineParser.parse) },
+                              caption: caption.map(InlineParser.parse),
+                              label: label)
+            case .figure(let caption, let path, let label):
+                node = .figure(caption: InlineParser.parse(caption), path: path, label: label)
+            case .footnoteDefinition(let label, let text):
+                if footnotes[label] == nil {
+                    footnotes[label] = parseParagraphInlines(text.components(separatedBy: "\n"))
+                    footnoteStarts[label] = lines.lowerBound
+                }
+                continue
+            case .other(let other):
+                node = mapProse([other])[0]
+            }
+            nodes.append(.prose(node))
+            starts.append(lines.lowerBound)
+        }
+        return (nodes, starts, footnotes, footnoteStarts)
     }
 
-    /// Map shared `MarkdownBlock`s to publish `ProseNode`s. The block grammar
-    /// was ported FROM the former local state machine, so this mapping is
-    /// behavior-neutral by construction. Table and solo image are display-only
-    /// grammar the publish path doesn't render, so they degrade to literal
-    /// paragraph text through the same `parseParagraphInlines` helper the block
-    /// loop used before the cutover — byte-identical to the former pass-through
-    /// (locked by the degrade pins in ProjectASTBuilderTests). Recurses for
-    /// blockquote bodies, which is why it returns `[ProseNode]`.
+    /// Map shared `MarkdownBlock`s to publish `ProseNode`s — the `.other`
+    /// path of `parseProse`, and every block inside a blockquote. The block
+    /// grammar was ported FROM the former local state machine, so this mapping
+    /// is behavior-neutral by construction. At the top level `ManuscriptBlocks`
+    /// has already claimed headings, tables and figure lines; a table or a
+    /// solo image that reaches here (inside a blockquote, or an image line the
+    /// figure rule refuses) degrades to literal paragraph text through the
+    /// same `parseParagraphInlines` helper the block loop always used.
+    /// Recurses for blockquote bodies, which is why it returns `[ProseNode]`.
     private static func mapProse(_ blocks: [MarkdownBlock]) -> [ProjectAST.ProseNode] {
         blocks.map { block in
             switch block {

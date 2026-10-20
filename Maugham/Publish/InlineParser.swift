@@ -11,9 +11,32 @@ import MaughamCore
 public enum InlineParser {
 
     public static func parse(_ text: String) -> [ProjectAST.Inline] {
-        EmphasisRunConverter.inlines(for: text,
-                                     options: [.strikethrough],
-                                     protected: protectedSpans(text as NSString))
+        let ns = text as NSString
+        let own = protectedSpans(ns)
+        return EmphasisRunConverter.inlines(for: text,
+                                            options: [.strikethrough],
+                                            protected: own + reportMarkers(text, outside: own))
+    }
+
+    /// The report markers (`[^n]`, `[@key]`, `@fig:x`) as protected spans,
+    /// read by `ManuscriptInlineScanner` over the SAME string the emphasis
+    /// scan reads. A marker overlapping one of this parser's own spans is
+    /// dropped: the code span or wiki link wins (the two scanners close code
+    /// spans by different rules, and `EmphasisRunConverter` needs spans that
+    /// never overlap). The scanner's own ranges never overlap each other.
+    private static func reportMarkers(_ text: String, outside own: [ProtectedSpan]) -> [ProtectedSpan] {
+        ManuscriptInlineScanner.scan(text).compactMap { found in
+            guard !own.contains(where: { NSIntersectionRange($0.range, found.range).length > 0 }) else {
+                return nil
+            }
+            let node: ProjectAST.Inline
+            switch found.marker {
+            case .footnoteRef(let label): node = .footnoteRef(label: label)
+            case .citation(let items):    node = .citation(items)
+            case .crossRef(let label):    node = .crossRef(label)
+            }
+            return ProtectedSpan(range: found.range, node: node)
+        }
     }
 
     // MARK: - protected-span pre-extraction

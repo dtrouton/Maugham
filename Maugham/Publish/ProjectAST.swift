@@ -30,13 +30,36 @@ public struct ProjectAST: Equatable, Sendable {
         /// by its presence or absence.
         public let anchors: [Int: String]
 
+        /// Footnote label → its definition, per piece; the FIRST definition of
+        /// a label wins. A `[^label]: …` definition is not a node: it lives
+        /// here, and `.footnoteRef(label:)` inlines point at it.
+        public let footnotes: [String: [Inline]]
+
+        /// EVERY top-level node index → the `¶id` of the paragraph its first
+        /// line falls in. Dense where `anchors` is sparse: a paragraph that
+        /// produced three nodes maps all three. The same span math as
+        /// `anchors`, so `[:]` exactly when `anchors` is — no paragraphs, or
+        /// paragraphs that don't reconcile with `displayText`. A publish
+        /// problem reads it to name the paragraph an element came from.
+        public let nodeParagraphs: [Int: String]
+
+        /// Footnote label → the `¶id` of the paragraph holding the definition
+        /// `footnotes` kept (the first). `[:]` when `nodeParagraphs` is.
+        public let footnoteParagraphs: [String: String]
+
         public init(pieceID: String, title: String, mode: Mode, nodes: [Node],
-                    anchors: [Int: String] = [:]) {
+                    anchors: [Int: String] = [:],
+                    footnotes: [String: [Inline]] = [:],
+                    nodeParagraphs: [Int: String] = [:],
+                    footnoteParagraphs: [String: String] = [:]) {
             self.pieceID = pieceID
             self.title = title
             self.mode = mode
             self.nodes = nodes
             self.anchors = anchors
+            self.footnotes = footnotes
+            self.nodeParagraphs = nodeParagraphs
+            self.footnoteParagraphs = footnoteParagraphs
         }
     }
 
@@ -64,11 +87,21 @@ public struct ProjectAST: Equatable, Sendable {
 
     public enum ProseNode: Equatable, Sendable {
         case paragraph([Inline])              // a run of inline content
-        case heading(level: Int, [Inline])    // ATX `## Day 1/3` — section title
+        /// ATX `## Day 1/3` — a section title. `label` comes from a trailing
+        /// `{#kind:name}`, already stripped from the inlines; nil for a plain
+        /// heading. A label of the wrong kind is kept for the resolver to judge.
+        case heading(level: Int, [Inline], label: ManuscriptLabel? = nil)
         indirect case blockquote([ProseNode]) // `> …` markdown blockquote
         case sceneBreak
         case list(ordered: Bool, items: [[Inline]])   // flat, tight `- x` / `1. x`
         case verbatim([String])               // ``` fenced block — a mangle guard, not code support
+        /// A pipe table: one `[Inline]` per cell, one alignment per header
+        /// column, and the `Table: …` caption and label under it.
+        case table(header: [[Inline]], alignments: [TableAlignment], rows: [[[Inline]]],
+                   caption: [Inline]?, label: ManuscriptLabel?)
+        /// `![caption](path)` alone on its line. The path is as written; the
+        /// resolver judges it.
+        case figure(caption: [Inline], path: String, label: ManuscriptLabel?)
         // Inline emphasis/strong/code/wiki-links live inside
         // `paragraph([Inline])` via the `Inline` enum below — they are not
         // standalone block nodes.
@@ -86,6 +119,10 @@ public struct ProjectAST: Equatable, Sendable {
         case code(String)                     // `inline code` — never nests
         case wikiLink(target: String, display: String)
         case lineBreak                        // explicit "  \n" hard break
+        // Report markers (prose only; Fountain never produces them).
+        case footnoteRef(label: String)       // `[^label]` → `Section.footnotes[label]`
+        case citation([CitationItem])         // `[@key, locator; @key]`
+        case crossRef(ManuscriptLabel)        // `@fig:x`, `[@tbl:y]`
     }
 
     public enum FountainNode: Equatable, Sendable {
@@ -121,8 +158,9 @@ public struct ProjectAST: Equatable, Sendable {
 public extension ProjectAST.Node {
     static func paragraph(_ inlines: [ProjectAST.Inline]) -> Self { .prose(.paragraph(inlines)) }
     static func paragraph(_ s: String) -> Self { .prose(.paragraph([.text(s)])) }
-    static func heading(level: Int, _ inlines: [ProjectAST.Inline]) -> Self {
-        .prose(.heading(level: level, inlines))
+    static func heading(level: Int, _ inlines: [ProjectAST.Inline],
+                        label: ManuscriptLabel? = nil) -> Self {
+        .prose(.heading(level: level, inlines, label: label))
     }
     static func blockquote(_ nodes: [ProjectAST.ProseNode]) -> Self { .prose(.blockquote(nodes)) }
     static var sceneBreak: Self { .prose(.sceneBreak) }
@@ -138,4 +176,67 @@ public extension ProjectAST.FountainNode {
     static func parenthetical(_ s: String) -> Self { .parenthetical([.text(s)]) }
     static func lyric(_ s: String) -> Self { .lyric([.text(s)]) }
     static func centered(_ s: String) -> Self { .centered([.text(s)]) }
+}
+
+
+/// INTERIM — plan 2 Task 2 only; Tasks 5 and 6 replace every caller with real
+/// LaTeX and XHTML for the report elements, and delete this enum.
+///
+/// Until then the emitters print each report element as the literal source it
+/// came from, as they did before the AST knew these elements, so the build and
+/// the novel golden stay green between tasks. The source is rebuilt from the
+/// AST, which keeps the element's meaning but not its exact spelling:
+/// - table cells come back as `| a | b |` rows on ONE paragraph line, the
+///   delimiter row spelt `---`/`:--`/`:-:`/`--:`, and the caption as
+///   `Table: …` on the same line (the old output was one paragraph per block);
+/// - a citation comes back as `[@key, locator; @key]` with canonical spacing.
+///   In a bracket that mixes keys and labels the scanner gives the citation
+///   only its first key's item, so the brackets print twice there;
+/// - a footnote definition is not printed at all (it lives in
+///   `Section.footnotes`, which the emitters don't read yet).
+enum InterimReportLiteral {
+
+    /// ` {#kind:name}` for a labelled heading, or nothing.
+    static func labelSuffix(_ label: ManuscriptLabel?) -> [ProjectAST.Inline] {
+        label.map { [.text(" {#\($0.reference)}")] } ?? []
+    }
+
+    static func table(header: [[ProjectAST.Inline]], alignments: [TableAlignment],
+                      rows: [[[ProjectAST.Inline]]], caption: [ProjectAST.Inline]?,
+                      label: ManuscriptLabel?) -> [ProjectAST.Inline] {
+        func row(_ cells: [[ProjectAST.Inline]]) -> [ProjectAST.Inline] {
+            var out: [ProjectAST.Inline] = [.text("|")]
+            for cell in cells { out += [.text(" ")] + cell + [.text(" |")] }
+            return out
+        }
+        let delimiter = alignments.map { alignment -> [ProjectAST.Inline] in
+            switch alignment {
+            case .none:     return [.text("---")]
+            case .leading:  return [.text(":--")]
+            case .center:   return [.text(":-:")]
+            case .trailing: return [.text("--:")]
+            }
+        }
+        var out = row(header) + [.text(" ")] + row(delimiter)
+        for r in rows { out += [.text(" ")] + row(r) }
+        if caption != nil || label != nil {
+            out += [.text(" Table: ")] + (caption ?? []) + labelSuffix(label)
+        }
+        return out
+    }
+
+    static func figure(caption: [ProjectAST.Inline], path: String,
+                       label: ManuscriptLabel?) -> [ProjectAST.Inline] {
+        [.text("![")] + caption + [.text("](\(path))")] + labelSuffix(label)
+    }
+
+    static func footnoteRef(_ label: String) -> String { "[^\(label)]" }
+
+    static func citation(_ items: [CitationItem]) -> String {
+        "[" + items.map { item in
+            "@" + item.key + (item.locator.map { ", " + $0 } ?? "")
+        }.joined(separator: "; ") + "]"
+    }
+
+    static func crossRef(_ label: ManuscriptLabel) -> String { "@" + label.reference }
 }

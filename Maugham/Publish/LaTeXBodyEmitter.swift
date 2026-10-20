@@ -200,7 +200,10 @@ public enum LaTeXBodyEmitter {
         case .paragraph(let inlines):
             out.append(emitInline(inlines))
             out.append("")   // blank line → \par so paragraphs don't run together
-        case .heading(let level, let inlines):
+        case .heading(let level, let headingInlines, let label):
+            // INTERIM (Task 6 numbers and labels it): the label prints as the
+            // literal `{#kind:name}` it was written as.
+            let inlines = headingInlines + InterimReportLiteral.labelSuffix(label)
             let cmd = ["section", "subsection", "subsubsection"][min(max(level - 1, 0), 2)]
             out.append("\\\(cmd)*{\(emitInline(inlines))}")
             out.append("\\addcontentsline{toc}{\(cmd)}{\(plainText(inlines))}")
@@ -225,6 +228,14 @@ public enum LaTeXBodyEmitter {
             // optional argument and killed the compile ("Missing number").
             out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\newline "))
             out.append("")   // blank line → \par, matching .paragraph
+        // INTERIM (Task 5 renders them): the literal source as a paragraph.
+        case .table(let header, let alignments, let rows, let caption, let label):
+            emit(prose: .paragraph(InterimReportLiteral.table(
+                header: header, alignments: alignments, rows: rows,
+                caption: caption, label: label)), into: &out)
+        case .figure(let caption, let path, let label):
+            emit(prose: .paragraph(InterimReportLiteral.figure(
+                caption: caption, path: path, label: label)), into: &out)
         }
     }
 
@@ -244,6 +255,10 @@ public enum LaTeXBodyEmitter {
             // be captured as `\\`'s optional/star argument. Trailing space
             // stops the control word absorbing a following letter.
             case .lineBreak:        return "\\newline "
+            // INTERIM (Task 6 resolves them): the literal source.
+            case .footnoteRef(let label): return LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label))
+            case .citation(let items):    return LaTeXEscape.escape(InterimReportLiteral.citation(items))
+            case .crossRef(let label):    return LaTeXEscape.escape(InterimReportLiteral.crossRef(label))
             }
         }.joined()
     }
@@ -262,6 +277,10 @@ public enum LaTeXBodyEmitter {
             case .code(let s):              return LaTeXEscape.escape(s)
             case .wikiLink(_, let display): return LaTeXEscape.escape(display)
             case .lineBreak:                return " "
+            // INTERIM (Task 6): the literal source.
+            case .footnoteRef(let label):   return LaTeXEscape.escape(InterimReportLiteral.footnoteRef(label))
+            case .citation(let items):      return LaTeXEscape.escape(InterimReportLiteral.citation(items))
+            case .crossRef(let label):      return LaTeXEscape.escape(InterimReportLiteral.crossRef(label))
             }
         }.joined()
     }

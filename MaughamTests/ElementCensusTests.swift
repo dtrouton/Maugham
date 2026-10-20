@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Task 1: `ElementCensus` — what the book actually contains.
@@ -143,5 +144,38 @@ final class ElementCensusTests: XCTestCase {
         XCTAssertTrue(census.kinds.contains(.blockquote))
         XCTAssertTrue(census.kinds.contains(.sceneBreak))
         XCTAssertEqual(census.firstPiece[.sceneBreak], "p1")
+    }
+
+    // MARK: - report elements (plan 2 Task 2)
+
+    func testReportElements_censusedIncludingInsideCellsCaptionsAndFootnotes() {
+        let fig = ManuscriptLabel(reference: "fig:x")!
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "One", mode: .prose, nodes: [
+                .prose(.table(header: [[.text("h")]], alignments: [.none],
+                              rows: [[[.crossRef(fig)]]], caption: [.emphasis([.text("c")])],
+                              label: nil)),
+            ]),
+            .init(pieceID: "p2", title: "Two", mode: .prose, nodes: [
+                .prose(.figure(caption: [.text("cap")], path: "x.png", label: fig)),
+                .paragraph([.text("see"), .footnoteRef(label: "1")]),
+            ], footnotes: ["1": [.citation([CitationItem(key: "smith", locator: nil)])]]),
+        ])
+        let census = ElementCensus.take(from: ast)
+        XCTAssertEqual(census.kinds, [.table, .crossReference, .emphasis,
+                                      .figure, .paragraph, .footnote, .citation])
+        XCTAssertEqual(census.firstPiece[.table], "p1")
+        XCTAssertEqual(census.firstPiece[.crossReference], "p1")
+        XCTAssertEqual(census.firstPiece[.figure], "p2")
+        XCTAssertEqual(census.firstPiece[.footnote], "p2")
+        XCTAssertEqual(census.firstPiece[.citation], "p2", "a citation inside a footnote definition counts")
+    }
+
+    func testReportKinds_haveTheirWriterFacingLabels() {
+        XCTAssertEqual(ElementCensus.label(for: .table), "table")
+        XCTAssertEqual(ElementCensus.label(for: .figure), "figure")
+        XCTAssertEqual(ElementCensus.label(for: .footnote), "footnote")
+        XCTAssertEqual(ElementCensus.label(for: .citation), "citation")
+        XCTAssertEqual(ElementCensus.label(for: .crossReference), "cross-reference")
     }
 }

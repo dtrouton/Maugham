@@ -97,6 +97,17 @@ final class DesignerBriefingTests: XCTestCase {
         XCTAssertTrue(briefing.contains(ElementCensus.label(for: .wikiLink)))
     }
 
+    func test_census_listsTheReportKindsToo() {
+        let census = ElementCensus(
+            kinds: [.table, .figure, .footnote, .citation, .crossReference],
+            firstPiece: [.table: "p1", .figure: "p1", .footnote: "p1",
+                         .citation: "p1", .crossReference: "p1"])
+        let briefing = DesignerBriefing.compose(inputs: makeInputs(census: census))
+        for line in ["- table", "- figure", "- footnote", "- citation", "- cross-reference"] {
+            XCTAssertTrue(briefing.contains(line), "briefing must name \(line)")
+        }
+    }
+
     func test_census_carriesTheDemonstratesLinesFromSelection() {
         let selection = SamplePageSelection.Selection(
             pieceIds: ["p1", "p2"], maxPages: SamplePageSelection.maxPages,

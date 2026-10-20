@@ -125,7 +125,10 @@ public enum XHTMLBodyEmitter {
         switch prose {
         case .paragraph(let inlines):
             out.append("<p\(idAttribute(anchor))>\(emitInline(inlines))</p>")
-        case .heading(let level, let inlines):
+        case .heading(let level, let headingInlines, let label):
+            // INTERIM (Task 6 numbers and labels it): the label prints as the
+            // literal `{#kind:name}` it was written as.
+            let inlines = headingInlines + InterimReportLiteral.labelSuffix(label)
             // Reserve <h1> for the section title; markdown `#` starts at <h2>.
             let tag = "h\(min(level + 1, 6))"
             out.append("<\(tag)\(idAttribute(anchor))>\(emitInline(inlines))</\(tag)>")
@@ -145,6 +148,14 @@ public enum XHTMLBodyEmitter {
         case .verbatim(let lines):
             let joined = lines.map(XHTMLEscape.escape).joined(separator: "<br/>")
             out.append("<p class=\"verbatim\"\(idAttribute(anchor))>\(joined)</p>")
+        // INTERIM (Task 5 renders them): the literal source as a paragraph.
+        case .table(let header, let alignments, let rows, let caption, let label):
+            emit(prose: .paragraph(InterimReportLiteral.table(
+                header: header, alignments: alignments, rows: rows,
+                caption: caption, label: label)), anchor: anchor, into: &out)
+        case .figure(let caption, let path, let label):
+            emit(prose: .paragraph(InterimReportLiteral.figure(
+                caption: caption, path: path, label: label)), anchor: anchor, into: &out)
         }
     }
 
@@ -162,6 +173,10 @@ public enum XHTMLBodyEmitter {
                 return "<span class=\"wiki-link\" data-target=\"\(XHTMLEscape.attribute(target))\">"
                     + XHTMLEscape.escape(display) + "</span>"
             case .lineBreak:        return "<br/>"
+            // INTERIM (Task 6 resolves them): the literal source.
+            case .footnoteRef(let label): return XHTMLEscape.escape(InterimReportLiteral.footnoteRef(label))
+            case .citation(let items):    return XHTMLEscape.escape(InterimReportLiteral.citation(items))
+            case .crossRef(let label):    return XHTMLEscape.escape(InterimReportLiteral.crossRef(label))
             }
         }.joined()
     }
