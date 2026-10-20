@@ -26,7 +26,8 @@ public struct PublishResolution: Sendable {
         public let pieceID: String
         public let paragraphID: String?
         /// "Figure 3", "Table 2", "Section 1.2", or a heading's own text when
-        /// it has no number (`numberSections` off, or below level 3).
+        /// it has no number (`numberSections` off, or deeper than the three
+        /// shallowest heading levels the book uses).
         public let text: String
 
         public init(pieceID: String, paragraphID: String?, text: String) {
@@ -39,7 +40,10 @@ public struct PublishResolution: Sendable {
     public typealias ListEntry = (number: Int, caption: [ProjectAST.Inline], target: Target)
 
     public let targets: [ManuscriptLabel: Target]
-    /// pieceID → top-level node index → "1.2"; empty when `numberSections` is off.
+    /// pieceID → top-level node index → "1.2", over the three shallowest
+    /// heading levels the book uses (a book starting at `##` numbers its `##`
+    /// as "1"); empty when `numberSections` is off. A skipped level (`#` then
+    /// `###`) reads "1.0.1", as Pandoc's does.
     public let headingNumbers: [String: [Int: String]]
     /// pieceID → top-level node index → n. Every figure is numbered, labelled or not.
     public let figureNumbers: [String: [Int: Int]]
@@ -61,6 +65,10 @@ public struct PublishResolution: Sendable {
     /// R-P2-5: the cited sources only, in References order; empty when the
     /// body cites nothing.
     public let references: [[CitationStyle.Run]]
+    /// The cited keys, index-aligned with `references`. References are
+    /// whole-book like everything here; a subset edition that ever wants only
+    /// its own cited sources can filter by these keys rather than re-resolve.
+    public let referenceKeys: [String]
     /// Every figure, in book order; empty when the switch is off (R-P2-6).
     public let listOfFigures: [ListEntry]
     /// Every table, in book order; empty when the switch is off (R-P2-6).
@@ -69,9 +77,9 @@ public struct PublishResolution: Sendable {
 
     /// The ONE key `citationText` is looked up by; the emitters call it too,
     /// so a lookup can never disagree with what was stored. Order and
-    /// locators matter. Unambiguous: a key can't hold a comma, and a locator
-    /// never spans a line (the inline scanner never crosses `\n`), so items
-    /// join on a newline.
+    /// locators matter. Unambiguous: a key can't hold a comma, and the items
+    /// come from `ManuscriptInlineScanner`, whose locators never contain `\n`
+    /// (it never spans a line), so items join on a newline.
     public static func citationKey(_ items: [CitationItem]) -> String {
         items.map { item in
             "@" + item.key + (item.locator.map { "," + $0 } ?? "")
@@ -94,12 +102,17 @@ public struct PublishResolution: Sendable {
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
                                imageAllowed: Set<String>) -> PublishResolution {
         var pass = Pass(context: context, bodyTag: bodyTag, imageAllowed: imageAllowed)
+        pass.headingBase = ast.sections.flatMap(\.nodes).compactMap { node -> Int? in
+            guard case .prose(.heading(let level, _, _)) = node else { return nil }
+            return level
+        }.min() ?? 1
         for section in ast.sections { pass.collect(section) }
         for section in ast.sections { pass.resolveInlines(section) }
         return pass.finish()
     }
 
-    fileprivate init(pass: Pass, references: [[CitationStyle.Run]], citationText: [String: String]) {
+    fileprivate init(pass: Pass, references: [[CitationStyle.Run]], referenceKeys: [String],
+                     citationText: [String: String]) {
         let switches = pass.context.switches
         targets = pass.targets
         headingNumbers = pass.headingNumbers
@@ -109,6 +122,7 @@ public struct PublishResolution: Sendable {
         figureFiles = pass.figureFiles
         self.citationText = citationText
         self.references = references
+        self.referenceKeys = referenceKeys
         listOfFigures = switches.listOfFigures ? pass.figures : []
         listOfTables = switches.listOfTables ? pass.tables : []
         problems = pass.problems
@@ -134,7 +148,12 @@ private struct Pass {
 
     /// pieceID → its position in the book, so problems read in book order.
     private var pieceOrder: [String: Int] = [:]
+    /// The shallowest top-level heading level in the book: numbering counts
+    /// from it (R-S7), so a book that starts at `##` never prints "0.".
+    var headingBase = 1
     private var headingCounters = [0, 0, 0]
+    /// Per-occurrence problems already reported, so `[@x; @x]` is one.
+    private var reportedOnce = Set<PublishProblem>()
     private var nextFootnote = 1
     /// Known cited keys in first-citation order, and every citation seen.
     private var cited: [String] = []
@@ -186,13 +205,16 @@ private struct Pass {
         }
     }
 
-    /// R-P2-2: levels 1–3 numbered hierarchically across the book; a missing
-    /// ancestor counts as 0 ("0.1"), as Pandoc's `--number-sections` does.
+    /// R-P2-2 with R-S7: the three shallowest heading levels the book uses
+    /// (`headingBase` … `headingBase + 2`) are numbered hierarchically across
+    /// the book; deeper ones are not. A skipped level (`#` then `###`) reads
+    /// "1.0.1", as Pandoc's `--number-sections` does.
     private mutating func headingNumber(level: Int) -> String? {
-        guard (1...3).contains(level) else { return nil }
-        headingCounters[level - 1] += 1
-        for deeper in level..<3 { headingCounters[deeper] = 0 }
-        return headingCounters[0..<level].map(String.init).joined(separator: ".")
+        let relative = level - headingBase + 1
+        guard (1...3).contains(relative) else { return nil }
+        headingCounters[relative - 1] += 1
+        for deeper in relative..<3 { headingCounters[deeper] = 0 }
+        return headingCounters[0..<relative].map(String.init).joined(separator: ".")
     }
 
     private mutating func register(_ label: ManuscriptLabel?, expected: ManuscriptLabel.Kind,
@@ -251,7 +273,7 @@ private struct Pass {
                 case .footnoteRef(let label):
                     referenced.insert(label)
                     if section.footnotes[label] == nil {
-                        report(.missingFootnoteDefinition(label), piece: piece, paragraph: paragraph)
+                        reportOnce(.missingFootnoteDefinition(label), piece: piece, paragraph: paragraph)
                     } else if !used.contains(label) {
                         used.append(label)
                     }
@@ -259,7 +281,7 @@ private struct Pass {
                     citations.append(items)
                     for item in items {
                         if context.library.entry(for: item.key) == nil {
-                            report(.unknownCitationKey(item.key), piece: piece, paragraph: paragraph)
+                            reportOnce(.unknownCitationKey(item.key), piece: piece, paragraph: paragraph)
                         } else if !cited.contains(item.key) {
                             cited.append(item.key)
                         }
@@ -298,6 +320,8 @@ private struct Pass {
         }
         // The definitions this piece uses, in numbering order; a reference
         // inside one appends to `used`, so this walks to a fixed point.
+        // Unused definitions are deliberately not walked: they never render,
+        // and they get their own warning below.
         var next = 0
         while next < used.count {
             let label = used[next]
@@ -318,6 +342,14 @@ private struct Pass {
     }
 
     // MARK: finish
+
+    /// Once per (piece, paragraph, key or label): a paragraph that repeats a
+    /// broken key is one problem, and each paragraph is still named.
+    private mutating func reportOnce(_ kind: PublishProblem.Kind, piece: String, paragraph: String?) {
+        let problem = PublishProblem(kind: kind, pieceID: piece, paragraphID: paragraph, bodyTag: bodyTag)
+        guard reportedOnce.insert(problem).inserted else { return }
+        problems.append(problem)
+    }
 
     private mutating func report(_ kind: PublishProblem.Kind, piece: String, paragraph: String?) {
         problems.append(.init(kind: kind, pieceID: piece, paragraphID: paragraph, bodyTag: bodyTag))
@@ -340,6 +372,7 @@ private struct Pass {
         return PublishResolution(
             pass: self,
             references: ordered.map { CitationStyle.referenceEntry($0.entry, label: $0.label) },
+            referenceKeys: ordered.map(\.entry.info.key),
             citationText: text)
     }
 }

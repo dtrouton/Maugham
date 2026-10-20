@@ -101,6 +101,23 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.problems, [])
     }
 
+    /// R-S7: numbering counts from the shallowest level the book uses, so a
+    /// book that starts at `##` never prints a leading "0.".
+    func test_headingNumbers_countFromTheShallowestLevelUsed() throws {
+        let book = Book(pieces: [
+            ("a", [("a1b2", "## Scope {#sec:scope}"),
+                   ("c3d4", "### Detail {#sec:detail}"),
+                   ("e5f6", "##### Too deep")]),
+            ("b", [("g7h8", "## Method"),
+                   ("j9k0", "See @sec:detail.")]),
+        ], context: context())
+        let r = try resolve(book)
+        XCTAssertEqual(r.headingNumbers, ["a": [0: "1", 1: "1.1"], "b": [0: "2"]],
+                       "three levels below the shallowest is unnumbered")
+        XCTAssertEqual(r.targets[label("sec:detail")]?.text, "Section 1.1")
+        XCTAssertEqual(r.targets[label("sec:scope")]?.text, "Section 1")
+    }
+
     func test_numberSectionsOff_aSectionReferenceReadsAsTheHeadingsText() throws {
         let book = Book(pieces: [("a", [("a1b2", "## The *Long* View {#sec:view}"),
                                         ("c3d4", "See @sec:view.")])],
@@ -187,8 +204,21 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.citationText[PublishResolution.citationKey(s2)], "(Smith 2026b, p. 3)")
         XCTAssertEqual(r.citationText[PublishResolution.citationKey(both)], "(Smith 2026a; Smith 2026b)")
         XCTAssertEqual(r.references.count, 2)
+        XCTAssertEqual(r.referenceKeys, ["s1", "s2"], "the cited keys, in References order")
         XCTAssertEqual(r.references.first?.first?.text, "Smith, Jane.")
         XCTAssertEqual(r.problems, [])
+    }
+
+    func test_aRepeatedKeyOrFootnoteInOneParagraph_isOneProblem() throws {
+        let book = Book(pieces: [("a", [
+            ("a1b2", "Twice [@x; @x] and [@x, p. 2], gone[^g] gone[^g]."),
+            ("c3d4", "Again [@x] and[^g]."),
+        ])], context: context())
+        let r = try resolve(book)
+        XCTAssertEqual(r.problems.map(\.kind), [.unknownCitationKey("x"), .missingFootnoteDefinition("g"),
+                                                 .unknownCitationKey("x"), .missingFootnoteDefinition("g")])
+        XCTAssertEqual(r.problems.map(\.paragraphID), ["a1b2", "a1b2", "c3d4", "c3d4"],
+                       "one per paragraph, so each paragraph is still named")
     }
 
     func test_citationKey_distinguishesLocatorsAndOrder() {

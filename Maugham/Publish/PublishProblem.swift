@@ -9,9 +9,9 @@ import MaughamCore
 /// Each problem names its piece and the `¶id` of the paragraph it came from,
 /// so the writer can jump there. Whether it blocks a compile is
 /// `isError(profile:)`, the ONE severity table (R-P2-1).
-public struct PublishProblem: Sendable, Equatable {
+public struct PublishProblem: Sendable, Hashable {
 
-    public enum Kind: Sendable, Equatable {
+    public enum Kind: Sendable, Hashable {
         /// `@fig:x` (or `tbl:`/`sec:`) with no element carrying that label.
         case unresolvedCrossRef(ManuscriptLabel)
         /// `[@key]` with no live research source carrying that key.
