@@ -116,10 +116,14 @@ enum FigureThumbnailLayout {
         }
     }
 
-    /// The pixel size to decode at: the larger side a thumbnail can be drawn
-    /// at in this column, on this screen.
-    static func maxPixelSize(columnWidth: CGFloat, backingScale: CGFloat) -> Int {
-        Int((max(columnWidth, maxHeight) * max(1, backingScale)).rounded(.up))
+    /// The pixel size to decode at: the longer side of the size this picture
+    /// is actually drawn at (`fittedSize`, known from its header before any
+    /// decode), on this screen. A portrait page held to 120 pt decodes at
+    /// 240 px on a Retina screen, not at the column's width.
+    static func decodePixelSize(natural: CGSize, columnWidth: CGFloat,
+                                backingScale: CGFloat) -> Int {
+        let fitted = fittedSize(natural: natural, columnWidth: columnWidth)
+        return max(1, Int((max(fitted.width, fitted.height) * max(1, backingScale)).rounded(.up)))
     }
 }
 
@@ -224,28 +228,44 @@ final class FigureThumbnailStore {
         self.now = now
     }
 
-    func thumbnail(for path: String, maxPixelSize: Int) -> Thumbnail? {
+    /// - Parameters:
+    ///   - columnWidth: the column a thumbnail is fitted to.
+    ///   - backingScale: the screen's, so the decode is sharp and no larger.
+    func thumbnail(for path: String, columnWidth: CGFloat, backingScale: CGFloat) -> Thumbnail? {
         let entry = known[path]
         let stale = entry.map { now().timeIntervalSince($0.checkedAt) >= Self.recheckInterval } ?? true
-        if stale, work[path] == nil { start(path, maxPixelSize: maxPixelSize) }
+        if stale, work[path] == nil {
+            start(path, columnWidth: columnWidth, backingScale: backingScale)
+        }
         return entry?.thumbnail
     }
 
     /// The check or decode running for `path`, so a test can await it.
     func pendingWork(for path: String) -> Task<Void, Never>? { work[path] }
 
-    private func start(_ path: String, maxPixelSize: Int) {
+    /// Stops every check and decode in flight and tells no one (the editor is
+    /// going away: `EditorCoordinator.detach`).
+    func cancelAll() {
+        onUpdate = nil
+        work.values.forEach { $0.cancel() }
+        work.removeAll()
+    }
+
+    private func start(_ path: String, columnWidth: CGFloat, backingScale: CGFloat) {
         let resolve = self.resolve
         work[path] = Task { [weak self] in
             let found = await Task.detached(priority: .utility) {
                 Self.locate(path, resolve: resolve)
             }.value
-            await self?.finish(path, found: found, maxPixelSize: maxPixelSize)
+            guard !Task.isCancelled else { return }
+            await self?.finish(path, found: found, columnWidth: columnWidth,
+                               backingScale: backingScale)
         }
     }
 
-    private func finish(_ path: String, found: Located, maxPixelSize: Int) async {
-        defer { work[path] = nil }
+    private func finish(_ path: String, found: Located, columnWidth: CGFloat,
+                        backingScale: CGFloat) async {
+        defer { if !Task.isCancelled { work[path] = nil } }
         switch found {
         case .notShown(let message):
             record(path, .unshowable(message), key: nil)
@@ -256,8 +276,9 @@ final class FigureThumbnailStore {
             }
             decodeCount += 1
             let decoded = await Task.detached(priority: .utility) {
-                Self.decode(url, maxPixelSize: maxPixelSize)
+                Self.decode(url, columnWidth: columnWidth, backingScale: backingScale)
             }.value
+            guard !Task.isCancelled else { return }
             let thumbnail = decoded.map { Thumbnail.image($0.image, natural: $0.natural) }
                 ?? .unshowable(Self.notFoundMessage)
             cache.insert(thumbnail, for: key)
@@ -308,14 +329,22 @@ final class FigureThumbnailStore {
         let natural: CGSize
     }
 
-    /// A thumbnail no larger than `maxPixelSize` on its longer side: ImageIO's
-    /// thumbnailer for a raster (never a full decode), page 1 for a PDF.
-    /// `natural` is the picture's own size in points (one pixel each, the way
-    /// a browser shows an image; a PDF page's own size).
-    nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> Decoded? {
-        if url.pathExtension.lowercased() == "pdf" { return decodePDF(url, maxPixelSize: maxPixelSize) }
+    /// A thumbnail at the size it is drawn at in `columnWidth` on a screen of
+    /// `backingScale` (`FigureThumbnailLayout.decodePixelSize`): ImageIO's
+    /// thumbnailer for a raster (never a full decode), page 1 for a PDF. The
+    /// natural size comes from the header first, so the decode is no larger
+    /// than the drawing. `natural` is the picture's own size in points (one
+    /// pixel each, the way a browser shows an image; a PDF page's own size).
+    nonisolated static func decode(_ url: URL, columnWidth: CGFloat,
+                                   backingScale: CGFloat) -> Decoded? {
+        if url.pathExtension.lowercased() == "pdf" {
+            return decodePDF(url, columnWidth: columnWidth, backingScale: backingScale)
+        }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              CGImageSourceGetCount(source) > 0 else { return nil }
+              CGImageSourceGetCount(source) > 0,
+              let natural = orientedPixelSize(source) else { return nil }
+        let maxPixelSize = FigureThumbnailLayout.decodePixelSize(
+            natural: natural, columnWidth: columnWidth, backingScale: backingScale)
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -324,24 +353,28 @@ final class FigureThumbnailStore {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
         else { return nil }
-        // The thumbnail is already oriented; scale its shape back up to the
-        // original's longer side for the natural size.
-        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        let w = (props?[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue ?? 0
-        let h = (props?[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 0
-        let longest = max(w, h)
-        let thumbLongest = Double(max(image.width, image.height))
-        let factor = longest > 0 && thumbLongest > 0 ? longest / thumbLongest : 1
-        return Decoded(image: image,
-                       natural: CGSize(width: (Double(image.width) * factor).rounded(),
-                                       height: (Double(image.height) * factor).rounded()))
+        return Decoded(image: image, natural: natural)
     }
 
-    nonisolated private static func decodePDF(_ url: URL, maxPixelSize: Int) -> Decoded? {
+    /// The picture's pixel size from its header (no decode), as displayed:
+    /// EXIF orientations 5–8 turn it a quarter, so width and height swap.
+    nonisolated private static func orientedPixelSize(_ source: CGImageSource) -> CGSize? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+              w > 0, h > 0 else { return nil }
+        let orientation = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        return (5...8).contains(orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+    }
+
+    nonisolated private static func decodePDF(_ url: URL, columnWidth: CGFloat,
+                                              backingScale: CGFloat) -> Decoded? {
         guard let document = CGPDFDocument(url as CFURL), !document.isEncrypted,
               let page = document.page(at: 1) else { return nil }
         let box = page.getBoxRect(.cropBox)
         guard box.width > 0, box.height > 0 else { return nil }
+        let maxPixelSize = FigureThumbnailLayout.decodePixelSize(
+            natural: box.size, columnWidth: columnWidth, backingScale: backingScale)
         let scale = min(1, CGFloat(maxPixelSize) / max(box.width, box.height))
         let width = max(1, Int((box.width * scale).rounded()))
         let height = max(1, Int((box.height * scale).rounded()))
@@ -413,7 +446,16 @@ final class FigureThumbnailOverlay: NSView {
                            name: NSView.boundsDidChangeNotification, object: clip)
         }
     }
-    @objc private func repaint(_ note: Notification) { needsDisplay = true }
+    /// Skipped when there is no figure now and none was in view at the last
+    /// draw: a figure-free manuscript never repaints its overlay.
+    @objc private func repaint(_ note: Notification) {
+        guard lastVisibleFigureCount > 0
+                || coordinator?.figureThumbnailMarks.isEmpty == false else { return }
+        repaintRequests += 1
+        needsDisplay = true
+    }
+    /// How many observed changes asked for a repaint (the M5 test's reading).
+    private(set) var repaintRequests = 0
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -442,12 +484,12 @@ final class FigureThumbnailOverlay: NSView {
         let padding = container.lineFragmentPadding
         let columnX = origin.x + padding
         let columnWidth = max(0, container.size.width - 2 * padding)
-        let maxPixels = FigureThumbnailLayout.maxPixelSize(
-            columnWidth: columnWidth, backingScale: window?.backingScaleFactor ?? 2)
+        let backingScale = window?.backingScaleFactor ?? 2
 
         for mark in visible {
             guard mark.lineRange.length > 0, NSMaxRange(mark.lineRange) <= storage.length,
-                  let thumbnail = store.thumbnail(for: mark.path, maxPixelSize: maxPixels)
+                  let thumbnail = store.thumbnail(for: mark.path, columnWidth: columnWidth,
+                                                  backingScale: backingScale)
             else { continue }
             let lastGlyph = layoutManager.glyphIndexForCharacter(at: NSMaxRange(mark.lineRange) - 1)
             let used = layoutManager.lineFragmentUsedRect(forGlyphAt: lastGlyph, effectiveRange: nil)
@@ -537,6 +579,33 @@ extension EditorCoordinator {
         guard let overlay = figureThumbnailOverlay else { return }
         overlay.frame = textView.bounds
         overlay.needsDisplay = true
+    }
+
+    /// The room a figure on the document's LAST line needs below the text:
+    /// TextKit 1 lays out no paragraph spacing after a final paragraph with no
+    /// newline, so `MaughamTextView` adds this to its height instead
+    /// (`heightHoldingATrailingFigure`). Zero otherwise. Text-derived.
+    var figureTrailingRoom: CGFloat {
+        guard let last = figureThumbnailMarks.last, let textView,
+              NSMaxRange(last.lineRange) == (textView.string as NSString).length else { return 0 }
+        return FigureThumbnailLayout.reservedHeight
+    }
+
+    /// After a retokenize: re-size the text view when the trailing room
+    /// changed (a figure became, or stopped being, the last line), and
+    /// repaint the overlay when there are figures or were some in view.
+    func figureThumbnailTokensDidChange() {
+        guard showsFigureThumbnails, let textView else { return }
+        let room = figureTrailingRoom
+        if room != lastFigureTrailingRoom {
+            lastFigureTrailingRoom = room
+            // Only on a flip (rare): AppKit re-sizes, through the override.
+            textView.sizeToFit()
+        }
+        if let overlay = figureThumbnailOverlay,
+           overlay.lastVisibleFigureCount > 0 || !figureThumbnailMarks.isEmpty {
+            overlay.needsDisplay = true
+        }
     }
 
     /// The figure lines in `lastTokens`, derived once per retokenize.

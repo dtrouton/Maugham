@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 import MaughamCore
 @testable import Maugham
 
@@ -100,11 +101,14 @@ final class FigureThumbnailTests: XCTestCase {
                        FigureThumbnailLayout.maxHeight + 2 * FigureThumbnailLayout.gap)
     }
 
-    func test_maxPixelSize_coversTheColumnAtTheBackingScale() {
-        XCTAssertEqual(FigureThumbnailLayout.maxPixelSize(columnWidth: 600, backingScale: 2), 1200)
-        XCTAssertEqual(FigureThumbnailLayout.maxPixelSize(columnWidth: 80, backingScale: 2), 240,
-                       "never less than the height cap")
-        XCTAssertEqual(FigureThumbnailLayout.maxPixelSize(columnWidth: 600, backingScale: 1), 600)
+    /// The decode is sized to the DRAWN picture (fix round 1, M1).
+    func test_decodePixelSize_isTheDrawnSizeAtTheBackingScale() {
+        let size = { FigureThumbnailLayout.decodePixelSize(natural: $0, columnWidth: 600, backingScale: $1) }
+        XCTAssertEqual(size(CGSize(width: 3000, height: 300), 2), 1200, "a panorama: the column's width")
+        XCTAssertEqual(size(CGSize(width: 1000, height: 4000), 2), 240,
+                       "a portrait page: 120 pt tall, not the column's width")
+        XCTAssertEqual(size(CGSize(width: 100, height: 50), 2), 200, "a small picture: its own size")
+        XCTAssertEqual(size(CGSize(width: 1000, height: 4000), 1), 120)
     }
 
     // MARK: - Which lines are figures
@@ -210,11 +214,11 @@ final class FigureThumbnailTests: XCTestCase {
         let png = TestTemp.root.appendingPathComponent("a.png")
         try writePNG(to: png, width: 400, height: 100)
         let store = store(resolving: ["../research/a.png": png])
-        XCTAssertNil(store.thumbnail(for: "../research/a.png", maxPixelSize: 200),
+        XCTAssertNil(store.thumbnail(for: "../research/a.png", columnWidth: 200, backingScale: 1),
                      "nothing is known before the first decode lands")
         await store.pendingWork(for: "../research/a.png")?.value
         guard case .image(let image, let natural)? = store.thumbnail(for: "../research/a.png",
-                                                                      maxPixelSize: 200) else {
+                                                                      columnWidth: 200, backingScale: 1) else {
             return XCTFail("expected a thumbnail")
         }
         XCTAssertEqual(natural, CGSize(width: 400, height: 100))
@@ -222,13 +226,43 @@ final class FigureThumbnailTests: XCTestCase {
                                  "decoded as a thumbnail, never in full")
     }
 
+    /// A portrait picture decodes at the size it is drawn (120 pt tall), not
+    /// at the column's width (fix round 1, M1).
+    func test_store_aPortraitPictureDecodesAtItsDrawnHeight() async throws {
+        let png = TestTemp.root.appendingPathComponent("tall.png")
+        try writePNG(to: png, width: 300, height: 3000)
+        let store = store(resolving: ["tall.png": png])
+        _ = store.thumbnail(for: "tall.png", columnWidth: 600, backingScale: 2)
+        await store.pendingWork(for: "tall.png")?.value
+        guard case .image(let image, let natural)? = store.thumbnail(
+            for: "tall.png", columnWidth: 600, backingScale: 2) else { return XCTFail("expected a thumbnail") }
+        XCTAssertEqual(natural, CGSize(width: 300, height: 3000))
+        XCTAssertEqual(image.height, 240, "120 pt × 2, not 1,200 px")
+    }
+
+    /// `detach` stops work in flight, and nothing lands afterwards (M4).
+    func test_store_cancelAllStopsWorkAndTellsNoOne() async throws {
+        let png = TestTemp.root.appendingPathComponent("cancel.png")
+        try writePNG(to: png, width: 10, height: 10)
+        let store = store(resolving: ["cancel.png": png])
+        var updates = 0
+        store.onUpdate = { updates += 1 }
+        _ = store.thumbnail(for: "cancel.png", columnWidth: 50, backingScale: 1)
+        let work = try XCTUnwrap(store.pendingWork(for: "cancel.png"))
+        store.cancelAll()
+        XCTAssertNil(store.pendingWork(for: "cancel.png"))
+        await work.value
+        XCTAssertEqual(updates, 0)
+        XCTAssertEqual(store.decodeCount, 0)
+    }
+
     func test_store_rendersAPDFsFirstPage() async throws {
         let pdf = TestTemp.root.appendingPathComponent("p.pdf")
         writePDF(to: pdf, width: 300, height: 150)
         let store = store(resolving: ["p.pdf": pdf])
-        _ = store.thumbnail(for: "p.pdf", maxPixelSize: 120)
+        _ = store.thumbnail(for: "p.pdf", columnWidth: 120, backingScale: 1)
         await store.pendingWork(for: "p.pdf")?.value
-        guard case .image(let image, let natural)? = store.thumbnail(for: "p.pdf", maxPixelSize: 120)
+        guard case .image(let image, let natural)? = store.thumbnail(for: "p.pdf", columnWidth: 120, backingScale: 1)
         else { return XCTFail("expected page 1") }
         XCTAssertEqual(natural, CGSize(width: 300, height: 150))
         XCTAssertEqual(image.width, 120)
@@ -239,9 +273,9 @@ final class FigureThumbnailTests: XCTestCase {
         try Data("not a picture".utf8).write(to: junk)
         let store = store(resolving: ["junk.png": junk])
         for path in ["junk.png", "../elsewhere/x.png"] {
-            _ = store.thumbnail(for: path, maxPixelSize: 100)
+            _ = store.thumbnail(for: path, columnWidth: 100, backingScale: 1)
             await store.pendingWork(for: path)?.value
-            XCTAssertEqual(store.thumbnail(for: path, maxPixelSize: 100)?.message,
+            XCTAssertEqual(store.thumbnail(for: path, columnWidth: 100, backingScale: 1)?.message,
                            FigureThumbnailStore.notFoundMessage, path)
         }
     }
@@ -250,9 +284,9 @@ final class FigureThumbnailTests: XCTestCase {
         let svg = TestTemp.root.appendingPathComponent("d.svg")
         try Data("<svg xmlns=\"http://www.w3.org/2000/svg\"/>".utf8).write(to: svg)
         let store = store(resolving: ["d.svg": svg])
-        _ = store.thumbnail(for: "d.svg", maxPixelSize: 100)
+        _ = store.thumbnail(for: "d.svg", columnWidth: 100, backingScale: 1)
         await store.pendingWork(for: "d.svg")?.value
-        XCTAssertEqual(store.thumbnail(for: "d.svg", maxPixelSize: 100)?.message,
+        XCTAssertEqual(store.thumbnail(for: "d.svg", columnWidth: 100, backingScale: 1)?.message,
                        FigureThumbnailStore.svgMessage)
     }
 
@@ -263,7 +297,7 @@ final class FigureThumbnailTests: XCTestCase {
         try writePNG(to: png, width: 10, height: 10)
         let store = store(resolving: ["a/once.png": png, "a/./once.png": png])
         for path in ["a/once.png", "a/./once.png"] {
-            _ = store.thumbnail(for: path, maxPixelSize: 50)
+            _ = store.thumbnail(for: path, columnWidth: 50, backingScale: 1)
             await store.pendingWork(for: path)?.value
         }
         XCTAssertEqual(store.decodeCount, 1)
@@ -275,7 +309,7 @@ final class FigureThumbnailTests: XCTestCase {
         let store = store(resolving: ["tell.png": png])
         var updates = 0
         store.onUpdate = { updates += 1 }
-        _ = store.thumbnail(for: "tell.png", maxPixelSize: 50)
+        _ = store.thumbnail(for: "tell.png", columnWidth: 50, backingScale: 1)
         await store.pendingWork(for: "tell.png")?.value
         XCTAssertEqual(updates, 1)
     }
@@ -315,6 +349,124 @@ final class FigureThumbnailTests: XCTestCase {
         let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
         overlay.display()
         XCTAssertEqual(overlay.lastVisibleFigureCount, 1)
+    }
+
+    // MARK: - A figure on the last line (fix round 1, I1)
+    //
+    // TextKit 1 lays out no `paragraphSpacing` after a final paragraph with no
+    // newline, so the text view itself must make the room: its height reaches
+    // the thumbnail's frame plus the bottom inset.
+
+    private struct Mounted {
+        let window: NSWindow
+        let textView: MaughamTextView
+        let coordinator: EditorCoordinator
+    }
+
+    private func mountedTextView(_ text: String) -> Mounted {
+        let tv = MaughamTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        _ = tv.layoutManager   // TextKit 1, as EditorSurface.makeNSView pins it
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.string = text
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        scroll.documentView = tv
+        let window = TestWindow.make(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                                     contentView: scroll, present: .unshown)
+        let coord = EditorCoordinator(
+            text: Binding(get: { tv.string }, set: { _ in }),
+            mode: ProseMode(reservesFigureThumbnails: true),
+            theme: .light, typography: .defaults, typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+        coord.figureImageResolver = { _ in .notLocal }
+        tv.delegate = coord
+        tv.coordinator = coord
+        coord.attach(to: tv)
+        settle(tv)
+        return Mounted(window: window, textView: tv, coordinator: coord)
+    }
+
+    private func settle(_ tv: NSTextView) {
+        tv.layoutManager?.ensureLayout(for: tv.textContainer!)
+        tv.sizeToFit()
+    }
+
+    /// The bottom of the tallest thumbnail under the document's last line, in
+    /// the text view's coordinates.
+    private func lowestThumbnailBottom(_ tv: NSTextView) -> CGFloat {
+        let lm = tv.layoutManager!
+        let last = lm.glyphIndexForCharacter(at: (tv.string as NSString).length - 1)
+        let used = lm.lineFragmentUsedRect(forGlyphAt: last, effectiveRange: nil)
+        return used.maxY + tv.textContainerOrigin.y
+            + FigureThumbnailLayout.gap + FigureThumbnailLayout.maxHeight
+    }
+
+    private let filler = (0..<12).map { "Paragraph \($0) of plain prose." }.joined(separator: "\n\n")
+
+    func test_lastLine_aDocumentEndingOnAFigureHasRoomForItsThumbnail() {
+        let m = mountedTextView(filler + "\n\n![Last](../research/last.png)")
+        XCTAssertGreaterThanOrEqual(
+            m.textView.frame.height,
+            lowestThumbnailBottom(m.textView) + m.textView.textContainerInset.height)
+    }
+
+    /// The control: with a paragraph after it, the figure's own spacing makes
+    /// the room and the document's last line is prose.
+    func test_lastLine_aFigureFollowedByProseNeedsNoExtraRoom() {
+        let m = mountedTextView(filler + "\n\n![Mid](../research/mid.png)\n\nAfter.")
+        XCTAssertEqual(m.coordinator.figureTrailingRoom, 0)
+        let figureLine = (m.textView.string as NSString).range(of: "![Mid]")
+        let lm = m.textView.layoutManager!
+        let used = lm.lineFragmentUsedRect(
+            forGlyphAt: lm.glyphIndexForCharacter(at: figureLine.location), effectiveRange: nil)
+        let afterRect = lm.lineFragmentUsedRect(
+            forGlyphAt: lm.glyphIndexForCharacter(at: (m.textView.string as NSString).length - 1),
+            effectiveRange: nil)
+        XCTAssertGreaterThanOrEqual(afterRect.minY - used.maxY, FigureThumbnailLayout.reservedHeight,
+                                    "the paragraph spacing already holds the thumbnail")
+    }
+
+    /// Completing the figure by typing its `)` at the very end grows the view.
+    func test_lastLine_typingTheClosingParenthesisMakesTheRoom() {
+        let m = mountedTextView(filler + "\n\n![Last](../research/last.png")
+        XCTAssertEqual(m.coordinator.figureTrailingRoom, 0)
+        let end = (m.textView.string as NSString).length
+        m.textView.setSelectedRange(NSRange(location: end, length: 0))
+        m.textView.insertText(")", replacementRange: NSRange(location: end, length: 0))
+        // Layout only: the resize must come from the coordinator's trigger,
+        // not from a `sizeToFit` the test makes.
+        m.textView.layoutManager?.ensureLayout(for: m.textView.textContainer!)
+        XCTAssertEqual(m.coordinator.figureTrailingRoom, FigureThumbnailLayout.reservedHeight)
+        XCTAssertGreaterThanOrEqual(
+            m.textView.frame.height,
+            lowestThumbnailBottom(m.textView) + m.textView.textContainerInset.height)
+    }
+
+    /// A figure-free manuscript never repaints its overlay on an edit (M5);
+    /// the control, with a figure in view, does.
+    func test_mounted_noFigureNoRepaint() throws {
+        for (text, expected) in [("Just prose.\n\nMore prose.", false),
+                                 ("![Near](../research/near.png)\n\nAfter.", true)] {
+            let harness = mounted(text)
+            let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
+            overlay.display()
+            let before = overlay.repaintRequests
+            harness.textView.didChangeText()   // posts NSText.didChangeNotification
+            XCTAssertEqual(overlay.repaintRequests - before, expected ? 1 : 0, text)
+        }
+    }
+
+    /// `detach` stops the thumbnail work in flight (M4).
+    func test_mounted_detachCancelsThumbnailWork() throws {
+        let harness = mounted("![Near](../research/near.png)\n\nAfter.")
+        let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
+        overlay.display()
+        let store = try XCTUnwrap(harness.coordinator.figureThumbnailStore)
+        XCTAssertNotNil(store.pendingWork(for: "../research/near.png"))
+        harness.coordinator.detach()
+        XCTAssertNil(store.pendingWork(for: "../research/near.png"))
     }
 
     /// A surface with no resolver (a research note, a statement) gets none.

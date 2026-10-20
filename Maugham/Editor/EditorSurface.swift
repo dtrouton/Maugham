@@ -769,8 +769,22 @@ final class MaughamTextView: NSTextView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
+        super.setFrameSize(heightHoldingATrailingFigure(newSize))
         updateColumnInset()
+    }
+
+    /// TextKit 1 lays out no `paragraphSpacing` after a final paragraph with
+    /// no newline, so a figure on the document's last line would draw its
+    /// thumbnail past the frame, where no scroll reaches it. The view grows by
+    /// the room itself (`EditorCoordinator.figureTrailingRoom`, derived from
+    /// the text) — never by a character in the storage. Computed from the
+    /// laid-out text each time, so repeated calls never accumulate.
+    private func heightHoldingATrailingFigure(_ size: NSSize) -> NSSize {
+        guard isVerticallyResizable, let room = coordinator?.figureTrailingRoom, room > 0,
+              let layoutManager, let textContainer else { return size }
+        let needed = textContainerOrigin.y + layoutManager.usedRect(for: textContainer).maxY
+            + room + textContainerInset.height
+        return NSSize(width: size.width, height: max(size.height, needed))
     }
 
     override func viewDidMoveToWindow() {

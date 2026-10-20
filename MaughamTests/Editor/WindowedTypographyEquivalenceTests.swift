@@ -440,6 +440,12 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         assertEquivalent(doc: unmade, edit: edit, mode: .manuscript)
     }
 
+    /// Dropping the `!` un-makes the figure: its line loses the space (M3).
+    func test_thumbnail_unmakingTheFigureRemovesItsSpace() {
+        let edit = Edit(replace: "![Revenue by year]", with: "[Revenue by year]")
+        assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)
+    }
+
     func test_thumbnail_proseEditElsewhereKeepsTheSpace() {
         let edit = Edit(replace: "A closing paragraph", with: "A short closing paragraph")
         assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)

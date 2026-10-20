@@ -109,7 +109,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// click routing to look up wiki-link ranges hit-tested by mouseDown.
     /// Setting it drops the figure-thumbnail marks derived from it.
     var lastTokens: [Token] = [] {
-        didSet { figureThumbnailMarksCache = nil }
+        didSet {
+            figureThumbnailMarksCache = nil
+            figureThumbnailTokensDidChange()
+        }
     }
 
     /// Most recent FountainScript from ScreenplayMode parsing. nil for prose
@@ -296,6 +299,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The figure lines in `lastTokens`, derived on the first draw after a
     /// retokenize (never per draw, tripwire 4). Cleared by `lastTokens`.
     var figureThumbnailMarksCache: [FigureThumbnailLayout.Mark]?
+    /// The last `figureTrailingRoom` the text view was sized with.
+    var lastFigureTrailingRoom: CGFloat = 0
 
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
@@ -759,6 +764,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
         tableTidy.cancelPending()
+        figureThumbnailStore?.cancelAll()
         // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
         // teardown so a coordinator SwiftUI hasn't yet released stops receiving
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
