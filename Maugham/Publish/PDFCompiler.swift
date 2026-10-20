@@ -395,16 +395,22 @@ public struct PDFCompiler {
         var staged: [String: [Int: String]] = [:]
         for (piece, files) in resolution.figureFiles {
             for (index, source) in files.sorted(by: { $0.key < $1.key }) {
+                if let problem = FigureImageResolver.openingProblem(of: source) {
+                    resolution.stagingFailed(pieceID: piece, nodeIndex: index, because: problem)
+                    continue
+                }
                 do {
                     try FileManager.default.createDirectory(at: figures, withIntermediateDirectories: true)
                     let hash = try FigureImageResolver.contentHash(of: source)
                     let name = hash + "." + source.pathExtension.lowercased()
                     let destination = figures.appendingPathComponent(name)
-                    try stage(source, to: destination, hash: hash)
+                    try stage(source, to: destination)
                     staged[piece, default: [:]][index] = pathPrefix + "build/figures/" + name
                 } catch {
-                    resolution.stagingFailed(pieceID: piece, nodeIndex: index,
-                                             reason: error.localizedDescription)
+                    resolution.stagingFailed(
+                        pieceID: piece, nodeIndex: index,
+                        because: "couldn't be copied for the compile ("
+                            + PublishProblem.withoutClosingStop(error.localizedDescription) + ")")
                 }
             }
         }
@@ -412,15 +418,18 @@ public struct PDFCompiler {
     }
 
     /// Puts `source` at `destination` whole or not at all. A file already
-    /// there is reused only when its own hash still matches its name: a copy
-    /// a crash cut short (before this rule, or by a disk filling up) would
-    /// otherwise be reused by every later compile. The copy lands under a
-    /// temporary name in the same folder, any stale one removed first, and is
-    /// moved into place.
-    private static func stage(_ source: URL, to destination: URL, hash: String) throws {
+    /// there is reused when its size is the source's (final review M5): its
+    /// name is the source's content hash, and every copy since the truncation
+    /// fix lands whole through a rename, so the one damaged copy left to fear
+    /// — one a crash or a full disk cut short before that fix — is shorter
+    /// than its source and is replaced. Re-hashing the copy on every compile
+    /// would read every image twice to rule out what the size already does.
+    /// The copy lands under a temporary name in the same folder, any stale
+    /// one removed first, and is moved into place.
+    private static func stage(_ source: URL, to destination: URL) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: destination.path) {
-            if (try? FigureImageResolver.contentHash(of: destination)) == hash { return }
+            if let staged = Self.fileSize(destination), staged == Self.fileSize(source) { return }
             try fm.removeItem(at: destination)
         }
         let partial = destination.deletingLastPathComponent()
@@ -437,6 +446,10 @@ public struct PDFCompiler {
         }
     }
 
+
+    private static func fileSize(_ url: URL) -> Int? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
 
     /// `build/metadata.tex`: the first body's `metadataBlock`, plus a guarded
     /// `\usepackage` for each element kind the book has — graphicx for a

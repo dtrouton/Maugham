@@ -437,6 +437,24 @@ final class PublishProblemGateTests: XCTestCase {
         XCTAssertTrue(diag.message.contains("chart.png"), diag.message)
     }
 
+    /// M1 (final review): an image that won't open is found at staging in an
+    /// EPUB too — a Report fails naming its paragraph, and nothing ships.
+    func test_anImageThatWontOpen_failsAReport_namingItsParagraph() async throws {
+        let fx = try await makeProject(report: true, text: "Intro.\n\n![Chart]({up}research/chart.png)")
+        let png = try Self.png()
+        try png.prefix(png.count / 2).write(to: fx.url.appendingPathComponent("research/chart.png"))
+
+        let outcome = try await orchestrator(fx).compile(format: .epub, label: nil)
+
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("a cut-short image fails a Report: \(outcome)")
+        }
+        let diag = try XCTUnwrap(problemDiagnostics(errors).first, "\(errors)")
+        XCTAssertEqual(diag.paragraphID, try paragraphID(containing: "chart.png", in: fx))
+        XCTAssertTrue(diag.message.hasSuffix("is cut short (the PNG ends before its last chunk)."), diag.message)
+        XCTAssertTrue(exportedEPUBs(fx).isEmpty)
+    }
+
     // MARK: - the format decides the image check
 
     /// A GIF is an EPUB image and not a PDF one (R-P2-7): the gate resolves for
@@ -553,6 +571,22 @@ final class PublishProblemGateTests: XCTestCase {
             [problem(.malformedLabel("x"))], context: context(.report), refusesOnErrors: true) else {
             return XCTFail("a Report with only warning kinds passes")
         }
+    }
+
+    /// M8 (final review): a reason ending in a system message's own full
+    /// stop still makes one sentence, and the refusal's line is true for a
+    /// compile and a republish alike (a republish mints no version).
+    func test_wording_oneFullStop_andARefusalLineTrueForEveryDoor() {
+        let p = problem(.imageUnreadable("research/x.png couldn't be copied (The file couldn't be opened.)."))
+        XCTAssertEqual(p.message,
+                       "The figure image can't be used: research/x.png couldn't be copied "
+                       + "(The file couldn't be opened.).")
+        XCTAssertEqual(problem(.imageUnreadable("research/x.png couldn't be opened.")).message,
+                       "The figure image can't be used: research/x.png couldn't be opened.")
+        let error = PublishProblemGate.diagnostic(problem(.unknownCitationKey("k")), level: .error,
+                                                  piecePaths: [:])
+        XCTAssertEqual(error.contextLines, ["A report won't publish with this problem, so nothing was published."])
+        XCTAssertFalse(error.contextLines.joined().contains("version"))
     }
 
     func test_aProblemsDiagnosticNamesItsFilePieceAndParagraph_andItsBody() {

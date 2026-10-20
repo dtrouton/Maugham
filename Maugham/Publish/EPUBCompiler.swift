@@ -376,7 +376,11 @@ public struct EPUBCompiler {
                 // second line of defence, never a manifest item without a type.
                 guard let type = mediaType(forExtension: ext) else {
                     resolution.stagingFailed(pieceID: piece, nodeIndex: index,
-                                             reason: "an EPUB can't show .\(ext) images")
+                                             because: "is a .\(ext) file, which an EPUB can't show")
+                    continue
+                }
+                if let problem = FigureImageResolver.openingProblem(of: source) {
+                    resolution.stagingFailed(pieceID: piece, nodeIndex: index, because: problem)
                     continue
                 }
                 do {
@@ -386,8 +390,10 @@ public struct EPUBCompiler {
                     images.append(image)
                     figureFiles[piece, default: [:]][index] = image.href
                 } catch {
-                    resolution.stagingFailed(pieceID: piece, nodeIndex: index,
-                                             reason: error.localizedDescription)
+                    resolution.stagingFailed(
+                        pieceID: piece, nodeIndex: index,
+                        because: "couldn't be read for the compile ("
+                            + PublishProblem.withoutClosingStop(error.localizedDescription) + ")")
                 }
             }
         }

@@ -11,7 +11,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `ProjectAST.swift` — the target-agnostic model of a compilable project (pieces, prose and Fountain nodes, inlines).
 - `ProjectASTBuilder.swift` — pieces → `ProjectAST`; maps `MarkdownBlock`s to AST nodes.
 - `PublishContext.swift` — what a source knows beyond its text (live citations, profile, switches, the real project URL, piece paths); every filtering wrapper forwards it; the edition's filter (`IncludeFilteredASTSource`) is its own `resolutionScope`, a preview or sample narrowing (`FilteredASTSource`) answers its edition's and `isWholeBook` false, so a compile of the edition resolves the AST it built.
-- `FigureImageResolver.swift` — a figure path → a file inside a research folder of the real project; refuses escapes before touching the disk. `contentHash` names a staged image for both compilers.
+- `FigureImageResolver.swift` — a figure path → a file inside a research folder of the real project; refuses escapes before touching the disk. At staging both compilers sniff each image (`openingProblem`: header, real type, a PNG's chunks, a PDF's lock) and `contentHash` names it.
 - `PublishResolution.swift` — the resolution pass over the edition's book's AST (`forCompile` resolves `resolutionScope`): numbers, cross-references, citations, References, the lists, figure files, problems. Emitters read it; they never number.
 - `PublishProblem.swift` — one problem with its piece and `¶id`; `isError(profile:)` is the one severity table. `PublishProblemGate` judges them at the door.
 - `InlineParser.swift` — prose inline runs over the shared `InlineEmphasisScanner`.

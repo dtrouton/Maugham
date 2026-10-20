@@ -112,8 +112,18 @@ public struct PublishProblem: Sendable, Hashable {
         case .figurePathNotLocal(let path):
             return "The figure image \(path) is not inside a research folder of this project."
         case .imageUnreadable(let reason):
-            return "The figure image can't be used: \(reason)."
+            // The reason may end in a system message's own full stop: one
+            // sentence ends once (final review M8).
+            return "The figure image can't be used: \(withoutClosingStop(reason))."
         }
+    }
+
+    /// `text` without a trailing full stop, so a sentence that wraps it ends
+    /// in exactly one.
+    static func withoutClosingStop(_ text: String) -> String {
+        var out = Substring(text)
+        while out.last == "." || out.last == " " { out = out.dropLast() }
+        return String(out)
     }
 
     /// What a label of `kind` names.
@@ -216,7 +226,7 @@ public enum PublishProblemGate {
             level: level, file: piecePaths[problem.pieceID], line: nil,
             message: problem.message,
             contextLines: level == .error
-                ? ["A report won't publish with this problem, so no version was minted."]
+                ? ["A report won't publish with this problem, so nothing was published."]
                 : [],
             pieceID: problem.pieceID, paragraphID: problem.paragraphID,
             bodyLanguage: problem.bodyLanguage)

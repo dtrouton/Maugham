@@ -85,11 +85,15 @@ public struct PublishResolution: Sendable {
     /// figure is unresolved from here on — it renders as its literal source —
     /// and its paragraph carries an `imageUnreadable` problem. The problem
     /// joins the end of `problems`; the order within it is not book order.
-    public mutating func stagingFailed(pieceID: String, nodeIndex: Int, reason: String) {
+    ///
+    /// - Parameter because: what is wrong, as a fragment that follows the
+    ///   path as written ("is an encrypted PDF, …", "couldn't be copied for
+    ///   the compile (…)"), with no closing full stop.
+    public mutating func stagingFailed(pieceID: String, nodeIndex: Int, because: String) {
         guard figureFiles[pieceID]?.removeValue(forKey: nodeIndex) != nil else { return }
         let origin = figureOrigins[pieceID]?[nodeIndex]
         problems.append(PublishProblem(
-            kind: .imageUnreadable("\(origin?.path ?? "the image") couldn't be copied for the compile: \(reason)"),
+            kind: .imageUnreadable("\(origin?.path ?? "the image") \(because)"),
             pieceID: pieceID, paragraphID: origin?.paragraph, bodyTag: bodyTag,
             bodyLanguage: bodyLanguage))
     }

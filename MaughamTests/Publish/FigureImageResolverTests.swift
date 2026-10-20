@@ -173,3 +173,64 @@ final class FigureImageResolverTests: XCTestCase {
         expectFile(resolve("../research/Photo.PNG", from: "manuscript/ch1.md"), "research/Photo.PNG")
     }
 }
+
+/// Final review M1: at staging each image is sniffed — never decoded — and one
+/// that would stop the typesetter or ship broken in an EPUB is named.
+final class FigureImageOpeningTests: XCTestCase {
+
+    private var folder: URL!
+
+    override func setUpWithError() throws {
+        folder = TestTemp.root.appendingPathComponent("FigureOpening-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    private func problem(_ name: String, _ bytes: Data) throws -> String? {
+        let url = folder.appendingPathComponent(name)
+        try bytes.write(to: url)
+        return FigureImageResolver.openingProblem(of: url)
+    }
+
+    func test_imagesThatOpen_haveNoProblem() throws {
+        XCTAssertNil(try problem("a.png", TestImageBytes.png()))
+        XCTAssertNil(try problem("a.jpg", TestImageBytes.jpeg()))
+        XCTAssertNil(try problem("a.jpeg", TestImageBytes.jpeg()))
+        XCTAssertNil(try problem("a.gif", TestImageBytes.gif()))
+        XCTAssertNil(try problem("a.pdf", TestImageBytes.pdf()))
+        XCTAssertNil(try problem("a.svg", TestImageBytes.svg()))
+    }
+
+    func test_aPNGCutShort_isNamed() throws {
+        let png = try TestImageBytes.png(side: 32)
+        XCTAssertEqual(try problem("cut.png", png.prefix(png.count - 6)),
+                       "is cut short (the PNG ends before its last chunk)")
+        XCTAssertEqual(try problem("half.png", png.prefix(png.count / 2)),
+                       "is cut short (the PNG ends before its last chunk)")
+    }
+
+    func test_aFileThatIsReallyAnotherFormat_isNamed() throws {
+        XCTAssertEqual(try problem("photo.png", TestImageBytes.jpeg()),
+                       "is really a JPEG image, not a .png file")
+    }
+
+    func test_aFileThatIsNoImage_isNamed() throws {
+        XCTAssertEqual(try problem("junk.png", Data("not an image".utf8)),
+                       "won't open as an image (it may be damaged, or not really a .png file)")
+        XCTAssertEqual(try problem("anim.gif", Data("GIF89a".utf8)),
+                       "won't open as an image (it may be damaged, or not really a .gif file)")
+        XCTAssertEqual(try problem("draw.svg", Data("hello".utf8)),
+                       "won't open as an SVG image (no <svg> element at its start)")
+    }
+
+    func test_anEncryptedOrBrokenPDF_isNamed() throws {
+        XCTAssertEqual(try problem("locked.pdf", TestImageBytes.pdf(encrypted: true)),
+                       "is an encrypted PDF, which can't be placed in a book")
+        let pdf = try TestImageBytes.pdf()
+        XCTAssertEqual(try problem("cut.pdf", pdf.prefix(pdf.count / 2)),
+                       "won't open as a PDF (it may be damaged or cut short)")
+    }
+}

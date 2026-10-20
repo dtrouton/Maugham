@@ -1,5 +1,8 @@
 import Foundation
 import CryptoKit
+import ImageIO
+import CoreGraphics
+import UniformTypeIdentifiers
 
 /// Where a figure's image lives, or why it can't be used (report foundations
 /// plan 2, R-P2-7).
@@ -18,7 +21,8 @@ import CryptoKit
 /// that climbs out of the project, a folder that isn't research — is decided
 /// before the disk is touched. Only then are symlinks resolved, and the
 /// resolved file must still sit under the resolved research folder, itself
-/// under the resolved project. It stats the file; it never reads a byte.
+/// under the resolved project. `resolve` stats the file and never reads a
+/// byte; the compilers read it at staging (`openingProblem`, `contentHash`).
 ///
 /// The two refusals map onto R-P2-1's two error kinds: `.notLocal` is "a
 /// figure path outside a research folder", `.unreadable` is "an image that
@@ -159,5 +163,83 @@ extension FigureImageResolver {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined().prefix(16).description
+    }
+}
+
+extension FigureImageResolver {
+    /// Why a resolved image won't open in a book, as a fragment that follows
+    /// its path ("is an encrypted PDF, …"); nil when it will (final review
+    /// M1). Read at staging, before the hash, by both compilers, so a file
+    /// that would stop the typesetter or ship broken in an EPUB is an
+    /// `imageUnreadable` problem naming its paragraph instead.
+    ///
+    /// It sniffs and never decodes pixels: ImageIO reads the header and the
+    /// real type (a `.png` that is really a JPEG or HEIC is refused by name),
+    /// a PNG's chunk headers are walked to its `IEND` (a cut-short PNG stops
+    /// the typesetter), a PDF must open, be unencrypted and have a page, and
+    /// an SVG must say `<svg` near its start. A JPEG is only header-checked:
+    /// the typesetter embeds its bytes without decoding them.
+    static func openingProblem(of url: URL) -> String? {
+        let ext = url.pathExtension.lowercased()
+        if ext == "pdf" { return pdfProblem(url) }
+        if ext == "svg" { return svgProblem(url) }
+        guard let expected = rasterTypes[ext] else { return nil }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), // adr-0018-ok: research image header sniffed
+              CGImageSourceGetCount(source) > 0,
+              let type = CGImageSourceGetType(source) as String?,
+              CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
+        else { return "won't open as an image (it may be damaged, or not really a .\(ext) file)" }
+        guard type == expected else {
+            let real = UTType(type)?.preferredFilenameExtension?.uppercased() ?? type
+            return "is really a \(real) image, not a .\(ext) file"
+        }
+        if ext == "png", !pngReachesItsEnd(url) {
+            return "is cut short (the PNG ends before its last chunk)"
+        }
+        return nil
+    }
+
+    /// The raster extensions either output shows, and the type ImageIO must
+    /// find in the file.
+    private static let rasterTypes: [String: String] = [
+        "png": UTType.png.identifier, "jpg": UTType.jpeg.identifier,
+        "jpeg": UTType.jpeg.identifier, "gif": UTType.gif.identifier,
+    ]
+
+    private static func pdfProblem(_ url: URL) -> String? {
+        guard let document = CGPDFDocument(url as CFURL) else { // adr-0018-ok: research PDF opened to check it can be placed
+            return "won't open as a PDF (it may be damaged or cut short)"
+        }
+        if document.isEncrypted { return "is an encrypted PDF, which can't be placed in a book" }
+        if document.numberOfPages < 1 { return "is a PDF with no pages" }
+        return nil
+    }
+
+    private static func svgProblem(_ url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "can't be read" } // adr-0018-ok: research SVG's opening bytes sniffed
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 64 * 1024)) ?? Data()
+        return String(decoding: head, as: UTF8.self).contains("<svg")
+            ? nil : "won't open as an SVG image (no <svg> element at its start)"
+    }
+
+    /// Walks the PNG's chunk headers — length, type, then a seek past data
+    /// and CRC — until `IEND`, reading 8 bytes per chunk. False when a chunk
+    /// runs past the end of the file or the file ends first.
+    private static func pngReachesItsEnd(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url), // adr-0018-ok: research PNG's chunk headers walked
+              let size = try? handle.seekToEnd() else { return false }
+        defer { try? handle.close() }
+        var offset: UInt64 = 8   // the signature
+        while offset + 12 <= size {
+            guard (try? handle.seek(toOffset: offset)) != nil,
+                  let header = try? handle.read(upToCount: 8), header.count == 8 else { return false }
+            let length = header.prefix(4).reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+            let next = offset + 12 + length
+            guard next <= size else { return false }
+            if header.suffix(4) == Data("IEND".utf8) { return true }
+            offset = next
+        }
+        return false
     }
 }

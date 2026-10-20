@@ -129,8 +129,9 @@ final class PDFCompilerTests: XCTestCase {
         let project = tmp.appendingPathComponent("Project With Spaces")
         let research = project.appendingPathComponent("research")
         try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
-        try Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]).write(to: research.appendingPathComponent("a.png"))
-        try Data([0x89, 0x50, 0x4E, 0x47, 9]).write(to: research.appendingPathComponent("gone.png"))
+        let aBytes = try TestImageBytes.png(seed: 1)
+        try aBytes.write(to: research.appendingPathComponent("a.png"))
+        try TestImageBytes.png(seed: 2).write(to: research.appendingPathComponent("gone.png"))
         var r = try resolution([("a1b2", "![One](../research/a.png)"),
                                 ("c3d4", "![Again](../research/a.png)"),
                                 ("e5f6", "![Gone](../research/gone.png)")], project: project)
@@ -148,7 +149,7 @@ final class PDFCompilerTests: XCTestCase {
         XCTAssertTrue(name.hasSuffix(".png") && LaTeXSafeFilename(name) != nil, name)
         XCTAssertEqual(name.count, 16 + ".png".count, "a 16-hex-digit sha256 prefix: \(name)")
         let copy = publish.appendingPathComponent("build/figures/\(name)")
-        XCTAssertEqual(try Data(contentsOf: copy), Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]))
+        XCTAssertEqual(try Data(contentsOf: copy), aBytes)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: copy.deletingLastPathComponent().path).count, 1)
 
         XCTAssertNil(staged["a"]?[2], "the failed copy is not staged")
@@ -167,7 +168,7 @@ final class PDFCompilerTests: XCTestCase {
         let project = tmp.appendingPathComponent("Truncated")
         let research = project.appendingPathComponent("research")
         try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
-        let bytes = Data((0..<64).map { UInt8($0) })
+        let bytes = try TestImageBytes.png(seed: 3)
         try bytes.write(to: research.appendingPathComponent("a.png"))
         let publish = project.appendingPathComponent(".maugham/publish")
         let paragraphs = [(id: "a1b2", text: "![One](../research/a.png)")]
@@ -185,6 +186,56 @@ final class PDFCompilerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: staged), bytes, "the truncated copy was replaced")
         XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path), "no temporary left behind")
         XCTAssertTrue(again.problems.isEmpty, "\(again.problems)")
+    }
+
+    /// M5 (final review): a staged copy whose size is its source's is trusted
+    /// — its name is the source's hash — and not read again; the truncated
+    /// copy above, being shorter, is still replaced.
+    func test_stageFigures_trustsAStagedCopyOfTheSourcesSize_withoutRereadingIt() throws {
+        let project = tmp.appendingPathComponent("SameSize")
+        let research = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
+        let bytes = try TestImageBytes.png(seed: 4)
+        try bytes.write(to: research.appendingPathComponent("a.png"))
+        let publish = project.appendingPathComponent(".maugham/publish")
+        let paragraphs = [(id: "a1b2", text: "![One](../research/a.png)")]
+
+        var first = try resolution(paragraphs, project: project)
+        let path = try XCTUnwrap(PDFCompiler.stageFigures(of: &first, publishDir: publish, pathPrefix: "")["a"]?[0])
+        let staged = publish.appendingPathComponent(path)
+        let marker = Data(repeating: 0x2A, count: bytes.count)   // same size, other bytes
+        try marker.write(to: staged)
+
+        var again = try resolution(paragraphs, project: project)
+        XCTAssertEqual(PDFCompiler.stageFigures(of: &again, publishDir: publish, pathPrefix: "")["a"]?[0], path)
+        XCTAssertEqual(try Data(contentsOf: staged), marker, "the same-size copy was kept, not re-hashed")
+    }
+
+    /// M1 (final review): an image that won't open — here an encrypted PDF —
+    /// is a staging problem naming its paragraph, and never reaches TeX.
+    func test_stageFigures_anImageThatWontOpen_isAProblem_andIsNotStaged() throws {
+        let project = tmp.appendingPathComponent("WontOpen")
+        let research = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
+        try TestImageBytes.pdf(encrypted: true).write(to: research.appendingPathComponent("locked.pdf"))
+        let publish = project.appendingPathComponent(".maugham/publish")
+        var r = try resolution([("a1b2", "Intro."), ("c3d4", "![Locked](../research/locked.pdf)")],
+                               project: project)
+        XCTAssertNotNil(r.figureFiles["a"]?[1], "premise: the path resolves")
+
+        let staged = PDFCompiler.stageFigures(of: &r, publishDir: publish, pathPrefix: "")
+
+        XCTAssertNil(staged["a"]?[1])
+        XCTAssertNil(r.figureFiles["a"]?[1], "unresolved: it renders as its literal source")
+        XCTAssertEqual(r.problems.map(\.paragraphID), ["c3d4"])
+        XCTAssertEqual(r.problems.first?.message,
+                       "The figure image can't be used: ../research/locked.pdf is an encrypted PDF, "
+                       + "which can't be placed in a book.")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: publish.appendingPathComponent("build/figures").path)
+            && ((try? FileManager.default.contentsOfDirectory(
+                atPath: publish.appendingPathComponent("build/figures").path)) ?? []).contains { $0.hasSuffix(".pdf") },
+            "nothing staged for TeX")
     }
 }
 
