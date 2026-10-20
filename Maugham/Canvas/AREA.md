@@ -34,6 +34,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasEscapeMonitor.swift` — the window-scoped local `NSEvent` monitor `WindowEscapeArbiter` holds one of per window.
 - `ScrapEditorHost.swift` — the one mounted `NSTextView` (`ScrapEditorContainer`), its visibility and pointer transparency, `undo:`/`redo:` forwarding, `ScrapEditorGeometry` (tripwires 27, 28).
 - `CanvasEditFocus.swift` — the open scrap: `syncActiveEdit` (per-keystroke fold), `commitActiveEdit`, `leaveTheOpenScrap`; built per call by `CanvasView` (tripwire 28).
+- `CanvasDragHandler.swift` — `handleDrag`: each gesture's press, move and release and its undo bracket; `pressStartsALine`; built per call by `CanvasView` (tripwire 32).
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
 
 ### State, persistence, undo

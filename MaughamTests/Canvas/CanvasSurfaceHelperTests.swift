@@ -195,4 +195,106 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         XCTAssertEqual(fixture.editingNodeID.value, scrapID,
                        "the commit closes the gesture; leaving the scrap is `leaveTheOpenScrap`'s")
     }
+
+    // MARK: - CanvasDragHandler
+
+    @MainActor
+    private struct DragHandlerFixture {
+        let model: CanvasModel
+        let interaction = SurfaceHelperBox(CanvasInteraction())
+        let momentum = SurfaceHelperBox(CanvasMomentum())
+        let revision = SurfaceHelperBox(0)
+        let editingNodeID = SurfaceHelperBox<CanvasNodeID?>(nil)
+        let selectionWhenPressed = SurfaceHelperBox<CanvasSelection?>(nil)
+        let layouts = SurfaceHelperBox<[CanvasNodeID: ScrapLayout]>([:])
+        let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
+        let thumbnails = SurfaceHelperBox(CanvasThumbnails())
+        let ticket = SurfaceHelperBox(0)
+
+        var handler: CanvasDragHandler {
+            CanvasDragHandler(model: model,
+                              subject: .wholeProject,
+                              layoutPass: CanvasLayoutPass(model: model,
+                                                           itemIndex: model.itemIndex,
+                                                           projectRoot: URL(fileURLWithPath: "/nonexistent"),
+                                                           thumbnails: thumbnails.binding,
+                                                           layouts: layouts.binding,
+                                                           itemPresentation: itemPresentation.binding,
+                                                           thumbnailServiceTicket: ticket.binding,
+                                                           revision: revision.binding),
+                              interaction: interaction.binding,
+                              momentum: momentum.binding,
+                              revision: revision.binding,
+                              editingNodeID: editingNodeID.binding,
+                              selectionWhenPressed: selectionWhenPressed.binding)
+        }
+
+        func press(at point: CGPoint) {
+            handler.handleDrag(at: point, phase: .began, shiftHeld: false, timestamp: 0)
+        }
+    }
+
+    /// **A press inside an open scrap belongs to the editor**, so `handleDrag`'s
+    /// focus guard returns before `interaction.begin` and opens no undo bracket.
+    /// The first direct pin of that guard: the mounted
+    /// `CanvasViewMountingSurfaceTests.test_thePressThatEntersAScrapStopsTheCardCoastingUnderIt`
+    /// runs the press that enters a scrap, but pins only the coast stopping above
+    /// the guard. The control is the same press with nothing open.
+    func test_aPressWhileAScrapIsOpenBeginsNoGesture() {
+        let model = CanvasModel()
+        model.withScene(persist: false) {
+            $0.insert(CanvasNode(id: scrapID, kind: .scrap,
+                                 origin: CGPoint(x: 40, y: 40), width: 240, cachedHeight: 80))
+        }
+        let onTheCard = CGPoint(x: 100, y: 60)
+
+        let control = DragHandlerFixture(model: model)
+        control.press(at: onTheCard)
+        XCTAssertTrue(control.interaction.value.isActive,
+                      "control: with nothing open, a press on the card begins a move")
+        XCTAssertTrue(model.isInGesture, "control: the move opened its undo bracket")
+        model.endGesture()
+
+        let fixture = DragHandlerFixture(model: model)
+        fixture.editingNodeID.value = scrapID
+        fixture.press(at: onTheCard)
+
+        XCTAssertFalse(fixture.interaction.value.isActive,
+                       "a press inside the open scrap began a canvas gesture under the editor")
+        XCTAssertFalse(model.isInGesture,
+                       "a press inside the open scrap opened an undo bracket nothing closes")
+    }
+
+    /// **A read-only canvas begins no drag** (`CanvasEditGate.dragBegins`), and
+    /// the gate is asked before `interaction.begin`, so no bracket opens. The
+    /// ORDER is pinned in source by
+    /// `CanvasEditGateTests.test_theCanvasAsksTheGateBeforeEachAct`; no mounted
+    /// test drags a refused canvas, so this is the first behavioural pin. The
+    /// control is the same press on a writable model.
+    func test_aPressOnAReadOnlyCanvasBeginsNoGesture() throws {
+        let bareCanvas = CGPoint(x: 900, y: 900)
+
+        let writable = DragHandlerFixture(model: CanvasModel())
+        writable.press(at: bareCanvas)
+        XCTAssertTrue(writable.interaction.value.isActive,
+                      "control: a press on bare writable canvas begins a region sweep")
+
+        let root = TestTemp.root.appendingPathComponent("drag-read-only-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sidecar = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try "not json at all".write(to: sidecar, atomically: true, encoding: .utf8)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        defer { model.detach() }
+        XCTAssertTrue(model.isReadOnly, "precondition: the damaged layout file was refused")
+
+        let fixture = DragHandlerFixture(model: model)
+        fixture.press(at: bareCanvas)
+
+        XCTAssertFalse(fixture.interaction.value.isActive,
+                       "a read-only canvas began a drag")
+        XCTAssertFalse(model.isInGesture, "a read-only canvas opened an undo bracket")
+    }
 }

@@ -4920,7 +4920,8 @@ final class TripwireGrepTests: XCTestCase {
     /// `CanvasView.swift` a helper held in `@State` or made by a factory method.
     /// Controls: a doc comment naming the helper, a longer identifier that
     /// merely contains its name, the helper named in its own file and in
-    /// `CanvasView.swift`'s building computed property, an extension of the
+    /// `CanvasView.swift`'s building computed property, a sibling surface file
+    /// holding it as a bare `let` (one that builds it fires), an extension of the
     /// file's own type and of `CanvasView`, a nested function, and a
     /// `class func` in a helper class
     /// (which must not register a type called `func`). A type NOT on the list
@@ -4954,6 +4955,17 @@ final class TripwireGrepTests: XCTestCase {
                     func deleteFromAnywhere() { mutate("Delete") { _ in } }
                 }
                 private func deleteEverything(_ model: CanvasModel) { model.mutate("Delete") { _ in } }
+                """,
+            "Maugham/Canvas/CanvasKeyGrip.swift": """
+                struct CanvasKeyGrip {
+                    let keys: CanvasKeyHandler
+                }
+                """,
+            "Maugham/Canvas/CanvasKeyRebuilder.swift": """
+                struct CanvasKeyRebuilder {
+                    let keys: CanvasKeyHandler
+                    func again() { _ = CanvasKeyHandler(model: keys.model) }
+                }
                 """,
             "Maugham/Canvas/RegionInspector.swift": """
                 struct RegionInspector {
@@ -4989,11 +5001,13 @@ final class TripwireGrepTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: base) }
 
         let planted = try Self.canvasSurfaceHelperCensus(
-            base: base, surfaceFiles: ["CanvasView.swift", "CanvasKeyHandler.swift"])
-        XCTAssertEqual(planted.walked, 7, "Self-check: the walk read the planted tree")
+            base: base, surfaceFiles: ["CanvasView.swift", "CanvasKeyHandler.swift",
+                                       "CanvasKeyGrip.swift", "CanvasKeyRebuilder.swift"])
+        XCTAssertEqual(planted.walked, 9, "Self-check: the walk read the planted tree")
         XCTAssertEqual(planted.offenders, [
             "CanvasKeyHandler.swift declares a top-level func",
             "CanvasKeyHandler.swift extends CanvasModel",
+            "CanvasKeyRebuilder.swift names CanvasKeyHandler",
             "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
                 + "@State private var pass: CanvasKeyHandler?",
             "CanvasView.swift names CanvasKeyHandler outside a building computed property: "
@@ -5005,8 +5019,9 @@ final class TripwireGrepTests: XCTestCase {
         ], "Self-check: every route from another column into a surface file must "
             + "fire — building, holding, a static call, an extension of another "
             + "type, a top-level function, and in the view a helper held in `@State` "
-            + "or made by a factory — and no control may (the `keyHandler` computed "
-            + "property stays quiet).")
+            + "or made by a factory, and a sibling surface file building one — and no "
+            + "control may (the `keyHandler` computed property and a sibling's bare "
+            + "held `let` stay quiet).")
 
         let offTheList = try Self.canvasSurfaceHelperCensus(
             base: base, surfaceFiles: ["CanvasView.swift"])
@@ -5036,7 +5051,9 @@ final class TripwireGrepTests: XCTestCase {
     /// comments stripped:
     /// - every production file under `<base>/Maugham/` that NAMES a type
     ///   declared there (`struct`/`class`/`enum`/`actor`, uppercase-initial),
-    ///   other than `CanvasView.swift` and the type's own file;
+    ///   other than `CanvasView.swift` and the type's own file — except that
+    ///   another surface file may hold one as a bare stored `let x: T` line
+    ///   (the drag handler holds the layout pass the view built);
     /// - an `extension` of anything but `CanvasView` or a type the file declares;
     /// - a top-level `func`;
     /// - inside `CanvasView.swift`, a helper type named anywhere but a
@@ -5124,11 +5141,25 @@ final class TripwireGrepTests: XCTestCase {
             let file = url.lastPathComponent
             guard file != theCanvasViewFile, !homes.isEmpty else { continue }
             let code = CanvasSourceCensus.commentsStripped(try String(contentsOf: url, encoding: .utf8))
+            // Another surface file may HOLD a sibling helper the view handed it
+            // (`let layoutPass: CanvasLayoutPass`, a line of its own) and nothing
+            // more: the sibling is still built only by the view's computed
+            // property, so the walk still sees every value it carries.
+            let isSurfaceFile = surfaceFiles.contains(file)
+                && url.path.hasSuffix("/Maugham/Canvas/\(file)")
             for (type, home) in homes where file != home {
+                let t = NSRegularExpression.escapedPattern(for: type)
+                var scanned = code
+                if isSurfaceFile {
+                    scanned = try NSRegularExpression(
+                        pattern: #"^[ \t]*let[ \t]+[A-Za-z_]\w*[ \t]*:[ \t]*"# + t + #"[ \t]*$"#,
+                        options: [.anchorsMatchLines])
+                        .stringByReplacingMatches(in: code, range: NSRange(code.startIndex..., in: code),
+                                                  withTemplate: "")
+                }
                 let names = try NSRegularExpression(
-                    pattern: #"(?<![A-Za-z0-9_])"# + NSRegularExpression.escapedPattern(for: type)
-                        + #"(?![A-Za-z0-9_])"#)
-                if names.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                    pattern: #"(?<![A-Za-z0-9_])"# + t + #"(?![A-Za-z0-9_])"#)
+                if names.firstMatch(in: scanned, range: NSRange(scanned.startIndex..., in: scanned)) != nil {
                     offenders.append("\(file) names \(type)")
                 }
             }
