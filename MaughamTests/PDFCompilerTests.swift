@@ -207,12 +207,13 @@ final class PDFPrepareReuseTests: XCTestCase {
     func test_aWholeBookSourceIsReadOnce() throws {
         let counter = Counter()
         let source = IncludeFilteredASTSource(base: CountingBook(counter: counter), excludedSectionIDs: [])
-        let ast = try ProjectASTBuilder.build(from: source)
         let publish = TestTemp.root.appendingPathComponent("PDFPrepareReuse-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: publish) }
-        let prepared = try PDFCompiler.prepare(
-            body: BodyPlan.Body(tag: nil, displayTag: "en", source: source, config: PublishConfig()),
-            bodyTag: nil, publishDir: publish, pathPrefix: "", built: ast)
+        // The live path: the door's gate resolves, the compiler stages.
+        let resolved = try PDFCompiler.resolve(bodies: [
+            BodyPlan.Body(tag: nil, displayTag: "en", source: source, config: PublishConfig())])
+        let prepared = PDFCompiler.prepare(resolution: try XCTUnwrap(resolved.first).resolution,
+                                           publishDir: publish, pathPrefix: "")
         XCTAssertEqual(counter.reads, 1, "the built AST is the whole book: no second derivation")
         XCTAssertEqual(prepared.resolution.tableNumbers["a"], [0: 1])
     }

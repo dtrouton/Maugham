@@ -266,7 +266,8 @@ public struct PreviewCompiler {
         let excludedSectionIDs = config.excludedSectionIDs
         let wrap: (ProjectASTBuilder.Source) -> ProjectASTBuilder.Source = { base in
             if let sectionIDs {
-                return FilteredASTSource(base: base, sectionIDs: sectionIDs)
+                return FilteredASTSource(base: base, sectionIDs: sectionIDs,
+                                         editionExcludedSectionIDs: excludedSectionIDs)
             }
             return IncludeFilteredASTSource(
                 base: base, excludedSectionIDs: excludedSectionIDs)
@@ -329,7 +330,10 @@ public struct PreviewCompiler {
 
         // Report foundations plan 2, Task 7: a preview never refuses on a
         // publish problem (R-P2-1), so there is no gate to pass before it —
-        // the compiler resolves each body once and its problems, staging
+        // but it resolves HERE, on the main actor, through the same door as
+        // compile and republish (`PublishProblemGate.resolve`), and hands the
+        // bodies down: the manuscript is read once (final review M4), and what
+        // the warnings judge is what the preview emits. Its problems, staging
         // failures included, ride out as warnings.
         let problemContext = plan.first.source.resolutionScope.publishContext()
         func problemWarnings(_ problems: [PublishProblem]) -> [TectonicLogParser.Diagnostic] {
@@ -344,7 +348,8 @@ public struct PreviewCompiler {
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: set.singleTag,
                 identity: set.identity,
-                replacesExistingOutput: true)
+                replacesExistingOutput: true,
+                resolved: try PDFCompiler.resolve(bodies: plan.bodies))
             let r = try await pdf.compile(label: "preview")
             let warnings = gateWarnings + problemWarnings(r.problems) + r.warnings
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
@@ -358,7 +363,8 @@ public struct PreviewCompiler {
                 tectonicVersion: tectonicVersion, jobID: jobID,
                 language: set.singleTag,
                 identity: set.identity,
-                replacesExistingOutput: true)
+                replacesExistingOutput: true,
+                resolved: try EPUBCompiler.resolve(bodies: plan.bodies))
             let r = try await e.compile(label: "preview")
             let warnings = gateWarnings + problemWarnings(r.problems) + r.warnings
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
@@ -374,16 +380,43 @@ public struct PreviewCompiler {
     }
 }
 
-/// Wraps another `ProjectASTBuilder.Source`, filtering to a subset of pieces
-/// (an allowlist: keeps only pieces named in `sectionIDs`; nil/empty ⇒ all).
+/// **A preview's or a sample's narrowing** — the one wrapper that shows LESS
+/// than the edition: keeps only the pieces named in `sectionIDs` (an allowlist;
+/// nil/empty ⇒ all). An explicit `section_ids` may name a section the edition
+/// excludes (a preview is for looking, not shipping), so this filters the
+/// unfiltered base, never the edition.
 ///
-/// Forwards `publishContext()` and `resolutionScope` to its base: a preview
-/// emits its subset but resolves over the whole book, and its context is the
-/// base's real project (`PublishContextTests`). Internal, not private, so that
-/// test can hold one.
+/// Its `resolutionScope` is the EDITION's book (R-S15): the base less the
+/// edition's own `excludedSectionIDs`, so a one-chapter preview numbers and
+/// resolves exactly as the edition it previews, and a section the edition
+/// leaves out is no more part of the preview's book than of the published one.
+/// A section named here that the edition excludes is emitted unresolved: its
+/// elements render as their literal source.
+///
+/// Reads its base ONCE (`ReadOnceSource`): the subset and the edition's book
+/// are two views of one derivation, so a preview reads the manuscript once
+/// and an edit landing mid-compile can't make the two disagree.
+///
+/// Forwards `publishContext()` (`PublishContextTests`). Internal, not private,
+/// so that test can hold one.
 struct FilteredASTSource: ProjectASTBuilder.Source {
     let base: ProjectASTBuilder.Source
     let sectionIDs: [String]?
+    /// The edition this narrows: the same base, less what the edition excludes.
+    let edition: IncludeFilteredASTSource
+
+    /// - Parameter editionExcludedSectionIDs: the edition's own
+    ///   `PublishConfig.excludedSectionIDs` — never optional, so no caller can
+    ///   forget the edition and resolve over a book it doesn't publish.
+    init(base: ProjectASTBuilder.Source, sectionIDs: [String]?,
+         editionExcludedSectionIDs: Set<String>) {
+        let once = ReadOnceSource(base: base)
+        self.base = once
+        self.sectionIDs = sectionIDs
+        self.edition = IncludeFilteredASTSource(
+            base: once, excludedSectionIDs: editionExcludedSectionIDs)
+    }
+
     func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
         let all = try base.orderedPieces()
         guard let ids = sectionIDs, !ids.isEmpty else { return all }
@@ -391,16 +424,25 @@ struct FilteredASTSource: ProjectASTBuilder.Source {
         return all.filter { set.contains($0.pieceID) }
     }
     func publishContext() -> PublishContext { base.publishContext() }
-    var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
-    var isWholeBook: Bool { (sectionIDs?.isEmpty ?? true) && base.isWholeBook }
+    var resolutionScope: ProjectASTBuilder.Source { edition.resolutionScope }
+    /// True only when it narrows nothing AND the edition excludes nothing:
+    /// otherwise what it emits is not the book it resolves.
+    var isWholeBook: Bool {
+        (sectionIDs?.isEmpty ?? true) && edition.excludedSectionIDs.isEmpty && base.isWholeBook
+    }
 }
 
-/// F1: wraps any `ProjectASTBuilder.Source`, dropping pieces whose id is in the
-/// excluded set (a denylist — the complement of `FilteredASTSource`). This is
-/// how a subset edition becomes first-class: `CompileOrchestrator`/`Republisher`
-/// wrap their live source with the effective config's `excludedSectionIDs`, so
-/// the emitters (both formats) and every downstream record see only the included
-/// pieces. An empty excluded set is a pass-through.
+/// **The edition's own book**: drops the pieces the EDITION excludes — the
+/// writer's `include: false` and an imprint's dropped sections, together
+/// `PublishConfig.excludedSectionIDs` (a denylist). Every door wraps its body
+/// with one (`CompileOrchestrator`, `Republisher`, and a default preview), so
+/// the emitters and every downstream record see only the included pieces.
+///
+/// It IS the book it publishes (R-S15): its `resolutionScope` is itself and it
+/// is whole whenever its base is. An excluded draft chapter therefore neither
+/// blocks a Report's compile, nor takes a figure number, nor puts a source in
+/// References, and a reference from an included chapter into it is unresolved.
+/// An empty excluded set is a pass-through.
 struct IncludeFilteredASTSource: ProjectASTBuilder.Source {
     let base: ProjectASTBuilder.Source
     let excludedSectionIDs: Set<String>
@@ -409,9 +451,35 @@ struct IncludeFilteredASTSource: ProjectASTBuilder.Source {
         guard !excludedSectionIDs.isEmpty else { return all }
         return all.filter { !excludedSectionIDs.contains($0.pieceID) }
     }
-    /// Forwarded, like `FilteredASTSource`'s: an edition that excludes a
-    /// section still numbers and resolves over the whole book.
     func publishContext() -> PublishContext { base.publishContext() }
-    var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
-    var isWholeBook: Bool { excludedSectionIDs.isEmpty && base.isWholeBook }
+    /// Itself, over a whole base. Over a base that is itself a view (no door
+    /// builds one), the edition of that base's book.
+    var resolutionScope: ProjectASTBuilder.Source {
+        base.isWholeBook
+            ? self
+            : IncludeFilteredASTSource(base: base.resolutionScope,
+                                       excludedSectionIDs: excludedSectionIDs)
+    }
+    var isWholeBook: Bool { base.isWholeBook }
+}
+
+/// A source read at most once: its first `orderedPieces()` answer (or throw)
+/// is the answer for its lifetime, which is one compile's. `FilteredASTSource`
+/// builds one so its subset and its edition's book share one derivation.
+/// Transparent otherwise: context, scope and wholeness are the base's.
+final class ReadOnceSource: ProjectASTBuilder.Source {
+    let base: ProjectASTBuilder.Source
+    private var memo: Result<[ProjectASTBuilder.PieceRef], Error>?
+
+    init(base: ProjectASTBuilder.Source) { self.base = base }
+
+    func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
+        if let memo { return try memo.get() }
+        let read = Result { try base.orderedPieces() }
+        memo = read
+        return try read.get()
+    }
+    func publishContext() -> PublishContext { base.publishContext() }
+    var resolutionScope: ProjectASTBuilder.Source { base.isWholeBook ? self : base.resolutionScope }
+    var isWholeBook: Bool { base.isWholeBook }
 }

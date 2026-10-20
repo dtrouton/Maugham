@@ -304,7 +304,8 @@ final class ReportEPUBTests: XCTestCase {
         let body = BodyPlan.Body(tag: nil, displayTag: "en",
                                  source: ProjectStoreASTSource(projectStore: store),
                                  config: PublishConfig())
-        let prepared = try EPUBCompiler.prepare(body: body, bodyTag: nil)
+        let resolved = try EPUBCompiler.resolve(bodies: [body])
+        let prepared = EPUBCompiler.prepare(resolution: try XCTUnwrap(resolved.first).resolution)
         let unreadable = prepared.resolution.problems.filter {
             if case .imageUnreadable = $0.kind { return true } else { return false }
         }

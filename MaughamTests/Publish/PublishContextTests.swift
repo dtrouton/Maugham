@@ -58,10 +58,28 @@ final class PublishContextTests: XCTestCase {
         return ctx
     }
 
-    /// What a filtering wrapper over `ContextSource(ids: a,b,c)` that keeps
-    /// only `b` gets wrong, as sentences; empty means it forwards both
-    /// requirements. Everything is asked through the existential.
-    private func forwardingFailures(of wrapper: any ProjectASTBuilder.Source) throws -> [String] {
+    /// THE SECOND PLANTED CONTROL (R-S15): an edition filter written the way
+    /// `IncludeFilteredASTSource` was before the final review — it forwards
+    /// its base's whole book as its scope, so a section the edition excludes
+    /// would still number, cite and block. `forwardingFailures` must catch it.
+    private struct BaseScopedEditionFilter: ProjectASTBuilder.Source {
+        let base: ProjectASTBuilder.Source
+        let excluded: Set<String>
+        func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
+            try base.orderedPieces().filter { !excluded.contains($0.pieceID) }
+        }
+        func publishContext() -> PublishContext { base.publishContext() }
+        var resolutionScope: ProjectASTBuilder.Source { base.resolutionScope }
+        var isWholeBook: Bool { excluded.isEmpty && base.isWholeBook }
+    }
+
+    /// What a filtering wrapper over `ContextSource(ids: a,b,c)` gets wrong, as
+    /// sentences; empty means it forwards the context, resolves over
+    /// `editionBook` (R-S15: the EDITION's book, never the raw base), shows
+    /// `view`, and says it is whole exactly when the two are one. Everything is
+    /// asked through the existential.
+    private func forwardingFailures(of wrapper: any ProjectASTBuilder.Source,
+                                    editionBook: [String], view: [String]) throws -> [String] {
         var failures: [String] = []
         let ctx = wrapper.publishContext()
         if ctx.projectURL != Self.markerURL {
@@ -74,19 +92,20 @@ final class PublishContextTests: XCTestCase {
             failures.append("publishContext().profile is \(String(describing: ctx.profile)), not the base's")
         }
         let scopeIDs = try wrapper.resolutionScope.orderedPieces().map(\.pieceID)
-        if scopeIDs != ["a", "b", "c"] {
-            failures.append("resolutionScope reads \(scopeIDs), not the whole book [a, b, c]")
+        if scopeIDs != editionBook {
+            failures.append("resolutionScope reads \(scopeIDs), not the edition's book \(editionBook)")
         }
-        // Premise: the wrapper really is a subset view, or the scope check
-        // above proves nothing.
-        // A subset view must say so, or the resolution would reuse the
-        // subset's AST as the whole book (`forCompile(source:built:…)`).
-        if wrapper.isWholeBook {
-            failures.append("isWholeBook is true for a subset view")
+        // A view that is not its book must say so, or the resolution would
+        // reuse the view's AST as the book (`forCompile(source:built:…)`); a
+        // view that IS its book must say so too, or every compile derives the
+        // manuscript twice.
+        let shouldBeWhole = view == editionBook
+        if wrapper.isWholeBook != shouldBeWhole {
+            failures.append("isWholeBook is \(wrapper.isWholeBook) for a view of \(view) over \(editionBook)")
         }
         let viewIDs = try wrapper.orderedPieces().map(\.pieceID)
-        if viewIDs != ["b"] {
-            failures.append("premise: the wrapper's own view is \(viewIDs), not [b]")
+        if viewIDs != view {
+            failures.append("premise: the wrapper's own view is \(viewIDs), not \(view)")
         }
         return failures
     }
@@ -111,23 +130,63 @@ final class PublishContextTests: XCTestCase {
 
     // MARK: - the wrappers forward, through the existential
 
+    /// A preview narrowing over an edition that excludes nothing resolves over
+    /// the whole base.
     func test_filteredASTSource_forwardsContextAndScopeThroughAnySource() throws {
-        let wrapper: any ProjectASTBuilder.Source = FilteredASTSource(base: base, sectionIDs: ["b"])
-        XCTAssertEqual(try forwardingFailures(of: wrapper), [])
+        let wrapper: any ProjectASTBuilder.Source = FilteredASTSource(
+            base: base, sectionIDs: ["b"], editionExcludedSectionIDs: [])
+        XCTAssertEqual(try forwardingFailures(of: wrapper, editionBook: ["a", "b", "c"], view: ["b"]), [])
     }
 
-    func test_includeFilteredASTSource_forwardsContextAndScopeThroughAnySource() throws {
+    /// R-S15: a preview narrowing resolves over its EDITION's book — not the
+    /// raw base — so a section the edition leaves out is outside it.
+    func test_filteredASTSource_resolvesOverTheEditionsBook() throws {
+        let wrapper: any ProjectASTBuilder.Source = FilteredASTSource(
+            base: base, sectionIDs: ["b"], editionExcludedSectionIDs: ["c"])
+        XCTAssertEqual(try forwardingFailures(of: wrapper, editionBook: ["a", "b"], view: ["b"]), [])
+    }
+
+    /// An explicit `section_ids` may name a section the edition excludes: it
+    /// is shown, and the book stays the edition's.
+    func test_filteredASTSource_namingAnExcludedSection_showsItButResolvesOverTheEdition() throws {
+        let wrapper: any ProjectASTBuilder.Source = FilteredASTSource(
+            base: base, sectionIDs: ["c"], editionExcludedSectionIDs: ["c"])
+        XCTAssertEqual(try forwardingFailures(of: wrapper, editionBook: ["a", "b"], view: ["c"]), [])
+    }
+
+    /// R-S15: the edition's filter IS the edition's book — its own scope, and
+    /// whole — so an excluded section neither numbers nor blocks.
+    func test_includeFilteredASTSource_isItsOwnBookThroughAnySource() throws {
         let wrapper: any ProjectASTBuilder.Source = IncludeFilteredASTSource(
             base: base, excludedSectionIDs: ["a", "c"])
-        XCTAssertEqual(try forwardingFailures(of: wrapper), [])
+        XCTAssertEqual(try forwardingFailures(of: wrapper, editionBook: ["b"], view: ["b"]), [])
     }
 
-    /// Wrappers nest (a preview's filter over a body bound by `BodyPlan`):
-    /// the scope is still the innermost base's whole book.
-    func test_nestedWrappers_reachTheInnermostBase() throws {
+    /// Wrappers nest (a preview's filter over a body an edition already
+    /// filtered): the inner filter is the edition, so its book is the scope.
+    func test_nestedWrappers_resolveOverTheInnerEdition() throws {
         let inner = IncludeFilteredASTSource(base: base, excludedSectionIDs: ["c"])
-        let outer: any ProjectASTBuilder.Source = FilteredASTSource(base: inner, sectionIDs: ["b"])
-        XCTAssertEqual(try forwardingFailures(of: outer), [])
+        let outer: any ProjectASTBuilder.Source = FilteredASTSource(
+            base: inner, sectionIDs: ["b"], editionExcludedSectionIDs: [])
+        XCTAssertEqual(try forwardingFailures(of: outer, editionBook: ["a", "b"], view: ["b"]), [])
+    }
+
+    /// The narrowing reads its base once for both of its views (M4).
+    func test_filteredASTSource_readsItsBaseOnce() throws {
+        final class Counter { var reads = 0 }
+        struct Counting: ProjectASTBuilder.Source {
+            let counter: Counter
+            func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
+                counter.reads += 1
+                return ["a", "b"].map { .init(pieceID: $0, title: $0, mode: .prose, displayText: $0) }
+            }
+        }
+        let counter = Counter()
+        let wrapper: any ProjectASTBuilder.Source = FilteredASTSource(
+            base: Counting(counter: counter), sectionIDs: ["b"], editionExcludedSectionIDs: [])
+        _ = try ProjectASTBuilder.build(from: wrapper)
+        _ = try ProjectASTBuilder.build(from: wrapper.resolutionScope)
+        XCTAssertEqual(counter.reads, 1)
     }
 
     /// `SinglePieceSource` has no base: it carries its own context (the
@@ -147,11 +206,23 @@ final class PublishContextTests: XCTestCase {
     /// forward, fails — so the passes above are earned.
     func test_plantedControl_aWrapperThatDoesNotForward_isCaught() throws {
         let wrapper: any ProjectASTBuilder.Source = NonForwardingWrapper(base: base, keep: ["b"])
-        let failures = try forwardingFailures(of: wrapper)
+        let failures = try forwardingFailures(of: wrapper, editionBook: ["a", "b", "c"], view: ["b"])
         XCTAssertEqual(failures.count, 5, "context (3 facts), scope and wholeness all lost: \(failures)")
-        XCTAssertTrue(failures.contains("isWholeBook is true for a subset view"), "\(failures)")
+        XCTAssertTrue(failures.contains { $0.hasPrefix("isWholeBook is true") }, "\(failures)")
         XCTAssertTrue(failures.contains { $0.hasPrefix("resolutionScope") }, "\(failures)")
         XCTAssertFalse(failures.contains { $0.hasPrefix("premise") }, "\(failures)")
+    }
+
+    /// The R-S15 control: an edition filter that resolves over its base's
+    /// whole book — the shape the final review found — fails on scope and
+    /// wholeness.
+    func test_plantedControl_anEditionFilterScopedToTheRawBase_isCaught() throws {
+        let wrapper: any ProjectASTBuilder.Source = BaseScopedEditionFilter(base: base, excluded: ["a", "c"])
+        let failures = try forwardingFailures(of: wrapper, editionBook: ["b"], view: ["b"])
+        XCTAssertEqual(failures.count, 2, "scope and wholeness: \(failures)")
+        XCTAssertTrue(failures.contains { $0.hasPrefix("resolutionScope reads [\"a\", \"b\", \"c\"]") },
+                      "\(failures)")
+        XCTAssertTrue(failures.contains { $0.hasPrefix("isWholeBook is false") }, "\(failures)")
     }
 
     // MARK: - the production source
@@ -248,7 +319,7 @@ final class PublishContextTests: XCTestCase {
             resolved: PublishConfig(),
             source: src,
             publishDir: store.url.appendingPathComponent(".maugham/publish"),
-            wrap: { FilteredASTSource(base: $0, sectionIDs: [all[0]]) })
+            wrap: { FilteredASTSource(base: $0, sectionIDs: [all[0]], editionExcludedSectionIDs: []) })
         let body = plan.first.source
         XCTAssertEqual(try body.orderedPieces().map(\.pieceID), [all[0]], "premise: a subset body")
         XCTAssertEqual(body.publishContext().projectURL, store.url)
@@ -274,7 +345,7 @@ final class PublishContextTests: XCTestCase {
             resolved: PublishConfig(),
             source: src,
             publishDir: scratch.appendingPathComponent(".maugham/publish"),
-            wrap: { FilteredASTSource(base: $0, sectionIDs: [first]) })
+            wrap: { FilteredASTSource(base: $0, sectionIDs: [first], editionExcludedSectionIDs: []) })
         let ctx = plan.first.source.publishContext()
         XCTAssertEqual(ctx.projectURL, store.url)
         XCTAssertNotEqual(ctx.projectURL, scratch)

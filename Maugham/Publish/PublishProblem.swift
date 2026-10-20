@@ -161,9 +161,12 @@ public enum PublishProblemGate {
         }
     }
 
-    /// Builds each body's AST once (the manuscript is read once per body) and
-    /// resolves it over its whole book for one output format's images. A
-    /// multi-body compile tags each body's problems with its language (R-P2-8).
+    /// THE ONE place a body is resolved, for every door — compile, republish,
+    /// preview and sample: builds each body's AST once (the manuscript is read
+    /// once per body) and resolves it over its book — the edition's (R-S15) —
+    /// for one output format's images. A multi-body compile tags each body's
+    /// problems with its language (R-P2-8); every body's problems carry it as
+    /// `bodyLanguage` (R-S14).
     static func resolve(bodies: [BodyPlan.Body],
                         imageAllowed: Set<String>) throws -> [Body] {
         try bodies.map { body in

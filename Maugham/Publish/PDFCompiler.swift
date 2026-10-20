@@ -367,25 +367,9 @@ public struct PDFCompiler {
     /// The image formats a PDF can show (R-P2-7).
     static let imageAllowed: Set<String> = ["png", "jpg", "jpeg", "pdf"]
 
-    /// R-S3: one body's resolution over its whole book, then its images staged.
-    /// The ONE place a PDF body is resolved, so the gate can later share it.
-    ///
-    /// - Parameters:
-    ///   - bodyTag: the body's language for its problems' `[tag]` prefix
-    ///     (R-P2-8); nil for a single-body compile.
-    ///   - built: the AST the compile already built from `body.source`, reused
-    ///     when that source is its whole book; nil builds it.
-    static func prepare(body: BodyPlan.Body, bodyTag: String?, publishDir: URL,
-                        pathPrefix: String, built: ProjectAST? = nil) throws -> PreparedBody {
-        let resolution = try built.map {
-            try PublishResolution.forCompile(source: body.source, built: $0, bodyTag: bodyTag,
-                                             imageAllowed: imageAllowed)
-        } ?? PublishResolution.forCompile(source: body.source, bodyTag: bodyTag,
-                                          imageAllowed: imageAllowed)
-        return prepare(resolution: resolution, publishDir: publishDir, pathPrefix: pathPrefix)
-    }
-
-    /// Stages the figures of a resolution already made — the gate's (Task 7).
+    /// Stages the figures of a resolution already made — the gate's: a body is
+    /// resolved in ONE place, `PublishProblemGate.resolve` (through
+    /// `resolve(bodies:)`), and this only stages what it resolved.
     static func prepare(resolution: PublishResolution, publishDir: URL,
                         pathPrefix: String) -> PreparedBody {
         var resolution = resolution

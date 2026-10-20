@@ -89,7 +89,7 @@ final class PublishResolutionTests: XCTestCase {
             ("b", [("c3d4", "![Seventh](s.png){#fig:seven}")]),
             ("c", [("e5f6", "As @fig:early and @fig:seven show.")]),
         ], context: context())
-        let preview = FilteredASTSource(base: book, sectionIDs: ["b", "c"])
+        let preview = FilteredASTSource(base: book, sectionIDs: ["b", "c"], editionExcludedSectionIDs: [])
 
         let r = try PublishResolution.forCompile(source: preview, bodyTag: nil, imageAllowed: ["png"])
         let subset = try ProjectASTBuilder.build(from: preview)
@@ -98,6 +98,71 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.figureNumbers["b"], [0: 7])
         XCTAssertEqual(r.targets[label("fig:early")]?.text, "Figure 1")
         XCTAssertEqual(r.targets[label("fig:early")]?.pieceID, "a")
+        XCTAssertEqual(r.problems, [])
+    }
+
+    // MARK: - R-S15: the edition's book
+
+    /// A Report with a draft chapter the edition leaves out (`include: false`).
+    private func editionBook() -> Book {
+        let library = CitationLibrary(items: [
+            source("kept", "Adams", 2020, title: "Kept"),
+            source("draftonly", "Baker", 2021, title: "Draft only"),
+        ])
+        return Book(pieces: [
+            ("a", [("a1b2", "# One"), ("c3d4", "![F1](f.png){#fig:one}"),
+                   ("e5f6", "Cited [@kept] and noted[^n]."), ("g7h8", "[^n]: A note.")]),
+            ("b", [("j9k0", "# Draft"), ("m2n3", "![Draft](d.png){#fig:draft}"),
+                   ("p4q5", "Unknown [@todo], [@draftonly], and a note[^d]."), ("r6s7", "[^d]: Draft note.")]),
+            ("c", [("t8v9", "# Three"), ("w2x3", "![F3](g.png){#fig:three}"),
+                   ("y4z5", "As @fig:one and @fig:three show, a third[^t]."), ("a6b7", "[^t]: Third.")]),
+        ], context: context(library: library))
+    }
+
+    /// The edition's filter resolves over the pieces it publishes: the draft's
+    /// unknown key is no problem, and numbers, notes and References skip
+    /// nothing a reader can see.
+    func test_theEditionsBook_leavesTheExcludedDraftOutOfEverything() throws {
+        let edition = IncludeFilteredASTSource(base: editionBook(), excludedSectionIDs: ["b"])
+        XCTAssertTrue(edition.isWholeBook, "the edition is its own book")
+        let r = try PublishResolution.forCompile(source: edition, bodyTag: nil, imageAllowed: ["png"])
+
+        XCTAssertEqual(r.problems, [], "the draft's [@todo] blocks nothing")
+        XCTAssertEqual(r.figureNumbers, ["a": [1: 1], "c": [1: 2]], "no gap where the draft's figure was")
+        XCTAssertEqual(r.headingNumbers, ["a": [0: "1"], "c": [0: "2"]], "no missing Section 2")
+        XCTAssertEqual(r.footnoteNumbers, ["a": ["n": 1], "c": ["t": 2]], "notes run on unbroken")
+        XCTAssertEqual(r.targets[label("fig:three")]?.text, "Figure 2")
+        XCTAssertNil(r.targets[label("fig:draft")], "the draft's label is not in the book")
+        XCTAssertEqual(r.referenceKeys, ["kept"], "a source cited only in the draft is not listed")
+        XCTAssertEqual(r.listOfFigures.map(\.number), [1, 2])
+    }
+
+    /// A reference from an included chapter into the excluded draft points
+    /// at nothing the book contains: an unresolved problem, never "Figure 2".
+    func test_aReferenceIntoTheExcludedDraft_isUnresolved() throws {
+        var pieces = editionBook().pieces
+        pieces[2].paragraphs[2] = ("y4z5", "See @fig:draft, a third[^t].")
+        let edition = IncludeFilteredASTSource(
+            base: Book(pieces: pieces, context: editionBook().context), excludedSectionIDs: ["b"])
+        let r = try PublishResolution.forCompile(source: edition, bodyTag: nil, imageAllowed: ["png"])
+        XCTAssertEqual(r.problems.map(\.kind), [.unresolvedCrossRef(label("fig:draft"))])
+        XCTAssertEqual(r.problems.first?.paragraphID, "y4z5")
+        XCTAssertTrue(r.problems[0].isError(profile: .report))
+    }
+
+    /// A preview of one included chapter numbers as the edition does: its
+    /// figure is Figure 2, not the raw binder's 3, and the edition's
+    /// References are the preview's.
+    func test_aPreviewOfOneIncludedChapter_numbersAsTheEdition() throws {
+        let preview = FilteredASTSource(base: editionBook(), sectionIDs: ["c"],
+                                        editionExcludedSectionIDs: ["b"])
+        XCTAssertFalse(preview.isWholeBook)
+        let r = try PublishResolution.forCompile(source: preview, bodyTag: nil, imageAllowed: ["png"])
+        XCTAssertEqual(try ProjectASTBuilder.build(from: preview).sections.map(\.pieceID), ["c"])
+        XCTAssertEqual(r.figureNumbers["c"], [1: 2])
+        XCTAssertEqual(r.headingNumbers["c"], [0: "2"])
+        XCTAssertEqual(r.footnoteNumbers["c"], ["t": 2])
+        XCTAssertEqual(r.referenceKeys, ["kept"])
         XCTAssertEqual(r.problems, [])
     }
 

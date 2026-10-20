@@ -52,7 +52,7 @@ These are verified, so use them as they are:
 - **Plan code is a contract, not a transcript.** The signatures named under *Interfaces* are new names this plan defines; everything else must be verified in the code before use.
 - **Every new census or guard has a planted-offender control**, and the implementer runs the **disable experiment**: break the production rule on purpose, watch the test fail, restore it, and say so in the report.
 - **The elements render in every project kind** (spec D-ruling "features work everywhere"). The Report profile only changes defaults and severity (R-P2-1, below).
-- **Resolution runs over the whole book.** A preview, sample or section-excluding compile numbers and resolves over every publishable piece, then emits only its subset. No figure is numbered differently in a preview than in the book.
+- **Resolution runs over the edition's book** (R-S15, which reverses this sentence's first wording). The edition's book is every publishable piece less the sections the edition excludes (`include: false`, an imprint's `excludedSectionIDs`). A preview or sample numbers and resolves over the edition's book, then emits only its subset. No figure is numbered differently in a preview than in the book.
 - **Output never prints "??"** (spec §5.2). A marker that cannot be resolved renders as its literal source text (`@fig:x`, `[@key]`, `[^n]`), and is a publish problem.
 - **Old templates still compile.** A project whose preamble predates this plan (no graphicx, no longtable, or a redesigned template without the `build/metadata` line) compiles without a TeX error; figures and tables degrade in a defined way (Task 5).
 - **Tripwires:**

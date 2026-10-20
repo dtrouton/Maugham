@@ -349,38 +349,22 @@ public struct EPUBCompiler {
         }
     }
 
-    /// R-S3: one body's resolution over its whole book, then each resolved
-    /// image named by its content hash. The ONE place an EPUB body is
-    /// resolved, so the gate can later share it, as `PDFCompiler.prepare` is.
-    ///
-    /// Naming an image reads it through (streamed, `FigureImageResolver
-    /// .contentHash`), so an image that can't be read is found HERE, before a
-    /// word is emitted: `stagingFailed` makes it an `imageUnreadable` problem
-    /// and its figure renders as its literal source. The bytes themselves are
-    /// copied only at packaging time (`EPUBZipPackager`).
-    ///
-    /// - Parameters:
-    ///   - bodyTag: the body's language for its problems' `[tag]` prefix
-    ///     (R-P2-8); nil for a single-body compile.
-    ///   - built: the AST the compile already built from `body.source`, reused
-    ///     when that source is its whole book; nil builds it.
-    static func prepare(body: BodyPlan.Body, bodyTag: String?,
-                        built: ProjectAST? = nil) throws -> PreparedBody {
-        let resolution = try built.map {
-            try PublishResolution.forCompile(source: body.source, built: $0, bodyTag: bodyTag,
-                                             imageAllowed: imageAllowed)
-        } ?? PublishResolution.forCompile(source: body.source, bodyTag: bodyTag,
-                                          imageAllowed: imageAllowed)
-        return prepare(resolution: resolution)
-    }
-
     /// Every body resolved for an EPUB's images: the door's gate calls this
     /// and hands the answer to `init(…resolved:)`.
     static func resolve(bodies: [BodyPlan.Body]) throws -> [PublishProblemGate.Body] {
         try PublishProblemGate.resolve(bodies: bodies, imageAllowed: imageAllowed)
     }
 
-    /// Names the images of a resolution already made — the gate's (Task 7).
+    /// Names the images of a resolution already made — the gate's: a body is
+    /// resolved in ONE place, `PublishProblemGate.resolve` (through
+    /// `resolve(bodies:)`), and this only stages what it resolved.
+    ///
+    /// Naming an image reads it through (streamed, `FigureImageResolver
+    /// .contentHash`), after a header sniff (`FigureImageResolver.opens`), so
+    /// an image that can't be read or won't open is found HERE, before a word
+    /// is emitted: `stagingFailed` makes it an `imageUnreadable` problem and
+    /// its figure renders as its literal source. The bytes themselves are
+    /// copied only at packaging time (`EPUBZipPackager`).
     static func prepare(resolution: PublishResolution) -> PreparedBody {
         var resolution = resolution
         var figureFiles: [String: [Int: String]] = [:]

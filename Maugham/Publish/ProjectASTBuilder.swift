@@ -44,19 +44,24 @@ public enum ProjectASTBuilder {
         /// dispatches statically and would answer `.empty` for every wrapper.
         func publishContext() -> PublishContext
 
-        /// The WHOLE book this source is a view of. A filtering wrapper answers
-        /// its base's, so a preview or subset edition numbers and resolves over
-        /// every publishable piece and emits only its own. A requirement for
-        /// the same dispatch reason as `publishContext()`.
+        /// The book this source is a view of: the EDITION's book (R-S15) —
+        /// every publishable piece less the sections the edition excludes
+        /// (`include: false`, an imprint's dropped sections). The edition's
+        /// own filter (`IncludeFilteredASTSource`) answers itself; a preview
+        /// or sample narrowing (`FilteredASTSource`) answers its edition's,
+        /// so a one-chapter preview numbers and resolves as the edition does
+        /// and emits only its own pieces. A requirement for the same dispatch
+        /// reason as `publishContext()`.
         var resolutionScope: Source { get }
 
-        /// True when this source IS its whole book — it filters no piece out —
-        /// so the AST a compiler built from it is the AST `resolutionScope`
-        /// would build, and the resolution can reuse it rather than derive
-        /// every piece from the op log a second time
-        /// (`PublishResolution.forCompile(source:built:…)`). A filtering
-        /// wrapper answers false while its filter removes anything, else its
-        /// base's answer. A requirement for the same dispatch reason.
+        /// True when this source IS its book — its pieces are exactly
+        /// `resolutionScope`'s — so the AST a compiler built from it is the
+        /// AST `resolutionScope` would build, and the resolution can reuse it
+        /// rather than derive every piece from the op log a second time
+        /// (`PublishResolution.forCompile(source:built:…)`). The edition's
+        /// filter is whole whenever its base is; a narrowing answers false
+        /// while it shows less (or other) than its edition. A requirement for
+        /// the same dispatch reason.
         ///
         /// A wrapper that overrides `resolutionScope` must override
         /// `isWholeBook`: the default's `true` is the unsafe answer for a
@@ -331,7 +336,7 @@ extension ProjectASTBuilder.Source {
     public func publishContext() -> PublishContext { .empty }
 
     /// Defaulted to `self`: a source that filters nothing is its own whole
-    /// book. A filtering wrapper answers its base's.
+    /// book. A narrowing wrapper answers its edition's.
     public var resolutionScope: ProjectASTBuilder.Source { self }
 
     /// Defaulted to true, with `resolutionScope`'s `self`: a source that

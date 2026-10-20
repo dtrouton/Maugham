@@ -2,7 +2,8 @@ import Foundation
 import MaughamCore
 
 /// The project-wide resolution pass (report foundations plan 2, Task 4): over
-/// the AST of the WHOLE book, never a preview subset, it numbers figures,
+/// the AST of the edition's WHOLE book (R-S15: every piece the edition
+/// includes), never a preview subset, it numbers figures,
 /// tables, headings and footnotes, resolves cross-references and citations,
 /// builds References and the lists of figures and tables, and collects every
 /// publish problem against its piece and paragraph. The PDF and EPUB emitters
@@ -66,9 +67,10 @@ public struct PublishResolution: Sendable {
     /// R-P2-5: the cited sources only, in References order; empty when the
     /// body cites nothing.
     public let references: [[CitationStyle.Run]]
-    /// The cited keys, index-aligned with `references`. References are
-    /// whole-book like everything here; a subset edition that ever wants only
-    /// its own cited sources can filter by these keys rather than re-resolve.
+    /// The cited keys, index-aligned with `references`. References are the
+    /// edition's book's, like everything here: a source cited only in a
+    /// section the edition excludes is not listed (R-S15), while a preview of
+    /// one chapter lists the edition's whole References.
     public let referenceKeys: [String]
     /// Every figure, in book order; empty when the switch is off (R-P2-6).
     public let listOfFigures: [ListEntry]
@@ -108,8 +110,9 @@ public struct PublishResolution: Sendable {
         }.joined(separator: "\n")
     }
 
-    /// The helper both compilers use: builds the AST of the source's whole
-    /// book (`resolutionScope`) and resolves it with that scope's context.
+    /// The helper both compilers use: builds the AST of the source's book —
+    /// the edition's, `resolutionScope` — and resolves it with that scope's
+    /// context.
     /// The caller then emits the subset AST built from `source` itself.
     /// Throws when a piece's history is unreadable, as `ProjectASTBuilder.build`
     /// does (RULING-54).

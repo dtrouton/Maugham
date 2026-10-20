@@ -97,28 +97,48 @@ final class EPUBPrepareReuseTests: XCTestCase {
         BodyPlan.Body(tag: nil, displayTag: "en", source: source, config: PublishConfig())
     }
 
+    /// The live path: the door's `PublishProblemGate.resolve` builds the AST
+    /// once and the resolution reuses it; `prepare(resolution:)` names images.
+    private func resolveAndPrepare(_ source: ProjectASTBuilder.Source) throws -> EPUBCompiler.PreparedBody {
+        let resolved = try EPUBCompiler.resolve(bodies: [body(source)])
+        return EPUBCompiler.prepare(resolution: try XCTUnwrap(resolved.first).resolution)
+    }
+
     func test_aWholeBookSourceIsReadOnce() throws {
         let counter = Counter()
         let source = IncludeFilteredASTSource(base: CountingBook(counter: counter), excludedSectionIDs: [])
         XCTAssertTrue(source.isWholeBook)
-        let ast = try ProjectASTBuilder.build(from: source)
-        let prepared = try EPUBCompiler.prepare(body: body(source), bodyTag: nil, built: ast)
+        let prepared = try resolveAndPrepare(source)
         XCTAssertEqual(counter.reads, 1, "the built AST is the whole book: no second derivation")
         XCTAssertEqual(prepared.resolution.tableNumbers["a"], [0: 1])
     }
 
-    func test_aSubsetSourceStillResolvesOverItsWholeBook() throws {
+    /// R-S15: an edition that excludes a piece IS its book — read once, and
+    /// a reference into the excluded piece is unresolved.
+    func test_anEditionExcludingAPiece_isItsOwnBook_readOnce() throws {
         let counter = Counter()
         let source = IncludeFilteredASTSource(base: CountingBook(counter: counter), excludedSectionIDs: ["a"])
+        XCTAssertTrue(source.isWholeBook)
+        let prepared = try resolveAndPrepare(source)
+        XCTAssertEqual(counter.reads, 1)
+        let one = try XCTUnwrap(ManuscriptLabel(reference: "tbl:one"))
+        XCTAssertNil(prepared.resolution.targets[one], "the excluded piece's table is not in the book")
+        XCTAssertEqual(prepared.resolution.problems.map(\.kind), [.unresolvedCrossRef(one)])
+    }
+
+    /// A preview narrowing still resolves over its edition's book, and reads
+    /// its base once for both.
+    func test_aPreviewNarrowingResolvesOverItsEdition_readOnce() throws {
+        let counter = Counter()
+        let source = FilteredASTSource(base: CountingBook(counter: counter), sectionIDs: ["b"],
+                                       editionExcludedSectionIDs: [])
         XCTAssertFalse(source.isWholeBook)
-        XCTAssertFalse(FilteredASTSource(base: source, sectionIDs: nil).isWholeBook,
-                       "a pass-through over a subset is still a subset")
-        XCTAssertFalse(FilteredASTSource(base: CountingBook(counter: counter), sectionIDs: ["b"]).isWholeBook)
-        let ast = try ProjectASTBuilder.build(from: source)
-        XCTAssertEqual(ast.sections.map(\.pieceID), ["b"], "premise: a subset")
-        let prepared = try EPUBCompiler.prepare(body: body(source), bodyTag: nil, built: ast)
-        XCTAssertEqual(counter.reads, 2, "the subset's whole book is built for the resolution")
+        XCTAssertFalse(FilteredASTSource(base: CountingBook(counter: Counter()), sectionIDs: nil,
+                                         editionExcludedSectionIDs: ["a"]).isWholeBook,
+                       "showing every piece over an edition that excludes one is not the edition")
+        let prepared = try resolveAndPrepare(source)
+        XCTAssertEqual(counter.reads, 1, "the subset and its edition share one derivation")
         XCTAssertEqual(prepared.resolution.targets[try XCTUnwrap(ManuscriptLabel(reference: "tbl:one"))]?.text,
-                       "Table 1", "the excluded piece's table still resolves")
+                       "Table 1", "the edition's table resolves from the narrowed piece")
     }
 }

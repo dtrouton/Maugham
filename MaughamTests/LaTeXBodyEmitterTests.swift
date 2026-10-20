@@ -1067,7 +1067,7 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
             ("b", [("c3d4", "Text first."), ("e5f6", "![Two](../research/2.png){#fig:two}"),
                    ("g7h8", "See @fig:one.")]),
         ], context: book([]).context)
-        let subset = FilteredASTSource(base: whole, sectionIDs: ["b"])
+        let subset = FilteredASTSource(base: whole, sectionIDs: ["b"], editionExcludedSectionIDs: [])
         let ast = try ProjectASTBuilder.build(from: subset)
         XCTAssertEqual(ast.sections.map(\.pieceID), ["b"], "premise: a subset")
         let r = try PublishResolution.forCompile(source: subset, bodyTag: nil, imageAllowed: ["png"])

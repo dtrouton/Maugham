@@ -307,6 +307,56 @@ final class PublishProblemGateTests: XCTestCase {
         XCTAssertEqual(source.paragraphID, ids[1])
     }
 
+    // MARK: - R-S15: the edition's book is the gate's book
+
+    /// A Report of two chapters whose second is a draft the writer left out
+    /// (`include: false`), each written before its first load.
+    private func makeReportWithExcludedDraft(kept: String, draft: String) async throws -> (Fixture, String) {
+        let fx = try await makeProject(report: true, text: kept)
+        fx.store.manifest.structure.append(StructureItem(
+            id: "doc-draft", title: "Draft", type: .document, path: "manuscript/draft.md"))
+        try await fx.store.saveManifest()
+        let draftURL = fx.url.appendingPathComponent("manuscript/draft.md")
+        try draft.write(to: draftURL, atomically: true, encoding: .utf8)
+        let doc = try await Document.load(url: draftURL, actor: .author, session: "gate", presenter: nil)
+        await doc.close()
+        var cfg = try await fx.stores.configStore.load() ?? PublishConfig()
+        cfg.sections["doc-draft"] = PublishConfig.Section(include: false)
+        try await fx.stores.configStore.save(cfg)
+        let ids = try ProjectStoreASTSource(projectStore: fx.store).orderedPieces().map(\.pieceID)
+        XCTAssertEqual(ids, [fx.pieceID, "doc-draft"], "premise: the draft is in the binder")
+        return (fx, "doc-draft")
+    }
+
+    /// A draft chapter the edition leaves out is not in the book the gate
+    /// judges: its unknown key refuses nothing.
+    func test_aReportsExcludedDraftCitingAnUnknownKey_compiles() async throws {
+        let (fx, _) = try await makeReportWithExcludedDraft(
+            kept: "Intro.\n\nRevenue grew [@smith2026].", draft: "Draft.\n\nTo do [@todo].")
+        let outcome = try await orchestrator(fx).compile(format: .epub, label: nil)
+        guard case .completed(_, let warnings) = outcome else {
+            return XCTFail("the excluded draft must not block the Report: \(outcome)")
+        }
+        XCTAssertEqual(problemDiagnostics(warnings).map(\.message), [], "\(warnings)")
+    }
+
+    /// A reference from the published chapter into the excluded draft points
+    /// at a figure the book doesn't contain: the Report refuses, naming it.
+    func test_aReportReferringIntoItsExcludedDraft_refuses() async throws {
+        let (fx, _) = try await makeReportWithExcludedDraft(
+            kept: "Intro.\n\nSee @fig:draftchart.",
+            draft: "Draft.\n\n![Chart]({up}research/chart.png){#fig:draftchart}"
+                .replacingOccurrences(of: "{up}", with: "../"))
+        let outcome = try await orchestrator(fx).compile(format: .epub, label: nil, dryRun: true)
+        guard case .failed(let errors, let excerpt) = outcome else {
+            return XCTFail("a reference into excluded text must refuse: \(outcome)")
+        }
+        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        let problems = problemDiagnostics(errors)
+        XCTAssertEqual(problems.map(\.message), ["No figure is labelled fig:draftchart."])
+        XCTAssertEqual(problems.first?.paragraphID, try paragraphID(containing: "@fig:draftchart", in: fx))
+    }
+
     // MARK: - previews never refuse
 
     func test_aPreviewOfAReportRendersWithWarnings() async throws {
@@ -432,6 +482,44 @@ final class PublishProblemGateTests: XCTestCase {
         XCTAssertEqual(counter.reads, 1, "the compile reused the gate's AST")
         XCTAssertEqual(result.problems, resolved.flatMap(\.resolution.problems))
         XCTAssertEqual(result.problems.count, 1)
+    }
+
+    /// A book whose every read is counted, and where it happened.
+    private final class ThreadedCounter: @unchecked Sendable {
+        var reads = 0
+        var offMain = 0
+    }
+    private struct ThreadedBook: ProjectASTBuilder.Source {
+        let counter: ThreadedCounter
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            counter.reads += 1
+            if !Thread.isMainThread { counter.offMain += 1 }
+            return [.init(pieceID: "a", title: "A", mode: .prose, displayText: "| x |\n|---|\n| 1 |\nTable: One {#tbl:one}"),
+                    .init(pieceID: "b", title: "B", mode: .prose, displayText: "See @tbl:one and @tbl:none.")]
+        }
+    }
+
+    /// M4 (final review): a preview resolves through the gate's door before it
+    /// compiles — on the main actor, where the production source's conformance
+    /// lives — and hands the bodies down, so a one-chapter preview reads the
+    /// book once and its warnings are about what it emitted.
+    func test_aPreviewResolvesOnceOnTheMainActor_andWarnsAboutWhatItEmits() async throws {
+        let counter = ThreadedCounter()
+        let project = tmp.appendingPathComponent("preview-once")
+        try await PublishStarter.install(into: project, force: false)
+        let configStore = PublishConfigStore(projectURL: project)
+        try await configStore.save(PublishConfig(metadata: .init(title: "T", author: "A")))
+        let result = try await PreviewCompiler(
+            projectURL: project, astSource: ThreadedBook(counter: counter),
+            configStore: configStore, jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a"
+        ).preview(format: .epub, sectionIDs: ["b"], maxPages: nil)
+
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors)")
+        XCTAssertEqual(counter.reads, 1, "the subset and its book are one read")
+        XCTAssertEqual(counter.offMain, 0, "resolved on the main actor, before the compile hops off it")
+        XCTAssertEqual(problemDiagnostics(result.warnings).map(\.message),
+                       ["No table is labelled tbl:none."], "the narrowed piece's own problem, once")
     }
 
     // MARK: - the gate's table
