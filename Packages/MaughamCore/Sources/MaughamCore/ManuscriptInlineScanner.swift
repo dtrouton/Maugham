@@ -39,10 +39,37 @@ public enum ManuscriptInlineScanner {
         return scanner.run()
     }
 
+    /// The markers as publishing consumes them: like `scan`, except that a
+    /// bracket mixing keys and labels is ONE group covering the whole bracket,
+    /// holding its citation (every key, each with its own locator) and then one
+    /// cross-reference per label, in source order. Every other marker is a
+    /// group of one with `scan`'s range. `scan` itself is unchanged, since the
+    /// editor wants each item's own range.
+    public static func scanGroups(_ text: String) -> [(markers: [ManuscriptInline], range: NSRange)] {
+        var scanner = Scanner(text: text)
+        let flat = scanner.run()
+        var out: [(markers: [ManuscriptInline], range: NSRange)] = []
+        var m = 0
+        var emitted = -1
+        for found in flat {
+            while m < scanner.mixed.count, NSMaxRange(scanner.mixed[m].range) <= found.range.location { m += 1 }
+            if m < scanner.mixed.count,
+               NSIntersectionRange(scanner.mixed[m].range, found.range).length > 0 {
+                if emitted != m { out.append(scanner.mixed[m]); emitted = m }
+                continue
+            }
+            out.append(([found.marker], found.range))
+        }
+        return out
+    }
+
     private struct Scanner {
         let text: NSString
         let u: [UInt16]
         var out: [(marker: ManuscriptInline, range: NSRange)] = []
+        /// Each mixed bracket's whole range and its markers (citation first),
+        /// in source order; read by `scanGroups` only.
+        var mixed: [(markers: [ManuscriptInline], range: NSRange)] = []
 
         init(text: String) {
             self.text = text as NSString
@@ -164,6 +191,7 @@ public enum ManuscriptInlineScanner {
                 var found: [(marker: ManuscriptInline, range: NSRange)] = labels.map { (.crossRef($0.0), $0.1) }
                 found.append((.citation(keys), firstKeyRange!))
                 out.append(contentsOf: found.sorted { $0.range.location < $1.range.location })
+                mixed.append(([.citation(keys)] + labels.map { .crossRef($0.0) }, whole))
             }
             return p
         }

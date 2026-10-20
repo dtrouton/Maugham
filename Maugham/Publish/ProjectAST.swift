@@ -47,11 +47,18 @@ public struct ProjectAST: Equatable, Sendable {
         /// `footnotes` kept (the first). `[:]` when `nodeParagraphs` is.
         public let footnoteParagraphs: [String: String]
 
+        /// Footnote label → one entry per DROPPED duplicate definition (a
+        /// second, third… `[^label]:` in the piece; the first wins), in source
+        /// order: the `¶id` of that duplicate's paragraph, or nil when the
+        /// paragraphs don't reconcile. Empty when no label is defined twice.
+        public let duplicateFootnotes: [String: [String?]]
+
         public init(pieceID: String, title: String, mode: Mode, nodes: [Node],
                     anchors: [Int: String] = [:],
                     footnotes: [String: [Inline]] = [:],
                     nodeParagraphs: [Int: String] = [:],
-                    footnoteParagraphs: [String: String] = [:]) {
+                    footnoteParagraphs: [String: String] = [:],
+                    duplicateFootnotes: [String: [String?]] = [:]) {
             self.pieceID = pieceID
             self.title = title
             self.mode = mode
@@ -60,6 +67,7 @@ public struct ProjectAST: Equatable, Sendable {
             self.footnotes = footnotes
             self.nodeParagraphs = nodeParagraphs
             self.footnoteParagraphs = footnoteParagraphs
+            self.duplicateFootnotes = duplicateFootnotes
         }
     }
 
@@ -179,21 +187,20 @@ public extension ProjectAST.FountainNode {
 }
 
 
-/// INTERIM — plan 2 Task 2 only; Tasks 5 and 6 replace every caller with real
-/// LaTeX and XHTML for the report elements, and delete this enum.
+/// The literal source of a report element, rebuilt from the AST. Tasks 5
+/// and 6 KEEP it: it is what an element prints as when it has no rendering
+/// (a nil resolution) or cannot be resolved — output never prints "??" (spec
+/// §5.2). Until those tasks land, the emitters also use it for every report
+/// element, so the build and the novel golden stay green between tasks.
 ///
-/// Until then the emitters print each report element as the literal source it
-/// came from, as they did before the AST knew these elements, so the build and
-/// the novel golden stay green between tasks. The source is rebuilt from the
-/// AST, which keeps the element's meaning but not its exact spelling:
+/// It keeps the element's meaning but not its exact spelling:
 /// - table cells come back as `| a | b |` rows on ONE paragraph line, the
 ///   delimiter row spelt `---`/`:--`/`:-:`/`--:`, and the caption as
-///   `Table: …` on the same line (the old output was one paragraph per block);
-/// - a citation comes back as `[@key, locator; @key]` with canonical spacing.
-///   In a bracket that mixes keys and labels the scanner gives the citation
-///   only its first key's item, so the brackets print twice there;
-/// - a footnote definition is not printed at all (it lives in
-///   `Section.footnotes`, which the emitters don't read yet).
+///   `Table: …` on the same line;
+/// - a citation comes back as `[@key, locator; @key]` with canonical
+///   spacing. A bracket mixing keys and labels reads `[@a; @b]; @fig:x`
+///   (ruling R-S4: the citation of every key, then each label);
+/// - a footnote definition is not printed (it lives in `Section.footnotes`).
 enum InterimReportLiteral {
 
     /// ` {#kind:name}` for a labelled heading, or nothing.

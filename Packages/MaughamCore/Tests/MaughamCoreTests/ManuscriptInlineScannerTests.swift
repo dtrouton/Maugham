@@ -150,4 +150,37 @@ final class ManuscriptInlineScannerTests: XCTestCase {
                                             NSRange(location: 16, length: 6)])
         XCTAssertEqual(spans(text), ["[^1]", "[@k]", "@fig:a"])
     }
+
+    // MARK: - scanGroups (publishing's reading)
+
+    private func groups(_ text: String) -> [([ManuscriptInline], String)] {
+        ManuscriptInlineScanner.scanGroups(text).map { ($0.markers, (text as NSString).substring(with: $0.range)) }
+    }
+
+    func test_scanGroups_mixedBracketIsOneGroupOverTheWholeBracket() {
+        let g = groups("See [@a, p. 3; @b; @fig:x; @tbl:y] now [^1].")
+        XCTAssertEqual(g.count, 2)
+        XCTAssertEqual(g[0].0, [.citation([CitationItem(key: "a", locator: "p. 3"),
+                                           CitationItem(key: "b", locator: nil)]),
+                                .crossRef(label("fig:x")), .crossRef(label("tbl:y"))])
+        XCTAssertEqual(g[0].1, "[@a, p. 3; @b; @fig:x; @tbl:y]")
+        XCTAssertEqual(g[1].0, [.footnoteRef(label: "1")])
+        XCTAssertEqual(g[1].1, "[^1]")
+    }
+
+    func test_scanGroups_labelFirstMixedBracket_putsTheCitationFirst() {
+        let g = groups("[@fig:x; @a]")
+        XCTAssertEqual(g.map(\.0), [[.citation([CitationItem(key: "a", locator: nil)]), .crossRef(label("fig:x"))]])
+        XCTAssertEqual(g.map(\.1), ["[@fig:x; @a]"])
+    }
+
+    func test_scanGroups_otherwiseMatchesScanOneForOne() {
+        let text = "[@a] and [@fig:x; @tbl:y] and @sec:s and [@fig:z] and [@a; @fig:q] [^n]"
+        let g = groups(text)
+        XCTAssertEqual(g.map(\.1), ["[@a]", "@fig:x", "@tbl:y", "@sec:s", "[@fig:z]",
+                                     "[@a; @fig:q]", "[^n]"])
+        XCTAssertTrue(g.filter { $0.1 != "[@a; @fig:q]" }.allSatisfy { $0.0.count == 1 })
+        // `scan` keeps its own contract: per-item ranges in the mixed bracket.
+        XCTAssertEqual(spans("[@a; @fig:q]"), ["@a", "@fig:q"])
+    }
 }

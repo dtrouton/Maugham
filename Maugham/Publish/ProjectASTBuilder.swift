@@ -54,6 +54,7 @@ public enum ProjectASTBuilder {
         let starts: [Int]
         var footnotes: [String: [ProjectAST.Inline]] = [:]
         var footnoteStarts: [String: Int] = [:]
+        var duplicateStarts: [String: [Int]] = [:]
         switch piece.mode {
         case .prose:
             let parsed = parseProse(stripped)
@@ -61,6 +62,7 @@ public enum ProjectASTBuilder {
             starts = parsed.starts
             footnotes = parsed.footnotes
             footnoteStarts = parsed.footnoteStarts
+            duplicateStarts = parsed.duplicateStarts
         case .fountain:
             let parsed = parseFountain(stripped)
             nodes = parsed.nodes
@@ -76,6 +78,9 @@ public enum ProjectASTBuilder {
                      },
                      footnoteParagraphs: footnoteStarts.reduce(into: [:]) { out, entry in
                          out[entry.key] = spans?.paragraphID(atStrippedLine: entry.value)
+                     },
+                     duplicateFootnotes: duplicateStarts.mapValues { lines in
+                         lines.map { spans?.paragraphID(atStrippedLine: $0) }
                      })
     }
 
@@ -170,16 +175,19 @@ public enum ProjectASTBuilder {
     /// headings, tables, figures and footnote definitions out of the shared
     /// block parser's output; every other block (`.other`) maps exactly as it
     /// always did. A footnote definition yields NO node — it goes to
-    /// `footnotes` (first definition wins) with its own start line — so
+    /// `footnotes` (first definition wins; each later one is recorded in
+    /// `duplicateStarts`) with its own start line — so
     /// `nodes` and `starts` stay index-aligned, as with a fence's tail.
     private static func parseProse(_ stripped: String) -> (
         nodes: [ProjectAST.Node], starts: [Int],
-        footnotes: [String: [ProjectAST.Inline]], footnoteStarts: [String: Int]
+        footnotes: [String: [ProjectAST.Inline]], footnoteStarts: [String: Int],
+        duplicateStarts: [String: [Int]]
     ) {
         var nodes: [ProjectAST.Node] = []
         var starts: [Int] = []
         var footnotes: [String: [ProjectAST.Inline]] = [:]
         var footnoteStarts: [String: Int] = [:]
+        var duplicateStarts: [String: [Int]] = [:]
         for (block, lines) in ManuscriptBlocks.parse(stripped) {
             let node: ProjectAST.ProseNode
             switch block {
@@ -197,6 +205,8 @@ public enum ProjectASTBuilder {
                 if footnotes[label] == nil {
                     footnotes[label] = parseParagraphInlines(text.components(separatedBy: "\n"))
                     footnoteStarts[label] = lines.lowerBound
+                } else {
+                    duplicateStarts[label, default: []].append(lines.lowerBound)
                 }
                 continue
             case .other(let other):
@@ -205,7 +215,7 @@ public enum ProjectASTBuilder {
             nodes.append(.prose(node))
             starts.append(lines.lowerBound)
         }
-        return (nodes, starts, footnotes, footnoteStarts)
+        return (nodes, starts, footnotes, footnoteStarts, duplicateStarts)
     }
 
     /// Map shared `MarkdownBlock`s to publish `ProseNode`s — the `.other`

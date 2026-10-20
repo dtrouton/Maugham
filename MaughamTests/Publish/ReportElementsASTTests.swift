@@ -79,15 +79,65 @@ final class ReportElementsASTTests: XCTestCase {
         let s = try section("A[^x].\n\n[^x]: One.\n[^x]: Two.\n\nAfter.")
         XCTAssertEqual(s.footnotes, ["x": [.text("One.")]])
         XCTAssertEqual(s.nodes.count, 2, "definitions yield no node: the reference paragraph and After.")
+        XCTAssertEqual(s.duplicateFootnotes, ["x": [nil]], "no paragraphs: the duplicate is kept, unlocated")
+    }
+
+    // Ruling R-S5: a dropped duplicate definition is recorded with its paragraph.
+    func test_duplicateFootnoteDefinitions_areRecordedWithTheirParagraphs() throws {
+        let s = try section(paragraphs: [
+            ("a1b2", "A[^x] and[^y]."),
+            ("c3d4", "[^x]: One.\n[^x]: Two.\n[^y]: Why."),
+            ("e5f6", "[^x]: Three."),
+        ])
+        XCTAssertEqual(s.footnotes, ["x": [.text("One.")], "y": [.text("Why.")]])
+        XCTAssertEqual(s.footnoteParagraphs, ["x": "c3d4", "y": "c3d4"])
+        XCTAssertEqual(s.duplicateFootnotes, ["x": ["c3d4", "e5f6"]])
+    }
+
+    func test_noDuplicateFootnotes_whenEachLabelIsDefinedOnce() throws {
+        XCTAssertEqual(try section("A[^x].\n\n[^x]: One.").duplicateFootnotes, [:])
     }
 
     // MARK: - inlines
 
+    // Ruling R-S4: a bracket mixing keys and labels is consumed WHOLE — the
+    // citation of every key, then "; " and a cross-reference per label. No
+    // bracket and no later key is left behind as text.
     func test_mixedBracket_givesACitationAndACrossRef() throws {
         let s = try section("See [@a; @fig:x] here.")
         XCTAssertEqual(s.nodes, [.prose(.paragraph([
-            .text("See ["), .citation([CitationItem(key: "a", locator: nil)]),
-            .text("; "), .crossRef(label("fig:x")), .text("] here."),
+            .text("See "), .citation([CitationItem(key: "a", locator: nil)]),
+            .text("; "), .crossRef(label("fig:x")), .text(" here."),
+        ]))])
+    }
+
+    func test_mixedBracket_severalKeysAndLabels_isConsumedWhole() throws {
+        let s = try section("See [@a, p. 3; @b; @fig:x; @tbl:y] here.")
+        XCTAssertEqual(s.nodes, [.prose(.paragraph([
+            .text("See "),
+            .citation([CitationItem(key: "a", locator: "p. 3"), CitationItem(key: "b", locator: nil)]),
+            .text("; "), .crossRef(label("fig:x")),
+            .text("; "), .crossRef(label("tbl:y")),
+            .text(" here."),
+        ]))])
+    }
+
+    func test_mixedBracketInsideEmphasis_isConsumedWhole() throws {
+        let s = try section("*see [@a; @b; @fig:x] now*")
+        let census = ElementCensus.take(from: ProjectAST(sections: [s]))
+        XCTAssertTrue(census.kinds.isSuperset(of: [.citation, .crossReference, .emphasis]), "\(s.nodes)")
+        let text = Self.plainText(s.nodes)
+        XCTAssertFalse(text.contains("["), "no bracket left behind: \(s.nodes)")
+        XCTAssertFalse(text.contains("@"), "no key left behind: \(s.nodes)")
+        XCTAssertTrue(Self.inlines(s.nodes).contains(
+            .citation([CitationItem(key: "a", locator: nil), CitationItem(key: "b", locator: nil)])))
+    }
+
+    func test_labelOnlyBracket_keepsOneCrossRefPerLabel() throws {
+        let s = try section("See [@fig:x; @tbl:y].")
+        XCTAssertEqual(s.nodes, [.prose(.paragraph([
+            .text("See ["), .crossRef(label("fig:x")), .text("; "),
+            .crossRef(label("tbl:y")), .text("]."),
         ]))])
     }
 
@@ -128,13 +178,16 @@ final class ReportElementsASTTests: XCTestCase {
         // The emphasis shape around it is EmphasisRunConverter's; the marker
         // itself must survive as a node, never as literal text.
         let s = try section("*see @fig:x*")
-        XCTAssertTrue(Self.contains(s.nodes, .crossRef(label("fig:x"))), "\(s.nodes)")
+        XCTAssertTrue(Self.inlines(s.nodes).contains(.crossRef(label("fig:x"))), "\(s.nodes)")
     }
 
     func test_fountainIsUntouched_byTheReportInlines() throws {
-        let s = try section("INT. ROOM - DAY\n\nShe reads [@a] and @fig:x.", mode: .fountain)
-        XCTAssertFalse(Self.contains(s.nodes, .crossRef(label("fig:x"))))
-        XCTAssertFalse(Self.contains(s.nodes, .citation([CitationItem(key: "a", locator: nil)])))
+        let s = try section("INT. ROOM - DAY\n\nShe reads [@a] and @fig:x.\n\nMARY\nSee [^1] and [@b; @tbl:t].",
+                            mode: .fountain)
+        let census = ElementCensus.take(from: ProjectAST(sections: [s]))
+        XCTAssertTrue(census.kinds.contains(.dialogue), "the walk must reach dialogue: \(s.nodes)")
+        XCTAssertTrue(census.kinds.isDisjoint(with: [.footnote, .citation, .crossReference]),
+                      "Fountain never produces report markers: \(s.nodes)")
     }
 
     // MARK: - nodeParagraphs
@@ -206,24 +259,57 @@ final class ReportElementsASTTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("<p>See @fig:pic and [^1] and [@a, p. 2].</p>"), xhtml)
     }
 
+    func test_interimArm_mixedBracketReadsCitationThenLabels() throws {
+        let ast = try ProjectASTBuilder.build(from: OneSource(piece: .init(
+            pieceID: "p1", title: "T", mode: .prose, displayText: "See [@a; @b; @fig:x].")))
+        XCTAssertTrue(LaTeXBodyEmitter.emit(ast).contains("\nSee [@a; @b]; @fig:x.\n"))
+        XCTAssertTrue(XHTMLBodyEmitter.emit(ast).contains("<p>See [@a; @b]; @fig:x.</p>"))
+    }
+
     // MARK: - helpers
 
-    private static func contains(_ nodes: [ProjectAST.Node], _ target: ProjectAST.Inline) -> Bool {
-        func walk(_ xs: [ProjectAST.Inline]) -> Bool {
-            xs.contains { inline in
-                if inline == target { return true }
+    /// Every inline in the nodes, depth-first, through every node kind
+    /// (exhaustive: no `default:`, so a node kind can't be silently skipped).
+    private static func inlines(_ nodes: [ProjectAST.Node]) -> [ProjectAST.Inline] {
+        func walk(_ xs: [ProjectAST.Inline]) -> [ProjectAST.Inline] {
+            xs.flatMap { inline -> [ProjectAST.Inline] in
                 switch inline {
-                case .emphasis(let i), .strong(let i), .strikethrough(let i), .underline(let i): return walk(i)
-                default: return false
+                case .emphasis(let i), .strong(let i), .strikethrough(let i), .underline(let i):
+                    return [inline] + walk(i)
+                case .text, .code, .wikiLink, .lineBreak, .footnoteRef, .citation, .crossRef:
+                    return [inline]
                 }
             }
         }
-        return nodes.contains { node in
+        func prose(_ node: ProjectAST.ProseNode) -> [ProjectAST.Inline] {
             switch node {
-            case .prose(.paragraph(let i)): return walk(i)
-            case .fountain(.action(let i)): return walk(i)
-            default: return false
+            case .paragraph(let i), .heading(_, let i, _): return walk(i)
+            case .blockquote(let inner): return inner.flatMap(prose)
+            case .list(_, let items): return items.flatMap(walk)
+            case .table(let header, _, let rows, let caption, _):
+                return header.flatMap(walk) + rows.flatMap { $0.flatMap(walk) } + walk(caption ?? [])
+            case .figure(let caption, _, _): return walk(caption)
+            case .sceneBreak, .verbatim: return []
             }
         }
+        func fountain(_ node: ProjectAST.FountainNode) -> [ProjectAST.Inline] {
+            switch node {
+            case .action(let i), .dialogue(let i), .parenthetical(let i), .lyric(let i), .centered(let i):
+                return walk(i)
+            case .dualDialogue(let left, let right): return (left + right).flatMap(fountain)
+            case .sceneHeading, .character, .transition, .pageBreak, .titlePage: return []
+            }
+        }
+        return nodes.flatMap { node -> [ProjectAST.Inline] in
+            switch node {
+            case .prose(let p): return prose(p)
+            case .fountain(let f): return fountain(f)
+            }
+        }
+    }
+
+    /// The plain `.text` content of the nodes, joined.
+    private static func plainText(_ nodes: [ProjectAST.Node]) -> String {
+        inlines(nodes).compactMap { if case .text(let t) = $0 { return t } else { return nil } }.joined()
     }
 }

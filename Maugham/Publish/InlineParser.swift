@@ -19,23 +19,31 @@ public enum InlineParser {
     }
 
     /// The report markers (`[^n]`, `[@key]`, `@fig:x`) as protected spans,
-    /// read by `ManuscriptInlineScanner` over the SAME string the emphasis
-    /// scan reads. A marker overlapping one of this parser's own spans is
-    /// dropped: the code span or wiki link wins (the two scanners close code
-    /// spans by different rules, and `EmphasisRunConverter` needs spans that
-    /// never overlap). The scanner's own ranges never overlap each other.
+    /// read by `ManuscriptInlineScanner.scanGroups` over the SAME string the
+    /// emphasis scan reads. A bracket mixing keys and labels is consumed WHOLE
+    /// (ruling R-S4): its citation of every key, then `"; "` and a
+    /// cross-reference per label, so no bracket or later key is left as text.
+    /// A marker overlapping one of this parser's own spans is dropped: the
+    /// code span or wiki link wins (the two scanners close code spans by
+    /// different rules, and `EmphasisRunConverter` needs spans that never
+    /// overlap). The scanner's own groups never overlap each other.
     private static func reportMarkers(_ text: String, outside own: [ProtectedSpan]) -> [ProtectedSpan] {
-        ManuscriptInlineScanner.scan(text).compactMap { found in
+        ManuscriptInlineScanner.scanGroups(text).compactMap { found in
             guard !own.contains(where: { NSIntersectionRange($0.range, found.range).length > 0 }) else {
                 return nil
             }
-            let node: ProjectAST.Inline
-            switch found.marker {
-            case .footnoteRef(let label): node = .footnoteRef(label: label)
-            case .citation(let items):    node = .citation(items)
-            case .crossRef(let label):    node = .crossRef(label)
+            var nodes: [ProjectAST.Inline] = []
+            for marker in found.markers {
+                switch marker {
+                case .footnoteRef(let label): nodes.append(.footnoteRef(label: label))
+                case .citation(let items):    nodes.append(.citation(items))
+                case .crossRef(let label):
+                    // Inside a mixed group the label follows the citation.
+                    if !nodes.isEmpty { nodes.append(.text("; ")) }
+                    nodes.append(.crossRef(label))
+                }
             }
-            return ProtectedSpan(range: found.range, node: node)
+            return ProtectedSpan(range: found.range, nodes: nodes)
         }
     }
 

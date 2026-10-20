@@ -4,10 +4,20 @@ import MaughamCore
 /// A span the surrounding grammar has already resolved into a finished inline
 /// node (inline code, a wiki link, a hard break, a Fountain underline). The
 /// converter treats these as opaque: it masks the range so the emphasis scanner
-/// can't reach inside it, and re-emits `node` verbatim at the range's start.
+/// can't reach inside it, and re-emits `nodes` verbatim at the range's start.
+/// A span is usually one node; a mixed citation bracket is several.
 struct ProtectedSpan {
     let range: NSRange
-    let node: ProjectAST.Inline
+    let nodes: [ProjectAST.Inline]
+
+    init(range: NSRange, node: ProjectAST.Inline) {
+        self.init(range: range, nodes: [node])
+    }
+
+    init(range: NSRange, nodes: [ProjectAST.Inline]) {
+        self.range = range
+        self.nodes = nodes
+    }
 }
 
 /// Turns a block of source text into `[ProjectAST.Inline]` by delegating all
@@ -86,7 +96,7 @@ enum EmphasisRunConverter {
         while i < n {
             if let span = protectedAt[i] {
                 flush()
-                out.append(span.node)
+                out.append(contentsOf: span.nodes)
                 i = span.range.location + span.range.length
                 continue
             }
