@@ -15,14 +15,31 @@ import MaughamCore
 @MainActor
 final class CoordinatorMetricsTests: XCTestCase {
 
-    /// Slightly more than the coordinator's 350ms debounce window.
-    private func awaitDebounce() async {
+    /// Waits on the debounced delivery itself, never on a clock guess: a
+    /// loaded CI runner can land the 350ms trailing edge well past any fixed
+    /// sleep (#99). The timeout is generous because a miss is a real failure.
+    private func awaitDelivery(_ delivered: XCTestExpectation) async {
+        await fulfillment(of: [delivered], timeout: 5)
+    }
+
+    /// After the first delivery, give a second trailing edge time to land so
+    /// "exactly once" is still checked. A negative check has nothing to wait
+    /// on, so it is bounded: one more debounce window (350ms) plus slack.
+    private func settle() async {
         try? await Task.sleep(for: .milliseconds(420))
+    }
+
+    /// The first delivery fulfils it; later ones are left to the count
+    /// assertions, which say what went wrong instead of an API violation.
+    private func deliveryExpectation() -> XCTestExpectation {
+        let e = expectation(description: "onMetricsChanged delivered")
+        e.assertForOverFulfill = false
+        return e
     }
 
     // (a) Typing path: metrics arrive ONCE per debounce window, with pageCount
     //     from the parsed script and the correct word count.
-    func test_typingPath_deliversOnceWithParsedPageCountAndWordCount() async {
+    func test_typingPath_deliversOnceWithParsedPageCountAndWordCount() async throws {
         let body = """
         INT. KITCHEN - DAY
 
@@ -35,7 +52,11 @@ final class CoordinatorMetricsTests: XCTestCase {
             mode: ScreenplayMode(), initialText: body)
 
         var deliveries: [EditorMetrics] = []
-        harness.coordinator.onMetricsChanged = { deliveries.append($0) }
+        let delivered = deliveryExpectation()
+        harness.coordinator.onMetricsChanged = {
+            deliveries.append($0)
+            delivered.fulfill()
+        }
 
         // Type a short burst at the end. Each keystroke re-arms the debounce.
         harness.setCursor(to: (harness.currentText as NSString).length)
@@ -45,11 +66,12 @@ final class CoordinatorMetricsTests: XCTestCase {
         XCTAssertTrue(deliveries.isEmpty,
                       "typing-path metrics must be debounced, not per-keystroke")
 
-        await awaitDebounce()
+        await awaitDelivery(delivered)
+        await settle()
 
         XCTAssertEqual(deliveries.count, 1,
                        "exactly one metrics delivery per typing burst")
-        let m = deliveries[0]
+        let m = try XCTUnwrap(deliveries.first)
         // pageCount must equal the keystroke's own parse of the final text.
         let expectedScript = FountainTokenizer().parse(harness.currentText)
         XCTAssertEqual(m.pageCount, expectedScript.estimatedPageCount,
@@ -86,7 +108,7 @@ final class CoordinatorMetricsTests: XCTestCase {
     // (c) Doc switch mid-debounce delivers nothing stale: a pending debounced
     //     metrics post is cancelled by the next attach (the doc-switch path),
     //     and only the new immediate post lands.
-    func test_docSwitchMidDebounce_dropsStalePost() async {
+    func test_docSwitchMidDebounce_dropsStalePost() async throws {
         let harness = EditorIntegrationHarness(
             mode: ScreenplayMode(), initialText: "INT. A - DAY\n\nAction one.")
 
@@ -104,9 +126,12 @@ final class CoordinatorMetricsTests: XCTestCase {
         harness.coordinator.applyExternalText("INT. B - NIGHT\n\nFresh action.")
         XCTAssertEqual(deliveries.count, 1,
                        "applyExternalText delivers exactly one immediate post")
-        let immediate = deliveries[0]
+        let immediate = try XCTUnwrap(deliveries.first)
 
-        await awaitDebounce()
+        // Bounded on purpose: this asserts NO further delivery, so there is
+        // no event to wait on. The stale post would have landed one debounce
+        // window (350ms) after the last keystroke.
+        await settle()
 
         XCTAssertEqual(deliveries.count, 1,
                        "no stale debounced post may land after the doc switch")
@@ -116,23 +141,29 @@ final class CoordinatorMetricsTests: XCTestCase {
     }
 
     // (d) Prose mode delivers the same metrics `mode.metrics(text)` would.
-    func test_proseMode_deliversMetricsEquivalent() async {
+    func test_proseMode_deliversMetricsEquivalent() async throws {
         let body = "A first paragraph.\n\nA second one, a little longer here."
         let harness = EditorIntegrationHarness(
             mode: ProseMode(), initialText: body)
 
         var deliveries: [EditorMetrics] = []
-        harness.coordinator.onMetricsChanged = { deliveries.append($0) }
+        let delivered = deliveryExpectation()
+        harness.coordinator.onMetricsChanged = {
+            deliveries.append($0)
+            delivered.fulfill()
+        }
 
         harness.setCursor(to: (harness.currentText as NSString).length)
         await harness.typeString(" more.", intervalMs: 0)
-        await awaitDebounce()
+        await awaitDelivery(delivered)
+        await settle()
 
         XCTAssertEqual(deliveries.count, 1)
+        let delivery = try XCTUnwrap(deliveries.first)
         let expected = ProseMode().metrics(harness.currentText)
-        XCTAssertEqual(deliveries[0], expected,
+        XCTAssertEqual(delivery, expected,
                        "prose metrics must equal the parse-free mode.metrics")
-        XCTAssertNil(deliveries[0].pageCount, "prose has no page count")
+        XCTAssertNil(delivery.pageCount, "prose has no page count")
     }
 
     // (e) FountainScript == pre-check pin: two scripts with EQUAL rejection

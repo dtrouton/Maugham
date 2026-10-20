@@ -755,14 +755,21 @@ public enum OpLogChain {
         }
     }
 
-    /// Test-only counting seam: called once at the top of every `verify`.
+    /// Test-only counting seam: called once at the top of every `verify`,
+    /// with the file the bytes were read from (nil where the caller has none).
     ///
     /// The verify CACHE is invisible from outside — a remembered segment and a
     /// walked one answer the same ops, which is the whole point — so the only
     /// way to pin "this segment was not walked" is to watch the verifier
     /// itself. `nonisolated(unsafe)` because it is a test's own variable set
     /// and cleared on one thread; production never assigns it.
-    nonisolated(unsafe) static var verifyObserverForTesting: (@Sendable () -> Void)?
+    ///
+    /// **Count by the file, not the call** (#97, #94's class). The seam is
+    /// process-wide and read when a verify RUNS, so a `DocumentStore`'s
+    /// deferred work from an earlier test's book can report into the next
+    /// test's observer. A test asserting an exact count keeps the reports
+    /// under its own project folder.
+    nonisolated(unsafe) static var verifyObserverForTesting: (@Sendable (URL?) -> Void)?
 
     // MARK: - The walk
 
@@ -806,13 +813,17 @@ public enum OpLogChain {
     ///   supplies one, and every other caller — the keyless walks, the chained
     ///   write, the tests that pin the chain's own rules — takes the default
     ///   and behaves exactly as it did.
+    /// - Parameter file: where `bytes` came from, reported to
+    ///   `verifyObserverForTesting` and read by nothing else. Production
+    ///   callers that read a file pass it.
     public nonisolated static func verify(
         bytes: Data,
         trust: (String) -> TrustVerdict,
         rememberedHead: String?,
-        keyOfAnUnsealedFile: () -> String? = { nil }
+        keyOfAnUnsealedFile: () -> String? = { nil },
+        file: URL? = nil
     ) -> Verification {
-        verifyObserverForTesting?()
+        verifyObserverForTesting?(file)
         var lines: [Line] = []
         var head: String?
         var sawChainOrSeal = false
@@ -1143,12 +1154,14 @@ public enum OpLogChain {
     public nonisolated static func verify(
         bytes: Data,
         trusted: (String) -> Bool,
-        rememberedHead: String?
+        rememberedHead: String?,
+        file: URL? = nil
     ) -> Verification {
         verify(
             bytes: bytes,
             trust: { trusted($0) ? .mine : .noChain },
-            rememberedHead: rememberedHead)
+            rememberedHead: rememberedHead,
+            file: file)
     }
 }
 

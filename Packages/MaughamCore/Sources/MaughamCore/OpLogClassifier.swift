@@ -142,11 +142,13 @@ public enum OpLogClassifier {
                 bytes: bytes,
                 trust: { table.verdict(forSealKey: $0) },
                 rememberedHead: rememberedHead,
-                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) },
+                file: url)
         } ?? OpLogChain.verify(
             bytes: bytes,
             trusted: { _ in false },
-            rememberedHead: rememberedHead)
+            rememberedHead: rememberedHead,
+            file: url)
     }
 
     /// A live `.jsonl` tail: verified against this device's remembered head,
