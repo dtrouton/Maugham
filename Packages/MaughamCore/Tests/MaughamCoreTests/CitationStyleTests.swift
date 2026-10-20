@@ -41,6 +41,18 @@ final class CitationStyleTests: XCTestCase {
         XCTAssertEqual(out.map(\.entry.info.key), ["a", "b"])
     }
 
+    func test_namesDifferingOnlyByCaseOrDiacritics_areDisambiguated() {
+        let out = CitationStyle.disambiguated([entry("m2", authors: ["Muller"]), entry("m1", authors: ["Müller"])])
+        XCTAssertTrue(out.allSatisfy { $0.label.hasSuffix("a") || $0.label.hasSuffix("b") })
+        XCTAssertEqual(Set(out.map { String($0.label.last!) }), ["a", "b"])
+    }
+
+    func test_identicalNameYearAndTitle_orderByKey() {
+        let out = CitationStyle.disambiguated([entry("z", authors: ["Smith"]), entry("y", authors: ["Smith"])])
+        XCTAssertEqual(out.map(\.entry.info.key), ["y", "z"])
+        XCTAssertEqual(out.map(\.label), ["Smith 2026a", "Smith 2026b"])
+    }
+
     func test_referencesOrder_nameThenYear_caseAndDiacriticInsensitive() {
         let es = [entry("1", authors: ["zed"]), entry("2", authors: ["Émile"]),
                   entry("3", authors: ["Adams"], year: 2030), entry("4", authors: ["Adams"], year: 2020)]

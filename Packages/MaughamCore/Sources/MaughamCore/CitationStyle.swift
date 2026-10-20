@@ -63,19 +63,23 @@ public enum CitationStyle {
             if let order = order(na, nb) { return order }
             let (ya, yb) = (a.info.year ?? Int.max, b.info.year ?? Int.max)
             if ya != yb { return ya < yb }
-            return order(a.itemTitle, b.itemTitle) ?? false
+            if let t = order(a.itemTitle, b.itemTitle) { return t }
+            return a.info.key < b.info.key
         }
         func base(_ e: CitationLibrary.Entry) -> String {
             name(e) + " " + (e.info.year.map(String.init) ?? "n.d.")
         }
+        func folded(_ e: CitationLibrary.Entry) -> String {
+            base(e).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        }
         var counts: [String: Int] = [:]
-        for e in sorted { counts[base(e), default: 0] += 1 }
+        for e in sorted { counts[folded(e), default: 0] += 1 }
         var seen: [String: Int] = [:]
         return sorted.map { e in
-            let b = base(e)
-            guard counts[b]! > 1 else { return (e, b) }
-            let n = seen[b, default: 0]
-            seen[b] = n + 1
+            let b = base(e), f = folded(e)
+            guard counts[f]! > 1 else { return (e, b) }
+            let n = seen[f, default: 0]
+            seen[f] = n + 1
             return (e, b + letters(n))
         }
     }
