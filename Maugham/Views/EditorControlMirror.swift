@@ -32,6 +32,31 @@ enum EditorControlMirror {
     }
 }
 
+/// **Whether the Insert menu's items are enabled** (plan 3a Task 4) — the
+/// window's answer to "may the key window's editor take an inserted report
+/// element?", published to the menu bar as `FocusedValues.mayInsertReportElement`.
+/// Pure, so every refusal is pinned without a window (`InsertCommandTests`).
+///
+/// The editor's membrane refuses on its own all the same (defence in depth):
+/// a disabled item is what the writer sees, the membrane is what holds.
+enum InsertMenuGate {
+    /// True only when all of these hold:
+    /// - the editor holds a manuscript document (`posture` non-nil) whose
+    ///   format takes report elements (`format`, not a screenplay);
+    /// - its posture `allows(.writeText)`, and the iCloud share is writable;
+    /// - the editor is not in review mode (⌘⌥⇧R) or translation review;
+    /// - the persona's centre is the editor, not the canvas.
+    static func isEnabled(posture: Posture?, format: DocumentFormat?,
+                          manualReview: Bool, shareIsReadOnly: Bool,
+                          isTranslationReview: Bool, centresTheCanvas: Bool) -> Bool {
+        guard let posture, let format, !format.isScreenplay, !centresTheCanvas else {
+            return false
+        }
+        return posture.allows(.writeText) && !shareIsReadOnly
+            && !manualReview && !isTranslationReview
+    }
+}
+
 /// Mirrors posture + appearance changes from ProjectWindow-owned sources into
 /// the `EditorControl` model (ADR 0017). A modifier for `ProjectWindow.body`'s
 /// type-check ceiling.
@@ -44,12 +69,17 @@ struct EditorControlMirrorModifier: ViewModifier {
     /// mirrored beside the membrane rather than folded into it, because the
     /// membrane is the pinned lock decision and nothing more.
     let posture: Posture?
+    /// Whether the Insert menu's items are enabled (`InsertMenuGate`), published
+    /// to the menu bar beside the membrane it shadows — the window publishes it
+    /// here because this modifier already carries the window's editor posture.
+    let mayInsertReportElement: Bool
     let effectiveTypography: TypographySettings
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
     func body(content: Content) -> some View {
         content
+            .focusedSceneValue(\.mayInsertReportElement, mayInsertReportElement)
             .onChange(of: membrane) { _, membrane in
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing

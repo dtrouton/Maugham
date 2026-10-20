@@ -525,6 +525,7 @@ struct ProjectWindow: View {
         .modifier(EditorControlMirrorModifier(
             membrane: editorMembrane,
             posture: editorPosture,
+            mayInsertReportElement: mayInsertReportElement,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
         .modifier(TranslationReviewModifier(
@@ -630,6 +631,23 @@ struct ProjectWindow: View {
     /// `EditorControl.posture`.
     private var editorPosture: Posture? {
         selectedManuscriptDocId.flatMap { id in documentStore?.posture(forDocId: id) }
+    }
+
+    /// **The Insert menu's enabled state** (plan 3a Task 4), published to the
+    /// menu bar by `EditorControlMirrorModifier`. The rule is
+    /// `InsertMenuGate.isEnabled`, pinned without a window; this only gathers
+    /// its inputs from the same drawing door the membrane asks.
+    private var mayInsertReportElement: Bool {
+        let format = selectedManuscriptDocId
+            .flatMap { id in store.flatMap { TreeWalk.find(id: id, in: $0.manifest.structure) } }
+            .flatMap(\.path)
+            .map { DocumentFormat.ofManuscript(path: $0) }
+        return InsertMenuGate.isEnabled(
+            posture: editorPosture, format: format,
+            manualReview: isReviewModeOn,
+            shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
+            isTranslationReview: editorControl.translationLanguage != nil,
+            centresTheCanvas: persona.centresTheCanvas)
     }
 
     /// **The drawing posture of any document this window names** — for a

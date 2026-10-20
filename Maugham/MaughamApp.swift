@@ -396,6 +396,11 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("z", modifiers: [.command, .option])
             }
+            // The app's first `CommandMenu` (plan 3a R-3a-2): report elements
+            // written into the manuscript at the caret.
+            CommandMenu("Insert") {
+                InsertMenuButtons()
+            }
             HelpCommands(onboarding: onboarding)
         }
 
@@ -564,6 +569,50 @@ extension FocusedValues {
     var canvasPromotable: Bool? {
         get { self[FocusedCanvasPromotionKey.self] }
         set { self[FocusedCanvasPromotionKey.self] = newValue }
+    }
+}
+
+/// Whether the focused window's editor may take an inserted report element
+/// (`InsertMenuGate`, plan 3a Task 4). Published by
+/// `EditorControlMirrorModifier`; read only by `InsertMenuButtons`.
+struct FocusedMayInsertReportElementKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var mayInsertReportElement: Bool? {
+        get { self[FocusedMayInsertReportElementKey.self] }
+        set { self[FocusedMayInsertReportElementKey.self] = newValue }
+    }
+}
+
+/// Insert → Table, Footnote, Figure… (plan 3a R-3a-1, R-3a-2). Each posts a
+/// key-window command the manuscript editor answers through Route A, one undo
+/// step each. Disabled where the focused window says no (`InsertMenuGate`) —
+/// a read-only posture, review mode, translation review, no manuscript in the
+/// editor — and with no project window in front. The editor's membrane
+/// refuses on its own as well.
+private struct InsertMenuButtons: View {
+    @FocusedValue(\.mayInsertReportElement) private var mayInsert
+    var body: some View {
+        let enabled = mayInsert == true
+        Button("Table") {
+            MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        }
+        .keyboardShortcut("t", modifiers: [.command, .shift])
+        .disabled(!enabled)
+        Button("Footnote") {
+            MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
+        }
+        .keyboardShortcut("n", modifiers: [.command, .shift])
+        .disabled(!enabled)
+        // Nothing answers this post until plan 3a Task 6 wires the figure
+        // ingest, so the item stays disabled rather than doing nothing; Task 6
+        // replaces `true` with `!enabled`.
+        Button("Figure\u{2026}") {
+            MaughamEvent.post(.maughamInsertFigure, to: .keyWindow)
+        }
+        .keyboardShortcut("i", modifiers: [.command, .shift])
+        .disabled(true)
+        // Reserved for plan 3b's Citation… and Cross-Reference….
+        Divider()
     }
 }
 

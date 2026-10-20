@@ -168,6 +168,14 @@ struct EditorSurfaceConfiguration {
     /// Fixed for the lifetime of a mount, so it is applied in
     /// `makeCoordinator`/`makeNSView` and nowhere else.
     var isSecondEditorInItsWindow: Bool = false
+    /// Whether this surface answers the Insert menu (Table, Footnote, Figure…;
+    /// plan 3a Task 4). **`EditorHost` is the one file that may set it**, and
+    /// it says true only for a Markdown manuscript; a research note, a
+    /// statement and a screenplay keep the default false, so an Insert
+    /// command never writes report syntax into them even though they share
+    /// `ProseMode` (`InsertCommandTests` counts the files that name it). Fixed
+    /// for the lifetime of a mount: applied in `makeCoordinator` only.
+    var answersInsertCommands: Bool = false
 }
 
 struct EditorSurface: NSViewRepresentable {
@@ -206,6 +214,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
         coordinator.respondsToWindowCommands = !configuration.isSecondEditorInItsWindow
+        coordinator.answersInsertCommands = configuration.answersInsertCommands
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }

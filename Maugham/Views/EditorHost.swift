@@ -899,7 +899,11 @@ struct EditorHost: View {
                         authorName: userPreferences.collaboratorDisplayName,
                         undoManager: um)
                 }),
-            consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() })
+            consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() },
+            // The Insert menu answers the manuscript editor of a Markdown piece
+            // and no other surface (plan 3a Task 4). This is the one file that
+            // may set it (`InsertCommandTests`' census).
+            answersInsertCommands: !DocumentFormat.ofManuscript(path: path).isScreenplay)
     }
 
     /// Re-derive the read-only translation surface for the live document, or

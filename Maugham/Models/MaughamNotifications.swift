@@ -145,6 +145,16 @@ extension Notification.Name {
     /// the window opens the note sheet on the paragraph under the caret.
     /// Scope: .keyWindow — a command, not a data event.
     public static let maughamTranslatorsNote = Notification.Name("maugham.translators.note")
+    /// Posted by Insert ▸ Table (⌘⇧T) and Insert ▸ Footnote (⌘⇧N) (plan 3a
+    /// Task 4). The key window's MANUSCRIPT editor answers
+    /// (`EditorCoordinator.insertCommandContext`), writing through Route A as
+    /// one undo step; a research note or statement never does.
+    /// Scope: .keyWindow — a command, not a data event.
+    public static let maughamInsertTable = Notification.Name("maugham.insert.table")
+    public static let maughamInsertFootnote = Notification.Name("maugham.insert.footnote")
+    /// Posted by Insert ▸ Figure… (⌘⇧I). The item stays disabled until plan 3a
+    /// Task 6 wires its receiver. Scope: .keyWindow.
+    public static let maughamInsertFigure = Notification.Name("maugham.insert.figure")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the

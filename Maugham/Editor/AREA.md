@@ -12,6 +12,8 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+Typography.swift` — `retokenizeAndStyle`, the deferred and live windowed restyles, `applyAppearance`, `effectiveAppearanceDidChange`, `applyFocusDim`, typewriter centring, metrics delivery, `postScriptDidUpdate`, checkbox and wiki-link hit-testing.
 - `EditorCoordinator+FindNavigation.swift` — line and annotation navigation, and the selection toolbar's placement.
 - `EditorCoordinator+TabCycle.swift` — screenplay Tab / Shift-Tab element cycling.
+- `EditorCoordinator+Insert.swift` — `applyCommandEdit` (Route A for commands) and the Insert menu's receivers.
+- `ReportInsert.swift` — the pure text Insert Table and Insert Footnote write, and where.
 - `EditorCoordinator+ReviewRender.swift` — the review overlays: resolving marks, the margin cards, the toolbar's annotation authoring, card actions. Tripwire 4.
 - `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
 - `EditorControl.swift` — the `@Observable` control-plane model (posture, appearance, review annotations, translation language and badges); never text (ADR 0017).
@@ -123,6 +125,10 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 - **The window's `UndoManager` is shared, and `detach()` clears it**: `MaughamTextView.usesPrivateUndoManager`, set in `makeNSView` before anything registers, gives the second editor its own manager. Do NOT instead make `detach()`'s clear conditional: popping a native action after its text view has gone is the `⌘Z EXC_BAD_ACCESS` class.
 - **Both coordinators answer the window's commands**: every observer `EditorCoordinator`'s `init` registers is key-window scoped through `receiverContext(.keyWindow)`, and `EditorCoordinator.respondsToWindowCommands` gates them at that one funnel. **Count the `MaughamEvent.observe` calls in that init rather than any sentence about them.**
 - **A third surface asks the same question**: if it can be on screen at the same time as another editor, it is a second editor.
+
+### Commands that write text
+- **A command writes through `applyCommandEdit`** (Route A): one `replaceCharacters` behind the membrane, one ⌘Z step, typing undo kept. Never Route B (`setParagraph` wipes typing undo, ADR 0023 D1).
+- **Only `EditorHost` sets `answersInsertCommands`**: a research note answers window commands and shares `ProseMode`, so without it the note takes a table (`InsertCommandTests`). The menu's enabled state is `InsertMenuGate` (`Maugham/Views/EditorControlMirror.swift`).
 
 ### Overlays and in-editor UI
 - **No `NSPopover` for in-editor UI or autocomplete** (tripwire 5, prose only): sizing is unreliable, it blocks input and it fights text-view focus. Use inline ghost text, a sheet, a plain `NSView` overlay or a pane. Character autocomplete is intentionally absent; redesign the UX before bringing it back.

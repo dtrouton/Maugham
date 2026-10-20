@@ -234,6 +234,26 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var translationEnterObserver: NSObjectProtocol?
     private var translationExitObserver: NSObjectProtocol?
 
+    /// Observer tokens for the Insert menu's Table (⌘⇧T) and Footnote (⌘⇧N)
+    /// (plan 3a Task 4). Key-window scoped like every observer here, and ALSO
+    /// gated on `answersInsertCommands`: a research note is a primary editor
+    /// that answers the window's other commands, and must not answer these.
+    private var insertTableObserver: NSObjectProtocol?
+    private var insertFootnoteObserver: NSObjectProtocol?
+
+    /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
+    /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
+    /// says, through `EditorSurfaceConfiguration.answersInsertCommands`. A
+    /// research note, a statement pane and a screenplay say false (the
+    /// default). Fixed for the life of a mount; set in `makeCoordinator`.
+    /// `InsertCommandTests` counts the files that may name it.
+    var answersInsertCommands = false
+
+    /// Set while `applyCommandEdit` mutates storage, so `textDidChange` leaves
+    /// the caret the command places alone — the Tab cycle's
+    /// `isApplyingTabCycle` pattern, for commands.
+    var isApplyingCommandEdit = false
+
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
     /// `observeControl` runs.
@@ -416,9 +436,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// their scope through `receiverContext(.keyWindow)`, which is where this is
     /// read. Today that is `maughamNavigateToScene`, `maughamFindMatchSelected`,
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
-    /// `maughamToggleReviewMode`, `maughamEnterTranslationReview` and
-    /// `maughamExitTranslationReview` — count the `MaughamEvent.observe` calls
-    /// rather than this sentence.
+    /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
+    /// `maughamExitTranslationReview`, and the Insert menu's
+    /// `maughamInsertTable` and `maughamInsertFootnote` (which also ask
+    /// `answersInsertCommands`) — count the `MaughamEvent.observe` calls rather
+    /// than this sentence.
     ///
     /// True for every editor that IS the window's manuscript surface, which is
     /// every one there has ever been. M1A's statement panes are the first case
@@ -557,6 +579,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.setTranslationReview(false)
         }
+        // The Insert menu (plan 3a Task 4). The context asks the manuscript-
+        // surface gate on top of the key-window one, so a research note — a
+        // primary editor, `respondsToWindowCommands` true — never answers.
+        insertTableObserver = MaughamEvent.observe(
+            .maughamInsertTable,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.insertTable()
+        }
+        insertFootnoteObserver = MaughamEvent.observe(
+            .maughamInsertFootnote,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.insertFootnote()
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -588,6 +625,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = translationExitObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = insertTableObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = insertFootnoteObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -667,12 +710,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // this is belt-and-suspenders with the deinit removal (which stays).
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
                       annotationNavigateObserver, reviewToggleObserver,
-                      translationEnterObserver, translationExitObserver] {
+                      translationEnterObserver, translationExitObserver,
+                      insertTableObserver, insertFootnoteObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
+        insertTableObserver = nil; insertFootnoteObserver = nil
         // Clear the native undo stack before the text-view reference is
         // dropped: a doc switch recreates the EditorSurface via `.id(path)`,
         // and the NEW text view is seeded in `makeNSView` — no
@@ -1023,12 +1068,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // captured range both synchronously (in case the move is in
         // retokenizeAndStyle) and on the next runloop tick (in case it's an
         // async layout-pass effect from storage.endEditing).
-        // Skip the cursor-restore when a Tab cycle is in flight — the cycle
+        // Skip the cursor-restore when a Tab cycle or a command edit
+        // (`applyCommandEdit`) is in flight — the cycle
         // method sets the cursor explicitly AFTER didChangeText (e.g.,
         // inside the opening paren on Parenthetical wrap), and the restore
         // would clobber that intent. Capture the flag now since `defer` in
         // cycle() will reset it before the async block fires.
-        let skipCursorRestore = isApplyingTabCycle
+        let skipCursorRestore = isApplyingTabCycle || isApplyingCommandEdit
         let postEditSelection = textView.selectedRange()
         // NOTE: the typing fast path never paints the whole document on the
         // keystroke (prose defers to the burst-settle — `scheduleDeferredRestyle`;

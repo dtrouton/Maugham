@@ -53,6 +53,13 @@ public enum KeyboardShortcuts {
             Entry(label: "Translator's Note…",      shortcut: "⌘⌥C"),
             Entry(label: "Restore Last Deletion",   shortcut: "⌘⌥Z"),
         ]),
+        // The Insert menu (plan 3a R-3a-1). Outside the ⌘⌥ family
+        // `DocSyncTests` guards, so `InsertCommandTests` checks these three.
+        Category(category: "Insert", items: [
+            Entry(label: "Insert Table",            shortcut: "⌘⇧T"),
+            Entry(label: "Insert Footnote",         shortcut: "⌘⇧N"),
+            Entry(label: "Insert Figure…",          shortcut: "⌘⇧I"),
+        ]),
         Category(category: "View", items: [
             Entry(label: "Toggle Focus Mode",       shortcut: "⌘\\"),
             Entry(label: "Toggle Full-Screen Focus", shortcut: "⌘⇧F"),

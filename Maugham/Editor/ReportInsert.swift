@@ -1,0 +1,251 @@
+import Foundation
+import MaughamCore
+
+/// **What the Insert menu writes, and where** (plan 3a Task 4, R-3a-5 and
+/// R-3a-6). Pure text, so every rule is pinned without a view
+/// (`ReportInsertTests`). The coordinator turns an `Edit` into one Route A
+/// replace (`EditorCoordinator.applyCommandEdit`), which is one ⌘Z step.
+///
+/// A "paragraph" here is the op log's: a blank-line-delimited block, the way
+/// `ParagraphParser` splits text. A whitespace-only line counts as blank.
+enum ReportInsert {
+    /// One replace in the document's text: `replacedRange` and `selection` are
+    /// UTF-16 ranges in the WHOLE text (the selection is in the text after the
+    /// replace).
+    struct Edit: Equatable {
+        let replacedRange: NSRange
+        let replacement: String
+        let selection: NSRange
+    }
+
+    // MARK: - R-3a-5 Insert Table
+
+    /// The name of every table Insert Table labels is `table-N`.
+    static let tableLabelStem = "table-"
+
+    /// A 3-column table: a header row, its delimiter row, one empty body row,
+    /// and a `Table: Caption {#tbl:table-N}` line. It holds no blank line, so
+    /// it is one op-log paragraph. The columns are already padded to one
+    /// width, so the table is tidy as written.
+    static func table(nextLabelNumber: Int) -> String {
+        """
+        | Column 1 | Column 2 | Column 3 |
+        | -------- | -------- | -------- |
+        |          |          |          |
+        Table: Caption {#tbl:\(tableLabelStem)\(nextLabelNumber)}
+        """
+    }
+
+    /// The first header cell's text inside `table(nextLabelNumber:)`, which
+    /// Insert Table selects.
+    static let firstHeaderCell = NSRange(location: 2, length: ("Column 1" as NSString).length)
+
+    /// The lowest N ≥ 1 for which `tbl:table-N` is neither defined nor
+    /// referenced in `text`. **Scoped to this document**: the editor holds no
+    /// project-wide label index, so a `tbl:table-N` defined only in another
+    /// chapter is not seen. Referenced labels count too, which catches the
+    /// common case of a cross-reference here to a table elsewhere.
+    static func nextTableLabelNumber(in text: String) -> Int {
+        var used = Set<String>()
+        for (block, _) in ManuscriptBlocks.parse(text) {
+            if let label = label(of: block), label.kind == .tbl { used.insert(label.name) }
+        }
+        for (marker, _) in ManuscriptInlineScanner.scan(text) {
+            if case .crossRef(let label) = marker, label.kind == .tbl { used.insert(label.name) }
+        }
+        var n = 1
+        while used.contains("\(tableLabelStem)\(n)") { n += 1 }
+        return n
+    }
+
+    /// Insert Table at `location`, as one edit. Mid-line, the table splits the
+    /// paragraph onto a block of its own; at a line's edge it adds only the
+    /// blank lines it needs before and after. Spaces and tabs touching the
+    /// caret on its line are absorbed. Asked for inside a table (any range of
+    /// `tableBlocks`, the tokenizer's `.tableBlock` ranges), it goes after that
+    /// table's paragraph rather than splitting it.
+    static func tableEdit(in text: String, at location: Int, tableBlocks: [NSRange]) -> Edit {
+        let ns = text as NSString
+        var at = max(0, min(location, ns.length))
+        if let block = tableBlocks.first(where: {
+            at >= $0.location && at <= NSMaxRange($0) && $0.length > 0
+        }) {
+            at = NSMaxRange(paragraphRange(containing: block.location, in: ns))
+        }
+
+        let line = ns.lineRange(for: NSRange(location: at, length: 0))
+        let lineEnd = contentEnd(ofLine: line, in: ns)
+        var start = at
+        while start > line.location, isSpaceOrTab(ns.character(at: start - 1)) { start -= 1 }
+        var end = at
+        while end < lineEnd, isSpaceOrTab(ns.character(at: end)) { end += 1 }
+
+        let before: String
+        if start > line.location {
+            before = "\n\n"                                  // text before on this line
+        } else if line.location == 0 || isBlankLine(endingBefore: line.location, in: ns) {
+            before = ""                                      // already a block edge
+        } else {
+            before = "\n"                                    // close the paragraph above
+        }
+
+        let after: String
+        if end < lineEnd {
+            after = "\n\n"                                   // text after on this line
+        } else if lineEnd >= ns.length || isBlankLine(startingAt: NSMaxRange(line), in: ns) {
+            after = ""                                       // end of text, or a blank line below
+        } else {
+            after = "\n"                                     // open a blank line before the next
+        }
+
+        let table = table(nextLabelNumber: nextTableLabelNumber(in: text))
+        let prefix = (before as NSString).length
+        return Edit(
+            replacedRange: NSRange(location: start, length: end - start),
+            replacement: before + table + after,
+            selection: NSRange(location: start + prefix + firstHeaderCell.location,
+                               length: firstHeaderCell.length))
+    }
+
+    // MARK: - R-3a-6 Insert Footnote
+
+    /// `[^n]` at `caret`, and a `[^n]: ` definition paragraph after
+    /// `paragraph`, separated by one blank line, as ONE replace of
+    /// `[caret, end of paragraph)`. Ranges are relative to the paragraph; the
+    /// caret lands at the end of the definition. n is
+    /// `lowestFreeFootnoteLabel(existing: existingLabels)`.
+    static func footnote(in paragraph: String, caret: Int, existingLabels: Set<String>)
+        -> (replacement: String, replacedRange: NSRange, caret: NSRange)
+    {
+        let ns = paragraph as NSString
+        let at = max(0, min(caret, ns.length))
+        let label = lowestFreeFootnoteLabel(existing: existingLabels)
+        let tail = ns.substring(from: at)
+        let replacement = "[^\(label)]" + tail + "\n\n[^\(label)]: "
+        return (replacement,
+                NSRange(location: at, length: ns.length - at),
+                NSRange(location: at + (replacement as NSString).length, length: 0))
+    }
+
+    /// The lowest positive integer, as a label, that `existing` does not hold.
+    static func lowestFreeFootnoteLabel(existing: Set<String>) -> String {
+        var n = 1
+        while existing.contains(String(n)) { n += 1 }
+        return String(n)
+    }
+
+    /// Every footnote label `text` uses: references `[^x]` and definitions
+    /// `[^x]:`.
+    static func footnoteLabels(in text: String) -> Set<String> {
+        var labels = Set<String>()
+        for (marker, _) in ManuscriptInlineScanner.scan(text) {
+            if case .footnoteRef(let label) = marker { labels.insert(label) }
+        }
+        for (block, _) in ManuscriptBlocks.parse(text) {
+            if case .footnoteDefinition(let label, _) = block { labels.insert(label) }
+        }
+        return labels
+    }
+
+    /// Insert Footnote at `location`, as one edit over the whole text. On a
+    /// blank line the footnote belongs to the paragraph above; with none above,
+    /// it starts the text there and keeps a blank line before what follows.
+    static func footnoteEdit(in text: String, at location: Int) -> Edit {
+        let ns = text as NSString
+        let at = max(0, min(location, ns.length))
+        var paragraph = paragraphRange(containing: at, in: ns)
+        var caret = at
+        var suffix = ""
+        if paragraph.length == 0 {
+            if let above = paragraphAbove(paragraph.location, in: ns) {
+                paragraph = above
+                caret = NSMaxRange(above)
+            } else if paragraph.location < ns.length,
+                      !isBlankLine(startingAt: NSMaxRange(ns.lineRange(
+                        for: NSRange(location: paragraph.location, length: 0))), in: ns) {
+                suffix = "\n"
+            }
+        }
+        let note = footnote(in: ns.substring(with: paragraph),
+                            caret: caret - paragraph.location,
+                            existingLabels: footnoteLabels(in: text))
+        return Edit(
+            replacedRange: NSRange(location: paragraph.location + note.replacedRange.location,
+                                   length: note.replacedRange.length),
+            replacement: note.replacement + suffix,
+            selection: NSRange(location: paragraph.location + note.caret.location, length: 0))
+    }
+
+    // MARK: - Paragraphs
+
+    /// The blank-line paragraph containing `location`, without its trailing
+    /// line break. On a blank line: an empty range at that line's start.
+    static func paragraphRange(containing location: Int, in ns: NSString) -> NSRange {
+        let at = max(0, min(location, ns.length))
+        let line = ns.lineRange(for: NSRange(location: at, length: 0))
+        if isBlank(line, in: ns) { return NSRange(location: line.location, length: 0) }
+        var start = line.location
+        while start > 0 {
+            let above = ns.lineRange(for: NSRange(location: start - 1, length: 0))
+            if isBlank(above, in: ns) { break }
+            start = above.location
+        }
+        var last = line
+        while NSMaxRange(last) < ns.length {
+            let below = ns.lineRange(for: NSRange(location: NSMaxRange(last), length: 0))
+            if isBlank(below, in: ns) { break }
+            last = below
+        }
+        return NSRange(location: start, length: contentEnd(ofLine: last, in: ns) - start)
+    }
+
+    /// The nearest paragraph that ends above the blank line at `location`.
+    private static func paragraphAbove(_ location: Int, in ns: NSString) -> NSRange? {
+        var start = location
+        while start > 0 {
+            let above = ns.lineRange(for: NSRange(location: start - 1, length: 0))
+            if !isBlank(above, in: ns) {
+                return paragraphRange(containing: above.location, in: ns)
+            }
+            start = above.location
+        }
+        return nil
+    }
+
+    // MARK: - Lines
+
+    private static func label(of block: ManuscriptBlock) -> ManuscriptLabel? {
+        switch block {
+        case .heading(_, _, let label): return label
+        case .table(_, _, _, _, let label): return label
+        case .figure(_, _, let label): return label
+        case .footnoteDefinition, .other: return nil
+        }
+    }
+
+    /// The end of `line`'s text, before its line break.
+    private static func contentEnd(ofLine line: NSRange, in ns: NSString) -> Int {
+        var end = NSMaxRange(line)
+        while end > line.location, isLineBreak(ns.character(at: end - 1)) { end -= 1 }
+        return end
+    }
+
+    private static func isBlank(_ line: NSRange, in ns: NSString) -> Bool {
+        ns.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Whether the line that ends (with its break) right before `location` is blank.
+    private static func isBlankLine(endingBefore location: Int, in ns: NSString) -> Bool {
+        guard location > 0 else { return true }
+        return isBlank(ns.lineRange(for: NSRange(location: location - 1, length: 0)), in: ns)
+    }
+
+    /// Whether the line starting at `location` is blank, or there is none.
+    private static func isBlankLine(startingAt location: Int, in ns: NSString) -> Bool {
+        guard location < ns.length else { return true }
+        return isBlank(ns.lineRange(for: NSRange(location: location, length: 0)), in: ns)
+    }
+
+    private static func isSpaceOrTab(_ c: unichar) -> Bool { c == 0x20 || c == 0x09 }
+    private static func isLineBreak(_ c: unichar) -> Bool { c == 0x0A || c == 0x0D }
+}
