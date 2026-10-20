@@ -989,7 +989,7 @@ struct AnnotationsPane: View {
         return ReviewRoundCockpit.reportLine(
             history: diagnostics.roundHistory(docId: docId),
             run: diagnostics.lastRound(docId: docId),
-            annotations: cockpitAnnotations)
+            annotations: cockpitAnnotations, passes: reviewPasses)
     }
 
     /// **The run `cockpitReportLine` was resolved from**, so the tooltip and

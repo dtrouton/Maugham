@@ -235,6 +235,21 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// run that found nothing standing in another lane.
     var openInOtherLanes: Int?
 
+    /// **Which open notes the mint matched in other lanes** (#53) — the ids
+    /// behind `openInOtherLanes`, every open note in another pass's lane
+    /// holding one of the findings that count names.
+    ///
+    /// Stored as ids rather than as a count so the clause can be LIVE like the
+    /// since-line's other three: `RoundNarrative.openElsewhere` filters these
+    /// to the notes still open in the queue on every render, dedupes by
+    /// fingerprint, and names the pass(es) holding them. Settle the other
+    /// lane's note and the clause goes with it.
+    ///
+    /// `nil` on a preview and on every record written before this field
+    /// existed — those still render the past-tense count, which was always
+    /// true of the round. `[]` is a finished run that matched nothing.
+    var openInOtherLanesNoteIds: [String]?
+
     /// **Which loop asked for this run** (two loops P1) — Author's ⌘R or
     /// Review's Run round. Minted from the persona at the keystroke and
     /// carried through the run, so the record says which verb produced it
@@ -316,6 +331,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
          truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
          freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
          mintedNotes: Int? = nil, openInOtherLanes: Int? = nil,
+         openInOtherLanesNoteIds: [String]? = nil,
          kind: RunKind? = nil, readerName: String? = nil,
          letter: Letter? = nil, timing: RunTiming? = nil) {
         self.id = id
@@ -333,6 +349,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.intentDriftVerdict = intentDriftVerdict
         self.mintedNotes = mintedNotes
         self.openInOtherLanes = openInOtherLanes
+        self.openInOtherLanesNoteIds = openInOtherLanesNoteIds
         self.kind = kind
         self.readerName = readerName
         self.letter = letter
@@ -371,6 +388,8 @@ struct CompilerRun: Codable, Equatable, Sendable {
             String.self, forKey: .intentDriftVerdict)
         mintedNotes = try c.decodeIfPresent(Int.self, forKey: .mintedNotes)
         openInOtherLanes = try c.decodeIfPresent(Int.self, forKey: .openInOtherLanes)
+        openInOtherLanesNoteIds = try c.decodeIfPresent(
+            [String].self, forKey: .openInOtherLanesNoteIds)
         kind = try c.decodeIfPresent(RunKind.self, forKey: .kind)
         readerName = try c.decodeIfPresent(String.self, forKey: .readerName)
         letter = try c.decodeIfPresent(Letter.self, forKey: .letter)

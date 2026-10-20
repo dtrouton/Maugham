@@ -268,7 +268,18 @@ struct DiagnosticsPane: View {
     /// assumption and is left alone: that is a pre-existing question about
     /// where a note lands, not about what this line counts.)
     private var queueAnnotations: [Annotation] {
-        guard let document = paneDocument else { return [] }
+        visibleQueue ?? []
+    }
+
+    /// **The queue, or `nil` when this pane cannot see one** (#53 final
+    /// review) — what the header and the empty state hand
+    /// `RoundNarrative.openElsewhere`. `queueAnnotations`' empty answer is a
+    /// legitimate "no notes to draw", but to the cross-lane arm an empty queue
+    /// says the finding held elsewhere has been settled, and the seal would
+    /// stand over it while a newly selected piece loads. Unseen is passed as
+    /// unseen, and that arm falls back to the run's stored count.
+    private var visibleQueue: [Annotation]? {
+        guard let document = paneDocument else { return nil }
         _ = document.annotationsVersion
         return document.annotations(filter: AnnotationFilter(statuses: nil))
     }
@@ -692,7 +703,11 @@ struct DiagnosticsPane: View {
                 // the moment the state leaves `.running`.
                 if case .running = state {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(Self.headerCopy(for: state, wetInk: wetInk, now: context.date))
+                        // No queue read at 1 Hz: `.running` never reaches
+                        // the `.clean` arm the queue feeds.
+                        Text(Self.headerCopy(
+                            for: state, wetInk: wetInk, now: context.date,
+                            annotations: [], passes: []))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -818,7 +833,16 @@ struct DiagnosticsPane: View {
     static let rereadTitle = "Reread"
     static let rereadHelp = "Read the whole piece cold (\u{2318}\u{21e7}R)"
 
-    private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
+    private var headerLine: String {
+        Self.headerCopy(for: state, wetInk: wetInk,
+                        annotations: visibleQueue, passes: reviewPasses)
+    }
+
+    /// The ladder the cross-lane clause names its lanes from (#53) — empty
+    /// with no project, where an unnamed lane reads "another lane".
+    private var reviewPasses: [ReviewPass] {
+        store?.manifest.effectiveReviewPasses ?? []
+    }
 
     /// **What the run cost, behind the line rather than on it** (spec
     /// 2026-09-09 §5). Only a finished run has any of it, and `.help("")`
@@ -986,8 +1010,17 @@ struct DiagnosticsPane: View {
     /// `VStack(header, Divider, content)`), so a `.clean` run with mintedNotes
     /// still said "N notes went to your queue" here even after `emptyState`
     /// below it stopped saying it — the same defect, one call site over.
+    ///
+    /// `annotations`/`passes` feed `RoundNarrative.openElsewhere` (#53) — the
+    /// queue and the ladder, so the cross-lane arm is live: a finding the
+    /// writer has since settled in the other pass gives the seal back.
+    /// REQUIRED, not defaulted: an empty queue over a new run reads as nothing
+    /// held elsewhere, and the seal would stand over a finding the writer is
+    /// holding — #42 I1's false clean bill. `nil` is "this pane cannot see the
+    /// queue" (`visibleQueue`), which keeps the run's stored count instead.
     static func headerCopy(
-        for state: HeaderState, wetInk: WetInk = .none, now: Date = Date()
+        for state: HeaderState, wetInk: WetInk = .none, now: Date = Date(),
+        annotations: [Annotation]?, passes: [ReviewPass]
     ) -> String {
         switch state {
         case .neverRun:
@@ -1047,7 +1080,8 @@ struct DiagnosticsPane: View {
             case .none:
                 if let queued = queuedNotesSentence(run.mintedNotes) {
                     opening = queued
-                } else if RoundNarrative.openInOtherLanes(run.openInOtherLanes) != nil {
+                } else if RoundNarrative.openElsewhere(
+                    run: run, annotations: annotations, passes: passes) != nil {
                     opening = "Nothing new to flag"
                 } else {
                     opening = "Nothing to flag"
@@ -1197,7 +1231,8 @@ struct DiagnosticsPane: View {
                         // one sentence saying how many notes went somewhere else.
                         thisCheckSection
                         let empty = Self.emptyState(
-                            for: state, wetInk: wetInk, readerName: reader.editorName)
+                            for: state, wetInk: wetInk, readerName: reader.editorName,
+                            annotations: visibleQueue, passes: reviewPasses)
                         ContentUnavailableView(
                             empty.title,
                             systemImage: empty.symbol,
@@ -1819,9 +1854,13 @@ struct DiagnosticsPane: View {
     /// notes of its own passes; the two other answers replace the queued
     /// sentence rather than joining it, on `queuedNotesSentence`'s own rule
     /// that two sentences about one fact are two sentences that can disagree.
+    ///
+    /// `annotations`/`passes` are `headerCopy`'s, for its reason (#53): the
+    /// seal and the header read one live projection.
     static func emptyState(
         for state: HeaderState, wetInk: WetInk = .none,
-        readerName: String = AuthorReader.nobody.editorName
+        readerName: String = AuthorReader.nobody.editorName,
+        annotations: [Annotation]?, passes: [ReviewPass]
     ) -> (title: String, symbol: String, description: String) {
         // **Ordered above every arm below**, including the failure and
         // never-run ones, is deliberate only in appearance: `wetInk` is
@@ -1864,7 +1903,8 @@ struct DiagnosticsPane: View {
             return ("Notes in your queue", "tray.and.arrow.down",
                     "\(queued). " + clauseSentence(for: state))
         case .clean(let run)
-            where RoundNarrative.openInOtherLanes(run.openInOtherLanes) != nil:
+            where RoundNarrative.openElsewhere(
+                run: run, annotations: annotations, passes: passes) != nil:
             // **The seal may not stand over a round whose findings were
             // already open in another pass either** (#42, whole-branch review
             // I1) — the same argument as the queued arm above, one case along,
@@ -1881,7 +1921,8 @@ struct DiagnosticsPane: View {
             // are the stronger news; above the discarded arm because that one
             // still wears the seal, and the discard footnote is carried along
             // by `clauseSentence` rather than lost.
-            let elsewhere = RoundNarrative.openInOtherLanes(run.openInOtherLanes)
+            let elsewhere = RoundNarrative.openElsewhere(
+                run: run, annotations: annotations, passes: passes)
             return ("Nothing new to flag.", "tray.full",
                     (elsewhere?.sentence ?? "") + " " + clauseSentence(for: state))
         case .clean(let run) where discardedNotesSentence(run.droppedDangling) != nil:

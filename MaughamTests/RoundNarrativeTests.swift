@@ -33,6 +33,7 @@ final class RoundNarrativeTests: XCTestCase {
                          passId: String? = nil, round: Int? = nil,
                          freshEyes: Bool? = nil,
                          openInOtherLanes: Int? = nil,
+                         openInOtherLanesNoteIds: [String]? = nil,
                          kind: RunKind? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
@@ -41,6 +42,7 @@ final class RoundNarrativeTests: XCTestCase {
                            clauseStatuses: nil, truncatedReader: nil,
                            passId: passId, round: round, freshEyes: freshEyes,
                            mintedNotes: nil, openInOtherLanes: openInOtherLanes,
+                           openInOtherLanesNoteIds: openInOtherLanesNoteIds,
                            kind: kind, letter: nil)
     }
 
@@ -62,7 +64,7 @@ final class RoundNarrativeTests: XCTestCase {
             "Checking 3 new paragraphs\u{2026}")
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(
-                for: .running(checking: counts(new: 3, revised: 0), since: nil, progress: nil)),
+                for: .running(checking: counts(new: 3, revised: 0), since: nil, progress: nil), annotations: [], passes: []),
             "Checking 3 new paragraphs\u{2026}",
             "Author's pane is the check's home")
         XCTAssertEqual(
@@ -90,24 +92,26 @@ final class RoundNarrativeTests: XCTestCase {
 
     /// A compiler-authored note in the queue, in the state the count turns on.
     private func makeCompilerNote(
+        id: String = ULID.generate(),
         lane: String? = "line", round: Int? = 1,
-        status: AnnotationStatus = .open, resolvedAt: Date? = nil
+        status: AnnotationStatus = .open, resolvedAt: Date? = nil,
+        fingerprint: String = "continuity\u{1f}the fog\u{1f}a1b2\u{1f}"
     ) -> Annotation {
         Annotation(
-            id: ULID.generate(), kind: .query, paragraphId: "a1b2",
+            id: id, kind: .query, paragraphId: "a1b2",
             body: "Whose coat is on the chair?", suggestedText: nil, priorText: nil,
             createdAt: Date(timeIntervalSince1970: 10), createdBySession: nil,
             status: status, userResponse: nil, resolvedAt: resolvedAt,
             isStale: false, reviewPassId: lane,
             compilerRunId: "run-1", compilerRound: round,
-            compilerFingerprint: "continuity\u{1f}the fog\u{1f}a1b2\u{1f}")
+            compilerFingerprint: fingerprint)
     }
 
     func test_sinceLastRoundLine_isNilWithoutARoundNumber() {
         XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [makeRoundRecord()], run: nil, annotations: []))
+            history: [makeRoundRecord()], run: nil, annotations: [], passes: []))
         XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [makeRoundRecord()], run: makeRun(), annotations: []),
+            history: [makeRoundRecord()], run: makeRun(), annotations: [], passes: []),
             "a passless run is an ordinary M2 run \u{2014} there is no round to be since")
     }
 
@@ -115,7 +119,7 @@ final class RoundNarrativeTests: XCTestCase {
     /// travelled, and the first round of a lane has travelled none.
     func test_sinceLastRoundLine_isNilForTheFirstRoundOfALane() {
         XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [], run: makeRun(passId: "line", round: 1), annotations: []))
+            history: [], run: makeRun(passId: "line", round: 1), annotations: [], passes: []))
     }
 
     func test_sinceLastRoundLine_countsResolvedPersistingAndNew() {
@@ -129,7 +133,7 @@ final class RoundNarrativeTests: XCTestCase {
                     makeCompilerNote(round: 1),
                     makeCompilerNote(round: 1, status: .stetted,
                                      resolvedAt: filed.addingTimeInterval(60)),
-                ]),
+                ], passes: []),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new")
     }
 
@@ -141,7 +145,7 @@ final class RoundNarrativeTests: XCTestCase {
                     makeRun(passId: "line", round: 2, openInOtherLanes: 0)] {
             XCTAssertEqual(
                 RoundNarrative.sinceLastRoundLine(
-                    history: [makeRoundRecord(round: 1)], run: run, annotations: []),
+                    history: [makeRoundRecord(round: 1)], run: run, annotations: [], passes: []),
                 "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
         }
     }
@@ -156,14 +160,14 @@ final class RoundNarrativeTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: [makeRoundRecord(round: 1)],
                 run: makeRun(passId: "line", round: 2, openInOtherLanes: 1),
-                annotations: []),
+                annotations: [], passes: []),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
             + "\u{00b7} 1 was already open in another lane")
         XCTAssertEqual(
             RoundNarrative.sinceLastRoundLine(
                 history: [makeRoundRecord(round: 1)],
                 run: makeRun(passId: "line", round: 2, openInOtherLanes: 2),
-                annotations: []),
+                annotations: [], passes: []),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
             + "\u{00b7} 2 were already open in other lanes")
     }
@@ -182,7 +186,7 @@ final class RoundNarrativeTests: XCTestCase {
                     makeCompilerNote(round: 1),
                     makeCompilerNote(round: 1, status: .stetted,
                                      resolvedAt: filed.addingTimeInterval(60)),
-                ]),
+                ], passes: []),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new "
             + "\u{00b7} 1 was already open in another lane")
     }
@@ -200,7 +204,7 @@ final class RoundNarrativeTests: XCTestCase {
             RoundNarrative.sinceLastRoundLine(
                 history: [makeRoundRecord(round: 1, at: filed)],
                 run: makeRun(passId: "line", round: 2),
-                annotations: [settledBefore]),
+                annotations: [settledBefore], passes: []),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
     }
 
@@ -221,7 +225,7 @@ final class RoundNarrativeTests: XCTestCase {
                     makeCompilerNote(lane: "proof", round: 1),
                     makeCompilerNote(lane: "line", round: 1, status: .stetted,
                                      resolvedAt: filed.addingTimeInterval(60)),
-                ]),
+                ], passes: []),
             "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new",
             "the Proof round sits newest in the ring and must take no part \u{2014} "
             + "neither its record nor its notes")
@@ -234,9 +238,9 @@ final class RoundNarrativeTests: XCTestCase {
     func test_sinceLastRoundLine_isNilWhileTheRoundBeforeItIsStillStanding() {
         let twoBack = makeRoundRecord(round: 1)
         XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [twoBack], run: makeRun(passId: "line", round: 3), annotations: []))
+            history: [twoBack], run: makeRun(passId: "line", round: 3), annotations: [], passes: []))
         XCTAssertNotNil(RoundNarrative.sinceLastRoundLine(
-            history: [twoBack], run: makeRun(passId: "line", round: 2), annotations: []),
+            history: [twoBack], run: makeRun(passId: "line", round: 2), annotations: [], passes: []),
             "control: the record IS round 2's predecessor")
     }
 
@@ -247,11 +251,11 @@ final class RoundNarrativeTests: XCTestCase {
     func test_sinceLastRoundLine_isNilForAFreshEyesRound() {
         let previous = makeRoundRecord(round: 1)
         XCTAssertNotNil(RoundNarrative.sinceLastRoundLine(
-            history: [previous], run: makeRun(passId: "line", round: 2), annotations: []),
+            history: [previous], run: makeRun(passId: "line", round: 2), annotations: [], passes: []),
             "control: an ordinary round 2 does speak")
         XCTAssertNil(RoundNarrative.sinceLastRoundLine(
             history: [previous],
-            run: makeRun(passId: "line", round: 2, freshEyes: true), annotations: []))
+            run: makeRun(passId: "line", round: 2, freshEyes: true), annotations: [], passes: []))
     }
 
     // MARK: - Fresh eyes (M3-P3 Task 6)
@@ -263,7 +267,7 @@ final class RoundNarrativeTests: XCTestCase {
     func test_freshEyesHeader_namesTheRoundWhenThereIsOne() {
         XCTAssertEqual(
             RoundNarrative.freshEyesHeader(
-                run: makeRun(passId: "line", round: 3, freshEyes: true)),
+                run: makeRun(passId: "line", round: 3, freshEyes: true), annotations: [], passes: []),
             "Fresh eyes \u{00b7} round 3")
     }
 
@@ -271,17 +275,17 @@ final class RoundNarrativeTests: XCTestCase {
     /// name, the way an ordinary passless ⌘R has none.
     func test_freshEyesHeader_saysSoWithoutARoundNumber() {
         XCTAssertEqual(
-            RoundNarrative.freshEyesHeader(run: makeRun(freshEyes: true)),
+            RoundNarrative.freshEyesHeader(run: makeRun(freshEyes: true), annotations: [], passes: []),
             "Fresh eyes")
     }
 
     func test_freshEyesHeader_isNilForAnOrdinaryRun() {
-        XCTAssertNil(RoundNarrative.freshEyesHeader(run: nil))
+        XCTAssertNil(RoundNarrative.freshEyesHeader(run: nil, annotations: [], passes: []))
         XCTAssertNil(RoundNarrative.freshEyesHeader(
-            run: makeRun(passId: "line", round: 2)),
+            run: makeRun(passId: "line", round: 2), annotations: [], passes: []),
             "a run that was never stamped is an ordinary round")
         XCTAssertNil(RoundNarrative.freshEyesHeader(
-            run: makeRun(passId: "line", round: 2, freshEyes: false)),
+            run: makeRun(passId: "line", round: 2, freshEyes: false), annotations: [], passes: []),
             "…and so is one stamped false by some earlier build")
     }
 
@@ -295,7 +299,7 @@ final class RoundNarrativeTests: XCTestCase {
         XCTAssertEqual(
             RoundNarrative.freshEyesHeader(
                 run: makeRun(passId: "line", round: 2, freshEyes: true,
-                             openInOtherLanes: 1)),
+                             openInOtherLanes: 1), annotations: [], passes: []),
             "Fresh eyes \u{00b7} round 2 \u{00b7} 1 was already open in another lane")
         // Plural, and with no round number to hang it on: a passless cold read
         // still has a lane-crossing to report, and the wording comes from the
@@ -303,7 +307,7 @@ final class RoundNarrativeTests: XCTestCase {
         // when one becomes many.
         XCTAssertEqual(
             RoundNarrative.freshEyesHeader(
-                run: makeRun(freshEyes: true, openInOtherLanes: 3)),
+                run: makeRun(freshEyes: true, openInOtherLanes: 3), annotations: [], passes: []),
             "Fresh eyes \u{00b7} 3 were already open in other lanes")
     }
 
@@ -313,7 +317,7 @@ final class RoundNarrativeTests: XCTestCase {
         for quiet in [makeRun(passId: "line", round: 3, freshEyes: true,
                               openInOtherLanes: 0),
                       makeRun(passId: "line", round: 3, freshEyes: true)] {
-            XCTAssertEqual(RoundNarrative.freshEyesHeader(run: quiet),
+            XCTAssertEqual(RoundNarrative.freshEyesHeader(run: quiet, annotations: [], passes: []),
                            "Fresh eyes \u{00b7} round 3")
         }
     }
@@ -329,8 +333,8 @@ final class RoundNarrativeTests: XCTestCase {
                     makeRun(freshEyes: true),
                     makeRun()] {
             let since = RoundNarrative.sinceLastRoundLine(
-                history: [previous], run: run, annotations: [makeCompilerNote(round: 1)])
-            let fresh = RoundNarrative.freshEyesHeader(run: run)
+                history: [previous], run: run, annotations: [makeCompilerNote(round: 1)], passes: [])
+            let fresh = RoundNarrative.freshEyesHeader(run: run, annotations: [], passes: [])
             XCTAssertFalse(since != nil && fresh != nil,
                            "both lines spoke for one round: \(String(describing: since)) "
                            + "/ \(String(describing: fresh))")
@@ -411,5 +415,166 @@ final class RoundNarrativeTests: XCTestCase {
         XCTAssertEqual(RoundNarrative.clockPhrase(4), "4s")
         XCTAssertEqual(RoundNarrative.clockPhrase(130), "2m 10s")
         XCTAssertEqual(RoundNarrative.clockPhrase(3_725), "1h 2m")
+    }
+
+    // MARK: - The cross-lane clause, live (#53)
+    //
+    // A run records WHICH notes the mint matched in other lanes; every surface
+    // reads them through `RoundNarrative.openElsewhere`, filtered against the
+    // queue on each render. A record from before the ids existed keeps its
+    // past-tense count (the tests above).
+
+    private let passes = ReviewPass.presets
+
+    private func elsewhereLine(
+        _ run: CompilerRun, _ annotations: [Annotation]
+    ) -> String? {
+        RoundNarrative.sinceLastRoundLine(
+            history: [makeRoundRecord(round: 1)], run: run,
+            annotations: annotations, passes: passes)
+    }
+
+    private let zeroes = "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new"
+
+    /// **An old run renders the old sentence.** Only the count, no ids: the
+    /// snapshot is what the record can still be right about, whatever the
+    /// queue says now.
+    func test_openElsewhere_aRunWithOnlyTheCountKeepsThePastTenseSentence() {
+        let run = makeRun(passId: "line", round: 2, openInOtherLanes: 1)
+        XCTAssertEqual(
+            elsewhereLine(run, [makeCompilerNote(lane: "structural")]),
+            zeroes + " \u{00b7} 1 was already open in another lane")
+    }
+
+    /// **A new run renders live and names the pass.**
+    func test_openElsewhere_aRunWithIdsNamesThePassStillHoldingIt() {
+        let held = makeCompilerNote(id: "n-1", lane: "structural")
+        let run = makeRun(passId: "line", round: 2, openInOtherLanes: 1,
+                          openInOtherLanesNoteIds: ["n-1"])
+        XCTAssertEqual(elsewhereLine(run, [held]),
+                       zeroes + " \u{00b7} 1 still open in Structural")
+    }
+
+    /// **Settle it between two renders and the clause goes** — the same stored
+    /// run, the queue moved. Every non-open status counts as settled.
+    func test_openElsewhere_settlingTheOtherLanesNoteBetweenRendersDropsTheClause() {
+        let run = makeRun(passId: "line", round: 2, openInOtherLanes: 1,
+                          openInOtherLanesNoteIds: ["n-1"])
+        XCTAssertNotNil(RoundNarrative.openElsewhere(
+            run: run, annotations: [makeCompilerNote(id: "n-1", lane: "structural")],
+            passes: passes), "control: open, it is said")
+        for settled in AnnotationStatus.allCases where settled != .open {
+            XCTAssertEqual(
+                elsewhereLine(run, [makeCompilerNote(id: "n-1", lane: "structural",
+                                                     status: settled)]),
+                zeroes, "\(settled) is no longer held")
+        }
+        XCTAssertEqual(elsewhereLine(run, []), zeroes,
+                       "and a note gone from the queue is not held either")
+    }
+
+    /// **The copy: one pass, two, three or more** — in ladder order, whatever
+    /// order the queue holds them in.
+    func test_openElsewhere_namesOneSeveralAndThreeOrMorePasses() {
+        let a = makeCompilerNote(id: "n-a", lane: "copyedit", fingerprint: "f-a")
+        let b = makeCompilerNote(id: "n-b", lane: "structural", fingerprint: "f-b")
+        let c = makeCompilerNote(id: "n-c", lane: "proof", fingerprint: "f-c")
+        func clause(_ ids: [String]) -> String? {
+            RoundNarrative.openElsewhere(
+                run: makeRun(passId: "line", round: 2, openInOtherLanesNoteIds: ids),
+                annotations: [a, b, c], passes: passes)?.clause
+        }
+        XCTAssertEqual(clause(["n-b"]), "1 still open in Structural")
+        XCTAssertEqual(clause(["n-a", "n-b"]), "2 still open in Structural and Copyedit")
+        XCTAssertEqual(clause(["n-c", "n-a", "n-b"]),
+                       "3 still open in Structural, Copyedit and Proof")
+        let two = makeCompilerNote(id: "n-d", lane: "structural", fingerprint: "f-d")
+        XCTAssertEqual(
+            RoundNarrative.openElsewhere(
+                run: makeRun(passId: "line", round: 2,
+                             openInOtherLanesNoteIds: ["n-b", "n-d"]),
+                annotations: [b, two], passes: passes)?.clause,
+            "2 still open in Structural", "N findings, one pass")
+    }
+
+    /// **Per finding, not per note** — two open notes holding one fingerprint
+    /// are one thing the writer holds, even across two lanes.
+    func test_openElsewhere_twoNotesHoldingOneFingerprintCountOnce() {
+        let s = makeCompilerNote(id: "n-s", lane: "structural")
+        let c = makeCompilerNote(id: "n-c", lane: "copyedit")
+        let run = makeRun(passId: "proof", round: 2, openInOtherLanesNoteIds: ["n-s", "n-c"])
+        XCTAssertEqual(
+            RoundNarrative.openElsewhere(run: run, annotations: [s, c], passes: passes)?.clause,
+            "1 still open in Structural and Copyedit")
+        XCTAssertEqual(
+            RoundNarrative.openElsewhere(
+                run: run, annotations: [s, makeCompilerNote(id: "n-c", lane: "copyedit",
+                                                             status: .rejected)],
+                passes: passes)?.clause,
+            "1 still open in Structural", "settle one holder and the other still names it")
+    }
+
+    /// **Own-lane presence wins, live as at the mint.** A note in the run's own
+    /// lane holding the finding (the writer reopened one) is the since-line's
+    /// *persisting*, so the clause must not count it a second time.
+    func test_openElsewhere_aFindingNowOpenInTheRunsOwnLaneIsNotCountedAgain() {
+        let elsewhere = makeCompilerNote(id: "n-s", lane: "structural")
+        let own = makeCompilerNote(id: "n-l", lane: "line")
+        let run = makeRun(passId: "line", round: 2, openInOtherLanesNoteIds: ["n-s"])
+        XCTAssertNil(RoundNarrative.openElsewhere(
+            run: run, annotations: [elsewhere, own], passes: passes))
+    }
+
+    /// **Never a raw id.** The coach answers her editor's name (the board's own
+    /// `laneDisplayName`); a note filed in no lane is an Author check's and
+    /// reads "your checks", listed like a pass; a pass the project no longer
+    /// lists reads "another lane".
+    func test_openElsewhere_namesNoLaneByItsRawId() {
+        func clause(_ notes: [Annotation]) -> String? {
+            RoundNarrative.openElsewhere(
+                run: makeRun(passId: "line", round: 2,
+                             openInOtherLanesNoteIds: notes.map(\.id)),
+                annotations: notes, passes: passes)?.clause
+        }
+        XCTAssertEqual(clause([makeCompilerNote(id: "w", lane: "workshop")]),
+                       "1 still open in Le Guin")
+        XCTAssertEqual(clause([makeCompilerNote(id: "p", lane: nil)]),
+                       "1 still open in your checks")
+        XCTAssertEqual(
+            clause([makeCompilerNote(id: "p", lane: nil, fingerprint: "f-1"),
+                    makeCompilerNote(id: "q", lane: nil, fingerprint: "f-2")]),
+            "2 still open in your checks")
+        XCTAssertEqual(
+            clause([makeCompilerNote(id: "s", lane: "structural", fingerprint: "f-1"),
+                    makeCompilerNote(id: "p", lane: nil, fingerprint: "f-2")]),
+            "2 still open in Structural and your checks")
+        XCTAssertEqual(clause([makeCompilerNote(id: "g", lane: "pass-gone")]),
+                       "1 still open in another lane")
+        XCTAssertEqual(
+            clause([makeCompilerNote(id: "g", lane: "pass-gone", fingerprint: "f-1"),
+                    makeCompilerNote(id: "h", lane: "pass-also-gone", fingerprint: "f-2")]),
+            "2 still open in other lanes")
+        XCTAssertEqual(
+            clause([makeCompilerNote(id: "s", lane: "structural", fingerprint: "f-1"),
+                    makeCompilerNote(id: "p", lane: nil, fingerprint: "f-2"),
+                    makeCompilerNote(id: "g", lane: "pass-gone", fingerprint: "f-3")]),
+            "3 still open in Structural, your checks and another lane")
+    }
+
+    /// **The fresh-eyes header reads the same projection**, live.
+    func test_freshEyesHeader_readsTheLiveClauseToo() {
+        let run = makeRun(passId: "line", round: 2, freshEyes: true,
+                          openInOtherLanes: 1, openInOtherLanesNoteIds: ["n-1"])
+        XCTAssertEqual(
+            RoundNarrative.freshEyesHeader(
+                run: run, annotations: [makeCompilerNote(id: "n-1", lane: "structural")],
+                passes: passes),
+            "Fresh eyes \u{00b7} round 2 \u{00b7} 1 still open in Structural")
+        XCTAssertEqual(
+            RoundNarrative.freshEyesHeader(
+                run: run, annotations: [makeCompilerNote(id: "n-1", lane: "structural",
+                                                         status: .stetted)],
+                passes: passes),
+            "Fresh eyes \u{00b7} round 2", "settled: the header has nothing to add")
     }
 }

@@ -667,10 +667,15 @@ final class DocumentStorePostureTests: XCTestCase {
         Document.localIdentitiesForTesting = identities
         Document.deviceStateForTesting = OpLogDeviceState(
             fileURL: projectURL.appendingPathComponent("op-log-state.json"))
-        let counter = IdentityCounter()
-        Document.registryCacheForTesting = RegistryCache(
+        // Lazy, like `RegistryCache.shared`. Counted per PROJECT (#94): the
+        // injected cache is process-wide while it is installed, so work still
+        // in flight from an earlier test's book can read it and resolve —
+        // `test_aLateRefreshFromAnotherBookResolvesInTheInstalledCache` drives
+        // that interleaving. Only this book's own needs are this test's.
+        let cache = RegistryCache(
             fileURL: projectURL.appendingPathComponent("registry-cache.json"),
-            resolvingIdentity: counter.next)
+            resolvingIdentity: { "device-under-test" })
+        Document.registryCacheForTesting = cache
 
         let store = try await DocumentStore.open(url: projectURL)
         let doc = try await openDocument(in: store)
@@ -679,7 +684,10 @@ final class DocumentStorePostureTests: XCTestCase {
         XCTAssertFalse(TrustResolution.hasRegistry(in: projectURL), "precondition")
         XCTAssertEqual(store.posture(forDocId: Self.docId), .author)
         XCTAssertEqual(store.posture(forDocId: "doc-not-open"), .author)
-        XCTAssertEqual(counter.count, 0, "no registry was resolved, anywhere")
+        XCTAssertEqual(cache.identityNeedsForTesting(about: projectURL), 0,
+                       "no registry was resolved for this book")
+        XCTAssertEqual(cache.identityNeedsForTesting(about: nil), 0,
+                       "nor the identity asked about no project at all")
 
         // **Always warm** (Task 9, m5): a trust change in a book with no
         // register leaves nothing to warm, so even a document never asked is
@@ -694,6 +702,51 @@ final class DocumentStorePostureTests: XCTestCase {
                        "no register: warm the moment it is asked")
         await store.postureSettled()
         await doc.close()
+    }
+
+    /// **#94, driven: a refresh still in flight from one book resolves in
+    /// whatever cache is installed when it RUNS** — so a counter on the cache
+    /// alone counts another test's work. The CI failure was this shape:
+    /// `test_aBookWithNoRegistryIsTheAuthorAndResolvesNothing` saw one resolve
+    /// its registerless book never caused.
+    ///
+    /// A registered book's refresh is scheduled (`invalidateTrust`) and not
+    /// yet run; then the NEXT test's setUp is played — a fresh lazy cache
+    /// installed for a book of its own; then the refresh runs
+    /// (`resolvePostureYields` reads `Document.loadRegistryCache` live and
+    /// resolves the registered book's register into it). The cache-wide
+    /// counter goes to one — the CI assertion's `("1") is not equal to
+    /// ("0")` — while the per-project count keeps the resolve where it
+    /// belongs: the registered book's, none of the next one's. The other seams
+    /// are left as they are, so nothing here reaches this machine's own keys.
+    ///
+    /// **This test pins the defect it reproduces.** If the seam is ever pinned
+    /// per store (#97), these assertions flip: delete this test then. The
+    /// per-project assertions in the registerless test still stand.
+    func test_aLateRefreshFromAnotherBookResolvesInTheInstalledCache() async throws {
+        beASigningMac()
+        _ = try makeForeignRoot()
+        let store = try await DocumentStore.open(url: projectURL)
+        await store.postureSettled()
+        store.invalidateTrust()
+
+        // The next test's setUp, before the refresh above has run.
+        let nextBook = TestTemp.root.appendingPathComponent("the-next-tests-book")
+        let counter = IdentityCounter()
+        let nextCache = RegistryCache(
+            fileURL: nextBook.appendingPathComponent("registry-cache.json"),
+            resolvingIdentity: counter.next)
+        Document.registryCacheForTesting = nextCache
+
+        await store.postureSettled()
+
+        XCTAssertEqual(counter.count, 1,
+                       "the cache-wide counter saw a resolve the next test did not cause")
+        XCTAssertGreaterThan(nextCache.identityNeedsForTesting(about: projectURL), 0,
+                             "it was the registered book's")
+        XCTAssertEqual(nextCache.identityNeedsForTesting(about: nextBook), 0,
+                       "and none of it is the next book's")
+        XCTAssertEqual(nextCache.identityNeedsForTesting(about: nil), 0)
     }
 
     // MARK: - Manifest adoption

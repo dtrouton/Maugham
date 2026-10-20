@@ -184,6 +184,43 @@ public final class RegistryCache: @unchecked Sendable {
     private let identitySource: () -> String
     private var resolvedIdentity: String?
     private let lock = NSLock()
+
+    /// The project the question in progress is about, set under `lock` by
+    /// `lockAsking(about:)`; nil for `identity`, which names no project. Kept
+    /// as the URL and hashed only where the identity is needed, so the hot
+    /// read (`cached(for:)`) pays nothing for it.
+    private var askingAbout: URL?
+
+    /// **How often a question about each project needed the identity, keyed
+    /// by the project folder** (#94) — `unsignedSweepsForTesting`'s shape.
+    /// One cache is process-wide (`shared`, or a suite's injected one), so a
+    /// counter on the cache itself also counts work still in flight from an
+    /// EARLIER test's book that reads the injected cache after the next test
+    /// installed it: `DocumentStorePostureTests`' registerless book once
+    /// counted a resolve it never caused. A test reads the count for its OWN
+    /// folder instead. Every need is counted, not only the one that resolved:
+    /// an identity somebody else's question already resolved must not hide
+    /// this book's own need. It counts in production too: one locked
+    /// increment beside a write.
+    private var identityNeeds: [String: Int] = [:]
+
+    /// How many questions about `projectURL` (nil: about no project) needed
+    /// this memory's identity.
+    func identityNeedsForTesting(about projectURL: URL?) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return identityNeeds[projectURL.map(Self.projectKey) ?? ""] ?? 0
+    }
+
+    private func lockAsking(about projectURL: URL) {
+        lock.lock()
+        askingAbout = projectURL
+    }
+
+    private func unlockAsked() {
+        askingAbout = nil
+        lock.unlock()
+    }
     /// Nil until `loadLocked()` has run. **Not an empty memory** — the two are
     /// different, and conflating them is how a device forgets what it verified.
     private var loaded: Stored?
@@ -236,6 +273,7 @@ public final class RegistryCache: @unchecked Sendable {
     /// Call with `lock` held. Resolves the identity once and remembers it, so
     /// a memory that has been written to does not ask the enclave again.
     private func resolveIdentityLocked() -> String {
+        identityNeeds[askingAbout.map(Self.projectKey) ?? "", default: 0] += 1
         if let resolvedIdentity { return resolvedIdentity }
         let identity = identitySource()
         resolvedIdentity = identity
@@ -299,8 +337,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// will not decode is dropped and logged: it is this device's own memory,
     /// so a corrupt entry is a bug or a damaged file, never somebody's claim.
     public func cached(for projectURL: URL) -> Registry? {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         guard let project = storedLocked.projects[Self.projectKey(projectURL)],
               !project.records.isEmpty
         else { return nil }
@@ -309,8 +347,8 @@ public final class RegistryCache: @unchecked Sendable {
 
     /// The exact bytes remembered for one record, if any.
     public func rawBytes(of ref: RecordRef, for projectURL: URL) -> Data? {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         return storedLocked.projects[Self.projectKey(projectURL)]?
             .records.first { $0.directory == ref.directory.rawValue
                              && $0.fingerprint == ref.fingerprint }?.bytes
@@ -342,8 +380,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// Both doors canonicalize, so the two cannot disagree about order and the
     /// did-anything-move comparison below stays meaningful.
     private func remember(_ entries: [Entry], for projectURL: URL) {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         let root = projectURL.standardizedFileURL.path
         guard project.root != root || project.records != entries else { return }
@@ -357,8 +395,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// claimants. Nothing in production calls it yet; pruning is how entries
     /// normally go.
     public func forget(_ projectURL: URL) {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         storedLocked.projects.removeValue(forKey: Self.projectKey(projectURL))
         persistLocked()
     }
@@ -368,16 +406,16 @@ public final class RegistryCache: @unchecked Sendable {
     /// The root whose chain first named this device in this project, if one
     /// has.
     public func joinedRoot(for projectURL: URL) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         return storedLocked.projects[Self.projectKey(projectURL)]?.joinedRoot
     }
 
     /// When this device joined the root it is on, if it has joined one. The
     /// first join's date: `join` writes it once, beside the root.
     public func joinedAt(for projectURL: URL) -> Date? {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         return storedLocked.projects[Self.projectKey(projectURL)]?.joinedAt
     }
 
@@ -385,8 +423,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// merged — each is somebody claiming a book this device already belongs to
     /// someone else's copy of.
     public func claimants(for projectURL: URL) -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         return storedLocked.projects[Self.projectKey(projectURL)]?.claimants ?? []
     }
 
@@ -427,8 +465,8 @@ public final class RegistryCache: @unchecked Sendable {
         by root: String, of adopted: String, for projectURL: URL,
         at when: Date = Date()
     ) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         guard !project.adoptions.contains(where: {
             $0.root == root && $0.adopted == adopted
@@ -447,8 +485,8 @@ public final class RegistryCache: @unchecked Sendable {
     public func adoptionSeenAt(
         by root: String, of adopted: String, for projectURL: URL
     ) -> Date? {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         return storedLocked.projects[Self.projectKey(projectURL)]?.adoptions
             .first { $0.root == root && $0.adopted == adopted }?.seenAt
     }
@@ -469,8 +507,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// one list: a second place that decided what *restored* means would let
     /// the timeline and the row disagree about the same record.
     public func restores(for projectURL: URL) -> [RestoredRecord] {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         return (storedLocked.projects[Self.projectKey(projectURL)]?.restores ?? [])
             .compactMap { restore in
                 guard let directory = RegistryDirectory(rawValue: restore.directory)
@@ -494,8 +532,8 @@ public final class RegistryCache: @unchecked Sendable {
         _ refs: [RecordRef], in projectURL: URL, at when: Date
     ) {
         guard !refs.isEmpty else { return }
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         project.root = projectURL.standardizedFileURL.path
         project.restores.append(contentsOf: refs.map {
@@ -523,8 +561,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// is what lets the stamp be pinned as a value; production passes nothing.
     @discardableResult
     public func join(root: String, for projectURL: URL, at when: Date = Date()) -> String {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         project.root = projectURL.standardizedFileURL.path
         defer {
@@ -554,8 +592,8 @@ public final class RegistryCache: @unchecked Sendable {
     /// only ever LISTS a claimant (B1, spec §5).
     @discardableResult
     public func recordClaimant(root: String, for projectURL: URL) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
+        lockAsking(about: projectURL)
+        defer { unlockAsked() }
         var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         guard project.joinedRoot != root, !project.claimants.contains(root) else {
             return false

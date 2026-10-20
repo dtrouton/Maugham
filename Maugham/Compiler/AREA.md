@@ -32,7 +32,7 @@ Every file in `Maugham/Compiler/` appears once.
 - `DiagnosticsStore.swift` — the per-device, per-document sidecar: the two standing slots, the rings, staleness, `preview`/`replace`/`dismiss`, the ask file, the cold-start refusal file.
 - `CompilerNote.swift` — the value crossing from parse to mint; `CompilerMintContext` (lane, round, editor name, cold or warm), minted once at the keystroke.
 - `RoundHistory.swift` — `RoundFingerprint` (the one round-over-round join key), `RoundRecord`, `SinceLastRound` (pure, off the writer's queue).
-- `RoundNarrative.swift` — the report's own English: the since-line, the Fresh Eyes header, `openInOtherLanes(_:)`, `stallCopy`.
+- `RoundNarrative.swift` — the report's own English: the since-line, the Fresh Eyes header, `openElsewhere`, `stallCopy`.
 - `DriftDetector.swift` — `DriftFinding`: the same clause straining over `consecutiveRunsThreshold` runs.
 - `IntentDrift.swift` — `mayTrailDraft`, the pure decision behind the intent strip's quiet mark.
 - `DiagnosticPromotion.swift` — what a kept strain says once it is an op-logged task.
@@ -217,9 +217,9 @@ Every file in `Maugham/Compiler/` appears once.
 - **`latestRound(forPass:docId:)` reads the round slot directly, never the shadow** (its readers want the round in flight), then walks the ring newest-first. A lane aged out of the ring answers `nil` and mints round 1.
 - **`RoundFingerprint` is the one round-over-round join key** (section + clause quote + anchor + reader category, never prose); its `stringValue` is the dedupe key and a synced format. `RoundRecord.fingerprints` is written empty.
 - **The mint refuses a finding already open in ANY lane** (one finding is one note), keyed on `compilerFingerprint`. A re-punctuated continuity cite can slip past; it gets no machinery.
-- **The mint answers `MintOutcome` (`minted`, `openInOtherLanes`)**: distinct findings refused where NO lane holding them is the round's own. The mint loop's `taken` map is fingerprint → SET of lanes, because one fingerprint can be held by two open notes. The count is taken there and nowhere else (a second scan could disagree with what the mint refused), because `SinceLastRound.compute` is lane-local by design. It rides `CompilerRun` as an optional field.
+- **The mint answers `MintOutcome` (`minted`, `openInOtherLanes`, `openInOtherLanesNoteIds`)**: distinct findings refused where NO lane holding them is the round's own, and their open notes. The mint loop's `taken` map is fingerprint → SET of lanes, because one fingerprint can be held by two open notes. The match is made there alone (a second scan could disagree with the mint; `SinceLastRound.compute` is lane-local). Both ride `CompilerRun` as optional fields.
 - **`reopenAnnotation` has no fingerprint-collision guard and must not grow one**: reopening takes a note back; it claims nothing about any other note.
-- **The cross-lane wording lives only in `RoundNarrative.openInOtherLanes(_:)`**, PAST tense (a snapshot at the mint), for `sinceLastRoundLine`, `freshEyesHeader` and the pane. An own-lane match is persisting, never counted twice; it counts NOTES only.
+- **The cross-lane clause is one live projection, `RoundNarrative.openElsewhere`**, for `sinceLastRoundLine`, `freshEyesHeader` and the pane's seal: recorded notes still open, per finding, own lane winning, lanes named by `laneDisplayName`. A count-only record keeps its past-tense sentence.
 - **Neither round sentence draws in Author's pane**: `sinceLastRoundLine` refuses a check, and both sentences live in the cockpit (`AnnotationsPane.cockpitReportLine`) (`DiagnosticsPaneTests.test_neitherRoundSentenceIsDrawnOverAColdCheck`).
 - **`DiagnosticsPane.content` forks on `hasReport`; anything an intentless run must show renders in BOTH arms**, as `thisCheckSection` does (`test_theLetterLeadsBothArmsAndPrecedesThisCheck`).
 - **`CompilerRun.mintedNotes` stops the pane claiming a clean check over queued notes.** `headerState` is fed `strains.count`, never `rows.count`: legacy rows the pane refuses to draw would call a legacy sidecar clean.

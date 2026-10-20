@@ -376,6 +376,36 @@ final class RegistryCacheTests: XCTestCase {
         XCTAssertEqual(counter.count, 1, "and it is asked once, then remembered")
     }
 
+    /// **The need is counted per project, and every need counts** (#94). One
+    /// memory is process-wide, so a write about ANOTHER book (an earlier
+    /// test's work still in flight) lands in the same instance: the per-cache
+    /// counter above cannot tell whose it was, and `identityNeedsForTesting`
+    /// can. And a need after the identity is already resolved still counts
+    /// for its own project, so another book's resolve cannot hide this one's.
+    func test_identityNeedsAreCountedPerProjectEvenOnceResolved() throws {
+        let counter = IdentityCounter()
+        let cache = RegistryCache(fileURL: cacheURL, resolvingIdentity: counter.next)
+        let other = projectURL.deletingLastPathComponent()
+            .appendingPathComponent("another-book-\(UUID().uuidString)")
+
+        XCTAssertNil(cache.cached(for: projectURL), "a read with no file needs nothing")
+        cache.join(root: "a-root", for: other)
+
+        XCTAssertEqual(counter.count, 1, "the other book's write resolved the identity")
+        XCTAssertEqual(cache.identityNeedsForTesting(about: other), 1)
+        XCTAssertEqual(cache.identityNeedsForTesting(about: projectURL), 0,
+                       "and none of it is this book's")
+        XCTAssertEqual(cache.identityNeedsForTesting(about: nil), 0)
+
+        cache.join(root: "a-root", for: projectURL)
+        XCTAssertEqual(counter.count, 1, "already resolved, so the closure is not asked again")
+        XCTAssertEqual(cache.identityNeedsForTesting(about: projectURL), 1,
+                       "but this book's own need is still counted")
+        _ = cache.identity
+        XCTAssertEqual(cache.identityNeedsForTesting(about: nil), 1,
+                       "a question about no project is counted as one")
+    }
+
     /// Counts how often the identity behind a cache is actually asked for.
     private final class IdentityCounter: @unchecked Sendable {
         private let lock = NSLock()
