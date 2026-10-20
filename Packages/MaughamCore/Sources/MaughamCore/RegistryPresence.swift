@@ -87,6 +87,12 @@ public enum RegistryPresence {
         /// recognising this device as the old key's person and asks about it
         /// again. Never a first claim (none → a key), never `.keep`, never
         /// `.remove` — dropping a claim is the writer's own act.
+        ///
+        /// **Known limit:** it compares against the record on disk only, so a
+        /// change across a claim-less record is not reported — K1, then a
+        /// record written with no claim (an older build, or
+        /// `writeOwnRecordAgain`), then K2 at a later open reads as a first
+        /// claim, although other Macs knew this device as K1's.
         public let personKeyChanged: Bool
 
         public init(file: URL?, personKeyChanged: Bool = false) {

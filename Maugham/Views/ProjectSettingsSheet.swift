@@ -518,23 +518,10 @@ struct ProjectSettingsSheet: View {
     /// The inbox is refreshed first: its count is whatever its last read held.
     private func loadPeopleAndDevices() async {
         await store.documentStore?.inboxStore.refresh()
-        // **One walk, both halves** (P3b Task 4/5). The counts are what
-        // `requests` is built from, and the same map is what the rows Task 5
-        // owes are built from — the holders `requests` DECLINED. A second walk
-        // to find them would be a second opinion about who is waiting.
-        let union = store.documentStore?.heldLines() ?? HeldLineUnion()
-        let pending = union.counts
-        let heldStreams = union.streams
-        // §7.2's questions (fix round 1, I3) — the SAME union the sheet reads,
-        // and this Mac's own memory of the ones already put off, which this
-        // pane lists and the sheet does not.
-        let heldPieceStarts = union.startedAPiece
-        // What those lines ARE, per piece, and the captures (P3b smoke F2):
-        // the pending rows say what the admission sheet says.
-        let heldWaiting = union.waiting
-        let heldCaptures = union.captures
-        let declinedPieces = store.documentStore?.declinedPieceQuestions() ?? []
-        let settledPieces = store.documentStore?.settledPieceQuestions() ?? []
+        // What this window's store holds — the held lines, the piece
+        // questions already answered, and whether this open changed the
+        // person key (#103) — read once, on the main actor.
+        let held = PeopleAndDevicesHeld(documentStore: store.documentStore)
         // What a narrowing would cost this book: the unsigned rows' subject,
         // and the sheet's first-narrowing sentence. It is the same read the
         // admission sheet makes, through the same store verb, so the two
@@ -553,85 +540,105 @@ struct ProjectSettingsSheet: View {
         acknowledgedLostHistory = await store.documentStore?
             .acknowledgedLostHistory() ?? DocumentStore.AcknowledgedLosses()
         let pieces = PermitControl.pieces(in: store.manifest.structure)
-        let personKeyChanged = store.documentStore?.personKeyChanged ?? false
         let url = store.url
         let loaded = await Task.detached(priority: .userInitiated) {
-            () -> (PeopleAndDevicesModel, ClaimOffer?) in
-            let mine = LocalIdentities.current
-            let remembered = AdmissionMemory.shared.remembered
-            let claimants = RegistryCache.shared.claimants(for: url)
-            // **Which pieces no opening has reached** (Task 8): op-log file
-            // PRESENCE, the load's own `needsBootstrap` test — a piece with no
-            // file is exactly one this Mac's load would refuse as waiting. One
-            // listing of the ops folder, off the main actor, and only for the
-            // pieces that record a starter. A folder that will not list says
-            // nothing is waiting rather than that everything is.
-            let unopened = StrandedPieces.unopened(pieces, in: url)
-            do {
-                let resolved = try TrustResolution.resolveVerified(
-                    projectURL: url, identities: mine)
-                // Read AFTER the resolve, because the resolve is what restores:
-                // a record this open put back must be marked on the row this
-                // open draws, not on the next one.
-                let restores = RegistryCache.shared.restores(for: url)
-                // Which unverifiable records this Mac could put back, asked of
-                // the memory here rather than inside the model — the model
-                // reads no shared cache, which is what lets every rule in it be
-                // pinned as a value (smoke find 1).
-                let restorable = Set(resolved.registry.malformed
-                    .compactMap(\.ref)
-                    .filter { RegistryCache.shared.rawBytes(of: $0, for: url) != nil })
-                let claim = ClaimDecision.offer(
-                    registry: resolved.registry, table: resolved.table,
-                    canWriteRegistry: ClaimDecision.canWriteRegistry(in: url),
-                    canSign: mine.author.canSign)
-                let model = PeopleAndDevicesModel.make(
-                    registry: resolved.registry, table: resolved.table,
-                    remembered: remembered,
-                    requests: AdmissionDecision.requests(
-                        pending: pending, streams: heldStreams,
-                        registry: resolved.registry,
-                        memory: remembered,
-                        // A root's question (Ruling AA): an admitted Mac lists
-                        // nobody as waiting on it, as its sheet asks nobody.
-                        myRoot: AdmissionDecision.askingRoot(
-                            in: resolved.registry, thisDevice: mine.author.fingerprint),
-                        thisDevice: mine.author.fingerprint),
-                    claimants: claimants,
-                    restores: restores,
-                    restorable: restorable,
-                    standing: DeviceStanding.resolve(
-                        registry: resolved.registry, cache: .shared,
-                        mine: mine, for: url),
-                    me: mine.author.fingerprint,
-                    held: pending,
-                    heldStreams: heldStreams,
-                    unsignedStreams: unsignedStreams,
-                    pieces: pieces,
-                    unopenedPieces: unopened,
-                    heldPieceStarts: heldPieceStarts,
-                    heldWaiting: heldWaiting,
-                    heldCaptures: heldCaptures,
-                    declinedPieces: declinedPieces,
-                    settledPieces: settledPieces,
-                    personKeyChanged: personKeyChanged)
-                return (model, claim)
-            } catch {
-                // A registry this Mac could not read judges nobody, so there is
-                // no chain to be a stranger to and no request to make of the
-                // writer — the refusal below is the whole of what this section
-                // says (RULING-54).
-                // Nor a claim: a book whose register will not read is not one
-                // this Mac can know it has no key in.
-                return (PeopleAndDevicesModel.make(
-                    registry: Registry(), table: TrustResolution.keyless(mine: mine),
-                    remembered: remembered, requests: [], claimants: claimants,
-                    standing: DeviceStanding.refused(mine: mine, error: error),
-                    me: mine.author.fingerprint), nil)
-            }
+            Self.buildPeopleAndDevices(
+                held: held, unsignedStreams: unsignedStreams, pieces: pieces,
+                url: url, mine: LocalIdentities.current,
+                memory: .shared, cache: .shared)
         }.value
         peopleAndDevices = loaded.0
         claimOffer = loaded.1
+    }
+
+    /// **What People & Devices is built from**, off the main actor — the
+    /// sheet's one build, a static so a test reaches exactly what the pane
+    /// draws (#103's fix round: the person-key notice's wiring is pinned
+    /// through here, never by a mounted press).
+    nonisolated static func buildPeopleAndDevices(
+        held: PeopleAndDevicesHeld,
+        unsignedStreams: [String],
+        pieces: [PermitControl.Piece],
+        url: URL,
+        mine: LocalIdentities,
+        memory: AdmissionMemory,
+        cache: RegistryCache
+    ) -> (PeopleAndDevicesModel, ClaimOffer?) {
+        let union = held.union
+        let remembered = memory.remembered
+        let claimants = cache.claimants(for: url)
+        // **Which pieces no opening has reached** (Task 8): op-log file
+        // PRESENCE, the load's own `needsBootstrap` test — a piece with no
+        // file is exactly one this Mac's load would refuse as waiting. One
+        // listing of the ops folder, off the main actor, and only for the
+        // pieces that record a starter. A folder that will not list says
+        // nothing is waiting rather than that everything is.
+        let unopened = StrandedPieces.unopened(pieces, in: url)
+        do {
+            let resolved = try TrustResolution.resolveVerified(
+                projectURL: url, identities: mine, cache: cache)
+            // Read AFTER the resolve, because the resolve is what restores:
+            // a record this open put back must be marked on the row this
+            // open draws, not on the next one.
+            let restores = cache.restores(for: url)
+            // Which unverifiable records this Mac could put back, asked of
+            // the memory here rather than inside the model — the model
+            // reads no shared cache, which is what lets every rule in it be
+            // pinned as a value (smoke find 1).
+            let restorable = Set(resolved.registry.malformed
+                .compactMap(\.ref)
+                .filter { cache.rawBytes(of: $0, for: url) != nil })
+            let claim = ClaimDecision.offer(
+                registry: resolved.registry, table: resolved.table,
+                canWriteRegistry: ClaimDecision.canWriteRegistry(in: url),
+                canSign: mine.author.canSign)
+            let model = PeopleAndDevicesModel.make(
+                registry: resolved.registry, table: resolved.table,
+                remembered: remembered,
+                requests: AdmissionDecision.requests(
+                    pending: union.counts, streams: union.streams,
+                    registry: resolved.registry,
+                    memory: remembered,
+                    // A root's question (Ruling AA): an admitted Mac lists
+                    // nobody as waiting on it, as its sheet asks nobody.
+                    myRoot: AdmissionDecision.askingRoot(
+                        in: resolved.registry, thisDevice: mine.author.fingerprint),
+                    thisDevice: mine.author.fingerprint),
+                claimants: claimants,
+                restores: restores,
+                restorable: restorable,
+                standing: DeviceStanding.resolve(
+                    registry: resolved.registry, cache: cache,
+                    mine: mine, for: url),
+                me: mine.author.fingerprint,
+                held: union.counts,
+                heldStreams: union.streams,
+                unsignedStreams: unsignedStreams,
+                pieces: pieces,
+                unopenedPieces: unopened,
+                // §7.2's questions (fix round 1, I3) — the SAME union the
+                // sheet reads; what those lines ARE, per piece, and the
+                // captures (P3b smoke F2).
+                heldPieceStarts: union.startedAPiece,
+                heldWaiting: union.waiting,
+                heldCaptures: union.captures,
+                declinedPieces: held.declinedPieces,
+                settledPieces: held.settledPieces,
+                personKeyChanged: held.personKeyChanged)
+            return (model, claim)
+        } catch {
+            // A registry this Mac could not read judges nobody, so there is
+            // no chain to be a stranger to and no request to make of the
+            // writer — the refusal below is the whole of what this section
+            // says (RULING-54).
+            // Nor a claim: a book whose register will not read is not one
+            // this Mac can know it has no key in.
+            return (PeopleAndDevicesModel.make(
+                registry: Registry(), table: TrustResolution.keyless(mine: mine),
+                remembered: remembered, requests: [], claimants: claimants,
+                standing: DeviceStanding.refused(mine: mine, error: error),
+                me: mine.author.fingerprint), nil)
+        }
     }
 
     /// People & Devices, extracted from `body` for `ProjectWindow.body`'s
@@ -1206,5 +1213,29 @@ enum StrandedPieces {
         }
         let opened = OpLogStore.docIds(inOpsDirectoryFilenames: names)
         return Set(started.map(\.id).filter { !opened.contains($0) })
+    }
+}
+
+/// **What People & Devices reads off this window's `DocumentStore`**, on the
+/// main actor, before the build goes off it.
+///
+/// **One walk, both halves** (P3b Task 4/5): the held-line counts are what
+/// `requests` is built from, and the same map is what the rows for the
+/// holders `requests` declined are built from — a second walk would be a
+/// second opinion about who is waiting. With this Mac's own memory of the
+/// piece questions already put off or settled, and whether this window's
+/// open changed the person key (#103). No store reads as nothing held.
+struct PeopleAndDevicesHeld: Sendable {
+    let union: HeldLineUnion
+    let declinedPieces: Set<OpLogDeviceState.DeclinedPiece>
+    let settledPieces: Set<OpLogDeviceState.DeclinedPiece>
+    let personKeyChanged: Bool
+
+    @MainActor
+    init(documentStore: DocumentStore?) {
+        union = documentStore?.heldLines() ?? HeldLineUnion()
+        declinedPieces = documentStore?.declinedPieceQuestions() ?? []
+        settledPieces = documentStore?.settledPieceQuestions() ?? []
+        personKeyChanged = documentStore?.personKeyChanged ?? false
     }
 }
