@@ -67,10 +67,10 @@ struct DepartmentCompileState: Equatable {
 
     /// Whether the last compile reached the problem gate, which judged the
     /// manuscript — so its `problems` are the book's whole list, empty
-    /// included. False for a refusal or a failure that stopped before it
-    /// (`CompileOrchestrator.stoppedBeforeTheProblemGate`) and for any
-    /// state that isn't a settled `.failed`/`.refused`; `settledProblems`
-    /// reads it.
+    /// included. True only for an excerpt KNOWN to come after the gate
+    /// (`CompileOrchestrator.reachedTheProblemGate`); false for anything
+    /// else, an unknown excerpt included, so an unknown failure leaves an open
+    /// list alone. `settledProblems` reads it.
     var judgedTheManuscript: Bool = false
 
     /// Whether the desk offers **Show Problems** — whenever the last compile
@@ -170,7 +170,7 @@ struct DepartmentCompileState: Equatable {
             // stay reachable behind Show Problems.
             return DepartmentCompileState(
                 phase: .failed(message), isRunning: false, problems: problems,
-                judgedTheManuscript: !CompileOrchestrator.stoppedBeforeTheProblemGate(logExcerpt: logExcerpt))
+                judgedTheManuscript: CompileOrchestrator.reachedTheProblemGate(logExcerpt: logExcerpt))
 
         case .cancelled:
             return DepartmentCompileState(phase: .idle, isRunning: false,

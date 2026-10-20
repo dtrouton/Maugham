@@ -230,6 +230,8 @@ final class PublishProblemGateTests: XCTestCase {
         }
         XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt),
                        "a fault, not a problem refusal: \(excerpt)")
+        XCTAssertTrue(CompileOrchestrator.reachedTheProblemGate(logExcerpt: excerpt),
+                      "a compiler failure after the gate says so, so the desk's open list clears: \(excerpt)")
         XCTAssertEqual(errors.count, 2, "\(errors.map(\.message))")
         XCTAssertNil(errors.first?.pieceID, "the tool's own error comes first: \(errors)")
         let problem = try XCTUnwrap(problemDiagnostics(errors).first, "\(errors)")
