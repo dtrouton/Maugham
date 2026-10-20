@@ -438,9 +438,12 @@ public final class DocumentStore {
             //
             // **Both open-time passes run in `serialisingSilentAdmission`**
             // (2026-10-18 sweep, SW3), the queue the mid-session verbs use.
-            // Nothing can race them today — the store is not observable until
-            // `open` returns — but that is a fact about timing; the queue makes
-            // "one silent admission at a time" a fact about the code.
+            // Nothing can race them today: the folder presenter is registered
+            // by now, but nothing it reaches before `open` returns calls a
+            // silent verb (`registryChanged` admits nobody, and no window
+            // exists yet to refresh the sheet). That is a fact about timing;
+            // the queue (per store) makes "one silent admission at a time" a
+            // fact about the code.
             do {
                 let recognised = await store.serialisingSilentAdmission {
                     Result {

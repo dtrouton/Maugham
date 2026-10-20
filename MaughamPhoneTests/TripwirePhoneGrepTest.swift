@@ -901,8 +901,10 @@ final class TripwirePhoneGrepTest: XCTestCase {
 
         try """
         // A comment may name PersonKey.findOrCreate( freely.
-        let a = PersonKey.findOrCreate(in: store, seedName: "x")
+        let a = PersonKey.findOrCreate(seedName: "x")
         let b = store.createIfAbsent(item)
+        let d = SomeAlias.findOrCreate(in: store, seedName: "y")
+        let e = PersonKey.mintItem(seed)
         let c = PersonKey.find(in: store)
         """.write(to: tmp.appendingPathComponent("PhoneMints.swift"),
                   atomically: true, encoding: .utf8)
@@ -913,8 +915,8 @@ final class TripwirePhoneGrepTest: XCTestCase {
             excludeLine: admissionExcludeLine,
             extraOffender: { _ in false })
 
-        XCTAssertEqual(offenders.count, 2,
-            "Self-check: both mints should be caught, and neither the comment "
+        XCTAssertEqual(offenders.count, 4,
+            "Self-check: all four spellings should be caught, and neither the comment "
             + "nor the find-only read. Caught:\n" + offenders.joined(separator: "\n"))
         XCTAssertFalse(offenders.contains(where: { $0.contains("let c") }),
             "finding the key is not minting it")

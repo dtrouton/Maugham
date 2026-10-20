@@ -131,7 +131,8 @@ Maugham still asks, with the device's own claim shown on the panel, when:
 - the Apple ID it carries is linked to somebody else in this book;
 - every device of that person's has been revoked here;
 - you have told this book to forget that Apple ID (see *The list* below);
-- or, occasionally, the book can't yet settle what that person may write.
+- or, occasionally, the book can't yet settle what that person may write, for
+  instance when a change to their permit reached only some of their devices.
 
 Without iCloud Keychain, or on a device that can't reach it, nothing is
 different from before: the device is asked about once, and after that it goes
