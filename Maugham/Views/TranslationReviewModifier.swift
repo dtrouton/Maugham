@@ -170,12 +170,16 @@ struct TranslationReviewModifier: ViewModifier {
             // nothing, nothing recomputes, and there is no new surface to wait
             // for. Without this the common case (a reveal from the Translation
             // pane, review already up) would stall for the full three seconds.
-            let alreadyShowing = control.translationLanguage == reveal.language
+            //
+            // A source reveal (no language) never waits either: it enters no
+            // edition, so nothing will be swapped in.
+            let waits = TranslationReveal.waitsForTranslatedSurface(
+                reveal, showing: control.translationLanguage)
             let surfaceBefore = control.translationBadges
             await TranslationReveal.perform(
                 reveal,
                 ready: {
-                    guard !alreadyShowing else { return }
+                    guard waits else { return }
                     await Self.waitForTranslatedSurface(
                         reveal, in: control, replacing: surfaceBefore)
                 },

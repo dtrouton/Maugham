@@ -163,6 +163,93 @@ final class TranslationRevealTests: XCTestCase {
     }
 }
 
+// MARK: - A source reveal (report foundations plan 2, Task 8, R-S11)
+
+/// **The same reveal, for the source text** — a publish problem names a
+/// paragraph of the manuscript itself, not of an edition. `language == nil`
+/// is that reveal: it selects the piece and waits exactly as a translated one
+/// does, and it never enters translation review.
+@MainActor
+final class SourceParagraphRevealTests: XCTestCase {
+
+    private let source = TranslationReveal(
+        docId: "doc-3", language: nil, paragraphId: "k7m2")
+
+    func test_aSourceRevealOnTheOpenPieceIsNowAndOnAClosedOneSelectsItFirst() {
+        XCTAssertEqual(TranslationReveal.plan(source, activeDocId: "doc-3"), .now,
+            "the piece is open: nothing to select, scroll straight to the paragraph")
+        XCTAssertEqual(TranslationReveal.plan(source, activeDocId: "doc-1"),
+            .afterSelecting(.item("doc-3")),
+            "another piece is open: select this one, then wait for it")
+        XCTAssertEqual(
+            TranslationReveal.plan(source, activeDocId: BinderSubject.noDocumentSubject),
+            .afterSelecting(.item("doc-3")),
+            "the desk is at altitude with nothing open — the common case for a "
+            + "publish problem — so the piece is selected first")
+    }
+
+    func test_aSourceRevealRoundTripsWithNoLanguageKeyAtAll() {
+        var received: Notification?
+        let token = MaughamEvent.observe(
+            .maughamRevealTranslation,
+            context: {
+                EventReceiverContext(kind: .keyWindow, isWindowLive: true,
+                                     isWindowKey: true)
+            },
+            handler: { received = $0 })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        TranslationReveal.post(source)
+
+        XCTAssertNil(received?.userInfo?[TranslationReveal.languageKey],
+            "a source reveal carries no language: a nil spelled as a key would "
+            + "be read by a receiver as an edition named nothing")
+        XCTAssertEqual(TranslationReveal.decode(received?.userInfo), source)
+    }
+
+    func test_decodeToleratesAMissingLanguageAndStillReadsOneThatIsThere() {
+        XCTAssertEqual(
+            TranslationReveal.decode(["document_id": "doc-3", "paragraph_id": "k7m2"]),
+            source, "no language is a source reveal, not a malformed one")
+        XCTAssertEqual(
+            TranslationReveal.decode(["document_id": "doc-3", "language": "es",
+                                      "paragraph_id": "k7m2"]),
+            TranslationReveal(docId: "doc-3", language: "es", paragraphId: "k7m2"),
+            "a post that names an edition still decodes to that edition's reveal")
+        XCTAssertNil(TranslationReveal.decode(["document_id": "doc-3"]),
+            "a reveal with no paragraph names no destination")
+        XCTAssertNil(TranslationReveal.decode(["paragraph_id": "k7m2"]),
+            "a reveal with no document names no destination")
+    }
+
+    func test_aSourceRevealNavigatesWithoutEnteringReview() async {
+        var posts: [(Notification.Name, [String: Any])] = []
+        var readyCalls = 0
+        await TranslationReveal.perform(source, ready: { readyCalls += 1 }) {
+            posts.append(($0, $1))
+        }
+        XCTAssertEqual(posts.map(\.0), [.maughamNavigateToParagraph],
+            "a source reveal must never enter translation review")
+        XCTAssertEqual(posts.first?.1["paragraph_id"] as? String, "k7m2")
+        XCTAssertEqual(readyCalls, 0,
+            "there is no translated surface to wait for")
+    }
+
+    /// **What the window waits for** — the modifier's decision, as a value.
+    /// A source reveal never waits for a translated surface: there is none,
+    /// and waiting for one would stall every problem row for three seconds.
+    func test_onlyARevealIntoADifferentEditionWaitsForItsSurface() {
+        XCTAssertFalse(TranslationReveal.waitsForTranslatedSurface(source, showing: nil))
+        XCTAssertFalse(TranslationReveal.waitsForTranslatedSurface(source, showing: "es"),
+            "a source reveal while an edition is up still has no surface to wait for")
+        let es = TranslationReveal(docId: "doc-3", language: "es", paragraphId: "k7m2")
+        XCTAssertFalse(TranslationReveal.waitsForTranslatedSurface(es, showing: "es"),
+            "already showing the edition: nothing will recompute")
+        XCTAssertTrue(TranslationReveal.waitsForTranslatedSurface(es, showing: nil))
+        XCTAssertTrue(TranslationReveal.waitsForTranslatedSurface(es, showing: "fr"))
+    }
+}
+
 /// The gate `test_theNavigateDoesNotGoUntilTheReadyHookHasReturned` holds
 /// `perform` open with. A `@MainActor` class rather than captured local `var`s,
 /// which a `Task`'s closure cannot mutate.

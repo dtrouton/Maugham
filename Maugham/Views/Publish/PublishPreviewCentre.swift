@@ -16,6 +16,11 @@ import AppKit
 /// surfaces, which is why the rule now asks the subject question at all (it
 /// took none until this revision).
 enum PublishCentre: Equatable {
+    /// **The publish problems the desk's Show Problems asked for** (report
+    /// foundations plan 2, Task 8, ruling R-S12). It outranks the round and the
+    /// gate because it is what the writer just asked for, and like the round it
+    /// draws over a chapter: Back or a Show in Manuscript clears it.
+    case problems([TectonicLogParser.Diagnostic])
     /// **A translation round the writer asked to read** (translation pipeline P4
     /// Task 3) — the department desk's other Show, answered in this column.
     ///

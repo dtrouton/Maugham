@@ -40,9 +40,21 @@ import Foundation
 /// because the ordering is the fact worth pinning, and a test that has to grant
 /// key-window status to observe two `.keyWindow` posts pins the ordering last.
 /// Production hands it `{ MaughamEvent.post($0, to: .keyWindow, payload: $1) }`.
+///
+/// **A nil `language` is a reveal of the SOURCE paragraph** (report foundations
+/// plan 2, Task 8, ruling R-S11). A publish problem names a paragraph of the
+/// manuscript itself, and the window has exactly one path that selects a piece,
+/// waits for its document and then scrolls — this one. So the source reveal
+/// rides it rather than growing a second wait: the same post, the same plan,
+/// the same pending reveal on `activeDocId`, and `perform` simply never enters
+/// translation review (there is no edition to enter, and no translated surface
+/// to wait for — `waitsForTranslatedSurface`). The name stays: the type's
+/// event, census and receiver are all spelled for the translation reveal it
+/// was built as, and a source reveal is that reveal with no edition.
 struct TranslationReveal: Equatable, Sendable {
     let docId: String
-    let language: String
+    /// The edition to reveal the paragraph in, or `nil` for the source text.
+    let language: String?
     let paragraphId: String
 
     /// The payload keys — one spelling, shared by `post`, `decode` and the two
@@ -71,24 +83,41 @@ struct TranslationReveal: Equatable, Sendable {
 
     /// `.keyWindow` because this is a command, not a data event: the row was
     /// clicked in one window and it is that window that must move (ADR 0021).
+    ///
+    /// A source reveal carries no language key at all, rather than a key with
+    /// nothing in it.
     static func post(_ reveal: TranslationReveal) {
-        MaughamEvent.post(.maughamRevealTranslation, to: .keyWindow, payload: [
+        var payload: [String: Any] = [
             docIdKey: reveal.docId,
-            languageKey: reveal.language,
             paragraphIdKey: reveal.paragraphId,
-        ])
+        ]
+        if let language = reveal.language { payload[languageKey] = language }
+        MaughamEvent.post(.maughamRevealTranslation, to: .keyWindow, payload: payload)
     }
 
-    /// All three keys or nothing: a reveal missing any of them names no
-    /// destination, and a half-built one would move the window somewhere the
-    /// writer did not ask to go.
+    /// The document and the paragraph, or nothing: a reveal missing either
+    /// names no destination, and a half-built one would move the window
+    /// somewhere the writer did not ask to go. The language is optional — its
+    /// absence is a source reveal, and a post that names one still decodes to
+    /// that edition's reveal.
     static func decode(_ userInfo: [AnyHashable: Any]?) -> TranslationReveal? {
         guard let docId = userInfo?[docIdKey] as? String,
-              let language = userInfo?[languageKey] as? String,
               let paragraphId = userInfo?[paragraphIdKey] as? String
         else { return nil }
         return TranslationReveal(
-            docId: docId, language: language, paragraphId: paragraphId)
+            docId: docId, language: userInfo?[languageKey] as? String,
+            paragraphId: paragraphId)
+    }
+
+    /// **Whether the window must wait for a translated surface before the
+    /// navigate** — the modifier's decision, as a value. Only a reveal into an
+    /// edition other than the one already showing waits: a source reveal has
+    /// no translated surface to wait for, and waiting for one that never comes
+    /// would stall the scroll for the whole poll.
+    static func waitsForTranslatedSurface(_ reveal: TranslationReveal,
+                                          showing current: String?) -> Bool {
+        guard let language = reveal.language else { return false }
+        return language != current
     }
 
     /// The two posts, in order: enter review for the language, then — once
@@ -116,14 +145,20 @@ struct TranslationReveal: Equatable, Sendable {
     ///
     /// `@MainActor` because both posts are `.keyWindow` events that drive the
     /// editor, and because `ready`'s production body reads window state.
+    ///
+    /// A source reveal (`language == nil`) posts the navigate alone: it never
+    /// enters review and never calls `ready`, since there is no surface swap
+    /// for it to wait out.
     @MainActor
     static func perform(
         _ reveal: TranslationReveal,
         ready: () async -> Void = {},
         post: (Notification.Name, [String: Any]) -> Void
     ) async {
-        post(.maughamEnterTranslationReview, [languageKey: reveal.language])
-        await ready()
+        if let language = reveal.language {
+            post(.maughamEnterTranslationReview, [languageKey: language])
+            await ready()
+        }
         guard !Task.isCancelled else { return }
         post(.maughamNavigateToParagraph, [paragraphIdKey: reveal.paragraphId])
     }

@@ -230,6 +230,12 @@ struct DepartmentPane: View {
     /// replaces the phase while the run it refused carries on, and a Cancel
     /// that vanished in that moment would leave the writer no way to stop it.
     var cancelCompile: () -> Void = { }
+    /// **Show Problems** (report foundations plan 2, Task 8) — put the last
+    /// compile's publish problems in the centre column. No argument, for
+    /// `showProposal`'s reason: the host holds the state the problems came
+    /// from and sends those, so the list the centre draws and the line the desk
+    /// draws are one value.
+    var showProblems: () -> Void = { }
     /// **The book's own language** (`metadata.language`) — the tag the compile
     /// sheet offers checked, and the one `LanguageSet` substitutes back to the
     /// untranslated body. Carried in rather than assumed "en", because a book
@@ -488,7 +494,8 @@ struct DepartmentPane: View {
     /// `statusLine`'s own doing, not a second line here.
     @ViewBuilder
     private var compileStatus: some View {
-        if compileRun.statusLine != nil || compileRun.isRunning {
+        if compileRun.statusLine != nil || compileRun.isRunning
+            || compileRun.offersShowProblems {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if let status = compileRun.statusLine {
                     Text(status)
@@ -499,6 +506,13 @@ struct DepartmentPane: View {
                                          ? Color.red : Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // Beside the line it explains, the round row's Show shape: the
+                // way into what the compile already reported.
+                if compileRun.offersShowProblems {
+                    Button(DepartmentCompileState.showProblemsTitle) { showProblems() }
+                        .controlSize(.small)
+                        .help(DepartmentCompileState.showProblemsHelp)
                 }
                 if compileRun.isRunning {
                     Button(DepartmentCompileState.cancelTitle) { cancelCompile() }

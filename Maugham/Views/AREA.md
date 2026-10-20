@@ -148,6 +148,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — the desk's Compile… and its runner.
 - `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs. **→ Compiler**
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
+- `Maugham/Views/Publish/PublishProblemsView.swift` — Show Problems' list (`PublishProblems`), each row a source reveal.
 - `Maugham/Views/Publish/ExportsListView.swift` — the tree's Exports footer.
 - `Maugham/Views/Publish/InspectorPublishSection.swift` — per-piece publish overrides in the inspector.
 - `Maugham/Views/Publish/PublishStatusPill.swift` — the compiling pill.
@@ -233,7 +234,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **In `CentreColumn.manuscriptEditor`'s `ZStack`, `EditorHost` is first and always present, altitude second whenever the subject names no document, then at most ONE cover chosen by `centreRoute`.** Count the layers in the arm scans of `ProjectAltitudeCentreTests` and `PublishPreviewCentreTests`, never a number in prose.
 - **Altitude shows where `ProjectWindow.subjectShowsAltitude(persona:subject:structure:)` is true**: no subject resolving to one document, in a persona whose centre is the editor. Clicking a card or table row writes `selectedSubject`, which lands on the same `EditorHost`.
 - **Publish's surfaces and Review's board compose `subjectShowsAltitude`, never a second document-resolution rule**: a chapter subject in Publish or Review shows the editor. The one exception is a translation round, which draws over its chapter too.
-- **A round outranks a proposal, which outranks the book** (`publishCentre(…, proposal:round:)`), and the desk's two Shows clear each other, so the centre never holds both.
+- **Problems outrank a round, which outranks a proposal, which outranks the book** (`publishCentre`); the desk's Shows clear each other, so the centre holds one.
 - **`showsStatusFooter` refuses under altitude, the palette wall and a research subject in the centre**; Publish needs no clause of its own because its cover only covers altitude (`PublishPreviewCentreTests.test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`).
 - **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed, so the mounted editor always wins. It derives from the op log (the live `Document`, or `derivedCache` for a closed doc), never the `.fountain` (tripwire 20), from one `.task(id:)` on `binderColumn` (`ScreenplayScriptSourceTests`).
 
@@ -302,7 +303,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts directly through the shared function (`ProjectWindow.selectDetailSegment`).
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so a dismissal hand-off is guarded on WHICH sheet closed (`opensFirstReader(requested:dismissed:)`), and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
-- **A context-menu verb is also drawn as a visible control**: SwiftUI builds menu items only while the menu is up, so keyboard, VoiceOver and the accessibility tree find nothing there. Verb wiring inside a `Menu` is censused from source, never pressed.
+- **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
 
 ### Posture surfaces
 - **Hide, don't disable**: a verb the posture forbids is not drawn. The editor stays and refuses mutation; the File menu's piece items disable (a menu-bar item greys).
@@ -420,12 +421,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Gate refusals are read from the error types, never recomposed** (`DesignGate.refusalSentence`); Finalize confirms; nothing on the gate reaches `NSUndoManager` (`DesignGateTests.test_nothingAboutTheGatesVerbsReachesTheUndoManager`).
 - **A verb answering from a `Task` updates the surface only if the same proposal / round is still on it** (`PublishCentreModel.adoptVerbAnswer`).
 - **The round report is pure rows and copy; the host does all disk work in `.task`.** Its verbs are closures on `TranslationRoundActions` with a standing `notWired` refusal; count them on the type.
-- **The report's `onReveal` clears the round selection itself**: the round arm is not project-level, so no subject change does.
+- **The report's and the problems list's `onReveal` clear their own selection**: neither arm is project-level, so no subject change does.
 - **The report host takes its window**: a nil-window subscription never fires (`MaughamEvent.isLive(nil)` is false).
 - **A skipped leg and a failed query read are drawn as themselves**, never as good news (RULING-7).
 - **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`); a verb posts `.maughamDesignProposalsChanged` so the desk re-derives.
 - **A dismissed departure is a separate fact from the pipeline's outcome.**
-- **The reveal waits for the translated surface between its two posts**, and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
+- **The reveal waits for the translated surface between its two posts** (a source reveal, `language == nil`, enters no review), and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
 
 ### History, recovery and rewind

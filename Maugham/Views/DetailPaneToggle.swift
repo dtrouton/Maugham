@@ -68,6 +68,10 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `onShowDesignProposal` is, and for the same reason: what the centre
     /// shows is `ProjectWindow`'s question.
     var onShowTranslationRound: (TranslationRound) -> Void = { _ in }
+    /// **Where the desk's Show Problems sends the last compile's publish
+    /// problems** (report foundations plan 2, Task 8) — the same centre
+    /// column, threaded and defaulted as `onShowTranslationRound` is.
+    var onShowPublishProblems: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -143,6 +147,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         editorControl: EditorControl? = nil,
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         onShowTranslationRound: @escaping (TranslationRound) -> Void = { _ in },
+        onShowPublishProblems: @escaping ([TectonicLogParser.Diagnostic]) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -167,6 +172,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.editorControl = editorControl
         self.onShowDesignProposal = onShowDesignProposal
         self.onShowTranslationRound = onShowTranslationRound
+        self.onShowPublishProblems = onShowPublishProblems
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -543,7 +549,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                                designer: designer,
                                pipeline: pipeline,
                                onShowProposal: onShowDesignProposal,
-                               onShowRound: onShowTranslationRound)
+                               onShowRound: onShowTranslationRound,
+                               onShowProblems: onShowPublishProblems)
         } else {
             ContentUnavailableView(
                 "Open a project",

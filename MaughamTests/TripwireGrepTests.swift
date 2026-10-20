@@ -8145,6 +8145,16 @@ final class TripwireGrepTests: XCTestCase {
             + "belongs in the `case .translationRound(let round):` arm of "
             + "publishCentre's switch in ProjectWindow.body.")
 
+        // **The publish problems arm reveals through the same post** (report
+        // foundations plan 2, Task 8, R-S11): a source reveal is a
+        // `TranslationReveal` with no language, so the window keeps ONE
+        // select-wait-scroll path. A second hand-rolled wait in this arm, or a
+        // stubbed `onReveal`, fails here.
+        XCTAssertTrue(sources.contains(where: Self.problemsArmPostsTheReveal(in:)),
+            "the publish problems arm's `onReveal` must call TranslationReveal.post "
+            + "— it is the window's one source-paragraph reveal. It belongs in the "
+            + "`case .publishProblems(let problems):` arm of the centre's switch.")
+
         XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: modifier),
             "TranslationReviewModifier must handle .maughamRevealTranslation — "
             + "it is the only thing in the window that knows which chapter is "
@@ -8193,6 +8203,23 @@ final class TripwireGrepTests: XCTestCase {
         }
         """
 
+        let plantedProblems = """
+        switch route {
+        case .publishProblems(let problems):
+            // A comment naming TranslationReveal.post( is not the call.
+            PublishProblemsView(rows: rows, onClose: {}, onReveal: { _, _ in })
+        case .translationRound(let round):
+            TranslationRoundReportHost(onReveal: { TranslationReveal.post(x) })
+        }
+        """
+        XCTAssertFalse(Self.problemsArmPostsTheReveal(in: plantedProblems),
+            "self-check: a stubbed problems `onReveal` must fire the pin — neither "
+            + "a comment naming the call nor the call in the NEXT arm may satisfy it")
+        XCTAssertTrue(Self.problemsArmPostsTheReveal(in: plantedProblems
+            .replacingOccurrences(of: "onReveal: { _, _ in }",
+                                  with: "onReveal: { TranslationReveal.post(r) }")),
+            "control: the wired arm passes")
+
         XCTAssertFalse(Self.reportArmPostsTheReveal(in: planted),
             "self-check: the Task 3 stub `onReveal: { _ in }` must fire the "
             + "poster pin — neither a comment naming the call nor the same call "
@@ -8214,6 +8241,19 @@ final class TripwireGrepTests: XCTestCase {
         }) else { return false }
         let after = lines[(start + 1)...]
         let end = after.firstIndex(where: { $0.contains("case .designProposal(") })
+            ?? lines.endIndex
+        return lines[start..<end].contains { $0.contains("TranslationReveal.post(") }
+    }
+
+    /// The publish problems arm posts the reveal. Scoped from that arm's `case`
+    /// to the round report's, which follows it and posts one of its own.
+    private static func problemsArmPostsTheReveal(in source: String) -> Bool {
+        let lines = SourceScan.codeLines(of: source)
+        guard let start = lines.firstIndex(where: {
+            $0.contains("case .publishProblems(let problems):")
+        }) else { return false }
+        let after = lines[(start + 1)...]
+        let end = after.firstIndex(where: { $0.contains("case .translationRound(") })
             ?? lines.endIndex
         return lines[start..<end].contains { $0.contains("TranslationReveal.post(") }
     }

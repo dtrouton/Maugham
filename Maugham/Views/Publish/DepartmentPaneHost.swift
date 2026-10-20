@@ -73,6 +73,11 @@ struct DepartmentPaneHost: View {
     /// line describes are then one object rather than two lookups that could
     /// differ by a round.
     var onShowRound: (TranslationRound) -> Void = { _ in }
+    /// **Where Show Problems sends the last compile's publish problems**
+    /// (report foundations plan 2, Task 8) — the same centre column, threaded
+    /// the same way. The problems travel from this host's own runner state, so
+    /// the list and the desk's line are one value.
+    var onShowProblems: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
 
     @State private var languages: [EditionStatus.LanguageRow] = []
     /// **Every chapter the language walk could not open** (issue #43, F-D) —
@@ -383,6 +388,7 @@ struct DepartmentPaneHost: View {
                 compileRunner.start($0, projectStore: store, projectURL: projectURL)
             },
             cancelCompile: { compileRunner.cancel() },
+            showProblems: { onShowProblems(compileRunner.state.problems) },
             bookLanguage: bookLanguage)
         .task(id: reloadKey) { await derive() }
         // **The open chapter's own pre-flight, on a key of its own.**

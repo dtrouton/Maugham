@@ -99,7 +99,8 @@ struct CentreColumn: View {
                                          showsPaletteWall: showsPaletteWall,
                                          preview: publishCentre.preview,
                                          proposal: publishCentre.selectedProposal,
-                                         round: publishCentre.selectedRound) {
+                                         round: publishCentre.selectedRound,
+                                         problems: publishCentre.selectedProblems) {
         case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
                               onClose: { showsPaletteWall = false }, persona: persona)
@@ -278,10 +279,32 @@ struct CentreColumn: View {
                                     url: store.url, window: window) { _ in
                         refreshOpenNotes(store: store)
                     }
-            // **Publish's surfaces**, in `publishCentre`'s order: the round
-            // report (which alone also draws over a chapter), the design gate,
-            // the compiled book. The gate and the book are project-level by
-            // construction — `publishCentre` composes `subjectShowsAltitude`.
+            // **Publish's surfaces**, in `publishCentre`'s order: the publish
+            // problems and the round report (which alone also draw over a
+            // chapter), the design gate, the compiled book. The gate and the
+            // book are project-level by construction — `publishCentre`
+            // composes `subjectShowsAltitude`.
+            case .publishProblems(let problems):
+                PublishProblemsView(
+                    rows: PublishProblems.rows(
+                        problems,
+                        titles: PublishProblems.titles(in: store.manifest.structure)),
+                    onClose: { publishCentre.clearProblems() },
+                    // **The round report's `onReveal` sequence**: the list gives
+                    // way to the manuscript it points into — explicitly, since
+                    // the arm draws over a chapter too — then the source reveal
+                    // (a `TranslationReveal` with no language) selects, waits
+                    // and scrolls. A problem with no paragraph opens its piece.
+                    onReveal: { pieceID, paragraphID in
+                        publishCentre.clearProblems()
+                        switch PublishProblems.reveal(pieceID: pieceID,
+                                                      paragraphID: paragraphID) {
+                        case .paragraph(let reveal):
+                            TranslationReveal.post(reveal)
+                        case .piece(let subject):
+                            selectedSubject = subject
+                        }
+                    })
             case .translationRound(let round):
                 TranslationRoundReportHost(
                     round: round, store: store, documentStore: documentStore,

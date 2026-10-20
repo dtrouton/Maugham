@@ -756,6 +756,33 @@ final class DepartmentPaneTests: XCTestCase {
                       "…and that line says something IS compiling: \(expected)")
     }
 
+    /// **Show Problems is drawn beside a line that has problems, and nowhere
+    /// else** (report foundations plan 2, Task 8). Asserted as drawn, never
+    /// pressed (tripwire 33): what it sends is `showProblems`' closure, wired by
+    /// the host to the runner's own `problems`.
+    func test_showProblemsIsDrawnWhenTheLastCompileLeftProblems() async throws {
+        let problem = TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: "@fig:x is not a label",
+            contextLines: [], pieceID: "ch-1", paragraphID: "a1b2")
+        let refused = DepartmentCompileState.settled(after: .failed(
+            errors: [problem, problem, problem],
+            logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt))
+        let window = mount(languages: [], compileRun: refused)
+        _ = try await scrollersSettling(in: window)
+        XCTAssertEqual(
+            try axButtonLabels(in: window)
+                .filter { $0 == DepartmentCompileState.showProblemsTitle }.count, 1)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(
+            "Couldn't publish: 3 problems in the manuscript") },
+            "Published: \(texts.sorted())")
+
+        let idle = mount(languages: [])
+        _ = try await scrollersSettling(in: idle)
+        XCTAssertFalse(try axButtonLabels(in: idle)
+            .contains(DepartmentCompileState.showProblemsTitle))
+    }
+
     // MARK: - The compile sheet (Task 5)
 
     /// **The sheet opens on the book itself.** A writer who presses Compile…

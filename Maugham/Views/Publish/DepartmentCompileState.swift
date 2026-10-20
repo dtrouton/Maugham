@@ -57,6 +57,18 @@ struct DepartmentCompileState: Equatable {
     /// button that did nothing.
     var report: String? = nil
 
+    /// **Every publish problem the last compile reported**, errors and warnings
+    /// alike, in the order the orchestrator gave them (report foundations plan
+    /// 2, Task 8). A problem is a diagnostic that names its piece
+    /// (`pieceID != nil`); the typesetter's own warnings name none and stay
+    /// dropped, as they always were. Non-empty is what offers **Show
+    /// Problems** (`offersShowProblems`), and these are exactly what it shows.
+    var problems: [TectonicLogParser.Diagnostic] = []
+
+    /// Whether the desk offers **Show Problems** — whenever the last compile
+    /// left problems behind, whatever else the line says.
+    var offersShowProblems: Bool { !problems.isEmpty }
+
     /// **The desk's one line**, in `DepartmentRunState`'s order: what is
     /// happening now outranks what happened last.
     var statusLine: String? {
@@ -64,7 +76,12 @@ struct DepartmentCompileState: Equatable {
         case .running(let format, let languages, let imprint):
             return Self.compiling(format: format, languages: languages, imprint: imprint)
         case .completed(let publication):
-            return Self.completedLine(publication)
+            // A book that landed with problems says so instead — the writer
+            // has a list to read, and Show Problems sits beside this line.
+            let warnings = problems.filter { $0.level == .warning }.count
+            return warnings > 0
+                ? Self.publishedWithWarnings(warnings)
+                : Self.completedLine(publication)
         case .failed(let message):
             return message
         case .refused(let sentence):
@@ -100,10 +117,23 @@ struct DepartmentCompileState: Equatable {
     /// book.
     static func settled(after outcome: CompileOrchestrator.Outcome) -> DepartmentCompileState {
         switch outcome {
-        case .completed(let publication, _):
-            return DepartmentCompileState(phase: .completed(publication), isRunning: false)
+        case .completed(let publication, let warnings):
+            return DepartmentCompileState(phase: .completed(publication), isRunning: false,
+                                          problems: Self.problems(in: warnings))
 
         case .failed(let errors, let logExcerpt):
+            let problems = Self.problems(in: errors)
+            // **A refusal for problems is not a fault** (R-P2-1): a Report's
+            // compile was stopped before anything ran because the manuscript
+            // has broken references in it. Nothing broke; the writer's move is
+            // to read the list, so the line counts the errors and says where.
+            if logExcerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt) {
+                let errorCount = problems.filter { $0.level == .error }.count
+                return DepartmentCompileState(
+                    phase: .refused(Self.refusedForProblems(
+                        errorCount > 0 ? errorCount : problems.count)),
+                    isRunning: false, problems: problems)
+            }
             let message = errors.first?.message ?? Self.failedWithoutADiagnostic
             // The orchestrator's own markers, read rather than re-typed. Three
             // of its `.failed` outcomes are refusals wearing the failure shape
@@ -127,7 +157,11 @@ struct DepartmentCompileState: Equatable {
             if refusals.contains(where: logExcerpt.hasPrefix) {
                 return DepartmentCompileState(phase: .refused(message), isRunning: false)
             }
-            return DepartmentCompileState(phase: .failed(message), isRunning: false)
+            // A typesetter or packaging failure carries the book's problems
+            // after its own errors; the line is the tool's, and the problems
+            // stay reachable behind Show Problems.
+            return DepartmentCompileState(phase: .failed(message), isRunning: false,
+                                          problems: problems)
 
         case .cancelled:
             return DepartmentCompileState(phase: .idle, isRunning: false,
@@ -143,7 +177,29 @@ struct DepartmentCompileState: Equatable {
         }
     }
 
+    /// The publish problems among `diagnostics`, order kept: those that name
+    /// their piece.
+    static func problems(in diagnostics: [TectonicLogParser.Diagnostic])
+    -> [TectonicLogParser.Diagnostic] {
+        diagnostics.filter { $0.pieceID != nil }
+    }
+
     // MARK: - Copy
+
+    static let showProblemsTitle = "Show Problems"
+    static let showProblemsHelp =
+        "List the problems in the manuscript, each with a way to its paragraph."
+
+    /// A Report's compile refused for problems — counted in errors.
+    static func refusedForProblems(_ count: Int) -> String {
+        "Couldn't publish: \(count) " + (count == 1 ? "problem" : "problems")
+            + " in the manuscript"
+    }
+
+    /// A book that landed with warnings — counted in warnings.
+    static func publishedWithWarnings(_ count: Int) -> String {
+        "Published, with \(count) " + (count == 1 ? "warning" : "warnings")
+    }
 
     static let compileTitle = "Compile"
     static let cancelTitle = "Cancel"

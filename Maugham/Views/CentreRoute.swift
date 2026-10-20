@@ -48,6 +48,8 @@ enum CentreCover: Equatable {
     /// A translation round's report — the one cover that also draws over a
     /// chapter (Denver's 2026-09-02 ruling).
     case translationRound(TranslationRound)
+    /// The desk's publish problems — over a chapter too, as the round is.
+    case publishProblems([TectonicLogParser.Diagnostic])
 }
 
 extension ProjectWindow {
@@ -70,7 +72,8 @@ extension ProjectWindow {
                             showsPaletteWall: Bool,
                             preview: PublishPreviewResolution,
                             proposal: DesignProposalStore.Proposal? = nil,
-                            round: TranslationRound? = nil) -> CentreRoute {
+                            round: TranslationRound? = nil,
+                            problems: [TectonicLogParser.Diagnostic]? = nil) -> CentreRoute {
         if showsPaletteWallCentre(showsPaletteWall: showsPaletteWall, persona: persona) {
             return .paletteWall
         }
@@ -95,7 +98,9 @@ extension ProjectWindow {
                                             structure: structure)
         let cover: CentreCover?
         switch publishCentre(persona: persona, subject: subject, structure: structure,
-                             preview: preview, proposal: proposal, round: round) {
+                             preview: preview, proposal: proposal, round: round,
+                             problems: problems) {
+        case .problems(let problems): cover = .publishProblems(problems)
         case .translationRound(let round): cover = .translationRound(round)
         case .designProposal(let proposal): cover = .designGate(proposal)
         case .books(let publications): cover = .books(publications)

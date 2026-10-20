@@ -212,11 +212,13 @@ struct RightColumn: View {
             docPaths: ProjectWindow.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
             editorControl: editorControl,
-            // The desk's two Shows — the design gate's and a round's — the only
-            // things on that pane that reach the CENTRE column. Each Show clears
-            // the other (`PublishCentreModel.show`): one centre, one selection.
+            // The desk's Shows — the design gate's, a round's and the publish
+            // problems' — the only things on that pane that reach the CENTRE
+            // column. Each Show clears the others (`PublishCentreModel.show`):
+            // one centre, one selection.
             onShowDesignProposal: { publishCentre.show(proposal: $0) },
             onShowTranslationRound: { publishCentre.show(round: $0) },
+            onShowPublishProblems: { publishCentre.show(problems: $0) },
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue

@@ -40,21 +40,37 @@ final class PublishCentreModel {
     /// which outranks the gate; cleared on a persona change as the proposal is.
     private(set) var selectedRound: TranslationRound?
 
-    // MARK: - The desk's two Shows
+    /// **The publish problems the desk's Show Problems put in the centre**
+    /// (report foundations plan 2, Task 8) — the diagnostics themselves, as the
+    /// desk's last compile reported them. The whole value for `selectedRound`'s
+    /// reason; outranks the round and the gate (R-S12) and draws over a chapter
+    /// as the round does. Cleared on a persona change.
+    private(set) var selectedProblems: [TectonicLogParser.Diagnostic]?
 
-    /// **One centre, one selection.** The gate arm and the round arm are two
-    /// readings of the same column, so each Show clears the other: leaving both
+    // MARK: - The desk's Shows
+
+    /// **One centre, one selection.** The gate, round and problems arms are
+    /// readings of the same column, so each Show clears the others: leaving two
     /// set would make which one the centre draws a question about the order of
     /// two writes.
     func show(proposal: DesignProposalStore.Proposal) {
         selectedProposal = proposal
         selectedRound = nil
+        selectedProblems = nil
     }
 
     /// The round's Show — `show(proposal:)`'s mirror.
     func show(round: TranslationRound) {
         selectedRound = round
         selectedProposal = nil
+        selectedProblems = nil
+    }
+
+    /// Show Problems — `show(proposal:)`'s mirror.
+    func show(problems: [TectonicLogParser.Diagnostic]) {
+        selectedProblems = problems
+        selectedProposal = nil
+        selectedRound = nil
     }
 
     // MARK: - Letting go
@@ -68,6 +84,9 @@ final class PublishCentreModel {
     /// manuscript it points into.
     func clearRound() { selectedRound = nil }
 
+    /// The problems list's Back, and its reveal — `clearRound()`'s mirror.
+    func clearProblems() { selectedProblems = nil }
+
     /// **A persona change lets both decisions go and keeps the book's pick.**
     /// The asymmetry is the point: the publication pick is a place in a
     /// *reading* (Denver's ruling keeps it across a walk out of Publish), while
@@ -76,6 +95,7 @@ final class PublishCentreModel {
     func clearDecisions() {
         selectedProposal = nil
         selectedRound = nil
+        selectedProblems = nil
     }
 
     // MARK: - A new compile resets the picker

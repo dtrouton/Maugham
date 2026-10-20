@@ -1423,9 +1423,13 @@ struct ProjectWindow: View {
                               structure: [StructureItem],
                               preview: PublishPreviewResolution,
                               proposal: DesignProposalStore.Proposal? = nil,
-                              round: TranslationRound? = nil)
+                              round: TranslationRound? = nil,
+                              problems: [TectonicLogParser.Diagnostic]? = nil)
     -> PublishCentre? {
         guard persona.previewsThePublishedBook else { return nil }
+        // The problems list outranks the round (R-S12): it is what the writer
+        // just asked for, and it too draws over a chapter.
+        if let problems { return .problems(problems) }
         if let round { return .translationRound(round) }
         guard subjectShowsAltitude(persona: persona, subject: subject,
                                    structure: structure) else { return nil }

@@ -2074,6 +2074,10 @@ struct PublishCentreProbeView: View {
     private func coverView(_ cover: CentreCover?) -> some View {
         switch cover {
         case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
+        // The publish problems (report foundations plan 2, Task 8).
+        case .publishProblems(let problems):
+            PublishProblemsView(rows: PublishProblems.rows(problems, titles: [:]),
+                                onClose: {}, onReveal: { _, _ in })
         // The round report (translation pipeline P4 Task 3).
         case .translationRound(let round):
             TranslationRoundReportHost(

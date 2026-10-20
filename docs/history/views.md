@@ -125,3 +125,9 @@ Clauses cut from `Maugham/Views/AREA.md` to make room for the cross-guide pointe
 - `TreeScrollProbe`'s bullet: "Deleting it and its three call sites changes no behaviour."
 - The dark-mode bullet: "**Dark-mode propagation to side panes has regressed twice**: re-check it after theme changes."
 - The navigation bullet: "a `.project`-scoped navigate may move a background window, as intended."
+
+## Moved from the guide by report foundations plan 2, Task 8 (2026-10-20)
+
+Cut from `Maugham/Views/AREA.md` to make room for the publish problems arm; the rule it qualified is still in the guide.
+
+- The context-menu bullet's reason: "SwiftUI builds menu items only while the menu is up, so keyboard, VoiceOver and the accessibility tree find nothing there."
