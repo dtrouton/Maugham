@@ -151,14 +151,17 @@ public struct PDFCompiler {
         // Each body is resolved over ITS WHOLE BOOK and its images staged
         // before any body is written: `build/metadata.tex` loads the packages
         // the book's figures and tables need.
+        // Each body's AST is built once and shared: an unfiltered body's
+        // resolution reuses it rather than derive the book a second time.
+        let asts = try bodies.map { try ProjectASTBuilder.build(from: $0.source) }
         let prepared = try bodies.enumerated().map { index, body in
             try Self.prepare(body: body, bodyTag: bodies.count > 1 ? body.displayTag : nil,
-                             publishDir: publish, pathPrefix: prefix)
+                             publishDir: publish, pathPrefix: prefix, built: asts[index])
         }
         for (index, body) in bodies.enumerated() {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
-            let ast = try ProjectASTBuilder.build(from: body.source)
+            let ast = asts[index]
             try LaTeXBodyEmitter.emit(ast, config: body.config,
                                       anchorTag: tag, crossLinkTags: others,
                                       resolution: prepared[index].resolution,
@@ -347,12 +350,18 @@ public struct PDFCompiler {
     /// R-S3: one body's resolution over its whole book, then its images staged.
     /// The ONE place a PDF body is resolved, so the gate can later share it.
     ///
-    /// - Parameter bodyTag: the body's language for its problems' `[tag]`
-    ///   prefix (R-P2-8); nil for a single-body compile.
+    /// - Parameters:
+    ///   - bodyTag: the body's language for its problems' `[tag]` prefix
+    ///     (R-P2-8); nil for a single-body compile.
+    ///   - built: the AST the compile already built from `body.source`, reused
+    ///     when that source is its whole book; nil builds it.
     static func prepare(body: BodyPlan.Body, bodyTag: String?, publishDir: URL,
-                        pathPrefix: String) throws -> PreparedBody {
-        var resolution = try PublishResolution.forCompile(
-            source: body.source, bodyTag: bodyTag, imageAllowed: imageAllowed)
+                        pathPrefix: String, built: ProjectAST? = nil) throws -> PreparedBody {
+        var resolution = try built.map {
+            try PublishResolution.forCompile(source: body.source, built: $0, bodyTag: bodyTag,
+                                             imageAllowed: imageAllowed)
+        } ?? PublishResolution.forCompile(source: body.source, bodyTag: bodyTag,
+                                          imageAllowed: imageAllowed)
         let staged = stageFigures(of: &resolution, publishDir: publishDir, pathPrefix: pathPrefix)
         return PreparedBody(resolution: resolution, figureFiles: staged)
     }

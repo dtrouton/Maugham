@@ -655,12 +655,12 @@ final class XHTMLReportElementEmitterTests: XCTestCase {
             "First[^a] and second[^b], again[^a].", "[^b]: Bee & co.", "[^a]: Ay_1.",
         ]))
         XCTAssertTrue(resolved.contains(
-            "<p>First<sup><a epub:type=\"noteref\" href=\"#fn-1\" id=\"fnref-1\">1</a></sup>"
-            + " and second<sup><a epub:type=\"noteref\" href=\"#fn-2\" id=\"fnref-2\">2</a></sup>,"
-            + " again<sup><a epub:type=\"noteref\" href=\"#fn-1\">1</a></sup>.</p>"), resolved)
+            "<p>First<sup><a epub:type=\"noteref\" role=\"doc-noteref\" href=\"#fn-1\" id=\"fnref-1\">1</a></sup>"
+            + " and second<sup><a epub:type=\"noteref\" role=\"doc-noteref\" href=\"#fn-2\" id=\"fnref-2\">2</a></sup>,"
+            + " again<sup><a epub:type=\"noteref\" role=\"doc-noteref\" href=\"#fn-1\">1</a></sup>.</p>"), resolved)
         XCTAssertTrue(resolved.hasSuffix("""
-            <aside epub:type="footnote" id="fn-1"><p><a href="#fnref-1">1</a> Ay_1.</p></aside>
-            <aside epub:type="footnote" id="fn-2"><p><a href="#fnref-2">2</a> Bee &amp; co.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-1"><p><a href="#fnref-1">1</a> Ay_1.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-2"><p><a href="#fnref-2">2</a> Bee &amp; co.</p></aside>
             </section>
             """), resolved)
         XCTAssertFalse(resolved.contains("[^"), resolved)
@@ -694,13 +694,13 @@ final class XHTMLReportElementEmitterTests: XCTestCase {
             "[^n]: Outer[^m].", "[^m]: Inner.",
         ]))
         XCTAssertTrue(resolved.contains(
-            "<h2>Scope<sup><a epub:type=\"noteref\" href=\"#fn-1\" id=\"fnref-1\">1</a></sup></h2>"), resolved)
+            "<h2>Scope<sup><a epub:type=\"noteref\" role=\"doc-noteref\" href=\"#fn-1\" id=\"fnref-1\">1</a></sup></h2>"), resolved)
         XCTAssertTrue(resolved.hasSuffix("""
-            <aside epub:type="footnote" id="fn-1"><p><a href="#fnref-1">1</a> On heading.</p></aside>
-            <aside epub:type="footnote" id="fn-2"><p><a href="#fnref-2">2</a> In cell.</p></aside>
-            <aside epub:type="footnote" id="fn-3"><p><a href="#fnref-3">3</a> In caption.</p></aside>
-            <aside epub:type="footnote" id="fn-4"><p><a href="#fnref-4">4</a> Outer<sup><a epub:type="noteref" href="#fn-5" id="fnref-5">5</a></sup>.</p></aside>
-            <aside epub:type="footnote" id="fn-5"><p><a href="#fnref-5">5</a> Inner.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-1"><p><a href="#fnref-1">1</a> On heading.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-2"><p><a href="#fnref-2">2</a> In cell.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-3"><p><a href="#fnref-3">3</a> In caption.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-4"><p><a href="#fnref-4">4</a> Outer<sup><a epub:type="noteref" role="doc-noteref" href="#fn-5" id="fnref-5">5</a></sup>.</p></aside>
+            <aside epub:type="footnote" role="doc-footnote" id="fn-5"><p><a href="#fnref-5">5</a> Inner.</p></aside>
             </section>
             """), resolved)
     }
@@ -717,9 +717,9 @@ final class XHTMLReportElementEmitterTests: XCTestCase {
                                                  imageAllowed: EPUBCompiler.imageAllowed)
         let files = ast.sections.map { XHTMLBodyEmitter.emit(ProjectAST(sections: [$0]), resolution: r) }
         XCTAssertTrue(files[0].contains(##"href="#fn-1" id="fnref-1">1</a>"##), files[0])
-        XCTAssertTrue(files[0].contains(#"<aside epub:type="footnote" id="fn-1">"#), files[0])
+        XCTAssertTrue(files[0].contains(#"<aside epub:type="footnote" role="doc-footnote" id="fn-1">"#), files[0])
         XCTAssertTrue(files[1].contains(##"href="#fn-2" id="fnref-2">2</a>"##), files[1])
-        XCTAssertTrue(files[1].contains(##"<aside epub:type="footnote" id="fn-2"><p><a href="#fnref-2">2</a> Second.</p></aside>"##),
+        XCTAssertTrue(files[1].contains(##"<aside epub:type="footnote" role="doc-footnote" id="fn-2"><p><a href="#fnref-2">2</a> Second.</p></aside>"##),
                       files[1])
         XCTAssertFalse(files[1].contains("fn-1"), "each aside lives in its reference's file: \(files[1])")
     }

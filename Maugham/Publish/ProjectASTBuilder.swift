@@ -57,6 +57,10 @@ public enum ProjectASTBuilder {
         /// (`PublishResolution.forCompile(source:built:…)`). A filtering
         /// wrapper answers false while its filter removes anything, else its
         /// base's answer. A requirement for the same dispatch reason.
+        ///
+        /// A wrapper that overrides `resolutionScope` must override
+        /// `isWholeBook`: the default's `true` is the unsafe answer for a
+        /// subset (`PublishContextTests.forwardingFailures` checks it).
         var isWholeBook: Bool { get }
     }
 

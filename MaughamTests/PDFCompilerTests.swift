@@ -187,3 +187,33 @@ final class PDFCompilerTests: XCTestCase {
         XCTAssertTrue(again.problems.isEmpty, "\(again.problems)")
     }
 }
+
+/// The PDF twin of `EPUBPrepareReuseTests`: a whole-book body's resolution
+/// reuses the AST the compile built, so the manuscript is derived once.
+final class PDFPrepareReuseTests: XCTestCase {
+
+    private final class Counter: @unchecked Sendable { var reads = 0 }
+
+    private struct CountingBook: ProjectASTBuilder.Source {
+        let counter: Counter
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            counter.reads += 1
+            return [.init(pieceID: "a", title: "A", mode: .prose,
+                          displayText: "| x |\n|---|\n| 1 |\nTable: One {#tbl:one}"),
+                    .init(pieceID: "b", title: "B", mode: .prose, displayText: "See @tbl:one.")]
+        }
+    }
+
+    func test_aWholeBookSourceIsReadOnce() throws {
+        let counter = Counter()
+        let source = IncludeFilteredASTSource(base: CountingBook(counter: counter), excludedSectionIDs: [])
+        let ast = try ProjectASTBuilder.build(from: source)
+        let publish = TestTemp.root.appendingPathComponent("PDFPrepareReuse-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: publish) }
+        let prepared = try PDFCompiler.prepare(
+            body: BodyPlan.Body(tag: nil, displayTag: "en", source: source, config: PublishConfig()),
+            bodyTag: nil, publishDir: publish, pathPrefix: "", built: ast)
+        XCTAssertEqual(counter.reads, 1, "the built AST is the whole book: no second derivation")
+        XCTAssertEqual(prepared.resolution.tableNumbers["a"], [0: 1])
+    }
+}

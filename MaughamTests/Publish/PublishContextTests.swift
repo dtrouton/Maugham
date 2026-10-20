@@ -79,6 +79,11 @@ final class PublishContextTests: XCTestCase {
         }
         // Premise: the wrapper really is a subset view, or the scope check
         // above proves nothing.
+        // A subset view must say so, or the resolution would reuse the
+        // subset's AST as the whole book (`forCompile(source:built:…)`).
+        if wrapper.isWholeBook {
+            failures.append("isWholeBook is true for a subset view")
+        }
         let viewIDs = try wrapper.orderedPieces().map(\.pieceID)
         if viewIDs != ["b"] {
             failures.append("premise: the wrapper's own view is \(viewIDs), not [b]")
@@ -101,6 +106,7 @@ final class PublishContextTests: XCTestCase {
         XCTAssertTrue(ctx.library.keys.isEmpty)
         XCTAssertFalse(ctx.switches.numberSections || ctx.switches.listOfFigures || ctx.switches.listOfTables)
         XCTAssertEqual(try src.resolutionScope.orderedPieces().map(\.pieceID), ["x", "y"])
+        XCTAssertTrue(src.isWholeBook, "a source that filters nothing is its own whole book")
     }
 
     // MARK: - the wrappers forward, through the existential
@@ -142,7 +148,8 @@ final class PublishContextTests: XCTestCase {
     func test_plantedControl_aWrapperThatDoesNotForward_isCaught() throws {
         let wrapper: any ProjectASTBuilder.Source = NonForwardingWrapper(base: base, keep: ["b"])
         let failures = try forwardingFailures(of: wrapper)
-        XCTAssertEqual(failures.count, 4, "context (3 facts) and scope all lost: \(failures)")
+        XCTAssertEqual(failures.count, 5, "context (3 facts), scope and wholeness all lost: \(failures)")
+        XCTAssertTrue(failures.contains("isWholeBook is true for a subset view"), "\(failures)")
         XCTAssertTrue(failures.contains { $0.hasPrefix("resolutionScope") }, "\(failures)")
         XCTAssertFalse(failures.contains { $0.hasPrefix("premise") }, "\(failures)")
     }

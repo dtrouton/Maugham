@@ -294,7 +294,7 @@ public enum XHTMLBodyEmitter {
             next += 1
             guard let n = scope.resolution?.footnoteNumbers[scope.pieceID]?[label] else { continue }
             let body = emitInline(scope.section.footnotes[label] ?? [], scope)
-            asides.append((n, "<aside epub:type=\"footnote\" id=\"\(scope.footnoteID(n))\">"
+            asides.append((n, "<aside epub:type=\"footnote\" role=\"doc-footnote\" id=\"\(scope.footnoteID(n))\">"
                 + "<p><a href=\"#\(scope.footnoteRefID(n))\">\(n)</a> \(body)</p></aside>"))
         }
         out += asides.sorted { $0.number < $1.number }.map(\.html)
@@ -476,7 +476,7 @@ public enum XHTMLBodyEmitter {
         let first = !scope.notes.contains(label)
         if first { scope.notes.append(label) }
         let refID = first ? " id=\"\(scope.footnoteRefID(n))\"" : ""
-        return "<sup><a epub:type=\"noteref\" href=\"#\(scope.footnoteID(n))\"\(refID)>\(n)</a></sup>"
+        return "<sup><a epub:type=\"noteref\" role=\"doc-noteref\" href=\"#\(scope.footnoteID(n))\"\(refID)>\(n)</a></sup>"
     }
 
     /// Inline runs as plain, UNESCAPED text — an `alt`, a list entry. A

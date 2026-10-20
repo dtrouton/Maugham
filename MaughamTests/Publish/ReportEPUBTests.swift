@@ -169,13 +169,13 @@ final class ReportEPUBTests: XCTestCase {
         XCTAssertTrue(one.contains(#"<caption id="lbl-tbl-sales"><span class="caption-number">Table 1.</span> Sales by quarter</caption>"#), one)
         // Book order: the caption note, the cell note, then the prose note.
         for n in 1...3 {
-            XCTAssertTrue(one.contains(##"<a epub:type="noteref" href="#fn-\##(n)" id="fnref-\##(n)">\##(n)</a>"##), one)
-            XCTAssertTrue(one.contains(#"<aside epub:type="footnote" id="fn-\#(n)">"#), one)
+            XCTAssertTrue(one.contains(##"<a epub:type="noteref" role="doc-noteref" href="#fn-\##(n)" id="fnref-\##(n)">\##(n)</a>"##), one)
+            XCTAssertTrue(one.contains(#"<aside epub:type="footnote" role="doc-footnote" id="fn-\#(n)">"#), one)
         }
 
         // The second chapter's [^1] continues the count, and its aside is its own.
         XCTAssertTrue(two.contains(##"href="#fn-4" id="fnref-4">4</a>"##), two)
-        XCTAssertTrue(two.contains(##"<aside epub:type="footnote" id="fn-4"><p><a href="#fnref-4">4</a> The second chapter&apos;s note.</p></aside>"##), two)
+        XCTAssertTrue(two.contains(##"<aside epub:type="footnote" role="doc-footnote" id="fn-4"><p><a href="#fnref-4">4</a> The second chapter&apos;s note.</p></aside>"##), two)
         XCTAssertFalse(two.contains(#"id="fn-1""#), two)
         // Cross-references link into the FIRST chapter's file.
         XCTAssertTrue(two.contains(#"<a href="section-001.xhtml#lbl-fig-rev">Figure 1</a>"#), two)
@@ -211,6 +211,86 @@ final class ReportEPUBTests: XCTestCase {
         let nav = try epubEntryText("OEBPS/nav.xhtml", inEPUBAt: try await compile())
         XCTAssertFalse(nav.contains("epub:type=\"loi\""), nav)
         XCTAssertFalse(nav.contains("epub:type=\"lot\""), nav)
+    }
+
+    // MARK: link integrity
+
+    /// Compiles the fixture as two bodies (`en`, `sr`) over the same source,
+    /// the shape a bilingual edition takes: per-body files, tagged ids.
+    private func compileTwoBodies() async throws -> URL {
+        let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
+        let source = ProjectStoreASTSource(projectStore: store)
+        let compiler = try EPUBCompiler(
+            projectURL: store.url,
+            bodies: ["en", "sr"].map { BodyPlan.Body(tag: $0, displayTag: $0, source: source, config: config) },
+            config: config, jobManager: CompileJobManager(), maughamVersion: "0.0.0-test",
+            tectonicVersion: "n/a", identity: "en+sr")
+        let result = try await compiler.compile(label: "two")
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
+        return URL(fileURLWithPath: result.outputPath)
+    }
+
+    /// Every link in the package lands: each `href="F#X"` in the nav and the
+    /// sections names a file F that ships and an `id="X"` inside it; each
+    /// `href="#X"` an id in its own file; each `src` a file that ships; and
+    /// no file repeats an id.
+    private func assertEveryLinkLands(in epub: URL, file: StaticString = #filePath,
+                                      line: UInt = #line) throws -> Int {
+        let entries = Set(try epubEntryNames(inEPUBAt: epub))
+        let documents = entries.filter { $0.hasPrefix("OEBPS/") && $0.hasSuffix(".xhtml") }
+        func captures(_ pattern: String, in text: String) -> [String] {
+            let regex = try! NSRegularExpression(pattern: pattern)
+            return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
+                Range($0.range(at: 1), in: text).map { String(text[$0]) }
+            }
+        }
+        var ids: [String: [String]] = [:]
+        var texts: [String: String] = [:]
+        for doc in documents {
+            let name = String(doc.dropFirst("OEBPS/".count))
+            let text = try epubEntryText(doc, inEPUBAt: epub)
+            texts[name] = text
+            ids[name] = captures(#"\sid="([^"]+)""#, in: text)
+            let repeated = Dictionary(grouping: ids[name]!, by: { $0 }).filter { $0.value.count > 1 }.keys
+            XCTAssertTrue(repeated.isEmpty, "\(name) repeats ids \(repeated.sorted())", file: file, line: line)
+        }
+        var checked = 0
+        for (name, text) in texts {
+            for href in captures(#"href="([^"]+)""#, in: text) where !href.contains(":") && href != "styles.css" {
+                let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+                let target = parts[0].isEmpty ? name : parts[0]
+                guard entries.contains("OEBPS/" + target) else {
+                    XCTFail("\(name): \(href) names a file the package doesn't ship", file: file, line: line)
+                    continue
+                }
+                if parts.count == 2 {
+                    XCTAssertTrue(ids[target]?.contains(parts[1]) == true,
+                                  "\(name): \(href) has no id=\"\(parts[1])\" in \(target)", file: file, line: line)
+                }
+                checked += 1
+            }
+            for src in captures(#"src="([^"]+)""#, in: text) {
+                XCTAssertTrue(entries.contains("OEBPS/" + src), "\(name): src \(src) doesn't ship",
+                              file: file, line: line)
+            }
+        }
+        return checked
+    }
+
+    func test_everyLinkLands_inASingleBodyReport() async throws {
+        let checked = try assertEveryLinkLands(in: try await compile())
+        XCTAssertGreaterThan(checked, 15, "premise: the fixture links a lot")
+    }
+
+    func test_everyLinkLands_inATwoBodyReport() async throws {
+        let epub = try await compileTwoBodies()
+        let checked = try assertEveryLinkLands(in: epub)
+        XCTAssertGreaterThan(checked, 30, "premise: two bodies, twice the links")
+        let sr = try epubEntryText("OEBPS/section-sr-002.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(sr.contains(#"<a href="section-sr-001.xhtml#lbl-sr-fig-rev">Figure 1</a>"#), sr)
+        let names = try epubEntryNames(inEPUBAt: epub)
+        XCTAssertTrue(names.contains("OEBPS/references-en.xhtml") && names.contains("OEBPS/references-sr.xhtml"),
+                      "\(names)")
     }
 
     // MARK: the per-body prepare
