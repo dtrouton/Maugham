@@ -687,8 +687,8 @@ extension DocumentStore {
     /// decision B2 away from the project open (find 4, 2026-09-17). Answers the
     /// records it wrote, empty when it wrote none.
     ///
-    /// `DocumentStore.open` makes the same call inline, before the first
-    /// `Document.load`, and until this existed that was the ONLY place it was
+    /// `DocumentStore.open` makes the same call, in the same serialiser,
+    /// before the first `Document.load`, and until this existed that was the ONLY place it was
     /// made: a device whose history arrived mid-session — a window open for
     /// days, a phone syncing in — put the sheet up again over a label this Mac
     /// had already decided. The verb is `RegistryPresence.admitRemembered`

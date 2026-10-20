@@ -712,7 +712,9 @@ public enum RegistryPresence {
         /// Logged by the caller, never thrown: a refusal means *do not link*.
         public let refusedLinks: [String]
         /// Recognised devices NOT admitted, and why — a permit this build
-        /// cannot write for them. They reach the sheet like any stranger.
+        /// cannot write for them, or a person whose devices hold different
+        /// permits (`RegistryAdmission.permitsAgree`). They reach the sheet
+        /// like any stranger.
         public let declined: [String]
 
         public static let nothing = RecognitionPass(

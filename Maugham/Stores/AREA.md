@@ -304,7 +304,7 @@ Two things deliberately live elsewhere:
 - **Order at open**: `declareThisMac` → `ensureRootIfEmpty` → `RegistryPresence.admitRecognised` (own `do`/`catch`) → `admitRemembered`, all before the seal sweep and any `Document.load`. Recognition runs first, so the remembered path never hands a person narrowed in this book the whole book, nor admits a device recognition declined. The key is looked up off the main actor (`PersonKey.findOrCreate(in:seedName:)`, seeded with `thisWritersName`).
 - **The claim rule is Core's** (`RegistryPresence.claimIntent(forDevice:personKey:)`): a key gives `.set`, no key gives `.keep`, never `.remove`; `RegistryPresence.declareDevice` re-writes with `.keep` when the record refuses the claim.
 - **`declareThisMac` never costs the open**: a claim problem is logged as a `.fault` and kept on `personClaimProblem`.
-- **Mid-session silent admissions (`admitRecognised()`, `admitRemembered()`) run in `serialisingSilentAdmission`**, a tail-chained queue, so a device is admitted once. `AdmissionDecision.refreshedRequests` calls recognition only when a device record is waiting; otherwise the next open links.
+- **Silent admissions (`admitRecognised()`, `admitRemembered()`, `open`'s passes) run in `serialisingSilentAdmission`**, so a device is admitted once. `AdmissionDecision.refreshedRequests` calls recognition only when a device record is waiting; otherwise the next open links.
 - **Only a signed Release build reaches the keychain**: a test host with nothing injected gets an `InMemoryPersonKeyStore` that refuses to create. A suite that wants a key sets `PersonKeyAccess.storeForTesting` and clears it in `tearDown`.
 
 ### The posture door

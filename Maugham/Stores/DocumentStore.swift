@@ -418,18 +418,29 @@ public final class DocumentStore {
             //
             // Its own `do`, so a recognition that could not read does not also
             // cost the remembered admission below.
+            //
+            // **Both open-time passes run in `serialisingSilentAdmission`**
+            // (2026-10-18 sweep, SW3), the queue the mid-session verbs use.
+            // Nothing can race them today — the store is not observable until
+            // `open` returns — but that is a fact about timing; the queue makes
+            // "one silent admission at a time" a fact about the code.
             do {
-                let pass = try RegistryPresence.admitRecognised(
-                    in: url, identities: Document.loadIdentities,
-                    cache: Document.loadRegistryCache,
-                    mark: {
-                        try DocumentStore.rememberedAdmissionMark(
-                            forPerson: $0, in: url,
-                            identities: Document.loadIdentities,
+                let recognised = await store.serialisingSilentAdmission {
+                    Result {
+                        try RegistryPresence.admitRecognised(
+                            in: url, identities: Document.loadIdentities,
                             cache: Document.loadRegistryCache,
-                            state: Document.loadDeviceState)
-                    },
-                    presenter: store.presenter)
+                            mark: {
+                                try DocumentStore.rememberedAdmissionMark(
+                                    forPerson: $0, in: url,
+                                    identities: Document.loadIdentities,
+                                    cache: Document.loadRegistryCache,
+                                    state: Document.loadDeviceState)
+                            },
+                            presenter: store.presenter)
+                    }
+                }
+                let pass = try recognised.get()
                 logRecognition(pass, in: url)
                 if pass.changedTheRegister {
                     store.invalidateTrust()
@@ -462,18 +473,22 @@ public final class DocumentStore {
             // A sweep that throws skips the silent admission and does not
             // block the open: the `catch` below logs it, the devices already
             // admitted stand, and the next open runs the whole thing again.
-            let admitted = try RegistryPresence.admitRemembered(
-                in: url, identities: Document.loadIdentities,
-                cache: Document.loadRegistryCache,
-                memory: Document.loadAdmissionMemory,
-                mark: {
-                    try DocumentStore.rememberedAdmissionMark(
-                        forPerson: $0, in: url,
-                        identities: Document.loadIdentities,
+            let admitted = try await store.serialisingSilentAdmission {
+                Result {
+                    try RegistryPresence.admitRemembered(
+                        in: url, identities: Document.loadIdentities,
                         cache: Document.loadRegistryCache,
-                        state: Document.loadDeviceState)
-                },
-                presenter: store.presenter)
+                        memory: Document.loadAdmissionMemory,
+                        mark: {
+                            try DocumentStore.rememberedAdmissionMark(
+                                forPerson: $0, in: url,
+                                identities: Document.loadIdentities,
+                                cache: Document.loadRegistryCache,
+                                state: Document.loadDeviceState)
+                        },
+                        presenter: store.presenter)
+                }
+            }.get()
             for record in admitted {
                 documentStoreLog.info(
                     "admitted \(DeviceCode.short(record.person), privacy: .public) as \(record.label, privacy: .public) in \(url.lastPathComponent, privacy: .public), remembered from an earlier book")
