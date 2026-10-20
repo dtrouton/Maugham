@@ -94,7 +94,7 @@ Keyboard shortcuts are chosen when the plan is written, against the existing sho
 ### 4.2 Tables: tidy text plus a grid editor
 
 - **In the text:**
-  - the table's pipes are kept column-aligned as you type;
+  - the table's pipes are kept column-aligned, re-aligned when you Tab, press Return or leave the table (Denver, 2026-10-20: never mid-keystroke);
   - Tab and Shift-Tab move between cells;
   - Return at the end of a row adds a row.
 
@@ -114,8 +114,8 @@ New token kinds:
 - table: pipes and delimiter row muted, header row bold;
 - footnote reference: a small superscript chip;
 - footnote definition: muted, with its label shown as a number;
-- citation: a quiet chip, "(Gartner 2026)", with the raw text revealed while the cursor is inside it;
-- cross-reference: a chip showing "Figure 3";
+- citation: the raw `[@key]` stays visible, styled quietly, with the resolved "(Gartner 2026)" drawn faintly just after it (Denver, 2026-10-20: no glyph hiding on the TextKit 1 editor);
+- cross-reference: the same treatment, with "Figure 3" after the raw `@fig:x`;
 - figure line: muted syntax and a thumbnail line beneath it.
 
 The tokenizer is regex-based and per blank-line block. The table pass is block-aware, and it scans per block like emphasis does. The thumbnail is drawn as a decoration, **not** a text attachment, so the shared text storage stays plain text (tripwires 1, 26).
