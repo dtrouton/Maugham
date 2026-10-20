@@ -72,7 +72,7 @@ final class OpLogChainCostTests: XCTestCase {
         // Warm: the SAME store, so the same state instance, and nothing in this
         // load may reach the verifier.
         nonisolated(unsafe) var calls = 0
-        OpLogChain.verifyObserverForTesting = { calls += 1 }
+        OpLogChain.verifyObserverForTesting = { _ in calls += 1 }
         let warm = try await store.loadDiagnosed(docId: docId)
         OpLogChain.verifyObserverForTesting = nil
 
@@ -178,7 +178,7 @@ final class OpLogChainCostTests: XCTestCase {
             state: OpLogDeviceState(
                 fileURL: projectURL.appendingPathComponent("stranger.json")))
         nonisolated(unsafe) var calls = 0
-        OpLogChain.verifyObserverForTesting = { calls += 1 }
+        OpLogChain.verifyObserverForTesting = { _ in calls += 1 }
         _ = try await stranger.loadDiagnosed(docId: docId)
         OpLogChain.verifyObserverForTesting = nil
         XCTAssertGreaterThan(calls, 0)

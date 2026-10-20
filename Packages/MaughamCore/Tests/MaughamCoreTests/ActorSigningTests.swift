@@ -216,7 +216,7 @@ final class ActorSigningTests: XCTestCase {
         try await store.append(op("op-burst", by: identities.author))
 
         nonisolated(unsafe) var verifies = 0
-        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        OpLogChain.verifyObserverForTesting = { _ in verifies += 1 }
         let sealed = try await store.sealChain(docId: docId)
         OpLogChain.verifyObserverForTesting = nil
 
@@ -239,7 +239,7 @@ final class ActorSigningTests: XCTestCase {
         _ = try await store.sealChain(docId: docId)
 
         nonisolated(unsafe) var verifies = 0
-        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        OpLogChain.verifyObserverForTesting = { _ in verifies += 1 }
         let again = try await store.sealChain(docId: docId)
         OpLogChain.verifyObserverForTesting = nil
 
@@ -265,7 +265,7 @@ final class ActorSigningTests: XCTestCase {
             "a counter-driven seal from a store that wrote nothing seals nothing")
 
         nonisolated(unsafe) var verifies = 0
-        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        OpLogChain.verifyObserverForTesting = { _ in verifies += 1 }
         let sealed = try await sweep.sealChain(docId: docId, actor: .author)
         OpLogChain.verifyObserverForTesting = nil
 

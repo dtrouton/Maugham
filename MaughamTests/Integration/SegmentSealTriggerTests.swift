@@ -383,8 +383,18 @@ final class SegmentSealTriggerTests: XCTestCase {
         }
 
         // No test threshold, so nothing is over it and no rotation may read.
+        //
+        // Counted per FOLDER (#97, #94's class): the observer is process-wide
+        // and a verify reports when it RUNS, so a store still working on an
+        // earlier test's book could land in this count. Only this book's
+        // verifies are this test's; a second one of them still makes it 2.
+        let thisBook = projectURL.resolvingSymlinksInPath().path + "/"
         nonisolated(unsafe) var verifies = 0
-        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        OpLogChain.verifyObserverForTesting = { file in
+            if file?.resolvingSymlinksInPath().path.hasPrefix(thisBook) == true {
+                verifies += 1
+            }
+        }
         let store = try await DocumentStore.open(url: projectURL)
         OpLogChain.verifyObserverForTesting = nil
         await store.close()

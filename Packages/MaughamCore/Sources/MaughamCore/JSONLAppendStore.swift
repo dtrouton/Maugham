@@ -128,7 +128,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             // permit partition below is given. A caller with no table passes
             // none, so an inbox manifest or annotation log read without one is
             // byte-for-byte what it was.
-            keyOfAnUnsealedFile: { PermitMark.keyNaming(fileURL, in: judge?.trust) })
+            keyOfAnUnsealedFile: { PermitMark.keyNaming(fileURL, in: judge?.trust) },
+            file: fileURL)
         // The same absent-head decision the op log's own reader and this
         // store's chained WRITE make — one rule for every chained stream, so
         // the inbox and the annotation log cannot grow an opinion of their own
@@ -436,7 +437,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 let walked = OpLogChain.verify(
                     bytes: existing,
                     trusted: { chain.trust($0) == .mine },
-                    rememberedHead: chain.state.head(for: fileKey))
+                    rememberedHead: chain.state.head(for: fileKey),
+                    file: fileURL)
                 // The same decision the READ makes about a remembered head that
                 // is nowhere in the file, from the same function. If the two
                 // disagreed, a load that held a forged tail back would be
