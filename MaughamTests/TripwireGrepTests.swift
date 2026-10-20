@@ -4935,6 +4935,283 @@ final class TripwireGrepTests: XCTestCase {
             + "which is the only pre-filter.")
     }
 
+    // MARK: - load()'s closures read no changing view value (tripwire 57, #59)
+
+    /// **A closure `CanvasView.load()` hands the model never reads a plain
+    /// stored property of the view** — directly, or through any method or
+    /// computed property of the view it calls.
+    ///
+    /// `CanvasView` is a struct. The closures `load()` stores on `CanvasModel`
+    /// (`beforeFlush`, `onSceneChangedExternally`, `onSceneReplacedByUndo`,
+    /// `onRevealRequested`, and whatever joins them) capture the view VALUE at
+    /// first appear, while `ProjectWindow` goes on constructing fresh views. A
+    /// `@State` read survives that (its storage is shared); a plain `let`/`var`
+    /// does not — it is frozen at the value the canvas first appeared with.
+    /// #57 shipped exactly that with `itemIndex`, and **it was reached
+    /// transitively**: the closures called `rebuildLayouts`, and
+    /// `rebuildLayouts` read the index. So this walks the call graph from each
+    /// closure through the view's own members, not just the closure's text.
+    ///
+    /// Allowed: `@State` storage, and `canvasLoadClosureAllowedReads` — the
+    /// model (a reference) and the two values that cannot change under one
+    /// window. A value the closures need that DOES change goes on the model,
+    /// the way `CanvasModel.itemIndex` did.
+    func test_theCanvasLoadClosuresReadNoChangingViewValue() throws {
+        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
+        let census = try Self.canvasLoadClosureCensus(of: try String(contentsOf: url, encoding: .utf8))
+
+        // Loud on a parse that has drifted: these are the four #57 named, and
+        // the three plain properties the issue's fix shape names. A census that
+        // found none of them is reading the wrong text, not proving anything.
+        for callback in ["beforeFlush", "onSceneChangedExternally", "onSceneReplacedByUndo", "onRevealRequested"] {
+            XCTAssertTrue(census.callbacks.contains(callback),
+                "The census no longer finds `model.\(callback) = { … }` in `CanvasView.load()`. "
+                + "If it moved or was renamed, update this list; if the parser stopped "
+                + "seeing it, fix the parser — a blind census passes. Found: \(census.callbacks)")
+        }
+        for name in ["itemIndex", "subject", "pieceTitles"] {
+            XCTAssertTrue(census.forbidden.contains(name),
+                "The census no longer derives `\(name)` as a plain stored property of "
+                + "`CanvasView`. Found: \(census.forbidden.sorted())")
+        }
+        XCTAssertTrue(census.reachedMembers.contains("rebuildLayouts"),
+            "The walk no longer reaches `rebuildLayouts` from the closures — #57's "
+            + "path. Either the closures stopped calling it, or the walk went blind.")
+
+        XCTAssertEqual(census.offenders, [],
+            "A closure `CanvasView.load()` hands `CanvasModel` reads a plain stored "
+            + "property of the view (tripwire 57). The closure captured the view "
+            + "VALUE at first appear, so that read is frozen at whatever the canvas "
+            + "first appeared with while `ProjectWindow` hands down newer views — "
+            + "issue #57's bug, where `itemIndex` went stale through "
+            + "`rebuildLayouts`. Put a copy on the model (as `CanvasModel.itemIndex` "
+            + "does) and keep it current from a per-body `.onChange`, or make it "
+            + "`@State`. Offending paths:\n" + census.offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census FIRES on a planted offender — directly, through a
+    /// method, and through a computed property — and stays quiet on `@State`,
+    /// the allowed names, member access on something else, labels and comments.
+    /// It also refuses (throws) when it cannot find `load()` or its closures.
+    func test_canvasLoadClosureCensusFiresOnAPlantedOffender() throws {
+        let planted = """
+        @MainActor
+        struct CanvasView: View {
+            let model: CanvasModel
+            let projectRoot: URL
+            var subject: CanvasSubject = .wholeProject
+            var pieceTitles: CanvasPieceTitles = .empty
+            var itemIndex: CanvasItemIndex = .empty
+            var selectTheProjectRow: () -> Void = {}
+            @State private var camera = CanvasCamera()
+            @State private var thumbnails = CanvasThumbnails()
+            private var currentTitle: String { pieceTitles.first }
+            var body: some View { Text("{ subject }") }
+            private func load() {
+                model.itemIndex = itemIndex
+                model.beforeFlush = { rebuild(subject: 1) }
+                model.onSceneChangedExternally = {
+                    // pieceTitles named in a comment is not a read
+                    camera.stop(); _ = model.subject; _ = projectRoot; _ = thumbnails
+                }
+                model.onRevealRequested = { target in self.selectTheProjectRow() }
+                model.onSceneReplacedByUndo = { tidy() }
+            }
+            private func rebuild(subject: Int) { _ = self.itemIndex }
+            private func tidy() { _ = currentTitle }
+        }
+        """
+        let census = try Self.canvasLoadClosureCensus(of: planted)
+        XCTAssertEqual(census.callbacks.sorted(),
+                       ["beforeFlush", "onRevealRequested", "onSceneChangedExternally", "onSceneReplacedByUndo"],
+            "Self-check: every `model.<callback> = {` is found, and the plain "
+            + "`model.itemIndex = itemIndex` assignment is not a closure.")
+        XCTAssertEqual(Set(census.forbidden),
+                       ["subject", "pieceTitles", "itemIndex", "selectTheProjectRow"],
+            "Self-check: the forbidden list is derived from the source — plain "
+            + "stored properties, minus `@State`, minus the allowed names, and "
+            + "never a computed property.")
+        XCTAssertEqual(census.offenders.sorted(), [
+            "beforeFlush → rebuild → itemIndex",
+            "onRevealRequested → selectTheProjectRow",
+            "onSceneReplacedByUndo → tidy → currentTitle → pieceTitles",
+        ], "Self-check: a read through `self.`, through a method (#57's shape) and "
+            + "through a computed property are each caught; `@State`, the allowed "
+            + "names, `model.subject`, an argument label and a comment are not.")
+
+        // #57 itself, replayed on the real file: put `rebuildLayouts` back on the
+        // view's own index and both scene callbacks must be named. Measured
+        // against c64ae740^ too, which reports exactly these two paths.
+        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
+        let real = try String(contentsOf: url, encoding: .utf8)
+        let fix = "index: model.itemIndex,"
+        XCTAssertTrue(real.contains(fix),
+            "Self-check: `rebuildLayouts` no longer spells `\(fix)`; re-point this "
+            + "replay at wherever the model's index is read now.")
+        let reverted = try Self.canvasLoadClosureCensus(
+            of: real.replacingOccurrences(of: fix, with: "index: itemIndex,"))
+        XCTAssertEqual(reverted.offenders, [
+            "onSceneChangedExternally → rebuildLayouts → itemIndex",
+            "onSceneReplacedByUndo → rebuildLayouts → itemIndex",
+        ], "Self-check: undoing #57's fix in the real file must fire the census.")
+
+        XCTAssertThrowsError(try Self.canvasLoadClosureCensus(of: """
+            struct CanvasView: View { let model: CanvasModel; private func appear() {} }
+            """), "Self-check: no `load()` must throw, not pass.")
+        XCTAssertThrowsError(try Self.canvasLoadClosureCensus(of: """
+            struct CanvasView: View {
+                let model: CanvasModel
+                private func load() { model.attach() }
+            }
+            """), "Self-check: a `load()` with no closures must throw, not pass.")
+        XCTAssertThrowsError(try Self.canvasLoadClosureCensus(of: "struct Other {}"),
+            "Self-check: no `CanvasView` must throw, not pass.")
+    }
+
+    /// Plain stored properties of `CanvasView` a closure from `load()` MAY read:
+    /// the model is a reference the stale closures still reach, and the project
+    /// root and the thumbnail cache (`@State` today, named in case that
+    /// changes) are the same object for the life of one window's canvas.
+    private static let canvasLoadClosureAllowedReads: Set<String> = ["model", "projectRoot", "thumbnails"]
+
+    private struct CanvasLoadClosureCensusFailure: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    /// The census itself. Over comment- and string-stripped source it:
+    /// 1. finds `struct CanvasView`'s body and its top-level members — stored
+    ///    properties (with their attributes), functions and computed properties;
+    /// 2. finds `func load()` and every `model.<name> = { … }` in it;
+    /// 3. walks each closure's identifiers, following any that name a view
+    ///    method or computed property into that member's body, and records
+    ///    every identifier that names a plain stored property outside the
+    ///    allowed set, as `callback → member → … → property`.
+    /// It throws when it cannot find the struct, `load()` or a single closure.
+    private static func canvasLoadClosureCensus(of text: String) throws
+        -> (callbacks: [String], forbidden: [String], reachedMembers: Set<String>, offenders: [String]) {
+        let fail = { (why: String) in CanvasLoadClosureCensusFailure(description: why) }
+        let code = SourceScan.codeLines(of: text).map(strippingStringLiterals).joined(separator: "\n")
+        let chars = Array(code)
+
+        func matchingBrace(_ open: Int) -> Int? {
+            var depth = 0
+            for i in open..<chars.count {
+                if chars[i] == "{" { depth += 1 }
+                if chars[i] == "}" { depth -= 1; if depth == 0 { return i } }
+            }
+            return nil
+        }
+        func firstMatch(_ pattern: String, in s: String) -> NSTextCheckingResult? {
+            (try? NSRegularExpression(pattern: pattern))?
+                .firstMatch(in: s, range: NSRange(s.startIndex..., in: s))
+        }
+        func group(_ m: NSTextCheckingResult, _ i: Int, in s: String) -> String? {
+            Range(m.range(at: i), in: s).map { String(s[$0]) }
+        }
+
+        guard let decl = code.range(of: #"\bstruct\s+CanvasView\b[^{]*\{"#, options: .regularExpression)
+        else { throw fail("`struct CanvasView` not found") }
+        let structOpen = code.distance(from: code.startIndex, to: decl.upperBound) - 1
+        guard let structClose = matchingBrace(structOpen)
+        else { throw fail("`struct CanvasView`'s closing brace not found") }
+
+        // Top-level members: a line that starts directly inside the struct's braces.
+        var stored: [(name: String, isState: Bool)] = []
+        var memberBodies: [String: [String]] = [:]
+        var depth = 0
+        var lineStart = structOpen + 1
+        var lineStartDepth = 0
+        func memberLine(_ start: Int, _ end: Int) {
+            let line = String(chars[start..<end])
+            let pattern = #"^\s*((?:@\w+(?:\([^)]*\))?\s+)*)((?:(?:private|fileprivate|internal|public|nonisolated|static|lazy|weak|final|override|mutating)(?:\(set\))?\s+)*)(func|let|var)\s+([A-Za-z_]\w*)(.*)$"#
+            guard let m = firstMatch(pattern, in: line),
+                  let attributes = group(m, 1, in: line),
+                  let modifiers = group(m, 2, in: line),
+                  let keyword = group(m, 3, in: line),
+                  let name = group(m, 4, in: line),
+                  let rest = group(m, 5, in: line),
+                  !modifiers.contains("static") else { return }
+            let beforeBrace = rest.split(separator: "{", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+            let isComputed = keyword == "var" && rest.contains("{") && !beforeBrace.contains("=")
+            if keyword == "func" || isComputed {
+                // The member's body: the first `{` at member depth after its name.
+                var i = start + (line.range(of: name).map { line.distance(from: line.startIndex, to: $0.upperBound) } ?? 0)
+                var d = 0
+                while i < structClose {
+                    if chars[i] == "(" { d += 1 } else if chars[i] == ")" { d -= 1 }
+                    if chars[i] == "{" && d == 0 { break }
+                    i += 1
+                }
+                if i < structClose, let close = matchingBrace(i) {
+                    memberBodies[name, default: []].append(String(chars[(i + 1)..<close]))
+                }
+            } else {
+                stored.append((name, attributes.contains("@State")))
+            }
+        }
+        for i in (structOpen + 1)..<structClose {
+            if chars[i] == "\n" {
+                if lineStartDepth == 0 { memberLine(lineStart, i) }
+                lineStart = i + 1
+                lineStartDepth = depth
+            }
+            if chars[i] == "{" { depth += 1 } else if chars[i] == "}" { depth -= 1 }
+        }
+
+        guard let loads = memberBodies["load"], loads.count == 1, let load = loads.first
+        else { throw fail("`CanvasView.load()` not found exactly once (found \(memberBodies["load"]?.count ?? 0))") }
+
+        // Every `model.<callback> = {` in load(), with its body.
+        var closures: [(callback: String, body: String)] = []
+        let loadChars = Array(load)
+        let assignment = try NSRegularExpression(pattern: #"\bmodel\.([A-Za-z_]\w*)\s*=\s*\{"#)
+        for m in assignment.matches(in: load, range: NSRange(load.startIndex..., in: load)) {
+            guard let callback = group(m, 1, in: load),
+                  let whole = Range(m.range, in: load) else { continue }
+            let open = load.distance(from: load.startIndex, to: whole.upperBound) - 1
+            var d = 0
+            var close: Int?
+            for i in open..<loadChars.count {
+                if loadChars[i] == "{" { d += 1 }
+                if loadChars[i] == "}" { d -= 1; if d == 0 { close = i; break } }
+            }
+            guard let close else { throw fail("`model.\(callback) = {` in `load()` never closes") }
+            closures.append((callback, String(loadChars[(open + 1)..<close])))
+        }
+        guard !closures.isEmpty
+        else { throw fail("no `model.<callback> = { … }` found in `CanvasView.load()`") }
+
+        let forbidden = Set(stored.filter { !$0.isState }.map(\.name))
+            .subtracting(canvasLoadClosureAllowedReads)
+        // An identifier that is not a member access (`model.subject`), not a
+        // binding projection (`$camera`), and not an argument label (`subject:`).
+        let identifier = try NSRegularExpression(pattern: #"(?<![.\w$])([A-Za-z_]\w*)(?![\w:])"#)
+        func names(in body: String) -> [String] {
+            let body = body.replacingOccurrences(of: "self.", with: "")
+            return identifier.matches(in: body, range: NSRange(body.startIndex..., in: body))
+                .compactMap { group($0, 1, in: body) }
+        }
+
+        var offenders: Set<String> = []
+        var reached: Set<String> = []
+        for (callback, body) in closures {
+            var visited: Set<String> = []
+            var queue: [(body: String, path: [String])] = [(body, [callback])]
+            while !queue.isEmpty {
+                let (current, path) = queue.removeFirst()
+                for name in names(in: current) {
+                    if forbidden.contains(name) {
+                        offenders.insert((path + [name]).joined(separator: " → "))
+                    } else if let bodies = memberBodies[name], name != "load", visited.insert(name).inserted {
+                        reached.insert(name)
+                        for b in bodies { queue.append((b, path + [name])) }
+                    }
+                }
+            }
+        }
+        return (closures.map(\.callback), forbidden.sorted(), reached, offenders.sorted())
+    }
+
     // MARK: - The canvas's asset well has exactly one writer (1C-d Task 2)
 
     /// The shared image saver. A seam that owns a `<slug>_assets/` well of its

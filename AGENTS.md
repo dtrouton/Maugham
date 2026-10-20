@@ -128,6 +128,7 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 54 | The Fountain extension is spelled in `DocumentFormat` only; ask it, never a `"fountain"` literal | `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly` +1 |
 | 55 | Ask a project's kind or a document's format by capability or an exhaustive `switch`, never by equality | `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality` +1 |
 | 56 | An `async` function in the `OpLogStore` split's files says `@MainActor` | `OpLogClassifierIsolationTests` |
+| 57 | No `CanvasView.load()` closure reads a plain stored view property, even through a callee | `TripwireGrepTests.test_theCanvasLoadClosuresReadNoChangingViewValue` +1 |
 
 ## Default workflow
 
