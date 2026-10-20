@@ -19,8 +19,14 @@ enum PublishProblems {
         let level: TectonicLogParser.Level
         let pieceID: String
         let paragraphID: String?
+        /// The edition the problem was found in — nil for the source text
+        /// (R-S14). A translated body's problem reveals in that edition.
+        let bodyLanguage: String?
         let title: String
         let message: String
+        /// Whether the piece is still in the book. A problem from a compile
+        /// that predates a deletion names a piece there is no going to (m7).
+        let isInBook: Bool
     }
 
     /// The rows, in the order the orchestrator gave them (errors first, then
@@ -30,11 +36,13 @@ enum PublishProblems {
                      titles: [String: String]) -> [Row] {
         problems.enumerated().compactMap { index, diagnostic in
             guard let pieceID = diagnostic.pieceID else { return nil }
+            let title = titles[pieceID]
             return Row(id: index, level: diagnostic.level, pieceID: pieceID,
                        paragraphID: diagnostic.paragraphID,
-                       title: titles[pieceID].flatMap { $0.isEmpty ? nil : $0 }
-                           ?? untitledPiece,
-                       message: diagnostic.message)
+                       bodyLanguage: diagnostic.bodyLanguage,
+                       title: title.map { $0.isEmpty ? untitledPiece : $0 } ?? removedPiece,
+                       message: diagnostic.message,
+                       isInBook: title != nil)
         }
     }
 
@@ -52,18 +60,32 @@ enum PublishProblems {
     }
 
     /// **What Show in Manuscript does for a row.** A paragraph is revealed
-    /// through the window's one select-wait-scroll path (`TranslationReveal`
-    /// with no language — the source text); a problem with no paragraph opens
+    /// through the window's one select-wait-scroll path (`TranslationReveal`),
+    /// in the text the problem was found in: the source (no language) or the
+    /// edition whose body held it (R-S14). A problem with no paragraph opens
     /// its piece, which is a subject write and nothing more.
     enum Reveal: Equatable {
         case paragraph(TranslationReveal)
         case piece(BinderSubject)
     }
 
-    static func reveal(pieceID: String, paragraphID: String?) -> Reveal {
-        guard let paragraphID else { return .piece(.item(pieceID)) }
+    static func reveal(_ row: Row) -> Reveal {
+        guard let paragraphID = row.paragraphID else { return .piece(.item(row.pieceID)) }
         return .paragraph(TranslationReveal(
-            docId: pieceID, language: nil, paragraphId: paragraphID))
+            docId: row.pieceID, language: row.bodyLanguage, paragraphId: paragraphID))
+    }
+
+    /// **The list's header** (m6): "2 errors · 1 warning", a zero part
+    /// omitted; nothing at all is `emptyTitle`.
+    static func header(_ rows: [Row]) -> String {
+        let errors = rows.filter { $0.level == .error }.count
+        let warnings = rows.count - errors
+        let parts = [count(errors, "error"), count(warnings, "warning")].compactMap { $0 }
+        return parts.isEmpty ? emptyTitle : parts.joined(separator: " \u{00B7} ")
+    }
+
+    private static func count(_ n: Int, _ noun: String) -> String? {
+        n == 0 ? nil : "\(n) \(noun)" + (n == 1 ? "" : "s")
     }
 
     /// **The glyph and its words** — never colour alone. The view draws them
@@ -78,10 +100,11 @@ enum PublishProblems {
 
     // MARK: - Copy
 
-    static let header = "Publish Problems"
     static let errorLabel = "Error"
     static let warningLabel = "Warning"
     static let untitledPiece = "Untitled piece"
+    /// A row whose piece has left the book since the compile (m7).
+    static let removedPiece = "A piece no longer in the book"
     static let closeTitle = "Back"
     static let closeAccessibilityLabel = "Back to the book"
     static let showInManuscriptTitle = "Show in Manuscript"
@@ -105,8 +128,9 @@ enum PublishProblems {
 struct PublishProblemsView: View {
     let rows: [PublishProblems.Row]
     let onClose: () -> Void
-    /// `(pieceID, paragraphID)` — nil paragraph opens the piece.
-    let onReveal: (_ pieceID: String, _ paragraphID: String?) -> Void
+    /// The row whose Show in Manuscript was pressed; the window asks
+    /// `PublishProblems.reveal(_:)` what that means.
+    let onReveal: (PublishProblems.Row) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -138,12 +162,13 @@ struct PublishProblemsView: View {
     /// **The row's one verb**, callable without a press so a test asserts the
     /// closure call directly (tripwire 33).
     func showInManuscript(_ row: PublishProblems.Row) {
-        onReveal(row.pieceID, row.paragraphID)
+        guard row.isInBook else { return }
+        onReveal(row)
     }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(PublishProblems.header)
+            Text(PublishProblems.header(rows))
                 .font(.headline)
             Spacer(minLength: 8)
             Button(PublishProblems.closeTitle) { onClose() }
@@ -175,13 +200,17 @@ struct PublishProblemsView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
-                Button(PublishProblems.showInManuscriptTitle) { showInManuscript(row) }
-                    .controlSize(.small)
-                    .accessibilityLabel(
-                        PublishProblems.showInManuscriptAccessibilityLabel(title: row.title))
-                    .help(row.paragraphID == nil
-                          ? PublishProblems.openPieceHelp
-                          : PublishProblems.showParagraphHelp)
+                // A piece that has left the book has nowhere to go: no button
+                // rather than one that does nothing (m7).
+                if row.isInBook {
+                    Button(PublishProblems.showInManuscriptTitle) { showInManuscript(row) }
+                        .controlSize(.small)
+                        .accessibilityLabel(
+                            PublishProblems.showInManuscriptAccessibilityLabel(title: row.title))
+                        .help(row.paragraphID == nil
+                              ? PublishProblems.openPieceHelp
+                              : PublishProblems.showParagraphHelp)
+                }
             }
             Text(row.message)
                 .font(.callout)

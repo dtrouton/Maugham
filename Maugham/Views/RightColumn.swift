@@ -219,6 +219,7 @@ struct RightColumn: View {
             onShowDesignProposal: { publishCentre.show(proposal: $0) },
             onShowTranslationRound: { publishCentre.show(round: $0) },
             onShowPublishProblems: { publishCentre.show(problems: $0) },
+            onPublishProblemsSettled: { publishCentre.refreshProblems($0) },
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue

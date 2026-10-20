@@ -87,6 +87,16 @@ final class PublishCentreModel {
     /// The problems list's Back, and its reveal — `clearRound()`'s mirror.
     func clearProblems() { selectedProblems = nil }
 
+    /// **A recompile's problems, adopted only if the list is still showing**
+    /// (fix round 1, I3) — `adoptVerbAnswer`'s rule: a compile settles from a
+    /// `Task` that outlives the press, and the writer may have pressed Back or
+    /// another Show meanwhile. Showing, it takes the new list; a new list with
+    /// nothing in it clears the arm, since there is nothing left to read.
+    func refreshProblems(_ problems: [TectonicLogParser.Diagnostic]) {
+        guard selectedProblems != nil else { return }
+        selectedProblems = problems.isEmpty ? nil : problems
+    }
+
     /// **A persona change lets both decisions go and keeps the book's pick.**
     /// The asymmetry is the point: the publication pick is a place in a
     /// *reading* (Denver's ruling keeps it across a walk out of Publish), while

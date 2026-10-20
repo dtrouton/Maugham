@@ -173,12 +173,20 @@ struct TranslationReviewModifier: ViewModifier {
             //
             // A source reveal (no language) never waits either: it enters no
             // edition, so nothing will be swapped in.
-            let waits = TranslationReveal.waitsForTranslatedSurface(
-                reveal, showing: control.translationLanguage)
+            let showing = control.translationLanguage
+            let waits = TranslationReveal.waitsForTranslatedSurface(reveal, showing: showing)
+            // A source reveal while an edition is up leaves review first, and
+            // waits for the source surface to come back (fix round 1, m4).
+            let leaves = TranslationReveal.leavesReview(reveal, showing: showing)
             let surfaceBefore = control.translationBadges
             await TranslationReveal.perform(
                 reveal,
+                showing: showing,
                 ready: {
+                    if leaves {
+                        await Self.waitForSourceSurface(in: control)
+                        return
+                    }
                     guard waits else { return }
                     await Self.waitForTranslatedSurface(
                         reveal, in: control, replacing: surfaceBefore)
@@ -209,6 +217,19 @@ struct TranslationReviewModifier: ViewModifier {
             catch { return false }
         }
         return false
+    }
+
+    /// Poll until leaving review has put the source surface back — the badge
+    /// model empties when `recomputeTranslatedSurface` finds no language.
+    /// `waitForTranslatedSurface`'s poll, mirrored.
+    @MainActor
+    private static func waitForSourceSurface(in control: EditorControl) async {
+        for _ in 0..<revealPollAttempts {
+            if Task.isCancelled { return }
+            if control.translationBadges.entries.isEmpty { return }
+            do { try await Task.sleep(for: .milliseconds(revealPollInterval)) }
+            catch { return }
+        }
     }
 
     /// Poll until the translated surface the enter-review post asked for has

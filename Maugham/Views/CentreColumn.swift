@@ -292,13 +292,13 @@ struct CentreColumn: View {
                     onClose: { publishCentre.clearProblems() },
                     // **The round report's `onReveal` sequence**: the list gives
                     // way to the manuscript it points into — explicitly, since
-                    // the arm draws over a chapter too — then the source reveal
-                    // (a `TranslationReveal` with no language) selects, waits
-                    // and scrolls. A problem with no paragraph opens its piece.
-                    onReveal: { pieceID, paragraphID in
+                    // the arm draws over a chapter too — then the reveal
+                    // selects, waits and scrolls, in the source (no language)
+                    // or in the edition whose body held the problem (R-S14).
+                    // A problem with no paragraph opens its piece.
+                    onReveal: { row in
                         publishCentre.clearProblems()
-                        switch PublishProblems.reveal(pieceID: pieceID,
-                                                      paragraphID: paragraphID) {
+                        switch PublishProblems.reveal(row) {
                         case .paragraph(let reveal):
                             TranslationReveal.post(reveal)
                         case .piece(let subject):

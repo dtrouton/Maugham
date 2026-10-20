@@ -13,9 +13,14 @@ public enum TectonicLogParser {
         /// Nil for every tectonic and gate diagnostic.
         public let pieceID: String?
         public let paragraphID: String?
+        /// The body language a publish problem was found in — nil for the
+        /// source text and for every tectonic and gate diagnostic (R-S14), so
+        /// a reveal opens the paragraph in the edition that holds it.
+        public let bodyLanguage: String?
 
         public init(level: Level, file: String?, line: Int?, message: String,
-                    contextLines: [String], pieceID: String? = nil, paragraphID: String? = nil) {
+                    contextLines: [String], pieceID: String? = nil, paragraphID: String? = nil,
+                    bodyLanguage: String? = nil) {
             self.level = level
             self.file = file
             self.line = line
@@ -23,6 +28,7 @@ public enum TectonicLogParser {
             self.contextLines = contextLines
             self.pieceID = pieceID
             self.paragraphID = paragraphID
+            self.bodyLanguage = bodyLanguage
         }
     }
 

@@ -77,6 +77,8 @@ enum CompileResponseEncoder {
         // plan 2): `file` is the piece's project-relative path.
         if let pieceID = diag.pieceID { obj["piece_id"] = pieceID }
         if let paragraphID = diag.paragraphID { obj["paragraph_id"] = paragraphID }
+        // The edition the problem's paragraph is in; absent for the source.
+        if let language = diag.bodyLanguage { obj["language"] = language }
         return obj
     }
 

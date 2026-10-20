@@ -47,12 +47,14 @@ final class PublishProblemsViewTests: XCTestCase {
         let rows = PublishProblems.rows(Self.problems, titles: Self.titles)
         XCTAssertEqual(rows, [
             .init(id: 0, level: .error, pieceID: "ch-3", paragraphID: "k7m2",
-                  title: "Weather", message: "@fig:storm is not a label in this book"),
+                  bodyLanguage: nil, title: "Weather",
+                  message: "@fig:storm is not a label in this book", isInBook: true),
             .init(id: 1, level: .warning, pieceID: "ch-1", paragraphID: nil,
-                  title: "The Harbour", message: "[^2] is never used"),
+                  bodyLanguage: nil, title: "The Harbour",
+                  message: "[^2] is never used", isInBook: true),
             .init(id: 2, level: .error, pieceID: "ch-gone", paragraphID: "b3c4",
-                  title: PublishProblems.untitledPiece,
-                  message: "[@ghost] is not a source"),
+                  bodyLanguage: nil, title: PublishProblems.removedPiece,
+                  message: "[@ghost] is not a source", isInBook: false),
         ])
         XCTAssertFalse(rows.contains { $0.title.hasPrefix("ch-") },
             "a row never shows a piece's id: the writer has never seen one")
@@ -79,24 +81,64 @@ final class PublishProblemsViewTests: XCTestCase {
     // MARK: - The reveal
 
     func test_aParagraphIsRevealedInTheSourceAndANilParagraphOpensThePiece() {
+        let rows = PublishProblems.rows(Self.problems, titles: Self.titles)
         XCTAssertEqual(
-            PublishProblems.reveal(pieceID: "ch-3", paragraphID: "k7m2"),
+            PublishProblems.reveal(rows[0]),
             .paragraph(TranslationReveal(docId: "ch-3", language: nil,
                                          paragraphId: "k7m2")),
             "a source reveal: no language, so no translation review")
-        XCTAssertEqual(PublishProblems.reveal(pieceID: "ch-1", paragraphID: nil),
-                       .piece(.item("ch-1")))
+        XCTAssertEqual(PublishProblems.reveal(rows[1]), .piece(.item("ch-1")))
     }
 
-    func test_showInManuscriptHandsTheRowsOwnIdsToTheRevealClosure() {
-        var received: [(String, String?)] = []
+    /// R-S14: a problem found in the `sr` body of a two-body compile carries
+    /// `sr` onto its row, and its reveal is the translated reveal in `sr`.
+    func test_aProblemInATranslatedBodyRevealsInThatEdition() {
+        let sr = Diagnostic(level: .error, file: nil, line: nil,
+                            message: "[sr] No section is labelled @sec:intro.",
+                            contextLines: [], pieceID: "ch-3", paragraphID: "k7m2",
+                            bodyLanguage: "sr")
+        let source = Diagnostic(level: .error, file: nil, line: nil,
+                                message: "[en] No figure is labelled @fig:x.",
+                                contextLines: [], pieceID: "ch-3", paragraphID: "b3c4")
+        let rows = PublishProblems.rows([sr, source], titles: Self.titles)
+        XCTAssertEqual(rows.map(\.bodyLanguage), ["sr", nil])
+        XCTAssertEqual(PublishProblems.reveal(rows[0]),
+                       .paragraph(TranslationReveal(docId: "ch-3", language: "sr",
+                                                    paragraphId: "k7m2")))
+        XCTAssertEqual(PublishProblems.reveal(rows[1]),
+                       .paragraph(TranslationReveal(docId: "ch-3", language: nil,
+                                                    paragraphId: "b3c4")),
+                       "a source-body problem in a multi-body compile reveals the source")
+    }
+
+    func test_showInManuscriptHandsTheRowToTheRevealClosure() {
+        var received: [PublishProblems.Row] = []
         let rows = PublishProblems.rows(Self.problems, titles: Self.titles)
         let view = PublishProblemsView(rows: rows, onClose: {},
-                                       onReveal: { received.append(($0, $1)) })
+                                       onReveal: { received.append($0) })
         view.showInManuscript(rows[0])
         view.showInManuscript(rows[1])
-        XCTAssertEqual(received.map(\.0), ["ch-3", "ch-1"])
-        XCTAssertEqual(received.map(\.1), ["k7m2", nil])
+        XCTAssertEqual(received.map(\.pieceID), ["ch-3", "ch-1"])
+        XCTAssertEqual(received.map(\.paragraphID), ["k7m2", nil])
+        view.showInManuscript(rows[2])
+        XCTAssertEqual(received.count, 2,
+            "m7: a piece no longer in the book has nowhere to go")
+    }
+
+    // MARK: - The header (m6)
+
+    func test_theHeaderCountsErrorsAndWarningsAndOmitsAZeroPart() {
+        func rows(_ levels: [TectonicLogParser.Level]) -> [PublishProblems.Row] {
+            PublishProblems.rows(levels.map {
+                Diagnostic(level: $0, file: nil, line: nil, message: "m",
+                           contextLines: [], pieceID: "ch-1", paragraphID: nil)
+            }, titles: Self.titles)
+        }
+        XCTAssertEqual(PublishProblems.header(rows([.error, .error, .warning])),
+                       "2 errors \u{00B7} 1 warning")
+        XCTAssertEqual(PublishProblems.header(rows([.error])), "1 error")
+        XCTAssertEqual(PublishProblems.header(rows([.warning, .warning])), "2 warnings")
+        XCTAssertEqual(PublishProblems.header([]), PublishProblems.emptyTitle)
     }
 
     func test_everyGlyphHasWords() {
@@ -152,12 +194,32 @@ final class PublishProblemsViewTests: XCTestCase {
         XCTAssertNil(model.selectedProblems, "a persona change clears it")
     }
 
+    /// I3: a recompile's problems reach the list only while it is showing.
+    func test_aRecompileRefreshesAnOpenListAndOnlyAnOpenOne() {
+        let model = PublishCentreModel()
+        model.refreshProblems(Self.problems)
+        XCTAssertNil(model.selectedProblems, "a closed list is not reopened by a compile")
+
+        model.show(problems: Self.problems)
+        let newer = [Self.problems[1]]
+        model.refreshProblems(newer)
+        XCTAssertEqual(model.selectedProblems, newer, "an open list follows the newest compile")
+
+        model.refreshProblems([])
+        XCTAssertNil(model.selectedProblems, "nothing left to read clears the arm")
+
+        model.show(round: PublishCentreModelTests.round())
+        model.refreshProblems(Self.problems)
+        XCTAssertNil(model.selectedProblems, "the writer moved on to a round")
+        XCTAssertNotNil(model.selectedRound)
+    }
+
     // MARK: - Mounted: words, not colour alone
 
     func test_theMountedListDrawsEachGlyphsWordsTitleAndVerb() async throws {
         let rows = PublishProblems.rows(Self.problems, titles: Self.titles)
         let window = TestWindow.mount(
-            AnyView(PublishProblemsView(rows: rows, onClose: {}, onReveal: { _, _ in })
+            AnyView(PublishProblemsView(rows: rows, onClose: {}, onReveal: { _ in })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 520, height: 500))
         windows.append(window)
@@ -167,8 +229,8 @@ final class PublishProblemsViewTests: XCTestCase {
         }
 
         let texts = try axTexts(in: window)
-        for expected in ["Weather", "The Harbour", PublishProblems.untitledPiece,
-                         "[^2] is never used"] {
+        for expected in ["Weather", "The Harbour", PublishProblems.removedPiece,
+                         "[^2] is never used", PublishProblems.header(rows)] {
             XCTAssertTrue(texts.contains(expected), "missing \(expected): \(texts.sorted())")
         }
         XCTAssertEqual(texts.filter { $0 == PublishProblems.errorLabel }.count, 2,
@@ -182,5 +244,10 @@ final class PublishProblemsViewTests: XCTestCase {
             "\(buttons.sorted())")
         XCTAssertTrue(buttons.contains(PublishProblems.closeAccessibilityLabel),
             "\(buttons.sorted())")
+        XCTAssertFalse(buttons.contains(PublishProblems.showInManuscriptAccessibilityLabel(
+            title: PublishProblems.removedPiece)),
+            "m7: no button for a piece no longer in the book: \(buttons.sorted())")
+        XCTAssertEqual(buttons.filter { $0.hasPrefix(PublishProblems.showInManuscriptTitle) }
+            .count, 2, "\(buttons.sorted())")
     }
 }

@@ -148,7 +148,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — the desk's Compile… and its runner.
 - `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs. **→ Compiler**
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
-- `Maugham/Views/Publish/PublishProblemsView.swift` — Show Problems' list (`PublishProblems`), each row a source reveal.
+- `Maugham/Views/Publish/PublishProblemsView.swift` — Show Problems' list (`PublishProblems`), each row reveals its paragraph.
 - `Maugham/Views/Publish/ExportsListView.swift` — the tree's Exports footer.
 - `Maugham/Views/Publish/InspectorPublishSection.swift` — per-piece publish overrides in the inspector.
 - `Maugham/Views/Publish/PublishStatusPill.swift` — the compiling pill.
@@ -426,7 +426,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A skipped leg and a failed query read are drawn as themselves**, never as good news (RULING-7).
 - **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`); a verb posts `.maughamDesignProposalsChanged` so the desk re-derives.
 - **A dismissed departure is a separate fact from the pipeline's outcome.**
-- **The reveal waits for the translated surface between its two posts** (a source reveal, `language == nil`, enters no review), and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
+- **The reveal waits for the translated surface between its two posts** (a source reveal, `language == nil`, waits for the source), and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
 
 ### History, recovery and rewind

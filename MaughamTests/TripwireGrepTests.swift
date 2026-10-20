@@ -8207,7 +8207,7 @@ final class TripwireGrepTests: XCTestCase {
         switch route {
         case .publishProblems(let problems):
             // A comment naming TranslationReveal.post( is not the call.
-            PublishProblemsView(rows: rows, onClose: {}, onReveal: { _, _ in })
+            PublishProblemsView(rows: rows, onClose: {}, onReveal: { _ in })
         case .translationRound(let round):
             TranslationRoundReportHost(onReveal: { TranslationReveal.post(x) })
         }
@@ -8216,7 +8216,7 @@ final class TripwireGrepTests: XCTestCase {
             "self-check: a stubbed problems `onReveal` must fire the pin — neither "
             + "a comment naming the call nor the call in the NEXT arm may satisfy it")
         XCTAssertTrue(Self.problemsArmPostsTheReveal(in: plantedProblems
-            .replacingOccurrences(of: "onReveal: { _, _ in }",
+            .replacingOccurrences(of: "onReveal: { _ in }",
                                   with: "onReveal: { TranslationReveal.post(r) }")),
             "control: the wired arm passes")
 

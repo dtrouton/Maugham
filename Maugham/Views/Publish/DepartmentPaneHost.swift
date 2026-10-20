@@ -78,6 +78,9 @@ struct DepartmentPaneHost: View {
     /// the same way. The problems travel from this host's own runner state, so
     /// the list and the desk's line are one value.
     var onShowProblems: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
+    /// **A desk compile settled** (fix round 1, I3) — its problems, so an open
+    /// list in the centre follows the newest compile rather than going stale.
+    var onCompileSettled: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
 
     @State private var languages: [EditionStatus.LanguageRow] = []
     /// **Every chapter the language walk could not open** (issue #43, F-D) —
@@ -391,6 +394,13 @@ struct DepartmentPaneHost: View {
             showProblems: { onShowProblems(compileRunner.state.problems) },
             bookLanguage: bookLanguage)
         .task(id: reloadKey) { await derive() }
+        // The one moment a compile's answer is new: running → settled. What
+        // counts as settling is `DepartmentCompileState.settledProblems`.
+        .onChange(of: compileRunner.state) { old, new in
+            if let problems = DepartmentCompileState.settledProblems(from: old, to: new) {
+                onCompileSettled(problems)
+            }
+        }
         // **The open chapter's own pre-flight, on a key of its own.**
         //
         // It cannot live in `derive()`: that pass's key must not carry the

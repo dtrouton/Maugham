@@ -72,6 +72,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// problems** (report foundations plan 2, Task 8) — the same centre
     /// column, threaded and defaulted as `onShowTranslationRound` is.
     var onShowPublishProblems: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
+    /// A desk compile settled: its problems, for an open list to follow.
+    var onPublishProblemsSettled: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -148,6 +150,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         onShowTranslationRound: @escaping (TranslationRound) -> Void = { _ in },
         onShowPublishProblems: @escaping ([TectonicLogParser.Diagnostic]) -> Void = { _ in },
+        onPublishProblemsSettled: @escaping ([TectonicLogParser.Diagnostic]) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -173,6 +176,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.onShowDesignProposal = onShowDesignProposal
         self.onShowTranslationRound = onShowTranslationRound
         self.onShowPublishProblems = onShowPublishProblems
+        self.onPublishProblemsSettled = onPublishProblemsSettled
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -550,7 +554,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                                pipeline: pipeline,
                                onShowProposal: onShowDesignProposal,
                                onShowRound: onShowTranslationRound,
-                               onShowProblems: onShowPublishProblems)
+                               onShowProblems: onShowPublishProblems,
+                               onCompileSettled: onPublishProblemsSettled)
         } else {
             ContentUnavailableView(
                 "Open a project",

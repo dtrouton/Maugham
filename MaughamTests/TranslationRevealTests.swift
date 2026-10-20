@@ -235,6 +235,26 @@ final class SourceParagraphRevealTests: XCTestCase {
             "there is no translated surface to wait for")
     }
 
+    /// **m4: a source reveal while an edition is up leaves review first**, waits
+    /// for the source surface, then navigates — never entering any edition.
+    func test_aSourceRevealDuringReviewLeavesReviewThenWaitsThenNavigates() async {
+        XCTAssertTrue(TranslationReveal.leavesReview(source, showing: "es"))
+        XCTAssertFalse(TranslationReveal.leavesReview(source, showing: nil))
+        XCTAssertFalse(TranslationReveal.leavesReview(
+            TranslationReveal(docId: "doc-3", language: "es", paragraphId: "k7m2"),
+            showing: "fr"), "a translated reveal enters its own edition instead")
+
+        var posts: [Notification.Name] = []
+        var postsWhenReady: [Notification.Name] = []
+        await TranslationReveal.perform(
+            source, showing: "es",
+            ready: { postsWhenReady = posts },
+            post: { name, _ in posts.append(name) })
+        XCTAssertEqual(postsWhenReady, [.maughamExitTranslationReview],
+            "the navigate waits until the source surface is back")
+        XCTAssertEqual(posts, [.maughamExitTranslationReview, .maughamNavigateToParagraph])
+    }
+
     /// **What the window waits for** — the modifier's decision, as a value.
     /// A source reveal never waits for a translated surface: there is none,
     /// and waiting for one would stall every problem row for three seconds.

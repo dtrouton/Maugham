@@ -76,11 +76,11 @@ struct DepartmentCompileState: Equatable {
         case .running(let format, let languages, let imprint):
             return Self.compiling(format: format, languages: languages, imprint: imprint)
         case .completed(let publication):
-            // A book that landed with problems says so instead — the writer
-            // has a list to read, and Show Problems sits beside this line.
+            // A book that landed with problems says so on the same line —
+            // the version stays, and Show Problems sits beside it (R-S13).
             let warnings = problems.filter { $0.level == .warning }.count
             return warnings > 0
-                ? Self.publishedWithWarnings(warnings)
+                ? Self.completedLine(publication) + Self.withWarnings(warnings)
                 : Self.completedLine(publication)
         case .failed(let message):
             return message
@@ -167,13 +167,16 @@ struct DepartmentCompileState: Equatable {
             return DepartmentCompileState(phase: .idle, isRunning: false,
                                           report: Self.cancelledLine)
 
-        case .dryRunPassed:
+        case .dryRunPassed(let warnings):
             // The desk never asks for one — `DeskCompileRunner` passes
             // `dryRun: false` and has no control that could change it. The arm
             // exists because the switch is exhaustive, and it says the true
-            // thing rather than pretending a book was made.
+            // thing rather than pretending a book was made. Its problems are
+            // kept all the same: dropping them would be the one outcome whose
+            // problems Show Problems could not reach.
             return DepartmentCompileState(phase: .idle, isRunning: false,
-                                          report: Self.dryRunLine)
+                                          report: Self.dryRunLine,
+                                          problems: Self.problems(in: warnings))
         }
     }
 
@@ -196,9 +199,23 @@ struct DepartmentCompileState: Equatable {
             + " in the manuscript"
     }
 
-    /// A book that landed with warnings — counted in warnings.
-    static func publishedWithWarnings(_ count: Int) -> String {
-        "Published, with \(count) " + (count == 1 ? "warning" : "warnings")
+    /// What a book that landed with warnings adds to `completedLine` —
+    /// counted in warnings (R-S13).
+    static func withWarnings(_ count: Int) -> String {
+        ", with \(count) " + (count == 1 ? "warning" : "warnings")
+    }
+
+    /// **The problems a compile that just settled leaves for an open list**
+    /// (fix round 1, I3) — nil when nothing settled: the state is still
+    /// running, was already settled, or settled idle (a cancel, which says
+    /// nothing new about the book). The host hands a non-nil answer to
+    /// `PublishCentreModel.refreshProblems(_:)`.
+    static func settledProblems(from old: DepartmentCompileState,
+                                to new: DepartmentCompileState)
+    -> [TectonicLogParser.Diagnostic]? {
+        guard old.isRunning, !new.isRunning else { return nil }
+        if case .idle = new.phase { return nil }
+        return new.problems
     }
 
     static let compileTitle = "Compile"

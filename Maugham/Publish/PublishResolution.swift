@@ -88,9 +88,14 @@ public struct PublishResolution: Sendable {
         let origin = figureOrigins[pieceID]?[nodeIndex]
         problems.append(PublishProblem(
             kind: .imageUnreadable("\(origin?.path ?? "the image") couldn't be copied for the compile: \(reason)"),
-            pieceID: pieceID, paragraphID: origin?.paragraph, bodyTag: bodyTag))
+            pieceID: pieceID, paragraphID: origin?.paragraph, bodyTag: bodyTag,
+            bodyLanguage: bodyLanguage))
     }
     private let bodyTag: String?
+    /// The body's own language — `BodyPlan.Body.tag`, nil for the source body
+    /// — whatever the body count, so a problem reveals the paragraph in the
+    /// text it was found in (R-S14).
+    private let bodyLanguage: String?
 
     /// The ONE key `citationText` is looked up by; the emitters call it too,
     /// so a lookup can never disagree with what was stored. Order and
@@ -109,10 +114,11 @@ public struct PublishResolution: Sendable {
     /// Throws when a piece's history is unreadable, as `ProjectASTBuilder.build`
     /// does (RULING-54).
     public static func forCompile(source: ProjectASTBuilder.Source, bodyTag: String?,
-                                  imageAllowed: Set<String>) throws -> PublishResolution {
+                                  imageAllowed: Set<String>,
+                                  bodyLanguage: String? = nil) throws -> PublishResolution {
         let scope = source.resolutionScope
         return resolve(try ProjectASTBuilder.build(from: scope), context: scope.publishContext(),
-                       bodyTag: bodyTag, imageAllowed: imageAllowed)
+                       bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage)
     }
 
     /// `forCompile`, given the AST the compiler already built from `source`
@@ -121,18 +127,22 @@ public struct PublishResolution: Sendable {
     /// manuscript from the op log once, not twice. A subset source still
     /// builds its whole book.
     public static func forCompile(source: ProjectASTBuilder.Source, built ast: ProjectAST,
-                                  bodyTag: String?, imageAllowed: Set<String>) throws -> PublishResolution {
+                                  bodyTag: String?, imageAllowed: Set<String>,
+                                  bodyLanguage: String? = nil) throws -> PublishResolution {
         guard source.isWholeBook else {
-            return try forCompile(source: source, bodyTag: bodyTag, imageAllowed: imageAllowed)
+            return try forCompile(source: source, bodyTag: bodyTag, imageAllowed: imageAllowed,
+                                  bodyLanguage: bodyLanguage)
         }
         return resolve(ast, context: source.resolutionScope.publishContext(),
-                       bodyTag: bodyTag, imageAllowed: imageAllowed)
+                       bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage)
     }
 
     /// - Parameter imageAllowed: the output's lowercase image extensions (R-P2-7).
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
-                               imageAllowed: Set<String>) -> PublishResolution {
-        var pass = Pass(context: context, bodyTag: bodyTag, imageAllowed: imageAllowed)
+                               imageAllowed: Set<String>,
+                               bodyLanguage: String? = nil) -> PublishResolution {
+        var pass = Pass(context: context, bodyTag: bodyTag, imageAllowed: imageAllowed,
+                        bodyLanguage: bodyLanguage)
         pass.headingBase = ast.sections.flatMap(\.nodes).compactMap { node -> Int? in
             guard case .prose(.heading(let level, _, _)) = node else { return nil }
             return level
@@ -153,6 +163,7 @@ public struct PublishResolution: Sendable {
         figureFiles = pass.figureFiles
         figureOrigins = pass.figureOrigins
         bodyTag = pass.bodyTag
+        bodyLanguage = pass.bodyLanguage
         self.citationText = citationText
         self.references = references
         self.referenceKeys = referenceKeys
@@ -168,6 +179,7 @@ private struct Pass {
     let context: PublishContext
     let bodyTag: String?
     let imageAllowed: Set<String>
+    let bodyLanguage: String?
 
     var targets: [ManuscriptLabel: PublishResolution.Target] = [:]
     var headingNumbers: [String: [Int: String]] = [:]
@@ -193,10 +205,12 @@ private struct Pass {
     private var cited: [String] = []
     private var citations: [[CitationItem]] = []
 
-    init(context: PublishContext, bodyTag: String?, imageAllowed: Set<String>) {
+    init(context: PublishContext, bodyTag: String?, imageAllowed: Set<String>,
+         bodyLanguage: String?) {
         self.context = context
         self.bodyTag = bodyTag
         self.imageAllowed = imageAllowed
+        self.bodyLanguage = bodyLanguage
     }
 
     // MARK: walk 1 — labels and numbers
@@ -381,13 +395,15 @@ private struct Pass {
     /// Once per (piece, paragraph, key or label): a paragraph that repeats a
     /// broken key is one problem, and each paragraph is still named.
     private mutating func reportOnce(_ kind: PublishProblem.Kind, piece: String, paragraph: String?) {
-        let problem = PublishProblem(kind: kind, pieceID: piece, paragraphID: paragraph, bodyTag: bodyTag)
+        let problem = PublishProblem(kind: kind, pieceID: piece, paragraphID: paragraph, bodyTag: bodyTag,
+                                     bodyLanguage: bodyLanguage)
         guard reportedOnce.insert(problem).inserted else { return }
         problems.append(problem)
     }
 
     private mutating func report(_ kind: PublishProblem.Kind, piece: String, paragraph: String?) {
-        problems.append(.init(kind: kind, pieceID: piece, paragraphID: paragraph, bodyTag: bodyTag))
+        problems.append(.init(kind: kind, pieceID: piece, paragraphID: paragraph, bodyTag: bodyTag,
+                              bodyLanguage: bodyLanguage))
     }
 
     mutating func finish() -> PublishResolution {

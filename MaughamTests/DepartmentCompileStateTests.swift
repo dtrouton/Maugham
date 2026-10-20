@@ -66,7 +66,11 @@ final class DepartmentCompileStateTests: XCTestCase {
             after: .completed(Self.publication, warnings: warnings))
 
         XCTAssertEqual(state.phase, .completed(Self.publication))
-        XCTAssertEqual(state.statusLine, "Published, with 2 warnings")
+        XCTAssertEqual(state.statusLine,
+                       DepartmentCompileState.completedLine(Self.publication) + ", with 2 warnings",
+                       "R-S13: the version stays, and the warnings join its line")
+        XCTAssertTrue(state.statusLine?.contains("0.1") ?? false,
+                      "the line still names the version: \(state.statusLine ?? "")")
         XCTAssertEqual(state.problems, [warnings[0], warnings[2]],
             "the typesetter's own warning names no piece and stays dropped")
         XCTAssertTrue(state.offersShowProblems)
@@ -76,7 +80,8 @@ final class DepartmentCompileStateTests: XCTestCase {
     func test_oneWarningIsSingular() {
         let state = DepartmentCompileState.settled(
             after: .completed(Self.publication, warnings: [Self.problem(.warning, "x")]))
-        XCTAssertEqual(state.statusLine, "Published, with 1 warning")
+        XCTAssertEqual(state.statusLine,
+                       DepartmentCompileState.completedLine(Self.publication) + ", with 1 warning")
     }
 
     func test_aBookWithOnlyTypesetterWarningsReadsAsItAlwaysDid() {
@@ -101,6 +106,41 @@ final class DepartmentCompileStateTests: XCTestCase {
         XCTAssertTrue(state.isFailure)
         XCTAssertEqual(state.problems, [problem])
         XCTAssertTrue(state.offersShowProblems)
+    }
+
+    /// m5: a dry run keeps its problems, though the desk never asks for one.
+    func test_aDryRunKeepsItsProblems() {
+        let problem = Self.problem(.warning, "x")
+        let state = DepartmentCompileState.settled(
+            after: .dryRunPassed(warnings: [problem, Self.texWarning]))
+        XCTAssertEqual(state.problems, [problem])
+        XCTAssertEqual(state.report, DepartmentCompileState.dryRunLine)
+    }
+
+    // MARK: - What an open list follows (I3)
+
+    func test_onlyACompileThatJustSettledHandsOnItsProblems() {
+        let problem = Self.problem(.error, "x")
+        let running = DepartmentCompileState(
+            phase: .running(format: .pdf, languages: [], imprint: nil), isRunning: true)
+        let refused = DepartmentCompileState.settled(after: .failed(
+            errors: [problem], logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt))
+        let clean = DepartmentCompileState.settled(
+            after: .completed(Self.publication, warnings: []))
+
+        XCTAssertEqual(DepartmentCompileState.settledProblems(from: running, to: refused),
+                       [problem])
+        XCTAssertEqual(DepartmentCompileState.settledProblems(from: running, to: clean), [],
+                       "a clean recompile settles with nothing — the list clears")
+        XCTAssertNil(DepartmentCompileState.settledProblems(
+            from: running, to: DepartmentCompileState.settled(after: .cancelled)),
+            "a cancel says nothing new about the book")
+        XCTAssertNil(DepartmentCompileState.settledProblems(from: refused, to: clean),
+            "nothing was running, so nothing settled")
+        var stillRunning = running
+        stillRunning.phase = .refused(DepartmentCompileState.alreadyRunning)
+        XCTAssertNil(DepartmentCompileState.settledProblems(from: running, to: stillRunning),
+            "a second press refused mid-run is not a settle")
     }
 
     func test_theOtherRefusalsAndOutcomesCarryNoProblems() {

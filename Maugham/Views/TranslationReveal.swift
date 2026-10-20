@@ -120,6 +120,14 @@ struct TranslationReveal: Equatable, Sendable {
         return language != current
     }
 
+    /// **Whether a source reveal must first leave Translation Review** (fix
+    /// round 1, m4): the reveal names the SOURCE paragraph, and while an
+    /// edition is up the open piece shows that edition instead. Only ever true
+    /// for a source reveal; a translated one enters its own edition.
+    static func leavesReview(_ reveal: TranslationReveal, showing current: String?) -> Bool {
+        reveal.language == nil && current != nil
+    }
+
     /// The two posts, in order: enter review for the language, then — once
     /// `ready` has returned — navigate.
     ///
@@ -146,17 +154,27 @@ struct TranslationReveal: Equatable, Sendable {
     /// `@MainActor` because both posts are `.keyWindow` events that drive the
     /// editor, and because `ready`'s production body reads window state.
     ///
-    /// A source reveal (`language == nil`) posts the navigate alone: it never
-    /// enters review and never calls `ready`, since there is no surface swap
-    /// for it to wait out.
+    /// A source reveal (`language == nil`) never enters review. With no edition
+    /// up it posts the navigate alone and never calls `ready`.
+    ///
+    /// **A source reveal while an edition is up leaves review first** (fix
+    /// round 1, m4): `showing` is the edition on screen when the reveal starts;
+    /// when `leavesReview` says so, `perform` posts
+    /// `.maughamExitTranslationReview`, awaits `ready` (production: the badges
+    /// emptying, i.e. the source surface back) and then navigates. `showing`
+    /// defaults to nil, so every translated reveal is exactly as before.
     @MainActor
     static func perform(
         _ reveal: TranslationReveal,
+        showing current: String? = nil,
         ready: () async -> Void = {},
         post: (Notification.Name, [String: Any]) -> Void
     ) async {
         if let language = reveal.language {
             post(.maughamEnterTranslationReview, [languageKey: language])
+            await ready()
+        } else if leavesReview(reveal, showing: current) {
+            post(.maughamExitTranslationReview, [:])
             await ready()
         }
         guard !Task.isCancelled else { return }

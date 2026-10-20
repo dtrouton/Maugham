@@ -49,12 +49,19 @@ public struct PublishProblem: Sendable, Hashable {
     /// The body's language tag (R-P2-8): its problems' messages are prefixed
     /// `[tag]`, as `TranslationCoverage` does. Nil for a single-body compile.
     public let bodyTag: String?
+    /// The language of the body the problem was found in — `BodyPlan.Body.tag`,
+    /// nil for the source body — set whatever the body count (`bodyTag` is
+    /// nil in a single-body compile, even of an edition). It is what a reveal
+    /// opens: a translated body's problem is revealed in that edition (R-S14).
+    public let bodyLanguage: String?
 
-    public init(kind: Kind, pieceID: String, paragraphID: String?, bodyTag: String?) {
+    public init(kind: Kind, pieceID: String, paragraphID: String?, bodyTag: String?,
+                bodyLanguage: String? = nil) {
         self.kind = kind
         self.pieceID = pieceID
         self.paragraphID = paragraphID
         self.bodyTag = bodyTag
+        self.bodyLanguage = bodyLanguage
     }
 
     /// R-P2-1, the one severity table. In a Report the six error kinds block a
@@ -164,7 +171,8 @@ public enum PublishProblemGate {
             let resolution = try PublishResolution.forCompile(
                 source: body.source, built: ast,
                 bodyTag: bodies.count > 1 ? body.displayTag : nil,
-                imageAllowed: imageAllowed)
+                imageAllowed: imageAllowed,
+                bodyLanguage: body.tag)
             return Body(ast: ast, resolution: resolution)
         }
     }
@@ -207,7 +215,8 @@ public enum PublishProblemGate {
             contextLines: level == .error
                 ? ["A report won't publish with this problem, so no version was minted."]
                 : [],
-            pieceID: problem.pieceID, paragraphID: problem.paragraphID)
+            pieceID: problem.pieceID, paragraphID: problem.paragraphID,
+            bodyLanguage: problem.bodyLanguage)
     }
 
     /// The `logExcerpt` of a refusal: `CompileOrchestrator.publishProblemsLogExcerpt`

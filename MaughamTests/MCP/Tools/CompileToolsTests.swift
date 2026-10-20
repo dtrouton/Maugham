@@ -610,6 +610,14 @@ final class CompileToolsTests: XCTestCase {
         XCTAssertEqual(problem["paragraph_id"] as? String, "ab3x")
         XCTAssertEqual(problem["file"] as? String, "Manuscript/One.md")
         XCTAssertNil(problem["line"])
+        XCTAssertNil(problem["language"], "a source-body problem names no edition")
+
+        // R-S14: a problem found in an edition's body names that edition.
+        let edition = CompileResponseEncoder.encode(diag: .init(
+            level: .error, file: "Manuscript/One.md", line: nil,
+            message: "[sr] No figure is labelled @fig:x.", contextLines: [],
+            pieceID: "d_abc", paragraphID: "ab3x", bodyLanguage: "sr"))
+        XCTAssertEqual(edition["language"] as? String, "sr")
 
         let tectonic = CompileResponseEncoder.encode(diag: .init(
             level: .warning, file: "body.tex", line: 12, message: "Overfull \\hbox",

@@ -269,6 +269,42 @@ final class PublishProblemGateTests: XCTestCase {
         XCTAssertTrue(problems.first?.message.hasPrefix("[sr] ") ?? false, "\(problems.map(\.message))")
         XCTAssertEqual(problems.first?.paragraphID, ids[1], "the referring paragraph")
         XCTAssertEqual(problems.first?.pieceID, fx.pieceID)
+        XCTAssertEqual(problems.first?.bodyLanguage, "sr",
+            "R-S14: the problem reveals in the edition whose body held it")
+    }
+
+    /// R-S14's other half: in the same two-body compile, a problem in the
+    /// SOURCE body carries no language — it reveals in the source text.
+    func test_aBilingualCompile_aSourceBodyProblemCarriesNoLanguage() async throws {
+        let fx = try await makeProject(report: false, text: "# Intro\n\nSee @fig:nowhere.")
+        let loaded = try await fx.stores.configStore.load()
+        var cfg = try XCTUnwrap(loaded)
+        cfg.metadata.language = "en"
+        try await fx.stores.configStore.save(cfg)
+        let doc = try await Document.load(url: fx.url.appendingPathComponent(fx.path),
+                                          actor: .author, session: "gate", presenter: nil)
+        let ids = doc.sequence
+        for (id, text) in zip(ids, ["# Uvod", "Vidi @fig:nowhere."]) {
+            try await TranslationStore.append(
+                TranslationRecord(paragraphId: id, language: "sr", text: text,
+                                  sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
+                                  verbatim: false),
+                forDocId: fx.pieceID, identity: LocalIdentities.current.translator,
+                identities: .current, in: fx.url)
+        }
+        await doc.close()
+
+        let outcome = try await orchestrator(fx).compile(format: .epub, label: nil, languages: ["en", "sr"])
+        guard case .completed(_, let warnings) = outcome else {
+            return XCTFail("a novel compiles: \(outcome)")
+        }
+        let problems = problemDiagnostics(warnings)
+        XCTAssertEqual(problems.count, 2, "one per body: \(problems.map(\.message))")
+        XCTAssertEqual(Set(problems.map(\.bodyLanguage)), [nil, "sr"],
+                       "\(problems.map { ($0.message, $0.bodyLanguage) })")
+        let source = try XCTUnwrap(problems.first { $0.bodyLanguage == nil })
+        XCTAssertFalse(source.message.hasPrefix("[sr]"), source.message)
+        XCTAssertEqual(source.paragraphID, ids[1])
     }
 
     // MARK: - previews never refuse

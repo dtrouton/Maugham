@@ -2077,7 +2077,7 @@ struct PublishCentreProbeView: View {
         // The publish problems (report foundations plan 2, Task 8).
         case .publishProblems(let problems):
             PublishProblemsView(rows: PublishProblems.rows(problems, titles: [:]),
-                                onClose: {}, onReveal: { _, _ in })
+                                onClose: {}, onReveal: { _ in })
         // The round report (translation pipeline P4 Task 3).
         case .translationRound(let round):
             TranslationRoundReportHost(
