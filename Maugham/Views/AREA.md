@@ -22,7 +22,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph` / `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
 - `TranslationReviewModifier.swift` — this window's translation-review selection and the reveal's window half.
-- `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane decided from the posture, pure) and its modifier.
+- `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane, from the posture, pure), `InsertMenuGate` (whether the Insert menu is enabled, published as the focused value `mayInsertReportElement`) and the modifier.
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
 - `CompilerRunModifier.swift` — the run keys' delivery path and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
@@ -68,7 +68,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TrashView.swift` — the trash list and `TrashDisclosure`, the tree's foot.
 - `RemovedElsewhereDisclosure.swift` — pieces removed on another Mac, with Restore, at the tree's foot.
 - `ProjectSearchView.swift` — Find in Project, an overlay of the tree; `ReplaceGate`.
-- `TreeScrollProbe.swift` — a dev-build-only diagnostic for the "tree scrolls on a pass swap" report; not a feature.
+- `TreeScrollProbe.swift` — a dev-build-only diagnostic.
 
 ### Research and the palette
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.

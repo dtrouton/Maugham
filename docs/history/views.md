@@ -131,3 +131,9 @@ Clauses cut from `Maugham/Views/AREA.md` to make room for the cross-guide pointe
 Cut from `Maugham/Views/AREA.md` to make room for the publish problems arm; the rule it qualified is still in the guide.
 
 - The context-menu bullet's reason: "SwiftUI builds menu items only while the menu is up, so keyboard, VoiceOver and the accessibility tree find nothing there."
+
+## Moved from the guide by report foundations plan 3a, Task 8 (2026-10-20)
+
+Cut from `Maugham/Views/AREA.md` to make room for `InsertMenuGate` on the Map.
+
+- `TreeScrollProbe`'s Map line: "a diagnostic for the "tree scrolls on a pass swap" report; not a feature."
