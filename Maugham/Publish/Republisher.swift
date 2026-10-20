@@ -467,8 +467,12 @@ public struct Republisher {
         }
 
         if !errors.isEmpty || outputPath.isEmpty {
-            await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
-            return .failed(errors: errors, logExcerpt: logExcerpt)
+            // The compile failed for its own reason; the book's publish
+            // problems still ride along, after the tool's own errors.
+            let all = errors + PublishProblemGate.judge(
+                problems, context: problemContext, refusesOnErrors: true).diagnostics
+            await jobManager.fail(jobID: jobID, errors: all, logExcerpt: logExcerpt)
+            return .failed(errors: all, logExcerpt: logExcerpt)
         }
 
         // R-S10, as at the compile door: a figure that failed to stage refuses

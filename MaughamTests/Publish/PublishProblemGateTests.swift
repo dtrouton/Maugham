@@ -162,16 +162,18 @@ final class PublishProblemGateTests: XCTestCase {
         XCTAssertTrue(pubs.isEmpty)
     }
 
-    /// The refusal carries every problem, the warning kinds as warnings.
+    /// The refusal carries every problem, the warning kinds as warnings — and
+    /// the errors first, so `errors.first` (the desk's line, MCP's
+    /// `errors[0]`) names an error even when a warning comes first in the book.
     func test_aReportRefusalCarriesItsWarningsToo() async throws {
         let fx = try await makeProject(
-            report: true, text: "See [@nobody].\n\nA note.\n\n[^spare]: Never used.")
+            report: true, text: "# Heading {#nonsense}\n\nThen [@nobody].")
         guard case .failed(let errors, _) = try await orchestrator(fx).compile(format: .epub, label: nil)
         else { return XCTFail("must refuse") }
-        let levels = Dictionary(problemDiagnostics(errors).map { ($0.message, $0.level) },
-                                uniquingKeysWith: { a, _ in a })
-        XCTAssertEqual(levels.first { $0.key.contains("nobody") }?.value, .error, "\(levels)")
-        XCTAssertEqual(levels.first { $0.key.contains("spare") }?.value, .warning, "\(levels)")
+        let problems = problemDiagnostics(errors)
+        XCTAssertEqual(problems.map(\.level), [.error, .warning], "\(problems.map(\.message))")
+        XCTAssertTrue(errors.first?.message.contains("nobody") ?? false, "\(errors.map(\.message))")
+        XCTAssertTrue(problems.last?.message.contains("nonsense") ?? false, "\(problems.map(\.message))")
     }
 
     /// A Report whose problems are only warnings compiles, carrying them.
@@ -207,6 +209,66 @@ final class PublishProblemGateTests: XCTestCase {
         // One resolution, judged and emitted: the gate's list (what dry_run
         // returned) is exactly what the compiler finished with.
         XCTAssertEqual(problemDiagnostics(dryWarnings), problems)
+    }
+
+    // MARK: - fix round 1
+
+    /// A compile that fails for its own reason (here an occupied destination)
+    /// still carries the book's publish problems, after its own errors.
+    func test_aCompileThatFailsForItsOwnReasonStillCarriesTheProblems() async throws {
+        let fx = try await makeProject(report: false, text: "Ask [@sarah] about it.")
+        let loaded = try await fx.stores.configStore.load()
+        let cfg = try XCTUnwrap(loaded)
+        let exports = fx.url.appendingPathComponent(cfg.outputs.directory)
+        try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
+        try Data("occupied".utf8).write(to: exports.appendingPathComponent(
+            OutputFilenameBuilder.make(config: cfg, format: .epub, label: nil, language: nil)))
+
+        let outcome = try await orchestrator(fx).compile(format: .epub, label: nil)
+        guard case .failed(let errors, let excerpt) = outcome else {
+            return XCTFail("an occupied destination fails the compile: \(outcome)")
+        }
+        XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt),
+                       "a fault, not a problem refusal: \(excerpt)")
+        XCTAssertEqual(errors.count, 2, "\(errors.map(\.message))")
+        XCTAssertNil(errors.first?.pieceID, "the tool's own error comes first: \(errors)")
+        let problem = try XCTUnwrap(problemDiagnostics(errors).first, "\(errors)")
+        XCTAssertTrue(problem.message.contains("sarah"), problem.message)
+        XCTAssertEqual(problem.paragraphID, try paragraphID(containing: "[@sarah]", in: fx))
+    }
+
+    /// R-P2-8 end to end: a two-body EPUB whose translation dropped a label.
+    /// The reference is unresolved in THAT body only, its problem prefixed
+    /// with the body's tag and pointing at the referring paragraph.
+    func test_aBilingualCompile_reportsTheTranslationsDroppedLabelUnderItsTag() async throws {
+        let fx = try await makeProject(report: false, text: "# Intro {#sec:intro}\n\nSee @sec:intro.")
+        let loaded = try await fx.stores.configStore.load()
+        var cfg = try XCTUnwrap(loaded)
+        cfg.metadata.language = "en"
+        try await fx.stores.configStore.save(cfg)
+        let doc = try await Document.load(url: fx.url.appendingPathComponent(fx.path),
+                                          actor: .author, session: "gate", presenter: nil)
+        let ids = doc.sequence
+        XCTAssertEqual(ids.count, 2, "premise: two paragraphs")
+        for (id, text) in zip(ids, ["# Uvod", "Vidi @sec:intro."]) {
+            try await TranslationStore.append(
+                TranslationRecord(paragraphId: id, language: "sr", text: text,
+                                  sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
+                                  verbatim: false),
+                forDocId: fx.pieceID, identity: LocalIdentities.current.translator,
+                identities: .current, in: fx.url)
+        }
+        await doc.close()
+
+        let outcome = try await orchestrator(fx).compile(format: .epub, label: nil, languages: ["en", "sr"])
+        guard case .completed(_, let warnings) = outcome else {
+            return XCTFail("a novel compiles: \(outcome)")
+        }
+        let problems = problemDiagnostics(warnings)
+        XCTAssertEqual(problems.count, 1, "only the sr body lost the label: \(problems.map(\.message))")
+        XCTAssertTrue(problems.first?.message.hasPrefix("[sr] ") ?? false, "\(problems.map(\.message))")
+        XCTAssertEqual(problems.first?.paragraphID, ids[1], "the referring paragraph")
+        XCTAssertEqual(problems.first?.pieceID, fx.pieceID)
     }
 
     // MARK: - previews never refuse

@@ -143,6 +143,15 @@ public enum PublishProblemGate {
         case refused(errors: [TectonicLogParser.Diagnostic])
         /// Every problem as a warning; empty when the book has none.
         case passed(warnings: [TectonicLogParser.Diagnostic])
+
+        /// The diagnostics either way: what a compile that failed for another
+        /// reason (tectonic, packaging, an occupied destination) still
+        /// carries after its own errors, so the writer never loses them.
+        public var diagnostics: [TectonicLogParser.Diagnostic] {
+            switch self {
+            case .refused(let all), .passed(let all): return all
+            }
+        }
     }
 
     /// Builds each body's AST once (the manuscript is read once per body) and
@@ -172,10 +181,13 @@ public enum PublishProblemGate {
         let refuses = refusesOnErrors
             && problems.contains { $0.isError(profile: context.profile) }
         guard refuses else { return .passed(warnings: warnings(problems, context: context)) }
-        return .refused(errors: problems.map {
-            diagnostic($0, level: $0.isError(profile: context.profile) ? .error : .warning,
-                       piecePaths: context.piecePaths)
-        })
+        // Errors first, each half in book order: a surface that names
+        // `errors.first` as the reason must name an error, never a warning.
+        let errors = problems.filter { $0.isError(profile: context.profile) }
+        let warnings = problems.filter { !$0.isError(profile: context.profile) }
+        return .refused(errors:
+            errors.map { diagnostic($0, level: .error, piecePaths: context.piecePaths) }
+            + warnings.map { diagnostic($0, level: .warning, piecePaths: context.piecePaths) })
     }
 
     /// Every problem as a warning: a preview's or a sample compile's answer,

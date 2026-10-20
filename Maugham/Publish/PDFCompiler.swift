@@ -56,8 +56,8 @@ public struct PDFCompiler {
     /// The bodies the door's gate already resolved (`PublishProblemGate
     /// .resolve`, over `imageAllowed`), one per body in order: the compile
     /// emits with exactly the resolution the gate judged, and reads the
-    /// manuscript no second time. Nil (or a count that doesn't match
-    /// `bodies`) resolves here.
+    /// manuscript no second time. Nil resolves here; a count that doesn't
+    /// match `bodies` is a precondition failure.
     public let resolved: [PublishProblemGate.Body]?
 
     /// The designated init: a compile is its ordered bodies.
@@ -74,7 +74,12 @@ public struct PDFCompiler {
         resolved: [PublishProblemGate.Body]? = nil
     ) throws {
         guard !bodies.isEmpty else { throw NoBodies() }
-        self.resolved = resolved?.count == bodies.count ? resolved : nil
+        // One resolved body per body, or none: a mismatch is a programming
+        // error — falling back would re-read the manuscript and let the gate
+        // and the emission diverge.
+        precondition(resolved == nil || resolved?.count == bodies.count,
+                     "resolved bodies must match bodies one for one")
+        self.resolved = resolved
         self.projectURL = projectURL
         self.bodies = bodies
         self.config = config
