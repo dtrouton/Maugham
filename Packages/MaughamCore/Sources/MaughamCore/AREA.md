@@ -88,6 +88,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ParagraphParser.swift` — splits anchored Markdown into paragraphs by blank lines; the per-keystroke hot path.
 - `MarkdownBlockParser.swift` — `MarkdownBlock` and the one block-level Markdown parser every surface shares.
 - `ManuscriptBlocks.swift` — the report block layer over that parser: labelled headings, captioned tables, figures, footnote definitions.
+- `TableText.swift` — the one pipe-table formatter, and its cell lookups.
 - `ManuscriptLabel.swift` — `ManuscriptLabel` (`fig`/`tbl`/`sec`) and `ManuscriptAttributes.split`, the trailing `{#kind:name}` reader.
 - `ManuscriptInlineScanner.swift` — finds footnote references, citations and cross-references inside sentences.
 - `ManuscriptIndex.swift` — the project index: labels, cited keys and every diagnostic, line by line.

@@ -130,6 +130,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// textDidChange knows to leave lastCycleTarget alone.
     var isApplyingTabCycle = false
 
+    /// Tables: where the caret's table is, and the leave-the-table tidy
+    /// waiting for the next runloop (`EditorCoordinator+Tables.swift`).
+    var tableTidy = TableTidyState()
+
     /// Trailing-edge debounce for the `.maughamScriptDidUpdate` post on the
     /// typing fast path. Posting the whole parsed `FountainScript` on every
     /// keystroke drove deep SwiftUI `Equatable` deep-compares of the entire
@@ -708,6 +712,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
+        tableTidy.cancelPending()
         // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
         // teardown so a coordinator SwiftUI hasn't yet released stops receiving
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
@@ -1045,7 +1050,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     func textView(_ textView: NSTextView,
                   doCommandBy commandSelector: Selector) -> Bool {
-        guard mode is ScreenplayMode else { return false }
+        // Prose: Tab, Shift-Tab and Return move through and grow a table when
+        // the caret is in one; anywhere else they fall through to AppKit.
+        guard mode is ScreenplayMode else {
+            return handleTableCommand(commandSelector, in: textView)
+        }
 
         switch commandSelector {
         case #selector(NSResponder.insertTab(_:)):
@@ -1163,6 +1172,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // One-way drive of the floating selection toolbar (review posture only).
         // No write-back into SwiftUI state.
         updateSelectionToolbar(in: textView)
+        // A caret that leaves a table schedules its tidy for the next runloop.
+        noteSelectionForTableTidy(in: textView)
     }
 
 }

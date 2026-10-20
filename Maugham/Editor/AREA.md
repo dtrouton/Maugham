@@ -13,6 +13,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+FindNavigation.swift` — line and annotation navigation, and the selection toolbar's placement.
 - `EditorCoordinator+TabCycle.swift` — screenplay Tab / Shift-Tab element cycling.
 - `EditorCoordinator+Insert.swift` — `applyCommandEdit` (Route A for commands) and the Insert menu's receivers.
+- `EditorCoordinator+Tables.swift` — pipe tables: Tab and Shift-Tab move by cell, Return adds a row, and the table tidies itself.
 - `ReportInsert.swift` — the pure text Insert Table and Insert Footnote write, and where.
 - `EditorCoordinator+ReviewRender.swift` — the review overlays: resolving marks, the margin cards, the toolbar's annotation authoring, card actions. Tripwire 4.
 - `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
@@ -128,6 +129,7 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 
 ### Commands that write text
 - **A command writes through `applyCommandEdit`** (Route A): one `replaceCharacters` behind the membrane, one ⌘Z step, typing undo kept. Never Route B (`setParagraph` wipes typing undo, ADR 0023 D1).
+- **A table re-aligns (`TableText.formatted()`, through `applyCommandEdit`) only on Tab, Shift-Tab, Return or leaving it, never mid-keystroke** (Denver's ruling). The leave-tidy runs on the next runloop, never inside the selection callback, and an undo's selection change or an IME composition schedules none (`TableEditingTests`).
 - **Only `EditorHost` sets `answersInsertCommands`**: a research note answers window commands and shares `ProseMode`, so without it the note takes a table (`InsertCommandTests`). The menu's enabled state is `InsertMenuGate` (`Maugham/Views/EditorControlMirror.swift`).
 
 ### Overlays and in-editor UI

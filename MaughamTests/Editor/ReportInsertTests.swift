@@ -19,6 +19,15 @@ final class ReportInsertTests: XCTestCase {
             """)
     }
 
+    /// The inserted table is already what `TableText` writes, so the writer's
+    /// first Tab moves without re-aligning it (no silent extra undo step).
+    func test_theInsertedTableIsAlreadyTidy() throws {
+        for n in [1, 9, 10, 123] {
+            let table = ReportInsert.table(nextLabelNumber: n)
+            XCTAssertEqual(try XCTUnwrap(TableText(parsing: table)).formatted(), table)
+        }
+    }
+
     func test_theWrittenTableReadsBackAsACaptionedLabelledTable() throws {
         let parsed = ManuscriptBlocks.parse(ReportInsert.table(nextLabelNumber: 2))
         XCTAssertEqual(parsed.count, 1, "the table and its caption are one block")
