@@ -7,15 +7,9 @@ import AppKit
 // All three end in `beginFigureIngest`, which copies through the host's
 // `figureImporter` and writes the line through Route A (`applyCommandEdit`).
 extension EditorCoordinator {
-    /// The membrane's answer, asked BEFORE anything is copied: the same
-    /// question `shouldChangeTextIn` asks a keystroke, plus a read-only
-    /// recovery view's `isEditable`.
-    var mayWriteFigure: Bool {
-        (textView?.isEditable ?? false)
-            && EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode,
-                                                   lockEditing: lockEditing,
-                                                   isTranslationReview: isTranslationReview)
-    }
+    /// The membrane's answer, asked BEFORE anything is copied
+    /// (`commandMayWrite`).
+    var mayWriteFigure: Bool { commandMayWrite }
 
     /// What a drag of `urls` means here (`FigureIngest.dropDecision`).
     func figureDropDecision(for urls: [URL]) -> FigureIngest.DropDecision {
@@ -95,14 +89,9 @@ extension EditorCoordinator {
             + (line as NSString).length
     }
 
-    /// Removes a paste's temporary PNG with the folder `writeTemporaryPNG`
-    /// made for it — and nothing that folder's name does not say is ours.
+    /// Removes a paste's temporary PNG (`FigureIngest.removeTemporary`).
     private static func remove(_ temporary: [URL]) {
-        for url in temporary {
-            let folder = url.deletingLastPathComponent()
-            guard folder.lastPathComponent.hasPrefix(FigureIngest.temporaryFolderPrefix) else { continue }
-            try? FileManager.default.removeItem(at: folder)
-        }
+        temporary.forEach(FigureIngest.removeTemporary)
     }
 
     // MARK: - The three ways in
@@ -116,7 +105,7 @@ extension EditorCoordinator {
         FigureIngest.panelConfiguration.apply(to: panel)
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK else { return }
-            let images = panel.urls.filter(ImagePasteHandler.isIngestableImage)
+            let images = panel.urls.filter(FigureIngest.isFigureFile)
             self?.beginFigureIngest(images, at: at)
         }
         if let window = textView.window {
@@ -126,26 +115,37 @@ extension EditorCoordinator {
         }
     }
 
-    /// ⌘V of a picture. Image FILES (a Finder copy) are ingested as they are;
-    /// image DATA is written to a temporary PNG first. Returns true when the
-    /// pasteboard held a picture — handled, even when refused or failed, so
-    /// `super.paste` never inserts an attachment character (Editor AREA.md:
-    /// nil, here false-means-not-mine, never true-and-fall-through).
+    /// ⌘V of a picture. Returns true when the paste is a picture's — handled,
+    /// even when refused or failed, so `super.paste` never inserts an
+    /// attachment character (Editor AREA.md: here false means not mine, never
+    /// handled-and-fall-through). Two questions, in order (fix round 1, C1):
+    ///
+    /// 1. **File URLs** (a Finder copy) are ours only when EVERY one is a
+    ///    figure file. Anything else — a `.txt` beside its icon image — is
+    ///    `super`'s, so its path pastes as text, as it always has.
+    /// 2. **Image data** is ours only when the pasteboard carries NO text
+    ///    flavour (`FigureIngest.carriesText`). Word, Pages and Excel put a PDF
+    ///    or TIFF rendering beside copied text; the writer copied the words.
+    ///    A screenshot carries only the bitmap. The data becomes a temporary
+    ///    PNG first.
     func pasteFigure(from pasteboard: NSPasteboard) -> Bool {
         guard answersFigures, let textView else { return false }
         let at = NSMaxRange(textView.selectedRange())
         let files = pasteboard.readObjects(forClasses: [NSURL.self],
                                            options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        switch figureDropDecision(for: files) {
-        case .accept(let images):
-            beginFigureIngest(images, at: at)
-            return true
-        case .refuse:
-            return true
-        case .notOurs:
-            break
+        if !files.isEmpty {
+            switch figureDropDecision(for: files) {
+            case .accept(let images):
+                beginFigureIngest(images, at: at)
+                return true
+            case .refuse:
+                return true
+            case .notOurs:
+                return false
+            }
         }
-        guard pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
+        guard !FigureIngest.carriesText(pasteboard),
+              pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
               let image = NSImage(pasteboard: pasteboard) else { return false }
         guard mayWriteFigure else { return true }
         do {

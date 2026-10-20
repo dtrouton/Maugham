@@ -131,6 +131,9 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 ### Commands that write text
 - **A command writes through `applyCommandEdit`** (Route A): one `replaceCharacters` behind the membrane, one ⌘Z step, typing undo kept. Never Route B (`setParagraph` wipes typing undo, ADR 0023 D1).
 - **A table re-aligns (`TableText.formatted()`, through `applyCommandEdit`) only on Tab, Shift-Tab, Return or leaving it, never mid-keystroke** (Denver's ruling). The leave-tidy runs on the next runloop, never inside the selection callback, and an undo's selection change or an IME composition schedules none (`TableEditingTests`).
+- **A command closes its own undo group outside an event** (`applyCommandEdit`, with `groupsByEvent` off for the bracket): a figure lands in a Task, a table tidy on the next runloop, and an implicit group left open would take the writer's next typing.
+- **A mixed drop (pictures and other files) and a paste carrying text keep today's behaviour on purpose**: a picture beside text is the text's rendering (Word, Pages), and half a drag is no answer (`FigureIngest.dropDecision`, `carriesText`).
+- **The Figure… panel runs from the coordinator**, an exception to the window-command recipe: its result must land at this editor's remembered caret.
 - **A figure drop or paste never reaches `super`** (`MaughamTextView.performDragOperation`, `paste`): `super` would write the file's path or a `U+FFFC` into the op log. The membrane is asked before anything is copied; the line lands after the async copy at the point carried through any typing (`FigureIngest.Anchor`), never in a document the editor has left (`FigureCommandTests`).
 - **Only `EditorHost` sets `answersInsertCommands`**: a research note answers window commands and shares `ProseMode`, so without it the note takes a table (`InsertCommandTests`). The menu's enabled state is `InsertMenuGate` (`Maugham/Views/EditorControlMirror.swift`).
 

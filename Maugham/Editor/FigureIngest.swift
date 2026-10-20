@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import UniformTypeIdentifiers
+import ImageIO
 import MaughamCore
 
 /// **Insert Figure…'s open panel, as a value** (plan 3a Task 6). A test pins
@@ -36,9 +37,9 @@ enum FigureIngest {
     /// The caption a new figure carries, selected so the writer types over it.
     static let captionPlaceholder = "Caption"
 
-    /// Images only, one or several, never a folder.
+    /// Images and PDFs, one or several, never a folder.
     static let panelConfiguration = FigureImagePanelConfiguration(
-        allowedContentTypes: [.image], canChooseFiles: true, canChooseDirectories: false,
+        allowedContentTypes: [.image, .pdf], canChooseFiles: true, canChooseDirectories: false,
         allowsMultipleSelection: true, prompt: "Insert")
 
     // MARK: - R-3a-3 the path
@@ -67,13 +68,18 @@ enum FigureIngest {
 
     // MARK: - R-3a-4 the label
 
-    /// The name a stem gives: lower-case ASCII, every non-name character a
-    /// `-`, runs of `-` folded, and trimmed so it starts with a letter or
-    /// digit (`ManuscriptLabel.isValidName`). A stem with no name character at
-    /// all gives `figure`.
+    /// The name a stem gives: folded to Latin, then to ASCII without
+    /// diacritics, lower-cased (`Café über` → `cafe-uber`, `日本` → `ri-ben`);
+    /// every remaining non-name character a `-`, runs of `-` folded, and
+    /// trimmed so it starts with a letter or digit
+    /// (`ManuscriptLabel.isValidName`). A stem with no name character at all
+    /// gives `figure`.
     static func figureName(stem: String) -> String {
+        let latin = stem.applyingTransform(.toLatin, reverse: false) ?? stem
+        let folded = latin.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                   locale: Locale(identifier: "en_US_POSIX")).lowercased()
         var out = ""
-        for scalar in stem.lowercased().unicodeScalars {
+        for scalar in folded.unicodeScalars {
             let isName = ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar)
                 || scalar == "_" || scalar == "-"
             let c: Character = isName ? Character(scalar) : "-"
@@ -187,13 +193,85 @@ enum FigureIngest {
     }
 
     /// A drop is a figure drop when the surface answers figures (a Markdown
-    /// manuscript with an importer) and every dragged file is an image
-    /// (`ImagePasteHandler.isIngestableImage`). Then the membrane decides.
+    /// manuscript with an importer) and every dragged file is a figure file
+    /// (`isFigureFile`). Then the membrane decides. A MIXED drop — pictures
+    /// and anything else — is not a figure drop, on purpose: the text view's
+    /// own behaviour takes the whole drag rather than half of it.
     static func dropDecision(fileURLs: [URL], answersFigures: Bool, mayWrite: Bool) -> DropDecision {
-        guard answersFigures, !fileURLs.isEmpty,
-              fileURLs.allSatisfy({ $0.isFileURL && ImagePasteHandler.isIngestableImage($0) })
+        guard answersFigures, !fileURLs.isEmpty, fileURLs.allSatisfy(isFigureFile)
         else { return .notOurs }
         return mayWrite ? .accept(fileURLs) : .refuse
+    }
+
+    /// A file that can become a figure: an image
+    /// (`ImagePasteHandler.isIngestableImage`) or a PDF, which does not
+    /// conform to `.image` and is named here (R-S5).
+    static func isFigureFile(_ url: URL) -> Bool {
+        guard url.isFileURL else { return false }
+        if ImagePasteHandler.isIngestableImage(url) { return true }
+        let declared = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        if declared?.conforms(to: .pdf) == true { return true }
+        return UTType(filenameExtension: url.pathExtension.lowercased())?.conforms(to: .pdf) == true
+    }
+
+    /// Whether a pasteboard carries any text flavour. A paste that does is
+    /// the text's, even with an image beside it (fix round 1, C1).
+    static func carriesText(_ pasteboard: NSPasteboard) -> Bool {
+        let text: Set<NSPasteboard.PasteboardType> = [.string, .rtf, .rtfd, .html]
+        return (pasteboard.types ?? []).contains(where: text.contains)
+    }
+
+    // MARK: - R-S5 what is copied as it is
+
+    /// The extensions a figure keeps as they are: what the outputs show
+    /// (`FigureImageResolver`'s formats). Everything else is a raster image
+    /// re-encoded as PNG before the copy.
+    static let keptExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "pdf", "svg"]
+
+    /// `url` itself when its format is kept; otherwise a PNG of its first
+    /// image, written to a temporary folder under the same stem (so the
+    /// research item and the label are named as the writer named the file).
+    /// The caller removes the PNG's folder (`removeTemporary`).
+    static func copyableFile(for url: URL) throws -> (url: URL, isTemporary: Bool) {
+        guard !keptExtensions.contains(url.pathExtension.lowercased()) else { return (url, false) }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw ImagePasteHandler.ImagePasteError.notAnImage(filename: url.lastPathComponent)
+        }
+        let folder = try makeTemporaryFolder()
+        let stem = url.deletingPathExtension().lastPathComponent
+        let png = folder.appendingPathComponent((stem.isEmpty ? "image" : stem) + ".png")
+        guard let destination = CGImageDestinationCreateWithURL(
+                png as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+            removeTemporary(png)
+            throw ImagePasteHandler.ImagePasteError.encodingFailed
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            removeTemporary(png)
+            throw ImagePasteHandler.ImagePasteError.encodingFailed
+        }
+        return (png, true)
+    }
+
+    /// Removes a temporary file this type wrote, with the folder made for it —
+    /// and nothing whose folder's name does not say it is ours.
+    static func removeTemporary(_ url: URL) {
+        let folder = url.deletingLastPathComponent()
+        guard folder.lastPathComponent.hasPrefix(temporaryFolderPrefix) else { return }
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    /// The name every temporary folder this type makes starts with — a
+    /// pasted picture's, a converted one's — and the only folders
+    /// `removeTemporary` deletes.
+    static let temporaryFolderPrefix = "maugham-figure-"
+
+    private static func makeTemporaryFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(temporaryFolderPrefix)\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
     }
 
     // MARK: - The store half
@@ -206,11 +284,16 @@ enum FigureIngest {
     /// project's `research/`, linked to the chapter, as the binder's drop
     /// does; a short story's or screenplay's in `research/`, where every
     /// research item is already the document's. The copy is
-    /// `DocumentStore.executeCopy` (or the piece copy), never a move.
+    /// `DocumentStore.executeCopy` (or the piece copy), never a move. A
+    /// format the outputs can't show is re-encoded as PNG first (R-S5,
+    /// `copyableFile`), off the main thread; the PNG is removed afterwards.
     @MainActor
     static func importImage(_ url: URL, documentId: String, documentPath: String,
                             store: ProjectStore) async throws -> String {
-        let item = try await store.createResearchAsset(scope: .document(documentId), fromURL: url)
+        let copyable = try await Task.detached { try copyableFile(for: url) }.value
+        defer { if copyable.isTemporary { removeTemporary(copyable.url) } }
+        let item = try await store.createResearchAsset(scope: .document(documentId),
+                                                       fromURL: copyable.url)
         guard let path = item.path else {
             throw ProjectStoreError.fileSystemError("The copied picture has no path")
         }
@@ -221,15 +304,11 @@ enum FigureIngest {
     /// moment it was pasted (`ResearchPasteImporter`'s convention), in a
     /// folder of its own so two pastes in one second never collide. The
     /// caller removes the folder once the copy is done.
-    static let temporaryFolderPrefix = "pasted-figure-"
-
     static func writeTemporaryPNG(_ image: NSImage) throws -> URL {
         let data = try ImagePasteHandler.encodePNG(image)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(temporaryFolderPrefix)\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryFolder()
         let url = folder.appendingPathComponent("image-\(formatter.string(from: Date())).png")
         try data.write(to: url)
         return url

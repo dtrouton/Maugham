@@ -63,12 +63,14 @@ final class FigureIngestTests: XCTestCase {
         XCTAssertEqual(FigureIngest.figureLabel(stem: "2024 Q1 (final)!", existing: []).reference,
                        "fig:2024-q1-final")
         XCTAssertEqual(FigureIngest.figureLabel(stem: "Café über", existing: []).reference,
-                       "fig:caf-ber")
+                       "fig:cafe-uber", "folded to ASCII, not dashed (M4)")
         XCTAssertEqual(FigureIngest.figureLabel(stem: "snake_case", existing: []).reference,
                        "fig:snake_case", "an underscore is a name character")
         XCTAssertEqual(FigureIngest.figureLabel(stem: "__lead", existing: []).reference,
                        "fig:lead", "a name starts with a letter or digit")
         XCTAssertEqual(FigureIngest.figureLabel(stem: "日本", existing: []).reference,
+                       "fig:ri-ben", "a non-Latin stem is transliterated")
+        XCTAssertEqual(FigureIngest.figureLabel(stem: "!!!", existing: []).reference,
                        "fig:figure", "a stem with no name character at all still names one")
     }
 
@@ -169,7 +171,7 @@ final class FigureIngestTests: XCTestCase {
 
     func test_theInsertFigurePanelTakesOneOrMoreImagesAndNoFolders() {
         XCTAssertEqual(FigureIngest.panelConfiguration,
-                       FigureImagePanelConfiguration(allowedContentTypes: [.image],
+                       FigureImagePanelConfiguration(allowedContentTypes: [.image, .pdf],
                                                      canChooseFiles: true,
                                                      canChooseDirectories: false,
                                                      allowsMultipleSelection: true,
@@ -188,6 +190,44 @@ final class FigureIngestTests: XCTestCase {
         let png = try file("a.png"), jpg = try file("b.jpg")
         XCTAssertEqual(FigureIngest.dropDecision(fileURLs: [png, jpg], answersFigures: true,
                                                  mayWrite: true), .accept([png, jpg]))
+    }
+
+    func test_aPDFIsAFigureFileThoughItIsNotAnImage() throws {
+        let pdf = try file("chart.pdf")
+        XCTAssertFalse(ImagePasteHandler.isIngestableImage(pdf), "the premise: .pdf is not .image")
+        XCTAssertEqual(FigureIngest.dropDecision(fileURLs: [pdf], answersFigures: true,
+                                                 mayWrite: true), .accept([pdf]))
+    }
+
+    func test_onlyTheOutputsFormatsAreKeptAsTheyAre() {
+        XCTAssertEqual(FigureIngest.keptExtensions, ["png", "jpg", "jpeg", "gif", "pdf", "svg"])
+    }
+
+    /// R-S5: a format the outputs can't show becomes a PNG under the same
+    /// stem, in a temporary folder `removeTemporary` takes away; a kept
+    /// format is handed back untouched.
+    func test_aTIFFIsConvertedToATemporaryPNGThatIsRemovedAfterwards() throws {
+        let tiff = temp.url.appendingPathComponent("Site Plan.tiff")
+        let image = NSImage(size: NSSize(width: 2, height: 2))
+        image.lockFocus(); NSColor.blue.setFill(); NSRect(x: 0, y: 0, width: 2, height: 2).fill()
+        image.unlockFocus()
+        try XCTUnwrap(image.tiffRepresentation).write(to: tiff)
+
+        let converted = try FigureIngest.copyableFile(for: tiff)
+        XCTAssertTrue(converted.isTemporary)
+        XCTAssertEqual(converted.url.lastPathComponent, "Site Plan.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: converted.url.path))
+        FigureIngest.removeTemporary(converted.url)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: converted.url.deletingLastPathComponent().path), "its folder is gone")
+
+        let png = try file("kept.png")
+        let kept = try FigureIngest.copyableFile(for: png)
+        XCTAssertEqual(kept.url, png)
+        XCTAssertFalse(kept.isTemporary)
+        FigureIngest.removeTemporary(png)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: png.path),
+                      "removeTemporary never deletes a file it did not write")
     }
 
     func test_anImageDropOnAReadOnlyManuscriptIsRefused() throws {

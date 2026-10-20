@@ -3,6 +3,8 @@ import XCTest
 import AppKit
 import SwiftUI
 import MaughamCore
+import ImageIO
+import UniformTypeIdentifiers
 @testable import Maugham
 
 /// Figures backed by research, end to end (plan 3a Task 6): the ingest a drop,
@@ -272,7 +274,130 @@ final class FigureCommandTests: XCTestCase {
                        "a document the writer left is not a failure to tell them about")
     }
 
+    // MARK: - Undo outside an event (fix round 1, I2)
+
+    /// The ingest's write runs in a Task continuation, outside any event. With
+    /// `groupsByEvent` at its DEFAULT, an implicit group opened there would
+    /// stay open until the next event ended — and the writer's caption typing
+    /// would join it. `applyCommandEdit` closes its own group.
+    func test_anAsyncFigureIsItsOwnUndoStepWithTheDefaultGrouping() async throws {
+        let m = try mount("Intro", importer: { _ in "research/a.png" })
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        XCTAssertTrue(undo.groupsByEvent, "the premise: the default grouping")
+        let image = try pngFile(named: "a.png")
+
+        await m.coordinator.beginFigureIngest([image], at: 5)?.value
+        XCTAssertEqual(undo.groupingLevel, 0, "the figure's group is closed, not left open")
+
+        m.textView.insertText("Map", replacementRange: m.textView.selectedRange())
+        XCTAssertEqual(m.textView.string, "Intro\n\n![Map](research/a.png){#fig:a}")
+        undo.undo()
+        XCTAssertEqual(m.textView.string, "Intro\n\n![Caption](research/a.png){#fig:a}",
+                       "the caption typing is its own step")
+        undo.undo()
+        XCTAssertEqual(m.textView.string, "Intro", "and the figure is the next")
+    }
+
+    // MARK: - R-S5 formats
+
+    func test_aTIFFLandsAsAPNGUnderItsOwnName() async throws {
+        let (store, chapter) = try await novel()
+        let m = try mount("", importer: importer(store, chapter))
+        let dir = temp.url.appendingPathComponent("outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tiff = dir.appendingPathComponent("Site Plan.tiff")
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(Self.picture().tiffRepresentation)))
+        try XCTUnwrap(rep.representation(using: .tiff, properties: [:])).write(to: tiff)
+        XCTAssertEqual(m.textView.figureDragOperation(for: [tiff]), .copy)
+
+        await m.coordinator.beginFigureIngest([tiff], at: 0)?.value
+
+        let item = try XCTUnwrap(TreeWalk.first(in: store.manifest.research,
+                                                where: { $0.title == "Site Plan" }))
+        XCTAssertEqual(item.path, "research/site-plan.png")
+        let copied = store.url.appendingPathComponent("research/site-plan.png")
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(copied as CFURL, nil))
+        XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.png.identifier,
+                       "the copy really is a PNG")
+        XCTAssertEqual(m.textView.string, "![Caption](../research/site-plan.png){#fig:site-plan}")
+    }
+
+    func test_aPDFIsCopiedAsItIs() async throws {
+        let (store, chapter) = try await novel()
+        let m = try mount("", importer: importer(store, chapter))
+        let dir = temp.url.appendingPathComponent("outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let pdf = dir.appendingPathComponent("chart.pdf")
+        var box = CGRect(x: 0, y: 0, width: 20, height: 20)
+        let context = try XCTUnwrap(CGContext(pdf as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil); context.fill(box); context.endPDFPage(); context.closePDF()
+        XCTAssertEqual(m.textView.figureDragOperation(for: [pdf]), .copy, "a PDF drop is accepted")
+
+        await m.coordinator.beginFigureIngest([pdf], at: 0)?.value
+
+        let copied = store.url.appendingPathComponent("research/chart.pdf")
+        XCTAssertEqual(try Data(contentsOf: copied), try Data(contentsOf: pdf),
+                       "copied byte for byte")
+        XCTAssertEqual(m.textView.string, "![Caption](../research/chart.pdf){#fig:chart}")
+    }
+
     // MARK: - Paste
+
+    // MARK: - Paste: what is a picture's (fix round 1, C1)
+
+    private func privatePasteboard() -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: .init("figure-test-\(UUID().uuidString)"))
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        return pasteboard
+    }
+
+    /// Word, Pages and Excel put a PDF rendering beside copied text. The
+    /// writer copied words: the text pastes, and no figure is made.
+    func test_textWithAPDFRenderingBesideItPastesTheText() throws {
+        var asked = 0
+        let m = try mount("", importer: { _ in asked += 1; return "research/a.png" })
+        let pasteboard = privatePasteboard()
+        pasteboard.declareTypes([.string, .rtf, .pdf], owner: nil)
+        pasteboard.setString("Hello", forType: .string)
+        pasteboard.setData(Data(#"{\rtf1 Hello}"#.utf8), forType: .rtf)
+        pasteboard.setData(Data("%PDF-1.4".utf8), forType: .pdf)
+
+        XCTAssertFalse(m.coordinator.pasteFigure(from: pasteboard), "not a picture's paste")
+        XCTAssertTrue(m.textView.readSelection(from: pasteboard), "super's paste")
+        XCTAssertEqual(m.textView.string, "Hello")
+        XCTAssertNil(m.coordinator.figureIngestTask)
+        XCTAssertEqual(asked, 0)
+    }
+
+    /// A Finder copy of a non-image file carries its icon as an image too.
+    func test_aCopiedTextFileWithItsIconKeepsTodaysBehaviour() throws {
+        var asked = 0
+        let m = try mount("", importer: { _ in asked += 1; return "research/a.png" })
+        let notes = temp.url.appendingPathComponent("notes.txt")
+        try Data("x".utf8).write(to: notes)
+        let pasteboard = privatePasteboard()
+        XCTAssertTrue(pasteboard.writeObjects([notes as NSURL]))
+        pasteboard.addTypes([.tiff], owner: nil)
+        pasteboard.setData(Self.picture().tiffRepresentation, forType: .tiff)
+        XCTAssertTrue(pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
+                      "the premise: an icon image rides along")
+
+        XCTAssertFalse(m.coordinator.pasteFigure(from: pasteboard))
+        XCTAssertNil(m.coordinator.figureIngestTask)
+        XCTAssertEqual(asked, 0)
+    }
+
+    func test_aLonePNGOnThePasteboardStillMakesAFigure() async throws {
+        let m = try mount("", importer: { _ in "research/pasted.png" })
+        let pasteboard = privatePasteboard()
+        pasteboard.setData(try ImagePasteHandler.encodePNG(Self.picture()), forType: .png)
+
+        XCTAssertTrue(m.coordinator.pasteFigure(from: pasteboard))
+        await m.coordinator.figureIngestTask?.value
+        XCTAssertTrue(m.textView.string.hasPrefix("![Caption](research/pasted.png){#fig:image-"),
+                      m.textView.string)
+    }
 
     func test_aPastedImageBecomesAFigureAndNoAttachmentCharacter() async throws {
         var received: URL?
