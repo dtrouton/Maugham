@@ -106,6 +106,13 @@ struct EditorHost: View {
     /// `PendingBuffer`. Only "a newer load has started since mine" refuses that,
     /// and it is correct whichever of the two returns first.
     @State private var loads = EditorHostLoadGeneration()
+    /// **The window's reference index** (plan 3b Task 1): the project's
+    /// sources and targets, cached and rebuilt off the main thread. A plain
+    /// reference like `loads`, deliberately not observable (tripwire 6): its
+    /// redraw trigger reaches the editor one-way through
+    /// `control.referenceIndexVersion`, and the coordinator reads the value
+    /// through the `referenceIndex` provider.
+    @State private var referenceIndex = ReferenceIndexHost()
 
     /// **What a document that did not open is showing**, instead of an eternal
     /// "Loading…" (RULING-7 + RULING-54, widened by signed op log P3a Task 8).
@@ -305,6 +312,10 @@ struct EditorHost: View {
                     // A re-mount while a language is selected must restore the
                     // translated surface.
                     recomputeTranslatedSurface(doc: doc)
+                    // A document switch: the piece just left may have changed
+                    // since its last settle, so every piece is asked again
+                    // (cheaply: a closed one only when its op log moved).
+                    referenceIndex.invalidate(.all)
                 }
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
@@ -328,6 +339,12 @@ struct EditorHost: View {
         .onChange(of: currentItem?.path) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
+        // The reference index's two manifest inputs (plan 3b Task 1). Research
+        // is not text; the binder decides publishing order. Neither reads the
+        // text binding (tripwires 2, 6).
+        .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
+        .onChange(of: store.manifest.structure) { _, _ in referenceIndex.invalidate(.all) }
+        .onAppear { attachReferenceIndex() }
         .onDisappear {
             // EditorHost's `.onDisappear` fires only on document-abandonment
             // paths: leaving the manuscript/scenes/find segment (a fresh
@@ -364,6 +381,7 @@ struct EditorHost: View {
             // re-derived.
             recoveryPaneModel?.stopWatching()
             recoveryPaneModel = nil
+            referenceIndex.attach(nil)
             loadedItemId = nil
             priorLoadedPath = nil
             // And nothing in flight may bind into a host that has gone: it
@@ -404,6 +422,11 @@ struct EditorHost: View {
         // the waiting state back and the NEXT arrival tries again; a piece
         // syncing in arrives as a burst of files, not as one.
         .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
+            // A piece's op log moved (another device's sync of a closed
+            // piece, or a note): the reference index asks that piece again.
+            if let changed = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String {
+                referenceIndex.invalidate(.piece(changed))
+            }
             guard case .waitingForPiece(let waitingFor, _) = loadOutcome,
                   note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
                     == waitingFor
@@ -691,6 +714,29 @@ struct EditorHost: View {
         }
     }
 
+    /// Point the window's reference index at this project (plan 3b Task 1).
+    /// Every read is the store's own: the binder and research off the
+    /// manifest, a piece's live text when a `Document` has it open, else its
+    /// op-log-derived text behind the derived cache's token (tripwire 20), and
+    /// the default book's element words from the publish config. A new
+    /// version reaches the editor one-way, through `control`.
+    private func attachReferenceIndex() {
+        let control = control
+        referenceIndex.onVersionChange = { control.referenceIndexVersion = $0 }
+        referenceIndex.attach(ReferenceIndexHost.Project(
+            structure: { [store] in store.manifest.structure },
+            research: { [store] in store.manifest.research },
+            liveText: { [documentStore] path in documentStore.document(for: path)?.displayText },
+            token: { [url = store.url] docId in DerivedManuscriptCache.token(forDocId: docId, in: url) },
+            derivedText: { [store] docId in
+                try? store.derivedCache.displayText(forDocId: docId, in: store.url)
+            },
+            words: { [url = store.url] in
+                let config = (try? PublishConfigStore.read(in: url)) ?? nil
+                return ElementWords.forBody(config?.metadata ?? PublishConfig.Metadata())
+            }))
+    }
+
     /// Build the EditorSurface configuration wall in a dedicated function so the
     /// `body` type-checker load drops (the extracted-ViewModifier / ProjectWindow
     /// pattern). Pure packaging (hardening Task 2): every closure below is the
@@ -733,7 +779,13 @@ struct EditorHost: View {
                 },
                 onPostEditCursor: { doc.recordPostEditCursor($0) },
                 onElementChanged: onElementChanged,
-                onMetricsChanged: onMetricsChanged,
+                // The metrics edge (350 ms after typing stops, and on
+                // attach) is the open document's settle: the reference index
+                // takes its text then, never per keystroke.
+                onMetricsChanged: { [referenceIndex] metrics in
+                    onMetricsChanged?(metrics)
+                    referenceIndex.noteSettled(docId: doc.docId, text: doc.displayText)
+                },
                 onTypingRefused: doc.isReadOnlyRecovery
                     ? { recoveryBannerModel?.noteTypingRefused() }
                     : nil),
@@ -789,17 +841,15 @@ struct EditorHost: View {
                 },
                 // The labels the project's OTHER manuscripts define, for a
                 // command that mints one (Insert Table; Insert Figure, Task 6).
-                // Walked per command, never per keystroke: an open document's
-                // live text, else its op-log-derived text (tripwire 20).
-                projectLabelsElsewhere: { [store, documentStore] in
-                    ReportInsert.labelsElsewhere(
-                        in: store.manifest.structure, excluding: doc.docId
-                    ) { item, path in
-                        documentStore.document(for: path)?.displayText
-                            ?? (try? store.derivedCache.displayText(
-                                forDocId: item.id, in: store.url))
-                    }
+                // Read off the cached reference index, which holds each
+                // piece's live or op-log-derived text (tripwire 20); this
+                // document's own labels come from its live text at the command.
+                projectLabelsElsewhere: { [referenceIndex] in
+                    referenceIndex.index.labelsDefined(excluding: doc.docId)
                 },
+                // The project's sources and targets (plan 3b Task 1): the
+                // cached value, never a build.
+                referenceIndex: { [referenceIndex] in referenceIndex.index },
                 // Figures backed by research (plan 3a Task 6): Insert Figure…,
                 // an image drop and an image paste copy the picture into this
                 // document's research (R-3a-3) and hand back its path relative

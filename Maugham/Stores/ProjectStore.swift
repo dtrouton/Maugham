@@ -734,7 +734,7 @@ public final class ProjectStore {
         }
     }
 
-    static func collectDocuments(
+    nonisolated static func collectDocuments(
         in items: [StructureItem]
     ) -> [StructureItem] {
         var out: [StructureItem] = []

@@ -102,7 +102,11 @@ public final class DerivedManuscriptCache {
         lines.removeAll()
     }
 
-    static func token(forDocId docId: String, in projectURL: URL) -> Token {
+    /// The doc's op-log file-set fingerprint, without deriving anything: a
+    /// directory listing plus a stat per file. Public so a reader that keeps
+    /// its own product of a closed doc's text (the editor's reference index)
+    /// can ask "has this doc changed?" before paying for its text again.
+    public static func token(forDocId docId: String, in projectURL: URL) -> Token {
         let fm = FileManager.default
         let entries = OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
             .map { url -> Token.Entry in

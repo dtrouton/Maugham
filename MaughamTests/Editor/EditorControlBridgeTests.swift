@@ -116,4 +116,19 @@ final class EditorControlBridgeTests: XCTestCase {
         XCTAssertGreaterThan(coordinator.applyControlCount, baseline,
             "an EditorControl property change must still re-apply the control plane")
     }
+
+    /// The reference index's redraw trigger (plan 3b Task 1) is a
+    /// control-plane input: a new version reaches the coordinator, and an
+    /// unchanged one re-applies nothing new.
+    func test_referenceIndexVersionReachesTheCoordinator() async {
+        let (coordinator, _) = makeCoordinator()
+        let control = EditorControl()
+        coordinator.observeControl(control)
+        XCTAssertEqual(coordinator.referenceIndexVersion, 0)
+
+        control.referenceIndexVersion = 3
+        await settle()
+        XCTAssertEqual(coordinator.referenceIndexVersion, 3,
+                       "the version must reach the coordinator through the model")
+    }
 }

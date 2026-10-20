@@ -92,6 +92,11 @@ struct EditorSurfaceConfiguration {
         /// `tbl:`, Insert Figure's `fig:`). Asked per command, never per
         /// keystroke. Wired by `EditorHost`; nil elsewhere.
         var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)? = nil
+        /// The window's cached reference index (plan 3b Task 1,
+        /// `ReferenceIndexHost`): cheap, it returns the cached value. Its
+        /// redraw trigger is `EditorControl.referenceIndexVersion`. Wired by
+        /// `EditorHost`; nil elsewhere.
+        var referenceIndex: (() -> ReferenceIndex)? = nil
         /// Copies a picture into the document's research and returns the
         /// figure path relative to the document (plan 3a Task 6,
         /// `FigureIngest.importImage`). With it set on a surface that answers
@@ -227,6 +232,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
+        coordinator.referenceIndex = pp.referenceIndex
         coordinator.figureImporter = pp.figureImporter
         coordinator.figureFailureReporter = pp.figureFailureReporter
         coordinator.figureImageResolver = pp.figureImageResolver
@@ -486,6 +492,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         context.coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
+        context.coordinator.referenceIndex = pp.referenceIndex
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.figureFailureReporter = pp.figureFailureReporter
         context.coordinator.figureImageResolver = pp.figureImageResolver

@@ -311,9 +311,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// command that mints a label: Insert Table (`tbl:`) and Insert Figure
     /// (`fig:`, Task 6) make theirs unique against these and the live text's
     /// own, because a Report refuses a label defined twice. Built by
-    /// `EditorHost`; asked once per command, never per keystroke. Nil on every
+    /// `EditorHost` over the cached reference index (`ReferenceIndex
+    /// .labelsDefined(excluding:)`, publishable pieces only), so asking walks
+    /// no document; asked once per command, never per keystroke. Nil on every
     /// other surface.
     var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)?
+
+    /// The window's cached reference index (plan 3b Task 1): the project's
+    /// citation sources and cross-reference targets with the editor's numbers.
+    /// Returns `ReferenceIndexHost`'s cached value; it never builds one, so it
+    /// is cheap to ask, but per keystroke ask it only for this document's
+    /// markers. Built by `EditorHost`; nil on every other surface.
+    var referenceIndex: (() -> ReferenceIndex)?
+
+    /// The index version last applied from `EditorControl.referenceIndexVersion`.
+    private(set) var referenceIndexVersion = 0
 
     /// Copies a picture into this document's research and returns the figure
     /// path relative to the document (plan 3a Task 6,
@@ -1076,6 +1088,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.reviewAnnotations
             _ = control.translationLanguage
             _ = control.translationBadges
+            _ = control.referenceIndexVersion
         } onChange: { [weak self] in
             // onChange fires once (pre-change). Re-arm on the next main-actor
             // turn — after the mutation commits — so the re-applied values are
@@ -1116,6 +1129,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         setReviewAnnotations(c.reviewAnnotations)   // self-guarded
         setTranslationBadges(c.translationBadges)   // self-guarded
+        setReferenceIndexVersion(c.referenceIndexVersion)   // self-guarded
+    }
+
+    /// The reference index changed (a new version arrived through
+    /// `EditorControl`). Self-guarded (D2). What the editor draws from the
+    /// index repaints from here (Task 6); the index itself is re-read through
+    /// `referenceIndex`, never pushed.
+    func setReferenceIndexVersion(_ version: Int) {
+        guard version != referenceIndexVersion else { return }
+        referenceIndexVersion = version
     }
 
     // MARK: - NSTextViewDelegate

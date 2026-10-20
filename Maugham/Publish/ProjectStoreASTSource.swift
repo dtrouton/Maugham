@@ -84,7 +84,17 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// Reading it costs a walk of the manifest's structure and nothing else: no
     /// op log, no derived cache, no disk.
     public func publishablePieces() -> [StructureItem] {
-        ProjectStore.collectDocuments(in: projectStore.manifest.structure)
+        Self.publishablePieces(in: projectStore.manifest.structure)
+    }
+
+    /// **The rule itself**, over any structure: every document in binder
+    /// order (depth first) that has a path and is not a reference piece.
+    /// Screenplays are in; they print no figure, table or citation. Pure and
+    /// nonisolated, so the editor's `ReferenceIndex` numbers figures and
+    /// tables over exactly these pieces, off the main thread, rather than
+    /// over a second copy of the rule.
+    public nonisolated static func publishablePieces(in structure: [StructureItem]) -> [StructureItem] {
+        ProjectStore.collectDocuments(in: structure)
             .filter { $0.pieceKind != .reference && $0.path != nil }
     }
 

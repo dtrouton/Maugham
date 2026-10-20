@@ -63,20 +63,17 @@ enum ReportInsert {
         Set(ManuscriptBlocks.parse(text).compactMap { label(of: $0.block) })
     }
 
-    /// The labels every manuscript document in `structure` defines except
-    /// `docId`'s, each read through `text` (the host's live-or-derived
-    /// display text; nil skips it). Screenplays define none and are skipped.
-    /// The walk `EditorHost` runs per command for `projectLabelsElsewhere`.
+    /// The labels every publishable manuscript piece in `structure` defines
+    /// except `docId`'s, each read through `text` (live-or-derived display
+    /// text; nil skips it). Screenplays and reference pieces define none here.
+    /// A thin reading of `ReferenceIndex.labelsDefined(excluding:)`, which is
+    /// what `EditorHost`'s `projectLabelsElsewhere` asks of the cached index.
     static func labelsElsewhere(in structure: [StructureItem], excluding docId: String,
                                 text: (StructureItem, String) -> String?) -> Set<ManuscriptLabel> {
-        var labels = Set<ManuscriptLabel>()
-        for item in TreeWalk.collect(in: structure, where: { $0.type == .document }) {
-            guard item.id != docId, let path = item.path,
-                  !DocumentFormat.ofManuscript(path: path).isScreenplay,
-                  let body = text(item, path) else { continue }
-            labels.formUnion(definedLabels(in: body))
-        }
-        return labels
+        ReferenceIndex.build(structure: structure, research: [],
+                             text: { item in item.path.flatMap { text(item, $0) } },
+                             words: .english)
+            .labelsDefined(excluding: docId)
     }
 
     /// Insert Table at `location`, as one edit. Mid-line, the table splits the

@@ -137,3 +137,12 @@ Cut from `Maugham/Views/AREA.md` to make room for the publish problems arm; the 
 Cut from `Maugham/Views/AREA.md` to make room for `InsertMenuGate` on the Map.
 
 - `TreeScrollProbe`'s Map line: "a diagnostic for the "tree scrolls on a pass swap" report; not a feature."
+
+## Moved from the guide by report foundations plan 3b, Task 1 (2026-10-21)
+
+Cut from `Maugham/Views/AREA.md` to make room for `ReferenceIndexHost` on the Map; the rule each qualified is still in the guide.
+
+- The altitude-branch bullet's list of what `EditorHost`'s `.onDisappear` does: "(`doc.close()`, `unregister(path:)`, `loads.abandon()`)" — it now also detaches the reference index, so the list was going stale.
+- `ScreenplayScriptSource`'s bullet: "from one `.task(id:)` on `binderColumn`".
+- The derived-subject bullet: "an empty write moves nothing."
+- The persona-publishing bullet's last sentence was shortened from "The value is a title only" to "A title only".
