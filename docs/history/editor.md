@@ -132,6 +132,15 @@ command), which is what keeps this out of the binding contract above. It is
 a sheet, not a popover (tripwire 7). `TranslatorsNoteTests` drives the whole
 act at the op log.
 
+## Resolved labels and problem underlines (report foundations plan 3b, 2026-10-21)
+
+- **Why beneath, not after.** R-3b-1 put the faint "(Gartner 2026)", "Figure 3" or footnote number in the line-spacing gap beneath the end of its raw marker: drawn "after" it, it would land on the next word, since no room can be reserved without glyph tricks (tripwires 1, 26) or a paint input that reflows lines. The label is drawn at about 0.65× the body size (9 pt at least) in the marker's own colour, faint, its alpha carrying the focus dim.
+- **The fit rule.** The label's ink (cap height down to its descender) must fit the paragraph's `lineSpacing`; paragraph spacing is never counted, because a figure line's spacing holds its thumbnail. At the default 17 pt and 1.7 it fits; at a tight spacing the label shows only while the caret is in the marker or the pointer is over it, as a tag above the line. Two labels that would collide on one line: the later gives way.
+- **Footnote numbers are this document's.** The editor can't see the whole book's footnote count, so a footnote reference's label is its number in this document, in publishing's per-piece order (references in the text first, then those inside the definitions they reach, to a fixed point). The PDF's numbers run on across pieces and will differ after the first piece.
+- **Why the checks wait for a built index.** `ReferenceIndexHost` publishes its first build even when it is empty, so a host at version 0 has built nothing yet; the unknown-key, dangling-reference and defined-elsewhere checks skip until then rather than marking every marker for the moment after a window opens. The footnote checks and a label defined twice in the document need only the document.
+- **Known lag.** The index rebuilds on the metrics edge, after the 300 ms settle: a label just added in this document and referenced at once can show a dangling-reference underline for one rebuild, and a figure's thumbnail can briefly disagree with its reserved space during a burst. Both heal themselves.
+- **No list in the editor.** R-3b-4 kept the publishing desk's problems list as the list; the editor marks problems in place and says each one on hover, in the desk's words.
+
 ## What to read before editing
 
 - For prose tokenization changes: `Tokenizer/` and the prose path in `EditorCoordinator.applyStyles`.

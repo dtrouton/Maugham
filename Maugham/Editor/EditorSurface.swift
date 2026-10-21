@@ -97,6 +97,10 @@ struct EditorSurfaceConfiguration {
         /// redraw trigger is `EditorControl.referenceIndexVersion`. Wired by
         /// `EditorHost`; nil elsewhere.
         var referenceIndex: (() -> ReferenceIndex)? = nil
+        /// The project's profile, which colours a problem underline red or
+        /// amber (plan 3b Task 6, `PublishProblem.isError`). Asked at each
+        /// check, never per keystroke. Wired by `EditorHost`; nil elsewhere.
+        var projectProfile: (() -> ProjectProfile?)? = nil
         /// Copies a picture into the document's research and returns the
         /// figure path relative to the document (plan 3a Task 6,
         /// `FigureIngest.importImage`). With it set on a surface that answers
@@ -240,6 +244,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         coordinator.referenceIndex = pp.referenceIndex
+        coordinator.projectProfile = pp.projectProfile
         coordinator.figureImporter = pp.figureImporter
         coordinator.commandFailureReporter = pp.commandFailureReporter
         coordinator.tableEditor = pp.tableEditor
@@ -511,6 +516,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         context.coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         context.coordinator.referenceIndex = pp.referenceIndex
+        context.coordinator.projectProfile = pp.projectProfile
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
         context.coordinator.tableEditor = pp.tableEditor
@@ -940,6 +946,8 @@ final class MaughamTextView: NSTextView {
 
         // Re-frame the figure-thumbnail overlay (covers the view) too.
         coordinator?.layoutFigureThumbnailOverlay(in: self)
+        // And the label overlay, with the problem tooltips on a new width.
+        coordinator?.layoutReferenceLabelOverlay(in: self)
     }
 
     func installGutter(coordinator: EditorCoordinator) {

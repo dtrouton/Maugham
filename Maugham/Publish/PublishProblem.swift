@@ -68,6 +68,12 @@ public struct PublishProblem: Sendable, Hashable {
     /// versioned compile; in every other project nothing does, so a novel that
     /// happens to contain `[@sarah]` still compiles.
     public func isError(profile: ProjectProfile?) -> Bool {
+        Self.isError(kind, profile: profile)
+    }
+
+    /// The severity table itself, for a caller holding a kind and no piece:
+    /// the editor's problem underlines (plan 3b Task 6, R-3b-4) colour by it.
+    public static func isError(_ kind: Kind, profile: ProjectProfile?) -> Bool {
         let isReport: Bool
         switch profile {
         case .report: isReport = true
@@ -90,7 +96,10 @@ public struct PublishProblem: Sendable, Hashable {
         return prefix + Self.sentence(for: kind)
     }
 
-    private static func sentence(for kind: Kind) -> String {
+    /// The sentence for `kind`, with no body tag: what `message` says, and
+    /// what the editor's problem underline says on hover (R-3b-4), so the
+    /// editor and the publishing desk say the same thing.
+    static func sentence(for kind: Kind) -> String {
         switch kind {
         case .unresolvedCrossRef(let label):
             return "No \(element(label.kind)) is labelled \(label.reference)."

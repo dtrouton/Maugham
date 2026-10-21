@@ -117,15 +117,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             tokensDescribeAnEarlierText = false
             var tables: [NSRange] = []
             var figures = false
+            var markers: [NSRange] = []
             for token in lastTokens {
                 switch token.kind {
                 case .tableBlock: tables.append(token.range)
                 case .figureSyntax: figures = true
+                case .citation, .crossReference, .footnoteReference: markers.append(token.range)
                 default: break
                 }
             }
             tableBlockRanges = tables.sorted { $0.location < $1.location }
             hasFigureLines = figures
+            referenceMarkerTokens = markers.sorted { $0.location < $1.location }
             figureThumbnailTokensDidChange()
         }
     }
@@ -134,6 +137,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private(set) var tableBlockRanges: [NSRange] = []
     /// Whether `lastTokens` holds any figure line (derived with them).
     private(set) var hasFigureLines = false
+    /// The citation, cross-reference and footnote-reference token ranges in
+    /// `lastTokens`, sorted (derived with them): what the label overlay looks
+    /// up the visible range in (plan 3b Task 6).
+    private(set) var referenceMarkerTokens: [NSRange] = []
 
     /// True from a character edit to the text storage until the retokenize
     /// that follows it: `lastTokens` then describe the text BEFORE the edit,
@@ -332,6 +339,29 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// The index version last applied from `EditorControl.referenceIndexVersion`.
     private(set) var referenceIndexVersion = 0
+
+    // MARK: Labels and problem marks (plan 3b Task 6, `ReferenceLabelOverlay.swift`, `ManuscriptChecks.swift`)
+
+    /// The project's profile, which decides a problem mark's colour
+    /// (`PublishProblem.isError`). Asked at each check, never per keystroke.
+    /// Built by `EditorHost`; nil elsewhere.
+    var projectProfile: (() -> ProjectProfile?)?
+    /// The label overlay, installed by `syncReferenceLabelOverlay`.
+    weak var referenceLabelOverlay: ReferenceLabelOverlay?
+    /// Each footnote's number in this document, from the last check (keyed
+    /// by label, so it never drifts while a burst is typed).
+    var footnoteNumbers: [String: Int] = [:] {
+        didSet { referenceLabelOverlay?.needsDisplay = true }
+    }
+    /// The marker groups of each block the label overlay has read, keyed by
+    /// the block's text (bounded).
+    var referenceGroupCache: [String: [ManuscriptChecks.Group]] = [:]
+    /// The problems the last check found, underlined.
+    var problemMarks: [ManuscriptChecks.Problem] = []
+    /// How many times the checks have run (the settle test's counter).
+    var problemCheckCount = 0
+    /// The problem underlines' tooltips and their owner.
+    var problemTooltips: ProblemTooltips?
 
     // MARK: The completion list (plan 3b Task 2, `EditorCoordinator+Completion.swift`)
 
@@ -863,6 +893,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         retokenizeAndStyle()
         // The figure thumbnails (plan 3a Task 7), on a surface that shows them.
         syncFigureThumbnailOverlay()
+        // The resolved labels (plan 3b Task 6), above the thumbnails.
+        syncReferenceLabelOverlay()
         if let location = initialCursorLocation {
             let length = (textView.string as NSString).length
             let clamped = max(0, min(location, length))
@@ -908,6 +940,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         tableGridTask?.cancel(); tableGridTask = nil
         tableTidy.cancelPending()
         figureThumbnailStore?.cancelAll()
+        problemTooltips?.removeAll(from: textView)
         closeCompletion()
         disarmCompletionObservers()
         // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
@@ -1222,6 +1255,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func setReferenceIndexVersion(_ version: Int) {
         guard version != referenceIndexVersion else { return }
         referenceIndexVersion = version
+        // Temporaries and the visible labels only, never a restyle (D1).
+        refreshProblemMarks()
+        referenceLabelOverlay?.needsDisplay = true
     }
 
     // MARK: - NSTextViewDelegate

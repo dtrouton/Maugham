@@ -22,7 +22,8 @@ import MaughamCore
 /// came from, so the background build re-parses only a piece whose text
 /// changed. The build runs in a detached task; the result is published back on
 /// the main actor, and the version bumps only when the sources or targets
-/// actually changed, which is when `onVersionChange` fires.
+/// actually changed (or on the first build, even of an empty project), which is
+/// when `onVersionChange` fires.
 @MainActor
 final class ReferenceIndexHost {
 
@@ -92,6 +93,8 @@ final class ReferenceIndexHost {
     /// Bumped by `attach`, so a drain started for an earlier project neither
     /// publishes into the new one nor clears the new drain's `building`.
     private var generation = 0
+    /// Whether any build has published yet.
+    private var hasPublished = false
 
     init(builder: @escaping Builder = ReferenceIndexHost.build) {
         self.builder = builder
@@ -160,7 +163,11 @@ final class ReferenceIndexHost {
     }
 
     private func publish(_ built: ReferenceIndex) {
-        guard !built.hasSameContents(as: index) else { return }
+        // The first build always publishes, even an empty one, so version 0
+        // means "not built yet": the editor's problem marks wait for it
+        // rather than calling every key unknown (plan 3b Task 6).
+        guard !hasPublished || !built.hasSameContents(as: index) else { return }
+        hasPublished = true
         index = built.versioned(index.version + 1)
         onVersionChange?(index.version)
     }

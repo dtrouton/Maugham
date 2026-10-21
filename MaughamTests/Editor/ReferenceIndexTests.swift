@@ -309,6 +309,22 @@ final class ReferenceIndexTests: XCTestCase {
         XCTAssertEqual(host.index.version, 1, "the result is published back")
     }
 
+    /// The first build publishes even when it finds nothing, so version 0
+    /// means "not built yet" (plan 3b Task 6: the problem marks wait for it
+    /// rather than call every key unknown). A second empty build bumps nothing.
+    func test_theFirstBuildPublishesEvenAnEmptyIndex() async {
+        let host = ReferenceIndexHost()
+        var versions: [Int] = []
+        host.onVersionChange = { versions.append($0) }
+        // No piece and no source: the build equals `.empty` in every field.
+        host.attach(project(texts: { [:] }, structure: []))
+        await host.idle()
+        XCTAssertEqual(host.index.version, 1)
+        host.invalidate(.all)
+        await host.idle()
+        XCTAssertEqual(versions, [1])
+    }
+
     /// A re-attach while a build for the old project is still in flight:
     /// the old build publishes nothing, and the new one is not orphaned.
     func test_aReattachMidBuildPublishesOnlyTheNewProject() async {

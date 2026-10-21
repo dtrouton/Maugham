@@ -192,6 +192,9 @@ extension EditorCoordinator {
             // Re-baseline the live (screenplay) windowed path against the freshly
             // repainted whole-doc text so its next keystroke diffs correctly.
             liveRestyleBaseline = text
+            // The problem marks (plan 3b Task 6): a whole-document paint is
+            // not a keystroke, so they are checked here as at the settle.
+            refreshProblemMarks()
         }
         // Fire element callback: text edits can reclassify the line under the
         // cursor without moving the selection, so we must fire here too (not
@@ -284,6 +287,9 @@ extension EditorCoordinator {
     /// `Maugham/Editor/AREA.md`, Rules → "Restyle, scroll and typewriter").
     private func performDeferredRestyle() {
         guard let textView, let storage = textView.textStorage else { return }
+        // The settle edge is where the problem marks are checked (plan 3b
+        // Task 6, R-3b-4): once per burst, never per keystroke.
+        defer { refreshProblemMarks() }
         let baseline = burstBaselineText
         burstBaselineText = nil
         let selection = textView.selectedRange()

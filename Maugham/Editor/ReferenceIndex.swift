@@ -70,7 +70,8 @@ struct ReferenceIndex: Equatable, Sendable {
     /// target: publishing reports both and registers neither.
     let targets: [Target]
     /// Bumps when `sources` or `targets` change (`ReferenceIndexHost`); a
-    /// freshly built index is version 0.
+    /// freshly built index is version 0, and the host publishes its first
+    /// build as 1 at least, so a host's version 0 means "not built yet".
     let version: Int
 
     /// Every label each piece DEFINES, whatever its kind and however often —

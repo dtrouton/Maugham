@@ -860,6 +860,9 @@ struct EditorHost: View {
                 // The project's sources and targets (plan 3b Task 1): the
                 // cached value, never a build.
                 referenceIndex: { [referenceIndex] in referenceIndex.index },
+                // The profile colours a problem underline (plan 3b Task 6):
+                // red for what a Report refuses to publish on, amber otherwise.
+                projectProfile: { [store] in store.manifest.profile },
                 // Figures backed by research (plan 3a Task 6): Insert Figure…,
                 // an image drop and an image paste copy the picture into this
                 // document's research (R-3a-3) and hand back its path relative
