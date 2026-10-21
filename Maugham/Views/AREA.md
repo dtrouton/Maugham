@@ -177,7 +177,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `SetAsideDoor.swift` — the one way a set-aside paragraph comes back.
 - `PieceWriters.swift` — whose piece is whose.
 - `PostureStandingLine.swift` — the editor's standing line.
-- `ProjectSettingsSheet.swift` — Project Settings: Coach, First reader, Review Passes, People & Devices; `StrandedPieces`.
+- `ProjectSettingsSheet.swift`, `ReportSettingsSection.swift` — Project Settings: Coach, First reader, Review Passes, People & Devices, Report; `StrandedPieces`.
 
 ### Statistics (`statistics/`) and other windows
 - `ProjectStatisticsWindow.swift` — the Statistics window, a `.reader` borrow.

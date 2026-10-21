@@ -114,14 +114,24 @@ struct ProjectSettingsSheet: View {
 
             Form {
                 Section("Typography") {
-                    Picker("Source", selection: $useDefaults) {
+                    // **The writer's choice, never the seeding** (report plan 4,
+                    // Task 8). This was an `onChange(of: useDefaults)`, which
+                    // also fired when `initializeDraft` seeded `false` from a
+                    // book's own typography as the sheet appeared — so merely
+                    // opening Settings replaced that override with the user's
+                    // defaults and wrote the manifest. The setter runs only on
+                    // a pick (`ReportSettingsSectionTests`).
+                    Picker("Source", selection: Binding(
+                        get: { useDefaults },
+                        set: { newValue in
+                            guard newValue != useDefaults else { return }
+                            useDefaults = newValue
+                            Task { await applyDefaultsToggle(newValue) }
+                        })) {
                         Text("Use my defaults").tag(true)
                         Text("Customize for this project").tag(false)
                     }
                     .pickerStyle(.radioGroup)
-                    .onChange(of: useDefaults) { _, newValue in
-                        Task { await applyDefaultsToggle(newValue) }
-                    }
 
                     if !useDefaults {
                         Picker("Font", selection: Binding(
@@ -153,6 +163,9 @@ struct ProjectSettingsSheet: View {
                 }
 
                 screenplaySection()
+                // The Report profile and its switches (report plan 4, R-4-7);
+                // absent for a screenplay. Writes only when the writer acts.
+                ReportSettingsSection(store: store)
                 coachSection()
                 firstReaderSection()
                 if let peopleAndDevices {
