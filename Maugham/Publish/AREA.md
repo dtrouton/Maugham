@@ -45,6 +45,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `PDFCompiler.swift` — the PDF compile through tectonic, under the `MaughamBody` wrapper per body; stages the bodies `PublishProblemGate.resolve` resolved (`prepare(resolution:…)`; a figure that won't open is a problem) into `build/figures/`, and adds graphicx/longtable to `build/metadata.tex` for a book that needs them.
 - `EPUBCompiler.swift` — the EPUB compile, one sectioned XHTML per body; names the images of the bodies `PublishProblemGate.resolve` resolved (`prepare(resolution:)`), builds the label hrefs, a References file per citing body and the nav's lists.
 - `EPUBPackage.swift`, `EPUBOPFWriter.swift`, `EPUBContainerWriter.swift`, `EPUBZipPackager.swift` — the EPUB model, its OPF, `container.xml` and the zip; figure images are copied into `OEBPS/images/` at packaging.
+- `ZipArchive.swift` — a Swift zip writer (stored or raw DEFLATE, deterministic, no spawn) and reader (CRC-checked; refuses ZIP64, encryption and path-escaping names); the DOCX packager writes with it and reads a writer's `reference.docx`.
 - `OutputFilenameBuilder.swift` — `{title}-v{version}{label_suffix}.{ext}` and title sanitising, shared by both compilers.
 - `PublishMintGate.swift` — refuses a second concurrent compile of the same edition key, per project.
 - `PublishingStores.swift` — the per-project bundle: `CompileJobManager`, catalogue, snapshots, `mintGate`.
