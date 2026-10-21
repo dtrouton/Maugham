@@ -58,7 +58,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.
 - `TreeSectionDerivation.swift` — pure derivations: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
-- `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (the `route…Drop` family, e.g. `routeExternalDrop`).
+- `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (the `route…Drop` family).
 - `DropIntent.swift` — top/middle/bottom drop position → structural action.
 - `DropClassification.swift` — one dropped `NSItemProvider`: file URL over image data.
 - `ResearchTree.swift` — the recursive research node (`ResearchTreeNode`, `ResearchTreeActions`, `ResearchSelectionSync`).
@@ -94,6 +94,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ReferencePlaceholderCard.swift` — the centre's placeholder for a Collection's reference piece.
 - `EditorStatusFooter.swift` — the status row under the editor.
 - `ReferenceIndexHost.swift` — the window's cached `ReferenceIndex`, rebuilt off the main thread; `EditorHost` owns it.
+- `TableGridEditor.swift` — Edit Table…'s grid sheet over a pure `TableGridModel`, and the presenter `EditorHost` awaits.
 - `StatusSwatch.swift` — the one place a `ReviewStatus` becomes a `Color`.
 
 ### The right column's panes
@@ -237,7 +238,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Publish's surfaces and Review's board compose `subjectShowsAltitude`, never a second document-resolution rule**: a chapter subject in Publish or Review shows the editor. The one exception is a translation round, which draws over its chapter too.
 - **Problems outrank a round, which outranks a proposal, which outranks the book** (`publishCentre`); the desk's Shows clear each other, so the centre holds one.
 - **`showsStatusFooter` refuses under altitude, the palette wall and a research subject in the centre**; Publish needs no clause of its own because its cover only covers altitude (`PublishPreviewCentreTests.test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`).
-- **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed, so the mounted editor always wins. It derives from the op log (the live `Document`, or `derivedCache` for a closed doc), never the `.fountain` (tripwire 20) (`ScreenplayScriptSourceTests`).
+- **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed, so the mounted editor always wins. It derives from the op log, never the `.fountain` (tripwire 20) (`ScreenplayScriptSourceTests`).
 
 ### Personas
 - **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — the centre question is `centresTheCanvas` / `showsManuscriptDocuments`, the wall `showsPaletteWall`, Exports `showsExports`, Publish `previewsThePublishedBook`, Review's read-only centre `editsResearchInTheCentre`: `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
@@ -246,7 +247,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
 - **The window publishes its persona to the menu bar from `PersonaModifier.body` alone** (`.focusedSceneValue(\.persona, …)`, read by `MaughamApp`'s run items): `RunMenuTitlesTests.test_theWindowPublishesItsPersonaFromThePersonaModifierAlone`. A title only ([ADR 0031](../../docs/adr/0031-the-persona-is-an-input-to-the-run.md)).
-- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author; a `.project`-scoped navigate may move a background window. Every navigation receiver routes through it; count the array in `ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`, never a number in prose.
+- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author. Every navigation receiver routes through it; count the array in `ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`, never a number in prose.
 - **A double-click on a tree row travels to Author only where the centre is the canvas** (`TreeTravel.treeTravelDestination`), through `applyPersonaChange`, never `ManuscriptNavigation`. It posts `.maughamTreeTravel` with the row's own tag, never `state.selection`. The rows it reaches are `TreeTravelGestureAttachmentTests.expectations`.
 
 ### The subject and the tree
@@ -260,7 +261,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Tree furniture
 - **Mounting the sections takes both halves**: the rows inside the host's `List`, and the presentations (sheets, alert, deferred rename) outside it via `.binderTreeSections(…)`, because a sheet on a lazy row is presented from a view the list may unmount: `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections`.
-- **Every tree sheet mounts from `BinderTreeSectionsPresentations`, never from a row**; a row only sets state (e.g. `linkPickerDocumentId`).
+- **Every tree sheet mounts from `BinderTreeSectionsPresentations`, never from a row**; a row only sets state.
 - **Every row acts through the one `BinderTreeVerbs` value**, including a fold's; `perform` surfaces a store failure in the shared alert, never `try?`.
 - **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`); `refuseDrop` returns `false` and logs why.
 - **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**: it answers the row the tree can now show (the shared row, or the owning piece's row for a piece-scoped note).

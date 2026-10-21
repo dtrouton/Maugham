@@ -188,6 +188,13 @@ extension EditorCoordinator {
         answersInsertCommands && figureImporter != nil && !isDetached
     }
 
+    /// Whether this editor opens the table grid (plan 3b Task 5,
+    /// `EditorCoordinator+Tables.swift`): a manuscript surface whose host
+    /// presents the sheet (`tableEditor`).
+    var answersTableGrid: Bool {
+        answersInsertCommands && tableEditor != nil && !isDetached
+    }
+
     /// Insert ▸ Table (⌘⇧T, R-3a-5): a 3-column table on a block of its own
     /// at the caret (after the selection), its first header cell selected.
     func insertTable() {

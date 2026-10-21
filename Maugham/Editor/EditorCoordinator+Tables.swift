@@ -344,3 +344,159 @@ extension EditorCoordinator {
         tableTidy.anchor = tableBlockRange(containing: textView.selectedRange().location)?.location
     }
 }
+
+// MARK: - The grid editor (plan 3b Task 5)
+
+/// What the table grid editor opens on (`EditorCoordinator.tableEditor`).
+struct TableGridRequest: Equatable {
+    /// The table as it stands in the text.
+    let table: TableText
+    /// The labels already taken: the project's other manuscripts' and this
+    /// document's own, except this table's — a new label must be none of them.
+    let takenLabels: Set<ManuscriptLabel>
+    /// Whether the editor may write now (`commandMayWrite`). Read-only, the
+    /// grid opens to be read and Save is disabled; the save is refused anyway.
+    let mayWrite: Bool
+}
+
+/// Carries the start of the table being edited through every edit to the
+/// text storage while the grid sheet is open, the way `FigureAnchorTracker`
+/// carries a figure's point (`TableTidyState.shifted`): an edit before the
+/// table shifts it, one at or after its start leaves it, one that replaced the
+/// start forgets it (nil).
+@MainActor
+final class TableAnchorTracker {
+    private(set) var anchor: Int?
+    private var token: NSObjectProtocol?
+
+    init(anchor: Int, storage: NSTextStorage) {
+        self.anchor = anchor
+        token = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+        ) { [weak self] note in
+            guard let storage = note.object as? NSTextStorage,
+                  storage.editedMask.contains(.editedCharacters) else { return }
+            let range = storage.editedRange, delta = storage.changeInLength
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.anchor = TableTidyState.shifted(self.anchor, editedRange: range, delta: delta)
+            }
+        }
+    }
+
+    func stop() {
+        if let token { NotificationCenter.default.removeObserver(token) }
+        token = nil
+    }
+}
+
+// EditorCoordinator — the table grid editor (plan 3b Task 5, R-3b-3): Edit
+// Table… (⌘⌥⇧T) and a double-click on a table's delimiter row open a SwiftUI
+// sheet the host presents (`tableEditor`); its Save lands as one Route A edit.
+extension EditorCoordinator {
+    /// What the writer is told when the table changed while the grid was open.
+    static let tableChangedWhileEditingMessage = "The table changed while you were editing it"
+
+    /// Edit Table…: the grid on the table holding `location` (the caret when
+    /// nil). Outside a table, on a surface with no grid, or while an input
+    /// method is composing, nothing happens (returns nil). Read-only, the grid
+    /// opens with Save disabled.
+    ///
+    /// The table's start is carried through every edit while the sheet is up
+    /// (`TableAnchorTracker`); the save re-reads the table there and writes
+    /// only if it is exactly the text the sheet opened on
+    /// (`saveEditedTable`). The returned task ends when the sheet has closed
+    /// and the save, if any, has landed.
+    @discardableResult
+    func editTable(at location: Int? = nil) -> Task<Void, Never>? {
+        guard answersTableGrid, let textView, let storage = textView.textStorage,
+              let editor = tableEditor, !textView.hasMarkedText(), !tokensDescribeAnEarlierText
+        else { return nil }
+        let at = location ?? textView.selectedRange().location
+        let ns = textView.string as NSString
+        guard let range = tableBlockRange(containing: at), NSMaxRange(range) <= ns.length else {
+            return nil
+        }
+        let block = ns.substring(with: range)
+        guard let table = TableText(parsing: block) else { return nil }
+        closeCompletion()
+        let request = TableGridRequest(table: table,
+                                       takenLabels: labelsTaken(besidesTableAt: range, in: ns),
+                                       mayWrite: commandMayWrite)
+        let tracker = TableAnchorTracker(anchor: range.location, storage: storage)
+        let task = Task { @MainActor [weak self] in
+            let edited = await editor(request)
+            tracker.stop()
+            guard let edited, let self else { return }
+            self.saveEditedTable(edited, replacing: block, at: tracker.anchor)
+        }
+        tableGridTask = task
+        return task
+    }
+
+    /// The double-click route (`MaughamTextView.mouseDown`, R-3b-3): a
+    /// double-click on a table's delimiter row opens the grid and is handled
+    /// (true); anywhere else — inside a cell, where a double-click selects a
+    /// word — it is not (false), and AppKit's word selection runs.
+    func editTableOnDelimiterRow(atCharacterIndex index: Int) -> Bool {
+        guard answersTableGrid, let range = tableDelimiterRowHit(atCharacterIndex: index)
+        else { return false }
+        editTable(at: range.location)
+        return true
+    }
+
+    /// The table whose delimiter row (`|---|`, the line under the header)
+    /// holds `index`, or nil. Pure over the text and the tokens.
+    func tableDelimiterRowHit(atCharacterIndex index: Int) -> NSRange? {
+        guard let textView, !tokensDescribeAnEarlierText,
+              let range = tableBlockRange(containing: index) else { return nil }
+        let ns = textView.string as NSString
+        guard NSMaxRange(range) <= ns.length else { return nil }
+        let header = ns.lineRange(for: NSRange(location: range.location, length: 0))
+        let delimiterStart = NSMaxRange(header)
+        guard delimiterStart < NSMaxRange(range) else { return nil }
+        var delimiterEnd = delimiterStart
+        while delimiterEnd < NSMaxRange(range), ns.character(at: delimiterEnd) != 0x0A { delimiterEnd += 1 }
+        return index >= delimiterStart && index <= delimiterEnd ? range : nil
+    }
+
+    /// The grid's Save. Refused, writing nothing, when the membrane refuses
+    /// (a read-only posture) — and, telling the writer
+    /// (`tableChangedWhileEditingMessage`), when the table is not exactly
+    /// `original` at `anchor` any more: an edit inside it, a sync re-render
+    /// or a tidy while the sheet was open, or its start replaced (`anchor`
+    /// nil). Otherwise one Route A edit (one ⌘Z step) writes
+    /// `edited.formatted()`, the caret at its first cell.
+    @discardableResult
+    func saveEditedTable(_ edited: TableText, replacing original: String, at anchor: Int?) -> Bool {
+        guard !isDetached, let textView, commandMayWrite else { return false }
+        let ns = textView.string as NSString
+        guard let anchor, !tokensDescribeAnEarlierText,
+              let range = tableBlockRange(containing: anchor), range.location == anchor,
+              NSMaxRange(range) <= ns.length, ns.substring(with: range) == original
+        else {
+            commandFailureReporter?(Self.tableChangedWhileEditingMessage)
+            return false
+        }
+        let formatted = edited.formatted()
+        let caret = range.location + TableText.offset(ofCell: 0, 0, in: formatted)
+        tableTidy.isApplying = true
+        defer { tableTidy.isApplying = false }
+        let applied = applyCommandEdit(replacing: range, with: formatted,
+                                       selecting: NSRange(location: caret, length: 0),
+                                       actionName: "Edit Table", landing: .immediate)
+        tableTidy.cancelPending()
+        if applied { tableTidy.anchor = range.location }
+        return applied
+    }
+
+    /// The labels a label set in the grid must not repeat: the project's
+    /// other manuscripts' (`projectLabelsElsewhere`) and this document's own,
+    /// read from its live text with the edited table taken out — so the
+    /// table's own label is free, and a second table already sharing it is
+    /// not.
+    private func labelsTaken(besidesTableAt range: NSRange, in text: NSString) -> Set<ManuscriptLabel> {
+        let without = text.replacingCharacters(in: range, with: "")
+        return (projectLabelsElsewhere?() ?? []).union(ReportInsert.definedLabels(in: without))
+    }
+}

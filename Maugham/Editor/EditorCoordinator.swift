@@ -301,6 +301,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Cross-Reference… (⌘⇧X, Task 4), gated the same way.
     private var insertCitationObserver: NSObjectProtocol?
     private var insertCrossReferenceObserver: NSObjectProtocol?
+    /// Insert ▸ Edit Table… (⌘⌥⇧T, plan 3b Task 5), gated the same way.
+    private var editTableObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -361,9 +363,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// surface, which is what keeps their drop and paste unchanged.
     var figureImporter: (@MainActor (URL) async throws -> String)?
 
-    /// Where a figure that could not be made is told — the host's notice
-    /// banner, the channel the editor's other failures use.
-    var figureFailureReporter: (@MainActor (String) -> Void)?
+    /// Where a command that could not finish is told — a figure that could
+    /// not be made, a table grid save refused — the host's notice banner, the
+    /// channel the editor's other failures use.
+    var commandFailureReporter: (@MainActor (String) -> Void)?
+
+    /// Presents the table grid editor and returns the edited table, nil on
+    /// Cancel (plan 3b Task 5). Built by `EditorHost`; nil on every other
+    /// surface, where Edit Table… and the delimiter-row double-click do nothing.
+    var tableEditor: (@MainActor (TableGridRequest) async -> TableText?)?
+    /// The most recent table grid session, so a caller (a test) can await its
+    /// save instead of polling.
+    var tableGridTask: Task<Void, Never>?
 
     /// The most recent figure ingest, so a caller (a test) can await it
     /// instead of polling.
@@ -581,9 +592,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
     /// `maughamExitTranslationReview`, and the Insert menu's
     /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
-    /// `maughamInsertCitation` and `maughamInsertCrossReference` (which also ask
-    /// `answersInsertCommands`) — count the `MaughamEvent.observe` calls rather
-    /// than this sentence.
+    /// `maughamInsertCitation`, `maughamInsertCrossReference` and
+    /// `maughamEditTable` (which also ask `answersInsertCommands`) — count the
+    /// `MaughamEvent.observe` calls rather than this sentence.
     ///
     /// True for every editor that IS the window's manuscript surface, which is
     /// every one there has ever been. M1A's statement panes are the first case
@@ -755,6 +766,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.insertCrossReference()
         }
+        editTableObserver = MaughamEvent.observe(
+            .maughamEditTable,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.editTable()
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -801,6 +818,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertCrossReferenceObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = editTableObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = storageEditObserver {
@@ -895,14 +915,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                       annotationNavigateObserver, reviewToggleObserver,
                       translationEnterObserver, translationExitObserver,
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
-                      insertCitationObserver, insertCrossReferenceObserver] {
+                      insertCitationObserver, insertCrossReferenceObserver, editTableObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
-        insertCitationObserver = nil; insertCrossReferenceObserver = nil
+        insertCitationObserver = nil; insertCrossReferenceObserver = nil; editTableObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
         storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is

@@ -56,9 +56,9 @@ public struct TableText: Equatable, Sendable {
     /// The table with column-aligned pipes: every row `| cell | cell |`, each
     /// cell left-justified and padded to its column's width (at least 3, so
     /// `:-:` fits); the delimiter row written from `alignments` (`:--`, `:-:`,
-    /// `--:`, `---`); a `|` in a cell escaped `\|`; then the caption line,
-    /// `Table: caption {#tbl:x}`. Never a blank line, so the table stays one
-    /// op-log paragraph.
+    /// `--:`, `---`); a `|` in a cell escaped `\|` and a line break written as a
+    /// space; then the caption line, `Table: caption {#tbl:x}`. Never a blank
+    /// line, so the table stays one op-log paragraph.
     ///
     /// **Display width is the grapheme (`Character`) count.** That is exact
     /// for Latin, Cyrillic, Greek and emoji sequences in a monospaced sense,
@@ -98,19 +98,32 @@ public struct TableText: Equatable, Sendable {
         return lines.joined(separator: "\n")
     }
 
-    /// `Table: caption {#tbl:x}`, or nil with no caption — or an empty one
-    /// and no label, which no `Table:` line could read back.
+    /// `Table: caption {#tbl:x}`; `Table: {#tbl:x}` for a label with no
+    /// caption (nil or empty — plan 3b's grid sets a label without a caption,
+    /// and dropping it would orphan every `@tbl:x`); nil with neither, which
+    /// no `Table:` line could read back. A line break in the caption is a
+    /// space (`singleLine`).
     private var captionLine: String? {
-        guard let caption, !(caption.isEmpty && label == nil) else { return nil }
-        let parts = [caption, label.map { "{#\($0.reference)}" }].compactMap { $0 }
-            .filter { !$0.isEmpty }
+        let text = Self.singleLine(caption ?? "")
+        guard !(text.isEmpty && label == nil) else { return nil }
+        let parts = [text, label.map { "{#\($0.reference)}" } ?? ""].filter { !$0.isEmpty }
         return "Table: " + parts.joined(separator: " ")
     }
 
     private static let minimumWidth = 3
 
+    /// `text` with every line break (`\r\n`, `\r`, `\n`) written as one space.
+    /// A cell or caption is one line of the table: a break would end the row,
+    /// and a doubled one would split the table into two op-log paragraphs.
+    public static func singleLine(_ text: String) -> String {
+        guard text.contains(where: \.isNewline) else { return text }
+        return text.replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+
     private static func escape(_ cell: String) -> String {
-        cell.replacingOccurrences(of: "|", with: "\\|")
+        singleLine(cell).replacingOccurrences(of: "|", with: "\\|")
     }
 
     // MARK: - Cells and offsets

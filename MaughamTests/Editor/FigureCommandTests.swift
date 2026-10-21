@@ -54,7 +54,7 @@ final class FigureCommandTests: XCTestCase {
             control: EditorControl())
         configuration.answersInsertCommands = true
         configuration.paragraphProviders.figureImporter = importer
-        configuration.paragraphProviders.figureFailureReporter = { box.reported.append($0) }
+        configuration.paragraphProviders.commandFailureReporter = { box.reported.append($0) }
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
                                       as: KeyTestWindow.self)

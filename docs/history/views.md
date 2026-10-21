@@ -146,3 +146,12 @@ Cut from `Maugham/Views/AREA.md` to make room for `ReferenceIndexHost` on the Ma
 - `ScreenplayScriptSource`'s bullet: "from one `.task(id:)` on `binderColumn`".
 - The derived-subject bullet: "an empty write moves nothing."
 - The persona-publishing bullet's last sentence was shortened from "The value is a title only" to "A title only".
+
+## Moved from the guide by report foundations plan 3b, Task 5 (2026-10-21)
+
+Cut from `Maugham/Views/AREA.md` to make room for `TableGridEditor` on the Map; the rule each qualified is still in the guide.
+
+- `ScreenplayScriptSource`'s bullet: where it derives from, "(the live `Document`, or `derivedCache` for a closed doc)".
+- The navigation bullet: "a `.project`-scoped navigate may move a background window."
+- `BinderTreeDrops`' Map line: the example "e.g. `routeExternalDrop`".
+- The tree-sheet bullet: the example "(e.g. `linkPickerDocumentId`)".

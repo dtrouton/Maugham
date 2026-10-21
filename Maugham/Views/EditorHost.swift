@@ -113,6 +113,13 @@ struct EditorHost: View {
     /// `control.referenceIndexVersion`, and the coordinator reads the value
     /// through the `referenceIndex` provider.
     @State private var referenceIndex = ReferenceIndexHost()
+    /// **The table grid editor's presenter** (plan 3b Task 5): the coordinator
+    /// awaits it through `tableEditor`, and `TableGridSheetModifier` shows the
+    /// sheet. A plain reference like `referenceIndex`: this body never reads
+    /// its session (tripwire 6), so a sheet going up or down re-renders only
+    /// the modifier. A host closure rather than a window event because a
+    /// `.keyWindow` post from inside a sheet is dropped.
+    @State private var tableGrid = TableGridPresenter()
 
     /// **What a document that did not open is showing**, instead of an eternal
     /// "Loading…" (RULING-7 + RULING-54, widened by signed op log P3a Task 8).
@@ -345,6 +352,7 @@ struct EditorHost: View {
         .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
         .onChange(of: store.manifest.structure) { _, _ in referenceIndex.invalidate(.all) }
         .onAppear { attachReferenceIndex() }
+        .modifier(TableGridSheetModifier(presenter: tableGrid))
         .onDisappear {
             // EditorHost's `.onDisappear` fires only on document-abandonment
             // paths: leaving the manuscript/scenes/find segment (a fresh
@@ -382,6 +390,8 @@ struct EditorHost: View {
             recoveryPaneModel?.stopWatching()
             recoveryPaneModel = nil
             referenceIndex.attach(nil)
+            // A grid still open saves nowhere: it closes as cancelled.
+            tableGrid.finish(nil)
             loadedItemId = nil
             priorLoadedPath = nil
             // And nothing in flight may bind into a host that has gone: it
@@ -858,8 +868,13 @@ struct EditorHost: View {
                     try await FigureIngest.importImage(url, documentId: doc.docId,
                                                        documentPath: path, store: store)
                 },
-                figureFailureReporter: { [store] message in
+                commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)
+                },
+                // The table grid editor (plan 3b Task 5): a sheet this host
+                // presents; the coordinator writes its result through Route A.
+                tableEditor: { [tableGrid] request in
+                    await tableGrid.present(request)
                 },
                 // The thumbnail under each figure line (plan 3a Task 7): a
                 // figure path resolves from this document's own project-relative

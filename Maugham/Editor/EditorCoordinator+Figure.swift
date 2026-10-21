@@ -25,7 +25,7 @@ extension EditorCoordinator {
     /// The point is remembered now and carried through any typing while the
     /// copy runs (`FigureIngest.Anchor`). Nothing is copied when the membrane
     /// refuses (returns nil). A failed copy writes nothing and is told through
-    /// `figureFailureReporter`. A document that is no longer this editor's
+    /// `commandFailureReporter`. A document that is no longer this editor's
     /// (a piece flip detaches the coordinator, `.id(path)`) gets nothing.
     /// Several images land one after another, in order. Files in
     /// `removingAfterwards` (a paste's temporary PNG) are deleted when done.
@@ -62,14 +62,14 @@ extension EditorCoordinator {
                 do {
                     path = try await importer(url)
                 } catch {
-                    self?.figureFailureReporter?(ImagePasteHandler.failureMessage(for: error))
+                    self?.commandFailureReporter?(ImagePasteHandler.failureMessage(for: error))
                     return
                 }
                 guard let self, !self.isDetached, self.textView === textView else { return }
                 var waits = 0
                 while textView.hasMarkedText() {
                     guard waits < self.figureCompositionWaitLimit else {
-                        self.figureFailureReporter?(Self.compositionFailureMessage)
+                        self.commandFailureReporter?(Self.compositionFailureMessage)
                         return
                     }
                     waits += 1
@@ -85,7 +85,7 @@ extension EditorCoordinator {
                                                     caret: NSMaxRange(textView.selectedRange())),
                                                  writerMoved: writerMoved)
                 else {
-                    self.figureFailureReporter?(
+                    self.commandFailureReporter?(
                         "The picture is in research, but this document can’t be written to now.")
                     return
                 }
@@ -184,7 +184,7 @@ extension EditorCoordinator {
             let png = try FigureIngest.writeTemporaryPNG(image)
             beginFigureIngest([png], at: at, removingAfterwards: [png])
         } catch {
-            figureFailureReporter?(ImagePasteHandler.failureMessage(for: error))
+            commandFailureReporter?(ImagePasteHandler.failureMessage(for: error))
         }
         return true
     }

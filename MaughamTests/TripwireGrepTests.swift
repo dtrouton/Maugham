@@ -11901,6 +11901,89 @@ extension TripwireGrepTests {
         XCTAssertEqual(Self.mouseDownBody(in: "override func mouseDown(with event: NSEvent) { if x { y } } z"),
                        "{ if x { y } }")
     }
+
+    // MARK: - The table grid opens on a double-click of the delimiter row only (plan 3b Task 5)
+
+    /// Names what is wrong with a `mouseDown` body's table double-click, or
+    /// returns nil. R-3b-3: a double-click on a table's delimiter row opens
+    /// the grid; inside a cell it stays AppKit's word selection. So the
+    /// coordinator's `editTableOnDelimiterRow` (which says no off the
+    /// delimiter row, `TableGridCommandTests`) is asked in ONE `if`, whose
+    /// clause first requires `event.clickCount == 2` — a single click would
+    /// otherwise open the sheet — and before `super.mouseDown`, which would
+    /// already have selected the word.
+    static func tableDoubleClickProblem(inMouseDownBody body: String) -> String? {
+        let ask = "editTableOnDelimiterRow"
+        let uses = body.components(separatedBy: ask).count - 1
+        guard uses == 1, let use = body.range(of: ask) else {
+            return "mouseDown asks editTableOnDelimiterRow \(uses) times, not once"
+        }
+        guard let clause = body[..<use.lowerBound].range(of: "if ", options: .backwards),
+              body[clause.upperBound..<use.lowerBound].contains("event.clickCount == 2,")
+        else {
+            return "editTableOnDelimiterRow is asked without event.clickCount == 2 first in its if"
+        }
+        // The call, not a comment naming it — spelled in two halves so the
+        // click census does not read this helper as one that builds a click.
+        if let superCall = body.range(of: "super.mouseDown" + "(with:"),
+           superCall.lowerBound < use.lowerBound {
+            return "editTableOnDelimiterRow is asked after super.mouseDown has selected the word"
+        }
+        return nil
+    }
+
+    func test_theTableDoubleClickIsADoubleClickOnTheDelimiterRow() throws {
+        let editorDir = sourceDir.appendingPathComponent("Editor")
+        let surface = try String(contentsOf: editorDir.appendingPathComponent("EditorSurface.swift"),
+                                 encoding: .utf8)
+        let body = try XCTUnwrap(Self.mouseDownBody(in: surface), "mouseDown not found")
+        XCTAssertNil(Self.tableDoubleClickProblem(inMouseDownBody: body))
+        // The double-click route is defined in the coordinator and called by
+        // mouseDown alone: any other caller is a way in no ruling covers.
+        var callers: [String] = []
+        for dir in [editorDir, sourceDir.appendingPathComponent("Views")] {
+            for case let url as URL in FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)!
+            where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                if text.contains("editTableOnDelimiterRow(") { callers.append(url.lastPathComponent) }
+            }
+        }
+        XCTAssertEqual(callers.sorted(), ["EditorCoordinator+Tables.swift", "EditorSurface.swift"],
+                       "the double-click route is defined in the coordinator and called by mouseDown alone")
+    }
+
+    /// The planted bodies live in multi-line literals, which the click census
+    /// (tripwire 33's click arm) does not read as code.
+    func test_theTableDoubleClickCensusFiresOnAPlantedOffender() {
+        let anyClick = """
+            { if coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
+              super.mouseDown(with: event) }
+            """
+        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: anyClick), "a single click opens it")
+        let afterSuper = """
+            { super.mouseDown(with: event)
+              if event.clickCount == 2, coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return } }
+            """
+        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: afterSuper), "the word is already selected")
+        let otherIf = """
+            { if event.clickCount == 2, x { }
+              if coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
+              super.mouseDown(with: event) }
+            """
+        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: otherIf), "the count is another if's")
+        let gone = """
+            { super.mouseDown(with: event) }
+            """
+        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: gone), "the route is gone")
+        let wired = """
+            { // falls through to `super.mouseDown` below
+              if event.clickCount == 2,
+                 coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
+              super.mouseDown(with: event) }
+            """
+        XCTAssertNil(Self.tableDoubleClickProblem(inMouseDownBody: wired),
+                     "a comment naming super.mouseDown is not the call")
+    }
 }
 
 // MARK: - One temp root for every test (signed op log P3 plan 3, Task 1)

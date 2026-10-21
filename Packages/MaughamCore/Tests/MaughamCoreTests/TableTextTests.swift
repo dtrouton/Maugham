@@ -162,6 +162,42 @@ final class TableTextTests: XCTestCase {
         }
     }
 
+    // MARK: - What the grid editor writes (plan 3b Task 5)
+
+    /// A label with no caption is not dropped: the grid sets a label without
+    /// ever typing a caption, and the Report's cross-references need it.
+    func test_aLabelWithoutACaptionWritesItsCaptionLine() throws {
+        let t = TableText(header: ["a"], alignments: [.none], rows: [["1"]],
+                          caption: nil, label: ManuscriptLabel(reference: "tbl:x"))
+        XCTAssertEqual(t.formatted(), "| a   |\n| --- |\n| 1   |\nTable: {#tbl:x}")
+        let back = try XCTUnwrap(TableText(parsing: t.formatted()))
+        XCTAssertEqual(back.label, ManuscriptLabel(reference: "tbl:x"), "the label survives the round trip")
+        XCTAssertEqual(back.caption, "", "read back as the empty caption the parser gives a bare label")
+        XCTAssertEqual(back.formatted(), t.formatted())
+    }
+
+    /// A newline inside a cell or the caption would end the row (or, doubled,
+    /// split the table into two op-log paragraphs): it is written as a space.
+    func test_aNewlineInACellOrTheCaptionIsWrittenAsASpace() throws {
+        let t = TableText(header: ["Name\nfull", "b"], alignments: [.none, .none],
+                          rows: [["line one\r\nline two", "x\n\ny"], ["c\rd", ""]],
+                          caption: "Two\nlines", label: ManuscriptLabel(reference: "tbl:n"))
+        let f = t.formatted()
+        XCTAssertEqual(f.split(separator: "\n").count, 5, "header, delimiter, two rows, caption: \(f)")
+        XCTAssertFalse(f.contains("\r"))
+        let back = try XCTUnwrap(TableText(parsing: f))
+        XCTAssertEqual(back.header, ["Name full", "b"])
+        XCTAssertEqual(back.rows, [["line one line two", "x  y"], ["c d", ""]])
+        XCTAssertEqual(back.caption, "Two lines")
+        XCTAssertEqual(back.label, ManuscriptLabel(reference: "tbl:n"))
+        XCTAssertEqual(TableText(parsing: back.formatted()), back, "and it round-trips from there")
+    }
+
+    func test_singleLineFoldsEveryLineBreak() {
+        XCTAssertEqual(TableText.singleLine("a\nb\r\nc\rd"), "a b c d")
+        XCTAssertEqual(TableText.singleLine("plain"), "plain")
+    }
+
     // MARK: - Cells and offsets
 
     func test_cellAtAnOffset() {
