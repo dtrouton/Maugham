@@ -11,26 +11,54 @@ struct CompletionItem: Equatable {
     let insertion: String
 }
 
+/// Where a completion is, as its source reads the text at the caret (plan 3b
+/// Task 2 fix round 1, I2).
+struct CompletionTrigger: Equatable {
+    /// What an accept replaces: from the trigger's first character (`[` of
+    /// `[@`), through the caret, and on past it through the rest of a key or
+    /// label already there — so re-picking inside `[@smy|th2019]` replaces the
+    /// whole key, up to but not including `]`, `;` or whitespace.
+    let replaceRange: NSRange
+    /// The text between the trigger and the caret: what the rows filter on.
+    let query: String
+    /// What the source needs to remember about this trigger (a fresh `[@` or
+    /// a `;` continuation, a bracket already closed): a small value the source
+    /// defines, carried back to `items(for:)` and `insertion(for:trigger:)`
+    /// so the source keeps no state of its own.
+    let context: AnyHashable?
+
+    init(replaceRange: NSRange, query: String, context: AnyHashable? = nil) {
+        self.replaceRange = replaceRange
+        self.query = query
+        self.context = context
+    }
+
+    /// Where the trigger starts: the list stays open while this holds.
+    var start: Int { replaceRange.location }
+}
+
 /// What the completion list completes from (plan 3b Task 2, ruling R-S1): a
 /// citation's sources (Task 3), a cross-reference's targets (Task 4). The
 /// coordinator holds an ordered list of them (`completionSources`) and asks
-/// each, in order, whether the text before the caret opens it.
+/// each, in order, whether the text at the caret opens it.
 ///
 /// Every answer is asked of THIS document's text near the caret, or of data
 /// the source already holds: a source never walks the project per keystroke
 /// (the plan's review focus 1).
 @MainActor
 protocol CompletionSource {
-    /// The trigger and the query typed after it, ending at `caret` (`[@smi`
-    /// for a citation), when the text before the caret opens this source;
-    /// nil when it does not. Asked after each typed character, and again
-    /// while the list is open, as the writer types, deletes or moves the
-    /// caret: an answer starting somewhere else, or none, closes the list.
-    func triggerRange(in text: NSString, caret: Int) -> NSRange?
-    /// The filter text in a trigger's text (`smi` in `[@smi`).
-    func query(inTrigger trigger: String) -> String
-    /// The rows for a query, in the order they are offered.
-    func items(matching query: String) -> [CompletionItem]
+    /// The trigger at `caret` when the text there opens this source; nil when
+    /// it does not. Asked after each typed character, and again while the
+    /// list is open, as the writer types, deletes or moves the caret: a
+    /// trigger starting somewhere else, or none, closes the list. Its
+    /// `replaceRange` must contain `caret`.
+    func trigger(in text: NSString, caret: Int) -> CompletionTrigger?
+    /// The rows for a trigger, in the order they are offered. Asked again
+    /// only when the trigger's query or context changes.
+    func items(for trigger: CompletionTrigger) -> [CompletionItem]
+    /// What accepting `item` writes over `trigger.replaceRange` (`[@key]`, or
+    /// `@key` in a `;` continuation). Defaults to the item's own `insertion`.
+    func insertion(for item: CompletionItem, trigger: CompletionTrigger) -> String
     /// The one muted row shown when nothing matches ("No matching sources").
     var emptyMessage: String { get }
     /// The undo step's name ("Undo Insert Citation").
@@ -38,6 +66,7 @@ protocol CompletionSource {
 }
 
 extension CompletionSource {
+    func insertion(for item: CompletionItem, trigger: CompletionTrigger) -> String { item.insertion }
     var actionName: String { "Insert Reference" }
 }
 
@@ -164,8 +193,28 @@ final class CompletionListView: NSView {
         refreshRows()
         guard announce else { return }
         NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
+        speak(items[selectedIndex].title)
+    }
+
+    /// The last sentence the list asked VoiceOver to speak.
+    private(set) var lastAnnouncement: String?
+
+    /// Speak what an opened list offers: the first row's title and how many
+    /// there are, or the empty message (VoiceOver's focus stays in the text).
+    func announceOpen() {
+        let sentence: String
+        switch items.count {
+        case 0: sentence = emptyMessage
+        case 1: sentence = "\(items[0].title). 1 suggestion"
+        default: sentence = "\(items[0].title). \(items.count) suggestions"
+        }
+        speak(sentence)
+    }
+
+    private func speak(_ sentence: String) {
+        lastAnnouncement = sentence
         NSAccessibility.post(element: self, notification: .announcementRequested, userInfo: [
-            .announcement: items[selectedIndex].title,
+            .announcement: sentence,
             .priority: NSAccessibilityPriorityLevel.high.rawValue,
         ])
     }

@@ -347,6 +347,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var completionObservers: [NSObjectProtocol] = []
     /// True while `applyCommandEdit` writes, so its edit is never read as typing.
     var isApplyingCommandEdit = false
+    /// True while a paste or a drop is handed to AppKit (`asNotTyping`), so a
+    /// pasted `@` is never read as typing.
+    var isInsertingNotTyping = false
 
     /// Copies a picture into this document's research and returns the figure
     /// path relative to the document (plan 3a Task 6,

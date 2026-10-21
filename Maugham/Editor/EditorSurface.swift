@@ -723,6 +723,12 @@ final class MaughamTextView: NSTextView {
     /// the pasteboard is handled there — ingested, refused or reported — and
     /// never reaches `super`.
     override func paste(_ sender: Any?) {
+        // A paste is never typing: a pasted `@` opens no completion list.
+        guard let coordinator else { return pasteAsTyped(sender) }
+        coordinator.asNotTyping { pasteAsTyped(sender) }
+    }
+
+    private func pasteAsTyped(_ sender: Any?) {
         if let coordinator, coordinator.answersFigures,
            coordinator.pasteFigure(from: .general) {
             return
@@ -788,7 +794,9 @@ final class MaughamTextView: NSTextView {
         case .refuse?:
             return false
         case .notOurs?, nil:
-            return super.performDragOperation(sender)
+            // A drop is never typing: a dropped `@` opens no completion list.
+            guard let coordinator else { return super.performDragOperation(sender) }
+            return coordinator.asNotTyping { super.performDragOperation(sender) }
         }
     }
 

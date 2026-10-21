@@ -19,11 +19,17 @@ final class CompletionListTests: XCTestCase {
 
     // MARK: - Fixture
 
-    /// A source that opens on `[@` (from the `[`) or on ` @` (from the `@`),
-    /// followed by letters and digits — enough shape to prove the protocol.
+    /// A source that opens on `[@` (from the `[`) or on ` @` (from the `@`, a
+    /// continuation), followed by letters and digits — enough shape to prove
+    /// the protocol. Its trigger runs on past the caret through the rest of a
+    /// key, and its context says which opening it was and whether a `]`
+    /// already closes the bracket, which the insertion builder reads.
     final class FakeSource: CompletionSource {
+        enum Context: Hashable { case fresh(closed: Bool), continuation }
+
         var entries: [CompletionItem]
         private(set) var itemsAsked = 0
+        private(set) var lastTriggerAsked: CompletionTrigger?
         let emptyMessage = "No matching sources"
         let actionName = "Insert Citation"
 
@@ -36,27 +42,46 @@ final class CompletionListTests: XCTestCase {
             CompletionItem(title: "Jones 2020 — Bridges", subtitle: "jones2020", insertion: "[@jones2020]"),
         ]
 
-        func triggerRange(in text: NSString, caret: Int) -> NSRange? {
+        private static func unit(_ s: String) -> UInt16 { UInt16(UInt8(ascii: s.unicodeScalars.first!)) }
+
+        func trigger(in text: NSString, caret: Int) -> CompletionTrigger? {
             var i = caret
             while i > 0, let scalar = UnicodeScalar(text.character(at: i - 1)),
                   CharacterSet.alphanumerics.contains(scalar) { i -= 1 }
-            guard i >= 1, text.character(at: i - 1) == UInt16(UInt8(ascii: "@")) else { return nil }
-            if i >= 2, text.character(at: i - 2) == UInt16(UInt8(ascii: "[")) {
-                return NSRange(location: i - 2, length: caret - (i - 2))
+            guard i >= 1, text.character(at: i - 1) == Self.unit("@") else { return nil }
+            var end = caret
+            while end < text.length {
+                let c = text.character(at: end)
+                if c == Self.unit("]") || c == Self.unit(";") { break }
+                if let scalar = UnicodeScalar(c), CharacterSet.whitespacesAndNewlines.contains(scalar) { break }
+                end += 1
             }
-            if i == 1 || text.character(at: i - 2) == UInt16(UInt8(ascii: " ")) {
-                return NSRange(location: i - 1, length: caret - (i - 1))
+            let query = text.substring(with: NSRange(location: i, length: caret - i))
+            if i >= 2, text.character(at: i - 2) == Self.unit("[") {
+                let closed = end < text.length && text.character(at: end) == Self.unit("]")
+                return CompletionTrigger(replaceRange: NSRange(location: i - 2, length: end - (i - 2)),
+                                         query: query, context: Context.fresh(closed: closed))
+            }
+            if i == 1 || text.character(at: i - 2) == Self.unit(" ") {
+                return CompletionTrigger(replaceRange: NSRange(location: i - 1, length: end - (i - 1)),
+                                         query: query, context: Context.continuation)
             }
             return nil
         }
 
-        func query(inTrigger trigger: String) -> String {
-            String(trigger.drop(while: { $0 != "@" }).dropFirst())
+        func items(for trigger: CompletionTrigger) -> [CompletionItem] {
+            itemsAsked += 1
+            lastTriggerAsked = trigger
+            let query = trigger.query.lowercased()
+            return entries.filter { query.isEmpty || $0.subtitle.hasPrefix(query) }
         }
 
-        func items(matching query: String) -> [CompletionItem] {
-            itemsAsked += 1
-            return entries.filter { query.isEmpty || $0.subtitle.hasPrefix(query.lowercased()) }
+        func insertion(for item: CompletionItem, trigger: CompletionTrigger) -> String {
+            switch trigger.context as? Context {
+            case .fresh(closed: true)?: return "[@\(item.subtitle)"     // the `]` is already there
+            case .continuation?: return "@\(item.subtitle)"
+            default: return item.insertion
+            }
         }
     }
 
@@ -226,12 +251,12 @@ final class CompletionListTests: XCTestCase {
         assertOpen(m)
         XCTAssertEqual(m.coordinator.completion?.items.count, 3)
         type("sm", m)
-        XCTAssertEqual(m.coordinator.completion?.query, "sm")
+        XCTAssertEqual(m.coordinator.completion?.trigger.query, "sm")
         XCTAssertEqual(m.coordinator.completion?.items.map(\.subtitle), ["smith2026", "smythe2019"])
-        XCTAssertEqual(m.coordinator.completion?.triggerRange, NSRange(location: 4, length: 4))
+        XCTAssertEqual(m.coordinator.completion?.trigger.replaceRange, NSRange(location: 4, length: 4))
         asOneEvent(m) { m.textView.deleteBackward(nil) }
         assertOpen(m)
-        XCTAssertEqual(m.coordinator.completion?.query, "s", "a deletion filters too")
+        XCTAssertEqual(m.coordinator.completion?.trigger.query, "s", "a deletion filters too")
     }
 
     func test_aTriggerThatEndsClosesAndAnotherOpensAtItsOwnStart() throws {
@@ -242,7 +267,7 @@ final class CompletionListTests: XCTestCase {
         assertClosed(m, "a space ends the query")
         type("@", m)
         assertOpen(m)
-        XCTAssertEqual(m.coordinator.completion?.triggerRange.location, 5)
+        XCTAssertEqual(m.coordinator.completion?.trigger.start, 5)
     }
 
     func test_theFirstRegisteredSourceThatAnswersDecides() throws {
@@ -266,8 +291,8 @@ final class CompletionListTests: XCTestCase {
         let m = try mount("A research note ", answersInsertCommands: false)
         type("[@", m)
         assertClosed(m, "a research note or statement never opens the list")
-        XCTAssertFalse(m.coordinator.openCompletion(source: m.source,
-                                                    triggerRange: NSRange(location: 16, length: 2)),
+        XCTAssertFalse(m.coordinator.openCompletion(source: m.source, trigger: CompletionTrigger(
+                           replaceRange: NSRange(location: 16, length: 2), query: "")),
                        "nor may a command open it there")
     }
 
@@ -454,8 +479,8 @@ final class CompletionListTests: XCTestCase {
         assertOpen(m)
         m.coordinator.setLockEditing(true)
         assertClosed(m, "a posture that refuses text closes the list")
-        XCTAssertFalse(m.coordinator.openCompletion(source: m.source,
-                                                    triggerRange: NSRange(location: 0, length: 2)))
+        XCTAssertFalse(m.coordinator.openCompletion(source: m.source, trigger: CompletionTrigger(
+            replaceRange: NSRange(location: 0, length: 2), query: "")))
     }
 
     // MARK: - Closing
@@ -465,7 +490,7 @@ final class CompletionListTests: XCTestCase {
         type("[@smi", m)
         caret(m, at: 9)
         assertOpen(m)
-        XCTAssertEqual(m.coordinator.completion?.query, "sm", "a caret inside the query follows it")
+        XCTAssertEqual(m.coordinator.completion?.trigger.query, "sm", "a caret inside the query follows it")
         caret(m, at: 2)
         assertClosed(m, "the caret left the trigger")
     }
@@ -555,6 +580,125 @@ final class CompletionListTests: XCTestCase {
         XCTAssertFalse(m.coordinator.isCompletionOpen)
         XCTAssertTrue(list.isHidden)
         XCTAssertTrue(m.coordinator.completionObservers.isEmpty)
+    }
+
+    // MARK: - Fix round 1
+
+    /// I1: `.code` tokens exist only for a CLOSED span; a span still being
+    /// typed left to right is code too.
+    func test_noTriggerInACodeSpanStillBeingTyped() throws {
+        let m = try mount("Use ")
+        type("`[@", m)
+        assertClosed(m, "an unclosed backtick before the trigger is code")
+    }
+
+    func test_noTriggerInsideAnOpenFence() throws {
+        let m = try mount("```swift\nlet x = ")
+        type("[@", m)
+        assertClosed(m, "a fence with no close above the trigger is code")
+    }
+
+    func test_aClosedFenceAboveLeavesTheTriggerInProse() throws {
+        let m = try mount("```\nx\n```\nSee ")
+        type("[@", m)
+        assertOpen(m)
+    }
+
+    func test_openCodeIsCountedOnTheLineAndInTheBlock() {
+        func inside(_ text: String) -> Bool {
+            EditorCoordinator.isInsideOpenCode(text as NSString, at: (text as NSString).length)
+        }
+        XCTAssertTrue(inside("a `b "))
+        XCTAssertFalse(inside("a `b` "), "a closed span before the trigger")
+        XCTAssertFalse(inside("a \\` "), "an escaped backtick opens nothing")
+        XCTAssertTrue(inside("~~~\ncode "))
+        XCTAssertFalse(inside("```\ncode\n\nprose "), "a blank line ends the walk")
+        XCTAssertTrue(inside("```"), "the fence line itself")
+    }
+
+    /// I2: re-picking inside an existing key replaces the WHOLE key, and the
+    /// source's context (the bracket already closed) reaches the insertion.
+    func test_rePickingInsideAKeyReplacesTheWholeKey() throws {
+        let m = try mount("See [@sth2019] here")
+        caret(m, at: 7)                     // "[@s|th2019]"
+        type("m", m)
+        assertOpen(m)
+        let trigger = try XCTUnwrap(m.coordinator.completion?.trigger)
+        XCTAssertEqual(trigger.query, "sm", "the query is the text between the trigger and the caret")
+        XCTAssertEqual(trigger.replaceRange, NSRange(location: 4, length: 10),
+                       "the range runs on past the caret to the `]`")
+        XCTAssertEqual(m.source.lastTriggerAsked, trigger, "the rows are asked for the trigger")
+        command(Self.newline, m)
+        XCTAssertEqual(m.string, "See [@smith2026] here")
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 15, length: 0))
+        m.undo.undo()
+        XCTAssertEqual(m.string, "See [@smth2019] here", "one step")
+    }
+
+    func test_theContextChoosesTheInsertion() throws {
+        let m = try mount("[@jones2020; ")
+        type("@sm", m)
+        assertOpen(m)
+        XCTAssertEqual(m.coordinator.completion?.trigger.context, FakeSource.Context.continuation)
+        command(Self.newline, m)
+        XCTAssertEqual(m.string, "[@jones2020; @smith2026", "a continuation writes `@key`")
+    }
+
+    /// M3: with nothing to choose, ↑ and ↓ close the list and are arrows again.
+    func test_onAnEmptyListTheArrowsCloseAndPassThrough() throws {
+        let m = try mount("")
+        type("[@zz", m)
+        assertOpen(m)
+        XCTAssertFalse(m.coordinator.handleCompletionCommand(Self.down, in: m.textView))
+        assertClosed(m)
+        type("x [@zz", m)
+        XCTAssertFalse(m.coordinator.handleCompletionCommand(Self.up, in: m.textView))
+        assertClosed(m)
+    }
+
+    /// M4: a paste or a drop is never typing.
+    func test_aPastedCharacterNeverOpensTheList() throws {
+        let m = try mount("[")
+        asOneEvent(m) {
+            m.coordinator.asNotTyping {
+                m.textView.insertText("@", replacementRange: m.textView.selectedRange())
+            }
+        }
+        XCTAssertEqual(m.string, "[@")
+        assertClosed(m, "a pasted `@` is not a typed one")
+        type("s", m)
+        assertOpen(m)                       // typing after it is typing
+    }
+
+    /// The paste and the drop take the not-typing road (no test may paste on
+    /// the shared pasteboard or synthesise a drop, so the wiring is read).
+    func test_thePasteAndTheDropAreReadAsNotTyping() throws {
+        let surface = try SourceTree.read("Maugham/Editor/EditorSurface.swift")
+        XCTAssertTrue(surface.contains("coordinator.asNotTyping { pasteAsTyped(sender) }"),
+                      "MaughamTextView.paste no longer marks its edit as not typing")
+        XCTAssertTrue(surface.contains("coordinator.asNotTyping { super.performDragOperation(sender) }"),
+                      "a text drop no longer marks its edit as not typing")
+    }
+
+    /// M5: a caret-following scroll that carries the trigger out of view closes.
+    func test_aFollowingScrollThatLosesTheTriggerCloses() throws {
+        let m = try mount(String(repeating: "A line of prose.\n", count: 200))
+        caret(m, at: 0)
+        type("[@", m)
+        XCTAssertTrue(m.coordinator.completionCaretIsMoving)
+        m.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 3000))
+        assertClosed(m, "the trigger scrolled out of view")
+    }
+
+    /// M6: an opened list says what it offers.
+    func test_openingAnnouncesWhatTheListOffers() throws {
+        let m = try mount("")
+        type("[@", m)
+        XCTAssertEqual(m.list.lastAnnouncement, "Smith 2026 — Markets. 3 suggestions")
+        command(Self.esc, m)
+        m.source.entries = []
+        type(" [@", m)
+        XCTAssertEqual(m.list.lastAnnouncement, "No matching sources")
     }
 
     // MARK: - Accessibility

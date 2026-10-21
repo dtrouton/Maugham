@@ -6,10 +6,9 @@ import AppKit
 /// never observed (tripwire 6).
 struct CompletionState {
     let source: any CompletionSource
-    /// The trigger and the query, ending at the caret (`[@smi`): what an
-    /// accept replaces.
-    var triggerRange: NSRange
-    var query: String
+    /// Where the completion is: what an accept replaces, the query and the
+    /// source's context (`CompletionTrigger`).
+    var trigger: CompletionTrigger
     var items: [CompletionItem]
     var selectedIndex: Int
 }
@@ -22,7 +21,7 @@ enum CompletionEditNote: Equatable {
     case typed(String)
     /// The writer deleted (backspace, forward delete).
     case deletion
-    /// Anything else: a paste, an undo, a command, a composition.
+    /// Anything else: a paste, a drop, an undo, a command, a composition.
     case other
 }
 
@@ -40,24 +39,34 @@ extension EditorCoordinator {
 
     // MARK: - Opening and closing
 
-    /// Opens the list for `source` over `triggerRange` (the trigger through the
-    /// caret). Refused — returning false, changing nothing — off a manuscript
-    /// surface, when a command could not write (a read-only posture), while an
-    /// input method composes, inside a code span, or for a range that does not
-    /// fit the text. Tasks 3 and 4's menu commands call it too.
+    /// Opens the list for `source` at `trigger` (the source's own reading of
+    /// the text at the caret, `CompletionSource.trigger(in:caret:)`). Refused —
+    /// returning false, changing nothing — off a manuscript surface, when a
+    /// command could not write (a read-only posture), while an input method
+    /// composes, inside code, or for a trigger whose range does not hold the
+    /// caret. Tasks 3 and 4's menu commands call it too.
     @discardableResult
-    func openCompletion(source: any CompletionSource, triggerRange: NSRange) -> Bool {
+    func openCompletion(source: any CompletionSource, trigger: CompletionTrigger) -> Bool {
         guard mayOfferCompletion, let textView, !tokensDescribeAnEarlierText else { return false }
         let ns = textView.string as NSString
-        guard triggerRange.location >= 0, NSMaxRange(triggerRange) <= ns.length,
-              !isInsideCode(triggerRange.location) else { return false }
-        let query = source.query(inTrigger: ns.substring(with: triggerRange))
-        completion = CompletionState(source: source, triggerRange: triggerRange, query: query,
-                                     items: source.items(matching: query), selectedIndex: 0)
+        guard Self.trigger(trigger, holds: textView.selectedRange(), in: ns.length),
+              !isInsideCode(trigger.start) else { return false }
+        completion = CompletionState(source: source, trigger: trigger,
+                                     items: source.items(for: trigger), selectedIndex: 0)
         armCompletionObservers()
         completionCaretMoved()      // the opening keystroke's own scroll follows
         showCompletionList()
+        completionList?.announceOpen()
         return true
+    }
+
+    /// Whether `trigger`'s range fits a text of `length` and holds the
+    /// collapsed `caret` (at its start, its end, or inside a key it extends past).
+    nonisolated static func trigger(_ trigger: CompletionTrigger, holds caret: NSRange,
+                                    in length: Int) -> Bool {
+        let range = trigger.replaceRange
+        return caret.length == 0 && range.location >= 0 && NSMaxRange(range) <= length
+            && range.location <= caret.location && caret.location <= NSMaxRange(range)
     }
 
     /// Closes the list. The text stays exactly as typed.
@@ -75,13 +84,46 @@ extension EditorCoordinator {
         return commandMayWrite && !textView.hasMarkedText()
     }
 
-    /// Whether `location` falls inside an inline code span, as the tokens
-    /// place it. Asked only once a source has said yes, never per keystroke.
+    /// Whether `location` falls inside code: a closed code span, as the
+    /// tokens place it, or code still being typed, which no token marks yet
+    /// (`isInsideOpenCode`, fix round 1 I1). Asked only once a source has
+    /// said yes, never per keystroke.
     func isInsideCode(_ location: Int) -> Bool {
-        lastTokens.contains { token in
+        if lastTokens.contains(where: { token in
             token.kind == .code && location >= token.range.location
                 && location < NSMaxRange(token.range)
+        }) { return true }
+        guard let textView else { return false }
+        return Self.isInsideOpenCode(textView.string as NSString, at: location)
+    }
+
+    /// Code the tokenizer has not closed: an odd count of unescaped backticks
+    /// on `location`'s line before it (`` `[@ `` typed left to right), or an
+    /// odd count of fence lines (```` ``` ```` or `~~~`) in the blank-line block
+    /// above its line (an opening fence with no close yet). O(line + block).
+    nonisolated static func isInsideOpenCode(_ text: NSString, at location: Int) -> Bool {
+        let at = min(max(0, location), text.length)
+        let backtick = UInt16(UInt8(ascii: "`")), backslash = UInt16(UInt8(ascii: "\\"))
+        let line = text.lineRange(for: NSRange(location: at, length: 0))
+        var ticks = 0
+        var i = line.location
+        while i < at {
+            let c = text.character(at: i)
+            if c == backslash { i += 2; continue }
+            if c == backtick { ticks += 1 }
+            i += 1
         }
+        if ticks % 2 == 1 { return true }
+        var fences = 0
+        var start = line.location
+        while start > 0 {
+            let previous = text.lineRange(for: NSRange(location: start - 1, length: 0))
+            let content = text.substring(with: previous).trimmingCharacters(in: .whitespacesAndNewlines)
+            if content.isEmpty { break }
+            if content.hasPrefix("```") || content.hasPrefix("~~~") { fences += 1 }
+            start = previous.location
+        }
+        return fences % 2 == 1
     }
 
     // MARK: - The keys (first in doCommandBy)
@@ -90,8 +132,8 @@ extension EditorCoordinator {
     /// other. `complete:` (AppKit's own completion window) is swallowed in
     /// prose whether the list is open or not. With the list open: ↑ and ↓
     /// move, Return and Tab accept — inside a table cell too — and Esc
-    /// closes; with nothing to accept, Return and Tab close it and do what
-    /// they always do. With the list closed, or while an input method
+    /// closes; with nothing to accept, ↑, ↓, Return and Tab close it and do
+    /// what they always do. With the list closed, or while an input method
     /// composes, every other command falls through untouched.
     func handleCompletionCommand(_ selector: Selector, in textView: NSTextView) -> Bool {
         if selector == #selector(NSTextView.complete(_:)) {
@@ -99,18 +141,17 @@ extension EditorCoordinator {
         }
         guard let state = completion, !textView.hasMarkedText() else { return false }
         switch selector {
-        case #selector(NSResponder.moveUp(_:)):
-            moveCompletionSelection(by: -1)
-            return true
-        case #selector(NSResponder.moveDown(_:)):
-            moveCompletionSelection(by: 1)
-            return true
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)),
+             #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
             guard !state.items.isEmpty else {
                 closeCompletion()
                 return false
             }
-            acceptCompletion()
+            switch selector {
+            case #selector(NSResponder.moveUp(_:)): moveCompletionSelection(by: -1)
+            case #selector(NSResponder.moveDown(_:)): moveCompletionSelection(by: 1)
+            default: acceptCompletion()
+            }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             closeCompletion()
@@ -127,23 +168,24 @@ extension EditorCoordinator {
         completionList?.select(state.selectedIndex)
     }
 
-    /// Accepts row `index` (the selected row when nil): the trigger through
-    /// the query becomes the row's `insertion`, as ONE Route A edit — one ⌘Z
-    /// step, behind the membrane — the caret after it. The writer's typing
-    /// before it stays its own steps.
+    /// Accepts row `index` (the selected row when nil): the trigger's
+    /// `replaceRange` — through the query, and on through the rest of a key
+    /// the caret sat inside — becomes the source's insertion for that row, as
+    /// ONE Route A edit (one ⌘Z step, behind the membrane), the caret after
+    /// it. The writer's typing before it stays its own steps.
     @discardableResult
     func acceptCompletion(at index: Int? = nil) -> Bool {
         guard let state = completion, let textView else { return false }
         let chosen = index ?? state.selectedIndex
+        let range = state.trigger.replaceRange
         guard state.items.indices.contains(chosen),
-              NSMaxRange(state.triggerRange) <= (textView.string as NSString).length
+              NSMaxRange(range) <= (textView.string as NSString).length
         else { return false }
-        let insertion = state.items[chosen].insertion
+        let insertion = state.source.insertion(for: state.items[chosen], trigger: state.trigger)
         closeCompletion()
         return applyCommandEdit(
-            replacing: state.triggerRange, with: insertion,
-            selecting: NSRange(location: state.triggerRange.location
-                                   + (insertion as NSString).length, length: 0),
+            replacing: range, with: insertion,
+            selecting: NSRange(location: range.location + (insertion as NSString).length, length: 0),
             actionName: state.source.actionName, landing: .immediate)
     }
 
@@ -152,12 +194,13 @@ extension EditorCoordinator {
     /// From `shouldChangeTextIn`, once the membrane has let an edit through:
     /// what the edit is, for `completionTextDidChange`. Only a length-1
     /// typing replacement counts as typed — never inside `applyCommandEdit`,
-    /// never an undo or a redo, never with marked text.
+    /// a paste or a drop (`asNotTyping`), never an undo or a redo, never with
+    /// marked text.
     func noteEditForCompletion(in textView: NSTextView, replacing range: NSRange,
                                with replacement: String) {
         guard answersInsertCommands else { return }
         let undo = undoManagerOverrideForTesting ?? textView.undoManager
-        if isApplyingCommandEdit || textView.hasMarkedText()
+        if isApplyingCommandEdit || isInsertingNotTyping || textView.hasMarkedText()
             || undo?.isUndoing == true || undo?.isRedoing == true {
             completionEditNote = .other
         } else {
@@ -193,10 +236,8 @@ extension EditorCoordinator {
         let ns = textView.string as NSString
         // The first source that answers decides (citation before cross-reference).
         for source in completionSources {
-            guard let range = source.triggerRange(in: ns, caret: caret.location) else { continue }
-            if NSMaxRange(range) == caret.location {
-                openCompletion(source: source, triggerRange: range)
-            }
+            guard let trigger = source.trigger(in: ns, caret: caret.location) else { continue }
+            openCompletion(source: source, trigger: trigger)
             return
         }
     }
@@ -217,25 +258,24 @@ extension EditorCoordinator {
         _ = refreshOpenCompletion(in: textView)
     }
 
-    /// Re-asks the open source at the caret. Same trigger start: the query
-    /// and rows follow (rows asked again only when the query changed), true.
-    /// Otherwise the list closes, false.
+    /// Re-asks the open source at the caret. Same trigger start: the
+    /// trigger and rows follow (rows asked again only when the query or the
+    /// context changed), true. Otherwise the list closes, false.
     private func refreshOpenCompletion(in textView: NSTextView) -> Bool {
         guard var state = completion else { return false }
         let caret = textView.selectedRange()
         let ns = textView.string as NSString
-        guard caret.length == 0, mayOfferCompletion,
-              let range = state.source.triggerRange(in: ns, caret: caret.location),
-              range.location == state.triggerRange.location,
-              NSMaxRange(range) == caret.location, NSMaxRange(range) <= ns.length else {
+        guard mayOfferCompletion,
+              let trigger = state.source.trigger(in: ns, caret: caret.location),
+              trigger.start == state.trigger.start,
+              Self.trigger(trigger, holds: caret, in: ns.length) else {
             closeCompletion()
             return false
         }
-        let query = state.source.query(inTrigger: ns.substring(with: range))
-        state.triggerRange = range
-        if query != state.query {
-            state.query = query
-            state.items = state.source.items(matching: query)
+        let rowsChange = trigger.query != state.trigger.query || trigger.context != state.trigger.context
+        state.trigger = trigger
+        if rowsChange {
+            state.items = state.source.items(for: trigger)
             state.selectedIndex = 0
         }
         completion = state
@@ -257,14 +297,20 @@ extension EditorCoordinator {
     /// Places the list under the trigger's start (`firstRect`, screen space,
     /// converted into the scroll view), or above it near the bottom edge.
     func positionCompletionList() {
-        guard let state = completion, let list = completionList, let parent = list.superview,
-              let textView, let window = textView.window else { return }
-        let screen = textView.firstRect(
-            forCharacterRange: NSRange(location: state.triggerRange.location, length: 0),
-            actualRange: nil)
-        let caret = parent.convert(window.convertFromScreen(screen), from: nil)
+        guard let list = completionList, let parent = list.superview, let textView,
+              let caretInTextView = completionTriggerRectInTextView() else { return }
+        let caret = textView.convert(caretInTextView, to: parent)
         list.frame = CompletionListLayout.frame(size: list.preferredSize, caret: caret,
                                                 in: parent.bounds, flipped: parent.isFlipped)
+    }
+
+    /// The trigger start's caret rect in the text view (`firstRect`, screen
+    /// space, converted back).
+    func completionTriggerRectInTextView() -> NSRect? {
+        guard let state = completion, let textView, let window = textView.window else { return nil }
+        let screen = textView.firstRect(
+            forCharacterRange: NSRange(location: state.trigger.start, length: 0), actualRange: nil)
+        return textView.convert(window.convertFromScreen(screen), from: nil)
     }
 
     // MARK: - Closing on scroll, resize and focus loss
@@ -285,10 +331,27 @@ extension EditorCoordinator {
     }
 
     /// The clip view scrolled: the writer's own scroll closes the list; one
-    /// that follows the caret in the same turn as a keystroke moves it.
+    /// that follows the caret in the same turn as a keystroke moves it —
+    /// unless the trigger has left the visible text (fix round 1, M5).
     func completionClipViewDidScroll() {
         guard completion != nil else { return }
-        if completionCaretIsMoving { positionCompletionList() } else { closeCompletion() }
+        guard completionCaretIsMoving, let textView,
+              let trigger = completionTriggerRectInTextView(),
+              textView.visibleRect.intersects(trigger.insetBy(dx: -1, dy: 0)) else {
+            closeCompletion()
+            return
+        }
+        positionCompletionList()
+    }
+
+    /// Runs `body` — a paste or a drop handed to AppKit — with its edits read
+    /// as not typing, so a pasted or dropped `@` never opens the list
+    /// (fix round 1, M4). `MaughamTextView.paste` and `performDragOperation`.
+    func asNotTyping<T>(_ body: () -> T) -> T {
+        let was = isInsertingNotTyping
+        isInsertingNotTyping = true
+        defer { isInsertingNotTyping = was }
+        return body()
     }
 
     private func armCompletionObservers() {
