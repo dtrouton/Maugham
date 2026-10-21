@@ -178,6 +178,36 @@ final class InsertCommandTests: XCTestCase {
                       "table-1 is taken in another chapter; got \(m.textView.string)")
     }
 
+    /// Whole-branch review I1: before the window's reference index has built
+    /// once, its cached index is empty. Insert Table in chapter 1 still skips
+    /// the `tbl:table-1` chapter 2 defines, because the host walks the
+    /// project while no build has published. The host here is the one
+    /// `EditorHost` wires, over a builder that never finishes.
+    func test_insertTableBeforeTheIndexIsBuiltSkipsAnotherChaptersLabel() throws {
+        let gate = DispatchSemaphore(value: 0)
+        let host = ReferenceIndexHost(builder: { snapshot, memo in
+            gate.wait()
+            return ReferenceIndexHost.build(snapshot, memo)
+        })
+        addTeardownBlock { gate.signal(); host.attach(nil) }
+        let structure = [StructureItem(id: "ch1", title: "One", type: .document, path: "ch1.md"),
+                         StructureItem(id: "ch2", title: "Two", type: .document, path: "ch2.md")]
+        host.attach(ReferenceIndexHost.Project(
+            structure: { structure },
+            research: { [] },
+            liveText: { _ in nil },
+            tokens: { _ in [:] },
+            derivedText: { id in
+                id == "ch2" ? "| a | b |\n|---|---|\n| 1 | 2 |\nTable: Two {#tbl:table-1}" : ""
+            },
+            words: { .english }))
+        let m = try mount("Text.", labelsElsewhere: { host.labelsDefined(excluding: "ch1") })
+        XCTAssertEqual(host.index.version, 0, "the premise: no build has published")
+        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        XCTAssertTrue(m.textView.string.hasSuffix("{#tbl:table-2}"),
+                      "chapter 2 already has table-1; got \(m.textView.string)")
+    }
+
     func test_insertFootnoteNumbersPastTheLabelsTheDocumentUses() throws {
         let m = try mount("One[^1].\n\n[^2]: Two.\n\nThree.")
         m.textView.setSelectedRange(NSRange(location: (m.textView.string as NSString).length,

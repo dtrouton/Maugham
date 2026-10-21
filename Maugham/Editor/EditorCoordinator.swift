@@ -324,10 +324,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// command that mints a label: Insert Table (`tbl:`) and Insert Figure
     /// (`fig:`, Task 6) make theirs unique against these and the live text's
     /// own, because a Report refuses a label defined twice. Built by
-    /// `EditorHost` over the cached reference index (`ReferenceIndex
-    /// .labelsDefined(excluding:)`, publishable pieces only), so asking walks
-    /// no document; asked once per command, never per keystroke. Nil on every
-    /// other surface.
+    /// `EditorHost` over `ReferenceIndexHost.labelsDefined(excluding:)`
+    /// (publishable pieces only): the cached index, or — before its first
+    /// build, when it is empty — a walk of the other pieces, so a command is
+    /// never told "no labels" by an index that has not looked yet. Asked once
+    /// per command, never per keystroke. Nil on every other surface.
     var projectLabelsElsewhere: (() -> Set<ManuscriptLabel>)?
 
     /// The window's cached reference index (plan 3b Task 1): the project's

@@ -1,11 +1,11 @@
 import Foundation
 import MaughamCore
 
-/// **The window's cached `ReferenceIndex`, rebuilt off the main thread**
-/// (report foundations plan 3b Task 1). `EditorHost` owns one, the way it owns
-/// `EditorHostLoadGeneration`: a plain reference, deliberately not observable
-/// (tripwire 6). The coordinator reads `index` through a closure; nothing here
-/// runs per keystroke.
+/// **The window's cached `ReferenceIndex`** (report foundations plan 3b
+/// Task 1). `EditorHost` owns one, the way it owns `EditorHostLoadGeneration`:
+/// a plain reference, deliberately not observable (tripwire 6). The
+/// coordinator reads `index` through a closure; nothing here runs per
+/// keystroke.
 ///
 /// **What makes it rebuild** (`invalidate(_:)` and `noteSettled`):
 /// - the research tree changing (`.research`; no text is re-read);
@@ -15,15 +15,27 @@ import MaughamCore
 /// - the open document's text settling: the coordinator's 350 ms metrics edge,
 ///   never a keystroke (`noteSettled`).
 ///
-/// **What a rebuild re-reads**: only what was invalidated. A piece open in a
-/// window gives its live text. A closed piece is asked its op-log token
-/// (`DerivedManuscriptCache.token`) first, and its derived text is read again
-/// only when the token moved. Each piece's summary is kept beside the text it
-/// came from, so the background build re-parses only a piece whose text
-/// changed. The build runs in a detached task; the result is published back on
-/// the main actor, and the version bumps only when the sources or targets
-/// actually changed (or on the first build, even of an empty project), which is
-/// when `onVersionChange` fires.
+/// **What runs where** (whole-branch review I2). One rebuild is three steps:
+/// 1. *Main actor:* the binder's pieces, and the live text of every
+///    invalidated piece a window has open. Memory reads only.
+/// 2. *Off the main actor:* the op-log tokens of the invalidated CLOSED pieces
+///    (`DerivedManuscriptCache.tokens(forDocIds:in:)`: ONE listing of
+///    `.maugham/ops` per rebuild, plus a stat per file) and the book's element
+///    words, re-read every rebuild so a language change in Publish shows at
+///    the next one (M3).
+/// 3. *Main actor:* the derived text of a closed piece whose token moved
+///    (`DerivedManuscriptCache` is main-actor only; tripwire 20: never the
+///    `.md`), then *off the main actor* the parse and the index. Each piece's
+///    summary is kept beside the text it came from, so the build re-parses
+///    only a piece whose text changed.
+///
+/// The result is published back on the main actor, and the version bumps only
+/// when the sources or targets actually changed (or on the first build, even
+/// of an empty project), which is when `onVersionChange` fires.
+///
+/// Before that first build, `labelsDefined(excluding:)` walks the project
+/// synchronously, so a command minting a label never trusts the empty index
+/// (whole-branch review I1).
 @MainActor
 final class ReferenceIndexHost {
 
@@ -34,12 +46,16 @@ final class ReferenceIndexHost {
         var research: () -> [ResearchItem]
         /// A piece's live text when a `Document` has it open, else nil.
         var liveText: (_ path: String) -> String?
-        /// A closed piece's op-log token: cheap, derives nothing.
-        var token: (_ docId: String) -> DerivedManuscriptCache.Token?
+        /// Closed pieces' op-log tokens, asked OFF the main actor once per
+        /// rebuild with every closed piece to check: derives nothing, and
+        /// lists `.maugham/ops` once (`DerivedManuscriptCache.tokens`).
+        var tokens: @Sendable (_ docIds: [String]) -> [String: DerivedManuscriptCache.Token]
         /// A closed piece's derived display text (tripwire 20: never the `.md`).
+        /// Main actor: the derived cache is.
         var derivedText: (_ docId: String) -> String?
-        /// The default book's element words ("Figure", "Slika").
-        var words: () -> ElementWords
+        /// The default book's element words ("Figure", "Slika"), asked off
+        /// the main actor at every rebuild.
+        var words: @Sendable () -> ElementWords
     }
 
     enum Scope: Equatable {
@@ -85,7 +101,10 @@ final class ReferenceIndexHost {
     }
     private var entries: [String: Entry] = [:]
     private var memo: [String: Memo] = [:]
-    private var words: ElementWords?
+    /// Pieces whose open text settled while a rebuild's token step was off
+    /// the main actor: that step's answer for them is older than the
+    /// settled text, which stands.
+    private var settledDuringLookup = Set<String>()
     private var staleAll = true
     private var stale = Set<String>()
     private var dirty = false
@@ -107,7 +126,7 @@ final class ReferenceIndexHost {
         generation += 1
         entries.removeAll()
         memo.removeAll()
-        words = nil
+        settledDuringLookup.removeAll()
         building?.cancel()
         building = nil
         dirty = false
@@ -130,7 +149,22 @@ final class ReferenceIndexHost {
         if let current = entries[docId], current.token == nil, current.text == text { return }
         entries[docId] = Entry(text: text, token: nil)
         stale.remove(docId)
+        settledDuringLookup.insert(docId)
         scheduleRebuild()
+    }
+
+    /// The labels the project's manuscripts other than `docId` define, for a
+    /// command that mints or checks one (Insert Table, Insert Figure, the
+    /// grid's label). The cached index once a build has published; before
+    /// that (version 0) the index is empty, so this walks every other piece
+    /// now, as plan 3a did — its live text, else its op-log-derived text —
+    /// rather than let a command mint a label another chapter already has
+    /// (whole-branch review I1). Per command, never per keystroke.
+    func labelsDefined(excluding docId: String) -> Set<ManuscriptLabel> {
+        guard index.version == 0, let project else { return index.labelsDefined(excluding: docId) }
+        return ReportInsert.labelsElsewhere(in: project.structure(), excluding: docId) { item, path in
+            project.liveText(path) ?? project.derivedText(item.id)
+        }
     }
 
     /// Returns once no rebuild is pending or running (tests; a host never waits).
@@ -149,8 +183,18 @@ final class ReferenceIndexHost {
     }
 
     private func drain(_ generation: Int) async {
-        while dirty, generation == self.generation, let snapshot = makeSnapshot() {
+        while dirty, generation == self.generation, let plan = makePlan() {
             dirty = false
+            settledDuringLookup.removeAll()
+            // Off the main actor: one listing of the ops directory for every
+            // closed piece to check, and the book's words (I2, M3).
+            let tokensOf = plan.project.tokens, wordsOf = plan.project.words
+            let closed = plan.closed
+            let (tokens, words) = await Task.detached(priority: .utility) {
+                (closed.isEmpty ? [:] : tokensOf(closed), wordsOf())
+            }.value
+            guard generation == self.generation else { return }
+            let snapshot = finish(plan, tokens: tokens, words: words)
             let builder = self.builder, memo = self.memo
             let (built, nextMemo) = await Task.detached(priority: .utility) {
                 builder(snapshot, memo)
@@ -172,36 +216,60 @@ final class ReferenceIndexHost {
         onVersionChange?(index.version)
     }
 
-    /// The inputs of one build, read on the main actor: re-reads only the
-    /// invalidated pieces, and a closed one only when its op-log token moved.
-    private func makeSnapshot() -> Snapshot? {
-        guard let project else { return nil }
-        if staleAll || words == nil { words = project.words() }
-        var pieces: [(docId: String, text: String?)] = []
-        var kept: [String: Entry] = [:]
-        for (item, readablePath) in ReferenceIndex.readablePieces(in: project.structure()) {
-            guard let path = readablePath else {
-                pieces.append((item.id, nil))
-                continue
-            }
-            var entry = entries[item.id]
-            if entry == nil || staleAll || stale.contains(item.id) {
-                entry = read(item.id, path: path, previous: entry, project: project)
-            }
-            kept[item.id] = entry
-            pieces.append((item.id, entry?.text))
-        }
-        entries = kept
-        staleAll = false
-        stale.removeAll()
-        return Snapshot(pieces: pieces, research: project.research(), words: words ?? .english)
+    /// Step 1 of a rebuild, on the main actor and from memory only: the
+    /// readable pieces in publishing order, the live text of each invalidated
+    /// open piece, and which invalidated pieces are closed (their tokens are
+    /// asked off the main actor next).
+    private struct Plan {
+        let project: Project
+        /// Each readable piece's id and path (nil: contributes no text).
+        let pieces: [(docId: String, path: String?)]
+        /// Invalidated pieces no window has open.
+        let closed: [String]
     }
 
-    private func read(_ docId: String, path: String, previous: Entry?, project: Project) -> Entry {
-        if let live = project.liveText(path) { return Entry(text: live, token: nil) }
-        let token = project.token(docId)
-        if let previous, let held = previous.token, held == token { return previous }
-        return Entry(text: project.derivedText(docId), token: token)
+    private func makePlan() -> Plan? {
+        guard let project else { return nil }
+        var pieces: [(docId: String, path: String?)] = []
+        var closed: [String] = []
+        for (item, readablePath) in ReferenceIndex.readablePieces(in: project.structure()) {
+            pieces.append((item.id, readablePath))
+            guard let path = readablePath,
+                  entries[item.id] == nil || staleAll || stale.contains(item.id) else { continue }
+            if let live = project.liveText(path) {
+                entries[item.id] = Entry(text: live, token: nil)
+            } else {
+                closed.append(item.id)
+            }
+        }
+        staleAll = false
+        stale.removeAll()
+        return Plan(project: project, pieces: pieces, closed: closed)
+    }
+
+    /// Step 3's main-actor half: a closed piece's text is derived again only
+    /// when its op-log token moved (and not when its open text settled while
+    /// the tokens were being read); then the snapshot, in publishing order.
+    private func finish(_ plan: Plan, tokens: [String: DerivedManuscriptCache.Token],
+                        words: ElementWords) -> Snapshot {
+        for docId in plan.closed where !settledDuringLookup.contains(docId) {
+            let token = tokens[docId]
+            if let previous = entries[docId], let held = previous.token, held == token { continue }
+            entries[docId] = Entry(text: plan.project.derivedText(docId), token: token)
+        }
+        var kept: [String: Entry] = [:]
+        var pieces: [(docId: String, text: String?)] = []
+        for piece in plan.pieces {
+            guard piece.path != nil else {
+                pieces.append((piece.docId, nil))
+                continue
+            }
+            let entry = entries[piece.docId]
+            kept[piece.docId] = entry
+            pieces.append((piece.docId, entry?.text))
+        }
+        entries = kept
+        return Snapshot(pieces: pieces, research: plan.project.research(), words: words)
     }
 
     /// The production builder: each piece's summary from the memo when its

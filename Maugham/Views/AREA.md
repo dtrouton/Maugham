@@ -93,7 +93,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CorkboardGrid.swift`, `OutlineTable.swift` — altitude's two layouts; `OutlineTable` reads the writers once.
 - `ReferencePlaceholderCard.swift` — the centre's placeholder for a Collection's reference piece.
 - `EditorStatusFooter.swift` — the status row under the editor.
-- `ReferenceIndexHost.swift` — the window's cached `ReferenceIndex`, rebuilt off the main thread; `EditorHost` owns it.
+- `ReferenceIndexHost.swift` — the window's cached `ReferenceIndex`, its token listing and parse off the main thread; `EditorHost` owns it.
 - `TableGridEditor.swift` — Edit Table…'s grid sheet over a pure `TableGridModel`, and the presenter `EditorHost` awaits.
 - `StatusSwatch.swift` — the one place a `ReviewStatus` becomes a `Color`.
 

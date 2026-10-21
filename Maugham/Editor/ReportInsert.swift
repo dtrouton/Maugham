@@ -66,8 +66,9 @@ enum ReportInsert {
     /// The labels every publishable manuscript piece in `structure` defines
     /// except `docId`'s, each read through `text` (live-or-derived display
     /// text; nil skips it). Screenplays and reference pieces define none here.
-    /// A thin reading of `ReferenceIndex.labelsDefined(excluding:)`, which is
-    /// what `EditorHost`'s `projectLabelsElsewhere` asks of the cached index.
+    /// A synchronous walk: `ReferenceIndexHost.labelsDefined(excluding:)`
+    /// answers with it only while no index build has published (whole-branch
+    /// review I1); after that the cached index answers.
     static func labelsElsewhere(in structure: [StructureItem], excluding docId: String,
                                 text: (StructureItem, String) -> String?) -> Set<ManuscriptLabel> {
         ReferenceIndex.build(structure: structure, research: [],

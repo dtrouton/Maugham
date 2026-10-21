@@ -204,24 +204,59 @@ final class ReferenceIndexTests: XCTestCase {
 
     // MARK: - The host
 
-    private final class Reads {
-        var derived: [String] = []
-        var tokens: [String] = []
+    /// What the host asked, recorded from the main actor (derives) and from
+    /// the off-main token step (tokens), so it is locked.
+    private final class Reads: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _derived: [String] = []
+        private var _tokens: [String] = []
+        private var _tokenCalls = 0
+        private var _tokensOnMain: [Bool] = []
+        /// What the next token step answers per piece (the stub's entry count).
+        private var _tokenEntries = 1
+        private var _language = "en"
+        var derived: [String] { lock.withLock { _derived } }
+        var tokens: [String] { lock.withLock { _tokens } }
+        /// How many token steps ran: each is ONE listing of the ops directory.
+        var tokenCalls: Int { lock.withLock { _tokenCalls } }
+        var tokensOnMain: [Bool] { lock.withLock { _tokensOnMain } }
+        var tokenEntries: Int {
+            get { lock.withLock { _tokenEntries } }
+            set { lock.withLock { _tokenEntries = newValue } }
+        }
+        var language: String {
+            get { lock.withLock { _language } }
+            set { lock.withLock { _language = newValue } }
+        }
+        func noteDerived(_ id: String) { lock.withLock { _derived.append(id) } }
+        func tokens(for ids: [String]) -> [String: DerivedManuscriptCache.Token] {
+            lock.withLock {
+                _tokenCalls += 1
+                _tokens += ids
+                _tokensOnMain.append(Thread.isMainThread)
+                let entries = _tokenEntries
+                return Dictionary(uniqueKeysWithValues: ids.map {
+                    ($0, DerivedManuscriptCache.Token(stubEntries: entries))
+                })
+            }
+        }
+        func words() -> ElementWords {
+            language == "sr" ? ElementWords.forBody(PublishConfig.Metadata(language: "sr")) : .english
+        }
     }
 
     private func project(texts: @escaping () -> [String: String],
                          live: @escaping () -> [String: String] = { [:] },
                          research: @escaping () -> [ResearchItem] = { [] },
                          structure: [StructureItem],
-                         token: @escaping (String) -> DerivedManuscriptCache.Token? = { _ in nil },
                          reads: Reads = Reads()) -> ReferenceIndexHost.Project {
         ReferenceIndexHost.Project(
             structure: { structure },
             research: research,
             liveText: { path in live()[path] },
-            token: { id in reads.tokens.append(id); return token(id) },
-            derivedText: { id in reads.derived.append(id); return texts()[id] },
-            words: { .english })
+            tokens: { ids in reads.tokens(for: ids) },
+            derivedText: { id in reads.noteDerived(id); return texts()[id] },
+            words: { reads.words() })
     }
 
     func test_theVersionBumpsOnlyWhenTheContentsChange() async {
@@ -256,14 +291,10 @@ final class ReferenceIndexTests: XCTestCase {
 
     func test_aClosedPieceIsReReadOnlyWhenItsOpLogMoved() async {
         let reads = Reads()
-        var tokenEntries = 1
-        let token: (String) -> DerivedManuscriptCache.Token? = { _ in
-            DerivedManuscriptCache.Token(stubEntries: tokenEntries)
-        }
         let host = ReferenceIndexHost()
         host.attach(project(texts: { ["a": "A", "b": "B"] },
                             structure: [Self.doc("a", "a.md"), Self.doc("b", "b.md")],
-                            token: token, reads: reads))
+                            reads: reads))
         await host.idle()
         XCTAssertEqual(reads.derived, ["a", "b"])
 
@@ -275,10 +306,73 @@ final class ReferenceIndexTests: XCTestCase {
         await host.idle()
         XCTAssertEqual(reads.tokens.count, 4, "a research change asks no piece anything")
 
-        tokenEntries = 2
+        reads.tokenEntries = 2
         host.invalidate(.piece("b"))
         await host.idle()
         XCTAssertEqual(reads.derived, ["a", "b", "b"], "only the invalidated piece, and it moved")
+    }
+
+    /// Whole-branch review I2: a rebuild asks every closed piece's token in
+    /// ONE step off the main actor (production: one listing of `.maugham/ops`,
+    /// pinned in `DerivedManuscriptCacheTests`), never a listing per piece on
+    /// the main actor; an open piece is asked nothing.
+    func test_aRebuildAsksEveryClosedPiecesTokenInOneStepOffTheMainActor() async {
+        let reads = Reads()
+        let structure = (0..<12).map { Self.doc("d\($0)", "d\($0).md") }
+        let host = ReferenceIndexHost()
+        host.attach(project(texts: { [:] }, live: { ["d3.md": "Open."] },
+                            structure: structure, reads: reads))
+        await host.idle()
+        XCTAssertEqual(reads.tokenCalls, 1, "one token step for the whole project")
+        XCTAssertEqual(reads.tokens.count, 11, "every closed piece, in that one step")
+        XCTAssertFalse(reads.tokens.contains("d3"), "an open piece's token is never asked")
+        host.invalidate(.all)
+        await host.idle()
+        XCTAssertEqual(reads.tokenCalls, 2, "and one per rebuild after")
+        XCTAssertEqual(reads.tokensOnMain, [false, false], "never on the main actor")
+    }
+
+    /// Whole-branch review M3: the book's element words are read at every
+    /// rebuild, so a language change in Publish shows at the next one
+    /// (a settle), not only at a document switch.
+    func test_theElementWordsAreReReadAtEveryRebuild() async {
+        let reads = Reads()
+        let host = ReferenceIndexHost()
+        host.attach(project(texts: { [:] },
+                            live: { ["a.md": "![A](a.png){#fig:a}"] },
+                            structure: [Self.doc("a", "a.md")], reads: reads))
+        await host.idle()
+        XCTAssertEqual(host.index.target(for: Self.label("fig:a"))?.text, "Figure 1")
+        reads.language = "sr"
+        host.noteSettled(docId: "a", text: "![A](a.png){#fig:a}\n\nMore.")
+        await host.idle()
+        XCTAssertEqual(host.index.target(for: Self.label("fig:a"))?.text, "Slika 1")
+        XCTAssertEqual(host.index.version, 2, "the new words are new contents")
+    }
+
+    /// Whole-branch review I1: before the first build publishes, the index is
+    /// empty, so the labels a command must not repeat are walked now — a
+    /// closed piece's derived text, an open one's live text — never answered
+    /// from the empty index. Once built, the cached index answers and nothing
+    /// is derived for it.
+    func test_beforeTheFirstBuildTheLabelsElsewhereAreWalked() async {
+        let reads = Reads()
+        let host = ReferenceIndexHost(builder: { snapshot, memo in
+            ReferenceIndexHost.build(snapshot, memo)
+        })
+        host.attach(project(texts: { ["ch2": "| a |\n|---|\n| 1 |\nTable: T {#tbl:table-1}"] },
+                            live: { ["ch3.md": "![F](f.png){#fig:open}"] },
+                            structure: [Self.doc("ch1", "ch1.md"), Self.doc("ch2", "ch2.md"),
+                                        Self.doc("ch3", "ch3.md")],
+                            reads: reads))
+        XCTAssertEqual(host.index.version, 0, "nothing has been built yet")
+        XCTAssertEqual(host.labelsDefined(excluding: "ch1"),
+                       [Self.label("tbl:table-1"), Self.label("fig:open")])
+        await host.idle()
+        let derived = reads.derived.count
+        XCTAssertEqual(host.labelsDefined(excluding: "ch1"),
+                       [Self.label("tbl:table-1"), Self.label("fig:open")])
+        XCTAssertEqual(reads.derived.count, derived, "built: the cached index answers, no walk")
     }
 
     func test_anOpenPieceReadsItsLiveText() async {
@@ -373,7 +467,9 @@ final class ReferenceIndexTests: XCTestCase {
             "referenceIndex: { [referenceIndex] in referenceIndex.index }",
             "referenceIndex.noteSettled(docId: doc.docId, text: doc.displayText)",
             "control.referenceIndexVersion = $0",
-            "referenceIndex.index.labelsDefined(excluding: doc.docId)",
+            "referenceIndex.labelsDefined(excluding: doc.docId)",
+            // One listing of the ops directory per rebuild, off main (I2).
+            "DerivedManuscriptCache.tokens(forDocIds: docIds, in: url)",
             ".onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }",
             // The piece just left is read again from its flushed op log at the
             // switch itself, not only from the new mount's `.onAppear` (I1).

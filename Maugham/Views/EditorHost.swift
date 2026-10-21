@@ -737,7 +737,11 @@ struct EditorHost: View {
             structure: { [store] in store.manifest.structure },
             research: { [store] in store.manifest.research },
             liveText: { [documentStore] path in documentStore.document(for: path)?.displayText },
-            token: { [url = store.url] docId in DerivedManuscriptCache.token(forDocId: docId, in: url) },
+            // Off the main actor, once per rebuild: one listing of the ops
+            // directory for every closed piece asked (whole-branch review I2).
+            tokens: { [url = store.url] docIds in
+                DerivedManuscriptCache.tokens(forDocIds: docIds, in: url)
+            },
             derivedText: { [store] docId in
                 try? store.derivedCache.displayText(forDocId: docId, in: store.url)
             },
@@ -852,10 +856,12 @@ struct EditorHost: View {
                 // The labels the project's OTHER manuscripts define, for a
                 // command that mints one (Insert Table; Insert Figure, Task 6).
                 // Read off the cached reference index, which holds each
-                // piece's live or op-log-derived text (tripwire 20); this
-                // document's own labels come from its live text at the command.
+                // piece's live or op-log-derived text (tripwire 20), or walked
+                // now while no build has published (whole-branch review I1);
+                // this document's own labels come from its live text at the
+                // command.
                 projectLabelsElsewhere: { [referenceIndex] in
-                    referenceIndex.index.labelsDefined(excluding: doc.docId)
+                    referenceIndex.labelsDefined(excluding: doc.docId)
                 },
                 // The project's sources and targets (plan 3b Task 1): the
                 // cached value, never a build.
