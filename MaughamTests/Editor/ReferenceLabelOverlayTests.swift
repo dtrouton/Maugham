@@ -61,6 +61,19 @@ final class ReferenceLabelOverlayTests: XCTestCase {
 
     private let dotted = NSUnderlineStyle.single.union(.patternDot).rawValue
 
+    /// How many text-storage edits `body` makes (D1: a repaint the index
+    /// version drives is temporaries and the visible labels only, never a
+    /// restyle, which is a storage edit).
+    private func storageEdits(_ harness: EditorIntegrationHarness, during body: () -> Void) -> Int {
+        var count = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification,
+            object: harness.textView.textStorage, queue: nil) { _ in count += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        body()
+        return count
+    }
+
     // MARK: - Install, layering, empty draw
 
     func test_theOverlayInstallsOnAManuscriptAboveTheThumbnailsAndTakesNoClick() throws {
@@ -179,6 +192,11 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         // A rebuild on its own (a resize) replaces the rects, never adds to them.
         harness.coordinator.rebuildProblemTooltips()
         XCTAssertEqual(tooltips.messages.count, 1)
+        // The column moves (a new inset, same width): the rects follow (M2).
+        let inset = harness.textView.textContainerInset
+        harness.textView.textContainerInset = NSSize(width: inset.width + 40, height: inset.height)
+        harness.coordinator.layoutReferenceLabelOverlay(in: harness.textView)
+        XCTAssertEqual(tooltips.origin, harness.textView.textContainerOrigin)
         // Fix the key; the next check drops the old tooltip and its underline.
         harness.textView.string = "See [@smith2026] here."
         harness.coordinator.retokenizeAndStyle()
@@ -203,7 +221,8 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         coordinator.applyTranslationDimming()
         XCTAssertEqual(underline(harness, at: key).style, dotted, "dimming leaves the underline")
 
-        coordinator.refreshProblemMarks()
+        XCTAssertEqual(storageEdits(harness) { coordinator.refreshProblemMarks() }, 0,
+                       "the check never edits the storage")
         XCTAssertEqual(lm.temporaryAttribute(.foregroundColor, atCharacterIndex: missing.location,
                                              effectiveRange: nil) as? NSColor,
                        .tertiaryLabelColor, "the check leaves the dimming")
@@ -239,8 +258,11 @@ final class ReferenceLabelOverlayTests: XCTestCase {
     func test_aNewIndexVersionRechecks() {
         let harness = mounted("See [@ghost] here.")
         let before = harness.coordinator.problemCheckCount
-        harness.coordinator.setReferenceIndexVersion(7)
+        XCTAssertEqual(storageEdits(harness) { harness.coordinator.setReferenceIndexVersion(7) }, 0,
+                       "a new version repaints temporaries and labels, never restyles (D1)")
         XCTAssertEqual(harness.coordinator.problemCheckCount, before + 1)
+        XCTAssertNotNil(harness.coordinator.referenceGroupCache["See [@ghost] here."],
+                        "the check reads blocks through the shared cache (M5)")
         harness.coordinator.setReferenceIndexVersion(7)
         XCTAssertEqual(harness.coordinator.problemCheckCount, before + 1)
     }

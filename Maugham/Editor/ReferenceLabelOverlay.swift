@@ -290,14 +290,6 @@ final class ReferenceLabelOverlay: NSView {
 // MARK: - The coordinator's side
 
 extension EditorCoordinator {
-    /// Whether this surface draws labels and problem marks: a manuscript's
-    /// prose editor with the window's index (only `EditorHost` builds one and
-    /// sets `answersInsertCommands`). A research note, a statement and a
-    /// screenplay get neither.
-    var showsReferenceMarks: Bool {
-        answersInsertCommands && referenceIndex != nil && mode is ProseMode && !isDetached
-    }
-
     /// Install the label overlay on a surface that shows labels. Idempotent;
     /// called from `attach` after the thumbnails, so it sits above them.
     func syncReferenceLabelOverlay() {
@@ -318,9 +310,21 @@ extension EditorCoordinator {
             overlay.needsDisplay = true
         }
         if let width = textView.textContainer?.size.width,
-           let tooltips = problemTooltips, tooltips.width != width {
+           let tooltips = problemTooltips,
+           tooltips.width != width || tooltips.origin != textView.textContainerOrigin {
             rebuildProblemTooltips()
         }
+    }
+
+    /// One block's marker groups, relative to it, remembered by the block's
+    /// text (bounded): the label overlay's draw and the settle's checks share
+    /// it, so neither re-scans a paragraph that did not change.
+    func cachedReferenceGroups(blockText: String) -> [ManuscriptChecks.Group] {
+        if let held = referenceGroupCache[blockText] { return held }
+        let groups = ManuscriptChecks.groups(inBlockText: blockText)
+        if referenceGroupCache.count >= 256 { referenceGroupCache.removeAll() }
+        referenceGroupCache[blockText] = groups
+        return groups
     }
 
     /// The marker groups holding a marker token inside `chars`: the visible
@@ -345,16 +349,7 @@ extension EditorCoordinator {
                 inBlock.append(markers[i])
                 i += 1
             }
-            let blockText = text.substring(with: block)
-            let groups: [ManuscriptChecks.Group]
-            if let held = referenceGroupCache[blockText] {
-                groups = held
-            } else {
-                groups = ManuscriptChecks.groups(inBlockText: blockText)
-                if referenceGroupCache.count >= 256 { referenceGroupCache.removeAll() }
-                referenceGroupCache[blockText] = groups
-            }
-            for group in groups {
+            for group in cachedReferenceGroups(blockText: text.substring(with: block)) {
                 let placed = group.shifted(by: block.location)
                 guard NSIntersectionRange(placed.range, chars).length > 0,
                       inBlock.contains(where: { NSIntersectionRange($0, placed.range).length > 0 })

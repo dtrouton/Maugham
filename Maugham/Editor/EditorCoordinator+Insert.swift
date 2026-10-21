@@ -5,6 +5,15 @@ import AppKit
 // EditorCoordinator — the Insert menu (plan 3a Task 4), and Route A, the one
 // way a command edits the text.
 extension EditorCoordinator {
+    /// Whether this surface draws resolved labels and problem marks (plan 3b
+    /// Task 6, `ReferenceLabelOverlay`, `ManuscriptChecks`): a manuscript's
+    /// prose editor with the window's index (only `EditorHost` builds one and
+    /// sets `answersInsertCommands`). A research note, a statement and a
+    /// screenplay get neither.
+    var showsReferenceMarks: Bool {
+        answersInsertCommands && referenceIndex != nil && mode is ProseMode && !isDetached
+    }
+
     // MARK: - Route A
 
     /// **Route A: a command's edit, as one native undo step.** The one helper

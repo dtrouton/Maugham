@@ -60,6 +60,26 @@ final class ManuscriptChecksTests: XCTestCase {
         XCTAssertEqual(found.map(\.text), ["@tbl:none"])
     }
 
+    /// A label this document's live text defines on its own kind of element
+    /// resolves before the index catches up (fix round 1, M3); a label on the
+    /// wrong kind of element does not.
+    func test_aLabelDefinedHereResolvesBeforeTheIndexCatchesUp() {
+        XCTAssertTrue(problems("![New](n.png){#fig:new}\n\nSee @fig:new.").isEmpty)
+        XCTAssertEqual(problems("# Heading {#fig:new}\n\nSee @fig:new.").map(\.kind),
+                       [.unresolvedCrossRef(label("fig:new"))], "the control: a heading is no figure")
+    }
+
+    /// The checks read each block through the reader they're handed (the
+    /// coordinator's cache, fix round 1 M5), once per block.
+    func test_theChecksReadBlocksThroughTheGivenReader() {
+        let text = "See [@ghost].\n\nAnd @fig:chart.\n\nPlain."
+        var reads: [String] = []
+        _ = ManuscriptChecks.analyse(tokens: ProseMode().tokenize(text), text: text as NSString,
+                                     index: Self.index(), labelsElsewhere: [],
+                                     blockGroups: { reads.append($0); return ManuscriptChecks.groups(inBlockText: $0) })
+        XCTAssertEqual(reads.count, 2, "two blocks hold markers; the plain one is never read")
+    }
+
     /// The index not built yet: no key or reference is called unknown.
     func test_withNoIndexTheIndexChecksWait() {
         XCTAssertTrue(problems("See [@ghost] and @fig:missing.", index: nil).isEmpty)

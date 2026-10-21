@@ -285,9 +285,6 @@ final class InsertCommandTests: XCTestCase {
         "Maugham/Editor/EditorCoordinator+Insert.swift",
         // The completion list opens on a manuscript surface only (plan 3b Task 2).
         "Maugham/Editor/EditorCoordinator+Completion.swift",
-        // Labels and problem underlines show on a manuscript surface only
-        // (`showsReferenceMarks`, plan 3b Task 6): it reads the flag, never sets it.
-        "Maugham/Editor/ReferenceLabelOverlay.swift",
         "Maugham/Views/EditorHost.swift",
     ]
 

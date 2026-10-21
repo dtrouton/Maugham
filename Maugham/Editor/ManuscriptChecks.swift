@@ -62,16 +62,28 @@ enum ManuscriptChecks {
             .problems.map { ($0.range, $0.kind) }
     }
 
+    /// - Parameter blockGroups: reads one block's text into its groups; the
+    ///   coordinator passes its per-block cache, so a settle re-scans only
+    ///   blocks whose text changed.
     static func analyse(tokens: [Token], text: NSString, index: ReferenceIndex?,
-                        labelsElsewhere: Set<ManuscriptLabel>) -> Analysis {
+                        labelsElsewhere: Set<ManuscriptLabel>,
+                        blockGroups: (String) -> [Group] = groups(inBlockText:)) -> Analysis {
         var problems: [Problem] = []
         let notes = footnotes(in: tokens, text: text)
         problems += notes.problems
 
         // Labels defined here: twice here, or here and in another piece.
         var seen = Set<ManuscriptLabel>()
+        // Labels this document's LIVE text defines on their own kind of
+        // element: a reference to one resolves even before the index's
+        // rebuild has caught up (no red flicker for a label and its reference
+        // typed in one burst).
+        var targetsHere = Set<ManuscriptLabel>()
         for token in tokens where token.kind == .attributeBlock {
             guard let label = definedLabel(token.range, in: text) else { continue }
+            if elementKind(ofLineAt: token.range.location, in: text) == label.kind {
+                targetsHere.insert(label)
+            }
             let again = !seen.insert(label).inserted
             if again || (index != nil && labelsElsewhere.contains(label)) {
                 problems.append(Problem(range: token.range, kind: .duplicateLabel(label)))
@@ -79,7 +91,7 @@ enum ManuscriptChecks {
         }
 
         if let index {
-            for group in groups(in: tokens, text: text) {
+            for group in groups(in: tokens, text: text, blockGroups: blockGroups) {
                 for part in group.parts {
                     switch part {
                     case .citation(let items):
@@ -89,7 +101,7 @@ enum ManuscriptChecks {
                                 kind: .unknownCitationKey(item.key)))
                         }
                     case .crossRef(let label):
-                        if index.target(for: label) == nil {
+                        if index.target(for: label) == nil, !targetsHere.contains(label) {
                             problems.append(Problem(
                                 range: itemRange("@" + label.reference, in: group.range, text: text),
                                 kind: .unresolvedCrossRef(label)))
@@ -207,7 +219,8 @@ enum ManuscriptChecks {
     /// Every marker group in the document whose range holds a citation,
     /// cross-reference or footnote-reference token, read per blank-line block
     /// as the tokenizer reads it (each block scanned once).
-    static func groups(in tokens: [Token], text: NSString) -> [Group] {
+    static func groups(in tokens: [Token], text: NSString,
+                       blockGroups: (String) -> [Group] = groups(inBlockText:)) -> [Group] {
         let markers = tokens.filter { isMarker($0.kind) }.map(\.range)
             .sorted { $0.location < $1.location }
         var out: [Group] = []
@@ -221,16 +234,11 @@ enum ManuscriptChecks {
             }
             // A scanned marker the tokenizer never claimed (inside a link, say)
             // is not the editor's marker, so it is neither checked nor labelled.
-            out += groups(inBlock: block, text: text).filter { group in
-                inBlock.contains { NSIntersectionRange($0, group.range).length > 0 }
-            }
+            out += blockGroups(text.substring(with: block))
+                .map { $0.shifted(by: block.location) }
+                .filter { group in inBlock.contains { NSIntersectionRange($0, group.range).length > 0 } }
         }
         return out
-    }
-
-    /// The groups of one blank-line block, in document coordinates.
-    static func groups(inBlock block: NSRange, text: NSString) -> [Group] {
-        groups(inBlockText: text.substring(with: block)).map { $0.shifted(by: block.location) }
     }
 
     /// The groups of a block's text, relative to it (what the label overlay
@@ -307,6 +315,18 @@ enum ManuscriptChecks {
         return true
     }
 
+    /// Which kind of element the line holding `location` is, as a label
+    /// must name it: a heading (`sec`), a table caption (`tbl`) or a figure
+    /// line (`fig`); nil for any other line.
+    static func elementKind(ofLineAt location: Int, in text: NSString) -> ManuscriptLabel.Kind? {
+        let line = text.substring(with: text.lineRange(for: NSRange(location: location, length: 0)))
+            .trimmingCharacters(in: .whitespaces)
+        if line.hasPrefix("#") { return .sec }
+        if line.hasPrefix("Table: ") { return .tbl }
+        if line.hasPrefix("![") { return .fig }
+        return nil
+    }
+
     /// The label of a `{#kind:name}` token.
     static func definedLabel(_ range: NSRange, in text: NSString) -> ManuscriptLabel? {
         let raw = text.substring(with: range)
@@ -356,9 +376,11 @@ enum ManuscriptChecks {
 /// owner, so the coordinator holds this.
 final class ProblemTooltips: NSObject, NSViewToolTipOwner {
     private(set) var messages: [NSView.ToolTipTag: String] = [:]
-    /// The column width the rects were laid out at; a resize that changes it
-    /// rebuilds them.
+    /// The column width and container origin the rects were laid out at; a
+    /// resize that changes either (a new width re-wraps, a new inset moves
+    /// every line) rebuilds them.
     var width: CGFloat = 0
+    var origin: CGPoint = .zero
 
     func add(_ message: String, rect: CGRect, to view: NSView) {
         let tag = view.addToolTip(rect, owner: self, userData: nil)
@@ -417,7 +439,8 @@ extension EditorCoordinator {
         let index = referenceIndex.map { $0() }.flatMap { $0.version > 0 ? $0 : nil }
         let analysis = ManuscriptChecks.analyse(
             tokens: lastTokens, text: textView.string as NSString, index: index,
-            labelsElsewhere: index == nil ? [] : (projectLabelsElsewhere?() ?? []))
+            labelsElsewhere: index == nil ? [] : (projectLabelsElsewhere?() ?? []),
+            blockGroups: { self.cachedReferenceGroups(blockText: $0) })
         problemMarks = analysis.problems
         if footnoteNumbers != analysis.footnoteNumbers {
             footnoteNumbers = analysis.footnoteNumbers
@@ -447,6 +470,7 @@ extension EditorCoordinator {
         tooltips.width = container.size.width
         let length = textView.textStorage?.length ?? 0
         let origin = textView.textContainerOrigin
+        tooltips.origin = origin
         for problem in problemMarks where NSMaxRange(problem.range) <= length {
             let message = PublishProblem.sentence(for: problem.kind)
             let glyphs = layoutManager.glyphRange(forCharacterRange: problem.range,
