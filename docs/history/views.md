@@ -155,3 +155,12 @@ Cut from `Maugham/Views/AREA.md` to make room for `TableGridEditor` on the Map; 
 - The navigation bullet: "a `.project`-scoped navigate may move a background window."
 - `BinderTreeDrops`' Map line: the example "e.g. `routeExternalDrop`".
 - The tree-sheet bullet: the example "(e.g. `linkPickerDocumentId`)".
+
+## Moved from the guide by report foundations plan 4, Task 9 (2026-10-22)
+
+Cut from `Maugham/Views/AREA.md` to make room for the New Project and Settings rule; the rule each qualified is still in the guide.
+
+- The posture bullet's list of files allowed to ask the permit: `TripwireGrepTests.postureAskAllowed`, by file and spelling.
+- The admission bullet's "A typed label is never replaced by a re-seed."
+- The `RulingDestination` bullet's eligibility detail: a translator ruling needs an open, language-tagged `.query`/`.craftNote`; a first-reader ruling an open, unstamped, untagged note bylined `firstReaderName`; a suggested change never offers.
+- `AskField`'s "(keystrokes go to the store's pending buffer)".

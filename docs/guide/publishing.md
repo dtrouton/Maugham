@@ -1,6 +1,6 @@
-# Publishing to PDF & EPUB
+# Publishing to PDF, EPUB & Word
 
-Maugham can publish your project to PDF and EPUB directly from Claude Desktop. The PDF pipeline uses a bundled copy of tectonic (an XeTeX-based LaTeX engine) so there's nothing to install — just ask Claude to set up publishing for your project.
+Maugham can publish your project to PDF, EPUB and Word (.docx) directly from Claude Desktop. The PDF pipeline uses a bundled copy of tectonic (an XeTeX-based LaTeX engine) so there's nothing to install — just ask Claude to set up publishing for your project.
 
 ### A deeply personal PDF
 
@@ -12,7 +12,7 @@ The EPUB output produces a structurally clean file with one `<section>` per piec
 
 ### Where outputs land
 
-Compiled PDFs and EPUBs appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
+Compiled PDFs, EPUBs and Word files appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
 
 ### The Publish persona's centre column
 
@@ -29,6 +29,22 @@ The template, preamble, per-piece style files, and a small `config.json` live un
 ### Getting started with publishing
 
 Ask Claude: *"Set up publishing for this project."* It will scaffold the initial template and config, run a test compile, and show you the first page. From there it's an iterative conversation: describe the look you want, and Claude tunes the template until it's right.
+
+### Word export
+
+Ask for the `docx` format and Maugham writes a native Word file: headings, lists, tables with a repeating header row, figures, footnotes, captions and cross-references are real Word elements, not pasted text. It's meant for sending a draft to someone who works in Word, so it follows the same rules as the other formats for what the book contains, and it has no template to design.
+
+**A Word export is a draft, not a version.** It never takes the next version number, so it doesn't use up a version of your PDF or EPUB. Each export is "Draft 1", "Draft 2" and so on, counted across the book, and the file is named `<title>-draft1.docx`. A label inside the file reads "Draft N, sent <date>" (the date is your local day, in the book's language). A republish of a Word export keeps its draft label and doesn't write a new one.
+
+**The sent copy.** Every Word export also leaves a copy of what you sent, under `.maugham/exports/` in the project: the exported file, plus a record of each piece's paragraphs as they were. It isn't shown anywhere yet; it's kept so a later feature can compare a returned document to what went out. Bringing a returned .docx back into Maugham isn't built yet.
+
+**Styles.** The file uses Word's own styles (Heading 1 to 3, Caption, Table Grid, and so on). To change how they look, put a `reference.docx` in `.maugham/publish/`: the styles in it are used in place of the built-in ones, matched by id or by Word's style name, so a localised Word works too. Nothing else in that file is used. If it can't be read, the export still happens with the built-in styles and says so.
+
+**Figures.** Word takes PNG, JPEG and GIF as they are. A PDF or SVG figure is converted to a picture (a PNG at 200 dpi, a PDF's first page) before it goes in. Because that happens after the publish checks, `dry_run` can't tell you a PDF or SVG won't convert; the real export will.
+
+**Lists of figures and tables.** The Word file numbers its figures and tables with Word captions but doesn't build a list of them or a table of contents. Insert your own in Word (Insert ▸ Table of Figures, References ▸ Table of Contents).
+
+**Paper size** follows the book's language: Letter for a US or Canadian region, A4 otherwise. A language with no region, such as "en", takes this Mac's region.
 
 ### Tables, figures, footnotes, citations and cross-references
 
@@ -51,7 +67,7 @@ Every table is numbered — "Table 1", "Table 2" — across the whole book, capt
 ![The study area](../research/map.png){#fig:map}
 ```
 
-The image must be in a research folder of the project — the project's `research/` folder, or a Collection piece's own `research/` — and the path is written from the piece's own file, as a Markdown previewer would read it (a chapter in `manuscript/` reaches `research/` with `../research/`). A path that leaves the project or points outside research is refused, and so is a file the output can't show: the PDF takes PNG, JPEG and PDF images; the EPUB takes PNG, JPEG, GIF and SVG. Figures are numbered "Figure 1", "Figure 2" across the book.
+The image must be in a research folder of the project — the project's `research/` folder, or a Collection piece's own `research/` — and the path is written from the piece's own file, as a Markdown previewer would read it (a chapter in `manuscript/` reaches `research/` with `../research/`). A path that leaves the project or points outside research is refused, and so is a file the output can't show: the PDF takes PNG, JPEG and PDF images; the EPUB takes PNG, JPEG, GIF and SVG; Word takes PNG, JPEG, GIF, PDF and SVG. Figures are numbered "Figure 1", "Figure 2" across the book.
 
 You don't have to write the line yourself: **Insert ▸ Figure…** (⌘⇧I), dragging an image or PDF file onto the page, or pasting a picture copies it into the piece's research — the project's `research/` folder, or a Collection piece's own — and writes the figure line as a paragraph of its own, with "Caption" selected for you to type over. In a novel the copy is also linked to the chapter. PNG, JPEG, GIF, PDF and SVG files are copied as they are; any other picture (HEIC, TIFF, WebP, BMP…) is saved as a PNG under its own name, so every output can show it. The label comes from the file's name (`Site Map.png` → `{#fig:site-map}`, accents dropped), with `-2`, `-3` added when the book already uses it. Pasting text copied from Word, Pages or Excel pastes the text, never a picture of it. If the copy fails nothing is written and a notice says so; if you type while a large image copies, the figure goes above the paragraph you dropped it in, and your cursor stays where you are typing. A figure that lands after you've moved on never takes the cursor or the focus; only if you're still where you dropped it is "Caption" selected. While you're composing with an input method (Japanese, Chinese, accents held down) the figure waits for you to finish. ⌘Z takes the figure line back in one step, but the copy stays in research — and so does it if you switch to another document before the figure lands, in which case nothing is written. Delete it in research if you don't want it.
 

@@ -213,7 +213,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Whose piece is whose reads the permit TIMELINE, never `PersonRecord.role`/`.scope`/`.pieces`** (`PieceWriters`, over `TrustTable.myChain`) (tripwire 43): `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField`.
 - **No permit rung is compared in a view; ask `Posture`** (tripwire 47): `TripwireGrepTests.test_aPermitRungIsComparedOnlyInThePermitLayer`.
 - **`PermitControl` is the one place a surface builds a `Permit`** (`Permit.permit(offering:pieces:)` / `Permit.rung(of:)`), and holds only the WORDS for each rung (tripwire 49): `TripwireGrepTests.test_aSurfaceBuildsAPermitInOnePlace`.
-- **What a Mac may offer is asked of `Posture` through one door**: a surface draws from `DocumentStore.posture(forDocId:)`, a verb acts on `settledPosture(forDocId:as:)`, then `.allows(.someVerb)`; no surface names a permit or builds a `Posture`, and the files that may ask the permit are `TripwireGrepTests.postureAskAllowed`, by file and spelling (tripwire 51): `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`.
+- **What a Mac may offer is asked of `Posture` through one door**: a surface draws from `DocumentStore.posture(forDocId:)`, a verb acts on `settledPosture(forDocId:as:)`, then `.allows(.someVerb)`; no surface names a permit or builds a `Posture` (tripwire 51): `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`.
 - **A manuscript writer outside the editor asks its posture first, and each call is a named site in `manuscriptWriterCallSites`** (tripwire 52): `TripwireGrepTests.test_everyManuscriptWriterOutsideTheEditorIsANamedSite`, `test_everyGuardedDocumentMutatorIsClassified`.
 - **Ask a project's kind or a document's format by capability or an exhaustive switch, never by equality** (tripwire 55): `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality`.
 
@@ -306,6 +306,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so a dismissal hand-off is guarded on WHICH sheet closed (`opensFirstReader(requested:dismissed:)`), and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
+- **New Project's kind is a menu, and a Report asks its shape beneath it**, worded by `ProjectKindName`. **Project Settings' Report section is the pure `ReportSettingsModel`**, written only through `ProjectStore.setProfile`/`setSwitch`: absent for a screenplay, its toggle disabled with the reason for a Collection or a newer build's profile, and its caption says re-initialising the template is a request to Claude that replaces the template files.
 
 ### Posture surfaces
 - **Hide, don't disable**: a verb the posture forbids is not drawn. The editor stays and refuses mutation; the File menu's piece items disable (a menu-bar item greys).
@@ -319,7 +320,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The register's surfaces
 - **Every decision about who may write is the MODEL's, as a pure function** (`AdmissionDecision`, `PeopleAndDevicesModel`, `ClaimDecision`, `LoadQuestions`, `SetAsideDoor`); the views draw and decide nothing (`PeopleAndDevicesModelTests`, `AdmissionDecisionTests`, `AdmissionQueueTests`).
-- **A merge is never the default**: a proposed label never merges into an existing person (`AdmissionDecisionTests.test_theProposedLabelNeverMerges`), and the pre-fill (`claimedLabel`) is never a known label. A typed label is never replaced by a re-seed, and nothing goes up from a queue an admission has overtaken (`awaitingSettlement`) or while a sheet is closing (`isClosing`).
+- **A merge is never the default**: a proposed label never merges into an existing person (`AdmissionDecisionTests.test_theProposedLabelNeverMerges`), and the pre-fill (`claimedLabel`) is never a known label. Nothing goes up from a queue an admission has overtaken (`awaitingSettlement`) or while a sheet is closing (`isClosing`).
 - **A device with no proposed name keeps Admit refused until the writer types a label.**
 - **Who is never offered is one classification**, `AdmissionDecision.standing(ofHolder:streams:registry:)`; a stranger's device record raises the question as a held line does, as one request.
 - **A claim hint asks `Recognition.recognise`, never a second opinion**; the saved-by name never pre-fills or merges.
@@ -388,7 +389,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Visual language takes pictures; intent does not** (`StatementImageIngestTests.test_intentTakesNoPicturesAtAll`). The drop target is a well BESIDE the editor, never over it.
 - **A finished ingest names its destination** (`ProjectStore.appendToStatement` on the returned `Statement`); it never reads view state to find one.
 - **A ruling is written FIRST, then the annotation op**, so a refusal cannot settle a note whose decision was lost (`QueryRuling`, `FirstReaderRuling`, `QueueLedgerVerbs`).
-- **`RulingDestination` is the one decision the row, sheet and commit all ask**; one eligibility predicate and one sheet, however many panes wire the verb. A translator ruling needs an open, language-tagged `.query`/`.craftNote`; a first-reader ruling an open, unstamped, untagged note bylined `firstReaderName`; a suggested change never offers.
+- **`RulingDestination` is the one decision the row, sheet and commit all ask**.
 - **The second stet searches the whole project's UNFILTERED list** (`Document.annotations()` defaults to open); Escape on its dialog abandons.
 - **`FirstReaderRuling` is the only file that names `.firstReader` to `RulingPerformer`**: `TripwireGrepTests.test_theFirstReadersStatementIsWrittenFromOneFile`.
 - **`LessonLedgerVerbs` is the only file that writes the ledger**: `TripwireGrepTests.test_theLessonsLedgerIsWrittenFromOneFile`. Retire edits in place, never revokes; filing is find-or-create by heading.
@@ -399,7 +400,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The cockpit letter's voice is the standing round's own pass**, never the selected one (`ReviewRoundCockpitTests.test_theLettersVoiceIsTheStandingRoundsOwnEditor`).
 - **`DraftStage.laneWord` is read in `LetterKeep.swift` and `LetterSection.swift` only**: `TripwireGrepTests.test_theStageWordIsReadFromTwoViewFilesOnly`.
 - **On-screen copy is the writer's register, never the schema's.**
-- **A text field that writes a file commits on submit, focus loss, Done and `.onDisappear`, never per keystroke**, behind a trimmed `nameNeedsCommitting` guard. `AskField` likewise (keystrokes go to the store's pending buffer), takes its verbs as one `AskField.Input`, and never starts a run.
+- **A text field that writes a file commits on submit, focus loss, Done and `.onDisappear`, never per keystroke**, behind a trimmed `nameNeedsCommitting` guard. `AskField` likewise, takes its verbs as one `AskField.Input`, and never starts a run.
 - **The coach's Vacate / Restore calls `setCoachVacated` directly; the coach is never in `setReviewPasses`'s array.**
 - **A `ReviewPass.id` never changes on rename**; a deleted pass's `passStates` linger and reappear on re-add.
 - **`DocumentStore.setAuthorReaderChoice` is the reader choice's one writer.** Describe… asks the manifest's statement, never `FirstReader.statement`.

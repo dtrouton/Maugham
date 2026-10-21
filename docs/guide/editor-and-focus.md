@@ -9,6 +9,7 @@ Open **Settings** (⌘,):
 - **Theme** — Light, Dark, Sepia, or Follow System. Sepia is paper-yellow; useful in low light.
 - **Typography** — font family (curated for prose: Iowan Old Style, New York, Charter, etc.), size, line height, paragraph spacing. Changes apply live.
 - **Per-project typography** — `⌘⇧,` opens Project Settings. Override typography just for this project (e.g., a screenplay should use Courier; a novel might use a serif at 17pt). Settings persist across launches.
+- **Report settings** — in Project Settings, a **Report** section shows the project's kind and, for every project but a screenplay, a Report toggle. It switches on the numbering of sections and the lists of figures and tables, each with a Default button once you've changed it. Turning it on or off doesn't change the publish template, which was chosen when the project was made; to get the Report layout on an existing project, ask Claude to re-initialise the publish template, which replaces the template files (including your changes to them).
 
 ### Focus features
 
