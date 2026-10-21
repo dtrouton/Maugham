@@ -204,6 +204,31 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         XCTAssertNil(underline(harness, at: 5).style)
     }
 
+    /// Whole-branch review M1: the typewriter inset moves the container
+    /// origin by up to half a viewport without a resize, and so does the
+    /// review toggle, whose retokenize rebuilt the tooltips BEFORE it
+    /// restored the inset. The tooltips follow the origin both times.
+    func test_theTooltipsFollowTheTypewriterInsetAndTheReviewToggle() throws {
+        let harness = mounted("See [@ghost] here.")
+        let coordinator = harness.coordinator
+        let tooltips = try XCTUnwrap(coordinator.problemTooltips)
+        let before = harness.textView.textContainerOrigin
+        coordinator.applyTypewriterScroll(true)
+        XCTAssertNotEqual(harness.textView.textContainerOrigin, before,
+                          "the premise: the typewriter inset moved the column")
+        XCTAssertEqual(tooltips.origin, harness.textView.textContainerOrigin)
+        XCTAssertEqual(tooltips.messages.count, 1)
+
+        let typewriter = harness.textView.textContainerOrigin
+        coordinator.setReviewMode(true)
+        XCTAssertNotEqual(harness.textView.textContainerOrigin, typewriter,
+                          "the premise: review restores the default inset")
+        XCTAssertEqual(tooltips.origin, harness.textView.textContainerOrigin)
+        coordinator.setReviewMode(false)
+        XCTAssertEqual(tooltips.origin, harness.textView.textContainerOrigin)
+        XCTAssertEqual(tooltips.messages.count, 1)
+    }
+
     /// The underlines and the translation dimming share the layout manager's
     /// temporaries and never clear each other's.
     func test_underlinesAndTranslationDimmingCoexist() {
@@ -265,6 +290,30 @@ final class ReferenceLabelOverlayTests: XCTestCase {
                         "the check reads blocks through the shared cache (M5)")
         harness.coordinator.setReferenceIndexVersion(7)
         XCTAssertEqual(harness.coordinator.problemCheckCount, before + 1)
+    }
+
+    /// Whole-branch review M5: the marker-group cache is bounded by the text
+    /// it holds, not by a count — typing in a long block holding a marker
+    /// makes a fresh multi-kilobyte key per keystroke, and 256 of them could
+    /// hold tens of megabytes. Past the budget it starts over; a block larger
+    /// than the whole budget is scanned and never kept.
+    func test_theMarkerGroupCacheIsBoundedByTheTextItHolds() {
+        let harness = mounted("See [@ghost] here.")
+        let coordinator = harness.coordinator
+        let budget = EditorCoordinator.referenceGroupCacheBudget
+        let block = String(repeating: "x", count: budget / 4 - 20)
+        for i in 0..<12 {
+            let text = "[@k\(i)] " + block + "\(i)"
+            XCTAssertEqual(coordinator.cachedReferenceGroups(blockText: text).count, 1)
+            XCTAssertLessThanOrEqual(coordinator.referenceGroupCacheLength, budget,
+                                     "the cache never holds more than its budget of text")
+        }
+        XCTAssertEqual(coordinator.referenceGroupCacheLength,
+                       coordinator.referenceGroupCache.keys.reduce(0) { $0 + ($1 as NSString).length },
+                       "the running length is the keys' length")
+        let huge = "[@big] " + String(repeating: "y", count: budget)
+        XCTAssertEqual(coordinator.cachedReferenceGroups(blockText: huge).count, 1)
+        XCTAssertNil(coordinator.referenceGroupCache[huge], "a block over the budget is not kept")
     }
 
     /// The footnote numbers the labels draw come from the check, in this

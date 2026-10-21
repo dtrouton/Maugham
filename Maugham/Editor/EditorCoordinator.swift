@@ -355,8 +355,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         didSet { referenceLabelOverlay?.needsDisplay = true }
     }
     /// The marker groups of each block the label overlay has read, keyed by
-    /// the block's text (bounded).
+    /// the block's text, bounded by the total length of those keys
+    /// (`referenceGroupCacheBudget`, whole-branch review M5).
     var referenceGroupCache: [String: [ManuscriptChecks.Group]] = [:]
+    /// The UTF-16 length of `referenceGroupCache`'s keys.
+    var referenceGroupCacheLength = 0
+    /// The most text, in UTF-16 units, the group cache keys may hold: 1 MB.
+    static let referenceGroupCacheBudget = 512 * 1024
     /// The problems the last check found, underlined.
     var problemMarks: [ManuscriptChecks.Problem] = []
     /// How many times the checks have run (the settle test's counter).
@@ -1079,6 +1084,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard abs(textView.textContainerInset.height - target) > 0.5 else { return }
         textView.textContainerInset = NSSize(
             width: textView.textContainerInset.width, height: target)
+        // Every line moved: the problem tooltips follow (whole-branch review M1).
+        rebuildProblemTooltipsIfTheColumnMoved(in: textView)
     }
 
     /// Review posture changed — flip the membrane and re-apply the posture.

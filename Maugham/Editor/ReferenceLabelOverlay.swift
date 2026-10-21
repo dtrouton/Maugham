@@ -303,12 +303,22 @@ extension EditorCoordinator {
     }
 
     /// Re-framed on resize from `MaughamTextView.updateColumnInset`, with the
-    /// problem tooltips when the column's width changed.
+    /// problem tooltips when the column moved.
     func layoutReferenceLabelOverlay(in textView: NSTextView) {
         if let overlay = referenceLabelOverlay {
             overlay.frame = textView.bounds
             overlay.needsDisplay = true
         }
+        rebuildProblemTooltipsIfTheColumnMoved(in: textView)
+    }
+
+    /// The tooltips' rects are laid out at one column width and container
+    /// origin; when either moved (a resize re-wraps; an inset change —
+    /// `refreshTypewriterInset`, which the typewriter and review toggles run —
+    /// moves every line) they are rebuilt. A figure thumbnail landing moves
+    /// nothing: its room is fixed by the text (`FigureThumbnailLayout
+    /// .reservedHeight`), so it needs no rebuild.
+    func rebuildProblemTooltipsIfTheColumnMoved(in textView: NSTextView) {
         if let width = textView.textContainer?.size.width,
            let tooltips = problemTooltips,
            tooltips.width != width || tooltips.origin != textView.textContainerOrigin {
@@ -317,13 +327,22 @@ extension EditorCoordinator {
     }
 
     /// One block's marker groups, relative to it, remembered by the block's
-    /// text (bounded): the label overlay's draw and the settle's checks share
-    /// it, so neither re-scans a paragraph that did not change.
+    /// text: the label overlay's draw and the settle's checks share it, so
+    /// neither re-scans a paragraph that did not change. Bounded by the text
+    /// the keys hold (`referenceGroupCacheBudget`), not by a count: past it the
+    /// cache starts over, and a block longer than the whole budget is scanned
+    /// and not kept (whole-branch review M5).
     func cachedReferenceGroups(blockText: String) -> [ManuscriptChecks.Group] {
         if let held = referenceGroupCache[blockText] { return held }
         let groups = ManuscriptChecks.groups(inBlockText: blockText)
-        if referenceGroupCache.count >= 256 { referenceGroupCache.removeAll() }
+        let length = (blockText as NSString).length
+        guard length <= Self.referenceGroupCacheBudget else { return groups }
+        if referenceGroupCacheLength + length > Self.referenceGroupCacheBudget {
+            referenceGroupCache.removeAll()
+            referenceGroupCacheLength = 0
+        }
         referenceGroupCache[blockText] = groups
+        referenceGroupCacheLength += length
         return groups
     }
 
