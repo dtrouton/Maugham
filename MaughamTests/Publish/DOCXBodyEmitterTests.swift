@@ -59,7 +59,7 @@ final class DOCXBodyEmitterTests: XCTestCase {
     }
 
     private func emit(_ bodies: [DOCXBodyEmitter.Body]) throws -> Emitted {
-        let body = DOCXBodyEmitter.emit(bodies: bodies, config: PublishConfig())
+        let body = DOCXBodyEmitter.emit(bodies: bodies, config: PublishConfig(), page: .letter)
         let ast = bodies[0].ast
         let resolution = bodies[0].resolution
         let document = try XMLDocument(xmlString: Self.keepingSpaces(body.documentXML))

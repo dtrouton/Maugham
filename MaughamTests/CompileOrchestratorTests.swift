@@ -145,17 +145,17 @@ final class CompileOrchestratorTests: XCTestCase {
         let outcome = try await makeOrch(configStore, pubStore)
             .compile(format: .pdf, label: nil, dryRun: true)
         guard case .dryRunPassed = outcome else {
-            return XCTFail("a odt row at v1.0 must not block a pdf at v1.0: \(outcome)")
+            return XCTFail("an odt row at v1.0 must not block a pdf at v1.0: \(outcome)")
         }
     }
 
     // MARK: - Word (report plan 4 Task 2)
 
     /// **`docx` is a format this build knows: the door lets it through, the
-    /// gate resolves it, and the compile arm answers** — until Task 4 builds
-    /// the compiler, with `DOCXCompiler.notYetBuiltStub`'s sentence. Nothing is
-    /// minted: no Publication, no `next_version` bump, nothing in `Exports/`.
-    func test_aDocxCompileReachesTheCompileArmAndMintsNothing() async throws {
+    /// gate resolves it, and the compile writes a `.docx` to `Exports/`** and
+    /// records it. Until Task 5's draft numbers it mints a version like any
+    /// other source compile.
+    func test_aDocxCompileWritesADocx_andRecordsIt() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
@@ -163,20 +163,15 @@ final class CompileOrchestratorTests: XCTestCase {
         let outcome = try await makeOrch(configStore, pubStore)
             .compile(format: .docx, label: nil)
 
-        guard case .failed(let errors, let excerpt) = outcome else {
-            return XCTFail("expected the stub's failure, got \(outcome)")
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("expected a completed Word compile, got \(outcome)")
         }
-        XCTAssertTrue(errors.map(\.message).contains(DOCXCompiler.notYetBuiltSentence),
-                      "\(errors.map(\.message))")
-        XCTAssertNotEqual(excerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "docx",
-                          "docx is not refused at the door")
+        XCTAssertEqual(pub.format, .docx)
+        XCTAssertTrue(pub.outputPath.hasSuffix(".docx"), pub.outputPath)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tmp.appendingPathComponent(pub.outputPath).path))
         let pubs = try await pubStore.load()
-        XCTAssertEqual(pubs, [])
-        let cfg = try await configStore.load()
-        XCTAssertEqual(cfg?.nextVersion, "0.1", "no version minted")
-        let exports = (try? FileManager.default.contentsOfDirectory(
-            atPath: tmp.appendingPathComponent("Exports").path)) ?? []
-        XCTAssertEqual(exports, [])
+        XCTAssertEqual(pubs.map(\.format), [.docx])
     }
 
     /// A `docx` dry run passes the same gates a PDF's does.

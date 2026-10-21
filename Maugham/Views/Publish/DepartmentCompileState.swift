@@ -291,7 +291,7 @@ struct DepartmentCompileState: Equatable {
         let editions = languages.isEmpty
             ? ""
             : " (" + languages.joined(separator: " + ") + ")"
-        return "Compiling \(subject) as \(format.rawValue.uppercased())"
+        return "Compiling \(subject) as \(DepartmentCompileSheetCopy.formatTitle(format))"
             + editions + "\u{2026}"
     }
 

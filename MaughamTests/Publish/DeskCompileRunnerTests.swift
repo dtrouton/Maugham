@@ -398,6 +398,15 @@ final class DeskCompileRunnerTests: XCTestCase {
         XCTAssertEqual(state.statusLine, "Compiling the book as EPUB\u{2026}")
     }
 
+    /// The running line names a format as the picker does
+    /// (`DepartmentCompileSheetCopy.formatTitle`): Word by its name.
+    func test_theRunningLineNamesWordAsThePickerDoes() {
+        let state = DepartmentCompileState(
+            phase: .running(format: .docx, languages: [], imprint: nil),
+            isRunning: true)
+        XCTAssertEqual(state.statusLine, "Compiling the book as Word (.docx)\u{2026}")
+    }
+
     /// **Task 6 widened this line to draw `PublishPreviewCentre.parts(for:)`**,
     /// which also appends when the compile happened — so this pins the parts
     /// that identify the EDITION (version, imprint, language) in order, and

@@ -824,9 +824,15 @@ public struct CompileOrchestrator {
             logExcerpt = ""
             problems = result.problems
         case .docx:
-            // TEMPORARY (report plan 4 Task 2): the stub until Task 4.
-            let result = DOCXCompiler.notYetBuiltStub(
-                problems: resolved.flatMap(\.resolution.problems))
+            let docx = try DOCXCompiler(
+                projectURL: projectURL, bodies: plan.bodies,
+                config: effective, jobManager: jobManager,
+                maughamVersion: maughamVersion,
+                tectonicVersion: tectonicVersion, jobID: jobID,
+                language: set.singleTag,
+                identity: set.identity,
+                resolved: resolved)
+            let result = try await docx.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
             errors = result.errors

@@ -48,8 +48,10 @@ struct DOCXBody {
     var relationships: [DOCXRelationship]
     var media: [DOCXMedia]
     var lists: [DOCXList]
+    /// The page the compiler chose (R-S4); the column stays 6 inches on it.
+    var page: DOCXPage
 
-    var documentXML: String { DOCXBodyEmitter.documentPart(bodyContent) }
+    var documentXML: String { DOCXBodyEmitter.documentPart(bodyContent, page: page) }
     var footnotesXML: String { DOCXBodyEmitter.footnotesPart(footnoteElements) }
     var numberingXML: String { DOCXBodyEmitter.numberingPart(lists) }
 }
@@ -84,7 +86,8 @@ struct DOCXBody {
 /// Lists of figures and tables are not emitted: a Word user inserts Word's own.
 enum DOCXBodyEmitter {
 
-    /// The text column the figures fit: US Letter less 1.25-inch margins.
+    /// The text column the figures and tables fit: 6 inches on every page
+    /// (`DOCXPage` centres it).
     static let columnTwips = 8_640
     static let columnEMU = 5_486_400
 
@@ -109,8 +112,8 @@ enum DOCXBodyEmitter {
     /// one set of counters — bookmark and drawing ids, list ids, footnote ids
     /// and the numbers Word shows for them, the `SEQ` sequences — so the
     /// joined `document.xml` has no duplicate. `config` supplies
-    /// `sections[piece].titleOverride`.
-    static func emit(bodies: [Body], config: PublishConfig) -> DOCXBody {
+    /// `sections[piece].titleOverride`; `page` is the compiler's (R-S4).
+    static func emit(bodies: [Body], config: PublishConfig, page: DOCXPage) -> DOCXBody {
         var state = State()
         var content: [String] = []
         var notes = ""
@@ -131,7 +134,7 @@ enum DOCXBodyEmitter {
             state.footnoteIDBase += body.resolution.footnoteNumbers.values.flatMap(\.values).max() ?? 0
         }
         return DOCXBody(bodyContent: content.joined(), footnoteElements: notes,
-                        relationships: relationships, media: media, lists: lists)
+                        relationships: relationships, media: media, lists: lists, page: page)
     }
 
     /// The counters the bodies of one document share.
@@ -212,12 +215,13 @@ enum DOCXBodyEmitter {
 
     static let declaration = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
 
-    /// `word/document.xml` around `content`: US Letter, 1-inch top and
-    /// bottom, 1.25-inch sides — the 6-inch column the figures fit.
-    static func documentPart(_ content: String) -> String {
-        declaration + "<w:document \(namespaces)><w:body>" + content
-            + "<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/>"
-            + "<w:pgMar w:top=\"1440\" w:right=\"1800\" w:bottom=\"1440\" w:left=\"1800\""
+    /// `word/document.xml` around `content` on `page`: 1-inch top and bottom,
+    /// and side margins that leave the 6-inch column the figures fit.
+    static func documentPart(_ content: String, page: DOCXPage) -> String {
+        let side = page.sideMarginTwips
+        return declaration + "<w:document \(namespaces)><w:body>" + content
+            + "<w:sectPr><w:pgSz w:w=\"\(page.widthTwips)\" w:h=\"\(page.heightTwips)\"/>"
+            + "<w:pgMar w:top=\"1440\" w:right=\"\(side)\" w:bottom=\"1440\" w:left=\"\(side)\""
             + " w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>"
             + "</w:body></w:document>"
     }
@@ -766,6 +770,21 @@ enum DOCXBodyEmitter {
     }
 }
 
+// MARK: - the page
+
+/// The paper a Word document is set on (R-S4). The compiler chooses it
+/// (`DOCXCompiler.page(forLanguage:)`); the text column stays 6 inches
+/// (`DOCXBodyEmitter.columnTwips`) on either, centred by the side margins.
+struct DOCXPage: Equatable, Sendable {
+    let widthTwips: Int
+    let heightTwips: Int
+
+    static let letter = DOCXPage(widthTwips: 12_240, heightTwips: 15_840)
+    static let a4 = DOCXPage(widthTwips: 11_906, heightTwips: 16_838)
+
+    var sideMarginTwips: Int { (widthTwips - DOCXBodyEmitter.columnTwips) / 2 }
+}
+
 // MARK: - image geometry
 
 /// How large a figure is drawn: its natural size — pixels over DPI, or a
@@ -782,6 +801,10 @@ enum DOCXImageGeometry {
     static let fallbackInches = (width: 6.0, height: 4.5)
     /// What Word can't embed and the packager rasterises to PNG (R-4-2).
     static let rasterised: Set<String> = ["pdf", "svg"]
+    /// The one PDF box a figure is measured and drawn by: the crop box, the
+    /// page a viewer shows and the typesetter places (it is the media box
+    /// when the PDF names none). `DOCXCompiler.rasterise` renders this box.
+    static let pdfBox: CGPDFBox = .cropBox
 
     static func extent(of url: URL) -> (cx: Int, cy: Int) {
         let natural = naturalInches(of: url) ?? fallbackInches
@@ -794,7 +817,7 @@ enum DOCXImageGeometry {
         if url.pathExtension.lowercased() == "pdf" {
             guard let document = CGPDFDocument(url as CFURL), // adr-0018-ok: research PDF's page size read for the Word drawing
                   let page = document.page(at: 1) else { return nil }
-            let box = page.getBoxRect(.mediaBox)
+            let box = page.getBoxRect(pdfBox)
             let turned = abs(page.rotationAngle) % 180 == 90
             let (w, h) = turned ? (box.height, box.width) : (box.width, box.height)
             guard w > 0, h > 0 else { return nil }

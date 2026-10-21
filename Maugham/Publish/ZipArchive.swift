@@ -9,6 +9,9 @@ import Compression
 /// timestamp), writes entries in the order given, UTF-8 names, no data
 /// descriptors, no ZIP64. The reader sizes every entry from the central
 /// directory, validates the CRC, and refuses ZIP64, encryption and unsafe names.
+/// Data descriptors (flag bit 3) are accepted on read: the sizes and CRC come
+/// from the central directory, never the local header, so a `reference.docx`
+/// a streaming writer produced reads like any other.
 enum ZipArchive {
 
     struct Entry {

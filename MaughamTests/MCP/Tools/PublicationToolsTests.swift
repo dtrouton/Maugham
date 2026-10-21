@@ -209,7 +209,7 @@ final class PublicationToolsTests: XCTestCase {
         XCTAssertEqual(pubs.compactMap { $0["format"] as? String }, ["odt"])
     }
 
-    /// `read_publication_page` on a odt row refuses by its real name rather
+    /// `read_publication_page` on an odt row refuses by its real name rather
     /// than trying to rasterize a non-PDF it took for a PDF.
     func testReadPage_aOdtRowIsRefusedNamingOdt() async throws {
         try await seedOdtPublication()
