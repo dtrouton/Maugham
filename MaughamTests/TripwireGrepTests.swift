@@ -12224,6 +12224,64 @@ extension TripwireGrepTests {
                       "a file NAMED DocumentFormat.swift earns nothing: \(allowed)")
     }
 
+    // MARK: - Word bookmark names have one home (report plan 4, Task 3)
+
+    /// The quoted beginnings of a Word bookmark name: Maugham's paragraph
+    /// (`p_`) and label (`l_`) prefixes, and Word's own hidden ones (`_Ref`,
+    /// `_Toc`, `_GoBack`). A name built anywhere else is a second mapping the
+    /// round trip (milestone 3) would not read back.
+    static let bookmarkNamePatterns = [#""p_"#, #""l_"#, #""_Ref"#, #""_Toc"#, #""_GoBack"#]
+
+    static let bookmarkNameAllowed: [String: String] = [
+        "type:DOCXNames": "the one home: R-4-3's paragraph and label mapping, its truncation and counter",
+    ]
+
+    private func bookmarkNameOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: Self.bookmarkNamePatterns, allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: nil)
+    }
+
+    /// **Every Word bookmark name is spelled in `DOCXNames`** (R-4-3): the
+    /// emitter asks it for every `w:name` and every `REF` target, so a
+    /// returned file's bookmarks map back through one function.
+    func test_bookmarkNamesAreSpelledInDOCXNamesOnly() throws {
+        let offenders = try bookmarkNameOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.bookmarkNameAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "a bookmark name spelled outside DOCXNames — ask `DOCXNames.paragraphBookmark` "
+            + "or `labelBookmark` instead:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: each spelling is caught — a paragraph prefix, an
+    /// interpolated label name, Word's hidden prefixes — while a comment and
+    /// an unrelated `"map_"` are not; declared inside `DOCXNames` they pass.
+    func test_theBookmarkNameCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("bookmark-name-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let planted = dir.appendingPathComponent("Planted.swift")
+        try #"""
+        let a = "p_" + id
+        let b = "l_\(label.kind.rawValue)_\(label.name)"
+        // "p_k3wq"
+        let c = "map_" + id
+        let d = "_Ref123456"
+        let e = "_Toc1"
+        let f = "_GoBack"
+        """#.write(to: planted, atomically: true, encoding: .utf8)
+
+        let bare = try bookmarkNameOffenders(in: [dir], allowed: [])
+        XCTAssertEqual(bare.compactMap { SourceTree.Hit(offender: $0)?.line }, [1, 2, 5, 6, 7],
+                       "the five spellings, not the comment or map_:\n" + bare.joined(separator: "\n"))
+
+        try Self.declare("DOCXNames", in: planted)
+        let allowed = try bookmarkNameOffenders(in: [dir], allowed: Set(Self.bookmarkNameAllowed.keys))
+        XCTAssertEqual(allowed, [], "inside DOCXNames every spelling passes:\n" + allowed.joined(separator: "\n"))
+    }
+
     // MARK: - Kind and format are asked by capability (foundations plan 7, Task 8)
 
     /// Equality (or a `case … =` match) against a `ProjectType` or
