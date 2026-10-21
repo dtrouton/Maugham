@@ -56,8 +56,14 @@ final class CitationCompletionTests: XCTestCase {
     /// An `EditorSurface` as `EditorHost` builds a manuscript's, the window's
     /// cached index handed in through the provider. The pickers are what the
     /// surface registers on its own — the test registers nothing.
+    final class IndexBox {
+        var index: ReferenceIndex
+        init(_ index: ReferenceIndex) { self.index = index }
+    }
+
     private func mount(_ text: String, caret: Int? = nil, answersInsertCommands: Bool = true,
-                       index given: ReferenceIndex? = nil) throws -> Mounted {
+                       index given: ReferenceIndex? = nil,
+                       provider: (() -> ReferenceIndex)? = nil) throws -> Mounted {
         let index = given ?? Self.index()
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0 })
@@ -67,7 +73,7 @@ final class CitationCompletionTests: XCTestCase {
                                 paragraphFocus: false, showElementGutter: false),
             control: EditorControl())
         configuration.answersInsertCommands = answersInsertCommands
-        configuration.paragraphProviders.referenceIndex = { index }
+        configuration.paragraphProviders.referenceIndex = provider ?? { index }
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
                                       as: KeyTestWindow.self)
@@ -299,6 +305,58 @@ final class CitationCompletionTests: XCTestCase {
         XCTAssertEqual(m.string, "See [@smith2026, p. 12] here.")
         XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 15, length: 0),
                        "the caret after the key, before the locator")
+    }
+
+    /// Whole-branch review M4: re-picking the key the caret already sits in
+    /// writes nothing and leaves no "Insert Citation" step that undoes
+    /// nothing; the list closes and the caret goes after the key.
+    func test_rePickingTheSameKeyWritesNothingAndLeavesNoUndoStep() throws {
+        let text = "See [@smith2026] here."
+        let m = try mount(text, caret: 9)    // after "[@smi"
+        let trigger = try XCTUnwrap(CitationCompletion.locate(in: text as NSString, caret: 9))
+        XCTAssertTrue(m.coordinator.openCompletion(source: m.coordinator.completionSources[0],
+                                                   trigger: trigger))
+        XCTAssertEqual(m.keys, ["smith2026"])
+        // The accept itself, outside `command`'s hand-made event group: the
+        // harness's own empty group would count as a step (measured), where a
+        // write opens its own group (`applyCommandEdit`) that this would see.
+        XCTAssertTrue(m.coordinator.acceptCompletion())
+        XCTAssertEqual(m.string, text)
+        XCTAssertFalse(m.coordinator.isCompletionOpen)
+        XCTAssertFalse(m.undo.canUndo, "no step that undoes nothing")
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 15, length: 0))
+    }
+
+    /// Whole-branch review M2: a list opened before the index was built
+    /// (its empty message is false) re-asks its rows when the build lands,
+    /// and a key renamed while the list is open is never written: accept
+    /// resolves against the index as it is NOW.
+    func test_anOpenListFollowsANewIndexVersionAndAcceptReadsTheCurrentIndex() throws {
+        let current = IndexBox(ReferenceIndex.empty)
+        let m = try mount("See ", provider: { current.index })
+        type("[@", m)
+        XCTAssertTrue(m.coordinator.isCompletionOpen)
+        XCTAssertEqual(m.keys, [], "the premise: no build yet, so no rows")
+        current.index = Self.index()
+        m.coordinator.setReferenceIndexVersion(1)
+        XCTAssertEqual(m.keys, ["jones2020", "muller2021", "smith2026", "smythe2019"],
+                       "the build landed: the open list re-asks")
+        XCTAssertFalse(m.list.isHidden)
+
+        type("smi", m)
+        XCTAssertEqual(m.keys, ["smith2026"])
+        // Claude renames the key over MCP; the editor has not heard the new
+        // version yet when the writer presses Return.
+        var renamed = Self.library
+        renamed[0] = Self.source("1", key: "smith2026a", authors: ["Smith, Jane"], year: 2026,
+                                 title: "Markets")
+        current.index = ReferenceIndex.build(pieces: [], research: renamed, words: .english).versioned(2)
+        command(Self.newline, m)
+        XCTAssertEqual(m.string, "See [@smi", "the stale key is never written")
+        XCTAssertTrue(m.coordinator.isCompletionOpen, "the list shows the current rows instead")
+        XCTAssertEqual(m.keys, ["smith2026a"])
+        command(Self.newline, m)
+        XCTAssertEqual(m.string, "See [@smith2026a]")
     }
 
     func test_theSemicolonContinuationReopensForTheNextKey() throws {

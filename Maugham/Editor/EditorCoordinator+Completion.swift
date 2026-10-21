@@ -183,20 +183,53 @@ extension EditorCoordinator {
     /// the caret sat inside — becomes the source's insertion for that row, as
     /// ONE Route A edit (one ⌘Z step, behind the membrane), the caret after
     /// it. The writer's typing before it stays its own steps.
+    ///
+    /// The row is resolved against the index as it is NOW (whole-branch
+    /// review M2): the rows are asked again, and a row the current index no
+    /// longer offers (a key renamed over MCP before the editor heard the new
+    /// version) is never written — the list shows the current rows instead,
+    /// and nothing changes. A pick that would write exactly the text already
+    /// there (re-picking the key the caret sits in) writes nothing and leaves
+    /// no undo step; the caret goes after it (M4).
     @discardableResult
     func acceptCompletion(at index: Int? = nil) -> Bool {
         guard let state = completion, let textView else { return false }
         let chosen = index ?? state.selectedIndex
         let range = state.trigger.replaceRange
-        guard state.items.indices.contains(chosen),
-              NSMaxRange(range) <= (textView.string as NSString).length
-        else { return false }
-        let insertion = state.source.insertion(for: state.items[chosen], trigger: state.trigger)
+        let ns = textView.string as NSString
+        guard state.items.indices.contains(chosen), NSMaxRange(range) <= ns.length else { return false }
+        let picked = state.items[chosen].insertion
+        guard let item = state.source.items(for: state.trigger).first(where: { $0.insertion == picked })
+        else {
+            requeryOpenCompletion()
+            return false
+        }
+        let insertion = state.source.insertion(for: item, trigger: state.trigger)
         closeCompletion()
-        return applyCommandEdit(
-            replacing: range, with: insertion,
-            selecting: NSRange(location: range.location + (insertion as NSString).length, length: 0),
-            actionName: state.source.actionName, landing: .immediate)
+        let caret = NSRange(location: range.location + (insertion as NSString).length, length: 0)
+        if ns.substring(with: range) == insertion {
+            textView.setSelectedRange(caret)
+            return true
+        }
+        return applyCommandEdit(replacing: range, with: insertion, selecting: caret,
+                                actionName: state.source.actionName, landing: .immediate)
+    }
+
+    /// Asks the open list's source for its rows again at the same trigger —
+    /// the index moved under it (`setReferenceIndexVersion`, an accept of a
+    /// row it no longer offers) — keeping the selected row when it is still
+    /// offered (whole-branch review M2). A list opened before the first
+    /// build, showing the empty message, gets its rows when the build lands.
+    func requeryOpenCompletion() {
+        guard var state = completion else { return }
+        let selected = state.items.indices.contains(state.selectedIndex)
+            ? state.items[state.selectedIndex].insertion : nil
+        state.items = state.source.items(for: state.trigger)
+        state.selectedIndex = selected.flatMap { insertion in
+            state.items.firstIndex { $0.insertion == insertion }
+        } ?? 0
+        completion = state
+        showCompletionList()
     }
 
     // MARK: - The trigger

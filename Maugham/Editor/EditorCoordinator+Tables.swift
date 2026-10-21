@@ -471,8 +471,10 @@ extension EditorCoordinator {
     /// (`tableChangedWhileEditingMessage`), when the table is not exactly
     /// `original` at `anchor` any more: an edit inside it, a sync re-render
     /// or a tidy while the sheet was open, or its start replaced (`anchor`
-    /// nil). Otherwise one Route A edit (one ⌘Z step) writes
-    /// `edited.formatted()`, the caret at its first cell.
+    /// nil). A save whose `edited.formatted()` is `original` exactly writes
+    /// nothing and leaves no undo step. Otherwise one Route A edit (one ⌘Z
+    /// step) writes `edited.formatted()`; either way the caret lands at its
+    /// first cell.
     @discardableResult
     func saveEditedTable(_ edited: TableText, replacing original: String, at anchor: Int?) -> Bool {
         guard !isDetached, let textView else { return false }
@@ -490,6 +492,12 @@ extension EditorCoordinator {
         }
         let formatted = edited.formatted()
         let caret = range.location + TableText.offset(ofCell: 0, 0, in: formatted)
+        // Nothing changed on a table already tidy: no write, and no "Edit
+        // Table" step that undoes nothing (whole-branch review M4).
+        if formatted == original {
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            return true
+        }
         tableTidy.isApplying = true
         defer { tableTidy.isApplying = false }
         let applied = applyCommandEdit(replacing: range, with: formatted,

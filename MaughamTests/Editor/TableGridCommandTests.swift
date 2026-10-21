@@ -131,6 +131,24 @@ final class TableGridCommandTests: XCTestCase {
         XCTAssertEqual(m.box.reported, [])
     }
 
+    /// Whole-branch review M4: a Save that hands back the table unchanged,
+    /// over a table already in its tidy form, writes nothing and leaves no
+    /// "Edit Table" step for ⌘Z to undo invisibly. The caret still lands.
+    func test_saveOfAnUnchangedTidyTableWritesNothingAndLeavesNoUndoStep() async throws {
+        let tidy = try XCTUnwrap(TableText(parsing: Self.table)).formatted()
+        let document = "Intro.\n\n" + tidy + "\n\nAfter."
+        let m = try mount(document)
+        m.box.answer = { $0.table }
+        m.textView.setSelectedRange(NSRange(location: location(of: "Apple", in: m), length: 0))
+        await m.coordinator.editTable()?.value
+        XCTAssertEqual(m.box.requests.count, 1)
+        XCTAssertEqual(m.string, document)
+        XCTAssertFalse(m.undo.canUndo, "no step that undoes nothing")
+        XCTAssertEqual(m.textView.selectedRange(),
+                       NSRange(location: location(of: "Name", in: m), length: 0))
+        XCTAssertEqual(m.box.reported, [])
+    }
+
     func test_cancelWritesNothing() async throws {
         let m = try mount(Self.document)
         m.textView.setSelectedRange(NSRange(location: location(of: "Apple", in: m), length: 0))

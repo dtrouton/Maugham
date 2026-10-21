@@ -1266,6 +1266,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Temporaries and the visible labels only, never a restyle (D1).
         refreshProblemMarks()
         referenceLabelOverlay?.needsDisplay = true
+        // An open picker's rows follow the new index (whole-branch review M2).
+        requeryOpenCompletion()
     }
 
     // MARK: - NSTextViewDelegate
