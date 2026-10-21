@@ -172,6 +172,25 @@ final class BackupSignatureTests: XCTestCase {
                        "session bookkeeping must not mint a backup generation")
     }
 
+    /// Report plan 4 (R-4-4): a Word export's sent copy
+    /// (`.maugham/exports/<book>/<export-id>/`) is reproducible history, not
+    /// working state, so writing one must not mint a backup generation.
+    @MainActor
+    func test_signature_unchangedWhenASentCopyIsWritten() throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, [contentOp("01A")])
+        let before = BackupSignature.compute(projectURL: proj)
+
+        let sent = proj.appendingPathComponent(".maugham/exports/book/20261021-120000-maca-1234abcd")
+        try FileManager.default.createDirectory(at: sent, withIntermediateDirectories: true)
+        try Data("PK".utf8).write(to: sent.appendingPathComponent("export.docx"))
+        try #"{"draft":1}"#.write(to: sent.appendingPathComponent("sent.json"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(BackupSignature.compute(projectURL: proj), before,
+                       "a Word export's sent copy must not mint a backup generation")
+    }
+
     @MainActor
     func test_signature_stillChangesWhenRealContentChanges() throws {
         // The guard above must not have been bought by excluding too much.

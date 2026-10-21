@@ -852,10 +852,11 @@ final class RepublisherTests: XCTestCase {
                       "a thrown republish must not leak its reservation, got: \(held)")
     }
 
-    /// A `docx` republish reaches the compile arm (report plan 4 Task 2; the
-    /// stub until Task 5): it fails with `DOCXCompiler.notYetBuiltSentence`
-    /// and adds no catalog row.
-    func test_aDocxRepublishReachesTheCompileArmAndAddsNoRow() async throws {
+    /// A `docx` republish reaches the real Word compile (report plan 4
+    /// Task 5). Of a book version's snapshot (here an EPUB's) it is no draft:
+    /// it lands under the version's `-r` name, carries no export label and
+    /// writes no sent copy.
+    func test_aDocxRepublishOfAVersionsSnapshotIsNoDraft() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
@@ -870,21 +871,23 @@ final class RepublisherTests: XCTestCase {
         guard case .completed(let initialPub, _) = initial else {
             return XCTFail("initial compile failed: \(initial)")
         }
-        let jobs = CompileJobManager()
         let r = Republisher(
             projectURL: tmp, astSource: RepubSrc(),
             publicationStore: pubStore, snapshotStore: snapStore,
-            jobManager: jobs, mintGate: PublishMintGate(),
+            jobManager: CompileJobManager(), mintGate: PublishMintGate(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         let outcome = try await r.republish(
             snapshotID: initialPub.snapshotID, format: .docx, label: nil)
-        guard case .failed(let errors, _) = outcome else {
-            return XCTFail("expected the stub's failure, got \(outcome)")
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("expected a completed Word republish, got \(outcome)")
         }
-        XCTAssertTrue(errors.map(\.message).contains(DOCXCompiler.notYetBuiltSentence),
-                      "\(errors.map(\.message))")
+        XCTAssertEqual(pub.format, .docx)
+        XCTAssertTrue(pub.version.hasPrefix("0.1-r"), pub.version)
+        let docx = tmp.appendingPathComponent(pub.outputPath)
+        XCTAssertNil(try ZipArchive.read(docx)["docProps/custom.xml"], "a version is no draft: no label")
+        XCTAssertTrue(SentCopyStore(projectURL: tmp).drafts(book: "book").isEmpty)
         let pubs = try await pubStore.load()
-        XCTAssertEqual(pubs.map(\.publicationID), [initialPub.publicationID])
+        XCTAssertEqual(pubs.map(\.publicationID), [initialPub.publicationID, pub.publicationID])
     }
 
     /// A republish to a format this build can't produce throws

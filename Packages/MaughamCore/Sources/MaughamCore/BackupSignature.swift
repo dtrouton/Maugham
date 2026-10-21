@@ -17,8 +17,8 @@ import Foundation
 /// - op-log files (`.maugham/ops/*.jsonl`) contribute only their **non-checkpoint
 ///   op ids** (the per-save breadcrumb is filtered out),
 /// - the volatile sidecars are excluded entirely (`checkpoints.jsonl`,
-///   `sessions.json`, `ui-state.json`, `scratch/`, `conflicts/`, and the backup
-///   sidecars themselves),
+///   `sessions.json`, `ui-state.json`, `scratch/`, `conflicts/`, a Word export's
+///   sent copies under `exports/`, and the backup sidecars themselves),
 /// - every other file (manuscript `.md`/`.fountain`, `research/`, inbox, publish
 ///   config, …) contributes its content hash.
 ///
@@ -54,6 +54,9 @@ public enum BackupSignature {
         ".maugham/ui-state/",
         ".maugham/scratch/",
         ".maugham/conflicts/",
+        // A Word export's sent copies (report plan 4, R-4-4): reproducible
+        // history written once per export, not working state.
+        ".maugham/exports/",
     ]
     private static let excludedNames = [
         BackupWriter.manifestName,   // a backed-up generation's own manifest

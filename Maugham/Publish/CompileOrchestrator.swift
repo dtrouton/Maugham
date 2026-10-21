@@ -388,7 +388,31 @@ public struct CompileOrchestrator {
         let langLabel = identity ?? "source"
 
         let effectiveVersion: String
-        if set.isSourceCompile {
+        // R-4-1: what a Word export is — its draft and the moment it is sent,
+        // minted here, up front, like every version. Nil for every other
+        // format.
+        var draftLabel: WordDraft.Label?
+        if format.mintsDrafts {
+            // A Word export is a DRAFT, not a version: `next_version` is never
+            // read here and never bumped below, and a pinned version means
+            // nothing. Any language may be exported; the draft is the book's.
+            if let version {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "version '\(version)' doesn't apply to a Word export — a Word export mints its own draft number, never a version.",
+                    contextLines: ["Omit `version` to export the next draft."])
+                await jobManager.fail(
+                    jobID: jobID, errors: [diag],
+                    logExcerpt: "version_for_a_draft: \(version)")
+                return .failed(
+                    errors: [diag], logExcerpt: "version_for_a_draft: \(version)")
+            }
+            let held = await draftsHeld(imprint: imprint, catalog: existingPublications)
+            let draft = WordDraft.next(sentCopies: held.sentCopies, taken: held.taken)
+            effectiveVersion = WordDraft.version(draft)
+            draftLabel = WordDraft.Label(
+                draft: draft, sentAt: Date(), book: WordDraft.book(imprint: imprint))
+        } else if set.isSourceCompile {
             if let version {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
@@ -610,8 +634,14 @@ public struct CompileOrchestrator {
         // question. The release below is paired to this same condition: a dry
         // run that never reserved must never release, or it would hand back the
         // in-flight compile's reservation.
+        //
+        // A Word draft reserves `(imprint, draft-N, docx)` with NO language:
+        // the draft number is the book's, whatever tongue it is exported in,
+        // so two concurrent exports of one book can never both take N (R-4-1).
         let mintKey = PublishMintGate.Key(
-            version: effectiveVersion, language: identity, format: format,
+            version: effectiveVersion,
+            language: format.mintsDrafts ? nil : identity,
+            format: format,
             imprint: imprint)
         if !dryRun {
             guard await mintGate.reserve(mintKey) else {
@@ -628,6 +658,25 @@ public struct CompileOrchestrator {
                 await jobManager.fail(
                     jobID: jobID, errors: [diag], logExcerpt: excerpt)
                 return .failed(errors: [diag], logExcerpt: excerpt)
+            }
+            // The draft was counted before the plan was built, and an export
+            // that held N may have landed its sent copy and released since.
+            // Asked again now that N is ours: a number already held is
+            // refused, never shared.
+            if let draftLabel {
+                let catalog = (try? await publicationStore.load()) ?? existingPublications
+                if await draftsHeld(imprint: imprint, catalog: catalog).taken
+                    .contains(draftLabel.draft) {
+                    await mintGate.release(mintKey)
+                    let diag = TectonicLogParser.Diagnostic(
+                        level: .error, file: nil, line: nil,
+                        message: "Draft \(draftLabel.draft) \(Self.placeOf(imprint)) was just taken by another Word export; export again for the next draft.",
+                        contextLines: ["Nothing was exported — no file, no sent copy."])
+                    let excerpt = Self.mintInFlightLogExcerpt
+                        + "\(effectiveVersion)/\(langLabel)/\(format.rawValue)"
+                    await jobManager.fail(jobID: jobID, errors: [diag], logExcerpt: excerpt)
+                    return .failed(errors: [diag], logExcerpt: excerpt)
+                }
             }
         }
 
@@ -647,6 +696,7 @@ public struct CompileOrchestrator {
                 config: config, loaded: loaded, imprint: imprint,
                 effective: effective,
                 effectiveVersion: effectiveVersion,
+                draftLabel: draftLabel,
                 excludedSectionIDs: excludedSectionIDs,
                 progress: progress)
             if !dryRun { await mintGate.release(mintKey) }
@@ -687,6 +737,7 @@ public struct CompileOrchestrator {
         imprint: String?,
         effective: PublishConfig,
         effectiveVersion: String,
+        draftLabel: WordDraft.Label?,
         excludedSectionIDs: Set<String>,
         progress: DurableProgress
     ) async throws -> Outcome {
@@ -831,7 +882,8 @@ public struct CompileOrchestrator {
                 tectonicVersion: tectonicVersion, jobID: jobID,
                 language: set.singleTag,
                 identity: set.identity,
-                resolved: resolved)
+                resolved: resolved,
+                exportLabel: draftLabel)
             let result = try await docx.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
@@ -883,7 +935,31 @@ public struct CompileOrchestrator {
             try? FileManager.default.removeItem(atPath: outputPath)
             return .cancelled
         }
+
+        // R-4-4: a Word export keeps what it sent — the file and the source
+        // body's paragraphs, exactly those the AST was built from (R-S2) —
+        // once the export has succeeded, and before anything is recorded:
+        // the sent copy is what the next draft is counted from. One that
+        // can't be written fails the export and takes its file with it, so
+        // nothing names a draft that has no record.
+        if let draftLabel {
+            let copy = SentCopyStore.SentCopy(
+                label: draftLabel.text(metadata: effective.metadata),
+                draft: draftLabel.draft, sentAt: draftLabel.sentAt,
+                language: set.identity ?? set.sourceTag, book: draftLabel.book,
+                pieces: Self.sentPieces(plan: plan, resolved: resolved))
+            do {
+                try await SentCopyStore(projectURL: projectURL)
+                    .write(copy, docx: URL(fileURLWithPath: outputPath))
+            } catch {
+                try? FileManager.default.removeItem(atPath: outputPath)
+                throw error
+            }
+        }
         progress.record("the compiled output, at \(relativePath(outputPath, from: projectURL))")
+        if let draftLabel {
+            progress.record("the sent copy of draft \(draftLabel.draft) (under .maugham/exports/\(draftLabel.book)/)")
+        }
 
         // Persist snapshot.
         try snapshotStore.save(snap)
@@ -942,7 +1018,7 @@ public struct CompileOrchestrator {
         // into the imprint's own on its first compile. Optional-chained rather
         // than force-unwrapped: resolution above already proved the entry
         // exists, and a crash would be a poor way to say otherwise.
-        if set.isSourceCompile {
+        if set.isSourceCompile && !format.mintsDrafts {
             var nextConfig = loaded
             let bumped = PublishConfigValidator.bumpedNextVersion(
                 from: config.nextVersion)
@@ -967,6 +1043,40 @@ public struct CompileOrchestrator {
             jobID: jobID, outputPath: outputPath,
             warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    /// R-4-1: how many sent copies `imprint`'s book holds, and every draft
+    /// number already held — by a sent copy this device can read, or by a
+    /// Word row in the catalog (a republish names its draft too). A draft is
+    /// never handed out twice, even past a lost sent copy or a gap.
+    private func draftsHeld(
+        imprint: String?, catalog: [Publication]
+    ) async -> (sentCopies: Int, taken: Set<Int>) {
+        let sent = await SentCopyStore(projectURL: projectURL)
+            .drafts(book: WordDraft.book(imprint: imprint))
+        var taken = Set(sent.compactMap { $0.copy?.draft })
+        for pub in catalog where pub.format.mintsDrafts && pub.imprint == imprint {
+            if let draft = WordDraft.number(ofVersion: pub.version) { taken.insert(draft) }
+        }
+        return (sent.count, taken)
+    }
+
+    /// The source body's pieces as `sent.json` records them (R-S2): each
+    /// piece's `(¶id, text)` paragraphs from the very `PieceRef`s its AST was
+    /// built from. A translated body isn't recorded; an export with no source
+    /// body records no pieces.
+    static func sentPieces(
+        plan: BodyPlan, resolved: [PublishProblemGate.Body]
+    ) -> [SentCopyStore.Piece] {
+        guard let source = plan.bodies.firstIndex(where: { $0.tag == nil }),
+              source < resolved.count else { return [] }
+        return resolved[source].pieces.map { piece in
+            SentCopyStore.Piece(
+                pieceID: piece.pieceID, title: piece.title,
+                paragraphs: (piece.paragraphs ?? []).map {
+                    SentCopyStore.Paragraph(id: $0.id, text: $0.text)
+                })
+        }
     }
 
     /// Where a publication lives, for a refusal that has to name it. Two

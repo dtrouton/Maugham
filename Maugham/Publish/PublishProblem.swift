@@ -161,6 +161,10 @@ public enum PublishProblemGate {
     public struct Body {
         public let ast: ProjectAST
         public let resolution: PublishResolution
+        /// The pieces `ast` was built from, read once: a Word export's sent
+        /// copy records their paragraphs exactly as exported (R-S2). Empty for
+        /// a body built from an AST alone.
+        public var pieces: [ProjectASTBuilder.PieceRef] = []
     }
 
     public enum Verdict: Equatable {
@@ -190,14 +194,15 @@ public enum PublishProblemGate {
     static func resolve(bodies: [BodyPlan.Body],
                         imageAllowed: Set<String>) throws -> [Body] {
         try bodies.map { body in
-            let ast = try ProjectASTBuilder.build(from: body.source)
+            let pieces = try body.source.orderedPieces()
+            let ast = ProjectASTBuilder.build(pieces: pieces)
             let resolution = try PublishResolution.forCompile(
                 source: body.source, built: ast,
                 bodyTag: bodies.count > 1 ? body.displayTag : nil,
                 imageAllowed: imageAllowed,
                 bodyLanguage: body.tag,
                 words: ElementWords.forBody(body.config.metadata))
-            return Body(ast: ast, resolution: resolution)
+            return Body(ast: ast, resolution: resolution, pieces: pieces)
         }
     }
 

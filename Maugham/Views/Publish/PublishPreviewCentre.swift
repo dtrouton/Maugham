@@ -273,7 +273,8 @@ struct PublishPreviewCentre: View {
     /// `DepartmentCompileState.completedLine` all draw from this, so no two
     /// surfaces that name a book can disagree about what it's called.
     static func parts(for publication: Publication) -> [String] {
-        var parts = ["v\(publication.version)"]
+        var parts = [WordDraft.displayName(ofVersion: publication.version)
+            ?? "v\(publication.version)"]
         if let imprint = publication.imprint { parts.append(imprint) }
         if let language = publication.language { parts.append(language.uppercased()) }
         parts.append(compiled.string(from: publication.compiledAt))

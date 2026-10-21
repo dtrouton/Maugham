@@ -125,16 +125,21 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         public var references: String?
         public var listOfFigures: String?
         public var listOfTables: String?
+        /// A Word export label's two words (report plan 4, R-4-1).
+        public var draft: String?
+        public var sent: String?
 
         public init(figure: String? = nil, table: String? = nil, section: String? = nil,
                     references: String? = nil, listOfFigures: String? = nil,
-                    listOfTables: String? = nil) {
+                    listOfTables: String? = nil, draft: String? = nil, sent: String? = nil) {
             self.figure = figure
             self.table = table
             self.section = section
             self.references = references
             self.listOfFigures = listOfFigures
             self.listOfTables = listOfTables
+            self.draft = draft
+            self.sent = sent
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -145,6 +150,8 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             try c.encodeAlways(references, forKey: .references)
             try c.encodeAlways(listOfFigures, forKey: .listOfFigures)
             try c.encodeAlways(listOfTables, forKey: .listOfTables)
+            try c.encodeAlways(draft, forKey: .draft)
+            try c.encodeAlways(sent, forKey: .sent)
         }
 
         /// The one spelling of the keys, for `metadata.element_words` and for
@@ -153,6 +160,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             case figure, table, section, references
             case listOfFigures = "list_of_figures"
             case listOfTables = "list_of_tables"
+            case draft, sent
         }
 
         /// Sets the word a key names; false for a key that names none.
@@ -164,6 +172,8 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             case .references?: references = value
             case .listOfFigures?: listOfFigures = value
             case .listOfTables?: listOfTables = value
+            case .draft?: draft = value
+            case .sent?: sent = value
             case nil: return false
             }
             return true
@@ -235,6 +245,15 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             case .epub:             return "epub"
             case .docx:             return "docx"
             case .unknown(let raw): return raw
+            }
+        }
+
+        /// A Word export is a draft, not a version (R-4-1): it mints
+        /// `draft-N` (`WordDraft`) and never reads or moves `next_version`.
+        public var mintsDrafts: Bool {
+            switch self {
+            case .docx: return true
+            case .pdf, .epub, .unknown: return false
             }
         }
 

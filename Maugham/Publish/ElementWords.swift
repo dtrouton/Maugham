@@ -3,7 +3,8 @@ import MaughamCore
 
 /// **The words a body prints for its report elements** (R-S16): "Figure",
 /// "Table", "Section", "References", "List of Figures", "List of Tables" —
-/// in the body's own language.
+/// in the body's own language; and the two words of a Word export's label,
+/// "Draft" and "sent" ("Draft 3, sent 21 October 2026", report plan 4 R-4-1).
 ///
 /// One source: the built-in `table` (en, es, sr in Latin script, fr, de, it,
 /// pt), over which the publish config's `metadata.element_words` wins key by
@@ -20,37 +21,50 @@ public struct ElementWords: Sendable, Equatable {
     public var references: String
     public var listOfFigures: String
     public var listOfTables: String
+    /// The export label's noun: "Draft" 3, sent 21 October 2026.
+    public var draft: String
+    /// The export label's participle: Draft 3, "sent" 21 October 2026.
+    public var sent: String
 
     public init(figure: String, table: String, section: String, references: String,
-                listOfFigures: String, listOfTables: String) {
+                listOfFigures: String, listOfTables: String, draft: String, sent: String) {
         self.figure = figure
         self.table = table
         self.section = section
         self.references = references
         self.listOfFigures = listOfFigures
         self.listOfTables = listOfTables
+        self.draft = draft
+        self.sent = sent
     }
 
     public static let english = ElementWords(
         figure: "Figure", table: "Table", section: "Section", references: "References",
-        listOfFigures: "List of Figures", listOfTables: "List of Tables")
+        listOfFigures: "List of Figures", listOfTables: "List of Tables",
+        draft: "Draft", sent: "sent")
 
     /// The built-in words, keyed by lowercase primary language subtag. All
     /// Latin script: a tag naming another script (`sr-Cyrl`) is not in it.
     public static let table: [String: ElementWords] = [
         "en": .english,
         "es": .init(figure: "Figura", table: "Tabla", section: "Sección", references: "Referencias",
-                    listOfFigures: "Índice de figuras", listOfTables: "Índice de tablas"),
+                    listOfFigures: "Índice de figuras", listOfTables: "Índice de tablas",
+                    draft: "Borrador", sent: "enviado"),
         "sr": .init(figure: "Slika", table: "Tabela", section: "Odeljak", references: "Literatura",
-                    listOfFigures: "Spisak slika", listOfTables: "Spisak tabela"),
+                    listOfFigures: "Spisak slika", listOfTables: "Spisak tabela",
+                    draft: "Nacrt", sent: "poslato"),
         "fr": .init(figure: "Figure", table: "Tableau", section: "Section", references: "Références",
-                    listOfFigures: "Table des figures", listOfTables: "Liste des tableaux"),
+                    listOfFigures: "Table des figures", listOfTables: "Liste des tableaux",
+                    draft: "Brouillon", sent: "envoyé"),
         "de": .init(figure: "Abbildung", table: "Tabelle", section: "Abschnitt", references: "Literatur",
-                    listOfFigures: "Abbildungsverzeichnis", listOfTables: "Tabellenverzeichnis"),
+                    listOfFigures: "Abbildungsverzeichnis", listOfTables: "Tabellenverzeichnis",
+                    draft: "Entwurf", sent: "gesendet"),
         "it": .init(figure: "Figura", table: "Tabella", section: "Sezione", references: "Riferimenti",
-                    listOfFigures: "Elenco delle figure", listOfTables: "Elenco delle tabelle"),
+                    listOfFigures: "Elenco delle figure", listOfTables: "Elenco delle tabelle",
+                    draft: "Bozza", sent: "inviata"),
         "pt": .init(figure: "Figura", table: "Tabela", section: "Seção", references: "Referências",
-                    listOfFigures: "Lista de figuras", listOfTables: "Lista de tabelas"),
+                    listOfFigures: "Lista de figuras", listOfTables: "Lista de tabelas",
+                    draft: "Rascunho", sent: "enviado"),
     ]
 
     /// The table's words for a language tag: its primary subtag, case
@@ -81,6 +95,8 @@ public struct ElementWords: Sendable, Equatable {
         pick(override.references, &words.references)
         pick(override.listOfFigures, &words.listOfFigures)
         pick(override.listOfTables, &words.listOfTables)
+        pick(override.draft, &words.draft)
+        pick(override.sent, &words.sent)
         return words
     }
 

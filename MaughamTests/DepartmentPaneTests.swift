@@ -828,6 +828,9 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertFalse(DepartmentCompileSheetCopy.subjectLine(imprint: nil)
             .contains("imprint"),
             "the plain book is not described as an imprint of itself")
+        XCTAssertTrue(DepartmentCompileSheetCopy.subjectLine(imprint: nil)
+            .contains("a Word export its own draft"),
+            "R-4-1: a Word export mints a draft, never a version, and the sheet says so")
     }
 
     // MARK: - The imprint, in the host (Task 5)

@@ -27,10 +27,24 @@ enum DOCXPackage {
         let created: Date
     }
 
-    /// One `docProps/custom.xml` property, a string.
+    /// One `docProps/custom.xml` property: a string (`vt:lpwstr`), or a
+    /// 4-byte integer (`vt:i4`).
     struct CustomProperty: Equatable {
         let name: String
         let value: String
+        let isInteger: Bool
+
+        init(name: String, value: String) {
+            self.name = name
+            self.value = value
+            self.isInteger = false
+        }
+
+        init(name: String, integer: Int) {
+            self.name = name
+            self.value = String(Int32(clamping: integer))
+            self.isInteger = true
+        }
     }
 
     enum PackageError: Error, Equatable {
@@ -209,7 +223,10 @@ enum DOCXPackage {
             + " xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
             + properties.enumerated().map { i, p in
                 "<property fmtid=\"{D5CDD505-2E9C-101B-9397-08002B2CF9AE}\" pid=\"\(i + 2)\""
-                    + " name=\"\(OOXMLEscape.attribute(p.name))\"><vt:lpwstr>\(OOXMLEscape.text(p.value))</vt:lpwstr></property>"
+                    + " name=\"\(OOXMLEscape.attribute(p.name))\">"
+                    + (p.isInteger ? "<vt:i4>\(p.value)</vt:i4>"
+                                   : "<vt:lpwstr>\(OOXMLEscape.text(p.value))</vt:lpwstr>")
+                    + "</property>"
             }.joined()
             + "</Properties>"
     }

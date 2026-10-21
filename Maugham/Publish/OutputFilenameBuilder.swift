@@ -1,7 +1,12 @@
 import Foundation
 
 /// Shared `{title}-v{version}{label_suffix}.{ext}` interpolation for
-/// PDFCompiler and EPUBCompiler.
+/// PDFCompiler, EPUBCompiler and DOCXCompiler.
+///
+/// A Word draft (`WordDraft`, R-4-1) is no version: its `draft-N` is spelled
+/// `draftN`, and the `v` written before `{version}` is dropped, so the
+/// default template gives `{title}-draft{N}.docx` (and a republish of it
+/// `{title}-draft{N}-r<suffix>.docx`).
 ///
 /// Title sanitization splits into two passes:
 /// 1. **Always** strips characters that produce broken or unsafe macOS
@@ -49,6 +54,8 @@ enum OutputFilenameBuilder {
         }
         let labelSuffix = label.map { "-\(sanitizeForFilesystem($0))" } ?? ""
         let template = config.outputs.filenameTemplate
+        let draftToken = WordDraft.filenameToken(forVersion: config.nextVersion)
+        let version = draftToken ?? config.nextVersion
         // The imprint comes from the resolved config, not a parameter here —
         // "resolve once, at the door" (Task 2 sets `config.imprint`; this
         // builder never takes an imprint argument of its own).
@@ -65,6 +72,9 @@ enum OutputFilenameBuilder {
         // doubled-separator template like "{title}._{language}.{ext}",
         // removing both separators instead of one.)
         var workingTemplate = template
+        if draftToken != nil {
+            workingTemplate = workingTemplate.replacingOccurrences(of: "v{version}", with: "{version}")
+        }
         if language == nil || language?.isEmpty == true {
             workingTemplate = stripOneSeparatorBefore(
                 token: "{language}", in: workingTemplate)
@@ -76,7 +86,7 @@ enum OutputFilenameBuilder {
 
         var name = workingTemplate
             .replacingOccurrences(of: "{title}",        with: title)
-            .replacingOccurrences(of: "{version}",      with: config.nextVersion)
+            .replacingOccurrences(of: "{version}",      with: version)
             .replacingOccurrences(of: "{label_suffix}", with: labelSuffix)
             .replacingOccurrences(of: "{language}",     with: language ?? "")
             .replacingOccurrences(of: "{imprint}",      with: imprint ?? "")

@@ -70,8 +70,13 @@ public enum ProjectASTBuilder {
     }
 
     public static func build(from source: Source) throws -> ProjectAST {
-        let sections = try source.orderedPieces().map(buildSection(from:))
-        return ProjectAST(sections: sections)
+        build(pieces: try source.orderedPieces())
+    }
+
+    /// The AST of pieces already read — for a caller that must keep exactly
+    /// what the AST was built from (a Word export's sent copy, R-S2).
+    public static func build(pieces: [PieceRef]) -> ProjectAST {
+        ProjectAST(sections: pieces.map(buildSection(from:)))
     }
 
     // MARK: - section assembly

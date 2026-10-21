@@ -133,7 +133,8 @@ enum DepartmentCompileSheetCopy {
     static func subjectLine(imprint: String?) -> String {
         guard let imprint else {
             return "The book itself, as it stands. Nothing already published is "
-                + "touched \u{2014} a compile mints its own version."
+                + "touched \u{2014} a compile mints its own version, and a Word "
+                + "export its own draft."
         }
         return "The \(imprint) imprint \u{2014} its own template, its own "
             + "metadata and its own version count."

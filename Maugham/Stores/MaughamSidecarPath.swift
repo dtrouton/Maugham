@@ -104,6 +104,13 @@ internal enum MaughamSidecarPath: Equatable {
     /// of `LetGoRecord.directory(in:)` and never spelled here.
     case letGo(relativePath: String)
 
+    /// A Word export's sent copy (`SentCopyStore`, `.maugham/exports/`): the
+    /// `.docx` as it left and its `sent.json`, one folder per export, written
+    /// once. Routing intent: ignore — the next export counts its draft by
+    /// scanning, so nothing needs telling. The folder is asked of
+    /// `SentCopyStore.directory(in:)` and never spelled here.
+    case exports(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
@@ -144,6 +151,11 @@ internal enum MaughamSidecarPath: Equatable {
         let letGoFolder = LetGoRecord.directory(in: projectURL).standardizedFileURL.path
         if changed.hasPrefix(letGoFolder + "/") {
             return .letGo(relativePath: relativePath)
+        }
+
+        let exportsFolder = SentCopyStore.directory(in: projectURL).standardizedFileURL.path
+        if changed.hasPrefix(exportsFolder + "/") {
+            return .exports(relativePath: relativePath)
         }
 
         if relativePath.hasPrefix(".maugham/") {

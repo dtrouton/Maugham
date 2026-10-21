@@ -54,6 +54,11 @@ public struct DOCXCompiler {
     /// The bodies the door's gate already resolved over `imageAllowed` — see
     /// `PDFCompiler.resolved`. Nil resolves here.
     public let resolved: [PublishProblemGate.Body]?
+    /// The draft this export is (R-4-1): written into `docProps/custom.xml`
+    /// as `MaughamExportLabel`, `MaughamDraft` and `MaughamBook`, the label's
+    /// words and date in the first body's language. Nil writes no custom
+    /// properties (a Word republish of a book version, which is no draft).
+    let exportLabel: WordDraft.Label?
 
     public init(
         projectURL: URL, bodies: [BodyPlan.Body],
@@ -62,7 +67,8 @@ public struct DOCXCompiler {
         jobID: String? = nil, language: String? = nil,
         identity: String? = nil,
         replacesExistingOutput: Bool = false,
-        resolved: [PublishProblemGate.Body]? = nil
+        resolved: [PublishProblemGate.Body]? = nil,
+        exportLabel: WordDraft.Label? = nil
     ) throws {
         guard !bodies.isEmpty else { throw NoBodies() }
         precondition(resolved == nil || resolved?.count == bodies.count,
@@ -78,6 +84,7 @@ public struct DOCXCompiler {
         self.identity = identity ?? language
         self.replacesExistingOutput = replacesExistingOutput
         self.resolved = resolved
+        self.exportLabel = exportLabel
     }
 
     /// The single-body init, `EPUBCompiler`'s, for a source already bound to
@@ -148,7 +155,7 @@ public struct DOCXCompiler {
         try DOCXPackage.write(
             body: document, styles: styles,
             metadata: .init(title: first.title, author: first.author, created: Date()),
-            customProperties: [], to: dest)
+            customProperties: exportLabel?.customProperties(metadata: first) ?? [], to: dest)
         return Result(outputPath: dest.path, warnings: styleWarning.map { [$0] } ?? [], errors: [],
                       problems: problems)
     }
@@ -327,26 +334,5 @@ public struct DOCXCompiler {
         body(context)
         guard let image = context.makeImage() else { throw RasterFailure(reason: "couldn't be drawn") }
         return (image, Double(pixels.width) * 72 / points.width)
-    }
-
-    // MARK: - TEMPORARY STUB (report plan 4 Task 2; Task 5 deletes it)
-
-    /// The sentence the stub fails with. TEMPORARY — see `notYetBuiltStub`.
-    static let notYetBuiltSentence = "Word export isn't built yet"
-
-    /// **TEMPORARY, the one stub compile arm.** `Republisher` calls this in
-    /// its `.docx` arm until Task 5 builds the republish; the whole-branch
-    /// review checks that no caller and no definition remain. It writes
-    /// nothing and returns a failed `Result` — no output path, the one error
-    /// — carrying the gate's problems so they ride along as for any failed
-    /// compile. Nothing is minted on the failure path.
-    static func notYetBuiltStub(problems: [PublishProblem]) -> Result {
-        Result(
-            outputPath: "", warnings: [],
-            errors: [TectonicLogParser.Diagnostic(
-                level: .error, file: nil, line: nil,
-                message: notYetBuiltSentence,
-                contextLines: ["Nothing was compiled."])],
-            problems: problems)
     }
 }

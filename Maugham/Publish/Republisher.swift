@@ -460,9 +460,21 @@ public struct Republisher {
             logExcerpt = ""
             problems = r.problems
         case .docx:
-            // TEMPORARY (report plan 4 Task 2): the stub until Task 5.
-            let r = DOCXCompiler.notYetBuiltStub(
-                problems: resolved.flatMap(\.resolution.problems))
+            // R-4-1: the same draft, re-rendered under its `-r` version — it
+            // carries the draft's own label (its number and the day it was
+            // sent) and writes no sent copy, so it is never a new draft. A
+            // Word republish of a book version's snapshot is no draft at all,
+            // and carries no label.
+            let w = try DOCXCompiler(
+                projectURL: stage, bodies: plan.bodies,
+                config: plan.first.config, jobManager: jobManager,
+                maughamVersion: maughamVersion,
+                tectonicVersion: tectonicVersion, jobID: jobID,
+                language: set.singleTag,
+                identity: set.identity,
+                resolved: resolved,
+                exportLabel: await draftLabel(priorVersion: priorVersion, imprint: imprint))
+            let r = try await w.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
             errors = r.errors
@@ -576,6 +588,23 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    // MARK: - A Word draft's label
+
+    /// The label a Word republish carries (R-4-1): the prior publication's
+    /// draft, sent on the day its sent copy says (the prior row's compile
+    /// time when that copy can't be read here). Nil when the prior version is
+    /// no draft.
+    private func draftLabel(priorVersion: String?, imprint: String?) async -> WordDraft.Label? {
+        guard let draft = priorVersion.flatMap(WordDraft.number(ofVersion:)) else { return nil }
+        let book = WordDraft.book(imprint: imprint)
+        let sent = await SentCopyStore(projectURL: projectURL).drafts(book: book)
+            .compactMap(\.copy).first { $0.draft == draft }?.sentAt
+        let prior = try? await publicationStore.load().first {
+            $0.version == priorVersion && $0.imprint == imprint && $0.format.mintsDrafts
+        }
+        return WordDraft.Label(draft: draft, sentAt: sent ?? prior?.compiledAt ?? Date(), book: book)
     }
 
     // MARK: - What every body is folded from

@@ -153,8 +153,7 @@ final class CompileOrchestratorTests: XCTestCase {
 
     /// **`docx` is a format this build knows: the door lets it through, the
     /// gate resolves it, and the compile writes a `.docx` to `Exports/`** and
-    /// records it. Until Task 5's draft numbers it mints a version like any
-    /// other source compile.
+    /// records it, as Draft 1 (R-4-1; `WordDraftTests`).
     func test_aDocxCompileWritesADocx_andRecordsIt() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
