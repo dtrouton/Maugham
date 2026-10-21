@@ -7,7 +7,7 @@ fileprivate extension DocumentFormat {
     var kindLabel: String {
         switch self {
         case .markdown: return "Prose"
-        case .fountain: return "Screenplay"
+        case .fountain: return "Screenplay"  // kind-name-ok: a piece's FORMAT label, not a project's kind
         }
     }
 

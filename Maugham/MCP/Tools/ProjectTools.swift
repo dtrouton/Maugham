@@ -25,7 +25,7 @@ public enum ListProjectsTool: MCPTool {
             Project(
                 id: entry.id,
                 title: entry.store.manifest.title,
-                type: entry.store.manifest.type.rawValue,
+                type: entry.store.manifest.type.rawValue,  // kind-name-ok: the wire `type` is the raw structure id by contract; `kind` names it
                 kind: ProjectKindName.of(entry.store.manifest),
                 path: entry.url.path)
         }
@@ -132,7 +132,7 @@ public enum GetMetadataTool: MCPTool {
         let effective = m.effectiveSwitches
         let meta = Metadata(
             title: m.title,
-            type: m.type.rawValue,
+            type: m.type.rawValue,  // kind-name-ok: the wire `type` is the raw structure id by contract; `kind` names it
             kind: ProjectKindName.of(m),
             profile: m.profile?.rawValue,
             switches: Switches(
