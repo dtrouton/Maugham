@@ -390,7 +390,7 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(Self.duplicates(tokens), [],
                        "MaughamApp.swift binds one key to two menu items")
         let cheatsheet = KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut)
-        for token in ["⌘⇧T", "⌘⇧N", "⌘⇧I", "⌘⇧C"] {
+        for token in ["⌘⇧T", "⌘⇧N", "⌘⇧I", "⌘⇧C", "⌘⇧X"] {
             XCTAssertEqual(tokens.filter { $0 == token }.count, 1, "\(token) is not bound once")
             XCTAssertTrue(cheatsheet.contains(token), "\(token) is missing from the ⌘/ cheatsheet")
         }

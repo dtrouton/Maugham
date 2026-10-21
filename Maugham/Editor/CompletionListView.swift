@@ -63,10 +63,16 @@ protocol CompletionSource {
     var emptyMessage: String { get }
     /// The undo step's name ("Undo Insert Citation").
     var actionName: String { get }
+    /// Whether a typed character opens the list at `trigger` (plan 3b Task
+    /// 4). A source may describe a place it completes — the menu's bare `@`,
+    /// which the list keeps following — without a keystroke opening it there.
+    /// Asked only when the list is closed; defaults to true.
+    func opensWhenTyped(_ trigger: CompletionTrigger) -> Bool
 }
 
 extension CompletionSource {
     func insertion(for item: CompletionItem, trigger: CompletionTrigger) -> String { item.insertion }
+    func opensWhenTyped(_ trigger: CompletionTrigger) -> Bool { true }
     var actionName: String { "Insert Reference" }
 }
 

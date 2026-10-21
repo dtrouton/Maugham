@@ -297,8 +297,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var insertFootnoteObserver: NSObjectProtocol?
     /// Insert ▸ Figure… (⌘⇧I, plan 3a Task 6), gated the same way.
     private var insertFigureObserver: NSObjectProtocol?
-    /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3), gated the same way.
+    /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3) and Insert ▸
+    /// Cross-Reference… (⌘⇧X, Task 4), gated the same way.
     private var insertCitationObserver: NSObjectProtocol?
+    private var insertCrossReferenceObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -578,8 +580,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
     /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
     /// `maughamExitTranslationReview`, and the Insert menu's
-    /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure` and
-    /// `maughamInsertCitation` (which also ask
+    /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
+    /// `maughamInsertCitation` and `maughamInsertCrossReference` (which also ask
     /// `answersInsertCommands`) — count the `MaughamEvent.observe` calls rather
     /// than this sentence.
     ///
@@ -747,6 +749,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.insertCitation()
         }
+        insertCrossReferenceObserver = MaughamEvent.observe(
+            .maughamInsertCrossReference,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.insertCrossReference()
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -790,6 +798,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertCitationObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = insertCrossReferenceObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = storageEditObserver {
@@ -884,14 +895,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                       annotationNavigateObserver, reviewToggleObserver,
                       translationEnterObserver, translationExitObserver,
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
-                      insertCitationObserver] {
+                      insertCitationObserver, insertCrossReferenceObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
-        insertCitationObserver = nil
+        insertCitationObserver = nil; insertCrossReferenceObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
         storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is

@@ -211,6 +211,13 @@ extension EditorCoordinator {
         insertReferenceTrigger("[@") { $0 is CitationCompletion }
     }
 
+    /// Insert ▸ Cross-Reference… (⌘⇧X, plan 3b Task 4): `@` at the caret as
+    /// one Route A step, then the cross-reference picker opened on it with
+    /// every target listed, in publishing order.
+    func insertCrossReference() {
+        insertReferenceTrigger("@") { $0 is CrossReferenceCompletion }
+    }
+
     /// Writes `trigger` at the caret through Route A, then opens the first
     /// registered picker `isPicker` names on it.
     private func insertReferenceTrigger(_ trigger: String,

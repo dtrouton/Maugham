@@ -583,8 +583,8 @@ extension FocusedValues {
     }
 }
 
-/// Insert → Table, Footnote, Figure…, Citation… (plan 3a R-3a-1, R-3a-2;
-/// plan 3b). Each posts a key-window command the manuscript editor answers
+/// Insert → Table, Footnote, Figure…, Citation…, Cross-Reference… (plan 3a
+/// R-3a-1, R-3a-2; plan 3b). Each posts a key-window command the manuscript editor answers
 /// through Route A, one undo step each. Disabled where the focused window
 /// says no (`InsertMenuGate`) — a read-only posture, review mode, translation
 /// review, no manuscript in the editor — and with no project window in front.
@@ -617,6 +617,11 @@ private struct InsertMenuButtons: View {
             MaughamEvent.post(.maughamInsertCitation, to: .keyWindow)
         }
         .keyboardShortcut("c", modifiers: [.command, .shift])
+        .disabled(!enabled)
+        Button("Cross-Reference\u{2026}") {
+            MaughamEvent.post(.maughamInsertCrossReference, to: .keyWindow)
+        }
+        .keyboardShortcut("x", modifiers: [.command, .shift])
         .disabled(!enabled)
     }
 }

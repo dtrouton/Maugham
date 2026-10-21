@@ -38,12 +38,13 @@ extension EditorCoordinator {
     var isCompletionOpen: Bool { completion != nil }
 
     /// Registers the manuscript's reference pickers, in the order they are
-    /// asked: the citation picker (plan 3b Task 3). Each reads the window's
+    /// asked: the citation picker (plan 3b Task 3), then the cross-reference
+    /// picker (Task 4), so `[@` is a citation. Each reads the window's
     /// cached index through `referenceIndex` when it is asked, never a copy.
     /// `EditorSurface` calls it for a surface that answers the Insert menu.
     func registerReferencePickers() {
         let index: () -> ReferenceIndex = { [weak self] in self?.referenceIndex?() ?? .empty }
-        completionSources = [CitationCompletion(index: index)]
+        completionSources = [CitationCompletion(index: index), CrossReferenceCompletion(index: index)]
     }
 
     // MARK: - Opening and closing
@@ -243,10 +244,11 @@ extension EditorCoordinator {
         }
         guard case .typed? = note, caret.length == 0, mayOfferCompletion else { return }
         let ns = textView.string as NSString
-        // The first source that answers decides (citation before cross-reference).
+        // The first source that answers decides (citation before cross-reference),
+        // and it may decline to open on a keystroke (a bare `@`).
         for source in completionSources {
             guard let trigger = source.trigger(in: ns, caret: caret.location) else { continue }
-            openCompletion(source: source, trigger: trigger)
+            if source.opensWhenTyped(trigger) { openCompletion(source: source, trigger: trigger) }
             return
         }
     }

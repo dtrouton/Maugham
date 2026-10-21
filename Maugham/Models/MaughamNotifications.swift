@@ -159,6 +159,10 @@ extension Notification.Name {
     /// editor writes `[@` at the caret through Route A and opens the citation
     /// picker. Gated as the other Insert items are. Scope: .keyWindow.
     public static let maughamInsertCitation = Notification.Name("maugham.insert.citation")
+    /// Posted by Insert ▸ Cross-Reference… (⌘⇧X, plan 3b Task 4): the
+    /// manuscript editor writes `@` at the caret through Route A and opens the
+    /// cross-reference picker with every target. Scope: .keyWindow.
+    public static let maughamInsertCrossReference = Notification.Name("maugham.insert.crossreference")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the

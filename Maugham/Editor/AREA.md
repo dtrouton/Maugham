@@ -17,6 +17,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+Completion.swift` — the completion list's trigger, keys, accept and close paths; `CompletionListView.swift` — the list (a plain `NSView`), `CompletionSource` and the placement maths. Tripwire 5.
 - `ReportInsert.swift` — the pure text Insert Table and Insert Footnote write, and where.
 - `CitationCompletion.swift` — the citation picker, a `CompletionSource` over the index's sources (`[@`, `;`), and the matching rules the pickers share.
+- `CrossReferenceCompletion.swift` — the cross-reference picker over the index's targets (`@` and a letter at a word start).
 - `ReferenceIndex.swift` — the project's citation sources and cross-reference targets with the editor's numbers: a pure value built over publishing's pieces; `Maugham/Views/ReferenceIndexHost.swift` caches it.
 - `FigureIngest.swift` + `EditorCoordinator+Figure.swift` — figures backed by research: Insert Figure…, an image drop and an image paste copy into research (`figureImporter`) and write the figure line through Route A.
 - `FigureThumbnailOverlay.swift` — the thumbnail drawn under each figure line of a manuscript: the layout maths, the decoded-thumbnail store and cache, and the click-through overlay. Tripwires 1, 4.
