@@ -20,7 +20,7 @@ public enum TestCreateProjectTool: MCPTool {
     public struct Params: Codable { let type: String; let name: String }
     public typealias Result = TestProjectResult
     public static let method = "test_create_project"
-    public static let description = "Dev-only: create + open a project (novel/screenplay/short_story/collection) under the test workspace."
+    public static let description = "Dev-only: create + open a project (novel/screenplay/short_story/collection/report-single/report-sections) under the test workspace."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}"#
 
@@ -56,6 +56,10 @@ public enum TestCreateProjectTool: MCPTool {
         case "screenplay":  url = try await ProjectFactory.createScreenplayProject(named: name, in: parent)
         case "short_story": url = try await ProjectFactory.createShortStoryProject(named: name, in: parent)
         case "collection":  url = try await ProjectFactory.createCollectionProject(named: name, in: parent)
+        case "report-single":
+            url = try await ProjectFactory.createReportProject(named: name, in: parent, shape: .singleDocument)
+        case "report-sections":
+            url = try await ProjectFactory.createReportProject(named: name, in: parent, shape: .sections)
         default: throw MCPError.invalidArgument("unknown type: \(p.type)")
         }
         // Belt-and-suspenders: the created path must still be inside the

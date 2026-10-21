@@ -5,20 +5,77 @@ public enum ProjectFactoryError: Error, Equatable {
     case invalidName
     case projectAlreadyExists(URL)
     case ioError(String)
+    /// A profile this kind cannot carry (R-4-6): a screenplay, a collection,
+    /// or a profile this build does not know. Refused before anything is
+    /// written.
+    case profileNotOffered(ProjectType)
 }
 
 /// Creates new projects on disk. One-shot operations; does not retain state.
 public enum ProjectFactory {
     private static let manifestFilename = ProjectManifest.fileName
 
-    /// Creates a Short Story project folder at `parent/<name>`.
-    /// Returns the URL of the created project folder.
+    /// The two shapes a Report takes (R-4-6).
+    public enum ReportShape: Hashable, CaseIterable {
+        /// One document at the root, `report.md`: the short-story shape.
+        case singleDocument
+        /// Sections in a binder, the first "Introduction": the novel shape.
+        case sections
+    }
+
+    /// Creates a Report at `parent/<name>` in `shape`: the short-story or
+    /// novel structure with `profile: .report` (and nothing else — the
+    /// switches default from the profile), and the Report publish starter.
+    public static func createReportProject(
+        named rawName: String,
+        in parent: URL,
+        shape: ReportShape
+    ) async throws -> URL {
+        switch shape {
+        case .singleDocument:
+            return try await createShortStoryProject(named: rawName, in: parent, profile: .report)
+        case .sections:
+            return try await createNovelProject(named: rawName, in: parent, profile: .report)
+        }
+    }
+
+    /// **The factory's precondition on a profile** (R-4-6): only the prose
+    /// shapes a Report sits on — a short story and a novel — carry one, and
+    /// only a profile this build knows. A screenplay, a collection or a newer
+    /// build's type with a profile is refused before anything is written.
+    static func refuseUnofferedProfile(_ profile: ProjectProfile?, on type: ProjectType) throws {
+        guard let profile else { return }
+        let offered: Bool
+        switch type {
+        case .shortStory, .novel: offered = true
+        case .screenplay, .collection, .unknown: offered = false
+        }
+        switch profile {
+        case .report where offered: return
+        case .report, .unknown: throw ProjectFactoryError.profileNotOffered(type)
+        }
+    }
+
+    /// The root document's file name, by profile: `report.md` for a
+    /// single-document Report, `story.md` otherwise.
+    private static func rootBasename(for profile: ProjectProfile?) -> String {
+        switch profile {
+        case .report?: return "report"
+        case .unknown?, nil: return "story"
+        }
+    }
+
+    /// Creates a Short Story project folder at `parent/<name>` — with
+    /// `profile: .report`, a single-document Report whose root file is
+    /// `report.md`. Returns the URL of the created project folder.
     public static func createShortStoryProject(
         named rawName: String,
-        in parent: URL
+        in parent: URL,
+        profile: ProjectProfile? = nil
     ) async throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ProjectFactoryError.invalidName }
+        try refuseUnofferedProfile(profile, on: .shortStory)
 
         let fm = FileManager.default
         let projectURL = parent.appendingPathComponent(name, isDirectory: true)
@@ -35,7 +92,7 @@ public enum ProjectFactory {
             try fm.createDirectory(at: projectURL.appendingPathComponent("notes"),
                                    withIntermediateDirectories: true)
 
-            let storyPath = "story." + DocumentFormat.markdown.fileExtension
+            let storyPath = rootBasename(for: profile) + "." + DocumentFormat.markdown.fileExtension
             let storyURL = projectURL.appendingPathComponent(storyPath)
             try Data().write(to: storyURL)
 
@@ -57,7 +114,8 @@ public enum ProjectFactory {
                         startedBy: starter
                     )
                 ],
-                research: []
+                research: [],
+                profile: profile
             )
 
             let manifestData = try ProjectManifest.encodeForDisk(manifest)
@@ -75,29 +133,42 @@ public enum ProjectFactory {
         return projectURL
     }
 
-    /// Creates a Novel project at `parent/<name>` with one Chapter 1 document.
+    /// Creates a Novel project at `parent/<name>` with one Chapter 1 document
+    /// — with `profile: .report`, a sectioned Report whose first section is
+    /// "Introduction".
     public static func createNovelProject(
         named rawName: String,
-        in parent: URL
+        in parent: URL,
+        profile: ProjectProfile? = nil
     ) async throws -> URL {
-        try await createSingleDocumentProject(
+        let firstTitle: String
+        switch profile {
+        case .report?: firstTitle = "Introduction"
+        case .unknown?, nil: firstTitle = "Chapter 1"
+        }
+        return try await createSingleDocumentProject(
             named: rawName,
             in: parent,
             type: .novel,
-            initialDocumentTitle: "Chapter 1",
+            initialDocumentTitle: firstTitle,
+            profile: profile,
             startedBy: await thisMacAsAStarter())
     }
 
     /// Creates a Screenplay project at `parent/<name>` with one Scene 1.fountain.
+    /// A screenplay takes no profile: one is refused
+    /// (`ProjectFactoryError.profileNotOffered`) before anything is written.
     public static func createScreenplayProject(
         named rawName: String,
-        in parent: URL
+        in parent: URL,
+        profile: ProjectProfile? = nil
     ) async throws -> URL {
         try await createSingleDocumentProject(
             named: rawName,
             in: parent,
             type: .screenplay,
             initialDocumentTitle: "Scene 1",
+            profile: profile,
             startedBy: await thisMacAsAStarter())
     }
 
@@ -166,10 +237,12 @@ public enum ProjectFactory {
         in parent: URL,
         type: ProjectType,
         initialDocumentTitle: String,
+        profile: ProjectProfile?,
         startedBy starter: String
     ) async throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ProjectFactoryError.invalidName }
+        try refuseUnofferedProfile(profile, on: type)
 
         let fm = FileManager.default
         let projectURL = parent.appendingPathComponent(name, isDirectory: true)
@@ -216,7 +289,7 @@ public enum ProjectFactory {
                 type: type,
                 title: name, author: "",
                 created: now, modified: now,
-                structure: [item], research: [])
+                structure: [item], research: [], profile: profile)
             try writeManifest(manifest, to: projectURL)
 
             // Publishing: copy barebones starter so new projects can publish immediately.

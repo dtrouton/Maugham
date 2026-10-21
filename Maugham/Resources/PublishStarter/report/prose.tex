@@ -1,0 +1,29 @@
+% Report prose: the sectioned shape. Each section of the binder is a piece;
+% \pieceheading prints its title as an unnumbered heading with a contents line
+% (the numbers on the headings inside it come from the body emitter, which
+% never numbers a piece title, so cross-references stay in step).
+%
+% Restrained headings: sans-serif, bold, modest sizes. titlesec is loaded by
+% preamble.tex; starred sections take the same format.
+\titleformat{\section}{\sffamily\bfseries\large}{\thesection}{1em}{}
+\titleformat{\subsection}{\sffamily\bfseries\normalsize}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\sffamily\itshape\normalsize}{\thesubsubsection}{1em}{}
+\titlespacing*{\section}{0pt}{2.5ex plus 1ex minus .2ex}{1ex plus .2ex}
+\titlespacing*{\subsection}{0pt}{2ex plus 1ex minus .2ex}{0.8ex plus .2ex}
+
+\newcommand{\pieceheading}[1]{\section*{#1}\addcontentsline{toc}{section}{#1}}
+\newcommand{\pieceheadingnotoc}[1]{\section*{#1}}
+
+% Optional first arg `notoc` suppresses the contents line. \def, not
+% \newcommand, for the comparison macro (\ifx compares the \long prefix too).
+\makeatletter
+\def\prose@toc{toc}
+\newenvironment{prose}[2][toc]{%
+  \def\prose@arg{#1}%
+  \ifx\prose@arg\prose@toc \pieceheading{#2}\else \pieceheadingnotoc{#2}\fi
+}{}
+\makeatother
+
+% A section break inside a piece: a short rule.
+\newcommand{\scenebreak}{%
+  \par\vspace{1ex}{\centering\rule{0.2\textwidth}{0.4pt}\par}\vspace{1ex}}

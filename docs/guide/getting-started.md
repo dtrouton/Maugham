@@ -8,6 +8,7 @@ You'll be asked to pick a project type:
 - **Novel** — multi-file: parts → chapters → scenes. The binder navigates the structure.
 - **Screenplay** — `.fountain` files. Maugham parses Fountain syntax (slug lines, character names, dialogue, parentheticals) and shows them in the scene navigator.
 - **Collection** — a project that references other projects. Useful for short-fiction collections.
+- **Report** — a business or technical report. Choose **Single document** (one `report.md`) or **Sections** (a binder of sections, starting with an Introduction). Its publish template prints a title page and a table of contents, numbers its headings, lists its figures and tables, and publishes to PDF and Word.
 
 Pick a type, give the project a name, choose a folder (iCloud Drive is the default — sync just works), and click **Create**.
 

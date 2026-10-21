@@ -1,6 +1,17 @@
 import Foundation
+import MaughamCore
 
 /// Copies the bundled barebones starter into `.maugham/publish/`.
+///
+/// **Two starters** (report plan 4, R-4-6). A book gets the barebones book
+/// starter at `PublishStarter/`. A Report gets the `PublishStarter/report/`
+/// variant over it: its own `template.tex` (an 11pt article on the region's
+/// paper), `frontmatter.tex` (a title page, then the contents), `prose.tex`
+/// (restrained section headings) and `default-config.json` (PDF and Word);
+/// every other file is the book starter's. Which starter is read from the
+/// project's manifest on disk (`variant(for:)`), so a re-install — MCP
+/// `initialize_publish_template` — picks the same one the factory did; the
+/// factory writes the manifest before it installs.
 public enum PublishStarter {
 
     public enum Error: Swift.Error {
@@ -22,13 +33,89 @@ public enum PublishStarter {
         ("EMISSION.md",         "EMISSION.md"),
     ]
 
+    /// Which starter a project takes.
+    public enum Variant: Equatable {
+        /// The barebones book starter — every project without a Report profile.
+        case book
+        /// The Report starter. `singleDocument` (the short-story shape) prints
+        /// no piece title: the one piece is titled with the project's name,
+        /// which the title page already prints (`report/prose-single.tex`).
+        case report(singleDocument: Bool)
+    }
+
+    /// The starter `manifest` takes: the Report variant for a Report on a
+    /// prose shape, the book starter otherwise — and for no manifest at all
+    /// (a bare folder, a test). A screenplay Report is refused by the factory;
+    /// one made by hand keeps the book starter, whose `screenplay.tex` it needs.
+    public static func variant(for manifest: ProjectManifest?) -> Variant {
+        guard let manifest else { return .book }
+        switch manifest.profile {
+        case nil, .unknown?: return .book
+        case .report?:
+            switch manifest.type {
+            case .shortStory: return .report(singleDocument: true)
+            case .novel, .collection, .unknown: return .report(singleDocument: false)
+            case .screenplay: return .book
+            }
+        }
+    }
+
+    /// The bundle folder a Report's overrides live in.
+    private static let reportSubdirectory = "PublishStarter/report"
+
+    /// Where `resource` comes from for `variant`, and under which bundle name:
+    /// a Report's four overrides from `report/` (its single-document shape
+    /// reading `prose-single.tex` as `prose.tex`), everything else from the
+    /// book starter.
+    private static func source(of resource: String, for variant: Variant)
+        -> (name: String, subdirectory: String) {
+        switch variant {
+        case .book:
+            return (resource, "PublishStarter")
+        case .report(let single):
+            switch resource {
+            case "prose.tex":
+                return (single ? "prose-single.tex" : "prose.tex", reportSubdirectory)
+            case "template.tex", "frontmatter.tex", "default-config.json":
+                return (resource, reportSubdirectory)
+            default:
+                return (resource, "PublishStarter")
+            }
+        }
+    }
+
+    /// The paper a Report's template names: `letterpaper` where the region is
+    /// the US or Canada, `a4paper` everywhere else — the Word export's rule
+    /// (`DOCXCompiler.page`, R-S4/R-S5), so a Report's PDF and its .docx are
+    /// the same page. The region is the book language's when its tag names
+    /// one, else this Mac's.
+    static func reportPaper(language: String, region: String?) -> String {
+        DOCXCompiler.page(forLanguage: language, fallbackRegion: region) == .letter
+            ? "letterpaper" : "a4paper"
+    }
+
+    /// The line in `report/template.tex` that names the paper; the install
+    /// rewrites its value to `reportPaper`.
+    static let reportPaperLine = "\\providecommand{\\MaughamPaper}{a4paper}"
+
+    /// The project's manifest as written on disk, or nil when there is none
+    /// (or it does not decode — the book starter is the safe answer).
+    private static func manifestOnDisk(_ projectURL: URL) -> ProjectManifest? {
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: project manifest JSON read, not manuscript
+        return try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+    }
+
     public static func isInitialized(in projectURL: URL) -> Bool {
         FileManager.default.fileExists(
             atPath: projectURL.appendingPathComponent(
                 ".maugham/publish/template.tex").path)
     }
 
-    public static func install(into projectURL: URL, force: Bool) async throws {
+    /// `region` decides a Report's paper (`reportPaper`); this Mac's by
+    /// default, injectable for tests.
+    public static func install(into projectURL: URL, force: Bool,
+                               region: String? = Locale.current.region?.identifier) async throws {
         let pub = projectURL.appendingPathComponent(".maugham/publish")
         let alreadyExists = isInitialized(in: projectURL)
         if alreadyExists && !force {
@@ -38,12 +125,15 @@ public enum PublishStarter {
         try FileManager.default.createDirectory(
             at: pub, withIntermediateDirectories: true)
 
+        let manifest = manifestOnDisk(projectURL)
+        let variant = variant(for: manifest)
         let now = Date()
         for (resource, destination) in files {
+            let source = source(of: resource, for: variant)
             guard let src = Bundle.main.url(
-                forResource: resource,
+                forResource: source.name,
                 withExtension: nil,
-                subdirectory: "PublishStarter"
+                subdirectory: source.subdirectory
             ) else {
                 throw Error.starterResourceMissing(resource)
             }
@@ -60,6 +150,11 @@ public enum PublishStarter {
                 [.modificationDate: now], ofItemAtPath: dst.path)
         }
 
+        if case .report = variant, let manifest {
+            try await personaliseReport(projectURL, title: manifest.title, region: region,
+                                        stamp: now)
+        }
+
         // High-water-mark guard. The starter's default-config.json carries
         // `next_version: "0.1"`. If publications already exist (e.g. force-init
         // on a project with prior publishes), restoring the starter would
@@ -69,6 +164,31 @@ public enum PublishStarter {
         // real publications. Reconcile here by reading the publications log
         // and pinning next_version to max(existing) + 1.
         try await reconcileNextVersion(in: projectURL)
+    }
+
+    /// A Report's two install-time facts: the template's paper from the
+    /// region, and the config's title from the project's name — the
+    /// single-document shape prints no piece title, so without it the name
+    /// would appear nowhere but "Untitled".
+    private static func personaliseReport(_ projectURL: URL, title: String, region: String?,
+                                          stamp: Date) async throws {
+        let pub = projectURL.appendingPathComponent(".maugham/publish")
+        let configStore = PublishConfigStore(projectURL: projectURL)
+        guard var config = try await configStore.load() else { return }
+        config.metadata.title = title
+        try await configStore.save(config)
+
+        let templateURL = pub.appendingPathComponent("template.tex")
+        let template = try String(contentsOf: templateURL, encoding: .utf8)  // adr-0018-ok: publish template, not manuscript
+        let paper = reportPaper(language: config.metadata.language, region: region)
+        try template.replacingOccurrences(
+            of: reportPaperLine,
+            with: reportPaperLine.replacingOccurrences(of: "a4paper", with: paper))
+            .write(to: templateURL, atomically: true, encoding: .utf8)
+        for name in ["template.tex", "config.json"] {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: stamp], ofItemAtPath: pub.appendingPathComponent(name).path)
+        }
     }
 
     /// Read `.maugham/publications.jsonl`, find the highest existing version,

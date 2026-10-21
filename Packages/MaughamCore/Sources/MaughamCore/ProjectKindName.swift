@@ -11,9 +11,16 @@ public enum ProjectKindName {
     /// structure it sits on), otherwise its type's name. A profile this build
     /// does not know names the type.
     public static func of(_ manifest: ProjectManifest) -> String {
-        switch manifest.profile {
-        case .report?: return "Report"
-        case .unknown?, nil: return of(manifest.type)
+        manifest.profile.flatMap { of($0) } ?? of(manifest.type)
+    }
+
+    /// A profile's kind name, when it names one: New Project's Report choice,
+    /// which is not yet a project. A profile this build does not know names
+    /// nothing, and its manifest falls back to the type.
+    public static func of(_ profile: ProjectProfile) -> String? {
+        switch profile {
+        case .report: return "Report"
+        case .unknown: return nil
         }
     }
 

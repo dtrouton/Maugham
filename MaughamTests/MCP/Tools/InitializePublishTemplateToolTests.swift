@@ -91,4 +91,26 @@ final class InitializePublishTemplateToolTests: XCTestCase {
             // expected
         }
     }
+
+    /// A Report's re-init picks the Report variant from the manifest's
+    /// profile — the tool passes nothing but the project (R-4-6).
+    func testInitialize_force_onAReport_reinstallsTheReportStarter() async throws {
+        let reportURL = try await ProjectFactory.createReportProject(
+            named: "R", in: tmp, shape: .sections)
+        let store = try await ProjectStore.load(from: reportURL)
+        registry.register(url: reportURL, store: store)
+        let id = ProjectIdentifier.id(for: reportURL)
+        let publish = reportURL.appendingPathComponent(".maugham/publish")
+        try "% mutated".write(to: publish.appendingPathComponent("template.tex"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: publish.appendingPathComponent("prose.tex"))
+        _ = try await InitializePublishTemplateTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(id)","force":true}"#.utf8), registry: registry)
+        let template = try String(contentsOf: publish.appendingPathComponent("template.tex"), encoding: .utf8)
+        XCTAssertTrue(template.contains("Report starter"), template)
+        let prose = try Data(contentsOf: publish.appendingPathComponent("prose.tex"))
+        let bundled = try XCTUnwrap(Bundle.main.url(forResource: "prose.tex", withExtension: nil,
+                                                    subdirectory: "PublishStarter/report"))
+        XCTAssertEqual(prose, try Data(contentsOf: bundled))
+        XCTAssertEqual(try PublishConfigStore.read(in: reportURL)?.outputs.formatsEnabled, [.pdf, .docx])
+    }
 }

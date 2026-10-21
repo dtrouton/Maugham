@@ -56,7 +56,7 @@ Every file in `Maugham/Stores/` appears once.
 - `DesignProposalStore.swift` — staged design proposals under `.maugham/design/`.
 - `StatementProposalStore.swift` — staged brief and visual-language proposals.
 - `TranslationRoundStore.swift` — the ring of translation rounds per language.
-- `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds). Tripwire 52 (starter).
+- `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered` before anything is written). Tripwire 52 (starter).
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind`.

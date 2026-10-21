@@ -134,7 +134,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ProjectProfile.swift` — the Report profile and the four project switches; `effectiveSwitches` and `contentSchemaFloor`.
 - `ProjectType.swift` — the four project forms plus decode-only `.unknown`.
 - `ProjectType+Capabilities.swift` — what callers ask of a kind (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`), answered once for Mac and phone (tripwire 55).
-- `ProjectKindName.swift` — the one name for a project's kind: "Report" for a Report, else the type's name; nothing else spells one (`TripwireGrepTests.test_kindNamesAreSpelledInProjectKindNameOnly`).
+- `ProjectKindName.swift` — the one name for a project's kind: "Report" for a Report (or the Report choice, `of(profile)`), else the type's name; nothing else spells one (`TripwireGrepTests.test_kindNamesAreSpelledInProjectKindNameOnly`).
 - `DocumentFormat.swift` — a manuscript's format from its extension: the extension, held blank lines, screenplay family, help resource, icon (tripwires 54, 55).
 - `ProjectTargets.swift` — optional word, deadline and page targets.
 - `StructureItem.swift` — a binder node (group or document), including `startedBy` and pass states.

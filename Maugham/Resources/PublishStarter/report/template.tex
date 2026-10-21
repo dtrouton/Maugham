@@ -1,0 +1,41 @@
+% Report starter: the publish template for a Report (business or technical).
+% Like the book starter, it renders correctly and stays plain, so it invites
+% redesign: Claude can rewrite this and the partials below.
+%
+% The body emitter numbers the headings itself (\section*{1.2\quad Title},
+% with its own contents line), and the lists of figures and tables come from
+% the body, after the contents. So nothing here turns on LaTeX's numbering.
+%
+% Language editions: give the edition its own template.<lang>.tex whose \input
+% lines point at the <lang> partial variants.
+
+\documentclass[11pt]{article}
+
+\input{preamble}
+\input{prose}
+\input{screenplay}
+
+% Compile-time metadata overrides (\Title, \Author, ...) written by Maugham's
+% PDFCompiler into build/metadata.tex.
+\InputIfFileExists{build/metadata}{}{}
+
+% Paper. Maugham set this when the Report was made: letterpaper where the Mac's
+% region is the US or Canada, a4paper everywhere else (the same page the Word
+% export uses). Change the value here, or \renewcommand{\MaughamPaper}{...}
+% before this line, to move every page.
+\providecommand{\MaughamPaper}{a4paper}
+\expandafter\geometry\expandafter{\MaughamPaper}
+
+% Block paragraphs: a space between them and no first-line indent.
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6\baselineskip plus 2pt}
+
+\begin{document}
+
+\input{frontmatter}
+
+\input{build/body}
+
+\input{backmatter}
+
+\end{document}

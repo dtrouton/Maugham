@@ -113,4 +113,22 @@ final class TestProjectToolsTests: XCTestCase {
             // expected — the fence rejects paths that escape the workspace
         }
     }
+
+    /// MCP-driven smoke can make both Report shapes (R-4-6).
+    @MainActor
+    func test_createProject_makesEachReportShape() async throws {
+        try TestWorkspace.reset()
+        let registry = ProjectRegistry()
+        for (type, kind) in [("report-single", ProjectType.shortStory), ("report-sections", .novel)] {
+            let params = #"{"type":"\#(type)","name":"R \#(type)"}"#.data(using: .utf8)
+            let data = try await TestCreateProjectTool.handle(paramsJSON: params, registry: registry)
+            let result = try JSONDecoder().decode(TestProjectResult.self, from: data)
+            let manifestData = try Data(contentsOf: URL(fileURLWithPath: result.url)
+                .appendingPathComponent(ProjectManifest.fileName))
+            let manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: manifestData)
+            XCTAssertEqual(manifest.type, kind, type)
+            XCTAssertEqual(manifest.profile, .report, type)
+            XCTAssertEqual(result.doc_ids.count, 1, type)
+        }
+    }
 }

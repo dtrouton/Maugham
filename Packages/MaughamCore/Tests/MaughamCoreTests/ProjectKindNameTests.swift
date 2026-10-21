@@ -43,4 +43,14 @@ final class ProjectKindNameTests: XCTestCase {
         XCTAssertEqual(ProjectKindName.of(manifest(.shortStory, profile: .unknown("essay"))), "Short Story")
         XCTAssertEqual(ProjectKindName.of(manifest(.unknown)), "Project")
     }
+
+    /// New Project's Report choice is not yet a project: it is named by its
+    /// profile, the same answer a Report manifest gets; an unknown profile
+    /// names nothing.
+    func test_aProfileNamesItsChoice() {
+        XCTAssertEqual(ProjectKindName.of(ProjectProfile.report), "Report")
+        XCTAssertEqual(ProjectKindName.of(ProjectProfile.report),
+                       ProjectKindName.of(manifest(.novel, profile: .report)))
+        XCTAssertNil(ProjectKindName.of(ProjectProfile.unknown("essay")))
+    }
 }

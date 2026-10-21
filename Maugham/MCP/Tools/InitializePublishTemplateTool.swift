@@ -5,7 +5,7 @@ public enum InitializePublishTemplateTool: MCPTool {
     public static let method = "initialize_publish_template"
 
     public static let description =
-    "Initialize the per-project publishing template. Copies the bundled barebones starter into .maugham/publish/. Refuses if already initialized unless force=true. Read tools (get_publish_config, list_publish_files, list_publications) work pre-init and return defaults/empties; writes (compile, set_publish_config) require init. force=true reconciles next_version past any existing publication versions to avoid collisions."
+    "Initialize the per-project publishing template. Copies the bundled starter into .maugham/publish/ — the Report starter (title page, contents, PDF and Word formats) for a project with the Report profile, the barebones book starter otherwise. Refuses if already initialized unless force=true. Read tools (get_publish_config, list_publish_files, list_publications) work pre-init and return defaults/empties; writes (compile, set_publish_config) require init. force=true reconciles next_version past any existing publication versions to avoid collisions."
 
     public static let inputSchemaJSON = """
     {

@@ -1,0 +1,21 @@
+% Report title page: title, subtitle, author and date, then the contents.
+% Reads \Title / \Subtitle / \Author (preamble.tex defaults, overridden from
+% config.json by build/metadata.tex). The lists of figures and tables follow
+% the contents: the body emits them, before its first section.
+
+\begin{titlepage}
+\raggedright
+\vspace*{5cm}
+{\LARGE\bfseries\sffamily \Title \par}
+\vspace{0.6cm}
+{\large \Subtitle \par}
+\vspace{2.5cm}
+{\large \Author \par}
+\vspace{0.3cm}
+{\normalsize \today \par}
+\vfill
+{\small \Copyright \par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
