@@ -7814,9 +7814,7 @@ final class TripwireGrepTests: XCTestCase {
     /// that holds it (`PublishConfig.swift`), the one resolver
     /// (`PublishConfig+Imprints.swift`'s `resolved(imprint:pieceIDs:)`), the
     /// publication record and mint-gate key that carry it forward
-    /// (`Publication.swift`, `PublishMintGate.swift`), the Word draft's book
-    /// name, which is that same identity's imprint spelled as a folder
-    /// (`WordDraft.swift`, R-4-4), the two callers that
+    /// (`Publication.swift`, `PublishMintGate.swift`), the two callers that
     /// resolve it (`CompileOrchestrator.swift`, `Republisher.swift`), the
     /// preview compiler that resolves for its own subset render
     /// (`PreviewCompiler.swift`), the validator that walks `config.imprints`
@@ -7831,7 +7829,7 @@ final class TripwireGrepTests: XCTestCase {
         "PublishConfig.swift", "PublishConfig+Imprints.swift", "Publication.swift",
         "PublishMintGate.swift", "Republisher.swift", "CompileOrchestrator.swift",
         "PreviewCompiler.swift", "PublishConfigValidator.swift", "CompileTools.swift",
-        "PublicationTools.swift", "PublishConfigTools.swift", "WordDraft.swift",
+        "PublicationTools.swift", "PublishConfigTools.swift",
     ]
 
     /// Matches BOTH Swift parameter-label shapes for `imprint`, each followed

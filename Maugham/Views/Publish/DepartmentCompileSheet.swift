@@ -137,7 +137,7 @@ enum DepartmentCompileSheetCopy {
                 + "export its own draft."
         }
         return "The \(imprint) imprint \u{2014} its own template, its own "
-            + "metadata and its own version count."
+            + "metadata and its own version count; a Word export mints its own draft."
     }
 
     static let formatLabel = "Format"

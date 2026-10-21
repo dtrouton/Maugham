@@ -7,7 +7,7 @@ import MaughamCore
 /// draft and every exported piece's paragraphs (`¶id`, text). A returned file
 /// is later compared against what was sent, not against the current text.
 ///
-/// - `<book>` is `book`, or the imprint's name (`WordDraft.book(imprint:)`).
+/// - `<book>` is `book`, or the imprint's name (`WordDraft.book(of:)`).
 /// - `<export-id>` is `yyyyMMdd-HHmmss-<deviceSlug>` (UTC), with `-2`, `-3`…
 ///   after it for a second export from one device in one second. The slug is
 ///   the writing device's (tripwire 24), so two devices never write one
@@ -37,7 +37,7 @@ struct SentCopyStore {
         var sentAt: Date
         /// The edition's language identity (`en`, `en+sr`).
         var language: String
-        /// `WordDraft.book(imprint:)`.
+        /// `WordDraft.book(of:)`.
         var book: String
         /// The source body's pieces in book order (R-S2); a translated body is
         /// not recorded.
@@ -138,6 +138,7 @@ struct SentCopyStore {
         let id = Self.exportID(sentAt: copy.sentAt, device: device)
 
         try fm.createDirectory(at: book, withIntermediateDirectories: true)
+        Self.sweepStaleStaging(in: book)
         let staging = book.appendingPathComponent(".staging-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: false)
         defer { try? fm.removeItem(at: staging) }
@@ -154,6 +155,27 @@ struct SentCopyStore {
             }
         }
         throw WriteError.noFreeExportID(id)
+    }
+
+    /// How old a staging folder must be before a write sweeps it: one a
+    /// crash or a kill left behind, never another export's in progress.
+    static let staleStagingAge: TimeInterval = 10 * 60
+
+    /// Removes the `.staging-*` folders under `book` older than
+    /// `staleStagingAge`. A failed removal is left for the next write.
+    static func sweepStaleStaging(in book: URL, now: Date = Date()) {
+        let fm = FileManager.default
+        // The staging folders are dot-named on purpose, so the listing never
+        // skips hidden files (`DotfileScan`'s rule, the other way round).
+        guard let entries = try? fm.contentsOfDirectory(
+            at: book, includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey])
+        else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-") {
+            let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
+            guard let stamp = values?.contentModificationDate ?? values?.creationDate,
+                  now.timeIntervalSince(stamp) > staleStagingAge else { continue }
+            try? fm.removeItem(at: entry)
+        }
     }
 
     // MARK: coding

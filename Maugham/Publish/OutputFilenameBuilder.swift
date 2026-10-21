@@ -54,7 +54,10 @@ enum OutputFilenameBuilder {
         }
         let labelSuffix = label.map { "-\(sanitizeForFilesystem($0))" } ?? ""
         let template = config.outputs.filenameTemplate
-        let draftToken = WordDraft.filenameToken(forVersion: config.nextVersion)
+        // Only a format that mints drafts names one (a PDF or EPUB is never
+        // a draft; Republisher refuses one of a draft's snapshot).
+        let draftToken = format.mintsDrafts
+            ? WordDraft.filenameToken(forVersion: config.nextVersion) : nil
         let version = draftToken ?? config.nextVersion
         // The imprint comes from the resolved config, not a parameter here —
         // "resolve once, at the door" (Task 2 sets `config.imprint`; this

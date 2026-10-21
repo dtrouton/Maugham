@@ -292,11 +292,11 @@ final class WordDraftTests: XCTestCase {
     }
 
     /// "Draft N, sent <date>" in the book's language: the words from
-    /// `ElementWords` (a config word wins), the UTC day in the language's long
-    /// style, Serbian in Latin script, `en_US_POSIX` for a tag Foundation
-    /// can't place.
+    /// `ElementWords` (a config word wins), the writer's LOCAL calendar day
+    /// (R-S6) in the language's long style, Serbian in Latin script,
+    /// `en_US_POSIX` for a tag Foundation can't place.
     func test_theLabelIsInTheBooksLanguage() throws {
-        let day = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-21T23:30:00Z"))
+        let day = try localDate(hour: 23, minute: 30)
         func label(_ language: String, _ words: PublishConfig.ElementWordsOverride? = nil) -> String {
             WordDraft.Label(draft: 3, sentAt: day, book: "book")
                 .text(metadata: .init(language: language, elementWords: words))
@@ -313,6 +313,31 @@ final class WordDraftTests: XCTestCase {
         XCTAssertTrue(label("pt").hasPrefix("Rascunho 3, enviado 21 de outubro"), label("pt"))
         XCTAssertEqual(label("zz"), "Draft 3, sent October 21, 2026", "an unknown tag reads English, POSIX")
         XCTAssertTrue(label("en", .init(draft: "Version", sent: "issued")).hasPrefix("Version 3, issued "))
+    }
+
+    /// 21 October 2026 at `hour:minute` on this Mac's own clock.
+    private func localDate(hour: Int, minute: Int) throws -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026, month: 10, day: 21, hour: hour, minute: minute)))
+    }
+
+    /// R-S6: the label's day is the writer's own, at either edge of it —
+    /// never the UTC day, which for a writer away from UTC is often the day
+    /// before or after. Pinned in two zones either side of UTC, so the test
+    /// can't pass by the machine happening to sit on UTC.
+    func test_theLabelsDayIsTheWritersLocalDay() throws {
+        let saved = NSTimeZone.default
+        defer { NSTimeZone.default = saved }
+        for zone in ["America/Los_Angeles", "Asia/Tokyo"] {
+            NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: zone))
+            for (hour, minute) in [(0, 15), (23, 45)] {
+                let date = try localDate(hour: hour, minute: minute)
+                XCTAssertEqual(WordDraft.date(date, language: "zz"), "October 21, 2026",
+                               "\(zone) \(hour):\(minute)")
+            }
+        }
     }
 
     func test_aDraftVersionAndItsFilenameToken() {
@@ -367,8 +392,10 @@ final class WordDraftTests: XCTestCase {
 
     /// An imprint counts its own drafts, in its own folder.
     func test_anImprintKeepsItsOwnDrafts() {
-        XCTAssertEqual(WordDraft.book(imprint: nil), "book")
-        XCTAssertEqual(WordDraft.book(imprint: "special"), "special")
+        XCTAssertEqual(WordDraft.book(of: PublishConfig()), "book")
+        var special = PublishConfig()
+        special.imprint = "special"
+        XCTAssertEqual(WordDraft.book(of: special), "special")
         XCTAssertEqual(SentCopyStore.directory(book: "special", in: tmp).path,
                        tmp.appendingPathComponent(".maugham/exports/special").path)
     }
@@ -422,5 +449,79 @@ final class WordDraftTests: XCTestCase {
 
         let nextDraft = try await exportWord()
         XCTAssertEqual(nextDraft.version, "draft-2", "the republish took no number")
+    }
+
+    /// A draft is a Word export's number: a PDF or EPUB of its snapshot is
+    /// refused in a sentence, before anything is minted.
+    func test_aPDFOrEPUBRepublishOfADraftIsRefused() async throws {
+        let pub = try await exportWord()
+        let republisher = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(), mintGate: PublishMintGate(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        for format in [PublishConfig.Format.pdf, .epub] {
+            do {
+                _ = try await republisher.republish(snapshotID: pub.snapshotID, format: format, label: nil)
+                XCTFail("a \(format) republish of Draft 1 must be refused")
+            } catch let error as RepublishError {
+                XCTAssertEqual(error.localizedDescription.hasPrefix("Draft 1 is a Word export"), true,
+                               error.localizedDescription)
+            }
+        }
+        let pubs = try await PublicationStore(projectURL: tmp).load()
+        XCTAssertEqual(pubs.map(\.version), ["draft-1"], "nothing minted")
+    }
+
+    /// Only a format that mints drafts is named as one.
+    func test_aDraftVersionIsNamedAsADraftOnlyInWord() {
+        var config = PublishConfig(metadata: .init(title: "Word"))
+        config.nextVersion = "draft-1-rabc"
+        XCTAssertEqual(OutputFilenameBuilder.make(config: config, format: .docx, label: nil, language: nil),
+                       "Word-draft1-rabc.docx")
+        XCTAssertFalse(OutputFilenameBuilder.make(config: config, format: .pdf, label: nil, language: nil)
+            .contains("draft1"))
+    }
+
+    // MARK: - nothing is kept of an export that didn't land
+
+    /// If the snapshot can't be saved after the sent copy is written, the sent
+    /// copy and the file go with the failure, and Draft 1 is free again.
+    func test_aFailureAfterTheSentCopyGivesBackTheDraft() async throws {
+        let blocked = tmp.appendingPathComponent("not-a-folder")
+        try Data("a file where the snapshots folder would go".utf8).write(to: blocked)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: PublishConfigStore(projectURL: tmp),
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: blocked),
+            jobManager: CompileJobManager(), mintGate: PublishMintGate(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try? await orch.compile(format: .docx, label: nil)
+        if case .completed? = outcome { return XCTFail("the snapshot save must fail: \(String(describing: outcome))") }
+        XCTAssertTrue(sentCopies.isEmpty, "the sent copy went with the failure")
+        let exported = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)) ?? []
+        XCTAssertFalse(exported.contains("Word-draft1.docx"), "and so did the file: \(exported)")
+
+        let pub = try await exportWord()
+        XCTAssertEqual(pub.version, "draft-1", "Draft 1 was never burned")
+    }
+
+    /// A write sweeps staging folders a crash left behind, and only those
+    /// older than ten minutes.
+    func test_aWriteSweepsStaleStagingOnly() throws {
+        let book = SentCopyStore.directory(book: "book", in: tmp)
+        let stale = book.appendingPathComponent(".staging-old")
+        let fresh = book.appendingPathComponent(".staging-new")
+        for folder in [stale, fresh] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-11 * 60)], ofItemAtPath: stale.path)
+        SentCopyStore.sweepStaleStaging(in: book)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path), "a crash's staging is swept")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path), "an export in progress is not")
     }
 }

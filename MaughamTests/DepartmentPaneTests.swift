@@ -831,6 +831,9 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertTrue(DepartmentCompileSheetCopy.subjectLine(imprint: nil)
             .contains("a Word export its own draft"),
             "R-4-1: a Word export mints a draft, never a version, and the sheet says so")
+        XCTAssertTrue(DepartmentCompileSheetCopy.subjectLine(imprint: "special")
+            .contains("a Word export mints its own draft"),
+            "an imprint's Word export is a draft too, and its line says so")
     }
 
     // MARK: - The imprint, in the host (Task 5)

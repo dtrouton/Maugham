@@ -220,6 +220,17 @@ final class PublishConfigImprintValidationTests: XCTestCase {
                       "expected a name error for 'special_glb', got \(fields(errs))")
     }
 
+    /// `book` is the folder and catalogue name of the book's own drafts
+    /// (`WordDraft.bookFolder`): an imprint of that name would share them.
+    func test_imprintNamedBook_isRefusedAsReserved() {
+        let errs = PublishConfigValidator.validate(specExample(name: "book"))
+        let err = errs.first { $0.field == "imprints.book" }
+        XCTAssertNotNil(err, "expected a reserved-name error for 'book', got \(fields(errs))")
+        XCTAssertTrue(err?.message.contains("reserved") == true, err?.message ?? "")
+        XCTAssertTrue(PublishConfigValidator.validate(specExample(name: "books")).isEmpty,
+                      "only the exact name is reserved")
+    }
+
     func test_imprintNameEmpty_isRefused() {
         let errs = PublishConfigValidator.validate(specExample(name: ""))
         XCTAssertTrue(errs.contains { $0.field == "imprints." },

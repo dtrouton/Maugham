@@ -287,6 +287,11 @@ public enum PublishConfigValidator {
                 errs.append(.init(
                     field: "imprints.\(name)",
                     message: "an imprint name must not be empty"))
+            } else if name == WordDraft.bookFolder {
+                errs.append(.init(
+                    field: "imprints.\(name)",
+                    message: "imprint name '\(name)' is reserved for the book itself "
+                        + "(its Word drafts and sent copies); choose another name"))
             } else if !name.unicodeScalars.allSatisfy(imprintNameAlphabet.contains) {
                 errs.append(.init(
                     field: "imprints.\(name)",

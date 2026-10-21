@@ -407,11 +407,11 @@ public struct CompileOrchestrator {
                 return .failed(
                     errors: [diag], logExcerpt: "version_for_a_draft: \(version)")
             }
-            let held = await draftsHeld(imprint: imprint, catalog: existingPublications)
+            let held = await draftsHeld(book: WordDraft.book(of: config), imprint: imprint, catalog: existingPublications)
             let draft = WordDraft.next(sentCopies: held.sentCopies, taken: held.taken)
             effectiveVersion = WordDraft.version(draft)
             draftLabel = WordDraft.Label(
-                draft: draft, sentAt: Date(), book: WordDraft.book(imprint: imprint))
+                draft: draft, sentAt: Date(), book: WordDraft.book(of: config))
         } else if set.isSourceCompile {
             if let version {
                 let diag = TectonicLogParser.Diagnostic(
@@ -665,7 +665,7 @@ public struct CompileOrchestrator {
             // refused, never shared.
             if let draftLabel {
                 let catalog = (try? await publicationStore.load()) ?? existingPublications
-                if await draftsHeld(imprint: imprint, catalog: catalog).taken
+                if await draftsHeld(book: draftLabel.book, imprint: imprint, catalog: catalog).taken
                     .contains(draftLabel.draft) {
                     await mintGate.release(mintKey)
                     let diag = TectonicLogParser.Diagnostic(
@@ -942,6 +942,7 @@ public struct CompileOrchestrator {
         // the sent copy is what the next draft is counted from. One that
         // can't be written fails the export and takes its file with it, so
         // nothing names a draft that has no record.
+        var sentFolder: URL?
         if let draftLabel {
             let copy = SentCopyStore.SentCopy(
                 label: draftLabel.text(metadata: effective.metadata),
@@ -949,7 +950,7 @@ public struct CompileOrchestrator {
                 language: set.identity ?? set.sourceTag, book: draftLabel.book,
                 pieces: Self.sentPieces(plan: plan, resolved: resolved))
             do {
-                try await SentCopyStore(projectURL: projectURL)
+                sentFolder = try await SentCopyStore(projectURL: projectURL)
                     .write(copy, docx: URL(fileURLWithPath: outputPath))
             } catch {
                 try? FileManager.default.removeItem(atPath: outputPath)
@@ -961,8 +962,18 @@ public struct CompileOrchestrator {
             progress.record("the sent copy of draft \(draftLabel.draft) (under .maugham/exports/\(draftLabel.book)/)")
         }
 
+        // A draft is counted from its sent copy, so one whose record never
+        // landed must not keep it: if the snapshot or the catalog row below
+        // can't be written, the sent copy and the file go with the failure and
+        // draft N is free again for the next export.
+        func forgetTheSentCopy() {
+            guard let sentFolder else { return }
+            try? FileManager.default.removeItem(at: sentFolder)
+            try? FileManager.default.removeItem(atPath: outputPath)
+        }
+
         // Persist snapshot.
-        try snapshotStore.save(snap)
+        do { try snapshotStore.save(snap) } catch { forgetTheSentCopy(); throw error }
         progress.record("the publish snapshot \(snap.snapshotID) (under .maugham/publications/)")
 
         // Build Publication record.
@@ -989,7 +1000,7 @@ public struct CompileOrchestrator {
         // Both shapes are non-corrupting but confusing; a real fix needs a
         // two-phase commit or a "pending publication" record promoted on
         // success of both writes.
-        try await publicationStore.append(pub)
+        do { try await publicationStore.append(pub) } catch { forgetTheSentCopy(); throw error }
         progress.record("the catalog row: v\(effectiveVersion) \(format.rawValue) "
                         + "(\(pub.publicationID)) — list_publications can see it")
 
@@ -1050,10 +1061,9 @@ public struct CompileOrchestrator {
     /// Word row in the catalog (a republish names its draft too). A draft is
     /// never handed out twice, even past a lost sent copy or a gap.
     private func draftsHeld(
-        imprint: String?, catalog: [Publication]
+        book: String, imprint: String?, catalog: [Publication]
     ) async -> (sentCopies: Int, taken: Set<Int>) {
-        let sent = await SentCopyStore(projectURL: projectURL)
-            .drafts(book: WordDraft.book(imprint: imprint))
+        let sent = await SentCopyStore(projectURL: projectURL).drafts(book: book)
         var taken = Set(sent.compactMap { $0.copy?.draft })
         for pub in catalog where pub.format.mintsDrafts && pub.imprint == imprint {
             if let draft = WordDraft.number(ofVersion: pub.version) { taken.insert(draft) }

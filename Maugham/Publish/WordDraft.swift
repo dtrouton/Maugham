@@ -57,9 +57,14 @@ public enum WordDraft {
         return "draft\(draft)" + rest
     }
 
-    /// Where a book's drafts are counted and kept: the imprint's name, or
-    /// `book` for what no imprint compiled (the catalogue's own sentinel).
-    static func book(imprint: String?) -> String { imprint ?? "book" }
+    /// The folder name of what no imprint compiled: the book's own drafts.
+    /// Reserved — `PublishConfigValidator` refuses an imprint of this name.
+    static let bookFolder = "book"
+
+    /// Where a book's drafts are counted and kept, read off the RESOLVED
+    /// config (resolve once, at the door): its imprint's name, or
+    /// `bookFolder` for the book itself.
+    static func book(of config: PublishConfig) -> String { config.imprint ?? bookFolder }
 
     /// The draft a new export takes: the count of the book's sent copies plus
     /// one, moved past any number already held — by a sent copy this device
@@ -78,7 +83,7 @@ public enum WordDraft {
     public struct Label: Equatable, Sendable {
         public let draft: Int
         public let sentAt: Date
-        /// `WordDraft.book(imprint:)`.
+        /// `WordDraft.book(of:)`.
         public let book: String
 
         public init(draft: Int, sentAt: Date, book: String) {
@@ -88,8 +93,8 @@ public enum WordDraft {
         }
 
         /// The label's text for a body's folded metadata: `ElementWords`'
-        /// draft and sent words, and the export's UTC date in the language's
-        /// long style.
+        /// draft and sent words, and the writer's local calendar day of the
+        /// export in the language's long style (R-S6).
         func text(metadata: PublishConfig.Metadata) -> String {
             let words = ElementWords.forBody(metadata)
             return "\(words.draft) \(draft), \(words.sent) "
@@ -104,13 +109,14 @@ public enum WordDraft {
         }
     }
 
-    /// `date`'s UTC day in `language`'s long date style. A tag Foundation
+    /// `date`'s day on the writer's own calendar (the Mac's time zone,
+    /// R-S6) in `language`'s long date style. A tag Foundation
     /// cannot place falls back to `en_US_POSIX`; Serbian without a script is
     /// written in Latin script, as `ElementWords` writes it.
     static func date(_ date: Date, language: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale(for: language)
-        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.timeZone = .current
         formatter.dateStyle = .long
         formatter.timeStyle = .none
         return formatter.string(from: date)

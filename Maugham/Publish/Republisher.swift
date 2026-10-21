@@ -20,12 +20,20 @@ public enum RepublishError: Error, LocalizedError {
     /// at `republish`'s door, before the snapshot is read; its description is
     /// `PublishFormatRefusal.message(raw:)`, the one refusal sentence.
     case unproducibleFormat(String)
+    /// A PDF or EPUB asked of a Word draft's snapshot. A draft is a Word
+    /// export's number, never a book version, so another format of it would
+    /// have no honest name (R-4-1); refused before anything is minted.
+    case draftIsWordOnly(draft: Int, format: String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidSnapshotConfig(let msg): return msg
         case .unreadableSnapshotConfig(let msg): return msg
         case .unproducibleFormat(let raw): return PublishFormatRefusal.message(raw: raw)
+        case .draftIsWordOnly(let draft, let format):
+            return "Draft \(draft) is a Word export, so it can only be republished as Word, "
+                + "not \(format.uppercased()). Compile the book as \(format.uppercased()) "
+                + "for a version of its own."
         }
     }
 }
@@ -125,6 +133,9 @@ public struct Republisher {
         // prior" by different rules.
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
+        if !format.mintsDrafts, let draft = priorVersion.flatMap(WordDraft.number(ofVersion:)) {
+            throw RepublishError.draftIsWordOnly(draft: draft, format: format.rawValue)
+        }
 
         // The whole catalog, for the mint below: the version it produces has to
         // be free of every row, not just of the prior one. A second read of the
@@ -598,7 +609,7 @@ public struct Republisher {
     /// no draft.
     private func draftLabel(priorVersion: String?, imprint: String?) async -> WordDraft.Label? {
         guard let draft = priorVersion.flatMap(WordDraft.number(ofVersion:)) else { return nil }
-        let book = WordDraft.book(imprint: imprint)
+        let book = imprint ?? WordDraft.bookFolder
         let sent = await SentCopyStore(projectURL: projectURL).drafts(book: book)
             .compactMap(\.copy).first { $0.draft == draft }?.sentAt
         let prior = try? await publicationStore.load().first {
