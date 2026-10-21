@@ -181,7 +181,7 @@ public struct PDFCompiler {
         // title-page fallback. Nil / unchanged for every other book, so their
         // metadata files keep their bytes.
         let context = bodies[0].source.resolutionScope.publishContext()
-        let configs = bodies.map { Self.reportConfig($0.config, context: context) }
+        let configs = bodies.map { context.reportTitled($0.config) }
         for (index, body) in bodies.enumerated() {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
@@ -277,7 +277,7 @@ public struct PDFCompiler {
             ((templateName as NSString).lastPathComponent as NSString)
                 .deletingPathExtension + ".pdf"
         let generated = build.appendingPathComponent(generatedName)
-        let filename = makeOutputFilename(format: .pdf, label: label)
+        let filename = makeOutputFilename(format: .pdf, label: label, context: context)
         let exports = projectURL.appendingPathComponent(config.outputs.directory,
                                                        isDirectory: true)
         try FileManager.default.createDirectory(
@@ -491,20 +491,6 @@ public struct PDFCompiler {
             ? "letterpaper" : "a4paper"
     }
 
-    /// **A Report's title page names the project** (M2): while the config's
-    /// title is the starter's "Untitled" (or empty), a Report takes the
-    /// manifest's current title. Every other book's config is returned as it
-    /// is, so its metadata keeps its bytes.
-    static func reportConfig(_ config: PublishConfig, context: PublishContext) -> PublishConfig {
-        guard case .report? = context.profile, let projectTitle = context.projectTitle,
-              !projectTitle.isEmpty else { return config }
-        let title = config.metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard title.isEmpty || title == PublishConfig.Metadata.untitled else { return config }
-        var config = config
-        config.metadata.title = projectTitle
-        return config
-    }
-
     /// The `\renewcommand` block a body's metadata becomes — the same text
     /// `PDFCompiler` has written to `build/metadata.tex` since publishing
     /// shipped, now rendered once per body as well as once for the document.
@@ -525,10 +511,12 @@ public struct PDFCompiler {
 
     // MARK: - helpers
 
+    /// A Report's "Untitled" config names its file after the project
+    /// (`PublishContext.reportTitled`), as its title page does.
     private func makeOutputFilename(
-        format: PublishConfig.Format, label: String?
+        format: PublishConfig.Format, label: String?, context: PublishContext
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label,
+        OutputFilenameBuilder.make(config: context.reportTitled(config), format: format, label: label,
                                   language: identity)
     }
 

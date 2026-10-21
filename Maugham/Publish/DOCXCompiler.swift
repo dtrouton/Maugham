@@ -129,7 +129,10 @@ public struct DOCXCompiler {
         }
         // Document-level choices are the FIRST body's, as `EPUBCompiler`'s
         // metadata and `PDFCompiler`'s `metadata.tex` are.
-        let first = bodies[0].config.metadata
+        // A Report's "Untitled" config takes the project's title for the
+        // filename and core.xml, as its PDF title page does (`reportTitled`).
+        let context = bodies[0].source.resolutionScope.publishContext()
+        let first = context.reportTitled(bodies[0].config).metadata
         let document = DOCXBodyEmitter.emit(bodies: emitted, config: config,
                                             page: Self.page(forLanguage: first.language))
         try? document.documentXML.write(to: build.appendingPathComponent("document.xml"),
@@ -138,7 +141,7 @@ public struct DOCXCompiler {
                                                                    language: first.language)
         if let id = jobID { await jobManager.updatePhase(jobID: id, phase: .compiling) }
 
-        let filename = OutputFilenameBuilder.make(config: config, format: .docx, label: label,
+        let filename = OutputFilenameBuilder.make(config: context.reportTitled(config), format: .docx, label: label,
                                                   language: identity)
         let exports = projectURL.appendingPathComponent(config.outputs.directory, isDirectory: true)
         try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)

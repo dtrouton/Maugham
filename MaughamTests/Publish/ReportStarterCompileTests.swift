@@ -80,13 +80,20 @@ final class ReportStarterCompileTests: XCTestCase {
         try XCTUnwrap(try PublishConfigStore.read(in: store.url), "the factory installed a config")
     }
 
+    private var lastPDFName = ""
+
     private func pdf(_ store: ProjectStore) async throws -> PDFDocument {
         let compiler = try PDFCompiler(
             projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
             config: try installedConfig(store), jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        return try await run(compiler)
+    }
+
+    private func run(_ compiler: PDFCompiler) async throws -> PDFDocument {
         let result = try await compiler.compile(label: "starter")
         XCTAssertTrue(result.errors.isEmpty && !result.outputPath.isEmpty,
                       "\(result.errors.map(\.message))\n\(result.logExcerpt.suffix(3000))")
+        lastPDFName = URL(fileURLWithPath: result.outputPath).lastPathComponent
         return try XCTUnwrap(PDFDocument(url: URL(fileURLWithPath: result.outputPath)))
     }
 
@@ -125,6 +132,7 @@ final class ReportStarterCompileTests: XCTestCase {
         // M2: the config still says "Untitled"; the title page names the project.
         XCTAssertEqual(try installedConfig(store).metadata.title, "Untitled", "premise: the starter's title")
         XCTAssertFalse(text.contains("Untitled"), text)
+        XCTAssertTrue(lastPDFName.hasPrefix("Quarterly Fixture-v"), "the file is named after the project: \(lastPDFName)")
 
         // Word: the same project, through the starter's config.
         let compiler = try DOCXCompiler(
@@ -133,7 +141,12 @@ final class ReportStarterCompileTests: XCTestCase {
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         let result = try await compiler.compile(label: "word")
         XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
-        XCTAssertEqual(DOCXValidator.problems(in: URL(fileURLWithPath: result.outputPath)), [])
+        let docx = URL(fileURLWithPath: result.outputPath)
+        XCTAssertEqual(DOCXValidator.problems(in: docx), [])
+        // The same title rule names the Word file and its core.xml title.
+        XCTAssertTrue(docx.lastPathComponent.hasPrefix("Quarterly Fixture-"), docx.lastPathComponent)
+        let core = String(decoding: try XCTUnwrap(try ZipArchive.read(docx)["docProps/core.xml"]), as: UTF8.self)
+        XCTAssertTrue(core.contains("<dc:title>Quarterly Fixture</dc:title>"), core)
     }
 
     /// I1: a single-document Report that gained a document through the
@@ -157,6 +170,34 @@ final class ReportStarterCompileTests: XCTestCase {
         XCTAssertTrue(text.contains("Raw counts by quarter."), text)
     }
 
+    /// A two-language source with one piece, titled per language.
+    private struct TwoTongues: LanguageRebindableSource {
+        let tag: String?
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: tag == nil ? "Solo Titleword" : "Solo Naslovword", mode: .prose,
+                   displayText: tag == nil ? "Sourcesentence here." : "Prevedenarecenica ovde.")]
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source { TwoTongues(tag: tag) }
+    }
+
+    /// Fix round 2: in a bilingual single-document Report each body is the
+    /// report again, so each body's first piece title is silent — the flag
+    /// re-arms at every `MaughamBody`.
+    func test_aBilingualSingleDocumentReport_silencesEachBodysFirstTitle() async throws {
+        let url = try await ProjectFactory.createReportProject(named: "Two Fixture", in: tmp, shape: .singleDocument)
+        let store = try await ProjectStore.load(from: url)
+        let config = try installedConfig(store)
+        let set = try LanguageSet(language: nil, languages: ["source", "sr"], sourceTag: "en")
+        let plan = try BodyPlan.make(set: set, resolved: config, source: TwoTongues(tag: nil),
+                                     publishDir: url.appendingPathComponent(".maugham/publish"), wrap: { $0 })
+        let compiler = try PDFCompiler(projectURL: url, bodies: plan.bodies, config: config,
+                                       jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let text = text(try await run(compiler))
+        XCTAssertTrue(text.contains("Sourcesentence") && text.contains("Prevedenarecenica"), "premise: both bodies\n\(text)")
+        XCTAssertFalse(text.contains("Titleword"), "the source body's first title is silent\n\(text)")
+        XCTAssertFalse(text.contains("Naslovword"), "the translated body's first title is silent too\n\(text)")
+    }
+
     /// R-S7's gate: a book without the Report profile writes no paper line,
     /// and its `metadata.tex` is exactly the metadata block it always was.
     func test_aNovelsMetadata_isByteIdenticalToTheBlock() async throws {
@@ -169,6 +210,7 @@ final class ReportStarterCompileTests: XCTestCase {
         XCTAssertEqual(metadata, PDFCompiler.metadataBlock(config: config, label: "starter"))
         XCTAssertFalse(metadata.contains("MaughamPaper"))
         XCTAssertTrue(metadata.contains("\\renewcommand{\\Title}{Untitled}"), "no title fallback for a novel")
+        XCTAssertTrue(lastPDFName.hasPrefix("Untitled-v"), "a novel's file keeps the config's title: \(lastPDFName)")
     }
 
     func test_aNewSectionsReport_printsItsSectionTitle_andTheLists() async throws {

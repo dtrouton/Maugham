@@ -3,7 +3,10 @@
 % that prints every piece title). The FIRST piece is the report itself, titled
 % with the project's name, which the title page already prints: its heading
 % prints nothing and adds no contents line. A document added later (an
-% appendix, say) prints its title and its contents line as usual. The
+% appendix, say) prints its title and its contents line as usual. In a
+% bilingual edition each language's body is the report again, so the flag is
+% reset at the start of every MaughamBody (defined by preamble.tex, which is
+% \input before this file) and each body's first title is silent. The
 % headings inside each piece are numbered by the body emitter. To print the
 % first title too, delete the \ifMaughamFirstPiece branches below.
 %
@@ -17,6 +20,13 @@
 
 \newif\ifMaughamFirstPiece
 \MaughamFirstPiecetrue
+% Each body's first piece is the report: re-arm the flag as a body begins.
+% \begin{MaughamBody}{<tag>} calls \MaughamBody with the tag, so the wrapper
+% sets the flag and hands the argument on to whatever the preamble defined.
+\makeatletter
+\let\MaughamFirstPiece@body\MaughamBody
+\def\MaughamBody{\global\MaughamFirstPiecetrue\MaughamFirstPiece@body}
+\makeatother
 \newcommand{\pieceheading}[1]{%
   \ifMaughamFirstPiece\global\MaughamFirstPiecefalse
   \else\section*{#1}\addcontentsline{toc}{section}{#1}\fi}

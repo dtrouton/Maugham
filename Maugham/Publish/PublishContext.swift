@@ -57,3 +57,21 @@ public struct PublishContext: Sendable {
         projectURL: nil,
         piecePaths: [:])
 }
+
+extension PublishContext {
+    /// **A Report is titled by its project until the writer names it** (Task 7
+    /// M2, fix round 2) — the ONE rule the PDF title page and filename and the
+    /// .docx filename and `core.xml` title all ask. While the config's title is
+    /// the starter's "Untitled" (`PublishConfig.Metadata.untitled`) or blank, a
+    /// Report takes the manifest's current title. Every other book's config —
+    /// and a Report the writer has titled — is returned unchanged, so its
+    /// output keeps its bytes.
+    public func reportTitled(_ config: PublishConfig) -> PublishConfig {
+        guard case .report? = profile, let projectTitle, !projectTitle.isEmpty else { return config }
+        let title = config.metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.isEmpty || title == PublishConfig.Metadata.untitled else { return config }
+        var config = config
+        config.metadata.title = projectTitle
+        return config
+    }
+}

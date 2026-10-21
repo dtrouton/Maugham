@@ -193,14 +193,14 @@ final class ReportProjectCreationTests: XCTestCase {
     func test_aReportsUntitledConfig_takesTheProjectsTitle_andNothingElseChanges() {
         var untitled = PublishConfig()
         XCTAssertEqual(untitled.metadata.title, "Untitled", "premise: the starter's title")
-        XCTAssertEqual(PDFCompiler.reportConfig(untitled, context: context(.report)).metadata.title, "Quarterly")
+        XCTAssertEqual(context(.report).reportTitled(untitled).metadata.title, "Quarterly")
         untitled.metadata.title = "  "
-        XCTAssertEqual(PDFCompiler.reportConfig(untitled, context: context(.report)).metadata.title, "Quarterly")
+        XCTAssertEqual(context(.report).reportTitled(untitled).metadata.title, "Quarterly")
         var named = PublishConfig()
         named.metadata.title = "Q3 Review"
-        XCTAssertEqual(PDFCompiler.reportConfig(named, context: context(.report)).metadata.title, "Q3 Review")
-        XCTAssertEqual(PDFCompiler.reportConfig(PublishConfig(), context: context(nil)).metadata.title, "Untitled")
-        XCTAssertEqual(PDFCompiler.reportConfig(PublishConfig(), context: context(.report, title: nil)).metadata.title,
+        XCTAssertEqual(context(.report).reportTitled(named).metadata.title, "Q3 Review")
+        XCTAssertEqual(context(nil).reportTitled(PublishConfig()).metadata.title, "Untitled")
+        XCTAssertEqual(context(.report, title: nil).reportTitled(PublishConfig()).metadata.title,
                        "Untitled")
     }
 
