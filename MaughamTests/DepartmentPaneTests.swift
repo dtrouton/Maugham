@@ -807,6 +807,13 @@ final class DepartmentPaneTests: XCTestCase {
             "the book's own tag, PDF, no imprint, nothing stale")
     }
 
+    /// The desk's format picker names every format this build produces, Word
+    /// by name (report plan 4 Task 2, R-4-5).
+    func test_theFormatPickerNamesWordByName() {
+        XCTAssertEqual(PublishConfig.Format.allCases.map(DepartmentCompileSheetCopy.formatTitle),
+                       ["PDF", "EPUB", "Word (.docx)"])
+    }
+
     /// **Nothing checked is refused in words**, not silently honoured. An empty
     /// list reaches `LanguageSet` as the source book, so a sheet that let it
     /// through would compile the book a writer had just unchecked.

@@ -412,6 +412,7 @@ public struct Republisher {
         switch format {
         case .pdf: resolved = try PDFCompiler.resolve(bodies: plan.bodies)
         case .epub: resolved = try EPUBCompiler.resolve(bodies: plan.bodies)
+        case .docx: resolved = try DOCXCompiler.resolve(bodies: plan.bodies)
         case .unknown(let raw): throw PublishFormatRefusal(raw: raw)
         }
         if case .refused(let problemErrors) = PublishProblemGate.judge(
@@ -453,6 +454,15 @@ public struct Republisher {
                 identity: set.identity,
                 resolved: resolved)
             let r = try await e.compile(label: label)
+            outputPath = r.outputPath
+            warnings = r.warnings
+            errors = r.errors
+            logExcerpt = ""
+            problems = r.problems
+        case .docx:
+            // TEMPORARY (report plan 4 Task 2): the stub until Task 5.
+            let r = DOCXCompiler.notYetBuiltStub(
+                problems: resolved.flatMap(\.resolution.problems))
             outputPath = r.outputPath
             warnings = r.warnings
             errors = r.errors

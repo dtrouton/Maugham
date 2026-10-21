@@ -4,7 +4,9 @@ import AppKit
 
 /// Binder footer section listing files in the project's `Exports/` directory.
 /// Click to open in the default macOS handler (Preview.app for PDF, default
-/// EPUB reader for .epub). Right-click for reveal-in-Finder / delete.
+/// EPUB reader for .epub, Word or Pages for .docx). Right-click for
+/// reveal-in-Finder / delete. The listed extensions are what this build
+/// produces, `PublishConfig.Format.allCases`.
 ///
 /// Refresh is driven by:
 /// - `.onAppear`
@@ -119,15 +121,32 @@ extension ExportsListView {
             /// it is.
             let record: Publication?
             var name: String { url.lastPathComponent }
-            var icon: String {
-                url.pathExtension.lowercased() == "epub" ? "book" : "doc.richtext"
-            }
+            var icon: String { Model.icon(forExtension: url.pathExtension) }
             var size: String {
                 let attrs = (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
                 let bytes = (attrs[.size] as? NSNumber)?.int64Value ?? 0
                 return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
             }
             var id: String { url.path }
+        }
+
+        /// A file is listed when its extension names a format this build
+        /// produces — `Format(rawValue:)` matches case-insensitively, so
+        /// `Book.PDF` lists too; anything else in `Exports/` is not a
+        /// publication.
+        static func lists(extension ext: String) -> Bool {
+            PublishConfig.Format.allCases.contains(PublishConfig.Format(rawValue: ext))
+        }
+
+        /// The row's symbol, by format: a PDF's rich page, an EPUB's book, a
+        /// Word file's document.
+        static func icon(forExtension ext: String) -> String {
+            switch PublishConfig.Format(rawValue: ext) {
+            case .pdf:     return "doc.richtext"
+            case .epub:    return "book"
+            case .docx:    return "doc.text"
+            case .unknown: return "doc"
+            }
         }
 
         /// **Reads the publications catalog once per scan, off the main path**
@@ -148,7 +167,7 @@ extension ExportsListView {
                 projectURL: projectURL).publicationStore.load()) ?? []
             return urls
                 .filter { !DotfileScan.isDotfile($0) }
-                .filter { ["pdf", "epub"].contains($0.pathExtension.lowercased()) }
+                .filter { Self.lists(extension: $0.pathExtension) }
                 .map { url in
                     let mod = (try? url.resourceValues(
                         forKeys: [.contentModificationDateKey]))?

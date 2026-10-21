@@ -5,13 +5,14 @@ import MaughamCore
 /// **An output format this build doesn't know round-trips as itself**
 /// (ADR 0015 §5 amendment). `PublishConfig.Format` used to decode an unknown
 /// name to `.pdf`, so a newer build's `"docx"` re-saved as `"pdf"` and compiled
-/// a second PDF. It is now `.unknown(raw)`, kept verbatim through `config.json`
+/// a second PDF. Since report plan 4 this build produces `docx` itself, so the
+/// sample unknown name is `"odt"`. It is now `.unknown(raw)`, kept verbatim through `config.json`
 /// and the publications catalog, absent from `allCases`, and refused — never
 /// compiled — by `PublishFormatRefusal`.
 final class PublishFormatToleranceTests: XCTestCase {
 
-    private static let docxOutputsJSON =
-        #"{"directory":"Exports","filename_template":"x","sanitize_spaces":false,"formats_enabled":["pdf","docx"]}"#
+    private static let odtOutputsJSON =
+        #"{"directory":"Exports","filename_template":"x","sanitize_spaces":false,"formats_enabled":["pdf","odt"]}"#
 
     // MARK: - Decode / encode
 
@@ -19,15 +20,15 @@ final class PublishFormatToleranceTests: XCTestCase {
     /// `[.pdf, .pdf]` (pinned green there before the rewrite).
     func test_anUnknownFormatDecodesAsItselfNotAsPDF() throws {
         let outputs = try JSONDecoder().decode(
-            PublishConfig.Outputs.self, from: Data(Self.docxOutputsJSON.utf8))
-        XCTAssertEqual(outputs.formatsEnabled, [.pdf, .unknown("docx")])
+            PublishConfig.Outputs.self, from: Data(Self.odtOutputsJSON.utf8))
+        XCTAssertEqual(outputs.formatsEnabled, [.pdf, .unknown("odt")])
     }
 
     func test_anUnknownFormatReEncodesByteForByte() throws {
         let outputs = try JSONDecoder().decode(
-            PublishConfig.Outputs.self, from: Data(Self.docxOutputsJSON.utf8))
+            PublishConfig.Outputs.self, from: Data(Self.odtOutputsJSON.utf8))
         let array = try JSONEncoder().encode(outputs.formatsEnabled)
-        XCTAssertEqual(String(decoding: array, as: UTF8.self), #"["pdf","docx"]"#)
+        XCTAssertEqual(String(decoding: array, as: UTF8.self), #"["pdf","odt"]"#)
     }
 
     /// Today's encoding of a known-only `Outputs`, captured on the old code:
@@ -62,8 +63,8 @@ final class PublishFormatToleranceTests: XCTestCase {
     }
 
     func test_unknownKeepsItsStringVerbatim() {
-        XCTAssertEqual(PublishConfig.Format(rawValue: "DocX"), .unknown("DocX"))
-        XCTAssertEqual(PublishConfig.Format.unknown("DocX").rawValue, "DocX")
+        XCTAssertEqual(PublishConfig.Format(rawValue: "OdT"), .unknown("OdT"))
+        XCTAssertEqual(PublishConfig.Format.unknown("OdT").rawValue, "OdT")
         XCTAssertEqual(PublishConfig.Format.pdf.rawValue, "pdf")
         XCTAssertEqual(PublishConfig.Format.epub.rawValue, "epub")
     }
@@ -77,16 +78,44 @@ final class PublishFormatToleranceTests: XCTestCase {
     }
 
     func test_allCasesIsWhatThisBuildCanProduce() {
-        XCTAssertEqual(PublishConfig.Format.allCases, [.pdf, .epub])
+        XCTAssertEqual(PublishConfig.Format.allCases, [.pdf, .epub, .docx])
+    }
+
+    // MARK: - Word (report plan 4, R-4-5)
+
+    func test_docxRoundTripsAsTheKnownFormat() throws {
+        let decoded = try JSONDecoder().decode(
+            [PublishConfig.Format].self, from: Data(#"["pdf","docx"]"#.utf8))
+        XCTAssertEqual(decoded, [.pdf, .docx])
+        let encoded = try JSONEncoder().encode(decoded)
+        XCTAssertEqual(String(decoding: encoded, as: UTF8.self), #"["pdf","docx"]"#)
+        XCTAssertEqual(PublishConfig.Format.docx.rawValue, "docx")
+    }
+
+    func test_docxMatchesCaseInsensitivelyAndIsNeverUnknown() {
+        for raw in ["docx", "DOCX", "DocX", "Docx", "dOcX"] {
+            XCTAssertEqual(PublishConfig.Format(rawValue: raw), .docx, raw)
+        }
+        XCTAssertNotEqual(PublishConfig.Format.unknown("docx"), .docx)
+    }
+
+    func test_docxIsNotAConfigOrCompileDoorError() throws {
+        XCTAssertNil(PublishConfigValidator.formatError(.docx))
+        var cfg = PublishConfig(metadata: .init(title: "T", author: "A"))
+        cfg.outputs.formatsEnabled = [.pdf, .docx]
+        XCTAssertEqual(PublishConfigValidator.validate(cfg), [])
+        let publishDir = try makeProjectDir()
+        XCTAssertEqual(PublishConfigValidator.validateForCompile(
+            cfg, publishDir: publishDir, pieceIDs: [], format: .docx), [])
     }
 
     func test_theRefusalSentence() {
         XCTAssertEqual(
-            PublishFormatRefusal(raw: "docx").errorDescription,
-            "This Maugham can't produce 'docx' output — it was named by a newer "
+            PublishFormatRefusal(raw: "odt").errorDescription,
+            "This Maugham can't produce 'odt' output — it was named by a newer "
                 + "version of Maugham. Update Maugham to compile it. Nothing was compiled.")
-        XCTAssertEqual(PublishFormatRefusal(raw: "docx").errorDescription,
-                       PublishFormatRefusal.message(raw: "docx"))
+        XCTAssertEqual(PublishFormatRefusal(raw: "odt").errorDescription,
+                       PublishFormatRefusal.message(raw: "odt"))
     }
 
     // MARK: - The compile door's question
@@ -98,9 +127,9 @@ final class PublishFormatToleranceTests: XCTestCase {
     }
 
     func test_formatErrorNamesAnUnknownFormatWithTheOneSentence() {
-        let err = PublishConfigValidator.formatError(.unknown("docx"))
+        let err = PublishConfigValidator.formatError(.unknown("odt"))
         XCTAssertEqual(err?.field, "format")
-        XCTAssertEqual(err?.message, PublishFormatRefusal.message(raw: "docx"))
+        XCTAssertEqual(err?.message, PublishFormatRefusal.message(raw: "odt"))
     }
 
     /// Compiling an unknown format is refused; NAMING one in
@@ -108,46 +137,46 @@ final class PublishFormatToleranceTests: XCTestCase {
     /// door nor, for a known format, at the compile door.
     func test_anUnknownNameInFormatsEnabledIsNotAConfigError() throws {
         var cfg = PublishConfig(metadata: .init(title: "T", author: "A"))
-        cfg.outputs.formatsEnabled = [.pdf, .unknown("docx")]
+        cfg.outputs.formatsEnabled = [.pdf, .unknown("odt")]
         XCTAssertEqual(PublishConfigValidator.validate(cfg), [])
 
         let publishDir = try makeProjectDir()
         let epub = PublishConfigValidator.validateForCompile(
             cfg, publishDir: publishDir, pieceIDs: [], format: .epub)
         XCTAssertEqual(epub, [])
-        let docx = PublishConfigValidator.validateForCompile(
-            cfg, publishDir: publishDir, pieceIDs: [], format: .unknown("docx"))
-        XCTAssertEqual(docx.map(\.field), ["format"])
-        XCTAssertEqual(docx.map(\.message), [PublishFormatRefusal.message(raw: "docx")])
+        let odt = PublishConfigValidator.validateForCompile(
+            cfg, publishDir: publishDir, pieceIDs: [], format: .unknown("odt"))
+        XCTAssertEqual(odt.map(\.field), ["format"])
+        XCTAssertEqual(odt.map(\.message), [PublishFormatRefusal.message(raw: "odt")])
     }
 
     // MARK: - config.json through PublishConfigStore
 
-    func test_configJSONRoundTripThroughTheStoreKeepsDocx() async throws {
+    func test_configJSONRoundTripThroughTheStoreKeepsOdt() async throws {
         let project = try makeProjectDir()
         let url = PublishConfigStore.fileURL(in: project)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Self.configJSONNamingDocx().write(to: url)
+        try Self.configJSONNamingOdt().write(to: url)
 
         let store = PublishConfigStore(projectURL: project)
         let maybeLoaded = try await store.load()
         let loaded = try XCTUnwrap(maybeLoaded)
-        XCTAssertEqual(loaded.outputs.formatsEnabled, [.pdf, .unknown("docx")])
+        XCTAssertEqual(loaded.outputs.formatsEnabled, [.pdf, .unknown("odt")])
 
         try await store.save(loaded)
         let written = try Data(contentsOf: url)
         let obj = try JSONSerialization.jsonObject(with: written) as? [String: Any]
         let outputs = obj?["outputs"] as? [String: Any]
-        XCTAssertEqual(outputs?["formats_enabled"] as? [String], ["pdf", "docx"])
+        XCTAssertEqual(outputs?["formats_enabled"] as? [String], ["pdf", "odt"])
         let reloaded = try await store.load()
-        XCTAssertEqual(reloaded?.outputs.formatsEnabled, [.pdf, .unknown("docx")])
+        XCTAssertEqual(reloaded?.outputs.formatsEnabled, [.pdf, .unknown("odt")])
     }
 
     // MARK: - The publications catalog
 
     @MainActor
-    func test_catalogRowNamingDocxSurvivesAnAppendAndReload() async throws {
+    func test_catalogRowNamingOdtSurvivesAnAppendAndReload() async throws {
         let project = try makeProjectDir()
         let store = PublicationStore(projectURL: project)
         let file = PublicationStore.fileURL(
@@ -157,21 +186,21 @@ final class PublishFormatToleranceTests: XCTestCase {
         // Written as a newer build would write it: today's encoding of a known
         // row with its format renamed, so the fixture does not lean on the
         // encoder under test.
-        let line = try Self.catalogLineNamingDocx()
+        let line = try Self.catalogLineNamingOdt()
         try Data((line + "\n").utf8).write(to: file)
 
         let first = try await store.load()
-        XCTAssertEqual(first.map(\.format), [.unknown("docx")])
+        XCTAssertEqual(first.map(\.format), [.unknown("odt")])
 
         try await store.append(Self.publication(id: "pub-new", format: .pdf, minutes: 1))
         let reloaded = try await store.load()
         XCTAssertEqual(reloaded.count, 2)
-        XCTAssertEqual(reloaded.first { $0.publicationID == "pub-docx" }?.format,
-                       .unknown("docx"))
+        XCTAssertEqual(reloaded.first { $0.publicationID == "pub-odt" }?.format,
+                       .unknown("odt"))
         // Guards the APPEND (it must not rewrite earlier lines); the old
         // symptom — the row read as a PDF — is pinned by the load assertions.
         let raw = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(raw.contains(#""format":"docx""#), raw)
+        XCTAssertTrue(raw.contains(#""format":"odt""#), raw)
     }
 
     // MARK: - MCP echoes the raw string
@@ -179,12 +208,12 @@ final class PublishFormatToleranceTests: XCTestCase {
     /// `set_publish_config` on an unrelated key, over a config naming a newer
     /// build's format: not a config error (an older build may edit a newer
     /// build's config), and the response, the file and `get_publish_config`
-    /// all still say "docx".
+    /// all still say "odt".
     @MainActor
-    func test_setAndGetPublishConfigKeepAndEchoDocx() async throws {
+    func test_setAndGetPublishConfigKeepAndEchoOdt() async throws {
         let root = try makeProjectDir()
         let projectURL = try await ProjectFactory.createNovelProject(named: "T", in: root)
-        try Self.configJSONNamingDocx().write(to: PublishConfigStore.fileURL(in: projectURL))
+        try Self.configJSONNamingOdt().write(to: PublishConfigStore.fileURL(in: projectURL))
         let store = try await ProjectStore.load(from: projectURL)
         let registry = ProjectRegistry()
         registry.register(url: projectURL, store: store)
@@ -196,13 +225,13 @@ final class PublishFormatToleranceTests: XCTestCase {
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual((resp?["errors"] as? [Any])?.count, 0, "\(String(describing: resp))")
         let outputs = (resp?["config"] as? [String: Any])?["outputs"] as? [String: Any]
-        XCTAssertEqual(outputs?["formats_enabled"] as? [String], ["pdf", "docx"])
+        XCTAssertEqual(outputs?["formats_enabled"] as? [String], ["pdf", "odt"])
 
         let getData = try await GetPublishConfigTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(projectID)"}"#.utf8), registry: registry)
         let got = try JSONSerialization.jsonObject(with: getData) as? [String: Any]
         let gotOutputs = (got?["config"] as? [String: Any])?["outputs"] as? [String: Any]
-        XCTAssertEqual(gotOutputs?["formats_enabled"] as? [String], ["pdf", "docx"])
+        XCTAssertEqual(gotOutputs?["formats_enabled"] as? [String], ["pdf", "odt"])
     }
 
     // MARK: - Fixtures
@@ -215,25 +244,25 @@ final class PublishFormatToleranceTests: XCTestCase {
         return url
     }
 
-    /// A full default `config.json` whose `formats_enabled` names `"docx"`,
+    /// A full default `config.json` whose `formats_enabled` names `"odt"`,
     /// built by editing the JSON object rather than through `Format`'s encoder.
-    private static func configJSONNamingDocx() throws -> Data {
+    private static func configJSONNamingOdt() throws -> Data {
         let base = try JSONEncoder().encode(PublishConfig())
         var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: base) as? [String: Any])
         var outputs = try XCTUnwrap(obj["outputs"] as? [String: Any])
-        outputs["formats_enabled"] = ["pdf", "docx"]
+        outputs["formats_enabled"] = ["pdf", "odt"]
         obj["outputs"] = outputs
         return try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
     }
 
-    private static func catalogLineNamingDocx() throws -> String {
+    private static func catalogLineNamingOdt() throws -> String {
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         enc.outputFormatting = [.sortedKeys]
         let known = String(decoding: try enc.encode(
-            publication(id: "pub-docx", format: .pdf, minutes: 10)), as: UTF8.self)
+            publication(id: "pub-odt", format: .pdf, minutes: 10)), as: UTF8.self)
         XCTAssertTrue(known.contains(#""format":"pdf""#), known)
-        return known.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"docx""#)
+        return known.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"odt""#)
     }
 
     private static func publication(id: String, format: PublishConfig.Format,

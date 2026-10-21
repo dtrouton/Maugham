@@ -229,21 +229,21 @@ final class CompileToolsTests: XCTestCase {
 
     // MARK: - An output format this build can't produce
 
-    /// `"format":"docx"` — a newer build's format — is refused by name: the
-    /// failed shape, the error naming docx, no file under `Exports/` and no
+    /// `"format":"odt"` — a newer build's format — is refused by name: the
+    /// failed shape, the error naming odt, no file under `Exports/` and no
     /// catalog row. Before `Format.unknown` the name decoded as `.pdf` and
     /// this compiled a PDF (pinned red on 635106dc).
     func testCompile_anUnknownFormatIsRefusedByNameAndCompilesNothing() async throws {
         let data = try await CompileTool.handle(
-            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"docx","wait_seconds":120}"#.utf8),
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"odt","wait_seconds":120}"#.utf8),
             registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(resp?["status"] as? String, "failed",
                        "unexpected response: \(resp ?? [:])")
         let errors = resp?["errors"] as? [[String: Any]]
         let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
-        XCTAssertTrue(message.contains("'docx'"), "got: \(message)")
-        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "docx")),
+        XCTAssertTrue(message.contains("'odt'"), "got: \(message)")
+        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "odt")),
                       "the one refusal sentence, not a dump: \(message)")
 
         let exports = (try? FileManager.default.contentsOfDirectory(
@@ -254,31 +254,31 @@ final class CompileToolsTests: XCTestCase {
         XCTAssertTrue(pubs.isEmpty, "no catalog row: \(pubs)")
     }
 
-    /// `dry_run` asks "would this compile?" — for docx the answer is no, with
+    /// `dry_run` asks "would this compile?" — for odt the answer is no, with
     /// the refusal sentence, never `dry_run_passed`.
     func testCompile_dryRunOfAnUnknownFormatIsRefusedNotPassed() async throws {
         let data = try await CompileTool.handle(
-            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"docx","dry_run":true}"#.utf8),
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"odt","dry_run":true}"#.utf8),
             registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(resp?["status"] as? String, "failed",
                        "unexpected response: \(resp ?? [:])")
         let errors = resp?["errors"] as? [[String: Any]]
         let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
-        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "docx")),
+        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "odt")),
                       "got: \(message)")
     }
 
     func testPreview_anUnknownFormatIsRefusedByName() async throws {
         let data = try await PreviewCompileTool.handle(
-            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"docx"}"#.utf8),
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"odt"}"#.utf8),
             registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(resp?["status"] as? String, "failed",
                        "unexpected response: \(resp ?? [:])")
         let errors = resp?["errors"] as? [[String: Any]]
         let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
-        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "docx")),
+        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "odt")),
                       "got: \(message)")
     }
 
@@ -379,6 +379,36 @@ final class CompileToolsTests: XCTestCase {
     }
 
     // MARK: - F2: schema round-trip for the new params
+
+    // MARK: - Report plan 4 Task 2: the format enums derive from `allCases`
+
+    private func formatEnum(_ schema: String) throws -> [String] {
+        let obj = try JSONSerialization.jsonObject(with: Data(schema.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let format = try XCTUnwrap(props["format"] as? [String: Any])
+        return try XCTUnwrap(format["enum"] as? [String])
+    }
+
+    /// Every tool's `format` enum is what this build produces, so a format
+    /// added to `PublishConfig.Format` reaches the catalogue with no literal
+    /// to update; the preview's is that less what the preview refuses.
+    func testSchema_formatEnumsDeriveFromAllCases() throws {
+        let produced = PublishConfig.Format.allCases.map(\.rawValue)
+        XCTAssertEqual(produced, ["pdf", "epub", "docx"])
+        XCTAssertEqual(try formatEnum(CompileTool.inputSchemaJSON), produced)
+        XCTAssertEqual(try formatEnum(ListPublicationsTool.inputSchemaJSON), produced)
+        XCTAssertEqual(try formatEnum(RepublishTool.inputSchemaJSON), produced)
+        XCTAssertEqual(try formatEnum(PreviewCompileTool.inputSchemaJSON), ["pdf", "epub"])
+    }
+
+    /// No tool source spells the format list as a literal.
+    func testSchema_noToolSpellsAFormatListLiteral() throws {
+        let tools = SourceTree.repoRoot.appendingPathComponent("Maugham/MCP/Tools")
+        for name in ["CompileTools.swift", "PublicationTools.swift"] {
+            let text = try String(contentsOf: tools.appendingPathComponent(name), encoding: .utf8)
+            XCTAssertFalse(text.contains(#""enum":["pdf""#), "\(name) spells a format list")
+        }
+    }
 
     func testSchema_compile_declaresDryRun() throws {
         let obj = try JSONSerialization.jsonObject(

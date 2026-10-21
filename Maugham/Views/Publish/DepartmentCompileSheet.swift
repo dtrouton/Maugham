@@ -71,7 +71,7 @@ struct DepartmentCompileSheet: View {
 
             Picker(DepartmentCompileSheetCopy.formatLabel, selection: $format) {
                 ForEach(PublishConfig.Format.allCases, id: \.self) { option in
-                    Text(option.rawValue.uppercased()).tag(option)
+                    Text(DepartmentCompileSheetCopy.formatTitle(option)).tag(option)
                 }
             }
             .pickerStyle(.segmented)
@@ -140,6 +140,15 @@ enum DepartmentCompileSheetCopy {
     }
 
     static let formatLabel = "Format"
+
+    /// A format's name in the picker: the acronym for the book formats, and
+    /// Word by its name with its extension (R-4-5).
+    static func formatTitle(_ format: PublishConfig.Format) -> String {
+        switch format {
+        case .pdf, .epub, .unknown: return format.rawValue.uppercased()
+        case .docx:                 return "Word (.docx)"
+        }
+    }
     static let editionsLabel = "Editions"
 
     /// The untranslated body, named by its language rather than called

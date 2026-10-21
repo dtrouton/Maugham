@@ -753,6 +753,7 @@ public struct CompileOrchestrator {
         switch format {
         case .pdf: resolved = try PDFCompiler.resolve(bodies: plan.bodies)
         case .epub: resolved = try EPUBCompiler.resolve(bodies: plan.bodies)
+        case .docx: resolved = try DOCXCompiler.resolve(bodies: plan.bodies)
         case .unknown(let raw): throw PublishFormatRefusal(raw: raw)
         }
         switch PublishProblemGate.judge(resolved.flatMap(\.resolution.problems),
@@ -817,6 +818,15 @@ public struct CompileOrchestrator {
                 identity: set.identity,
                 resolved: resolved)
             let result = try await epub.compile(label: label)
+            outputPath = result.outputPath
+            warnings = result.warnings
+            errors = result.errors
+            logExcerpt = ""
+            problems = result.problems
+        case .docx:
+            // TEMPORARY (report plan 4 Task 2): the stub until Task 4.
+            let result = DOCXCompiler.notYetBuiltStub(
+                problems: resolved.flatMap(\.resolution.problems))
             outputPath = result.outputPath
             warnings = result.warnings
             errors = result.errors

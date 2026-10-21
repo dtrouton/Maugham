@@ -196,7 +196,8 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         }
     }
 
-    /// An output format. `.pdf` and `.epub` are what this build can produce;
+    /// An output format. `.pdf`, `.epub` and `.docx` (Word, report plan 4) are
+    /// what this build can produce;
     /// `.unknown(raw)` is a format a NEWER build named, kept verbatim so it
     /// re-encodes as itself (ADR 0015 §5 amendment, pinned by
     /// `PublishFormatToleranceTests`). An unknown name in `formats_enabled` is
@@ -210,18 +211,20 @@ public struct PublishConfig: Codable, Equatable, Sendable {
     public enum Format: Codable, Equatable, Hashable, Sendable, CaseIterable {
         case pdf
         case epub
+        case docx
         case unknown(String)
 
-        public static var allCases: [Format] { [.pdf, .epub] }
+        public static var allCases: [Format] { [.pdf, .epub, .docx] }
 
         /// Non-failable. The known names match case-insensitively (a
-        /// hand-typed `"PDF"` or `"Epub"` is the known format); anything else
-        /// is `.unknown` with the original string kept verbatim. Never
-        /// constructs `.unknown("pdf")` or `.unknown("epub")`.
+        /// hand-typed `"PDF"`, `"Epub"` or `"DocX"` is the known format);
+        /// anything else is `.unknown` with the original string kept verbatim.
+        /// Never constructs `.unknown` around a known name.
         public init(rawValue: String) {
             switch rawValue.lowercased() {
             case "pdf":  self = .pdf
             case "epub": self = .epub
+            case "docx": self = .docx
             default:     self = .unknown(rawValue)
             }
         }
@@ -230,6 +233,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             switch self {
             case .pdf:              return "pdf"
             case .epub:             return "epub"
+            case .docx:             return "docx"
             case .unknown(let raw): return raw
             }
         }

@@ -242,7 +242,7 @@ public enum PublishConfigValidator {
     /// `PreviewCompiler.preview`, `Republisher.republish`) ask it first.
     public static func formatError(_ format: PublishConfig.Format) -> ValidationError? {
         switch format {
-        case .pdf, .epub:
+        case .pdf, .epub, .docx:
             return nil
         case .unknown(let raw):
             return .init(field: "format", message: PublishFormatRefusal.message(raw: raw))

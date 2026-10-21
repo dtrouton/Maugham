@@ -514,12 +514,12 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// orchestrator's door refuses it by name before a job registers (ADR
     /// 0015); the writer's move is to pick a format, not to read a log.
     func test_anUnproducibleFormatIsARefusalAndNotAFailure() {
-        let message = PublishFormatRefusal.message(raw: "docx")
+        let message = PublishFormatRefusal.message(raw: "odt")
         let diag = TectonicLogParser.Diagnostic(
             level: .error, file: nil, line: nil, message: message, contextLines: [])
         let refused = DepartmentCompileState.settled(after: .failed(
             errors: [diag],
-            logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt + "docx"))
+            logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt + "odt"))
         XCTAssertEqual(refused.phase, .refused(message))
         XCTAssertFalse(refused.isFailure)
     }

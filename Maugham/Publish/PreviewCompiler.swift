@@ -8,6 +8,36 @@ public struct PreviewCompiler {
     /// source of truth for preview output paths.
     public static let previewSubpath = ".maugham/publish/build/preview"
 
+    /// The one sentence a Word preview is refused with (report plan 4,
+    /// R-4-5): the preview shows the book as a PDF or EPUB, and a Word file is
+    /// read in Word.
+    nonisolated static let docxPreviewRefusalSentence =
+        "Preview shows PDF and EPUB; Word files open in Word."
+
+    /// The log excerpt prefix of a known format the preview does not render
+    /// — distinct from `CompileOrchestrator.unproducibleFormatLogExcerpt`,
+    /// which names a format this build cannot produce at all.
+    nonisolated static let unpreviewableFormatLogExcerpt = "unpreviewable_format: "
+
+    /// **Does the preview render `format`?** `nil` for PDF and EPUB; for a
+    /// format this build produces but the preview does not show, the
+    /// sentence. An unknown format is `PublishConfigValidator.formatError`'s
+    /// question, asked first, so it answers `nil` here. `preview_compile`'s
+    /// schema enum is `allCases` less every format this refuses.
+    nonisolated static func previewRefusal(_ format: PublishConfig.Format) -> String? {
+        switch format {
+        case .pdf, .epub, .unknown: return nil
+        case .docx:                 return docxPreviewRefusalSentence
+        }
+    }
+
+    /// Thrown by the `run` switch's `.docx` arm — defence in depth behind
+    /// `preview`'s door, which refuses first.
+    struct UnpreviewableFormat: Error, LocalizedError {
+        let format: PublishConfig.Format
+        var errorDescription: String? { PreviewCompiler.previewRefusal(format) }
+    }
+
     public struct Result {
         public let outputPath: String
         public let warnings: [TectonicLogParser.Diagnostic]
@@ -95,6 +125,16 @@ public struct PreviewCompiler {
             return Result(outputPath: "", warnings: [], errors: [diag],
                           logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt
                               + format.rawValue)
+        }
+        // A format this build produces but the preview does not render (Word)
+        // is refused the same way, at the same point, in its own words.
+        if let sentence = Self.previewRefusal(format) {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: sentence,
+                contextLines: ["No preview file was written."])
+            return Result(outputPath: "", warnings: [], errors: [diag],
+                          logExcerpt: Self.unpreviewableFormatLogExcerpt + format.rawValue)
         }
         let jobID = await jobManager.register(phase: .renderingBody)
         do {
@@ -370,6 +410,10 @@ public struct PreviewCompiler {
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)
+        case .docx:
+            // Defence in depth, unreachable from `preview`: its door refuses
+            // Word (`previewRefusal`). A throw, never a precondition failure.
+            throw UnpreviewableFormat(format: format)
         case .unknown(let raw):
             // Defence in depth, unreachable from `preview`: its first check
             // (`PublishConfigValidator.formatError`) refuses every unknown

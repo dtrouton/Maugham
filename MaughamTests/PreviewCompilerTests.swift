@@ -78,12 +78,49 @@ final class PreviewCompilerTests: XCTestCase {
 
     // MARK: - An output format this build can't produce
 
-    /// A `docx` preview is refused at the door, ahead of the job registration:
+    /// **A Word preview is refused at the door with its own sentence**
+    /// (R-4-5: the preview stays PDF): no job, no output, EMISSION.md
+    /// untouched, and the sentence is not the unknown-format one.
+    func testPreview_docxIsRefusedWithThePreviewSentence() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
+        let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
+        let sentinel = "sentinel — a refused preview may not rewrite this"
+        try sentinel.write(to: emission, atomically: true, encoding: .utf8)
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C1", mode: .prose, displayText: "A.")]
+            }
+        }
+        let jobs = CompileJobManager()
+        let preview = PreviewCompiler(
+            projectURL: tmp, astSource: Src(), configStore: configStore,
+            jobManager: jobs, maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+
+        let result = try await preview.preview(format: .docx, sectionIDs: nil, maxPages: nil)
+
+        XCTAssertEqual(result.outputPath, "")
+        XCTAssertEqual(result.errors.map(\.message),
+                       ["Preview shows PDF and EPUB; Word files open in Word."])
+        XCTAssertEqual(PreviewCompiler.previewRefusal(.docx),
+                       "Preview shows PDF and EPUB; Word files open in Word.")
+        XCTAssertNil(PreviewCompiler.previewRefusal(.pdf))
+        XCTAssertNil(PreviewCompiler.previewRefusal(.epub))
+        XCTAssertEqual(result.logExcerpt, PreviewCompiler.unpreviewableFormatLogExcerpt + "docx")
+        let all = await jobs.all()
+        XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
+        let previews = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent(PreviewCompiler.previewSubpath).path)) ?? []
+        XCTAssertTrue(previews.isEmpty, "no output file: \(previews)")
+        XCTAssertEqual(try String(contentsOf: emission, encoding: .utf8), sentinel)
+    }
+
+    /// A `odt` preview is refused at the door, ahead of the job registration:
     /// the Result carries the one refusal sentence, no job is registered, no
     /// output file is written and EMISSION.md is untouched.
     func testPreview_anUnknownFormatIsRefusedByNameAndWritesNothing() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
-        try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
+        try await configStore.save(PublishConfig(metadata: .init(title: "Odt", author: "T")))
         let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
         let sentinel = "sentinel — a refused format may not rewrite this"
         try sentinel.write(to: emission, atomically: true, encoding: .utf8)
@@ -98,14 +135,14 @@ final class PreviewCompilerTests: XCTestCase {
             jobManager: jobs, maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
 
         let result = try await preview.preview(
-            format: .unknown("docx"), sectionIDs: nil, maxPages: nil)
+            format: .unknown("odt"), sectionIDs: nil, maxPages: nil)
 
         XCTAssertEqual(result.outputPath, "")
         let messages = result.errors.map(\.message)
         XCTAssertTrue(
-            messages.contains { $0.contains(PublishFormatRefusal.message(raw: "docx")) },
+            messages.contains { $0.contains(PublishFormatRefusal.message(raw: "odt")) },
             "the errors carry the one refusal sentence: \(messages)")
-        XCTAssertEqual(result.logExcerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "docx")
+        XCTAssertEqual(result.logExcerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "odt")
         let all = await jobs.all()
         XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
         let previews = (try? FileManager.default.contentsOfDirectory(

@@ -182,58 +182,58 @@ final class PublicationToolsTests: XCTestCase {
 
     // MARK: - A newer build's format
 
-    /// A catalog row a newer build wrote as `docx`: written as that build
+    /// A catalog row a newer build wrote as `odt`: written as that build
     /// would write it, a known row with its format renamed on disk.
-    private func seedDocxPublication() async throws {
+    private func seedOdtPublication() async throws {
         let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
         try await stores.publicationStore.append(Publication(
-            publicationID: "pub-docx", version: "1.0", label: nil, format: .pdf,
-            outputPath: "Exports/T-v1.0.docx", snapshotID: "snap-docx",
+            publicationID: "pub-odt", version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/T-v1.0.odt", snapshotID: "snap-odt",
             checkpointID: "", republishedFrom: nil, compiledAt: Date(),
             maughamVersion: "9.9.9", tectonicVersion: "0.15.0"))
         let file = PublicationStore.fileURL(
             deviceSlug: DeviceIdentity.author.slug, in: projectURL)
         let raw = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(raw.contains(#""format":"pdf""#), raw)
-        try raw.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"docx""#)
+        try raw.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"odt""#)
             .write(to: file, atomically: true, encoding: .utf8)
         PublishingStores._resetForTesting()
     }
 
-    func testList_aDocxRowSurfacesItsFormatVerbatim() async throws {
-        try await seedDocxPublication()
+    func testList_aOdtRowSurfacesItsFormatVerbatim() async throws {
+        try await seedOdtPublication()
         let data = try await ListPublicationsTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8), registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let pubs = resp?["publications"] as? [[String: Any]] ?? []
-        XCTAssertEqual(pubs.compactMap { $0["format"] as? String }, ["docx"])
+        XCTAssertEqual(pubs.compactMap { $0["format"] as? String }, ["odt"])
     }
 
-    /// `read_publication_page` on a docx row refuses by its real name rather
+    /// `read_publication_page` on a odt row refuses by its real name rather
     /// than trying to rasterize a non-PDF it took for a PDF.
-    func testReadPage_aDocxRowIsRefusedNamingDocx() async throws {
-        try await seedDocxPublication()
+    func testReadPage_aOdtRowIsRefusedNamingOdt() async throws {
+        try await seedOdtPublication()
         do {
             _ = try await ReadPublicationPageTool.handle(
-                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"pub-docx","page_number":1}"#.utf8),
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"pub-odt","page_number":1}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
         } catch let MCPError.invalidArgument(msg) {
-            XCTAssertTrue(msg.contains("format=docx"), msg)
+            XCTAssertTrue(msg.contains("format=odt"), msg)
         }
     }
 
-    /// `republish` with `"format":"docx"` refuses through the tool's error
+    /// `republish` with `"format":"odt"` refuses through the tool's error
     /// path with the one refusal sentence — never the error's dump.
     func testRepublish_anUnknownFormatIsRefusedWithTheSentence() async throws {
         do {
             _ = try await RepublishTool.handle(
-                paramsJSON: Data(#"{"project_id":"\#(pid!)","snapshot_id":"snap-x","format":"docx"}"#.utf8),
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","snapshot_id":"snap-x","format":"odt"}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
         } catch {
             let payload = MCPToolsCallHandler.toolErrorPayload(for: error)
-            XCTAssertEqual(payload.message, PublishFormatRefusal.message(raw: "docx"))
+            XCTAssertEqual(payload.message, PublishFormatRefusal.message(raw: "odt"))
         }
         let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
         let pubs = try await stores.publicationStore.load()

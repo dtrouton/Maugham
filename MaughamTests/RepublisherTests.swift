@@ -852,6 +852,41 @@ final class RepublisherTests: XCTestCase {
                       "a thrown republish must not leak its reservation, got: \(held)")
     }
 
+    /// A `docx` republish reaches the compile arm (report plan 4 Task 2; the
+    /// stub until Task 5): it fails with `DOCXCompiler.notYetBuiltSentence`
+    /// and adds no catalog row.
+    func test_aDocxRepublishReachesTheCompileArmAndAddsNoRow() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: RepubSrc(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial compile failed: \(initial)")
+        }
+        let jobs = CompileJobManager()
+        let r = Republisher(
+            projectURL: tmp, astSource: RepubSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: jobs, mintGate: PublishMintGate(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .docx, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("expected the stub's failure, got \(outcome)")
+        }
+        XCTAssertTrue(errors.map(\.message).contains(DOCXCompiler.notYetBuiltSentence),
+                      "\(errors.map(\.message))")
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.map(\.publicationID), [initialPub.publicationID])
+    }
+
     /// A republish to a format this build can't produce throws
     /// `.unproducibleFormat` naming it — before the snapshot is read, the mint
     /// reservation or the staging — and its description is the one refusal
@@ -859,7 +894,7 @@ final class RepublisherTests: XCTestCase {
     /// nothing exported.
     func test_aRepublishToAnUnknownFormatIsRefusedByName() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
-        try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
+        try await configStore.save(PublishConfig(metadata: .init(title: "Odt", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
         let orch = CompileOrchestrator(
@@ -887,17 +922,17 @@ final class RepublisherTests: XCTestCase {
         // reserved it would be refused as in-flight instead; one that took and
         // released it would leave the set empty.
         let wouldBeKey = PublishMintGate.Key(
-            version: "\(initialPub.version)-rabcd", language: nil, format: .unknown("docx"))
+            version: "\(initialPub.version)-rabcd", language: nil, format: .unknown("odt"))
         let reserved = await gate.reserve(wouldBeKey)
         XCTAssertTrue(reserved, "fixture: the would-be key is held")
         do {
             let outcome = try await r.republish(
-                snapshotID: initialPub.snapshotID, format: .unknown("docx"), label: nil)
+                snapshotID: initialPub.snapshotID, format: .unknown("odt"), label: nil)
             XCTFail("expected a thrown refusal, got \(outcome)")
         } catch let RepublishError.unproducibleFormat(raw) {
-            XCTAssertEqual(raw, "docx")
+            XCTAssertEqual(raw, "odt")
             XCTAssertEqual(RepublishError.unproducibleFormat(raw).errorDescription,
-                           PublishFormatRefusal.message(raw: "docx"))
+                           PublishFormatRefusal.message(raw: "odt"))
         }
 
         let pubs = try await pubStore.load()

@@ -28,3 +28,23 @@ public extension MCPTool {
         return entry
     }
 }
+
+/// **The JSON-Schema `enum` of a publish `format` parameter, derived from
+/// `PublishConfig.Format`** (report plan 4, R-4-5): a format this build learns
+/// reaches every tool's schema with no literal list to update.
+enum MCPFormatEnum {
+    /// `["pdf","epub",…]` — the raw names, in order.
+    static func json(_ formats: [PublishConfig.Format]) -> String {
+        "[" + formats.map { "\"\($0.rawValue)\"" }.joined(separator: ",") + "]"
+    }
+
+    /// Every format this build produces: `compile`, `list_publications`,
+    /// `republish`.
+    static var produced: String { json(PublishConfig.Format.allCases) }
+
+    /// What `preview_compile` renders: the produced formats less every one
+    /// the preview refuses (`PreviewCompiler.previewRefusal`).
+    static var previewed: String {
+        json(PublishConfig.Format.allCases.filter { PreviewCompiler.previewRefusal($0) == nil })
+    }
+}

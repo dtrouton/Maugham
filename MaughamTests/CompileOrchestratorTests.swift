@@ -121,13 +121,13 @@ final class CompileOrchestratorTests: XCTestCase {
     }
 
     /// **Edition identity across a newer build's format.** A catalog row a
-    /// newer Maugham wrote as `docx` at v1.0 is a different publication from a
+    /// newer Maugham wrote as `odt` at v1.0 is a different publication from a
     /// `pdf` at v1.0, so it must not block one. Before `Format.unknown` the
     /// row decoded as `.pdf` and the collision guard refused with a false
     /// "Publication v1.0 (…, pdf) already exists" (pinned red on 635106dc).
-    func testCompile_aNewerBuildsDocxRowDoesNotCollideWithAPdfAtTheSameVersion() async throws {
+    func testCompile_aNewerBuildsOdtRowDoesNotCollideWithAPdfAtTheSameVersion() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
-        var cfg = PublishConfig(metadata: .init(title: "Docx", author: "T"))
+        var cfg = PublishConfig(metadata: .init(title: "Odt", author: "T"))
         cfg.nextVersion = "1.0"
         try await configStore.save(cfg)
 
@@ -139,14 +139,62 @@ final class CompileOrchestratorTests: XCTestCase {
             deviceSlug: DeviceIdentity.author.slug, in: tmp)
         let raw = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(raw.contains(#""format":"pdf""#), raw)
-        try raw.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"docx""#)
+        try raw.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"odt""#)
             .write(to: file, atomically: true, encoding: .utf8)
 
         let outcome = try await makeOrch(configStore, pubStore)
             .compile(format: .pdf, label: nil, dryRun: true)
         guard case .dryRunPassed = outcome else {
-            return XCTFail("a docx row at v1.0 must not block a pdf at v1.0: \(outcome)")
+            return XCTFail("a odt row at v1.0 must not block a pdf at v1.0: \(outcome)")
         }
+    }
+
+    // MARK: - Word (report plan 4 Task 2)
+
+    /// **`docx` is a format this build knows: the door lets it through, the
+    /// gate resolves it, and the compile arm answers** — until Task 4 builds
+    /// the compiler, with `DOCXCompiler.notYetBuiltStub`'s sentence. Nothing is
+    /// minted: no Publication, no `next_version` bump, nothing in `Exports/`.
+    func test_aDocxCompileReachesTheCompileArmAndMintsNothing() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let outcome = try await makeOrch(configStore, pubStore)
+            .compile(format: .docx, label: nil)
+
+        guard case .failed(let errors, let excerpt) = outcome else {
+            return XCTFail("expected the stub's failure, got \(outcome)")
+        }
+        XCTAssertTrue(errors.map(\.message).contains(DOCXCompiler.notYetBuiltSentence),
+                      "\(errors.map(\.message))")
+        XCTAssertNotEqual(excerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "docx",
+                          "docx is not refused at the door")
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs, [])
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "no version minted")
+        let exports = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)) ?? []
+        XCTAssertEqual(exports, [])
+    }
+
+    /// A `docx` dry run passes the same gates a PDF's does.
+    func test_aDocxDryRunPasses() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
+        let outcome = try await makeOrch(configStore, PublicationStore(projectURL: tmp))
+            .compile(format: .docx, label: nil, dryRun: true)
+        guard case .dryRunPassed = outcome else {
+            return XCTFail("expected dry_run_passed, got \(outcome)")
+        }
+    }
+
+    /// The images a Word body may carry (R-4-2: pdf and svg are rasterised
+    /// when the DOCX is prepared).
+    func test_docxImageAllowedSet() {
+        XCTAssertEqual(DOCXCompiler.imageAllowed,
+                       ["png", "jpg", "jpeg", "gif", "pdf", "svg"])
     }
 
     // MARK: - The compile door refuses an output format this build can't produce
@@ -154,30 +202,30 @@ final class CompileOrchestratorTests: XCTestCase {
     /// **Nothing happens before the refusal.** The door stands ahead of the
     /// job registration, the collision guard, the mint reservation, the
     /// EMISSION.md refresh, the coverage gate and the dry-run short-circuit,
-    /// so a `docx` compile registers no job, takes no reservation (the key it
+    /// so a `odt` compile registers no job, takes no reservation (the key it
     /// would take is pre-reserved here: a compile that reached the gate would
     /// come back `mint_in_flight` instead), rewrites nothing, and the caller
     /// reads the one refusal sentence rather than an error struct's dump.
     func test_anUnknownFormatIsRefusedAtTheDoorAndNothingHappens() async throws {
-        try await assertTheDoorRefusesDocx(dryRun: false)
+        try await assertTheDoorRefusesOdt(dryRun: false)
     }
 
     /// The same with `dry_run: true`: the question "would this compile?" is
     /// answered no — before the door, it reached `.dryRunPassed`.
     func test_aDryRunOfAnUnknownFormatIsRefusedNotPassed() async throws {
-        try await assertTheDoorRefusesDocx(dryRun: true)
+        try await assertTheDoorRefusesOdt(dryRun: true)
     }
 
-    private func assertTheDoorRefusesDocx(
+    private func assertTheDoorRefusesOdt(
         dryRun: Bool, file: StaticString = #filePath, line: UInt = #line
     ) async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
-        try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
+        try await configStore.save(PublishConfig(metadata: .init(title: "Odt", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
         let jobs = CompileJobManager()
         let gate = PublishMintGate()
         let wouldBeKey = PublishMintGate.Key(
-            version: "0.1", language: nil, format: .unknown("docx"))
+            version: "0.1", language: nil, format: .unknown("odt"))
         let reserved = await gate.reserve(wouldBeKey)
         XCTAssertTrue(reserved, file: file, line: line)
         let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
@@ -187,7 +235,7 @@ final class CompileOrchestratorTests: XCTestCase {
         let announced = IDBox()
 
         let outcome = try await makeOrch(configStore, pubStore, gate, jobManager: jobs)
-            .compile(format: .unknown("docx"), label: nil, dryRun: dryRun,
+            .compile(format: .unknown("odt"), label: nil, dryRun: dryRun,
                      onJobRegistered: { announced.append($0) })
 
         guard case .failed(let errors, let excerpt) = outcome else {
@@ -195,13 +243,13 @@ final class CompileOrchestratorTests: XCTestCase {
         }
         let messages = errors.map(\.message)
         XCTAssertTrue(
-            messages.contains { $0.contains(PublishFormatRefusal.message(raw: "docx")) },
+            messages.contains { $0.contains(PublishFormatRefusal.message(raw: "odt")) },
             "the caller reads the one refusal sentence: \(messages)", file: file, line: line)
         XCTAssertFalse(messages.contains { $0.contains("PublishFormatRefusal(") },
                        "never the error's dump: \(messages)", file: file, line: line)
         XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt),
                        "the gate was never asked: \(excerpt)", file: file, line: line)
-        XCTAssertEqual(excerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "docx",
+        XCTAssertEqual(excerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "odt",
                        file: file, line: line)
         XCTAssertEqual(errors.flatMap(\.contextLines).filter { $0.contains("Nothing was compiled") },
                        [], "the sentence says it once", file: file, line: line)

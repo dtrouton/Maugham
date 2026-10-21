@@ -63,6 +63,27 @@ final class ExportsListViewTests: XCTestCase {
                        ["Title-v0.1.pdf", "Title-v0.2.pdf"])
     }
 
+    /// Report plan 4 Task 2: a Word file lists beside PDFs and EPUBs, with a
+    /// document icon; a file of no format this build produces does not.
+    func testModel_listsDocxWithADocumentIcon() async throws {
+        let tmp = TestTemp.root
+            .appendingPathComponent("ExportsDocx-\(UUID().uuidString)")
+        let exports = tmp.appendingPathComponent("Exports", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: exports, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        for name in ["T-v0.1.pdf", "T-v0.1.epub", "T-draft1.docx", "notes.odt", "x.txt"] {
+            try Data().write(to: exports.appendingPathComponent(name))
+        }
+
+        let entries = await ExportsListView.Model(projectURL: tmp).scan()
+        XCTAssertEqual(entries.map(\.name).sorted(),
+                       ["T-draft1.docx", "T-v0.1.epub", "T-v0.1.pdf"])
+        XCTAssertEqual(entries.first { $0.name.hasSuffix(".docx") }?.icon, "doc.text")
+        XCTAssertEqual(entries.first { $0.name.hasSuffix(".epub") }?.icon, "book")
+        XCTAssertEqual(entries.first { $0.name.hasSuffix(".pdf") }?.icon, "doc.richtext")
+    }
+
     func testModel_emptyDirectory_returnsEmpty() async {
         let tmp = TestTemp.root
             .appendingPathComponent("EmptyExports-\(UUID().uuidString)")

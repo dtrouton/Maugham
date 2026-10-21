@@ -32,7 +32,7 @@ public enum ListPublicationsTool: MCPTool {
     public static let description =
     "List publications recorded for a project. Optional filters: publication_id (exact, the unique key — prefer this when you need to address one specific publication), version (non-unique when init has reset the counter past a prior publication), language (exact tag match, e.g. \"es\" — a bilingual (or wider) publication's language is the joined list of the tongues it carries, in order, with the source body spelled by the book's own metadata.language, e.g. \"en+sr\", matched exactly; the sentinel \"source\" selects the untagged source-language rows, not a joined identity that happens to include the source), format, imprint (exact name match, e.g. \"special\"; the sentinel \"book\" selects the rows no imprint compiled), limit (default 50, takes the most recent N). A publication is keyed on (imprint, version, language, format), so the book's 0.1 and an imprint's 0.1 are different publications. When multiple publications share a version, all are returned by the version filter; use publication_id to disambiguate. Every row surfaces its language field explicitly — null for the source edition, the tag string (or joined tag list) for an edition — so a version's language family (spec 2026-07-23) can be enumerated with one call. Every row surfaces its imprint field the same way — null for the book, the name string for an imprint."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string"},"version":{"type":"string"},"language":{"type":"string","description":"Exact tag match (e.g. \\"es\\"); sentinel \\"source\\" selects rows where language is null."},"imprint":{"type":"string","description":"Exact imprint name (e.g. \\"special\\"); sentinel \\"book\\" selects rows where imprint is null."},"format":{"type":"string","enum":["pdf","epub"]},"limit":{"type":"integer","default":50}},"required":["project_id"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string"},"version":{"type":"string"},"language":{"type":"string","description":"Exact tag match (e.g. \\"es\\"); sentinel \\"source\\" selects rows where language is null."},"imprint":{"type":"string","description":"Exact imprint name (e.g. \\"special\\"); sentinel \\"book\\" selects rows where imprint is null."},"format":{"type":"string","enum":\(MCPFormatEnum.produced)},"limit":{"type":"integer","default":50}},"required":["project_id"]}
     """
 
     struct Params: Codable {
@@ -240,9 +240,9 @@ public enum ReadPublicationPageTool: MCPTool {
 public enum RepublishTool: MCPTool {
     public static let method = "republish"
     public static let description =
-    "Recompile from a previous Publication's snapshot. Uses the snapshotted template/styles/config, not the current live ones. Produces a new Publication entry with republished_from set. It renders the CURRENT manuscript, so publish problems are re-checked: they come back carrying piece_id and paragraph_id, and a Report refuses on the error kinds before any version is minted."
+    "Recompile from a previous Publication's snapshot. Uses the snapshotted template/styles/config, not the current live ones. Produces a new Publication entry with republished_from set. It renders the CURRENT manuscript, so publish problems are re-checked: they come back carrying piece_id and paragraph_id, and a Report refuses on the error kinds before any version is minted. format docx: Word export isn't built yet, so a docx republish fails and records nothing."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"snapshot_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"],"default":"pdf"},"label":{"type":"string"}},"required":["project_id","snapshot_id"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"snapshot_id":{"type":"string"},"format":{"type":"string","enum":\(MCPFormatEnum.produced),"default":"pdf"},"label":{"type":"string"}},"required":["project_id","snapshot_id"]}
     """
 
     struct Params: Codable {
