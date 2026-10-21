@@ -115,6 +115,24 @@ final class ReportSettingsModelTests: XCTestCase {
 
     // MARK: - The refusal in words
 
+    func test_theCaptionIsTheLedgersWording() {
+        XCTAssertEqual(ReportSettingsModel.caption,
+            "Turning this on or off doesn\u{2019}t change the publish template, which was chosen "
+            + "when the project was made. To get the Report layout, ask Claude to re-initialise "
+            + "the publish template (initialize_publish_template). That replaces the template "
+            + "files, including any changes you\u{2019}ve made to them.")
+    }
+
+    func test_eachDefaultButtonNamesItsSwitch() {
+        XCTAssertEqual(ReportSettingsSection.defaultButtonLabel("List of figures"),
+                       "Use the default for List of figures")
+    }
+
+    func test_aNewerBuildsProfileRefusalIsSaid() {
+        XCTAssertEqual(ReportSettingsSection.sentence(ProjectStoreError.profileFromNewerBuild("essay")),
+                       "This project\u{2019}s profile was set by a newer version of Maugham.")
+    }
+
     func test_aRefusalIsSaidInTheKindsName() {
         XCTAssertEqual(
             ReportSettingsSection.sentence(ProjectFactoryError.profileNotOffered(.report, on: .screenplay)),

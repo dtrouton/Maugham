@@ -57,14 +57,19 @@ extension ProjectStore {
     ///   is written: one rule for creating a Report and for turning one on.
     /// - Clearing the profile KEEPS the stored switches: they are the writer's
     ///   choices, and turning the Report back on finds them where they were.
+    /// - A profile a newer Maugham wrote (`.unknown`) is never overwritten:
+    ///   any change is refused with `ProjectStoreError.profileFromNewerBuild`.
     /// - Setting what is already there writes nothing, so a book that never
     ///   changes it is never raised (review focus 3).
     ///
     /// Turning the profile on does not re-install the publish starter: the
     /// starter is chosen when the project is created.
     public func setProfile(_ profile: ProjectProfile?) async throws {
-        try ProjectFactory.refuseUnofferedProfile(profile, on: manifest.type)
         guard manifest.profile != profile else { return }
+        if case .unknown(let raw) = manifest.profile {
+            throw ProjectStoreError.profileFromNewerBuild(raw)
+        }
+        try ProjectFactory.refuseUnofferedProfile(profile, on: manifest.type)
         manifest.profile = profile
         manifest.modified = Date()
         try await saveManifest()
@@ -73,6 +78,10 @@ extension ProjectStore {
     /// **Set one switch, or hand it back to the profile's default** (nil).
     /// An emptied set is stored as absent, never `{}`. Setting what is already
     /// stored writes nothing.
+    ///
+    /// Not refused on any kind, a screenplay included: only the profile has a
+    /// kind rule (`refuseUnofferedProfile`). Project Settings hides the whole
+    /// section for a screenplay, so no surface offers the switches there.
     public func setSwitch(_ key: ProjectSwitchKey, _ value: Bool?) async throws {
         var switches = manifest.switches ?? ProjectSwitches()
         guard switches[key] != value else { return }

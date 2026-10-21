@@ -182,6 +182,43 @@ final class ProjectStoreProfileTests: XCTestCase {
         XCTAssertEqual(try onDisk(url).profile, .report)
     }
 
+    /// A newer build's profile is never overwritten — neither replaced by the
+    /// Report nor cleared — and nothing is written.
+    func test_aNewerBuildsProfileIsRefusedAtTheDoor() async throws {
+        var step = "write"
+        do {
+            let url = try await ProjectFactory.createNovelProject(named: "Newer", in: temp.url)
+            let file = url.appendingPathComponent(ProjectManifest.fileName)
+            var written = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: Data(contentsOf: file))
+            written.profile = .unknown("essay")
+            try ProjectManifest.encodeForDisk(written).write(to: file, options: .atomic)
+            step = "load"
+            let store = try await ProjectStore.load(from: url)
+            step = "open"
+            let ds = try await DocumentStore.open(url: url)
+            store.documentStore = ds
+            try Self.backdate(url)
+            step = "loop"
+            for attempt in [ProjectProfile.report, nil] {
+                do {
+                    try await store.setProfile(attempt)
+                    XCTFail("overwrote a newer build's profile with \(String(describing: attempt))")
+                } catch let error as ProjectStoreError {
+                    XCTAssertEqual(error, .profileFromNewerBuild("essay"))
+                }
+            }
+            step = "noop"
+            try await store.setProfile(.unknown("essay"))
+            step = "close"
+            await ds.close()
+            XCTAssertEqual(store.manifest.profile, .unknown("essay"))
+            XCTAssertEqual(try onDisk(url).profile, .unknown("essay"))
+            XCTAssertEqual(try Self.modificationDate(url), Self.past)
+        } catch {
+            XCTFail("at \(step): \(error)")
+        }
+    }
+
     // MARK: - The switches and their effective values
 
     func test_aSwitchOverridesTheProfileDefaultAndNilRestoresIt() async throws {

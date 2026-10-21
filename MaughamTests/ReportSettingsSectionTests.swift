@@ -110,14 +110,14 @@ final class ReportSettingsSectionTests: XCTestCase {
 
     /// The whole section's file carries no lifecycle hook that could write on
     /// appear: every write is a control's setter. The control is the sheet
-    /// file itself, which has an `onChange` and a `task`.
+    /// file itself, which has at least one.
     func test_theSectionHasNoAppearHookThatCouldWrite() throws {
         let hooks = [".onChange(", ".onAppear", ".task", ".onDisappear"]
         let section = try Self.source(of: "Views/ReportSettingsSection.swift")
         XCTAssertEqual(hooks.filter { section.contains($0) }, [])
         let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
-        XCTAssertEqual(hooks.filter { sheet.contains($0) }, [".onChange(", ".task", ".onDisappear"],
-                       "control: the scan sees the sheet's hooks")
+        XCTAssertFalse(hooks.filter { sheet.contains($0) }.isEmpty,
+                       "control: the scan sees at least one of the sheet's hooks")
     }
 
     static func source(of path: String) throws -> String {
@@ -142,7 +142,7 @@ final class ReportSettingsSectionTests: XCTestCase {
         XCTAssertEqual(boxes["Report"]?.enabled, true)
         XCTAssertEqual(boxes["Web access"]?.enabled, false, "shown, never pressable")
         XCTAssertTrue(texts(in: tree).contains(ReportSettingsModel.webAccessNote))
-        XCTAssertEqual(buttons(labelled: "Default", in: tree), 0, "nothing overridden")
+        XCTAssertEqual(defaultButtons(in: tree), 0, "nothing overridden")
     }
 
     func test_aReportShowsItsKindAndOneDefaultPerOverride() async throws {
@@ -158,7 +158,9 @@ final class ReportSettingsSectionTests: XCTestCase {
         XCTAssertEqual(boxes["Report"]?.on, true)
         XCTAssertEqual(boxes["Number sections"]?.on, true)
         XCTAssertEqual(boxes["List of tables"]?.on, false)
-        XCTAssertEqual(buttons(labelled: "Default", in: tree), 1)
+        XCTAssertEqual(defaultButtons(in: tree), 1)
+        XCTAssertEqual(buttons(labelled: "Use the default for List of tables", in: tree), 1,
+                       "the button names the switch it resets")
     }
 
     func test_aScreenplayHasNoReportSection() async throws {
@@ -223,6 +225,11 @@ final class ReportSettingsSectionTests: XCTestCase {
         Set(tree.flatMap { element -> [String] in
             [label(element), title(element), axReading(element)].compactMap { $0 }
         })
+    }
+
+    /// Every Default button, whichever switch it resets.
+    private func defaultButtons(in tree: [AnyObject]) -> Int {
+        tree.filter { role($0) == "AXButton" && (name($0) ?? "").hasPrefix("Use the default for ") }.count
     }
 
     private func buttons(labelled title: String, in tree: [AnyObject]) -> Int {

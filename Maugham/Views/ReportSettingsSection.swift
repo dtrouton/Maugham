@@ -39,8 +39,9 @@ struct ReportSettingsModel: Equatable {
     static let webAccessNote = "Used by the fact-checker (coming)"
 
     static let caption = "Turning this on or off doesn\u{2019}t change the publish template, "
-        + "which was chosen when the project was made. Re-initialise the publish template "
-        + "to get the Report layout."
+        + "which was chosen when the project was made. To get the Report layout, ask Claude "
+        + "to re-initialise the publish template (initialize_publish_template). That "
+        + "replaces the template files, including any changes you\u{2019}ve made to them."
 
     static func title(of key: ProjectSwitchKey) -> String {
         switch key {
@@ -144,8 +145,14 @@ struct ReportSettingsSection: View {
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                     .help("Use the default (\(row.defaultValue ? "on" : "off"))")
+                    .accessibilityLabel(Self.defaultButtonLabel(row.title))
             }
         }
+    }
+
+    /// The Default button's accessible name: which switch it resets.
+    static func defaultButtonLabel(_ title: String) -> String {
+        "Use the default for \(title)"
     }
 
     private func setProfile(_ profile: ProjectProfile?) {
@@ -164,6 +171,9 @@ struct ReportSettingsSection: View {
 
     /// A refusal in words, never swallowed (RULING-7).
     static func sentence(_ error: Error) -> String {
+        if case ProjectStoreError.profileFromNewerBuild = error {
+            return "This project\u{2019}s profile was set by a newer version of Maugham."
+        }
         if case ProjectFactoryError.profileNotOffered(_, let type) = error {
             return "A \(ProjectKindName.of(type)) can\u{2019}t carry the Report profile."
         }

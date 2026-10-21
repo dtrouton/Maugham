@@ -98,6 +98,10 @@ public enum ProjectStoreError: Error, Equatable {
     /// written to a *corrected* path is a file the manifest row would then
     /// point at by luck.
     case statementPathUnsafe(relativePath: String, reason: String)
+    /// The project carries a profile a newer Maugham wrote (`ProjectProfile
+    /// .unknown`, kept verbatim). Refused rather than overwritten: this build
+    /// cannot say what it would be replacing. Carries the raw profile.
+    case profileFromNewerBuild(String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -150,6 +154,8 @@ extension ProjectStoreError: LocalizedError {
             return "“\(tag)” isn’t a language tag. Use a code like “es” or “pt-br”."
         case .statementPathUnsafe(let relativePath, let reason):
             return "“\(relativePath)” isn’t a place inside this project: \(reason)"
+        case .profileFromNewerBuild:
+            return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         }
     }
 }
