@@ -37,6 +37,15 @@ enum CompletionEditNote: Equatable {
 extension EditorCoordinator {
     var isCompletionOpen: Bool { completion != nil }
 
+    /// Registers the manuscript's reference pickers, in the order they are
+    /// asked: the citation picker (plan 3b Task 3). Each reads the window's
+    /// cached index through `referenceIndex` when it is asked, never a copy.
+    /// `EditorSurface` calls it for a surface that answers the Insert menu.
+    func registerReferencePickers() {
+        let index: () -> ReferenceIndex = { [weak self] in self?.referenceIndex?() ?? .empty }
+        completionSources = [CitationCompletion(index: index)]
+    }
+
     // MARK: - Opening and closing
 
     /// Opens the list for `source` at `trigger` (the source's own reading of

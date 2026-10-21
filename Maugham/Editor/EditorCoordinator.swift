@@ -297,6 +297,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var insertFootnoteObserver: NSObjectProtocol?
     /// Insert ▸ Figure… (⌘⇧I, plan 3a Task 6), gated the same way.
     private var insertFigureObserver: NSObjectProtocol?
+    /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3), gated the same way.
+    private var insertCitationObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -576,7 +578,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
     /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
     /// `maughamExitTranslationReview`, and the Insert menu's
-    /// `maughamInsertTable`, `maughamInsertFootnote` and `maughamInsertFigure` (which also ask
+    /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure` and
+    /// `maughamInsertCitation` (which also ask
     /// `answersInsertCommands`) — count the `MaughamEvent.observe` calls rather
     /// than this sentence.
     ///
@@ -738,6 +741,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.insertFigure()
         }
+        insertCitationObserver = MaughamEvent.observe(
+            .maughamInsertCitation,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.insertCitation()
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -778,6 +787,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertFigureObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = insertCitationObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = storageEditObserver {
@@ -871,13 +883,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
                       annotationNavigateObserver, reviewToggleObserver,
                       translationEnterObserver, translationExitObserver,
-                      insertTableObserver, insertFootnoteObserver, insertFigureObserver] {
+                      insertTableObserver, insertFootnoteObserver, insertFigureObserver,
+                      insertCitationObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
+        insertCitationObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
         storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is

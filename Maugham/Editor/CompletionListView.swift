@@ -164,11 +164,24 @@ final class CompletionListView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
 
-    /// The size the list wants for its rows.
+    /// The size the list wants for its rows. An empty list widens, up to
+    /// `maxEmptyWidth`, to show its whole sentence (the citation picker's
+    /// names where citation details go).
     var preferredSize: NSSize {
         let shown = max(1, min(Self.maxVisibleRows, items.count))
-        return NSSize(width: Self.preferredWidth,
-                      height: CGFloat(shown) * Self.rowHeight + 2 * Self.padding)
+        let width = items.isEmpty
+            ? min(Self.maxEmptyWidth, max(Self.preferredWidth, emptyRowWidth(for: emptyMessage)))
+            : Self.preferredWidth
+        return NSSize(width: width, height: CGFloat(shown) * Self.rowHeight + 2 * Self.padding)
+    }
+
+    static let maxEmptyWidth: CGFloat = 600
+
+    /// The list width that shows `message` whole in the muted row.
+    func emptyRowWidth(for message: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        return ceil((message as NSString).size(withAttributes: [.font: font]).width)
+            + 2 * CompletionRowView.inset + 2 * Self.padding + 2
     }
 
     /// Show `items` (or `emptyMessage` when there are none), `selected` chosen.
@@ -302,6 +315,8 @@ final class CompletionListView: NSView {
 /// One row of the completion list: the title, then the subtitle muted at the
 /// right. VoiceOver reads it as static text with its title.
 final class CompletionRowView: NSView {
+    /// The row's text inset at each side.
+    static let inset: CGFloat = 8
     private(set) var title = ""
     private(set) var subtitle = ""
     private(set) var isSelected = false
@@ -347,7 +362,7 @@ final class CompletionRowView: NSView {
         truncating.lineBreakMode = .byTruncatingTail
         let titleFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let subtitleFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        let inset: CGFloat = 8
+        let inset = Self.inset
         var subtitleWidth: CGFloat = 0
         if !subtitle.isEmpty {
             let attributes: [NSAttributedString.Key: Any] = [

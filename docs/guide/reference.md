@@ -28,6 +28,7 @@ The ones you'll use most:
 | `⌘⇧T` | Insert ▸ Table — a three-column table with a caption and a `{#tbl:…}` label, on its own paragraph at the caret |
 | `⌘⇧N` | Insert ▸ Footnote — a numbered `[^n]` at the caret, with its definition opened below the paragraph |
 | `⌘⇧I` | Insert ▸ Figure… — an image from a file, made into a figure backed by research |
+| `⌘⇧C` | Insert ▸ Citation… — writes `[@` and opens the citation picker over your research sources; typing `[@` opens it too, and `;` inside a citation adds the next source |
 | `⌘\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
 | `⌘1` | Plan persona |

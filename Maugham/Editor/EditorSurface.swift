@@ -243,6 +243,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
         coordinator.respondsToWindowCommands = !configuration.isSecondEditorInItsWindow
         coordinator.answersInsertCommands = configuration.answersInsertCommands
+        if configuration.answersInsertCommands { coordinator.registerReferencePickers() }
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }

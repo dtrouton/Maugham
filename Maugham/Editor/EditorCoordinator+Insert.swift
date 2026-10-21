@@ -203,6 +203,30 @@ extension EditorCoordinator {
                          actionName: "Insert Table")
     }
 
+    /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3): `[@` at the caret (after
+    /// the selection) as one Route A step, then the citation picker opened on
+    /// it with every source listed. Refused, writing nothing, where Route A
+    /// refuses; Esc leaves the `[@` as written.
+    func insertCitation() {
+        insertReferenceTrigger("[@") { $0 is CitationCompletion }
+    }
+
+    /// Writes `trigger` at the caret through Route A, then opens the first
+    /// registered picker `isPicker` names on it.
+    private func insertReferenceTrigger(_ trigger: String,
+                                        isPicker: (any CompletionSource) -> Bool) {
+        guard answersInsertCommands, let textView,
+              let source = completionSources.first(where: isPicker) else { return }
+        let at = NSMaxRange(textView.selectedRange())
+        let caret = at + (trigger as NSString).length
+        guard applyCommandEdit(replacing: NSRange(location: at, length: 0), with: trigger,
+                               selecting: NSRange(location: caret, length: 0),
+                               actionName: source.actionName),
+              let opened = source.trigger(in: textView.string as NSString, caret: caret)
+        else { return }
+        openCompletion(source: source, trigger: opened)
+    }
+
     /// Insert ▸ Footnote (⌘⇧N, R-3a-6): `[^n]` at the caret (after the
     /// selection) and its `[^n]: ` definition after the paragraph, the caret
     /// waiting there.

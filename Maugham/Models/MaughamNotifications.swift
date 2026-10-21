@@ -155,6 +155,10 @@ extension Notification.Name {
     /// Posted by Insert ▸ Figure… (⌘⇧I). The item stays disabled until plan 3a
     /// Task 6 wires its receiver. Scope: .keyWindow.
     public static let maughamInsertFigure = Notification.Name("maugham.insert.figure")
+    /// Posted by Insert ▸ Citation… (⌘⇧C, plan 3b Task 3): the manuscript
+    /// editor writes `[@` at the caret through Route A and opens the citation
+    /// picker. Gated as the other Insert items are. Scope: .keyWindow.
+    public static let maughamInsertCitation = Notification.Name("maugham.insert.citation")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the

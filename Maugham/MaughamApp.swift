@@ -583,12 +583,12 @@ extension FocusedValues {
     }
 }
 
-/// Insert → Table, Footnote, Figure… (plan 3a R-3a-1, R-3a-2). Each posts a
-/// key-window command the manuscript editor answers through Route A, one undo
-/// step each. Disabled where the focused window says no (`InsertMenuGate`) —
-/// a read-only posture, review mode, translation review, no manuscript in the
-/// editor — and with no project window in front. The editor's membrane
-/// refuses on its own as well.
+/// Insert → Table, Footnote, Figure…, Citation… (plan 3a R-3a-1, R-3a-2;
+/// plan 3b). Each posts a key-window command the manuscript editor answers
+/// through Route A, one undo step each. Disabled where the focused window
+/// says no (`InsertMenuGate`) — a read-only posture, review mode, translation
+/// review, no manuscript in the editor — and with no project window in front.
+/// The editor's membrane refuses on its own as well.
 private struct InsertMenuButtons: View {
     @FocusedValue(\.mayInsertReportElement) private var mayInsert
     var body: some View {
@@ -610,7 +610,14 @@ private struct InsertMenuButtons: View {
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
         .disabled(!enabled)
-        // Plan 3b adds Citation… and Cross-Reference… below a separator.
+        Divider()
+        // References from the project (plan 3b): each writes its trigger at
+        // the caret and opens the editor's picker on it.
+        Button("Citation\u{2026}") {
+            MaughamEvent.post(.maughamInsertCitation, to: .keyWindow)
+        }
+        .keyboardShortcut("c", modifiers: [.command, .shift])
+        .disabled(!enabled)
     }
 }
 
