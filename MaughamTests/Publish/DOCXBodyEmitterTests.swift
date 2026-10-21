@@ -42,14 +42,26 @@ final class DOCXBodyEmitterTests: XCTestCase {
         let footnotes: XMLDocument
     }
 
-    private func emit(_ book: Book, figureFiles: [String: [Int: URL]] = [:],
-                      bodyTag: String? = nil,
-                      state: DOCXEmitState = DOCXEmitState()) throws -> Emitted {
+    /// One body of `book`: resolved over the whole book, emitting `subset`
+    /// of it (all of it by default).
+    private func body(_ book: Book, figureFiles: [String: [Int: URL]] = [:], bodyTag: String? = nil,
+                      emitting subset: (ProjectAST) -> ProjectAST = { $0 }) throws -> DOCXBodyEmitter.Body {
         let ast = try ProjectASTBuilder.build(from: book)
         let resolution = PublishResolution.resolve(ast, context: book.context, bodyTag: nil,
                                                    imageAllowed: ["png", "pdf", "svg"])
-        let body = DOCXBodyEmitter.emit(ast, resolution: resolution, figureFiles: figureFiles,
-                                        bodyTag: bodyTag, continuing: state)
+        return DOCXBodyEmitter.Body(ast: subset(ast), resolution: resolution, bodyTag: bodyTag,
+                                    figureFiles: figureFiles)
+    }
+
+    private func emit(_ book: Book, figureFiles: [String: [Int: URL]] = [:],
+                      emitting subset: (ProjectAST) -> ProjectAST = { $0 }) throws -> Emitted {
+        try emit([body(book, figureFiles: figureFiles, emitting: subset)])
+    }
+
+    private func emit(_ bodies: [DOCXBodyEmitter.Body]) throws -> Emitted {
+        let body = DOCXBodyEmitter.emit(bodies: bodies, config: PublishConfig())
+        let ast = bodies[0].ast
+        let resolution = bodies[0].resolution
         let document = try XMLDocument(xmlString: Self.keepingSpaces(body.documentXML))
         let footnotes = try XMLDocument(xmlString: Self.keepingSpaces(body.footnotesXML))
         return Emitted(ast: ast, resolution: resolution, body: body,
@@ -93,6 +105,40 @@ final class DOCXBodyEmitterTests: XCTestCase {
         (e.children ?? []).compactMap { $0 as? XMLElement }.flatMap { child in
             (child.name == name ? [child] : []) + descendants(child, name)
         }
+    }
+
+    /// The text a paragraph's bookmark `name` wraps, read in document order.
+    private func bookmarked(_ name: String, in doc: XMLDocument) throws -> String? {
+        for p in try paragraphs(doc) {
+            var id: String?
+            var text = ""
+            for child in (p.children ?? []).compactMap({ $0 as? XMLElement }) {
+                if child.name == "w:bookmarkStart", attr(child, "w:name") == name { id = attr(child, "w:id"); continue }
+                if child.name == "w:bookmarkEnd", id != nil, attr(child, "w:id") == id { return text }
+                if id != nil { text += try self.text(child) }
+            }
+        }
+        return nil
+    }
+
+    /// Each REF field in `p`: the bookmark it names and the result it carries.
+    private func references(in p: XMLElement) throws -> [(name: String, result: String)] {
+        var out: [(String, String)] = []
+        var name: String?
+        var result: String?
+        for run in (p.children ?? []).compactMap({ $0 as? XMLElement }) where run.name == "w:r" {
+            if let instr = descendants(run, "w:instrText").first?.stringValue, instr.hasPrefix(" REF ") {
+                name = String(instr.dropFirst(5).prefix { $0 != " " })
+            }
+            switch descendants(run, "w:fldChar").first.flatMap({ attr($0, "w:fldCharType") }) {
+            case "separate": result = ""
+            case "end":
+                if let n = name, let r = result { out.append((n, r)) }
+                name = nil; result = nil
+            default: if result != nil { result! += try text(run) }
+            }
+        }
+        return out
     }
 
     private func paragraphs(_ doc: XMLDocument) throws -> [XMLElement] {
@@ -601,22 +647,100 @@ final class DOCXBodyEmitterTests: XCTestCase {
 
     // MARK: - several bodies
 
-    func test_aSecondBody_continuesEveryCounter_andTagsItsNames() throws {
+    func test_twoBodies_shareEveryCounter_tagTheirNames_andBreakBetween() throws {
         let (book, figures) = try everyArm()
-        let first = try emit(book, figureFiles: figures)
-        let second = try emit(book, figureFiles: figures, bodyTag: "sr", state: first.body.state)
-        func ids(_ e: Emitted, _ xpath: String, _ a: String) throws -> Set<String> {
-            Set(try nodes(e.document, xpath).compactMap { attr($0, a) })
+        let e = try emit([body(book, figureFiles: figures), body(book, figureFiles: figures, bodyTag: "sr")])
+        func values(_ xpath: String, _ a: String) throws -> [String] {
+            try nodes(e.document, xpath).compactMap { attr($0, a) }
         }
-        XCTAssertTrue(try ids(first, "//*[name()='w:bookmarkStart']", "w:id")
-            .isDisjoint(with: ids(second, "//*[name()='w:bookmarkStart']", "w:id")))
-        XCTAssertTrue(try ids(first, "//*[name()='w:bookmarkStart']", "w:name")
-            .isDisjoint(with: ids(second, "//*[name()='w:bookmarkStart']", "w:name")))
-        XCTAssertTrue(try ids(first, "//*[name()='wp:docPr']", "id")
-            .isDisjoint(with: ids(second, "//*[name()='wp:docPr']", "id")))
-        XCTAssertTrue(try ids(first, "//*[name()='w:footnoteReference']", "w:id")
-            .isDisjoint(with: ids(second, "//*[name()='w:footnoteReference']", "w:id")))
-        XCTAssertTrue(Set(first.body.lists.map(\.numID)).isDisjoint(with: second.body.lists.map(\.numID)))
-        XCTAssertTrue(try ids(second, "//*[name()='w:bookmarkStart']", "w:name").contains("p_sr_a1b2"))
+        for (xpath, a) in [("//*[name()='w:bookmarkStart']", "w:id"), ("//*[name()='w:bookmarkStart']", "w:name"),
+                           ("//*[name()='wp:docPr']", "id"), ("//*[name()='w:footnoteReference']", "w:id")] {
+            let all = try values(xpath, a)
+            XCTAssertEqual(all.count, Set(all).count, "\(xpath)@\(a) unique: \(all)")
+        }
+        XCTAssertEqual(e.body.lists.map(\.numID), [1, 2, 3, 4])
+        let names = try values("//*[name()='w:bookmarkStart']", "w:name")
+        XCTAssertTrue(names.contains("p_a1b2") && names.contains("p_sr_a1b2"))
+        XCTAssertTrue(names.contains("l_fig_rev") && names.contains("l_sr_fig_rev"))
+        XCTAssertEqual(try nodes(e.document, "//*[name()='w:br'][@*[name()='w:type']='page']").count, 1)
+        XCTAssertEqual(e.body.media.count, 1, "one image, one file, however many bodies show it")
+        XCTAssertEqual(e.body.relationships.count, 1)
+        let notes = try nodes(e.footnotes, "//*[name()='w:footnote']").compactMap { attr($0, "w:id") }
+        XCTAssertEqual(notes, ["-1", "0"] + (try values("//*[name()='w:footnoteReference']", "w:id")))
+        // The second body's captions restart their sequences.
+        let seq = try nodes(e.document, "//*[name()='w:instrText']").compactMap(\.stringValue)
+            .filter { $0.hasPrefix(" SEQ ") }
+        XCTAssertEqual(seq, [" SEQ Table \\* ARABIC ", " SEQ Figure \\* ARABIC ",
+                             " SEQ Table \\* ARABIC \\r 1 ", " SEQ Figure \\* ARABIC \\r 1 "])
+    }
+
+    // MARK: - fix round 1
+
+    /// I1: every REF's precomputed result is the text its bookmark wraps, so
+    /// a field update in Word changes nothing; a section reads "Section " as
+    /// text and the number as the result.
+    func test_everyReferenceResult_isTheTextItsBookmarkWraps() throws {
+        let (book, figures) = try everyArm()
+        let e = try emit(book, figureFiles: figures)
+        let see = try XCTUnwrap(paragraphs(e.document).first { (try? text($0))?.hasPrefix("See ") == true })
+        let refs = try references(in: see)
+        XCTAssertEqual(refs.map(\.name), ["l_fig_rev", "l_tbl_sales", "l_sec_intro"])
+        for ref in refs {
+            XCTAssertEqual(ref.result, try bookmarked(ref.name, in: e.document), ref.name)
+        }
+        XCTAssertEqual(refs.last?.result, "1")
+        XCTAssertEqual(try text(see), "See Figure 1, Table 1 and Section 1 (Smith 2026, p. 3).")
+    }
+
+    /// I2: a nested note prints in place without a numeral, and a later
+    /// reference from the text makes it a footnote; a repeat prints the
+    /// number Word shows.
+    func test_aNestedNote_printsInPlace_andALaterReferenceMakesItAFootnote() throws {
+        let e = try emit(Book(pieces: [("a", [
+            ("a1b2", "A[^y]. Later[^z]. Again[^y]."),
+            ("c3d4", "[^y]: Y with a nested[^z]."), ("e5f6", "[^z]: Zed."),
+        ])], context: Self.context()))
+        let refs = try nodes(e.document, "//*[name()='w:footnoteReference']").compactMap { attr($0, "w:id") }
+        XCTAssertEqual(refs.count, 2)
+        let text0 = try text(try XCTUnwrap(paragraphs(e.document).dropFirst().first))
+        XCTAssertEqual(text0, "A. Later. Again1.", "a repeat prints Word's number; the nested note is no numeral")
+        let notes = try nodes(e.footnotes, "//*[name()='w:footnote']")
+        XCTAssertEqual(notes.compactMap { attr($0, "w:id") }, ["-1", "0"] + refs)
+        XCTAssertEqual(try text(notes[2]), " Y with a nested (\u{2014} Zed.).")
+        XCTAssertEqual(try text(notes[3]), " Zed.")
+        // M1: the mark inside each note is superscript too.
+        for note in notes.dropFirst(2) {
+            let mark = try XCTUnwrap(descendants(note, "w:footnoteRef").first?.parent as? XMLElement)
+            XCTAssertEqual(try nodes(mark, "./*[name()='w:rPr']/*[name()='w:vertAlign']").first.flatMap { attr($0, "w:val") },
+                           "superscript")
+        }
+    }
+
+    /// I2: a table's caption is emitted above the table, so its note can be
+    /// Word's first even when the resolution counted the cell's first; a
+    /// repeat reference prints Word's number for each.
+    func test_aRepeatReference_printsTheNumberWordShows_evenAfterACaptionAboveItsTable() throws {
+        let e = try emit(Book(pieces: [("a", [
+            ("a1b2", "| A |\n|---|\n| cell[^c] |\nTable: Cap[^t] {#tbl:x}"),
+            ("c3d4", "Repeat[^c] and[^t]."),
+            ("e5f6", "[^c]: Cell note."), ("g7h8", "[^t]: Caption note."),
+        ])], context: Self.context()))
+        let refs = try nodes(e.document, "//*[name()='w:footnoteReference']").compactMap { attr($0, "w:id") }
+        let numbers = try XCTUnwrap(e.resolution.footnoteNumbers["a"])
+        let c = try XCTUnwrap(numbers["c"]), t = try XCTUnwrap(numbers["t"])
+        XCTAssertEqual(refs, [String(t), String(c)], "the caption's note is Word's first")
+        let repeatParagraph = try XCTUnwrap(paragraphs(e.document).first { (try? text($0))?.hasPrefix("Repeat") == true })
+        XCTAssertEqual(try text(repeatParagraph), "Repeat2 and1.")
+    }
+
+    /// M3: a caption whose number is not the next one resets its sequence.
+    func test_aSubsetsFirstCaption_resetsItsSequence() throws {
+        let one = try file("one.png", Self.png(width: 2, height: 2))
+        let book = Book(pieces: [("a", [("a1b2", "![A](a.png)")]), ("b", [("c3d4", "![B](b.png)"), ("e5f6", "![C](c.png)")])],
+                        context: Self.context())
+        let e = try emit(book, figureFiles: ["b": [0: one, 1: one]],
+                         emitting: { ProjectAST(sections: [$0.sections[1]]) })
+        let seq = try nodes(e.document, "//*[name()='w:instrText']").compactMap(\.stringValue)
+        XCTAssertEqual(seq, [" SEQ Figure \\* ARABIC \\r 2 ", " SEQ Figure \\* ARABIC "])
     }
 }

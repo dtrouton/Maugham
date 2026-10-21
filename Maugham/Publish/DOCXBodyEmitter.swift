@@ -16,9 +16,11 @@ struct DOCXRelationship: Equatable, Sendable {
 }
 
 /// One image the packager puts under `word/media/` (R-S1): the emitter stays
-/// pure, so it names the file and the packager copies `source` there — or,
-/// when `needsRaster` (a PDF or an SVG, R-4-2), rasterises it to the PNG
-/// `name` already says it is.
+/// pure, so it names the file and the packager copies `source` there. Under
+/// R-S3 the compiler's prepare rasterises a PDF or SVG figure to PNG BEFORE
+/// emission, so what it hands in is already embeddable and `needsRaster` is
+/// false; it is true only for a PDF or SVG handed in as is, which the
+/// packager would then have to rasterise to the PNG `name` already says.
 struct DOCXMedia: Equatable, Sendable {
     let source: URL
     /// `<content hash>.<ext>`, the name `PDFCompiler`/`EPUBCompiler` stage
@@ -34,36 +36,22 @@ struct DOCXList: Equatable, Sendable {
     let ordered: Bool
 }
 
-/// The counters a document's bodies share. The emitter writes ONE body per
-/// call; a bilingual document's packager hands each body the state the one
-/// before it ended with, so bookmark ids, drawing ids, list ids, footnote ids
-/// and bookmark names stay unique across the whole `document.xml`.
-struct DOCXEmitState: Equatable, Sendable {
-    var nextBookmarkID = 0
-    var nextDrawingID = 1
-    var nextNumID = 1
-    /// Added to the resolution's footnote numbers to make a `w:id`: 0 for the
-    /// first body, so its ids ARE `footnoteNumbers`.
-    var footnoteIDBase = 0
-    var bookmarkNames: Set<String> = []
-}
-
-/// A body's parts. `bodyContent` and `footnoteElements` are fragments, so a
-/// packager can join several bodies; `documentXML` and `footnotesXML` are
-/// the complete parts for this body alone.
+/// The document's parts, every body in order. `bodyContent` and
+/// `footnoteElements` are the fragments; `documentXML`, `footnotesXML` and
+/// `numberingXML` are the complete parts.
 struct DOCXBody {
     /// The children of `w:body`, without the closing `w:sectPr`.
     var bodyContent: String
-    /// The body's `w:footnote` elements, in number order, without separators.
+    /// The `w:footnote` elements, in id order, without separators.
     var footnoteElements: String
+    /// One per distinct image, however many bodies show it.
     var relationships: [DOCXRelationship]
     var media: [DOCXMedia]
     var lists: [DOCXList]
-    /// Where the next body of the same document continues.
-    var state: DOCXEmitState
 
     var documentXML: String { DOCXBodyEmitter.documentPart(bodyContent) }
     var footnotesXML: String { DOCXBodyEmitter.footnotesPart(footnoteElements) }
+    var numberingXML: String { DOCXBodyEmitter.numberingPart(lists) }
 }
 
 // MARK: - the emitter
@@ -85,9 +73,9 @@ struct DOCXBody {
 /// | verbatim | one `Code` paragraph, lines joined by `w:br` |
 /// | table | `Caption` above ("Table " + `SEQ Table`), a native `w:tbl`, its header row repeating |
 /// | figure | an inline drawing fitted to the 6-inch column, `Caption` below ("Figure " + `SEQ Figure`) |
-/// | footnote | `w:footnoteReference` → `footnotes.xml`, id from `footnoteNumbers` |
+/// | footnote | `w:footnoteReference` → `footnotes.xml`, id from `footnoteNumbers`; a repeat prints Word's ordinal |
 /// | citation | the resolution's text |
-/// | cross-reference | `REF <label bookmark> \h`, result `Target.text` |
+/// | cross-reference | `REF <label bookmark> \h`, result `Target.text` (a numbered section: the word, then the number as the result) |
 /// | References | `Heading1` in the body's word, entries in `Bibliography` |
 ///
 /// Every field carries its result, so nothing asks to be updated on open.
@@ -100,28 +88,88 @@ enum DOCXBodyEmitter {
     static let columnTwips = 8_640
     static let columnEMU = 5_486_400
 
-    /// - Parameters:
-    ///   - resolution: the body's resolution, over the edition's whole book.
-    ///     Its `words` spell every caption, target and the References heading.
-    ///   - figureFiles: pieceID → node index → the image file to embed, as
-    ///     the compiler prepared it. A numbered figure without one prints its
-    ///     literal source.
-    ///   - config: for `sections[piece].titleOverride`.
-    ///   - bodyTag: nil for a document's first body; a later body's tag goes
-    ///     into its bookmark names.
-    ///   - state: the counters the previous body ended with.
-    static func emit(_ ast: ProjectAST, resolution: PublishResolution,
-                     figureFiles: [String: [Int: URL]],
-                     config: PublishConfig = PublishConfig(), bodyTag: String? = nil,
-                     continuing state: DOCXEmitState = DOCXEmitState()) -> DOCXBody {
-        let scope = Scope(resolution: resolution, figureFiles: figureFiles, state: state,
+    /// One body of the document: a language's AST, its own resolution, and
+    /// the images prepared for it.
+    struct Body {
+        let ast: ProjectAST
+        /// Over the edition's whole book. Its `words` spell every caption,
+        /// target and the References heading.
+        let resolution: PublishResolution
+        /// nil for the first body; a later body's tag goes into its bookmark
+        /// names, so two bodies never share one.
+        let bodyTag: String?
+        /// pieceID → node index → the image file to embed, as the compiler
+        /// prepared it (R-S3: a PDF or SVG figure is already a PNG here, its
+        /// refusal already a problem). The drawing's extent is read from THIS
+        /// file. A numbered figure without one prints its literal source.
+        let figureFiles: [String: [Int: URL]]
+    }
+
+    /// The document: every body in order, a page break between two, sharing
+    /// one set of counters — bookmark and drawing ids, list ids, footnote ids
+    /// and the numbers Word shows for them, the `SEQ` sequences — so the
+    /// joined `document.xml` has no duplicate. `config` supplies
+    /// `sections[piece].titleOverride`.
+    static func emit(bodies: [Body], config: PublishConfig) -> DOCXBody {
+        var state = State()
+        var content: [String] = []
+        var notes = ""
+        var relationships: [DOCXRelationship] = []
+        var media: [DOCXMedia] = []
+        var lists: [DOCXList] = []
+        for (i, body) in bodies.enumerated() {
+            let scope = emit(body, config: config, state: state)
+            if i > 0 { content.append("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>") }
+            content.append(scope.out.joined())
+            notes += scope.footnotes.sorted { $0.key < $1.key }.map(\.value).joined()
+            for r in scope.relationships where !relationships.contains(where: { $0.id == r.id }) {
+                relationships.append(r)
+            }
+            for m in scope.media where !media.contains(where: { $0.name == m.name }) { media.append(m) }
+            lists += scope.lists
+            state = scope.state
+            state.footnoteIDBase += body.resolution.footnoteNumbers.values.flatMap(\.values).max() ?? 0
+        }
+        return DOCXBody(bodyContent: content.joined(), footnoteElements: notes,
+                        relationships: relationships, media: media, lists: lists)
+    }
+
+    /// The counters the bodies of one document share.
+    fileprivate struct State {
+        var nextBookmarkID = 0
+        var nextDrawingID = 1
+        var nextNumID = 1
+        /// Added to a body's footnote numbers to make a `w:id`: 0 for the
+        /// first body, so its ids ARE `footnoteNumbers`.
+        var footnoteIDBase = 0
+        /// How many footnote references the document has emitted: Word
+        /// numbers notes by the order of their references, so this is the
+        /// number Word shows, and a repeat reference prints it.
+        var footnoteOrdinal = 0
+        /// The last `SEQ` result per identifier, document-wide: a caption
+        /// whose number isn't the next one says so with `\r`.
+        var lastSequence: [String: Int] = [:]
+        var bookmarkNames: Set<String> = []
+    }
+
+    private static func emit(_ body: Body, config: PublishConfig, state: State) -> Scope {
+        let ast = body.ast
+        let resolution = body.resolution
+        let bodyTag = body.bodyTag
+        let scope = Scope(resolution: resolution, figureFiles: body.figureFiles, state: state,
                           headingBase: headingBase(ast))
         // Label bookmarks are named before anything is written, so a
         // reference ahead of its target names the same bookmark.
         for section in ast.sections {
             for (index, node) in section.nodes.enumerated() {
-                if let label = ownedLabel(node, index: index, section: section, resolution: resolution) {
-                    scope.labelNames[label] = scope.uniqueName(DOCXNames.labelBookmark(label, bodyTag: bodyTag))
+                guard let label = ownedLabel(node, index: index, section: section,
+                                             resolution: resolution) else { continue }
+                scope.labelNames[label] = scope.uniqueName(DOCXNames.labelBookmark(label, bodyTag: bodyTag))
+                // A numbered section's bookmark wraps its number alone, so a
+                // REF to it is the word as text and the number as the field's
+                // result: what Word reads back if the field is updated.
+                if label.kind == .sec, let number = resolution.headingNumbers[section.pieceID]?[index] {
+                    scope.labelShown[label] = (resolution.words.section + " ", number)
                 }
             }
         }
@@ -148,14 +196,8 @@ enum DOCXBodyEmitter {
                 }.joined()))
             }
         }
-        var next = scope.state
-        let highest = resolution.footnoteNumbers.values.flatMap(\.values).max() ?? 0
-        next.footnoteIDBase += highest
-        return DOCXBody(
-            bodyContent: out.joined(),
-            footnoteElements: scope.footnotes.sorted { $0.key < $1.key }.map(\.value).joined(),
-            relationships: scope.relationships, media: scope.media, lists: scope.lists,
-            state: next)
+        scope.out = out
+        return scope
     }
 
     // MARK: - parts
@@ -317,7 +359,10 @@ enum DOCXBodyEmitter {
             let owned = scope.owned(label, kind: .fig, index: index)
             guard let url = scope.figureFiles[piece]?[index], let image = scope.place(url) else {
                 // Refused or never prepared: its literal source, still carrying
-                // the label bookmark, so a cross-reference lands on it.
+                // the label bookmark, so a cross-reference lands on it. The REF
+                // keeps its precomputed "Figure n"; only a field update in Word
+                // would read the literal the bookmark wraps — and a Report with
+                // a refused image never gets past the gate to export.
                 return literal(source, label: owned)
             }
             let alt = XHTMLBodyEmitter.plainText(caption, resolution: resolution, pieceID: piece)
@@ -460,19 +505,24 @@ enum DOCXBodyEmitter {
         let resolution: PublishResolution
         let figureFiles: [String: [Int: URL]]
         let headingBase: Int
-        var state: DOCXEmitState
+        var state: State
         var section: ProjectAST.Section?
+        /// The body's paragraphs and tables, once the walk is done.
+        var out: [String] = []
         /// Owned label → its bookmark name, named before the walk.
         var labelNames: [ManuscriptLabel: String] = [:]
+        /// A label whose bookmark wraps less than its target's text: the
+        /// text before the REF, and the REF's result (a numbered section).
+        var labelShown: [ManuscriptLabel: (prefix: String, result: String)] = [:]
         /// The `¶id` bookmarks the node being emitted owes its FIRST paragraph.
         var pending: [(id: Int, name: String)] = []
         /// Footnote number → its `w:footnote` element.
         var footnotes: [Int: String] = [:]
-        /// Notes already referenced (by number): a later reference prints the
-        /// number, since Word gives a note exactly one reference.
-        var referenced: Set<Int> = []
-        /// Notes referenced from inside the note being built, owed to it.
-        var nested: [(number: Int, label: String)]? = nil
+        /// Note number → the number Word shows for it, the ordinal of its
+        /// one `w:footnoteReference`.
+        var shown: [Int: Int] = [:]
+        /// The notes being written or printed in place, innermost last.
+        var writing: Set<Int> = []
         var relationships: [DOCXRelationship] = []
         var media: [DOCXMedia] = []
         var lists: [DOCXList] = []
@@ -480,7 +530,7 @@ enum DOCXBodyEmitter {
         private var placed: [URL: Image] = [:]
 
         init(resolution: PublishResolution, figureFiles: [String: [Int: URL]],
-             state: DOCXEmitState, headingBase: Int) {
+             state: State, headingBase: Int) {
             self.resolution = resolution
             self.figureFiles = figureFiles
             self.state = state
@@ -593,7 +643,9 @@ enum DOCXBodyEmitter {
                     }
                     // A target this body bookmarks nowhere reads as its text.
                     guard let name = labelNames[label] else { return textRun(target.text, run) }
-                    return field("REF \(name) \\h", result: textRun(target.text, run), run)
+                    let shown = labelShown[label] ?? ("", target.text)
+                    return textRun(shown.prefix, run)
+                        + field("REF \(name) \\h", result: textRun(shown.result, run), run)
                 }
             }.joined()
         }
@@ -614,8 +666,12 @@ enum DOCXBodyEmitter {
         /// on it — while the word is the body's own.
         func caption(_ sequence: String, word: String, number: Int, label: ManuscriptLabel?,
                      _ caption: [ProjectAST.Inline]) -> String {
+            // Word numbers a SEQ field by counting; only a number that isn't
+            // the next one (a gap the edition excludes, a later body) is reset.
+            let reset = number == (state.lastSequence[sequence] ?? 0) + 1 ? "" : " \\r \(number)"
+            state.lastSequence[sequence] = number
             let numbered = textRun(word + " ", Run())
-                + field("SEQ \(sequence) \\* ARABIC", result: textRun("\(number)", Run()), Run())
+                + field("SEQ \(sequence) \\* ARABIC" + reset, result: textRun("\(number)", Run()), Run())
             let text = runs(caption, Run())
             return labelled(label, numbered) + textRun(".", Run()) + (text.isEmpty ? "" : textRun(" ", Run()) + text)
         }
@@ -623,49 +679,43 @@ enum DOCXBodyEmitter {
         // MARK: footnotes
 
         /// The first reference to a note is Word's footnote reference, its id
-        /// the resolution's number (plus the body's base). A later reference,
-        /// or one inside a note, prints the number as a superscript: Word
-        /// gives each note one reference and no note a note of its own, so a
-        /// note referenced from a note is printed inside it.
+        /// the resolution's number (plus the body's base). Word shows a note
+        /// the ordinal of its reference, so a later reference prints THAT
+        /// number, never the resolution's — a caption's note, emitted above
+        /// its table, can come before notes the resolution counted first.
+        /// Word gives a note no note of its own: a note referenced only from
+        /// inside another is printed in place, without a numeral, as
+        /// " (— its text)"; a later reference from the text still makes it a
+        /// footnote.
         func noteReference(_ label: String, _ run: Run) -> String {
             guard let section, let n = resolution.footnoteNumbers[section.pieceID]?[label],
-                  section.footnotes[label] != nil else {
+                  let definition = section.footnotes[label] else {
                 return textRun(InterimReportLiteral.footnoteRef(label), run)
             }
             var mark = run
             mark.style = "FootnoteReference"
             mark.superscript = true
-            if nested != nil {
-                if !referenced.contains(n) {
-                    referenced.insert(n)
-                    nested?.append((n, label))
-                }
-                return textRun("\(n)", mark)
+            if let ordinal = shown[n] { return textRun("\(ordinal)", mark) }
+            if !writing.isEmpty {
+                // A note that cites itself, however deep, prints nothing more.
+                guard !writing.contains(n) else { return "" }
+                writing.insert(n)
+                defer { writing.remove(n) }
+                return textRun(" (\u{2014} ", run) + runs(definition, run) + textRun(")", run)
             }
-            guard !referenced.contains(n) else { return textRun("\(n)", mark) }
-            referenced.insert(n)
+            state.footnoteOrdinal += 1
+            shown[n] = state.footnoteOrdinal
             let id = state.footnoteIDBase + n
-            footnotes[n] = note(id: id, label: label)
+            footnotes[n] = note(id: id, number: n, definition)
             return "<w:r>\(mark.xml)<w:footnoteReference w:id=\"\(id)\"/></w:r>"
         }
 
-        private func note(id: Int, label: String) -> String {
-            let outer = nested
-            nested = []
-            defer { nested = outer }
-            func para(_ mark: String, _ label: String) -> String {
-                "<w:p><w:pPr><w:pStyle w:val=\"FootnoteText\"/></w:pPr>" + mark + textRun(" ", Run())
-                    + runs(section?.footnotes[label] ?? [], Run()) + "</w:p>"
-            }
-            var xml = "<w:footnote w:id=\"\(id)\">"
-                + para("<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr><w:footnoteRef/></w:r>", label)
-            var next = 0
-            while let owed = nested, next < owed.count {
-                let (n, nestedLabel) = owed[next]
-                next += 1
-                xml += para(textRun("\(n)", Run(style: "FootnoteReference", superscript: true)), nestedLabel)
-            }
-            return xml + "</w:footnote>"
+        private func note(id: Int, number: Int, _ definition: [ProjectAST.Inline]) -> String {
+            writing.insert(number)
+            defer { writing.remove(number) }
+            return "<w:footnote w:id=\"\(id)\"><w:p><w:pPr><w:pStyle w:val=\"FootnoteText\"/></w:pPr>"
+                + "<w:r>\(Run(style: "FootnoteReference", superscript: true).xml)<w:footnoteRef/></w:r>"
+                + textRun(" ", Run()) + runs(definition, Run()) + "</w:p></w:footnote>"
         }
 
         // MARK: images
