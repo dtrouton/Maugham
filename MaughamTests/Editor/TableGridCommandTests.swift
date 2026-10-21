@@ -41,7 +41,8 @@ final class TableGridCommandTests: XCTestCase {
     }
 
     private func mount(_ text: String, elsewhere: Set<ManuscriptLabel> = [],
-                       grid: Bool = true) throws -> Mounted {
+                       grid: Bool = true,
+                       presenter: TableGridPresenter? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0 })
         var configuration = EditorSurfaceConfiguration(
@@ -52,7 +53,9 @@ final class TableGridCommandTests: XCTestCase {
         configuration.answersInsertCommands = true
         configuration.paragraphProviders.projectLabelsElsewhere = { elsewhere }
         configuration.paragraphProviders.commandFailureReporter = { box.reported.append($0) }
-        if grid {
+        if let presenter {
+            configuration.paragraphProviders.tableEditor = { await presenter.present($0) }
+        } else if grid {
             configuration.paragraphProviders.tableEditor = { request in
                 box.requests.append(request)
                 box.whileOpen?()
@@ -222,7 +225,35 @@ final class TableGridCommandTests: XCTestCase {
         XCTAssertEqual(m.box.requests.map(\.mayWrite), [false], "the grid opens, read-only")
         XCTAssertEqual(m.string, Self.document, "the membrane refused the save")
         XCTAssertFalse(m.undo.canUndo)
-        XCTAssertEqual(m.box.reported, [], "a refusal by posture is not a changed table")
+        XCTAssertEqual(m.box.reported, ["This document can’t be changed here"],
+                       "a refusal by posture says so, and is not a changed table (fix round 1, M1)")
+        XCTAssertEqual(EditorCoordinator.tableReadOnlyMessage, "This document can’t be changed here")
+    }
+
+    // MARK: - Detach (fix round 1, I1)
+
+    /// A document switch detaches the coordinator while the sheet is up: the
+    /// grid task is cancelled, the REAL presenter's sheet comes down as
+    /// cancelled, and nothing is written — no Save can land nowhere.
+    func test_detachingWhileTheSheetIsUpClosesItAndWritesNothing() async throws {
+        let presenter = TableGridPresenter()
+        let m = try mount(Self.document, presenter: presenter)
+        m.textView.setSelectedRange(NSRange(location: location(of: "Apple", in: m), length: 0))
+
+        let task = try XCTUnwrap(m.coordinator.editTable())
+        while presenter.session == nil { await Task.yield() }
+        XCTAssertNotNil(presenter.session, "the premise: the sheet is up")
+
+        m.coordinator.detach()
+        // The cancellation closes the sheet on a main-actor hop; a bounded
+        // number of yields, so a regression fails here instead of hanging.
+        for _ in 0..<100 where presenter.session != nil { await Task.yield() }
+        XCTAssertNil(presenter.session, "the sheet came down with the editor")
+        // A Save arriving anyway (the regression) still writes nothing.
+        presenter.finish(TableText(header: ["late"], alignments: [.none], rows: []))
+        await task.value
+        XCTAssertEqual(m.string, Self.document, "nothing was written")
+        XCTAssertEqual(m.box.reported, [])
     }
 
     // MARK: - Where it opens

@@ -190,7 +190,8 @@ final class TableGridModelTests: XCTestCase {
     func test_pastedCellsFillFromTheSelectionAndGrowTheTable() {
         var m = model()
         m.selection = .init(row: 2, column: 1)
-        m.pasteCells(tabSeparated: "\"12\t(dozen)\"\tlocal\r\n\"say \"\"ripe\"\"\"\t\"two\nlines\"\r\n")
+        m.pasteCells(TableClipboard.rows(fromTabSeparated:
+            "\"12\t(dozen)\"\tlocal\r\n\"say \"\"ripe\"\"\"\t\"two\nlines\"\r\n"))
         XCTAssertEqual(grid(m), [
             ["Name", "Qty", ""],
             ["Apple", "3", ""],
@@ -205,30 +206,59 @@ final class TableGridModelTests: XCTestCase {
 
     func test_pasteWithNoSelectionFillsFromTheHeader() {
         var m = model("| a |\n|---|")
-        m.pasteCells(tabSeparated: "Region\tSales\nNorth\t10\nSouth\t7\n")
+        m.pasteCells(TableClipboard.rows(fromTabSeparated: "Region\tSales\nNorth\t10\nSouth\t7\n"))
         XCTAssertEqual(grid(m), [["Region", "Sales"], ["North", "10"], ["South", "7"]])
     }
 
     func test_pastingNothingChangesNothing() {
         var m = model()
         let before = m
-        m.pasteCells(tabSeparated: "")
+        m.pasteCells([])
         XCTAssertEqual(m, before)
     }
 
-    /// Paste Cells reads the spreadsheet's tab-separated flavour first, plain
-    /// text otherwise.
-    func test_theClipboardTextPrefersTheTabSeparatedFlavour() {
+    /// Paste Cells reads the spreadsheet's tab-separated flavour by Excel's
+    /// quote rule; plain text is split the same way but keeps every quote the
+    /// writer typed (fix round 1, M3).
+    func test_onlyTheTabSeparatedFlavourIsReadByTheQuoteRule() {
         let board = NSPasteboard(name: NSPasteboard.Name("maugham.test.\(UUID().uuidString)"))
         defer { board.releaseGlobally() }
+        let copied = "\"a\"\"b\"\tc\n\"5\" pipe\"\td"
         board.clearContents()
-        board.setString("plain", forType: .string)
-        XCTAssertEqual(TableGridModel.clipboardText(from: board), "plain")
+        board.setString(copied, forType: .string)
+        XCTAssertEqual(TableGridModel.clipboardCells(from: board),
+                       [["\"a\"\"b\"", "c"], ["\"5\" pipe\"", "d"]], "plain text keeps its quotes")
         board.clearContents()
         board.declareTypes([TableGridModel.tabSeparatedType, .string], owner: nil)
-        board.setString("a\tb", forType: TableGridModel.tabSeparatedType)
-        board.setString("a b", forType: .string)
-        XCTAssertEqual(TableGridModel.clipboardText(from: board), "a\tb")
+        board.setString(copied, forType: TableGridModel.tabSeparatedType)
+        board.setString("ignored", forType: .string)
+        XCTAssertEqual(TableGridModel.clipboardCells(from: board),
+                       [["a\"b", "c"], ["5 pipe\"", "d"]], "the spreadsheet flavour is unquoted")
+        board.clearContents()
+        XCTAssertNil(TableGridModel.clipboardCells(from: board))
+    }
+
+    // MARK: - Return and accessibility (fix round 1, I2, M2)
+
+    /// R-S5: Return in a cell moves to the cell below; on the last row it
+    /// goes nowhere (and never saves — the sheet binds Save's Return only
+    /// with no cell focused).
+    func test_returnInACellMovesDownAndStopsAtTheLastRow() {
+        let m = model()
+        XCTAssertEqual(m.cellBelow(.init(row: 0, column: 1)), .init(row: 1, column: 1))
+        XCTAssertEqual(m.cellBelow(.init(row: 1, column: 0)), .init(row: 2, column: 0))
+        XCTAssertNil(m.cellBelow(.init(row: 2, column: 0)), "the last row")
+        XCTAssertNil(model("| a |\n|---|").cellBelow(.init(row: 0, column: 0)), "a header-only table")
+    }
+
+    func test_cellsPickersAndVerbsAreNamedForVoiceOver() {
+        XCTAssertEqual(TableGridModel.accessibilityLabel(forCell: .init(row: 0, column: 1)), "Header, column 2")
+        XCTAssertEqual(TableGridModel.accessibilityLabel(forCell: .init(row: 3, column: 0)), "Row 3, column 1")
+        XCTAssertEqual(TableGridModel.accessibilityLabel(forAlignmentOfColumn: 2), "Column 3 alignment")
+        XCTAssertEqual(TableGridModel.accessibilityLabel(forRowVerb: "Move up", row: 2), "Move up row 2")
+        XCTAssertEqual(TableGridModel.accessibilityLabel(forRowVerb: "Remove", row: 0), "Remove the header row")
+        XCTAssertEqual(TableGridModel.accessibilityLabel(forColumnVerb: "Move left", column: 2),
+                       "Move left column 3")
     }
 
     // MARK: - The presenter

@@ -11912,7 +11912,14 @@ extension TripwireGrepTests {
     /// clause first requires `event.clickCount == 2` — a single click would
     /// otherwise open the sheet — and before `super.mouseDown`, which would
     /// already have selected the word.
+    ///
+    /// And `mouseDown` never calls `editTable(` itself (fix round 1, M4):
+    /// that opens the grid wherever the caret's table is, with no
+    /// delimiter-row question asked.
     static func tableDoubleClickProblem(inMouseDownBody body: String) -> String? {
+        if body.contains("editTable(") {
+            return "mouseDown calls editTable( directly, skipping the delimiter-row question"
+        }
         let ask = "editTableOnDelimiterRow"
         let uses = body.components(separatedBy: ask).count - 1
         guard uses == 1, let use = body.range(of: ask) else {
@@ -11975,6 +11982,14 @@ extension TripwireGrepTests {
             { super.mouseDown(with: event) }
             """
         XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: gone), "the route is gone")
+        let direct = """
+            { if event.clickCount == 2,
+                 coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
+              if event.clickCount == 2 { coordinator?.editTable(at: i); return }
+              super.mouseDown(with: event) }
+            """
+        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: direct),
+                        "editTable( called straight from mouseDown")
         let wired = """
             { // falls through to `super.mouseDown` below
               if event.clickCount == 2,

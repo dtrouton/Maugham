@@ -17,7 +17,11 @@ public enum TableClipboard {
     /// and a quote never closed runs to the end. Rows come back as copied —
     /// a ragged row is not padded — and a cell's line breaks are kept (the
     /// table writes them as spaces, `TableText.singleLine`).
-    public static func rows(fromTabSeparated text: String) -> [[String]] {
+    ///
+    /// `quoting: false` reads the same rows without the quote rule — for text
+    /// that did not come as a spreadsheet's tab-separated flavour, where a
+    /// leading `"` is the writer's own character and is kept.
+    public static func rows(fromTabSeparated text: String, quoting: Bool = true) -> [[String]] {
         let scalars = Array(text.unicodeScalars)
         var rows: [[String]] = []
         var row: [String] = []
@@ -43,7 +47,7 @@ public enum TableClipboard {
 
         while i < scalars.count {
             let c = scalars[i]
-            if atCellStart && c == quote {
+            if quoting && atCellStart && c == quote {
                 atCellStart = false
                 rowOpen = true
                 i += 1

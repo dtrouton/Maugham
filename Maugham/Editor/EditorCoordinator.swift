@@ -903,6 +903,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
+        // A table grid still open is cancelled: its sheet closes (the
+        // presenter answers cancellation) and its Save can land nowhere.
+        tableGridTask?.cancel(); tableGridTask = nil
         tableTidy.cancelPending()
         figureThumbnailStore?.cancelAll()
         closeCompletion()

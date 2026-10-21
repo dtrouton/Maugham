@@ -153,12 +153,11 @@ struct TableGridModel: Equatable {
 
     // MARK: Paste Cells
 
-    /// Cells copied from a spreadsheet (`TableClipboard`), filled in from
-    /// `origin` (the selection, else the header's first cell) rightward and
-    /// down. The table grows by rows and columns as the paste needs; a line
-    /// break inside a copied cell becomes a space.
-    mutating func pasteCells(tabSeparated text: String, at origin: Cell? = nil) {
-        let pasted = TableClipboard.rows(fromTabSeparated: text)
+    /// Copied cells (`clipboardCells(from:)`), filled in from `origin` (the
+    /// selection, else the header's first cell) rightward and down. The table
+    /// grows by rows and columns as the paste needs; a line break inside a
+    /// copied cell becomes a space.
+    mutating func pasteCells(_ pasted: [[String]], at origin: Cell? = nil) {
         guard !pasted.isEmpty else { return }
         let start = origin ?? selection ?? Cell(row: 0, column: 0)
         let width = pasted.map(\.count).max() ?? 0
@@ -172,13 +171,50 @@ struct TableGridModel: Equatable {
         selection = start
     }
 
-    /// The text Paste Cells reads: the tab-separated flavour spreadsheets
-    /// write, else plain text.
-    static func clipboardText(from pasteboard: NSPasteboard) -> String? {
-        pasteboard.string(forType: tabSeparatedType) ?? pasteboard.string(forType: .string)
+    /// The cells Paste Cells reads (fix round 1, M3): the tab-separated
+    /// flavour spreadsheets write, by Excel's quote rule; else plain text,
+    /// split on tabs and line breaks with every `"` kept — a quote the writer
+    /// typed is theirs, not quoting. Nil with no text at all.
+    static func clipboardCells(from pasteboard: NSPasteboard) -> [[String]]? {
+        if let tsv = pasteboard.string(forType: tabSeparatedType) {
+            return TableClipboard.rows(fromTabSeparated: tsv)
+        }
+        return pasteboard.string(forType: .string)
+            .map { TableClipboard.rows(fromTabSeparated: $0, quoting: false) }
     }
 
     static let tabSeparatedType = NSPasteboard.PasteboardType("public.utf8-tab-separated-values-text")
+
+    // MARK: Return, and what VoiceOver reads
+
+    /// Where Return in `cell` moves the focus (fix round 1, ruling R-S5):
+    /// the cell below, header to first body row; nil on the last row, where
+    /// Return does nothing. Return in a cell never saves.
+    func cellBelow(_ cell: Cell) -> Cell? {
+        guard cell.row < rows.count, cell.column >= 0, cell.column < columnCount else { return nil }
+        return Cell(row: cell.row + 1, column: cell.column)
+    }
+
+    /// A cell's accessibility label: "Header, column 2", "Row 1, column 2".
+    static func accessibilityLabel(forCell cell: Cell) -> String {
+        cell.row == 0 ? "Header, column \(cell.column + 1)"
+            : "Row \(cell.row), column \(cell.column + 1)"
+    }
+
+    static func accessibilityLabel(forAlignmentOfColumn column: Int) -> String {
+        "Column \(column + 1) alignment"
+    }
+
+    /// The row verbs name their row ("Move up row 2", "Remove row 2"); the
+    /// header is "the header row".
+    static func accessibilityLabel(forRowVerb verb: String, row: Int) -> String {
+        row == 0 ? "\(verb) the header row" : "\(verb) row \(row)"
+    }
+
+    /// The column verbs name their column ("Move left column 3").
+    static func accessibilityLabel(forColumnVerb verb: String, column: Int) -> String {
+        "\(verb) column \(column + 1)"
+    }
 
     // MARK: Caption, label and the result
 
@@ -239,12 +275,23 @@ final class TableGridPresenter {
     @ObservationIgnored private var continuation: CheckedContinuation<TableText?, Never>?
 
     /// Shows the grid on `request` and returns the edited table, nil on
-    /// Cancel. A session still open is cancelled first.
+    /// Cancel. A session still open is cancelled first. **Cancelling the
+    /// awaiting task closes the sheet as cancelled** (fix round 1, I1): the
+    /// coordinator's `detach()` cancels its grid task on a document switch,
+    /// and a sheet left up would take a Save that lands nowhere.
     func present(_ request: TableGridRequest) async -> TableText? {
         finish(nil)
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            session = Session(request: request)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.continuation = continuation
+                session = Session(request: request)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(nil) }
         }
     }
 
@@ -318,8 +365,14 @@ struct TableGridEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
+                // Ruling R-S5 (fix round 1, I2): Save is the default button
+                // only while no cell has the focus. A default button's Return
+                // is a key equivalent, taken before the field sees it, so with
+                // it bound a Return typed in a cell would save the table; in a
+                // cell Return moves down instead (`onSubmit`). From the
+                // caption and label fields Return still saves.
                 Button("Save") { onSave(model.table) }
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut(focus == nil ? .defaultAction : nil)
                     .disabled(!model.canSave)
             }
         }
@@ -341,6 +394,7 @@ struct TableGridEditor: View {
                         Text("Right").tag(TableAlignment.trailing)
                     }
                     .labelsHidden()
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forAlignmentOfColumn: column))
                     .frame(width: 110)
                     .disabled(!model.mayWrite)
                 }
@@ -348,11 +402,16 @@ struct TableGridEditor: View {
             ForEach(0...model.bodyRowCount, id: \.self) { row in
                 GridRow {
                     ForEach(0..<model.columnCount, id: \.self) { column in
+                        let cell = TableGridModel.Cell(row: row, column: column)
                         TextField("", text: cellBinding(row, column))
                             .textFieldStyle(.roundedBorder)
                             .fontWeight(row == 0 ? .semibold : .regular)
                             .frame(width: 110)
-                            .focused($focus, equals: TableGridModel.Cell(row: row, column: column))
+                            .focused($focus, equals: cell)
+                            // R-S5: Return in a cell goes down a row (nothing
+                            // on the last); it never saves.
+                            .onSubmit { if let below = model.cellBelow(cell) { focus = below } }
+                            .accessibilityLabel(TableGridModel.accessibilityLabel(forCell: cell))
                             .disabled(!model.mayWrite)
                     }
                 }
@@ -367,23 +426,29 @@ struct TableGridEditor: View {
             HStack {
                 Button("Add Row") { model.addRow(after: at.row) }
                 Button("Remove Row") { model.removeRow(at.row) }.disabled(at.row == 0)
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forRowVerb: "Remove", row: at.row))
                 Button("Move Up") { model.moveRow(at.row, by: -1) }
                     .disabled(!model.canMoveRow(at.row, by: -1))
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forRowVerb: "Move up", row: at.row))
                 Button("Move Down") { model.moveRow(at.row, by: 1) }
                     .disabled(!model.canMoveRow(at.row, by: 1))
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forRowVerb: "Move down", row: at.row))
             }
             HStack {
                 Button("Add Column") { model.addColumn(after: at.column) }
                 Button("Remove Column") { model.removeColumn(at.column) }
                     .disabled(model.columnCount <= 1)
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forColumnVerb: "Remove", column: at.column))
                 Button("Move Left") { model.moveColumn(at.column, by: -1) }
                     .disabled(!model.canMoveColumn(at.column, by: -1))
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forColumnVerb: "Move left", column: at.column))
                 Button("Move Right") { model.moveColumn(at.column, by: 1) }
                     .disabled(!model.canMoveColumn(at.column, by: 1))
+                    .accessibilityLabel(TableGridModel.accessibilityLabel(forColumnVerb: "Move right", column: at.column))
                 Spacer()
                 Button("Paste Cells") {
-                    if let text = TableGridModel.clipboardText(from: .general) {
-                        model.pasteCells(tabSeparated: text)
+                    if let cells = TableGridModel.clipboardCells(from: .general) {
+                        model.pasteCells(cells)
                     }
                 }
                 .help("Fill cells from the focused one with cells copied from Excel, Numbers or Sheets")

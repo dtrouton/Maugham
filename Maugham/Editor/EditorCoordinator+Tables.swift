@@ -396,6 +396,9 @@ final class TableAnchorTracker {
 extension EditorCoordinator {
     /// What the writer is told when the table changed while the grid was open.
     static let tableChangedWhileEditingMessage = "The table changed while you were editing it"
+    /// What the writer is told when the posture refuses the save (it can turn
+    /// read-only while the sheet is open; a read-only grid's Save is disabled).
+    static let tableReadOnlyMessage = "This document can’t be changed here"
 
     /// Edit Table…: the grid on the table holding `location` (the caret when
     /// nil). Outside a table, on a surface with no grid, or while an input
@@ -427,7 +430,9 @@ extension EditorCoordinator {
         let task = Task { @MainActor [weak self] in
             let edited = await editor(request)
             tracker.stop()
-            guard let edited, let self else { return }
+            // Detached (a document switch) while the sheet was up: the task
+            // was cancelled, and nothing is saved anywhere.
+            guard let edited, !Task.isCancelled, let self else { return }
             self.saveEditedTable(edited, replacing: block, at: tracker.anchor)
         }
         tableGridTask = task
@@ -460,8 +465,9 @@ extension EditorCoordinator {
         return index >= delimiterStart && index <= delimiterEnd ? range : nil
     }
 
-    /// The grid's Save. Refused, writing nothing, when the membrane refuses
-    /// (a read-only posture) — and, telling the writer
+    /// The grid's Save. Refused, writing nothing, when the editor is detached;
+    /// when the membrane refuses (a read-only posture), saying so
+    /// (`tableReadOnlyMessage`); and, telling the writer
     /// (`tableChangedWhileEditingMessage`), when the table is not exactly
     /// `original` at `anchor` any more: an edit inside it, a sync re-render
     /// or a tidy while the sheet was open, or its start replaced (`anchor`
@@ -469,7 +475,11 @@ extension EditorCoordinator {
     /// `edited.formatted()`, the caret at its first cell.
     @discardableResult
     func saveEditedTable(_ edited: TableText, replacing original: String, at anchor: Int?) -> Bool {
-        guard !isDetached, let textView, commandMayWrite else { return false }
+        guard !isDetached, let textView else { return false }
+        guard commandMayWrite else {
+            commandFailureReporter?(Self.tableReadOnlyMessage)
+            return false
+        }
         let ns = textView.string as NSString
         guard let anchor, !tokensDescribeAnEarlierText,
               let range = tableBlockRange(containing: anchor), range.location == anchor,

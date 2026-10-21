@@ -70,6 +70,15 @@ final class TableClipboardTests: XCTestCase {
                        [["a", "b", "c"], ["1"], ["1", "2"]])
     }
 
+    /// Without the quote rule (plain text, not a spreadsheet's flavour) a
+    /// quote is the writer's own character and a tab inside it still splits.
+    func test_withoutQuotingEveryQuoteIsKept() {
+        XCTAssertEqual(TableClipboard.rows(fromTabSeparated: "\"a\tb\"\t\"\"x\"\"\r\n", quoting: false),
+                       [["\"a", "b\"", "\"\"x\"\""]])
+        XCTAssertEqual(TableClipboard.rows(fromTabSeparated: "\"a\tb\"", quoting: true), [["a\tb"]],
+                       "control: the same text, quoted")
+    }
+
     func test_unicodeCellsAreKeptWhole() {
         XCTAssertEqual(TableClipboard.rows(fromTabSeparated: "👨‍👩‍👧\te\u{301}\r\nЋ\t\"日本\""),
                        [["👨‍👩‍👧", "e\u{301}"], ["Ћ", "日本"]])
