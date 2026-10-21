@@ -12371,6 +12371,95 @@ extension TripwireGrepTests {
                        [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14],
                        "exactly the twelve code spellings:\n" + offenders.joined(separator: "\n"))
     }
+
+    // MARK: - A project's kind is named in ProjectKindName only (report plan 4, Task 6)
+
+    /// A kind named anywhere but `ProjectKindName` (R-4-8), in the two
+    /// spellings a second namer takes: a string literal that IS a kind name
+    /// (`"Novel"`, `"Short Story"`, `"Screenplay"`, `"Collection"`,
+    /// `"Report"`), and a type's raw value projected as if it were one
+    /// (`type.rawValue`, `projectType.rawValue`, `ProjectType.x.rawValue`).
+    /// Whole literals only, so help copy that merely contains the word ("a
+    /// novel in chapters") and lookalikes (`"Novella"`, `"Reports"`) pass;
+    /// word-bounded, so `subtype.rawValue` and `kind.rawValue` pass.
+    static let kindNamePattern: NSRegularExpression = {
+        try! NSRegularExpression(pattern: [
+            #"(?<![\w\\])"(Short Story|Novel|Screenplay|Collection|Report)""#,
+            #"\b(type|projectType)\.rawValue\b"#,
+            #"\bProjectType\.\w+\.rawValue\b"#,
+        ].joined(separator: "|"))
+    }()
+
+    /// Where a kind name or a type's raw value may be spelled, and why.
+    static let kindNameAllowed: [String: String] = [
+        "type:ProjectKindName": "the one home (R-4-8): \"Report\" for a Report, else the type's name",
+        "type:ListProjectsTool": "the wire `type` is the raw structure id by contract, never a name; `kind` beside it asks ProjectKindName",
+        "type:GetMetadataTool": "the wire `type` is the raw structure id by contract, never a name; `kind` beside it asks ProjectKindName",
+        "type:DocumentFormat": "PieceInspector's fileprivate `kindLabel` names a piece's FORMAT (Prose / Screenplay), not a project's kind",
+    ]
+
+    private func kindNameOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: [], allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: { line in
+                Self.kindNamePattern.firstMatch(
+                    in: line, range: NSRange(line.startIndex..., in: line)) != nil
+            })
+    }
+
+    /// **A project's kind is named by `ProjectKindName` only** (R-4-8). New
+    /// Project, the MCP tools and Project Settings ask it, so a Report says
+    /// "Report" everywhere; a kind spelled anywhere else is a second namer
+    /// that a Report (a profile, not a type) silently gets wrong. Mac, phone
+    /// and Core are scanned.
+    func test_kindNamesAreSpelledInProjectKindNameOnly() throws {
+        let offenders = try kindNameOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.kindNameAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "a project's kind named outside ProjectKindName — ask `ProjectKindName.of(manifest)` "
+            + "(or `.of(type)` for a choice that is not yet a project):\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: each literal kind name and each raw-value projection is
+    /// caught, while a comment, help copy containing the word, lookalikes
+    /// and other types' raw values are not; declared inside `ProjectKindName`
+    /// every spelling passes.
+    func test_theKindNameCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("kind-name-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let planted = dir.appendingPathComponent("Planted.swift")
+        try #"""
+        let a = Text("Novel")
+        let b = "Short Story"
+        let c = Section("Screenplay") {}
+        func d() -> String { return "Collection" }
+        let e = Button("Report") {}
+        let f = manifest.type.rawValue
+        let g = projectType.rawValue
+        let h = ProjectType.novel.rawValue
+        // "Novel"
+        let i = "A novel in chapters, with a Novel binder"
+        let j = "Novella"
+        let k = "Reports"
+        let l = item.kind.rawValue
+        let m = subtype.rawValue
+        let n = "\(count) Screenplay pages"
+        """#.write(to: planted, atomically: true, encoding: .utf8)
+
+        let bare = try kindNameOffenders(in: [dir], allowed: [])
+        XCTAssertEqual(bare.map { SourceTree.Hit(offender: $0)?.line }, [1, 2, 3, 4, 5, 6, 7, 8],
+                       "exactly the eight spellings:\n" + bare.joined(separator: "\n"))
+
+        try Self.declare("ProjectKindName", in: planted)
+        let unplanted = Self.kindNameAllowed.keys.filter { $0 != "type:ProjectKindName" }
+        let allowed = Self.dropping(unplanted: Array(unplanted), from: try kindNameOffenders(
+            in: [dir], allowed: Set(Self.kindNameAllowed.keys)))
+        XCTAssertEqual(allowed, [], "inside ProjectKindName every spelling passes:\n"
+                       + allowed.joined(separator: "\n"))
+    }
 }
 
 // MARK: - Every spawned process is a named one; every `claude` spawn is sealed

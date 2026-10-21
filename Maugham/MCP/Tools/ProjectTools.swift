@@ -6,11 +6,16 @@ public enum ListProjectsTool: MCPTool {
     public struct Project: Codable, Equatable {
         public let id: String
         public let title: String
-        public let type: String   // raw value of ProjectType
+        public let type: String   // raw value of ProjectType: the stable wire id, never a name
+        /// The kind's human name, from `ProjectKindName` (R-4-8): "Report" for
+        /// a Report, whose `type` is the structure it sits on.
+        public let kind: String
         public let path: String
     }
     public static let method = "list_projects"
-    public static let description = "List currently-open Maugham projects."
+    public static let description =
+        "List currently-open Maugham projects: id, title, `type` (the raw structure id, " +
+        "e.g. `short_story`), `kind` (the human name, e.g. \"Report\") and path."
     public static let inputSchemaJSON = #"{"type":"object","properties":{}}"#
 
     @MainActor
@@ -21,6 +26,7 @@ public enum ListProjectsTool: MCPTool {
                 id: entry.id,
                 title: entry.store.manifest.title,
                 type: entry.store.manifest.type.rawValue,
+                kind: ProjectKindName.of(entry.store.manifest),
                 path: entry.url.path)
         }
         return try JSONEncoder().encode(mapped)
@@ -32,9 +38,49 @@ public enum GetMetadataTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
     }
+    /// The four project switches on the wire, by their snake_case names.
+    /// `Switches` (every value present) is the effective answer;
+    /// `SwitchOverrides` (each value or null) is what the writer stored.
+    public struct Switches: Codable, Equatable {
+        public let number_sections: Bool
+        public let list_of_figures: Bool
+        public let list_of_tables: Bool
+        public let web_access: Bool
+    }
+    public struct SwitchOverrides: Codable, Equatable {
+        public let number_sections: Bool?
+        public let list_of_figures: Bool?
+        public let list_of_tables: Bool?
+        public let web_access: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case number_sections, list_of_figures, list_of_tables, web_access
+        }
+
+        /// Every key emitted; an unset override is `null` (MCP rule: a fact
+        /// emits null rather than vanishing).
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(number_sections, forKey: .number_sections)
+            try c.encode(list_of_figures, forKey: .list_of_figures)
+            try c.encode(list_of_tables, forKey: .list_of_tables)
+            try c.encode(web_access, forKey: .web_access)
+        }
+    }
     public struct Metadata: Codable, Equatable {
         public let title: String
+        /// The raw `ProjectType`: the stable wire id, never a name.
         public let type: String
+        /// The kind's human name, from `ProjectKindName` (R-4-8).
+        public let kind: String
+        /// The profile's raw value (`"report"`, or a later build's string),
+        /// or null when the project has none.
+        public let profile: String?
+        /// Each switch's effective value: the stored override, else the
+        /// profile's default, else false (`ProjectManifest.effectiveSwitches`).
+        public let switches: Switches
+        /// What the writer stored per switch; null means "the profile's default".
+        public let switch_overrides: SwitchOverrides
         public let author: String?
         public let created: Date
         public let modified: Date
@@ -42,10 +88,37 @@ public enum GetMetadataTool: MCPTool {
         public let page_target: Int?
         public let tags_in_use: [String]
         public let research_count: Int
+
+        enum CodingKeys: String, CodingKey {
+            case title, type, kind, profile, switches, switch_overrides, author
+            case created, modified, total_word_target, page_target, tags_in_use, research_count
+        }
+
+        /// Hand-written so every optional emits `null` rather than vanishing.
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(title, forKey: .title)
+            try c.encode(type, forKey: .type)
+            try c.encode(kind, forKey: .kind)
+            try c.encode(profile, forKey: .profile)
+            try c.encode(switches, forKey: .switches)
+            try c.encode(switch_overrides, forKey: .switch_overrides)
+            try c.encode(author, forKey: .author)
+            try c.encode(created, forKey: .created)
+            try c.encode(modified, forKey: .modified)
+            try c.encode(total_word_target, forKey: .total_word_target)
+            try c.encode(page_target, forKey: .page_target)
+            try c.encode(tags_in_use, forKey: .tags_in_use)
+            try c.encode(research_count, forKey: .research_count)
+        }
     }
     public static let method = "get_metadata"
     public static let description =
-        "Return project-level metadata: title, type, author, dates, targets, tags, research count."
+        "Return project-level metadata: title, `type` (the raw structure id), `kind` " +
+        "(the human name, \"Report\" for a report), `profile` (\"report\" or null), " +
+        "`switches` (the effective number_sections / list_of_figures / list_of_tables / " +
+        "web_access) and `switch_overrides` (what the writer set; null = the profile's " +
+        "default), author, dates, targets, tags, research count."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
@@ -56,9 +129,22 @@ public enum GetMetadataTool: MCPTool {
         let m = entry.store.manifest
         let tags = Self.collectTags(in: m.structure)
         let researchCount = Self.countResearch(m.research)
+        let effective = m.effectiveSwitches
         let meta = Metadata(
             title: m.title,
             type: m.type.rawValue,
+            kind: ProjectKindName.of(m),
+            profile: m.profile?.rawValue,
+            switches: Switches(
+                number_sections: effective.numberSections,
+                list_of_figures: effective.listOfFigures,
+                list_of_tables: effective.listOfTables,
+                web_access: effective.webAccess),
+            switch_overrides: SwitchOverrides(
+                number_sections: m.switches?.numberSections,
+                list_of_figures: m.switches?.listOfFigures,
+                list_of_tables: m.switches?.listOfTables,
+                web_access: m.switches?.webAccess),
             author: m.author,
             created: m.created,
             modified: m.modified,

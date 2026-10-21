@@ -64,22 +64,17 @@ struct NewProjectSheet: View {
             && parentURL != nil
     }
 
+    /// The choice's name is the kind's one name (R-4-8), never spelled here.
     private func label(for type: ProjectType) -> String {
-        switch type {
-        case .shortStory: return "Short Story"
-        case .novel: return "Novel"
-        case .screenplay: return "Screenplay"
-        case .collection: return "Collection"
-        case .unknown: return "Unknown"   // excluded from allCases; never offered here
-        }
+        ProjectKindName.of(type)
     }
 
     private func help(for type: ProjectType) -> String {
         switch type {
-        case .shortStory: return "A single-document prose project."
-        case .novel: return "A multi-file novel with a hierarchical binder."
-        case .screenplay: return "A Fountain-format screenplay (no parser yet — plain monospace)."
-        case .collection: return "A collection placeholder; depth arrives in Phase 2."
+        case .shortStory: return "One document of prose."
+        case .novel: return "Prose in chapters, arranged in a binder."
+        case .screenplay: return "One Fountain screenplay, with a scene navigator."
+        case .collection: return "Separate pieces, each in prose or Fountain."
         case .unknown: return ""   // excluded from allCases; never offered here
         }
     }

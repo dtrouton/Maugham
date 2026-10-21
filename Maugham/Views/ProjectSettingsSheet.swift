@@ -327,7 +327,7 @@ struct ProjectSettingsSheet: View {
     @ViewBuilder
     private func screenplaySection() -> some View {
         if Self.showsScreenplaySection(for: store.manifest.type) {
-            Section("Screenplay") {
+            Section(ProjectKindName.of(ProjectType.screenplay)) {
                 Toggle("Show element gutter", isOn: Binding(
                     get: { store.manifest.showElementGutter ?? true },
                     set: { newValue in

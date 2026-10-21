@@ -56,12 +56,12 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading against it. Contracts beyond one line are under Rules → Tool contracts.
 
 **Discovery / identity**
-- `list_projects` — every open project.
+- `list_projects` — every open project, with its `type` and its `kind`.
 - `list_maugham_tools` — every tool plus a server identity block.
 - `get_help` — Maugham's bundled user documentation by topic; topic `"skills"` lists the agent skills, a skill's name loads its procedure.
 
 **Project read**
-- `get_metadata` — title, type, tags, word targets, session stats.
+- `get_metadata` — title, type, kind, profile, switches, tags, word targets, session stats.
 - `get_outline` — the binder tree, with derived review status, pass states and each pass's brief.
 - `list_scenes` — sluglines of a screenplay.
 - `get_session_stats` — per-document session word counts and activity.
@@ -176,6 +176,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 ### Tool contracts
 
 **Project and document reads**
+- **A project's kind is `kind`, from `ProjectKindName.of(manifest)`; `type` stays the raw structure id** (`list_projects`, `get_metadata`), so a Report reads `kind: "Report"` over `type: "novel"`. `get_metadata` adds `profile` (raw, or `null`), `switches` (the four effective values) and `switch_overrides` (each stored value, or `null` for the profile's default).
 - **`get_outline` reports the DERIVED review status**: `review_status` (`ReviewStatus.derived` over the piece's states, the projection every in-app dot draws) and `pass_states` keyed by `ReviewPass.id`, with `review_passes` at the top level in ladder order. The passes come from `ProjectManifest.effectiveReviewPasses`, never the raw stored array.
 - **`get_outline`'s legacy `status` stays on the wire and nothing writes it**: `review_status` is the truth. A GROUP node reports both new fields as `null` (`Node`'s hand-written encoder keeps the schema uniform).
 - **Each `review_passes` entry carries `brief`** (`PassInfo.brief`), resolved through `ReviewPass.effectiveBrief`, never the raw `brief`, so a preset pass serves the preset's. The wire serves doctrine, never an editor persona: `editorName` stays off it. `null` only for a briefless custom pass.

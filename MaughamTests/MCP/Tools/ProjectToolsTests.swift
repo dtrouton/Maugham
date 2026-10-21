@@ -4,7 +4,10 @@ import MaughamCore
 
 @MainActor
 final class ProjectToolsTests: XCTestCase {
-    private func makeProject(title: String = "Demo") async throws -> (URL, ProjectStore) {
+    private func makeProject(
+        title: String = "Demo", type: ProjectType = .novel,
+        profile: ProjectProfile? = nil, switches: ProjectSwitches? = nil
+    ) async throws -> (URL, ProjectStore) {
         let tmp = TestTemp.root
             .appendingPathComponent("PT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -14,10 +17,12 @@ final class ProjectToolsTests: XCTestCase {
                        atomically: true, encoding: .utf8)
         let item = StructureItem(id: "ch-1", title: "Ch 1", type: .document,
                                   path: "manuscript/c1.md")
-        let manifest = ProjectManifest(
-            type: .novel, title: title, author: "A",
+        var manifest = ProjectManifest(
+            type: type, title: title, author: "A",
             created: Date(), modified: Date(),
             structure: [item], research: [])
+        manifest.profile = profile
+        manifest.switches = switches
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
@@ -51,6 +56,83 @@ final class ProjectToolsTests: XCTestCase {
         let meta = try decoder.decode(GetMetadataTool.Metadata.self, from: json)
         XCTAssertEqual(meta.title, "Mine")
         XCTAssertEqual(meta.type, "novel")
+    }
+
+    // MARK: - The kind's name, the profile and the switches (report plan 4, Task 6)
+
+    private func metadataJSON(_ url: URL, _ store: ProjectStore) async throws -> [String: Any] {
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+        let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\"}"
+        let data = try await GetMetadataTool.handle(paramsJSON: Data(req.utf8), registry: reg)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// `list_projects` names each project's kind beside its raw `type`, from
+    /// `ProjectKindName` — so a Report says "Report" while `type` stays the
+    /// structure it sits on.
+    func test_listProjects_namesEachKindBesideItsType() async throws {
+        let (u1, s1) = try await makeProject(title: "Plain", type: .screenplay)
+        let (u2, s2) = try await makeProject(title: "Rep", type: .novel, profile: .report)
+        let reg = ProjectRegistry()
+        reg.register(url: u1, store: s1)
+        reg.register(url: u2, store: s2)
+        let data = try await ListProjectsTool.handle(paramsJSON: nil, registry: reg)
+        let rows = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        let byTitle = Dictionary(uniqueKeysWithValues: rows.map { ($0["title"] as? String ?? "", $0) })
+        XCTAssertEqual(byTitle["Plain"]?["kind"] as? String, "Screenplay")
+        XCTAssertEqual(byTitle["Plain"]?["type"] as? String, "screenplay")
+        XCTAssertEqual(byTitle["Rep"]?["kind"] as? String, "Report")
+        XCTAssertEqual(byTitle["Rep"]?["type"] as? String, "novel")
+    }
+
+    /// A project with no profile reports `profile: null` (emitted, not
+    /// omitted), every switch off, and every override null.
+    func test_getMetadata_aPlainProjectReportsANullProfileAndItsSwitchesOff() async throws {
+        let (url, store) = try await makeProject(title: "Plain", type: .shortStory)
+        let json = try await metadataJSON(url, store)
+        XCTAssertEqual(json["kind"] as? String, "Short Story")
+        XCTAssertEqual(json["type"] as? String, "short_story")
+        XCTAssertTrue(json.keys.contains("profile"), "profile is emitted as null, never omitted")
+        XCTAssertTrue(json["profile"] is NSNull)
+        let switches = try XCTUnwrap(json["switches"] as? [String: Bool])
+        XCTAssertEqual(switches, ["number_sections": false, "list_of_figures": false,
+                                  "list_of_tables": false, "web_access": false])
+        let overrides = try XCTUnwrap(json["switch_overrides"] as? [String: Any])
+        XCTAssertEqual(Set(overrides.keys),
+                       ["number_sections", "list_of_figures", "list_of_tables", "web_access"])
+        XCTAssertTrue(overrides.values.allSatisfy { $0 is NSNull }, "\(overrides)")
+        XCTAssertTrue(json.keys.contains("author") && json.keys.contains("page_target"),
+                      "every optional fact is emitted: \(json.keys.sorted())")
+    }
+
+    /// A Report reports its kind, its profile's raw value, its EFFECTIVE
+    /// switches (the profile's defaults under the writer's overrides) and the
+    /// overrides the writer actually stored.
+    func test_getMetadata_aReportReportsItsProfileEffectiveSwitchesAndOverrides() async throws {
+        let (url, store) = try await makeProject(
+            title: "Rep", type: .novel, profile: .report,
+            switches: ProjectSwitches(listOfTables: false))
+        let json = try await metadataJSON(url, store)
+        XCTAssertEqual(json["kind"] as? String, "Report")
+        XCTAssertEqual(json["type"] as? String, "novel")
+        XCTAssertEqual(json["profile"] as? String, "report")
+        XCTAssertEqual(json["switches"] as? [String: Bool],
+                       ["number_sections": true, "list_of_figures": true,
+                        "list_of_tables": false, "web_access": true])
+        let overrides = try XCTUnwrap(json["switch_overrides"] as? [String: Any])
+        XCTAssertEqual(overrides["list_of_tables"] as? Bool, false)
+        XCTAssertTrue(overrides["number_sections"] is NSNull)
+        XCTAssertTrue(overrides["web_access"] is NSNull)
+    }
+
+    /// A profile this build does not know is reported by its raw string, and
+    /// the kind falls back to the type's name.
+    func test_getMetadata_anUnknownProfileReportsItsRawString() async throws {
+        let (url, store) = try await makeProject(title: "Ess", type: .shortStory, profile: .unknown("essay"))
+        let json = try await metadataJSON(url, store)
+        XCTAssertEqual(json["profile"] as? String, "essay")
+        XCTAssertEqual(json["kind"] as? String, "Short Story")
     }
 
     func test_getMetadata_unknownProject_throwsUnknownProjectID() async throws {

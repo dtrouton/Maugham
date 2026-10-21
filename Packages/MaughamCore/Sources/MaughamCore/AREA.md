@@ -134,6 +134,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ProjectProfile.swift` — the Report profile and the four project switches; `effectiveSwitches` and `contentSchemaFloor`.
 - `ProjectType.swift` — the four project forms plus decode-only `.unknown`.
 - `ProjectType+Capabilities.swift` — what callers ask of a kind (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`), answered once for Mac and phone (tripwire 55).
+- `ProjectKindName.swift` — the one name for a project's kind: "Report" for a Report, else the type's name; nothing else spells one (`TripwireGrepTests.test_kindNamesAreSpelledInProjectKindNameOnly`).
 - `DocumentFormat.swift` — a manuscript's format from its extension: the extension, held blank lines, screenplay family, help resource, icon (tripwires 54, 55).
 - `ProjectTargets.swift` — optional word, deadline and page targets.
 - `StructureItem.swift` — a binder node (group or document), including `startedBy` and pass states.
@@ -251,11 +252,11 @@ Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `
 
 ### Add a ProjectType case
 1. `ProjectType.swift` — add the case and its snake_case raw value, add it to `allCases`, and bump `ProjectManifest.currentSchemaVersion` (ADR 0015).
-2. `ProjectType+Capabilities.swift` — answer every capability for the new case (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`). Each is an exhaustive switch, so the compiler flags them; the phone's icons read `symbolName` and need no change of their own.
+2. `ProjectType+Capabilities.swift` and `ProjectKindName.swift` — answer every capability for the new case (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`) and its name. Each is an exhaustive switch, so the compiler flags them; the phone's icons read `symbolName` and need no change of their own.
 3. The other exhaustive switches the compiler flags:
    - `Maugham/Stores/ResearchScope.swift` — `researchRouting` and `derivedResearchItems(forDocumentId:)`;
    - `Maugham/Models/TreePane.swift` — `init(for:)`;
-   - `Maugham/Views/NewProjectSheet.swift` — `label(for:)`, `help(for:)` and `create()`.
+   - `Maugham/Views/NewProjectSheet.swift` — `help(for:)` and `create()`.
 4. A factory in `Maugham/Stores/ProjectFactory.swift` for `create()` to call.
 5. If the new kind needs a question no capability answers, add a capability (or an exhaustive switch at the site); never an `==` on the case, which `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality` refuses (tripwire 55).
 

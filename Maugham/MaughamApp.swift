@@ -749,11 +749,11 @@ private struct HelpCommands: Commands {
                 openWindow(id: "welcome")
             }
             Menu("Sample Projects") {
-                Button("Novel") {
+                Button(ProjectKindName.of(ProjectType.novel)) {
                     onboarding.sampleRequested = .novel
                     openWindow(id: "welcome")
                 }
-                Button("Screenplay") {
+                Button(ProjectKindName.of(ProjectType.screenplay)) {
                     onboarding.sampleRequested = .screenplay
                     openWindow(id: "welcome")
                 }
