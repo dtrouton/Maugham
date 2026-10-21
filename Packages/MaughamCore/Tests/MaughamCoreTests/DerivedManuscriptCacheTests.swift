@@ -37,6 +37,32 @@ final class DerivedManuscriptCacheTests: XCTestCase {
            sequence: seq, provenance: nil)
     }
 
+    /// Many docs' tokens come from ONE listing of `.maugham/ops` (plan 3b
+    /// whole-branch review I2: a listing per doc made the editor's reference
+    /// index cost the square of the project on the main actor), and each is
+    /// exactly the token the per-doc door answers.
+    func test_tokensForManyDocs_listTheOpsDirectoryOnce_andMatchThePerDocToken() throws {
+        let root = try seed(docId: "doc-1", ops: [
+            op("01a", seq: ["n5sg"], changes: [("n5sg", "One.")])])
+        try seed(root: root, docId: "doc-2", ops: [
+            op("02a", doc: "doc-2", seq: ["xg8q"], changes: [("xg8q", "Two.")])])
+        try seed(root: root, docId: "doc-10", ops: [
+            op("03a", doc: "doc-10", seq: ["w4kd"], changes: [("w4kd", "Ten.")])])
+        var listings = 0
+        let tokens = DerivedManuscriptCache.tokens(
+            forDocIds: ["doc-1", "doc-2", "doc-10", "doc-none"], in: root,
+            list: { listings += 1; return OpLogFiles.opsDirectoryListing(in: $0) })
+        XCTAssertEqual(listings, 1, "one directory listing for every doc asked")
+        for docId in ["doc-1", "doc-2", "doc-10", "doc-none"] {
+            XCTAssertEqual(tokens[docId], DerivedManuscriptCache.token(forDocId: docId, in: root), docId)
+        }
+        XCTAssertEqual(tokens["doc-1"]?.entries.count, 1, "doc-1 never takes doc-10's file")
+        XCTAssertEqual(tokens["doc-none"]?.entries, [])
+        XCTAssertEqual(DerivedManuscriptCache.tokens(forDocIds: [], in: root,
+                                                     list: { _ in listings += 1; return [] }), [:])
+        XCTAssertEqual(listings, 1, "asking about no doc lists nothing")
+    }
+
     /// Two calls on an unchanged file: exactly one derive.
     func test_secondCall_sameFileSet_zeroAdditionalDerives() throws {
         let root = try seed(docId: "doc-1", ops: [

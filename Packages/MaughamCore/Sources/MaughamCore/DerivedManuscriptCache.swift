@@ -31,8 +31,8 @@ public final class DerivedManuscriptCache {
 
     /// Op-log file-set fingerprint. Two tokens compare equal iff the doc's
     /// op-log files, their sizes, and their mtimes all match.
-    public struct Token: Equatable {
-        struct Entry: Equatable {
+    public struct Token: Equatable, Sendable {
+        struct Entry: Equatable, Sendable {
             let path: String
             let mtime: TimeInterval
             let size: Int
@@ -107,8 +107,33 @@ public final class DerivedManuscriptCache {
     /// its own product of a closed doc's text (the editor's reference index)
     /// can ask "has this doc changed?" before paying for its text again.
     public static func token(forDocId docId: String, in projectURL: URL) -> Token {
+        token(of: OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL))
+    }
+
+    /// Many docs' tokens from ONE listing of `.maugham/ops`, each equal to
+    /// what `token(forDocId:in:)` answers for it, plus a stat per matching
+    /// file. A reader asking about every piece of a project (the editor's
+    /// reference index) lists the directory once, not once per piece — the
+    /// per-doc listing would make its cost grow with the square of the
+    /// project. Foundation-only and stateless: safe off the main actor.
+    /// `list` is the directory listing (`OpLogFiles.opsDirectoryListing`);
+    /// tests count it.
+    public nonisolated static func tokens(
+        forDocIds docIds: [String], in projectURL: URL,
+        list: (URL) -> [URL] = OpLogFiles.opsDirectoryListing(in:)
+    ) -> [String: Token] {
+        guard !docIds.isEmpty else { return [:] }
+        let listing = list(projectURL)
+        var out: [String: Token] = [:]
+        for docId in docIds {
+            out[docId] = token(of: OpLogFiles.opLogFileURLs(forDocId: docId, among: listing))
+        }
+        return out
+    }
+
+    private nonisolated static func token(of urls: [URL]) -> Token {
         let fm = FileManager.default
-        let entries = OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
+        let entries = urls
             .map { url -> Token.Entry in
                 let attrs = try? fm.attributesOfItem(atPath: url.path)
                 let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0

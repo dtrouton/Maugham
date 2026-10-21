@@ -65,10 +65,23 @@ public enum OpLogFiles {
     public nonisolated static func opLogFileURLs(
         forDocId docId: String, in projectURL: URL
     ) -> [URL] {
+        opLogFileURLs(forDocId: docId, among: opsDirectoryListing(in: projectURL))
+    }
+
+    /// Every URL in `.maugham/ops` (unfiltered), or [] when the directory is
+    /// absent: one listing a caller asking about MANY docs filters with
+    /// `opLogFileURLs(forDocId:among:)`, rather than listing once per doc.
+    public nonisolated static func opsDirectoryListing(in projectURL: URL) -> [URL] {
         let dir = projectURL.appendingPathComponent(".maugham/ops")
-        let all = (try? FileManager.default.contentsOfDirectory(
+        return (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil)) ?? []
-        return all.filter { url in
+    }
+
+    /// `docId`'s op-log files among a listing of `.maugham/ops`
+    /// (`opsDirectoryListing`). The one spelling of which filenames are a
+    /// doc's history: legacy `.jsonl`, per-device `.jsonl`, sealed segments.
+    public nonisolated static func opLogFileURLs(forDocId docId: String, among listing: [URL]) -> [URL] {
+        listing.filter { url in
             let n = url.lastPathComponent
             return n == "\(docId).jsonl"
                 || (n.hasPrefix("\(docId).") && n.hasSuffix(".jsonl"))
