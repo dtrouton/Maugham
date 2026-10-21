@@ -372,7 +372,9 @@ public struct CompileOrchestrator {
         }
 
         // What counts as a SOURCE publication for the branches below is
-        // `Publication.isSourceEdition(sourceTag:)`, never `language == nil`: a
+        // `Publication.isVersionSource(sourceTag:)` — a source edition that is
+        // a book version, never a Word draft (whole-branch C1) — and never
+        // `language == nil`: a
         // bilingual compile writes the identity "en+sr", and that document
         // contains the source book as surely as a nil-language record does, so
         // a later edition may pin its version and a version-less edition may
@@ -442,7 +444,7 @@ public struct CompileOrchestrator {
             // and vice versa. Without this, an imprint edition would pin — and
             // mint at — a version belonging to another edition line entirely.
             guard existingPublications.contains(where: {
-                $0.isSourceEdition(sourceTag: set.sourceTag)
+                $0.isVersionSource(sourceTag: set.sourceTag)
                     && $0.republishedFrom == nil
                     && $0.version == version && $0.imprint == imprint
             }) else {
@@ -452,13 +454,13 @@ public struct CompileOrchestrator {
                 // the original, pinnable version instead.
                 let existenceLine: String
                 if let repub = existingPublications.first(where: {
-                    $0.isSourceEdition(sourceTag: set.sourceTag)
+                    $0.isVersionSource(sourceTag: set.sourceTag)
                         && $0.republishedFrom != nil
                         && $0.version == version && $0.imprint == imprint
                 }), let original = repub.republishedFrom {
                     existenceLine = "v\(version) is a republished record (republished_from: \(original)) — republished versions aren't pinnable as edition sources; pin the original v\(original), or use republish to reproduce the snapshot."
                 } else if let elsewhere = existingPublications.first(where: {
-                    $0.isSourceEdition(sourceTag: set.sourceTag)
+                    $0.isVersionSource(sourceTag: set.sourceTag)
                         && $0.republishedFrom == nil
                         && $0.version == version && $0.imprint != imprint
                 }) {
@@ -467,6 +469,12 @@ public struct CompileOrchestrator {
                     // one in list_publications would be literally false, so
                     // name where it actually lives.
                     existenceLine = "version '\(version)' exists \(Self.placeOf(elsewhere.imprint)), not \(Self.notPlaceOf(imprint)) — an edition renders a source version of its own imprint."
+                } else if existingPublications.contains(where: {
+                    $0.format.mintsDrafts && $0.version == version && $0.imprint == imprint
+                }) {
+                    // A Word draft is no version (R-4-1): name it for what it
+                    // is rather than claim nothing exists at `draft-N`.
+                    existenceLine = "'\(version)' is a Word draft, not a book version — an edition renders a version; pin one of those."
                 } else {
                     existenceLine = "No source publication — one whose edition includes '\(set.sourceTag)' — exists at v\(version)."
                 }
@@ -495,7 +503,7 @@ public struct CompileOrchestrator {
             // latest source of THIS edition line, never whatever happens to be
             // the newest row in the catalog.
             let sources = existingPublications.filter {
-                $0.isSourceEdition(sourceTag: set.sourceTag)
+                $0.isVersionSource(sourceTag: set.sourceTag)
                     && $0.republishedFrom == nil
                     && $0.imprint == imprint
             }

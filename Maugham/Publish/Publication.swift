@@ -84,6 +84,16 @@ public struct Publication: Codable, Equatable, Sendable {
         return language.split(separator: "+").contains { $0 == sourceTag }
     }
 
+    /// Whether a language edition may render THIS row's version: a source
+    /// edition (`isSourceEdition`) that is a book version. A Word export is a
+    /// draft (R-4-1) — its `draft-N` is a Word export's number, not a version
+    /// — so a draft row is never an edition's source, latest or pinned, however
+    /// recently it was sent (whole-branch C1). The one predicate both of the
+    /// edition door's lookups ask, so the latest and the pin cannot disagree.
+    public func isVersionSource(sourceTag: String) -> Bool {
+        isSourceEdition(sourceTag: sourceTag) && !format.mintsDrafts
+    }
+
     enum CodingKeys: String, CodingKey {
         case publicationID = "publication_id"
         case version, label, format

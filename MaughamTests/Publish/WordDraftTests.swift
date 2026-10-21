@@ -118,6 +118,78 @@ final class WordDraftTests: XCTestCase {
         XCTAssertTrue(sentCopies.isEmpty)
     }
 
+    // MARK: - a draft is never an edition's source (whole-branch C1)
+
+    /// A source that answers in English or Serbian, as an edition rebinds it.
+    private struct Tongues: LanguageRebindableSource {
+        let tag: String?
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "Introduction", mode: .prose,
+                   displayText: tag == nil ? "The first finding." : "Prvi nalaz.",
+                   paragraphs: [("c3d4", tag == nil ? "The first finding." : "Prvi nalaz.")])]
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source { Tongues(tag: tag) }
+    }
+
+    /// **The ordinary bilingual Report flow**: the PDF (v0.1), then a Word
+    /// draft for review (`draft-1`, compiled later), then the Serbian PDF.
+    /// The edition renders the latest book VERSION, v0.1 — never the draft,
+    /// which is a Word export's number and no version at all (R-4-1).
+    func test_aLanguageEditionAfterAWordDraft_rendersTheLatestVersion_notTheDraft() async throws {
+        try await TectonicProbe.requireReady()
+        let orch = orchestrator(source: Tongues(tag: nil))
+        let pdf = try await orch.compile(format: .pdf, label: nil)
+        guard case .completed(let source, _) = pdf else { return XCTFail("the PDF: \(pdf)") }
+        XCTAssertEqual(source.version, "0.1")
+        let draft = try await exportWord(orch)
+        XCTAssertEqual(draft.version, "draft-1")
+        XCTAssertGreaterThan(draft.compiledAt, source.compiledAt, "premise: the draft is the newer row")
+
+        let sr = try await orch.compile(format: .pdf, label: nil, language: "sr")
+        guard case .completed(let edition, _) = sr else { return XCTFail("the sr PDF: \(sr)") }
+        XCTAssertEqual(edition.version, "0.1", "the edition renders v0.1, not the Word draft")
+        XCTAssertEqual(edition.language, "sr")
+        XCTAssertEqual((edition.outputPath as NSString).lastPathComponent, "Word-v0.1-sr.pdf")
+        XCTAssertEqual(PublishPreviewCentre.parts(for: edition).first, "v0.1")
+    }
+
+    /// The same without tectonic, through an EPUB edition, and the pinned
+    /// door: `version: "draft-1"` is no source version and is refused in a
+    /// sentence that says what a draft is, minting nothing.
+    func test_aDraftIsNeitherTheLatestNorAPinnableEditionSource() async throws {
+        let orch = orchestrator(source: Tongues(tag: nil))
+        let epub = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let source, _) = epub else { return XCTFail("the EPUB: \(epub)") }
+        _ = try await exportWord(orch)
+
+        let sr = try await orch.compile(format: .epub, label: nil, language: "sr")
+        guard case .completed(let edition, _) = sr else { return XCTFail("the sr EPUB: \(sr)") }
+        XCTAssertEqual(edition.version, source.version, "the latest VERSION, never the draft")
+
+        let pinned = try await orch.compile(format: .epub, label: nil, language: "es", version: "draft-1")
+        guard case .failed(let errors, let excerpt) = pinned else {
+            return XCTFail("a draft is not a pinnable source: \(pinned)")
+        }
+        XCTAssertTrue(excerpt.hasPrefix("no_source_version"), excerpt)
+        XCTAssertTrue(errors.flatMap(\.contextLines).contains { $0.contains("Word draft") },
+                      "\(errors.flatMap(\.contextLines))")
+        let pubs = try await PublicationStore(projectURL: tmp).load()
+        XCTAssertFalse(pubs.contains { $0.language == "es" }, "nothing minted")
+    }
+
+    /// Only a Word row is named as a draft: a row of another format whose
+    /// version happens to read `draft-N` is a version, named `v…`.
+    func test_partsNamesADraftOnlyForAWordRow() {
+        func row(_ format: PublishConfig.Format) -> Publication {
+            Publication(publicationID: "pub-x", version: "draft-1", label: nil, format: format,
+                        outputPath: "Exports/x", snapshotID: "s", checkpointID: "",
+                        republishedFrom: nil, compiledAt: Date(), maughamVersion: "t", tectonicVersion: "t")
+        }
+        XCTAssertEqual(PublishPreviewCentre.parts(for: row(.docx)).first, "Draft 1")
+        XCTAssertEqual(PublishPreviewCentre.parts(for: row(.pdf)).first, "vdraft-1")
+        XCTAssertEqual(PublishPreviewCentre.parts(for: row(.epub)).first, "vdraft-1")
+    }
+
     // MARK: - concurrency
 
     /// A draft in flight is held on the mint gate under `(imprint, draft-N,

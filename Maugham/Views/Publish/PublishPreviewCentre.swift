@@ -273,8 +273,11 @@ struct PublishPreviewCentre: View {
     /// `DepartmentCompileState.completedLine` all draw from this, so no two
     /// surfaces that name a book can disagree about what it's called.
     static func parts(for publication: Publication) -> [String] {
-        var parts = [WordDraft.displayName(ofVersion: publication.version)
-            ?? "v\(publication.version)"]
+        // A row is named as a draft only when its format mints drafts: a
+        // version of any other format is "v…", whatever it spells.
+        let draftName = publication.format.mintsDrafts
+            ? WordDraft.displayName(ofVersion: publication.version) : nil
+        var parts = [draftName ?? "v\(publication.version)"]
         if let imprint = publication.imprint { parts.append(imprint) }
         if let language = publication.language { parts.append(language.uppercased()) }
         parts.append(compiled.string(from: publication.compiledAt))
