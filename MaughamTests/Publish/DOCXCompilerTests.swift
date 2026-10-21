@@ -252,6 +252,10 @@ final class DOCXCompilerTests: XCTestCase {
              "w:pStyle Nope isn't defined", "[Content_Types].xml"),
             ("word/document.xml", #"r:embed="rIdImg"#, #"r:embed="rIdGone"#, "which document.xml.rels doesn't define",
              "[Content_Types].xml"),
+            ("word/document.xml", #"<w:pStyle w:val="Caption"/>"#, #"<w:pStyle w:val="CodeChar"/>"#,
+             "names a character style, not a paragraph one", "[Content_Types].xml"),
+            ("word/document.xml", "</w:sectPr></w:body>", "</w:sectPr><w:p/></w:body>",
+             "w:sectPr is not the body's last child", "[Content_Types].xml"),
             ("word/settings.xml", "<w:footnotePr>", #"<w:updateFields w:val="true"/><w:footnotePr>"#,
              "update fields", "[Content_Types].xml"),
             ("word/document.xml", "<w:body>", "<w:body>", "not [Content_Types].xml", "word/document.xml"),
@@ -376,6 +380,9 @@ final class DOCXCompilerTests: XCTestCase {
         }
         let sizes = DOCXValidator.elements(DOCXValidator.elements(styles, "w:docDefaults").first, "w:sz")
         XCTAssertEqual(sizes.compactMap { DOCXValidator.attr($0, "w:val") }, ["24"], "its docDefaults")
+        let languages = DOCXValidator.elements(DOCXValidator.elements(styles, "w:docDefaults").first, "w:lang")
+        XCTAssertEqual(languages.compactMap { DOCXValidator.attr($0, "w:val") }, ["en-US"],
+                       "its docDefaults carry the book's own language")
         let defaults = DOCXValidator.elements(styles, "w:style").filter {
             DOCXValidator.attr($0, "w:type") == "paragraph" && DOCXValidator.attr($0, "w:default") == "1"
         }
@@ -400,7 +407,80 @@ final class DOCXCompilerTests: XCTestCase {
         XCTAssertEqual(try part("word/styles.xml", of: again), DOCXPackage.Styles.builtIn(language: "en-US").xml)
     }
 
+    /// A German Word writes its own ids (`Standard`, `berschrift1`,
+    /// `Beschriftung`) and keeps Word's built-in names: the names match, so
+    /// those styles ARE Normal, Heading1 and Caption, and what pointed at the
+    /// old ids follows.
+    private static let localisedStyles = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\
+        <w:style w:type="paragraph" w:default="1" w:styleId="Standard"><w:name w:val="Normal"/></w:style>\
+        <w:style w:type="paragraph" w:styleId="berschrift1"><w:name w:val="heading 1"/>\
+        <w:basedOn w:val="Standard"/><w:next w:val="Standard"/><w:link w:val="berschrift1Zchn"/>\
+        <w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/></w:rPr></w:style>\
+        <w:style w:type="character" w:customStyle="1" w:styleId="berschrift1Zchn"><w:name w:val="Überschrift 1 Zchn"/>\
+        <w:link w:val="berschrift1"/></w:style>\
+        <w:style w:type="paragraph" w:styleId="Beschriftung"><w:name w:val="Caption"/><w:basedOn w:val="Standard"/>\
+        <w:rPr><w:color w:val="FF0000"/></w:rPr></w:style>\
+        </w:styles>
+        """
+
+    func test_aLocalisedReference_matchesTheBuiltInsByName_andRepointsItsLinks() async throws {
+        let fx = try await makeReport()
+        try writeReference([.init(path: "word/styles.xml", data: Data(Self.localisedStyles.utf8), compress: true)],
+                           in: fx)
+        let (docx, result) = try await compile(fx)
+        XCTAssertEqual(result.warnings, [])
+        XCTAssertEqual(DOCXValidator.problems(in: docx), [])
+
+        let styles = try xml("word/styles.xml", of: docx)
+        let ids = DOCXValidator.elements(styles, "w:style").compactMap { DOCXValidator.attr($0, "w:styleId") }
+        for id in ["Normal", "Heading1", "Caption"] {
+            XCTAssertEqual(ids.filter { $0 == id }.count, 1, "one \(id): \(ids)")
+        }
+        XCTAssertFalse(ids.contains("berschrift1") || ids.contains("Standard") || ids.contains("Beschriftung"), "\(ids)")
+        let heading = try XCTUnwrap(style("Heading1", in: styles))
+        XCTAssertEqual(DOCXValidator.elements(heading, "w:rFonts").first.flatMap { DOCXValidator.attr($0, "w:ascii") },
+                       "Georgia", "the German heading is the Heading1 the document uses")
+        for pointer in ["w:basedOn", "w:next"] {
+            XCTAssertEqual(DOCXValidator.elements(heading, pointer).first.flatMap { DOCXValidator.attr($0, "w:val") },
+                           "Normal", "\(pointer) follows the rename")
+        }
+        let linked = try XCTUnwrap(style("berschrift1Zchn", in: styles))
+        XCTAssertEqual(DOCXValidator.elements(linked, "w:link").first.flatMap { DOCXValidator.attr($0, "w:val") },
+                       "Heading1")
+        let caption = try XCTUnwrap(style("Caption", in: styles))
+        XCTAssertEqual(DOCXValidator.elements(caption, "w:color").first.flatMap { DOCXValidator.attr($0, "w:val") },
+                       "FF0000", "the reference's caption, not the built-in")
+    }
+
+    /// M3: Word's `w:lang` is BCP 47, so `en_US` is written `en-US`.
+    func test_theProofingLanguage_isWrittenWithAHyphen() {
+        XCTAssertTrue(DOCXPackage.Styles.builtIn(language: "en_US").xml.contains(#"<w:lang w:val="en-US"/>"#))
+        XCTAssertFalse(DOCXPackage.Styles.builtIn(language: "").xml.contains("w:lang"))
+    }
+
     // MARK: - figures Word can't embed (R-S3)
+
+    /// M5: the same bytes as `.jpg` and `.jpeg` are one file under one
+    /// relationship id.
+    func test_theSameJPEGUnderTwoExtensions_isOneMediaFileAndOneRelationship() async throws {
+        let fx = try await makeReport(["![A]({up}research/photo.jpg)\n\n![B]({up}research/photo.jpeg)"])
+        let image = try XCTUnwrap(NSBitmapImageRep(data: try Self.png()))
+        let jpeg = try XCTUnwrap(image.representation(using: .jpeg, properties: [:]))
+        for name in ["photo.jpg", "photo.jpeg"] {
+            try jpeg.write(to: fx.url.appendingPathComponent("research/" + name))
+        }
+        let (docx, result) = try await compile(fx)
+        XCTAssertEqual(result.problems, [])
+        let media = try ZipArchive.read(docx).keys.filter { $0.hasPrefix("word/media/") }
+        XCTAssertEqual(media.count, 1, "\(media)")
+        XCTAssertTrue(media.first?.hasSuffix(".jpg") ?? false, "\(media)")
+        let rels = try part("word/_rels/document.xml.rels", of: docx)
+        XCTAssertEqual(rels.components(separatedBy: "media/").count - 1, 1, rels)
+        XCTAssertEqual(DOCXValidator.elements(try xml("word/document.xml", of: docx), "w:drawing").count, 2)
+        XCTAssertEqual(DOCXValidator.problems(in: docx), [])
+    }
 
     /// The PDF's crop box is 300 × 150 inside a 300 × 300 media box: the PNG,
     /// and the drawing, are 2 : 1.
@@ -456,14 +536,25 @@ final class DOCXCompilerTests: XCTestCase {
 
     // MARK: - the page (R-S4)
 
-    func test_thePage_isA4_unlessTheBooksRegionIsUSOrCanada() async throws {
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en-US"), .letter)
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: "fr-CA"), .letter)
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en_us"), .letter)
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en-GB"), .a4)
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en"), .a4)
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: "sr-Latn"), .a4)
-        XCTAssertEqual(DOCXCompiler.page(forLanguage: ""), .a4)
+    /// R-S4 and R-S5: the tag's region decides; a tag that names none
+    /// follows this Mac's region (injected here).
+    func test_thePage_isA4_unlessTheRegionIsUSOrCanada() async throws {
+        for region in ["US", "GB", nil] as [String?] {
+            XCTAssertEqual(DOCXCompiler.page(forLanguage: "en-US", fallbackRegion: region), .letter)
+            XCTAssertEqual(DOCXCompiler.page(forLanguage: "fr-CA", fallbackRegion: region), .letter)
+            XCTAssertEqual(DOCXCompiler.page(forLanguage: "en_us", fallbackRegion: region), .letter)
+            XCTAssertEqual(DOCXCompiler.page(forLanguage: "en-GB", fallbackRegion: region), .a4,
+                           "the tag's own region wins over the Mac's")
+        }
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en", fallbackRegion: "US"), .letter)
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en", fallbackRegion: "ca"), .letter)
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "en", fallbackRegion: "GB"), .a4)
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "sr-Latn", fallbackRegion: "US"), .letter,
+                       "a script is not a region")
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "sr-Latn", fallbackRegion: "RS"), .a4)
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "", fallbackRegion: "US"), .letter)
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "", fallbackRegion: "GB"), .a4)
+        XCTAssertEqual(DOCXCompiler.page(forLanguage: "", fallbackRegion: nil), .a4)
         XCTAssertEqual(DOCXPage.letter.sideMarginTwips * 2 + DOCXBodyEmitter.columnTwips, 12_240)
         XCTAssertEqual(DOCXPage.a4.sideMarginTwips * 2 + DOCXBodyEmitter.columnTwips, 11_906)
 
@@ -514,13 +605,15 @@ final class DOCXCompilerTests: XCTestCase {
     }
 
     func test_aBilingualBook_exportsOneDocumentWithBothBodies() async throws {
-        let fx = try await makeReport(["# Intro {#sec:intro}\n\nSee @sec:intro."], report: false)
+        let fx = try await makeReport(["# Intro {#sec:intro}\n\nSee @sec:intro and @tbl:one.\n\n"
+                                       + "| A |\n|---|\n| 1 |\nTable: One {#tbl:one}"], report: false)
         let item = try XCTUnwrap(fx.store.manifest.structure.first { $0.path != nil })
         let doc = try await Document.load(url: fx.url.appendingPathComponent(try XCTUnwrap(item.path)),
                                           actor: .author, session: "word", presenter: nil)
         let ids = doc.sequence
-        XCTAssertEqual(ids.count, 2, "premise: two paragraphs")
-        for (id, text) in zip(ids, ["# Uvod {#sec:intro}", "Vidi @sec:intro."]) {
+        XCTAssertEqual(ids.count, 3, "premise: three paragraphs")
+        for (id, text) in zip(ids, ["# Uvod {#sec:intro}", "Vidi @sec:intro i @tbl:one.",
+                                    "| A |\n|---|\n| 1 |\nTable: Jedan {#tbl:one}"]) {
             try await TranslationStore.append(
                 TranslationRecord(paragraphId: id, language: "sr", text: text,
                                   sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
@@ -541,8 +634,12 @@ final class DOCXCompilerTests: XCTestCase {
         XCTAssertTrue(docx.lastPathComponent.contains("en+sr"), docx.lastPathComponent)
         XCTAssertEqual(DOCXValidator.problems(in: docx), [])
         let text = try DOCXValidator.importedText(of: docx)
-        XCTAssertTrue(text.contains("See Section 1"), text)
-        XCTAssertTrue(text.contains("Vidi"), text)
+        XCTAssertTrue(text.contains("See Section 1 and Table 1"), text)
+        XCTAssertTrue(text.contains("Table 1. One"), text)
+        // M2: the sr body's element words are its own.
+        XCTAssertTrue(text.contains("Vidi Odeljak 1 i Tabela 1"), text)
+        XCTAssertTrue(text.contains("Tabela 1. Jedan"), text)
+        XCTAssertFalse(text.contains("Table 1. Jedan"), text)
         let breaks = try part("word/document.xml", of: docx).components(separatedBy: #"<w:br w:type="page"/>"#)
         XCTAssertEqual(breaks.count, 2, "one page break between the two bodies")
     }

@@ -16,7 +16,7 @@ import MaughamCore
 /// writes one document from every body in order, and `DOCXPackage` zips it
 /// with the styles (built-in, or a `reference.docx` merged over them) to
 /// `Exports/`. The page is A4 unless the book's region is the US or Canada
-/// (R-S4).
+/// (R-S4) — the tag's region, or this Mac's when the tag names none (R-S5).
 public struct DOCXCompiler {
 
     /// The same shape as `EPUBCompiler.Result`: Word has no log, so a door's
@@ -155,12 +155,16 @@ public struct DOCXCompiler {
 
     // MARK: - the page (R-S4)
 
-    /// A4, unless the book's language tag names the US or Canada as its
-    /// region (`en-US`, `fr-CA`, `en_us`): those get Letter. A tag with no
-    /// region is A4.
-    static func page(forLanguage tag: String) -> DOCXPage {
+    /// Letter when the region is the US or Canada, A4 otherwise (R-S4). The
+    /// region is the book's language tag's (`en-US`, `fr-CA`, `en_us`); a tag
+    /// that names none, or no tag, falls back to this Mac's region (R-S5), so
+    /// an `en` book exported in Chicago is Letter and in London A4.
+    /// `fallbackRegion` is injectable for tests.
+    static func page(forLanguage tag: String,
+                     fallbackRegion: String? = Locale.current.region?.identifier) -> DOCXPage {
         let subtags = tag.split(whereSeparator: { $0 == "-" || $0 == "_" }).dropFirst()
-        let region = subtags.first { $0.count == 2 && $0.allSatisfy(\.isLetter) }?.uppercased()
+        let tagged = subtags.first { $0.count == 2 && $0.allSatisfy(\.isLetter) }.map(String.init)
+        let region = (tagged ?? fallbackRegion)?.uppercased()
         return region == "US" || region == "CA" ? .letter : .a4
     }
 
@@ -231,6 +235,13 @@ public struct DOCXCompiler {
                         if !FileManager.default.fileExists(atPath: png.path) {
                             try? FileManager.default.moveItem(at: partial, to: png)
                         }
+                    }
+                    // The move can lose a race or fail outright: never hand the
+                    // emitter a file that isn't there.
+                    guard FileManager.default.fileExists(atPath: png.path) else {
+                        resolution.stagingFailed(pieceID: piece, nodeIndex: index,
+                                                 because: "couldn't be prepared for Word (its PNG wasn't written)")
+                        continue
                     }
                     figureFiles[piece, default: [:]][index] = png
                 } catch let failure as RasterFailure {

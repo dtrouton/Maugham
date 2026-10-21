@@ -25,8 +25,9 @@ import AppKit
 /// - checks each table's grid has as many columns as each row's cells span;
 /// - checks every `w:numId` exists in `numbering.xml`, and each `w:num`'s
 ///   abstract does;
-/// - checks every `w:pStyle`/`w:rStyle`/`w:tblStyle` names a style in
-///   `styles.xml`, and `settings.xml` has no `w:updateFields`.
+/// - checks every `w:pStyle`/`w:rStyle`/`w:tblStyle` names a paragraph,
+///   character or table style in `styles.xml` respectively, `w:sectPr` is
+///   the body's last child, and `settings.xml` has no `w:updateFields`.
 ///
 /// `importedText(of:)` reads the file through AppKit's own Word reader
 /// (`NSAttributedString`, `.officeOpenXML`). It is lenient: a pass there
@@ -248,15 +249,28 @@ enum DOCXValidator {
             }
         }
 
-        // Styles.
-        let styleIDs = Set(elements(xml["word/styles.xml"], "w:style").compactMap { attr($0, "w:styleId") })
+        // Styles: each reference names a style of its own type.
+        var styleTypes: [String: String] = [:]
+        for s in elements(xml["word/styles.xml"], "w:style") {
+            if let id = attr(s, "w:styleId") { styleTypes[id] = attr(s, "w:type") ?? "paragraph" }
+        }
         for story in stories {
-            for kind in ["w:pStyle", "w:rStyle", "w:tblStyle"] {
-                for s in elements(story, kind) where !styleIDs.contains(attr(s, "w:val") ?? "") {
-                    out.append("\(kind) \(attr(s, "w:val") ?? "") isn't defined in styles.xml")
+            for (kind, type) in [("w:pStyle", "paragraph"), ("w:rStyle", "character"), ("w:tblStyle", "table")] {
+                for s in elements(story, kind) {
+                    let id = attr(s, "w:val") ?? ""
+                    guard let found = styleTypes[id] else {
+                        out.append("\(kind) \(id) isn't defined in styles.xml")
+                        continue
+                    }
+                    if found != type { out.append("\(kind) \(id) names a \(found) style, not a \(type) one") }
                 }
             }
         }
+
+        // The section properties close the body.
+        let body = elements(document, "w:body").first
+        let last = (body?.children ?? []).compactMap { $0 as? XMLElement }.last
+        if last?.name != "w:sectPr" { out.append("w:sectPr is not the body's last child") }
         return out
     }
 

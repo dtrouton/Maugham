@@ -504,6 +504,27 @@ final class PublishProblemGateTests: XCTestCase {
         XCTAssertEqual(result.problems.count, 1)
     }
 
+    /// The DOCX twin (Task 4 fix round 1 M1): the Word compiler handed the
+    /// gate's bodies reads the manuscript no second time either.
+    func test_aDOCXCompilerHandedTheGatesBodiesNeitherRereadsNorReresolves() async throws {
+        let counter = Counter()
+        let body = BodyPlan.Body(tag: nil, displayTag: "en", source: CountingBook(counter: counter),
+                                 config: PublishConfig(metadata: .init(title: "T", author: "A")))
+        let resolved = try DOCXCompiler.resolve(bodies: [body])
+        XCTAssertEqual(counter.reads, 1)
+        let project = tmp.appendingPathComponent("counting-docx")
+        try await PublishStarter.install(into: project, force: false)
+        let result = try await DOCXCompiler(
+            projectURL: project, bodies: [body], config: body.config,
+            jobManager: CompileJobManager(), maughamVersion: "0", tectonicVersion: "n/a",
+            resolved: resolved
+        ).compile(label: nil)
+        XCTAssertEqual(counter.reads, 1, "the compile reused the gate's AST")
+        XCTAssertEqual(result.problems, resolved.flatMap(\.resolution.problems))
+        XCTAssertEqual(result.problems.count, 1)
+        XCTAssertTrue(result.outputPath.hasSuffix(".docx"), result.outputPath)
+    }
+
     /// A book whose every read is counted, and where it happened.
     private final class ThreadedCounter: @unchecked Sendable {
         var reads = 0

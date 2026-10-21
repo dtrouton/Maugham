@@ -738,7 +738,10 @@ enum DOCXBodyEmitter {
             guard let hash = try? FigureImageResolver.contentHash(of: url) else { return nil }
             let ext = url.pathExtension.lowercased()
             let needsRaster = DOCXImageGeometry.rasterised.contains(ext)
-            let name = hash + "." + (needsRaster ? "png" : ext)
+            // The relationship id is the hash alone, so one name per hash:
+            // the same bytes as `.jpeg` and `.jpg` are one file, never two
+            // media under one id.
+            let name = hash + "." + (needsRaster ? "png" : ext == "jpeg" ? "jpg" : ext)
             let relationship = "rIdImg" + hash
             if !media.contains(where: { $0.name == name }) {
                 media.append(DOCXMedia(source: url, name: name, needsRaster: needsRaster))

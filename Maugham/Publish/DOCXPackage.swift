@@ -243,10 +243,15 @@ extension DOCXPackage {
             "<w:docDefaults><w:rPrDefault><w:rPr>"
                 + "<w:rFonts w:ascii=\"Calibri\" w:eastAsia=\"Calibri\" w:hAnsi=\"Calibri\" w:cs=\"Calibri\"/>"
                 + "<w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/>"
-                + (language.isEmpty ? "" : "<w:lang w:val=\"\(OOXMLEscape.attribute(language))\"/>")
+                + (language.isEmpty ? "" : "<w:lang w:val=\"\(OOXMLEscape.attribute(proofingTag(language)))\"/>")
                 + "</w:rPr></w:rPrDefault>"
                 + "<w:pPrDefault><w:pPr><w:spacing w:after=\"160\" w:line=\"259\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault>"
                 + "</w:docDefaults>"
+        }
+
+        /// The book's tag as Word's `w:lang` spells it: BCP 47, `-` not `_`.
+        static func proofingTag(_ language: String) -> String {
+            language.replacingOccurrences(of: "_", with: "-")
         }
 
         /// One `w:style`, its children in CT_Style's order (name, basedOn,
@@ -367,14 +372,50 @@ extension DOCXPackage {
             func value(_ e: XMLElement, _ name: String) -> String? { e.attribute(forName: name)?.stringValue }
 
             let referenceStyles = children(root, "w:style")
+            // A localised Word spells the id in its own language
+            // (`berschrift1`) and keeps Word's built-in name (`heading 1`):
+            // a reference style named as a built-in of the same type IS that
+            // built-in, so it takes the built-in's id, and every
+            // basedOn/link/next that named its old id follows.
+            let builtStyles = children(builtRoot, "w:style")
+            func nameKey(_ e: XMLElement) -> String? {
+                guard let type = value(e, "w:type"),
+                      let name = children(e, "w:name").first.flatMap({ value($0, "w:val") }) else { return nil }
+                return type + "\u{0}" + name.lowercased()
+            }
+            var builtIDByName: [String: String] = [:]
+            for e in builtStyles {
+                if let key = nameKey(e), let id = value(e, "w:styleId") { builtIDByName[key] = id }
+            }
+            let referenceIDs = Set(referenceStyles.compactMap { value($0, "w:styleId") })
+            var renamed: [String: String] = [:]
+            for e in referenceStyles {
+                guard let id = value(e, "w:styleId"), let key = nameKey(e),
+                      let builtID = builtIDByName[key], builtID != id,
+                      !referenceIDs.contains(builtID), !renamed.values.contains(builtID) else { continue }
+                renamed[id] = builtID
+                e.attribute(forName: "w:styleId")?.stringValue = builtID
+            }
+            if !renamed.isEmpty {
+                for e in referenceStyles {
+                    for pointer in ["w:basedOn", "w:link", "w:next"] {
+                        for p in children(e, pointer) {
+                            if let old = value(p, "w:val"), let new = renamed[old] {
+                                p.attribute(forName: "w:val")?.stringValue = new
+                            }
+                        }
+                    }
+                }
+            }
             let ids = Set(referenceStyles.compactMap { value($0, "w:styleId") })
             let defaultTypes = Set(referenceStyles.filter { value($0, "w:default") == "1" }
                 .compactMap { value($0, "w:type") })
-            if children(root, "w:docDefaults").isEmpty,
-               let defaults = children(builtRoot, "w:docDefaults").first?.copy() as? XMLElement {
+            if let kept = children(root, "w:docDefaults").first {
+                if !language.isEmpty { setLanguage(proofingTag(language), in: kept) }
+            } else if let defaults = children(builtRoot, "w:docDefaults").first?.copy() as? XMLElement {
                 root.insertChild(defaults, at: 0)
             }
-            for builtStyle in children(builtRoot, "w:style") {
+            for builtStyle in builtStyles {
                 guard let id = value(builtStyle, "w:styleId"), !ids.contains(id),
                       let copy = builtStyle.copy() as? XMLElement else { continue }
                 if let type = value(copy, "w:type"), defaultTypes.contains(type) {
@@ -388,6 +429,38 @@ extension DOCXPackage {
             return Styles(xml: String(decoding: document.xmlData(options: [.nodeCompactEmptyElement]),
                                       as: UTF8.self),
                           theme: theme)
+        }
+
+        /// Gives a reference's `docDefaults` the book's own proofing language:
+        /// its run defaults' `w:lang` takes the book's `w:val` (its `eastAsia`
+        /// and `bidi` stay), or one is added in CT_RPr's place (before
+        /// `eastAsianLayout`, `specVanish` and `oMath`, the only elements after
+        /// it).
+        private static func setLanguage(_ tag: String, in docDefaults: XMLElement) {
+            func child(_ e: XMLElement, _ name: String, at index: Int? = nil) -> XMLElement {
+                if let found = (e.children ?? []).compactMap({ $0 as? XMLElement }).first(where: { $0.name == name }) {
+                    return found
+                }
+                let made = XMLElement(name: name)
+                if let index { e.insertChild(made, at: index) } else { e.addChild(made) }
+                return made
+            }
+            let rPrDefault = child(docDefaults, "w:rPrDefault", at: 0)
+            let rPr = child(rPrDefault, "w:rPr")
+            if let existing = (rPr.children ?? []).compactMap({ $0 as? XMLElement })
+                .first(where: { $0.name == "w:lang" }) {
+                existing.removeAttribute(forName: "w:val")
+                existing.addAttribute(XMLNode.attribute(withName: "w:val", stringValue: tag) as! XMLNode)
+                return
+            }
+            let lang = XMLElement(name: "w:lang")
+            lang.addAttribute(XMLNode.attribute(withName: "w:val", stringValue: tag) as! XMLNode)
+            let after: Set<String> = ["w:eastAsianLayout", "w:specVanish", "w:oMath"]
+            if let next = (rPr.children ?? []).firstIndex(where: { after.contains(($0 as? XMLElement)?.name ?? "") }) {
+                rPr.insertChild(lang, at: next)
+            } else {
+                rPr.addChild(lang)
+            }
         }
 
         /// The styles a compile uses: a `reference.docx` in `publishDir`
