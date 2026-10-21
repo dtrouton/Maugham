@@ -5,15 +5,18 @@ import MaughamCore
 /// and R-3b-6): a `CompletionSource` over the window's cached
 /// `ReferenceIndex.sources`.
 ///
-/// - **Trigger.** `[@` (or `[-@`) opens it; `;` inside an open citation
-///   bracket reopens it for the next key, and the space and `@` after the `;`
-///   keep it open. The query is the key characters before the caret, any
-///   letter included, so "Mü" can find Müller.
+/// - **Trigger.** `[@` opens it; `;` inside an open citation bracket
+///   (`[@a; `) reopens it for the next key, and the space and `@` after the
+///   `;` keep it open. The query is the key characters before the caret, any
+///   letter included, so "Mü" can find Müller. A run followed by `:` is a
+///   label (`[@fig:`), left to the cross-reference picker. Only the shapes
+///   `ManuscriptInlineScanner` reads as a citation are offered.
 /// - **What an accept writes** (`insertion(for:trigger:)`):
 ///   - a fresh `[@` whose bracket is not closed: `key]`;
 ///   - inside a closed bracket: the key only, replacing the whole key the
 ///     caret sat in, so a locator after it (`, p. 12`) survives a re-pick;
-///   - after a `;`: ` @key`, from just after the `;`.
+///   - after a `;`: ` @key` from just after the `;`, and ` @key]` when no
+///     `]` closes the bracket on the line (R-S4).
 /// - **Filter.** Key, label ("Smith 2026"), authors and title, each by prefix
 ///   or word prefix, ignoring case and accents. An exact key ranks first, then
 ///   a key or label prefix, then the rest, each in the index's order.
@@ -26,8 +29,8 @@ final class CitationCompletion: CompletionSource {
     enum Context: Hashable {
         /// After `[@`. `closed`: a `]` already ends the bracket on the line.
         case fresh(closed: Bool)
-        /// After a `;` inside a citation bracket.
-        case continuation
+        /// After a `;` inside a citation bracket. `closed`: as for `fresh`.
+        case continuation(closed: Bool)
     }
 
     /// R-3b-6's empty result, with the citation version's pointer.
@@ -65,7 +68,8 @@ final class CitationCompletion: CompletionSource {
     func insertion(for item: CompletionItem, trigger: CompletionTrigger) -> String {
         switch trigger.context as? Context {
         case .fresh(closed: false)?: return item.insertion + "]"
-        case .continuation?: return " @" + item.insertion
+        case .continuation(closed: true)?: return " @" + item.insertion
+        case .continuation(closed: false)?: return " @" + item.insertion + "]"
         default: return item.insertion
         }
     }
@@ -121,112 +125,57 @@ final class CitationCompletion: CompletionSource {
     // MARK: - The trigger
 
     /// The citation completion at `caret`, or nil (R-3b-5). Reads the caret's
-    /// line only. Code spans and fences are the coordinator's to refuse.
+    /// line only, and only shapes the scanner reads as a citation (`[@key`,
+    /// `[@a; @key`). Code spans and fences are the coordinator's to refuse.
     nonisolated static func locate(in text: NSString, caret: Int) -> CompletionTrigger? {
         guard caret >= 0, caret <= text.length else { return nil }
         var queryStart = caret
         while queryStart > 0, CompletionMatch.isQueryUnit(text.character(at: queryStart - 1)) {
             queryStart -= 1
         }
+        // The key run the caret sits in, carried forward: one followed by a
+        // colon is a label (`[@fi|g:x]`), the cross-reference picker's.
+        var runEnd = caret
+        while runEnd < text.length, CompletionMatch.isQueryUnit(text.character(at: runEnd)) { runEnd += 1 }
+        if runEnd < text.length, text.character(at: runEnd) == PickerUnit.colon { return nil }
         let query = text.substring(with: NSRange(location: queryStart, length: caret - queryStart))
-        let keyEnd: (Bool) -> Int = { closed in
-            // Through the rest of a key the caret sits in, only when a `]`
-            // closes the bracket: an unclosed `[@` typed before a word must
-            // never claim the word.
-            guard closed else { return caret }
-            var end = caret
-            while end < text.length, CompletionMatch.isQueryUnit(text.character(at: end)) { end += 1 }
-            return end
-        }
+        // Through the rest of the key only when a `]` closes the bracket: an
+        // unclosed `[@` typed before a word must never claim the word.
+        let keyEnd: (Bool) -> Int = { closed in closed ? runEnd : caret }
 
         if queryStart > 0, text.character(at: queryStart - 1) == PickerUnit.at {
             let at = queryStart - 1
-            // A fresh `[@` or `[-@`.
-            var open = at - 1
-            if open >= 0, text.character(at: open) == PickerUnit.minus { open -= 1 }
-            if open >= 0, text.character(at: open) == PickerUnit.openBracket {
-                guard isCitationBracketOpening(text, open) else { return nil }
-                let closed = isClosed(text, after: caret)
+            // A fresh `[@`.
+            if at > 0, text.character(at: at - 1) == PickerUnit.openBracket {
+                guard CompletionMatch.isCitationBracketOpening(text, at - 1) else { return nil }
+                let closed = CompletionMatch.isBracketClosed(text, after: caret)
                 let end = keyEnd(closed)
                 return CompletionTrigger(
                     replaceRange: NSRange(location: queryStart, length: end - queryStart),
                     query: query, context: Context.fresh(closed: closed))
             }
             // `; @key` inside a citation bracket.
-            guard let semicolon = semicolonBefore(text, at),
-                  isInsideCitationBracket(text, semicolon) else { return nil }
-            let end = keyEnd(isClosed(text, after: caret))
+            guard let semicolon = CompletionMatch.semicolon(before: at, in: text),
+                  CompletionMatch.isInsideCitationBracket(text, semicolon) else { return nil }
+            let closed = CompletionMatch.isBracketClosed(text, after: caret)
+            let end = keyEnd(closed)
             return CompletionTrigger(
                 replaceRange: NSRange(location: semicolon + 1, length: end - semicolon - 1),
-                query: query, context: Context.continuation)
+                query: query, context: Context.continuation(closed: closed))
         }
 
         // Just after the `;` (and its spaces), before the `@`.
-        guard query.isEmpty, let semicolon = semicolonBefore(text, caret),
-              isInsideCitationBracket(text, semicolon) else { return nil }
+        guard query.isEmpty, let semicolon = CompletionMatch.semicolon(before: caret, in: text),
+              CompletionMatch.isInsideCitationBracket(text, semicolon) else { return nil }
         return CompletionTrigger(
             replaceRange: NSRange(location: semicolon + 1, length: caret - semicolon - 1),
-            query: "", context: Context.continuation)
-    }
-
-    /// The `;` before `location` with only spaces or tabs between, or nil.
-    private nonisolated static func semicolonBefore(_ text: NSString, _ location: Int) -> Int? {
-        var i = location - 1
-        while i >= 0, text.character(at: i) == PickerUnit.space
-                || text.character(at: i) == PickerUnit.tab { i -= 1 }
-        return i >= 0 && text.character(at: i) == PickerUnit.semicolon ? i : nil
-    }
-
-    /// A `[` that may open a citation: not escaped, not a wiki link's second
-    /// `[`, not an image's `![`.
-    private nonisolated static func isCitationBracketOpening(_ text: NSString, _ open: Int) -> Bool {
-        guard open > 0 else { return true }
-        let before = text.character(at: open - 1)
-        return before != PickerUnit.backslash && before != PickerUnit.openBracket && before != PickerUnit.bang
-    }
-
-    /// Whether `location` (a `;`) sits inside a bracket that is a citation:
-    /// the nearest `[` before it on the line, with no `]` between, opens a
-    /// citation and holds an `@key` before the `;`.
-    private nonisolated static func isInsideCitationBracket(_ text: NSString, _ location: Int) -> Bool {
-        var i = location - 1
-        while i >= 0 {
-            let c = text.character(at: i)
-            if c == PickerUnit.newline || c == PickerUnit.closeBracket { return false }
-            if c == PickerUnit.openBracket { break }
-            i -= 1
-        }
-        guard i >= 0, isCitationBracketOpening(text, i) else { return false }
-        // An `@` at an item's start, followed by a key character.
-        var j = i + 1
-        while j < location {
-            if text.character(at: j) == PickerUnit.at, j + 1 < location,
-               CompletionMatch.isQueryUnit(text.character(at: j + 1)) {
-                let before = text.character(at: j - 1)
-                if [PickerUnit.openBracket, PickerUnit.minus, PickerUnit.space, PickerUnit.tab,
-                    PickerUnit.semicolon].contains(before) { return true }
-            }
-            j += 1
-        }
-        return false
-    }
-
-    /// Whether a `]` closes the bracket after `location` on its line, before
-    /// any other `[`.
-    private nonisolated static func isClosed(_ text: NSString, after location: Int) -> Bool {
-        var i = location
-        while i < text.length {
-            let c = text.character(at: i)
-            if c == PickerUnit.closeBracket { return true }
-            if c == PickerUnit.newline || c == PickerUnit.openBracket { return false }
-            i += 1
-        }
-        return false
+            query: "", context: Context.continuation(
+                closed: CompletionMatch.isBracketClosed(text, after: caret)))
     }
 }
 
-/// The matching and character rules the reference pickers share (plan 3b
-/// Tasks 3 and 4).
+/// The matching, character and bracket rules the reference pickers share
+/// (plan 3b Tasks 3 and 4).
 enum CompletionMatch {
     /// `s` with case and accents dropped.
     nonisolated static func fold(_ s: String) -> String {
@@ -247,6 +196,58 @@ enum CompletionMatch {
         if unit == PickerUnit.underscore || unit == PickerUnit.minus { return true }
         guard let scalar = Unicode.Scalar(unit) else { return false }
         return CharacterSet.letters.contains(scalar) || CharacterSet.decimalDigits.contains(scalar)
+    }
+
+    // MARK: Brackets (the scanner's citation shape, `ManuscriptInlineScanner`)
+
+    /// The `;` before `location` with only spaces or tabs between, or nil.
+    nonisolated static func semicolon(before location: Int, in text: NSString) -> Int? {
+        var i = location - 1
+        while i >= 0, text.character(at: i) == PickerUnit.space
+                || text.character(at: i) == PickerUnit.tab { i -= 1 }
+        return i >= 0 && text.character(at: i) == PickerUnit.semicolon ? i : nil
+    }
+
+    /// A `[` that may open a citation: not escaped, not a wiki link's second
+    /// `[`, not an image's `![`.
+    nonisolated static func isCitationBracketOpening(_ text: NSString, _ open: Int) -> Bool {
+        guard open > 0 else { return true }
+        let before = text.character(at: open - 1)
+        return before != PickerUnit.backslash && before != PickerUnit.openBracket
+            && before != PickerUnit.bang
+    }
+
+    /// Whether `location` (a `;`) sits inside a citation bracket as the
+    /// scanner reads one: the nearest `[` before it on the line, with no `]`
+    /// between, opens a citation and is followed — after spaces only — by
+    /// `@` and a key character. `[see @x; …` is not one.
+    nonisolated static func isInsideCitationBracket(_ text: NSString, _ location: Int) -> Bool {
+        var i = location - 1
+        while i >= 0 {
+            let c = text.character(at: i)
+            if c == PickerUnit.newline || c == PickerUnit.closeBracket { return false }
+            if c == PickerUnit.openBracket { break }
+            i -= 1
+        }
+        guard i >= 0, isCitationBracketOpening(text, i) else { return false }
+        var j = i + 1
+        while j < location, text.character(at: j) == PickerUnit.space
+                || text.character(at: j) == PickerUnit.tab { j += 1 }
+        return j + 1 < location && text.character(at: j) == PickerUnit.at
+            && isQueryUnit(text.character(at: j + 1))
+    }
+
+    /// Whether a `]` closes the bracket after `location` on its line, before
+    /// any other `[`.
+    nonisolated static func isBracketClosed(_ text: NSString, after location: Int) -> Bool {
+        var i = location
+        while i < text.length {
+            let c = text.character(at: i)
+            if c == PickerUnit.closeBracket { return true }
+            if c == PickerUnit.newline || c == PickerUnit.openBracket { return false }
+            i += 1
+        }
+        return false
     }
 }
 

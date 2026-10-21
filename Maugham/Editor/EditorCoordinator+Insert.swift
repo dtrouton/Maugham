@@ -208,25 +208,40 @@ extension EditorCoordinator {
     /// it with every source listed. Refused, writing nothing, where Route A
     /// refuses; Esc leaves the `[@` as written.
     func insertCitation() {
-        insertReferenceTrigger("[@") { $0 is CitationCompletion }
+        insertReferenceTrigger("[@", standsAfter: { unit in
+            unit == PickerUnit.openParen
+                || Unicode.Scalar(unit).map(CharacterSet.whitespacesAndNewlines.contains) == true
+        }) { $0 is CitationCompletion }
     }
 
     /// Insert ▸ Cross-Reference… (⌘⇧X, plan 3b Task 4): `@` at the caret as
     /// one Route A step, then the cross-reference picker opened on it with
     /// every target listed, in publishing order.
     func insertCrossReference() {
-        insertReferenceTrigger("@") { $0 is CrossReferenceCompletion }
+        insertReferenceTrigger("@", standsAfter: CrossReferenceCompletion.isWordStartBoundary) {
+            $0 is CrossReferenceCompletion
+        }
     }
 
     /// Writes `trigger` at the caret through Route A, then opens the first
-    /// registered picker `isPicker` names on it.
-    private func insertReferenceTrigger(_ trigger: String,
+    /// registered picker `isPicker` names on it (fix round 1, I6). After a
+    /// character the trigger may not stand after (`standsAfter` false: a
+    /// word, `!`, `[`, `\`) it is written after a space; and the trigger is
+    /// checked against the text it WOULD make before anything is written, so
+    /// where it still could not open (inside code) nothing is written.
+    private func insertReferenceTrigger(_ trigger: String, standsAfter: (unichar) -> Bool,
                                         isPicker: (any CompletionSource) -> Bool) {
         guard answersInsertCommands, let textView,
               let source = completionSources.first(where: isPicker) else { return }
         let at = NSMaxRange(textView.selectedRange())
-        let caret = at + (trigger as NSString).length
-        guard applyCommandEdit(replacing: NSRange(location: at, length: 0), with: trigger,
+        let text = textView.string as NSString
+        guard at <= text.length, !isInsideCode(at) else { return }
+        let written = at == 0 || standsAfter(text.character(at: at - 1)) ? trigger : " " + trigger
+        let caret = at + (written as NSString).length
+        let wouldBe = text.replacingCharacters(in: NSRange(location: at, length: 0),
+                                               with: written) as NSString
+        guard source.trigger(in: wouldBe, caret: caret) != nil,
+              applyCommandEdit(replacing: NSRange(location: at, length: 0), with: written,
                                selecting: NSRange(location: caret, length: 0),
                                actionName: source.actionName),
               let opened = source.trigger(in: textView.string as NSString, caret: caret)

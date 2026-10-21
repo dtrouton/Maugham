@@ -141,7 +141,6 @@ final class CitationCompletionTests: XCTestCase {
         let typed = try XCTUnwrap(locate("See [@sm|"))
         XCTAssertEqual(typed.query, "sm")
         XCTAssertEqual(typed.replaceRange, NSRange(location: 6, length: 2))
-        XCTAssertEqual(try XCTUnwrap(locate("[-@sm|")).query, "sm", "an author-suppressed citation")
         XCTAssertEqual(try XCTUnwrap(locate("[@Mü|")).query, "Mü", "the query may hold any letter")
     }
 
@@ -163,7 +162,11 @@ final class CitationCompletionTests: XCTestCase {
 
     func test_whatNeverOpensACitation() {
         for marked in ["write to me@exam|", "me@|", "@sarah|", "Hi @sa|", "[x @sa|", "\\[@|",
-                       "[[@|", "[@a] ; @b|", "see; @b|", "[@a, p. 3|", "[@fig:m|", "(@x|"] {
+                       "[[@|", "[@a] ; @b|", "see; @b|", "[@a, p. 3|", "[@fig:m|", "(@x|",
+                       // A run followed by a colon is a label (fix round 1, I4).
+                       "[@fi|g:x]", "[@a; @fi|g:x]", "[@fig|:x]",
+                       // Shapes the scanner never reads as a citation (I5).
+                       "[-@sm|", "[see @x;|", "[see @smith2026, p. 4;|]"] {
             XCTAssertNil(locate(marked), "\(marked) opened the citation picker")
         }
     }
@@ -172,7 +175,10 @@ final class CitationCompletionTests: XCTestCase {
         let fresh = try XCTUnwrap(locate("See [@smith2026;|"))
         XCTAssertEqual(fresh.query, "")
         XCTAssertEqual(fresh.replaceRange, NSRange(location: 16, length: 0), "after the ;")
-        XCTAssertEqual(fresh.context, AnyHashable(CitationCompletion.Context.continuation))
+        XCTAssertEqual(fresh.context, AnyHashable(CitationCompletion.Context.continuation(closed: false)),
+                       "no ] on the line")
+        XCTAssertEqual(try XCTUnwrap(locate("See [@smith2026;|] x")).context,
+                       AnyHashable(CitationCompletion.Context.continuation(closed: true)))
 
         let spaced = try XCTUnwrap(locate("See [@smith2026; |"))
         XCTAssertEqual(spaced.start, 16, "the start stays put as the writer types the space")
@@ -180,7 +186,7 @@ final class CitationCompletionTests: XCTestCase {
         XCTAssertEqual(at.start, 16)
         XCTAssertEqual(at.query, "jo")
         XCTAssertEqual(replaced("[@smith2026; @jo|nes2020]"), " @jones2020")
-        XCTAssertEqual(replaced("[see @smith2026, p. 4;|]"), "", "a prefix and a locator before it")
+        XCTAssertEqual(replaced("[@smith2026, p. 4;|]"), "", "a locator before it")
         XCTAssertNil(locate("[@smith2026; jo|"), "a continuation key starts with @")
         XCTAssertNil(locate("[@smith2026]; @jo|"), "the bracket is already closed")
     }
@@ -206,8 +212,9 @@ final class CitationCompletionTests: XCTestCase {
                        "the locator survives a re-pick")
         XCTAssertEqual(try insert("[@smith2026;|]"), "[@smith2026; @jones2020]",
                        "after a ; only the next key")
-        XCTAssertEqual(try insert("[@smith2026; @jo|"), "[@smith2026; @jones2020",
-                       "a continuation adds no bracket")
+        XCTAssertEqual(try insert("[@smith2026; @jo|"), "[@smith2026; @jones2020]",
+                       "a continuation in an unclosed bracket closes it (R-S4)")
+        XCTAssertEqual(try insert("[@smith2026;|"), "[@smith2026; @jones2020]")
     }
 
     // MARK: - The filter (pure)
@@ -305,6 +312,17 @@ final class CitationCompletionTests: XCTestCase {
         XCTAssertEqual(m.string, "See [@smith2026; @jones2020] here.")
     }
 
+    /// R-S4: the `;` continuation in a bracket nothing closes yet.
+    func test_theContinuationClosesAnUnclosedBracket() throws {
+        let m = try mount("See [@smith2026")
+        type(";", m)
+        XCTAssertTrue(m.coordinator.isCompletionOpen)
+        type(" @jon", m)
+        command(Self.newline, m)
+        XCTAssertEqual(m.string, "See [@smith2026; @jones2020]")
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 28, length: 0))
+    }
+
     func test_escLeavesTheTextExactlyAsTyped() throws {
         let m = try mount("See ")
         type("[@sm", m)
@@ -366,6 +384,23 @@ final class CitationCompletionTests: XCTestCase {
         XCTAssertEqual(m.string, "See  here.", "and the [@ is one step")
     }
 
+    /// I6: after a word, `!`, `[` or `\` the menu writes ` [@`, so the
+    /// trigger is one the picker opens on; inside code it writes nothing.
+    func test_theMenuCommandNeverWritesAStrayTrigger() throws {
+        for (before, after) in [("word", "word [@"), ("Look!", "Look! [@"), ("[", "[ [@"),
+                                ("\\", "\\ [@"), ("(", "([@"), ("A ", "A [@")] {
+            let m = try mount(before)
+            MaughamEvent.post(.maughamInsertCitation, to: .keyWindow)
+            XCTAssertEqual(m.string, after, "after \(before)")
+            XCTAssertTrue(m.coordinator.isCompletionOpen, "after \(before) the picker opens")
+            m.window.reportsKey = false
+        }
+        let code = try mount("`code")
+        MaughamEvent.post(.maughamInsertCitation, to: .keyWindow)
+        XCTAssertEqual(code.string, "`code", "inside code nothing is written")
+        XCTAssertFalse(code.undo.canUndo)
+    }
+
     func test_theMenuCommandIsRefusedInAReadOnlyPostureAndOffAManuscript() throws {
         let m = try mount("Text.")
         m.coordinator.setLockEditing(true)
@@ -382,6 +417,6 @@ final class CitationCompletionTests: XCTestCase {
 
         let control = try mount("Text.")
         MaughamEvent.post(.maughamInsertCitation, to: .keyWindow)
-        XCTAssertEqual(control.string, "Text.[@", "control: a writable manuscript answers")
+        XCTAssertEqual(control.string, "Text. [@", "control: a writable manuscript answers")
     }
 }

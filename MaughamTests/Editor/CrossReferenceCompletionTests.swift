@@ -165,6 +165,45 @@ final class CrossReferenceCompletionTests: XCTestCase {
         XCTAssertEqual(replaced("See @m|ethod here"), "@m", "no colon: not a label to re-pick")
     }
 
+    /// R-S3: typing opens the picker only on a label that names its kind,
+    /// read from `ManuscriptLabel.Kind`, never on a handle or a bare `@`.
+    func test_typingOpensOnlyOnceAKindAndItsColonAreTyped() throws {
+        let source = CrossReferenceCompletion(index: { Self.index() })
+        func opens(_ marked: String) throws -> Bool {
+            source.opensWhenTyped(try XCTUnwrap(locate(marked), "\(marked) is no trigger"))
+        }
+        for kind in ManuscriptLabel.Kind.allCases {
+            XCTAssertTrue(try opens("See @\(kind.rawValue):|"), "@\(kind.rawValue): opens")
+        }
+        XCTAssertTrue(try opens("See @fig:re|"))
+        XCTAssertTrue(try opens("See @fi|g:revenue"), "re-picking inside a label")
+        for marked in ["See @|", "See @f|", "See @fi|", "See @fig|", "See @s|", "See @sec|",
+                       "See @sarah|", "See @figure:|"] {
+            XCTAssertFalse(try opens(marked), "\(marked) opened on a keystroke")
+        }
+    }
+
+    /// I3: an accept after `[` or a `;` in a bracket no `]` closes closes it.
+    func test_anAcceptClosesAnUnclosedBracket() throws {
+        let source = CrossReferenceCompletion(index: { Self.index() })
+        let item = CompletionItem(title: "Figure 1 — Revenue by year", subtitle: "fig:revenue",
+                                  insertion: "@fig:revenue")
+        func insert(_ marked: String) throws -> String {
+            let caret = (marked as NSString).range(of: "|").location
+            let text = (marked as NSString).replacingCharacters(
+                in: NSRange(location: caret, length: 1), with: "") as NSString
+            let trigger = try XCTUnwrap(CrossReferenceCompletion.locate(in: text, caret: caret))
+            return text.replacingCharacters(in: trigger.replaceRange,
+                                            with: source.insertion(for: item, trigger: trigger))
+        }
+        XCTAssertEqual(try insert("See [@fig:re|"), "See [@fig:revenue]")
+        XCTAssertEqual(try insert("See [@fig:re|] x"), "See [@fig:revenue] x")
+        XCTAssertEqual(try insert("[@a; @fig:re|"), "[@a; @fig:revenue]")
+        XCTAssertEqual(try insert("[@a; @fig:re|]"), "[@a; @fig:revenue]")
+        XCTAssertEqual(try insert("See @fig:re|"), "See @fig:revenue", "no bracket, none added")
+        XCTAssertEqual(try insert("See [[@fig:re|"), "See [[@fig:revenue", "a wiki link is no citation bracket")
+    }
+
     // MARK: - The filter (pure)
 
     func test_anEmptyQueryListsEveryTargetInPublishingOrderAcrossDocuments() {
@@ -209,18 +248,20 @@ final class CrossReferenceCompletionTests: XCTestCase {
         let m = try mount("As ")
         XCTAssertTrue(m.coordinator.completionSources.last is CrossReferenceCompletion,
                       "a manuscript surface registers the cross-reference picker after the citation picker")
-        type("@", m)
-        XCTAssertFalse(m.coordinator.isCompletionOpen, "a bare @ typed opens nothing")
-        type("f", m)
-        XCTAssertTrue(m.isCrossReference)
-        XCTAssertEqual(m.labels, ["fig:revenue", "fig:map", "tbl:costs"])
+        for character in "@fig" {
+            type(String(character), m)
+            XCTAssertFalse(m.coordinator.isCompletionOpen, "\(m.string) opened the picker (R-S3)")
+        }
+        type(":", m)
+        XCTAssertTrue(m.isCrossReference, "the kind and its colon open it")
+        XCTAssertEqual(m.labels, ["fig:revenue", "fig:map"])
         XCTAssertEqual(m.titles.first, "Figure 1 — Revenue by year")
         command(Self.down, m)
         command(Self.newline, m)
         XCTAssertEqual(m.string, "As @fig:map", "a label from the other document")
         XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 11, length: 0))
         m.undo.undo()
-        XCTAssertEqual(m.string, "As @f", "the pick is one undo step")
+        XCTAssertEqual(m.string, "As @fig:", "the pick is one undo step")
     }
 
     /// Review focus 5: an address, code and a digit never open it, at any
@@ -231,7 +272,7 @@ final class CrossReferenceCompletionTests: XCTestCase {
             type(String(character), m)
             XCTAssertFalse(m.coordinator.isCompletionOpen, "\(m.string) opened a picker")
         }
-        type("@fi", m)
+        type("@sec:", m)
         XCTAssertTrue(m.isCrossReference, "control: the same mount does open")
     }
 
@@ -245,30 +286,25 @@ final class CrossReferenceCompletionTests: XCTestCase {
         XCTAssertTrue(m.isCrossReference)
         XCTAssertEqual(m.labels, ["fig:revenue", "fig:map"])
         command(Self.newline, m)
-        XCTAssertEqual(m.string, "See [@fig:revenue")
+        XCTAssertEqual(m.string, "See [@fig:revenue]", "the unclosed bracket closes (I3)")
     }
 
-    /// A handle: `@s` opens the list while a `sec:` label starts with s (R-3b-5:
-    /// `@` and a letter), and the first letter nothing matches closes it, so
-    /// `@sarah` ends as typed with no list. With no target starting s it
-    /// never opens at all.
-    func test_aHandleClosesAtTheFirstLetterNothingMatches() throws {
+    /// R-S3 and review focus 5: a handle never opens the picker at any
+    /// keystroke, though `s` starts the project's `sec:` labels; `@sec:` is
+    /// the control.
+    func test_aHandleNeverOpensThePicker() throws {
         let m = try mount("Ask ")
-        type("@s", m)
-        XCTAssertTrue(m.isCrossReference, "premise: sec: labels start with s")
-        type("a", m)
-        XCTAssertFalse(m.coordinator.isCompletionOpen, "nothing matches \"sa\"")
-        type("rah ", m)
-        XCTAssertFalse(m.coordinator.isCompletionOpen)
-        XCTAssertEqual(m.string, "Ask @sarah ", "the text exactly as typed")
-
-        let figures = try mount("Ask ", index: ReferenceIndex.build(pieces: [
-            ("ch", ReferenceIndex.PieceSummary(text: "![Map](m.png){#fig:map}")),
-        ], research: [], words: .english))
-        for character in "@sarah" {
-            type(String(character), figures)
-            XCTAssertFalse(figures.coordinator.isCompletionOpen, "\(figures.string) opened the picker")
+        XCTAssertFalse(CrossReferenceCompletion.matching(m.coordinator.referenceIndex!().targets,
+                                                         query: "s").isEmpty,
+                       "premise: s matches the sec: labels")
+        for character in "@sarah @s @se @sec" {
+            type(String(character), m)
+            XCTAssertFalse(m.coordinator.isCompletionOpen, "\(m.string) opened the picker")
         }
+        XCTAssertEqual(m.string, "Ask @sarah @s @se @sec", "the text exactly as typed")
+        type(":", m)
+        XCTAssertTrue(m.isCrossReference, "control: @sec: opens it")
+        XCTAssertEqual(m.labels, ["sec:intro", "sec:method"])
     }
 
     func test_aSurfaceThatIsNotAManuscriptNeverOpensIt() throws {
@@ -292,6 +328,23 @@ final class CrossReferenceCompletionTests: XCTestCase {
         XCTAssertEqual(m.labels, ["sec:method", "fig:map"])
         command(Self.newline, m)
         XCTAssertEqual(m.string, "As @sec:method shows.")
+    }
+
+    /// I6: after a word, `!` or `\\` the menu writes ` @`; after `(` or `[`
+    /// a bare `@`; inside code nothing.
+    func test_theMenuCommandNeverWritesAStrayTrigger() throws {
+        for (before, after) in [("word", "word @"), ("Look!", "Look! @"), ("\\", "\\ @"),
+                                ("(", "(@"), ("[", "[@"), ("me", "me @")] {
+            let m = try mount(before)
+            MaughamEvent.post(.maughamInsertCrossReference, to: .keyWindow)
+            XCTAssertEqual(m.string, after, "after \(before)")
+            XCTAssertTrue(m.isCrossReference, "after \(before) the picker opens")
+            m.window.reportsKey = false
+        }
+        let code = try mount("`code")
+        MaughamEvent.post(.maughamInsertCrossReference, to: .keyWindow)
+        XCTAssertEqual(code.string, "`code", "inside code nothing is written")
+        XCTAssertFalse(code.undo.canUndo)
     }
 
     func test_theMenuCommandWithNoTargetsShowsTheEmptyState() throws {
