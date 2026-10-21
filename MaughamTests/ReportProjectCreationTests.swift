@@ -69,12 +69,19 @@ final class ReportProjectCreationTests: XCTestCase {
                        file: file, line: line)
         XCTAssertEqual(try installed("prose.tex", in: url), try bundled(prose, variant: "report"),
                        file: file, line: line)
+        // Installed as bundled: the paper and the title are decided at each
+        // compile (R-S7, M2), never written in at install.
+        XCTAssertEqual(try installed("template.tex", in: url), try bundled("template.tex", variant: "report"),
+                       file: file, line: line)
+        XCTAssertEqual(try installed("config.json", in: url), try bundled("default-config.json", variant: "report"),
+                       file: file, line: line)
         let template = try text("template.tex", in: url)
         XCTAssertTrue(template.contains("Report starter"), "the Report template", file: file, line: line)
         XCTAssertTrue(template.contains("\\documentclass[11pt]{article}"), file: file, line: line)
+        XCTAssertTrue(template.contains("\\providecommand{\\MaughamPaper}{a4paper}"),
+                      "the fallback for a compile by hand", file: file, line: line)
         let config = try XCTUnwrap(try PublishConfigStore.read(in: url))
         XCTAssertEqual(config.outputs.formatsEnabled, [.pdf, .docx], file: file, line: line)
-        XCTAssertEqual(config.metadata.title, name, "the title page names the report", file: file, line: line)
         XCTAssertEqual(config.nextVersion, "0.1", file: file, line: line)
     }
 
@@ -147,22 +154,54 @@ final class ReportProjectCreationTests: XCTestCase {
                        "a hand-made screenplay Report keeps the book starter")
     }
 
-    /// A4 unless the region is the US or Canada — the same rule the Word
-    /// export's page follows (R-S4/R-S5), so a Report's PDF and .docx agree.
-    func test_theReportPaperFollowsTheRegion() async throws {
-        XCTAssertEqual(PublishStarter.reportPaper(language: "en", region: "US"), "letterpaper")
-        XCTAssertEqual(PublishStarter.reportPaper(language: "en", region: "CA"), "letterpaper")
-        XCTAssertEqual(PublishStarter.reportPaper(language: "en", region: "GB"), "a4paper")
-        XCTAssertEqual(PublishStarter.reportPaper(language: "en", region: nil), "a4paper")
-        XCTAssertEqual(PublishStarter.reportPaper(language: "en-GB", region: "US"), "a4paper",
-                       "a tagged region wins")
+    private func context(_ profile: ProjectProfile?, title: String? = "Quarterly") -> PublishContext {
+        PublishContext(library: CitationLibrary(items: []), profile: profile,
+                       switches: (numberSections: false, listOfFigures: false, listOfTables: false),
+                       projectURL: nil, piecePaths: [:], projectTitle: title)
+    }
 
-        let url = try await ProjectFactory.createReportProject(
-            named: "Paper", in: temp.url, shape: .sections)
-        try await PublishStarter.install(into: url, force: true, region: "US")
-        XCTAssertTrue(try text("template.tex", in: url).contains("\\providecommand{\\MaughamPaper}{letterpaper}"))
-        try await PublishStarter.install(into: url, force: true, region: "FR")
-        XCTAssertTrue(try text("template.tex", in: url).contains("\\providecommand{\\MaughamPaper}{a4paper}"))
+    /// R-S7: a Report's paper is decided at every compile — A4 unless the
+    /// region is the US or Canada, the Word export's own rule — and a book
+    /// without the profile gets none, so its `metadata.tex` keeps its bytes.
+    func test_aReportsPaperFollowsTheRegion_andNoOtherBookHasOne() {
+        let report = context(.report)
+        XCTAssertEqual(PDFCompiler.reportPaper(context: report, language: "en", fallbackRegion: "US"), "letterpaper")
+        XCTAssertEqual(PDFCompiler.reportPaper(context: report, language: "en", fallbackRegion: "CA"), "letterpaper")
+        XCTAssertEqual(PDFCompiler.reportPaper(context: report, language: "en", fallbackRegion: "GB"), "a4paper")
+        XCTAssertEqual(PDFCompiler.reportPaper(context: report, language: "en", fallbackRegion: nil), "a4paper")
+        XCTAssertEqual(PDFCompiler.reportPaper(context: report, language: "en-GB", fallbackRegion: "US"), "a4paper",
+                       "a tagged region wins")
+        for page in [("en", "US"), ("en-GB", nil), ("fr-CA", "FR")] {
+            XCTAssertEqual(PDFCompiler.reportPaper(context: report, language: page.0, fallbackRegion: page.1) == "letterpaper",
+                           DOCXCompiler.page(forLanguage: page.0, fallbackRegion: page.1) == .letter,
+                           "the PDF and the .docx agree for \(page)")
+        }
+        XCTAssertNil(PDFCompiler.reportPaper(context: context(nil), language: "en", fallbackRegion: "US"))
+        XCTAssertNil(PDFCompiler.reportPaper(context: context(.unknown("essay")), language: "en", fallbackRegion: "US"))
+        XCTAssertNil(PDFCompiler.reportPaper(context: .empty, language: "en", fallbackRegion: "US"))
+
+        let cfg = PublishConfig()
+        XCTAssertEqual(PDFCompiler.documentMetadata(config: cfg, label: nil, resolutions: [], paper: nil),
+                       PDFCompiler.metadataBlock(config: cfg, label: nil), "no paper, no line")
+        XCTAssertTrue(PDFCompiler.documentMetadata(config: cfg, label: nil, resolutions: [], paper: "letterpaper")
+            .hasSuffix("\n\\def\\MaughamPaper{letterpaper}"))
+    }
+
+    /// M2: a Report's title page names the project while the config's title
+    /// is the starter's "Untitled" (or empty); a title the writer set wins;
+    /// every other book's config is untouched.
+    func test_aReportsUntitledConfig_takesTheProjectsTitle_andNothingElseChanges() {
+        var untitled = PublishConfig()
+        XCTAssertEqual(untitled.metadata.title, "Untitled", "premise: the starter's title")
+        XCTAssertEqual(PDFCompiler.reportConfig(untitled, context: context(.report)).metadata.title, "Quarterly")
+        untitled.metadata.title = "  "
+        XCTAssertEqual(PDFCompiler.reportConfig(untitled, context: context(.report)).metadata.title, "Quarterly")
+        var named = PublishConfig()
+        named.metadata.title = "Q3 Review"
+        XCTAssertEqual(PDFCompiler.reportConfig(named, context: context(.report)).metadata.title, "Q3 Review")
+        XCTAssertEqual(PDFCompiler.reportConfig(PublishConfig(), context: context(nil)).metadata.title, "Untitled")
+        XCTAssertEqual(PDFCompiler.reportConfig(PublishConfig(), context: context(.report, title: nil)).metadata.title,
+                       "Untitled")
     }
 
     // MARK: - refusals
@@ -173,7 +212,7 @@ final class ReportProjectCreationTests: XCTestCase {
                 named: "Script", in: temp.url, profile: .report)
             XCTFail("a screenplay with a profile must be refused")
         } catch let error as ProjectFactoryError {
-            XCTAssertEqual(error, .profileNotOffered(.screenplay))
+            XCTAssertEqual(error, .profileNotOffered(.report, on: .screenplay))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: temp.url.appendingPathComponent("Script").path))
     }
@@ -184,7 +223,7 @@ final class ReportProjectCreationTests: XCTestCase {
                 named: "Odd", in: temp.url, profile: .unknown("essay"))
             XCTFail("an unknown profile must be refused")
         } catch let error as ProjectFactoryError {
-            XCTAssertEqual(error, .profileNotOffered(.novel))
+            XCTAssertEqual(error, .profileNotOffered(.unknown("essay"), on: .novel))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: temp.url.appendingPathComponent("Odd").path))
     }

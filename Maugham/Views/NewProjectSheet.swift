@@ -109,19 +109,25 @@ struct NewProjectSheet: View {
                 Picker("Type", selection: $choice) {
                     ForEach(NewProjectChoice.all, id: \.self) { choice in
                         Text(choice.name).tag(choice)
-                            .help(choice.help)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+                Text(choice.help)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if choice.asksForAShape {
                     Picker("Shape", selection: $reportShape) {
                         ForEach(ProjectFactory.ReportShape.allCases, id: \.self) { shape in
                             Text(shape.label).tag(shape)
-                                .help(shape.help)
                         }
                     }
                     .pickerStyle(.segmented)
+                    Text(reportShape.help)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack {

@@ -177,6 +177,11 @@ public struct PDFCompiler {
             Self.prepare(resolution: $0.resolution, publishDir: publish, pathPrefix: prefix)
         }
         let problems = prepared.flatMap(\.resolution.problems)
+        // A Report's two compile-time facts (R-S7, M2): its paper and its
+        // title-page fallback. Nil / unchanged for every other book, so their
+        // metadata files keep their bytes.
+        let context = bodies[0].source.resolutionScope.publishContext()
+        let configs = bodies.map { Self.reportConfig($0.config, context: context) }
         for (index, body) in bodies.enumerated() {
             let tag = tags[index]
             let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
@@ -188,7 +193,7 @@ public struct PDFCompiler {
                                       isFirstBody: index == 0).write(
                 to: build.appendingPathComponent("body.\(tag).tex"),
                 atomically: true, encoding: .utf8)
-            try Self.metadataBlock(config: body.config, label: label).write(
+            try Self.metadataBlock(config: configs[index], label: label).write(
                 to: build.appendingPathComponent("metadata.\(tag).tex"),
                 atomically: true, encoding: .utf8)
             wrapperLines.append(
@@ -213,8 +218,10 @@ public struct PDFCompiler {
         // (`documentMetadata`): this file is read in the PREAMBLE, the one
         // place a `\usepackage` can reach a project whose preamble predates
         // them. The per-body files are read inside the document and never may.
-        try Self.documentMetadata(config: bodies[0].config, label: label,
-                                  resolutions: prepared.map(\.resolution)).write(
+        try Self.documentMetadata(config: configs[0], label: label,
+                                  resolutions: prepared.map(\.resolution),
+                                  paper: Self.reportPaper(context: context,
+                                                          language: configs[0].metadata.language)).write(
             to: build.appendingPathComponent("metadata.tex"),
             atomically: true, encoding: .utf8)
 
@@ -453,11 +460,14 @@ public struct PDFCompiler {
 
     /// `build/metadata.tex`: the first body's `metadataBlock`, plus a guarded
     /// `\usepackage` for each element kind the book has — graphicx for a
-    /// figure, longtable for a table. A book with neither gets exactly
+    /// figure, longtable for a table — and, for a Report, its paper
+    /// (`\def\MaughamPaper`, R-S7). A book with none of these gets exactly
     /// `metadataBlock`'s bytes.
     static func documentMetadata(config: PublishConfig, label: String?,
-                                 resolutions: [PublishResolution]) -> String {
+                                 resolutions: [PublishResolution],
+                                 paper: String? = nil) -> String {
         var lines = [metadataBlock(config: config, label: label)]
+        if let paper { lines.append("\\def\\MaughamPaper{\(paper)}") }
         if resolutions.contains(where: { !$0.figureNumbers.isEmpty }) {
             lines.append("\\IfFileExists{graphicx.sty}{\\usepackage{graphicx}}{}")
         }
@@ -465,6 +475,34 @@ public struct PDFCompiler {
             lines.append("\\IfFileExists{longtable.sty}{\\usepackage{longtable}}{}")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// **A Report's paper, decided at every compile** (R-S7): `letterpaper`
+    /// where the region is the US or Canada, `a4paper` everywhere else — the
+    /// Word export's own call (`DOCXCompiler.page`, R-S4/R-S5) with the same
+    /// language, so a Report's PDF and its .docx are always the same page.
+    /// Nil for every other book: its `metadata.tex` keeps its bytes. The
+    /// Report template reads it as `\MaughamPaper` (with a `\providecommand`
+    /// fallback for a compile by hand).
+    static func reportPaper(context: PublishContext, language: String,
+                            fallbackRegion: String? = Locale.current.region?.identifier) -> String? {
+        guard case .report? = context.profile else { return nil }
+        return DOCXCompiler.page(forLanguage: language, fallbackRegion: fallbackRegion) == .letter
+            ? "letterpaper" : "a4paper"
+    }
+
+    /// **A Report's title page names the project** (M2): while the config's
+    /// title is the starter's "Untitled" (or empty), a Report takes the
+    /// manifest's current title. Every other book's config is returned as it
+    /// is, so its metadata keeps its bytes.
+    static func reportConfig(_ config: PublishConfig, context: PublishContext) -> PublishConfig {
+        guard case .report? = context.profile, let projectTitle = context.projectTitle,
+              !projectTitle.isEmpty else { return config }
+        let title = config.metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.isEmpty || title == PublishConfig.Metadata.untitled else { return config }
+        var config = config
+        config.metadata.title = projectTitle
+        return config
     }
 
     /// The `\renewcommand` block a body's metadata becomes — the same text

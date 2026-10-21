@@ -1,10 +1,11 @@
 % Report prose: the single-document shape. Maugham installs this file as
 % prose.tex for a single-document Report (a sectioned Report gets the one
-% that prints its piece titles). The one piece is titled with the project's
-% name, which the title page already prints, so \pieceheading prints nothing
-% and adds no contents line. The headings inside it are numbered by the body
-% emitter; to print the piece title after all, give \pieceheading a body:
-%   \renewcommand{\pieceheading}[1]{\section*{#1}\addcontentsline{toc}{section}{#1}}
+% that prints every piece title). The FIRST piece is the report itself, titled
+% with the project's name, which the title page already prints: its heading
+% prints nothing and adds no contents line. A document added later (an
+% appendix, say) prints its title and its contents line as usual. The
+% headings inside each piece are numbered by the body emitter. To print the
+% first title too, delete the \ifMaughamFirstPiece branches below.
 %
 % Restrained headings: sans-serif, bold, modest sizes. titlesec is loaded by
 % preamble.tex; starred sections take the same format.
@@ -14,8 +15,14 @@
 \titlespacing*{\section}{0pt}{2.5ex plus 1ex minus .2ex}{1ex plus .2ex}
 \titlespacing*{\subsection}{0pt}{2ex plus 1ex minus .2ex}{0.8ex plus .2ex}
 
-\newcommand{\pieceheading}[1]{}
-\newcommand{\pieceheadingnotoc}[1]{}
+\newif\ifMaughamFirstPiece
+\MaughamFirstPiecetrue
+\newcommand{\pieceheading}[1]{%
+  \ifMaughamFirstPiece\global\MaughamFirstPiecefalse
+  \else\section*{#1}\addcontentsline{toc}{section}{#1}\fi}
+\newcommand{\pieceheadingnotoc}[1]{%
+  \ifMaughamFirstPiece\global\MaughamFirstPiecefalse
+  \else\section*{#1}\fi}
 
 % Optional first arg `notoc` suppresses the contents line. \def, not
 % \newcommand, for the comparison macro (\ifx compares the \long prefix too).

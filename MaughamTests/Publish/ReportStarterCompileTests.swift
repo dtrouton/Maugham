@@ -113,11 +113,18 @@ final class ReportStarterCompileTests: XCTestCase {
         XCTAssertEqual(occurrences(of: "Quarterly Fixture", in: text), 1,
                        "the piece title is suppressed: the name is on the title page only\n\(text)")
 
-        // The page follows the region, by the same rule as Word's.
-        let paper = PublishStarter.reportPaper(language: try installedConfig(store).metadata.language,
-                                               region: Locale.current.region?.identifier)
+        // The page follows the region at compile time, by Word's own rule
+        // (R-S7), through the line PDFCompiler writes for a Report only.
+        let letter = DOCXCompiler.page(forLanguage: try installedConfig(store).metadata.language,
+                                       fallbackRegion: Locale.current.region?.identifier) == .letter
         let width = try XCTUnwrap(doc.page(at: 0)?.bounds(for: .mediaBox).width)
-        XCTAssertEqual(width, paper == "letterpaper" ? 612 : 595.28, accuracy: 1, "\(paper)")
+        XCTAssertEqual(width, letter ? 612 : 595.28, accuracy: 1, "letter: \(letter)")
+        let metadata = try String(contentsOf: store.url.appendingPathComponent(".maugham/publish/build/metadata.tex"),
+                                  encoding: .utf8)
+        XCTAssertTrue(metadata.contains("\\def\\MaughamPaper{\(letter ? "letterpaper" : "a4paper")}"), metadata)
+        // M2: the config still says "Untitled"; the title page names the project.
+        XCTAssertEqual(try installedConfig(store).metadata.title, "Untitled", "premise: the starter's title")
+        XCTAssertFalse(text.contains("Untitled"), text)
 
         // Word: the same project, through the starter's config.
         let compiler = try DOCXCompiler(
@@ -127,6 +134,41 @@ final class ReportStarterCompileTests: XCTestCase {
         let result = try await compiler.compile(label: "word")
         XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
         XCTAssertEqual(DOCXValidator.problems(in: URL(fileURLWithPath: result.outputPath)), [])
+    }
+
+    /// I1: a single-document Report that gained a document through the
+    /// binder prints that document's title and contents line; only the first
+    /// piece — the report itself, titled with the project's name — is silent.
+    func test_aSingleDocumentReport_withAnAddedDocument_printsOnlyTheLaterTitle() async throws {
+        let store = try await makeReport("Solo Fixture", shape: .singleDocument)
+        let added = try await store.addStructureItem(parentId: nil, title: "Appendix", kind: .document(.markdown))
+        let path = try XCTUnwrap(added.path)
+        let url = store.url.appendingPathComponent(path)
+        try "Raw counts by quarter.".write(to: url, atomically: true, encoding: .utf8)
+        let doc = try await Document.load(url: url, actor: .author, session: "report", presenter: nil)
+        await doc.close()
+        XCTAssertEqual(store.manifest.structure.count, 2, "premise: two pieces")
+
+        let text = text(try await pdf(store))
+        XCTAssertEqual(occurrences(of: "Solo Fixture", in: text), 1,
+                       "the first piece's title is still silent\n\(text)")
+        XCTAssertEqual(occurrences(of: "Appendix", in: text), 2,
+                       "the added piece prints its heading and its contents line\n\(text)")
+        XCTAssertTrue(text.contains("Raw counts by quarter."), text)
+    }
+
+    /// R-S7's gate: a book without the Report profile writes no paper line,
+    /// and its `metadata.tex` is exactly the metadata block it always was.
+    func test_aNovelsMetadata_isByteIdenticalToTheBlock() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "Plain Fixture", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        let config = try installedConfig(store)
+        _ = try await pdf(store)
+        let metadata = try String(contentsOf: url.appendingPathComponent(".maugham/publish/build/metadata.tex"),
+                                  encoding: .utf8)
+        XCTAssertEqual(metadata, PDFCompiler.metadataBlock(config: config, label: "starter"))
+        XCTAssertFalse(metadata.contains("MaughamPaper"))
+        XCTAssertTrue(metadata.contains("\\renewcommand{\\Title}{Untitled}"), "no title fallback for a novel")
     }
 
     func test_aNewSectionsReport_printsItsSectionTitle_andTheLists() async throws {

@@ -8,7 +8,7 @@ public enum ProjectFactoryError: Error, Equatable {
     /// A profile this kind cannot carry (R-4-6): a screenplay, a collection,
     /// or a profile this build does not know. Refused before anything is
     /// written.
-    case profileNotOffered(ProjectType)
+    case profileNotOffered(ProjectProfile, on: ProjectType)
 }
 
 /// Creates new projects on disk. One-shot operations; does not retain state.
@@ -52,7 +52,7 @@ public enum ProjectFactory {
         }
         switch profile {
         case .report where offered: return
-        case .report, .unknown: throw ProjectFactoryError.profileNotOffered(type)
+        case .report, .unknown: throw ProjectFactoryError.profileNotOffered(profile, on: type)
         }
     }
 

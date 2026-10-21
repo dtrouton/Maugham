@@ -19,10 +19,12 @@
 % PDFCompiler into build/metadata.tex.
 \InputIfFileExists{build/metadata}{}{}
 
-% Paper. Maugham set this when the Report was made: letterpaper where the Mac's
-% region is the US or Canada, a4paper everywhere else (the same page the Word
-% export uses). Change the value here, or \renewcommand{\MaughamPaper}{...}
-% before this line, to move every page.
+% Paper. Maugham decides it at every compile and writes
+% \def\MaughamPaper{...} into build/metadata.tex: letterpaper where the
+% region is the US or Canada, a4paper everywhere else -- the same page the Word
+% export uses. The \providecommand below is only the fallback for a compile by
+% hand. To fix one paper for this report, replace the two lines below with,
+% e.g., \geometry{a4paper}.
 \providecommand{\MaughamPaper}{a4paper}
 \expandafter\geometry\expandafter{\MaughamPaper}
 

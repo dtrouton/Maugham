@@ -62,7 +62,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `PublishToolchain.swift` — the Maugham and tectonic versions every `Publication` is stamped with.
 - `PreviewCompiler.swift` — the subset preview compile into `build/preview/`, never `Exports/`; the piece filters.
 - `PublishPreviewResolver.swift` — what the Publish persona's centre shows, with its reason.
-- `PublishStarter.swift` — copies the bundled starter (`Maugham/Resources/PublishStarter/`) into `.maugham/publish/`; a Report takes the `report/` overrides (template, frontmatter, prose, config), chosen from the manifest on disk, with its paper and title set at install.
+- `PublishStarter.swift` — copies the bundled starter (`Maugham/Resources/PublishStarter/`) into `.maugham/publish/`; a Report takes the `report/` overrides (template, frontmatter, prose, config), chosen from the manifest on disk. `PDFCompiler` decides a Report's paper (Word's page rule) and its "Untitled" title fallback at each compile, never for another book (R-S7).
 
 ### Tectonic
 - `TectonicLocator.swift` — finds the bundled binary in the app's `Resources/bin`.

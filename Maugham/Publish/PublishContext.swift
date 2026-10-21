@@ -27,19 +27,25 @@ public struct PublishContext: Sendable {
     public var projectURL: URL?
     /// pieceID → the project-relative path of its manuscript file.
     public var piecePaths: [String: String]
+    /// The project's title as the manifest holds it NOW. A Report's title page
+    /// falls back to it when the config's title is still the starter's
+    /// "Untitled" (`PDFCompiler.reportConfig`). Nil for a source with no project.
+    public var projectTitle: String?
 
     public init(
         library: CitationLibrary,
         profile: ProjectProfile?,
         switches: (numberSections: Bool, listOfFigures: Bool, listOfTables: Bool),
         projectURL: URL?,
-        piecePaths: [String: String]
+        piecePaths: [String: String],
+        projectTitle: String? = nil
     ) {
         self.library = library
         self.profile = profile
         self.switches = switches
         self.projectURL = projectURL
         self.piecePaths = piecePaths
+        self.projectTitle = projectTitle
     }
 
     /// No research, no profile, every switch off, no project, no paths: what a

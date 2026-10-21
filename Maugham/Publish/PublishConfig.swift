@@ -67,8 +67,12 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         /// the same keys (`effectiveMetadata(language:)`).
         public var elementWords: ElementWordsOverride?
 
+        /// The title a config has before the writer names the book — the
+        /// starter's `default-config.json` value and this init's default.
+        public static let untitled = "Untitled"
+
         public init(
-            title: String = "Untitled",
+            title: String = Metadata.untitled,
             subtitle: String? = nil,
             author: String = "",
             copyright: String? = nil,

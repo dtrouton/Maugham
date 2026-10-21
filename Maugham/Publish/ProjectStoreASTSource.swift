@@ -124,7 +124,8 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
                        listOfFigures: switches.listOfFigures,
                        listOfTables: switches.listOfTables),
             projectURL: projectStore.url,
-            piecePaths: piecePaths)
+            piecePaths: piecePaths,
+            projectTitle: manifest.title)
     }
 
     private func pieceRef(
