@@ -78,6 +78,9 @@ extension ProjectStore {
             throw ProjectStoreError.profileFromNewerBuild(raw)
         }
         try ProjectFactory.refuseUnofferedProfile(profile, on: manifest.type)
+        // The config write below awaits before the manifest save: a verb, so
+        // an adoption landing in the wait is held, not undone.
+        beginStructuralVerb(); defer { endStructuralVerb() }
         if case .report? = manifest.profile, profile != .report {
             try await keepTheReportsTitle()
         }
