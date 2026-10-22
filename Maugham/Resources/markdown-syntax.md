@@ -140,7 +140,7 @@ While you write, lists, tables, quotes and code blocks keep the light styling de
 
 - **Lists** show as proper lists (one level, no nesting). Numbered lists can use `1.` or `1)`, although the editor only colors the `1.` form. Numbers are always counted from the top of the list, so a list you start at `10.` shows as `1.`.
 - **Code blocks**, fenced with three backticks, show in a monospace block exactly as written, with no bold or italic inside them.
-- **Tables** (a header row, a row of dashes, then data rows, each column separated by `|`) show as a real grid everywhere except published PDF and EPUB, where they print as plain text with the pipes and dashes.
+- **Tables** (a header row, a row of dashes, then data rows, each column separated by `|`) show as a real grid. In published PDF, EPUB and Word they are real numbered tables ("Table 1"), captioned by a `Table:` line under them; see Publishing.
 - **Quotes** show indented with a rule beside them. A quote inside a quote shows nested on the phone and in published output, and as a single level elsewhere.
 - **Line breaks inside a paragraph**: end a line with two spaces to break it there. A backslash at the end of the line also works, but only in published output.
 
@@ -154,9 +154,8 @@ These are shown as plain text, or don't do what they would in other Markdown app
 - Colored code highlighting inside code blocks
 - Link titles, `<https://...>` links, and links defined elsewhere in the file
 - HTML tags, and codes like `&amp;`
-- Footnotes
 - Strikethrough in screenplays
-- Images (`![alt](url)`) in the manuscript and in publishing. A research note's preview does show an image that sits on a line of its own and points at a file with a path starting `./`.
+- Footnotes and figures (`![caption](path)`) outside the editor and publishing: the phone's Read tab and previews show them as plain text, though a research note's preview does show an image that sits on a line of its own with a path starting `./`. How they publish is in Publishing.
 - `1)` numbering styled in the editor (it works everywhere else, as above)
 - `>` quotes without a space after the `>`
 - Double-backtick code spans
