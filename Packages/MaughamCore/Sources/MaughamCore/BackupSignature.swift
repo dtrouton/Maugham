@@ -17,10 +17,11 @@ import Foundation
 /// - op-log files (`.maugham/ops/*.jsonl`) contribute only their **non-checkpoint
 ///   op ids** (the per-save breadcrumb is filtered out),
 /// - the volatile sidecars are excluded entirely (`checkpoints.jsonl`,
-///   `sessions.json`, `ui-state.json`, `scratch/`, `conflicts/`, a Word export's
-///   sent copies under `exports/`, and the backup sidecars themselves),
+///   `sessions.json`, `ui-state.json`, `scratch/`, `conflicts/`, and the backup
+///   sidecars themselves),
 /// - every other file (manuscript `.md`/`.fountain`, `research/`, inbox, publish
-///   config, …) contributes its content hash.
+///   config, a Word export's sent copies under `exports/`, …) contributes its
+///   content hash.
 ///
 /// Two saves with no manuscript edit therefore produce the same signature.
 public enum BackupSignature {
@@ -54,9 +55,10 @@ public enum BackupSignature {
         ".maugham/ui-state/",
         ".maugham/scratch/",
         ".maugham/conflicts/",
-        // A Word export's sent copies (report plan 4, R-4-4): reproducible
-        // history written once per export, not working state.
-        ".maugham/exports/",
+        // NOT `.maugham/exports/`: a Word export's sent copy is the only
+        // record of what was sent — the manuscript moves on and nothing can
+        // rebuild it — and it is written once per export, never per save, so
+        // it is backed up like content (report plan 4, R-S9).
     ]
     private static let excludedNames = [
         BackupWriter.manifestName,   // a backed-up generation's own manifest
