@@ -64,12 +64,23 @@ extension ProjectStore {
     ///
     /// Turning the profile on does not re-install the publish starter: the
     /// starter is chosen when the project is created.
+    ///
+    /// Turning a Report's profile OFF writes the project's title into the
+    /// publish config once, when that config's title is still the starter's
+    /// "Untitled" (M6): a Report is titled by its project only while it is a
+    /// Report (`PublishContext.reportTitled`), so without this its next PDF
+    /// would be "Untitled". Gated on the profile being turned off, never on
+    /// the title alone, so a book that never had the profile keeps its bytes —
+    /// an old book whose config says "Untitled" still prints "Untitled".
     public func setProfile(_ profile: ProjectProfile?) async throws {
         guard manifest.profile != profile else { return }
         if case .unknown(let raw) = manifest.profile {
             throw ProjectStoreError.profileFromNewerBuild(raw)
         }
         try ProjectFactory.refuseUnofferedProfile(profile, on: manifest.type)
+        if case .report? = manifest.profile, profile != .report {
+            try await keepTheReportsTitle()
+        }
         manifest.profile = profile
         manifest.modified = Date()
         try await saveManifest()
@@ -89,5 +100,16 @@ extension ProjectStore {
         manifest.switches = switches == ProjectSwitches() ? nil : switches
         manifest.modified = Date()
         try await saveManifest()
+    }
+
+    /// M6: the Report's title fallback, made the config's own before the
+    /// profile that applied it goes. Writes nothing when there is no config
+    /// or the writer already named the book.
+    private func keepTheReportsTitle() async throws {
+        let configStore = PublishConfigStore(projectURL: url)
+        guard let config = try await configStore.load() else { return }
+        let titled = PublishContext.titledByProject(config, projectTitle: manifest.title)
+        guard titled.metadata.title != config.metadata.title else { return }
+        try await configStore.save(titled)
     }
 }

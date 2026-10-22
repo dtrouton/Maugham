@@ -68,7 +68,17 @@ extension PublishContext {
     /// and a Report the writer has titled — is returned unchanged, so its
     /// output keeps its bytes.
     public func reportTitled(_ config: PublishConfig) -> PublishConfig {
-        guard case .report? = profile, let projectTitle, !projectTitle.isEmpty else { return config }
+        guard case .report? = profile else { return config }
+        return Self.titledByProject(config, projectTitle: projectTitle)
+    }
+
+    /// The fallback itself, profile aside: `config` with `projectTitle` in
+    /// place of a title that is still "Untitled" or blank. `reportTitled`
+    /// asks it for a Report at every compile, and
+    /// `ProjectStore.setProfile` writes it into the config once when a
+    /// Report's profile is turned off, so the book keeps its name (M6).
+    static func titledByProject(_ config: PublishConfig, projectTitle: String?) -> PublishConfig {
+        guard let projectTitle, !projectTitle.isEmpty else { return config }
         let title = config.metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard title.isEmpty || title == PublishConfig.Metadata.untitled else { return config }
         var config = config

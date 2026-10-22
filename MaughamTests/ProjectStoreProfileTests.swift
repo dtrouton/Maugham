@@ -146,6 +146,44 @@ final class ProjectStoreProfileTests: XCTestCase {
         XCTAssertEqual(schema(url), 10, "the switches are still v10 content")
     }
 
+    /// M6: a Report is titled by its project only while it is a Report, so
+    /// turning its profile off writes the project's title into the publish
+    /// config while that config still says the starter's "Untitled" — the
+    /// next PDF keeps the book's name. A title the writer chose is kept, and
+    /// turning the profile ON writes nothing to the config.
+    func test_turningAReportsProfileOff_keepsItsTitleInTheConfig() async throws {
+        let url = try await ProjectFactory.createReportProject(named: "Quarterly", in: temp.url, shape: .sections)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        XCTAssertEqual(try PublishConfigStore.read(in: url)?.metadata.title, "Untitled", "premise: the starter's title")
+
+        try await store.setProfile(nil)
+        XCTAssertEqual(try PublishConfigStore.read(in: url)?.metadata.title, "Quarterly")
+        XCTAssertNil(try onDisk(url).profile)
+
+        let config = PublishConfigStore.fileURL(in: url)
+        let before = try Data(contentsOf: config)
+        try await store.setProfile(.report)
+        try await store.setProfile(nil)
+        await ds.close()
+        XCTAssertEqual(try Data(contentsOf: config), before, "a named book's config is never rewritten")
+    }
+
+    /// The other side of M6: a book that never had the profile keeps its
+    /// config's bytes through the door — an old book whose config says
+    /// "Untitled" still prints "Untitled".
+    func test_turningTheProfileOnWritesNothingToTheConfig() async throws {
+        let (url, store, ds) = try await makeSchema9Novel()
+        await PublishStarter.installIfMissing(into: url)
+        let config = PublishConfigStore.fileURL(in: url)
+        let before = try Data(contentsOf: config)
+        XCTAssertEqual(try PublishConfigStore.read(in: url)?.metadata.title, "Untitled", "premise")
+        try await store.setProfile(.report)
+        await ds.close()
+        XCTAssertEqual(try Data(contentsOf: config), before)
+    }
+
     func test_aScreenplayIsRefusedAProfileAndNothingIsWritten() async throws {
         let url = try await ProjectFactory.createScreenplayProject(named: "Script", in: temp.url)
         let store = try await ProjectStore.load(from: url)
