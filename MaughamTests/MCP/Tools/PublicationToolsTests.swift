@@ -240,6 +240,22 @@ final class PublicationToolsTests: XCTestCase {
         XCTAssertTrue(pubs.isEmpty, "no catalog row: \(pubs)")
     }
 
+    /// R-S8: `republish` of a Word file is the caller's argument, refused as
+    /// an invalid argument in the ruling's sentence before the snapshot is
+    /// read; the tool's description says so (M5).
+    func testRepublish_aWordRepublishIsAnInvalidArgument() async throws {
+        do {
+            _ = try await RepublishTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","snapshot_id":"snap-x","format":"docx"}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertEqual(msg, "A Word draft isn't republished — export a new draft instead.")
+        }
+        XCTAssertTrue(RepublishTool.description.contains("A Word draft isn't republished"),
+                      RepublishTool.description)
+    }
+
     // MARK: - republish
 
     func testRepublish_unknownProject_throws() async throws {

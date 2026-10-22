@@ -6,8 +6,8 @@ import MaughamCore
 /// review focus 2): a `.docx` compile never reads or moves `next_version`,
 /// takes Draft N from the book's sent copies, is named `{title}-draft{N}.docx`,
 /// carries its label in `docProps/custom.xml`, and keeps what it sent under
-/// `.maugham/exports/<book>/<export-id>/`. A republish is the same draft
-/// re-rendered and writes no sent copy.
+/// `.maugham/exports/<book>/<export-id>/`, the export id named in the file
+/// too. A Word file is never republished (R-S8).
 @MainActor
 final class WordDraftTests: XCTestCase {
 
@@ -68,6 +68,12 @@ final class WordDraftTests: XCTestCase {
         SentCopyStore(projectURL: tmp).drafts(book: "book")
     }
 
+    /// Every sent copy's `sent.json`, oldest first.
+    private var sentRecords: [SentCopyStore.SentCopy] {
+        let store = SentCopyStore(projectURL: tmp)
+        return sentCopies.compactMap { store.record(book: "book", exportID: $0.exportID) }
+    }
+
     private func nextVersion() async throws -> String? {
         try await PublishConfigStore(projectURL: tmp).load()?.nextVersion
     }
@@ -87,7 +93,8 @@ final class WordDraftTests: XCTestCase {
                        ["Word-draft1.docx", "Word-draft2.docx", "Word-draft3.docx"])
         let afterWord = try await nextVersion()
         XCTAssertEqual(afterWord, "0.1", "a Word export never moves next_version")
-        XCTAssertEqual(sentCopies.compactMap(\.copy?.draft), [1, 2, 3])
+        XCTAssertEqual(sentCopies.compactMap(\.draft), [1, 2, 3])
+        XCTAssertEqual(sentRecords.map(\.draft), [1, 2, 3])
 
         let pdf = try await orch.compile(format: .pdf, label: nil)
         guard case .completed(let pub, _) = pdf else { return XCTFail("the PDF: \(pdf)") }
@@ -220,7 +227,7 @@ final class WordDraftTests: XCTestCase {
         func orderedPieces() -> [ProjectASTBuilder.PieceRef] { Src().orderedPieces() }
         func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
             let folder = SentCopyStore.directory(book: "book", in: projectURL)
-                .appendingPathComponent("20261021-120000-another-mac-1a2b3c4d")
+                .appendingPathComponent("draft1-20261021-120000-another-mac-1a2b3c4d")
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try? #"{"label":"Draft 1","draft":1,"sentAt":"2026-10-21T12:00:00Z","language":"en","book":"book","pieces":[]}"#
                 .write(to: folder.appendingPathComponent("sent.json"), atomically: true, encoding: .utf8)
@@ -240,7 +247,7 @@ final class WordDraftTests: XCTestCase {
         }
         XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt), excerpt)
         XCTAssertTrue(errors.contains { $0.message.contains("Draft 1") }, "\(errors.map(\.message))")
-        XCTAssertEqual(sentCopies.compactMap(\.copy?.draft), [1], "only the other export's Draft 1")
+        XCTAssertEqual(sentCopies.compactMap(\.draft), [1], "only the other export's Draft 1")
         let held = await gate._inFlightForTesting
         XCTAssertTrue(held.isEmpty, "the refusal released its draft: \(held)")
         let pub = try await exportWord(orchestrator(gate: gate))
@@ -261,7 +268,7 @@ final class WordDraftTests: XCTestCase {
         }
         XCTAssertFalse(landed.isEmpty, "at least one export lands: \(outcomes)")
         XCTAssertEqual(Set(landed).count, landed.count, "no two exports share a draft: \(landed)")
-        let sent = sentCopies.compactMap(\.copy?.draft)
+        let sent = sentCopies.compactMap(\.draft)
         XCTAssertEqual(sent.count, landed.count, "one sent copy per landed export")
         XCTAssertEqual(Set(sent).count, sent.count, "no two sent copies name one draft: \(sent)")
     }
@@ -277,9 +284,11 @@ final class WordDraftTests: XCTestCase {
         let drafts = sentCopies
         XCTAssertEqual(drafts.count, 1)
         let draft = try XCTUnwrap(drafts.first)
-        let copy = try XCTUnwrap(draft.copy)
+        let copy = try XCTUnwrap(sentRecords.first)
 
         XCTAssertEqual(copy.draft, 1)
+        XCTAssertEqual(draft.draft, 1, "the folder's name says its draft")
+        XCTAssertEqual(copy.exportID, draft.exportID, "sent.json names its own folder")
         XCTAssertEqual(copy.book, "book")
         XCTAssertEqual(copy.language, "en")
         XCTAssertEqual(copy.label, "Draft 1, sent " + WordDraft.date(copy.sentAt, language: "en"))
@@ -290,7 +299,7 @@ final class WordDraftTests: XCTestCase {
         })
 
         let slug = DeviceIdentity.author.slug.raw
-        XCTAssertNotNil(draft.exportID.range(of: #"^\d{8}-\d{6}-"# + NSRegularExpression.escapedPattern(for: slug) + "$",
+        XCTAssertNotNil(draft.exportID.range(of: #"^draft1-\d{8}-\d{6}-"# + NSRegularExpression.escapedPattern(for: slug) + "$",
                                              options: .regularExpression), draft.exportID)
         let folder = SentCopyStore.directory(book: "book", in: tmp).appendingPathComponent(draft.exportID)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(),
@@ -301,7 +310,8 @@ final class WordDraftTests: XCTestCase {
 
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(
             with: Data(contentsOf: folder.appendingPathComponent("sent.json"))) as? [String: Any])
-        XCTAssertEqual(Set(json.keys), ["label", "draft", "sentAt", "language", "book", "pieces"])
+        XCTAssertEqual(Set(json.keys), ["exportID", "label", "draft", "sentAt", "language", "book", "pieces"])
+        XCTAssertEqual(json["exportID"] as? String, draft.exportID)
         let sentAt = try XCTUnwrap(json["sentAt"] as? String)
         XCTAssertNotNil(ISO8601DateFormatter().date(from: sentAt), "sentAt is ISO 8601: \(sentAt)")
         let piece = try XCTUnwrap((json["pieces"] as? [[String: Any]])?.first)
@@ -332,7 +342,10 @@ final class WordDraftTests: XCTestCase {
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         _ = try await exportWord(orch)
 
-        let copy = try XCTUnwrap(SentCopyStore(projectURL: url).drafts(book: "book").first?.copy)
+        let sent = SentCopyStore(projectURL: url)
+        let copy = try XCTUnwrap(sent.drafts(book: "book").first.flatMap {
+            sent.record(book: "book", exportID: $0.exportID)
+        })
         let paragraphs = copy.pieces.flatMap(\.paragraphs)
         XCTAssertTrue(paragraphs.contains { $0.text == "The first line." }, "\(paragraphs)")
         XCTAssertTrue(paragraphs.contains { $0.text == "The second line." }, "\(paragraphs)")
@@ -343,8 +356,9 @@ final class WordDraftTests: XCTestCase {
     // MARK: - the label in the file
 
     /// The label goes into `docProps/custom.xml` — `MaughamExportLabel`,
-    /// `MaughamDraft` (an i4) and `MaughamBook` — and the file still passes the
-    /// structural validator.
+    /// `MaughamDraft` (an i4), `MaughamBook` and `MaughamExportID`, the sent
+    /// copy's folder (R-S8) — and the file still passes the structural
+    /// validator.
     func test_theLabelIsInTheFilesCustomProperties() async throws {
         _ = try await exportWord()
         let pub = try await exportWord()
@@ -355,12 +369,21 @@ final class WordDraftTests: XCTestCase {
             decoding: try XCTUnwrap(try ZipArchive.read(docx)["docProps/custom.xml"]), as: UTF8.self))
         let properties = DOCXValidator.elements(custom, "property")
         XCTAssertEqual(properties.compactMap { DOCXValidator.attr($0, "name") },
-                       ["MaughamExportLabel", "MaughamDraft", "MaughamBook"])
-        let label = try XCTUnwrap(sentCopies.last?.copy?.label)
+                       ["MaughamExportLabel", "MaughamDraft", "MaughamBook", "MaughamExportID"])
+        let label = try XCTUnwrap(sentRecords.last?.label)
         XCTAssertTrue(label.hasPrefix("Draft 2, sent "), label)
         XCTAssertEqual(DOCXValidator.elements(properties[0], "vt:lpwstr").first?.stringValue, label)
         XCTAssertEqual(DOCXValidator.elements(properties[1], "vt:i4").first?.stringValue, "2")
         XCTAssertEqual(DOCXValidator.elements(properties[2], "vt:lpwstr").first?.stringValue, "book")
+        let exportID = try XCTUnwrap(sentCopies.last?.exportID)
+        XCTAssertTrue(exportID.hasPrefix("draft2-"), exportID)
+        XCTAssertEqual(DOCXValidator.elements(properties[3], "vt:lpwstr").first?.stringValue, exportID,
+                       "the file names the folder its sent copy is kept in")
+        XCTAssertEqual(sentRecords.last?.exportID, exportID)
+        let kept = SentCopyStore.directory(book: "book", in: tmp)
+            .appendingPathComponent(exportID).appendingPathComponent("export.docx")
+        XCTAssertEqual(try Data(contentsOf: kept), try Data(contentsOf: docx),
+                       "and the kept file is that very file, export id and all")
     }
 
     /// "Draft N, sent <date>" in the book's language: the words from
@@ -370,7 +393,7 @@ final class WordDraftTests: XCTestCase {
     func test_theLabelIsInTheBooksLanguage() throws {
         let day = try localDate(hour: 23, minute: 30)
         func label(_ language: String, _ words: PublishConfig.ElementWordsOverride? = nil) -> String {
-            WordDraft.Label(draft: 3, sentAt: day, book: "book")
+            WordDraft.Label(draft: 3, sentAt: day, book: "book", exportID: "x")
                 .text(metadata: .init(language: language, elementWords: words))
         }
         XCTAssertTrue(label("en").hasPrefix("Draft 3, sent "), label("en"))
@@ -447,19 +470,56 @@ final class WordDraftTests: XCTestCase {
         let docx = tmp.appendingPathComponent("stand-in.docx")
         try Data("PK".utf8).write(to: docx)
         let at = Date(timeIntervalSince1970: 1_800_000_000)
-        let copy = SentCopyStore.SentCopy(label: "Draft 1, sent", draft: 1, sentAt: at,
-                                          language: "en", book: "book", pieces: [])
-        let a = try store.write(copy, docx: docx, device: DeviceSlug.make(from: "mac-A"))
-        let b = try store.write(copy, docx: docx, device: DeviceSlug.make(from: "mac-B"))
+        func send(from device: String) throws -> URL {
+            let id = try store.freeExportID(book: "book", draft: 1, sentAt: at,
+                                            device: DeviceSlug.make(from: device))
+            return try store.write(.init(exportID: id, label: "Draft 1, sent", draft: 1, sentAt: at,
+                                         language: "en", book: "book", pieces: []), docx: docx)
+        }
+        let a = try send(from: "mac-A")
+        let b = try send(from: "mac-B")
         XCTAssertNotEqual(a, b)
         XCTAssertEqual(store.drafts(book: "book").count, 2)
-        let again = try store.write(copy, docx: docx, device: DeviceSlug.make(from: "mac-A"))
+        let again = try send(from: "mac-A")
         XCTAssertEqual(again.lastPathComponent, a.lastPathComponent + "-2",
                        "a second export from one device in one second takes -2, never the first's folder")
         XCTAssertEqual(store.drafts(book: "book").count, 3)
+        XCTAssertEqual(store.drafts(book: "book").map(\.draft), [1, 1, 1])
+
+        XCTAssertThrowsError(try store.write(
+            .init(exportID: a.lastPathComponent, label: "x", draft: 1, sentAt: at,
+                  language: "en", book: "book", pieces: []), docx: docx),
+            "a sent copy is never written over another") { error in
+            XCTAssertEqual(error as? SentCopyStore.WriteError, .exportIDTaken(a.lastPathComponent))
+        }
 
         let pub = try await exportWord()
         XCTAssertEqual(pub.version, "draft-4", "every sent copy counts, both devices': the next is 4")
+    }
+
+    /// M2: drafts are counted from the folder's LISTING — the draft is in
+    /// each name — so a sent copy whose `sent.json` is missing or damaged
+    /// (not yet downloaded) still counts and still holds its number, and a
+    /// folder whose name says no draft counts with none.
+    func test_draftsAreCountedFromTheListingAlone() async throws {
+        let book = SentCopyStore.directory(book: "book", in: tmp)
+        for name in ["draft2-20261021-120000-mac-a", "draft1-20261020-090000-mac-b", "unnamed-folder"] {
+            try FileManager.default.createDirectory(at: book.appendingPathComponent(name),
+                                                    withIntermediateDirectories: true)
+        }
+        try Data("not json".utf8).write(to: book.appendingPathComponent("draft2-20261021-120000-mac-a/sent.json"))
+        let drafts = SentCopyStore(projectURL: tmp).drafts(book: "book")
+        XCTAssertEqual(drafts.map(\.exportID),
+                       ["draft1-20261020-090000-mac-b", "draft2-20261021-120000-mac-a", "unnamed-folder"],
+                       "oldest first by the time after the draft")
+        XCTAssertEqual(drafts.map(\.draft), [1, 2, nil])
+        XCTAssertNil(SentCopyStore(projectURL: tmp).record(book: "book", exportID: "draft2-20261021-120000-mac-a"))
+
+        let pub = try await exportWord()
+        XCTAssertEqual(pub.version, "draft-4", "three sent copies, 1 and 2 held: the next is 4")
+        XCTAssertEqual(SentCopyStore.draft(ofExportID: "draft12-20261021-120000-mac-a-2"), 12)
+        XCTAssertNil(SentCopyStore.draft(ofExportID: "draft-20261021"))
+        XCTAssertNil(SentCopyStore.draft(ofExportID: "draft3x-20261021"))
     }
 
     /// An imprint counts its own drafts, in its own folder.
@@ -493,57 +553,35 @@ final class WordDraftTests: XCTestCase {
 
     // MARK: - republish
 
-    /// A Word republish re-renders the same draft under `-r`: it keeps the
-    /// draft's label and writes no sent copy.
-    func test_aWordRepublishIsTheSameDraft_andWritesNoSentCopy() async throws {
+    /// R-S8: a Word draft is never republished, in any format. A Word
+    /// republish would wear the draft's label over today's text with no sent
+    /// copy to match it; a PDF or EPUB of a draft has no honest version. Each
+    /// is refused in the ruling's sentence before anything is minted.
+    func test_aDraftIsNeverRepublished_inAnyFormat() async throws {
         let pub = try await exportWord()
-        let original = try XCTUnwrap(sentCopies.first?.copy)
+        let gate = PublishMintGate()
         let republisher = Republisher(
             projectURL: tmp, astSource: Src(),
             publicationStore: PublicationStore(projectURL: tmp),
             snapshotStore: PublicationSnapshotStore(projectURL: tmp),
-            jobManager: CompileJobManager(), mintGate: PublishMintGate(),
+            jobManager: CompileJobManager(), mintGate: gate,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
-        let outcome = try await republisher.republish(snapshotID: pub.snapshotID, format: .docx, label: nil)
-        guard case .completed(let again, _) = outcome else { return XCTFail("\(outcome)") }
-
-        XCTAssertTrue(again.version.hasPrefix("draft-1-r"), again.version)
-        XCTAssertEqual(again.republishedFrom, "draft-1")
-        XCTAssertTrue((again.outputPath as NSString).lastPathComponent.hasPrefix("Word-draft1-r"), again.outputPath)
-        XCTAssertEqual(sentCopies.count, 1, "a republish writes no sent copy")
-        let next = try await nextVersion()
-        XCTAssertEqual(next, "0.1")
-
-        let custom = try XMLDocument(xmlString: String(decoding: try XCTUnwrap(
-            try ZipArchive.read(tmp.appendingPathComponent(again.outputPath))["docProps/custom.xml"]), as: UTF8.self))
-        let values = DOCXValidator.elements(custom, "property").map { $0.stringValue }
-        XCTAssertEqual(values, [original.label, "1", "book"], "the same draft's label, sent the same day")
-
-        let nextDraft = try await exportWord()
-        XCTAssertEqual(nextDraft.version, "draft-2", "the republish took no number")
-    }
-
-    /// A draft is a Word export's number: a PDF or EPUB of its snapshot is
-    /// refused in a sentence, before anything is minted.
-    func test_aPDFOrEPUBRepublishOfADraftIsRefused() async throws {
-        let pub = try await exportWord()
-        let republisher = Republisher(
-            projectURL: tmp, astSource: Src(),
-            publicationStore: PublicationStore(projectURL: tmp),
-            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
-            jobManager: CompileJobManager(), mintGate: PublishMintGate(),
-            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
-        for format in [PublishConfig.Format.pdf, .epub] {
+        for format in PublishConfig.Format.allCases {
             do {
-                _ = try await republisher.republish(snapshotID: pub.snapshotID, format: format, label: nil)
-                XCTFail("a \(format) republish of Draft 1 must be refused")
+                let outcome = try await republisher.republish(snapshotID: pub.snapshotID, format: format, label: nil)
+                XCTFail("a \(format) republish of Draft 1 must be refused: \(outcome)")
             } catch let error as RepublishError {
-                XCTAssertEqual(error.localizedDescription.hasPrefix("Draft 1 is a Word export"), true,
-                               error.localizedDescription)
+                XCTAssertEqual(error.localizedDescription,
+                               "A Word draft isn't republished — export a new draft instead.", "\(format)")
             }
         }
         let pubs = try await PublicationStore(projectURL: tmp).load()
         XCTAssertEqual(pubs.map(\.version), ["draft-1"], "nothing minted")
+        XCTAssertEqual(sentCopies.count, 1, "no sent copy written")
+        let held = await gate._inFlightForTesting
+        XCTAssertTrue(held.isEmpty, "nothing reserved: \(held)")
+        let next = try await exportWord()
+        XCTAssertEqual(next.version, "draft-2")
     }
 
     /// Only a format that mints drafts is named as one.

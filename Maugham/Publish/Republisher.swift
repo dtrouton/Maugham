@@ -20,20 +20,36 @@ public enum RepublishError: Error, LocalizedError {
     /// at `republish`'s door, before the snapshot is read; its description is
     /// `PublishFormatRefusal.message(raw:)`, the one refusal sentence.
     case unproducibleFormat(String)
-    /// A PDF or EPUB asked of a Word draft's snapshot. A draft is a Word
-    /// export's number, never a book version, so another format of it would
-    /// have no honest name (R-4-1); refused before anything is minted.
-    case draftIsWordOnly(draft: Int, format: String)
+    /// A Word file asked for, or any format of a Word draft's snapshot
+    /// (R-S8). A Word file's sent copy must match it, and a republish renders
+    /// the CURRENT manuscript, so a republished draft would wear an old
+    /// draft's label over today's text (and a Word file of a version would
+    /// leave with no sent copy at all); a draft is no version, so no other
+    /// format of it has an honest name (R-4-1). Refused before anything is
+    /// minted. MCP reports it as an invalid argument.
+    case wordIsNotRepublished
 
     public var errorDescription: String? {
         switch self {
         case .invalidSnapshotConfig(let msg): return msg
         case .unreadableSnapshotConfig(let msg): return msg
         case .unproducibleFormat(let raw): return PublishFormatRefusal.message(raw: raw)
-        case .draftIsWordOnly(let draft, let format):
-            return "Draft \(draft) is a Word export, so it can only be republished as Word, "
-                + "not \(format.uppercased()). Compile the book as \(format.uppercased()) "
-                + "for a version of its own."
+        case .wordIsNotRepublished:
+            return Self.wordIsNotRepublishedSentence
+        }
+    }
+
+    /// R-S8's sentence, the one spelling — the `republish` tool's description
+    /// quotes it.
+    public static let wordIsNotRepublishedSentence =
+        "A Word draft isn't republished — export a new draft instead."
+
+    /// Whether this refusal is the caller's argument (MCP: invalid argument)
+    /// rather than a failure of the snapshot.
+    public var isCallersArgument: Bool {
+        switch self {
+        case .unproducibleFormat, .wordIsNotRepublished: return true
+        case .invalidSnapshotConfig, .unreadableSnapshotConfig: return false
         }
     }
 }
@@ -91,6 +107,8 @@ public struct Republisher {
         if PublishConfigValidator.formatError(format) != nil {
             throw RepublishError.unproducibleFormat(format.rawValue)
         }
+        // R-S8: a Word file is never republished — an export is a new draft.
+        if format.mintsDrafts { throw RepublishError.wordIsNotRepublished }
 
         let snap = try snapshotStore.load(id: snapshotID)
 
@@ -133,9 +151,8 @@ public struct Republisher {
         // prior" by different rules.
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
-        if !format.mintsDrafts, let draft = priorVersion.flatMap(WordDraft.number(ofVersion:)) {
-            throw RepublishError.draftIsWordOnly(draft: draft, format: format.rawValue)
-        }
+        // R-S8 again, by what the snapshot was: no format of a Word draft.
+        if prior?.format.mintsDrafts == true { throw RepublishError.wordIsNotRepublished }
 
         // The whole catalog, for the mint below: the version it produces has to
         // be free of every row, not just of the prior one. A second read of the
@@ -423,7 +440,7 @@ public struct Republisher {
         switch format {
         case .pdf: resolved = try PDFCompiler.resolve(bodies: plan.bodies)
         case .epub: resolved = try EPUBCompiler.resolve(bodies: plan.bodies)
-        case .docx: resolved = try DOCXCompiler.resolve(bodies: plan.bodies)
+        case .docx: throw RepublishError.wordIsNotRepublished  // refused at the door (R-S8)
         case .unknown(let raw): throw PublishFormatRefusal(raw: raw)
         }
         if case .refused(let problemErrors) = PublishProblemGate.judge(
@@ -471,26 +488,9 @@ public struct Republisher {
             logExcerpt = ""
             problems = r.problems
         case .docx:
-            // R-4-1: the same draft, re-rendered under its `-r` version — it
-            // carries the draft's own label (its number and the day it was
-            // sent) and writes no sent copy, so it is never a new draft. A
-            // Word republish of a book version's snapshot is no draft at all,
-            // and carries no label.
-            let w = try DOCXCompiler(
-                projectURL: stage, bodies: plan.bodies,
-                config: plan.first.config, jobManager: jobManager,
-                maughamVersion: maughamVersion,
-                tectonicVersion: tectonicVersion, jobID: jobID,
-                language: set.singleTag,
-                identity: set.identity,
-                resolved: resolved,
-                exportLabel: await draftLabel(priorVersion: priorVersion, imprint: imprint))
-            let r = try await w.compile(label: label)
-            outputPath = r.outputPath
-            warnings = r.warnings
-            errors = r.errors
-            logExcerpt = ""
-            problems = r.problems
+            // Defence in depth, unreachable: `republish` refuses a Word file
+            // at its door (R-S8).
+            throw RepublishError.wordIsNotRepublished
         case .unknown(let raw):
             // Defence in depth, unreachable from `republish`: its first check
             // (`PublishConfigValidator.formatError`) refuses every unknown
@@ -599,23 +599,6 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
-    }
-
-    // MARK: - A Word draft's label
-
-    /// The label a Word republish carries (R-4-1): the prior publication's
-    /// draft, sent on the day its sent copy says (the prior row's compile
-    /// time when that copy can't be read here). Nil when the prior version is
-    /// no draft.
-    private func draftLabel(priorVersion: String?, imprint: String?) async -> WordDraft.Label? {
-        guard let draft = priorVersion.flatMap(WordDraft.number(ofVersion:)) else { return nil }
-        let book = imprint ?? WordDraft.bookFolder
-        let sent = await SentCopyStore(projectURL: projectURL).drafts(book: book)
-            .compactMap(\.copy).first { $0.draft == draft }?.sentAt
-        let prior = try? await publicationStore.load().first {
-            $0.version == priorVersion && $0.imprint == imprint && $0.format.mintsDrafts
-        }
-        return WordDraft.Label(draft: draft, sentAt: sent ?? prior?.compiledAt ?? Date(), book: book)
     }
 
     // MARK: - What every body is folded from

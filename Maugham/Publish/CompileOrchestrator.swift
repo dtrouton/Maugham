@@ -409,11 +409,27 @@ public struct CompileOrchestrator {
                 return .failed(
                     errors: [diag], logExcerpt: "version_for_a_draft: \(version)")
             }
-            let held = await draftsHeld(book: WordDraft.book(of: config), imprint: imprint, catalog: existingPublications)
+            let book = WordDraft.book(of: config)
+            let held = await draftsHeld(book: book, imprint: imprint, catalog: existingPublications)
             let draft = WordDraft.next(sentCopies: held.sentCopies, taken: held.taken)
             effectiveVersion = WordDraft.version(draft)
-            draftLabel = WordDraft.Label(
-                draft: draft, sentAt: Date(), book: WordDraft.book(of: config))
+            // The sent copy's folder is chosen now, before the file is
+            // packaged, because the file names it (`MaughamExportID`, R-S8).
+            let sentAt = Date()
+            let exportID: String
+            do {
+                exportID = try await SentCopyStore(projectURL: projectURL)
+                    .freeExportID(book: book, draft: draft, sentAt: sentAt)
+            } catch {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: error.localizedDescription,
+                    contextLines: ["Nothing was exported — no file, no sent copy."])
+                await jobManager.fail(jobID: jobID, errors: [diag],
+                                      logExcerpt: "no_free_export_id: \(draft)")
+                return .failed(errors: [diag], logExcerpt: "no_free_export_id: \(draft)")
+            }
+            draftLabel = WordDraft.Label(draft: draft, sentAt: sentAt, book: book, exportID: exportID)
         } else if set.isSourceCompile {
             if let version {
                 let diag = TectonicLogParser.Diagnostic(
@@ -953,6 +969,7 @@ public struct CompileOrchestrator {
         var sentFolder: URL?
         if let draftLabel {
             let copy = SentCopyStore.SentCopy(
+                exportID: draftLabel.exportID,
                 label: draftLabel.text(metadata: effective.metadata),
                 draft: draftLabel.draft, sentAt: draftLabel.sentAt,
                 language: set.identity ?? set.sourceTag, book: draftLabel.book,
@@ -1065,14 +1082,14 @@ public struct CompileOrchestrator {
     }
 
     /// R-4-1: how many sent copies `imprint`'s book holds, and every draft
-    /// number already held — by a sent copy this device can read, or by a
-    /// Word row in the catalog (a republish names its draft too). A draft is
+    /// number already held — by a sent copy (its folder names it), or by a
+    /// Word row in the catalog. A draft is
     /// never handed out twice, even past a lost sent copy or a gap.
     private func draftsHeld(
         book: String, imprint: String?, catalog: [Publication]
     ) async -> (sentCopies: Int, taken: Set<Int>) {
         let sent = await SentCopyStore(projectURL: projectURL).drafts(book: book)
-        var taken = Set(sent.compactMap { $0.copy?.draft })
+        var taken = Set(sent.compactMap(\.draft))
         for pub in catalog where pub.format.mintsDrafts && pub.imprint == imprint {
             if let draft = WordDraft.number(ofVersion: pub.version) { taken.insert(draft) }
         }

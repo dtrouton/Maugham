@@ -852,11 +852,12 @@ final class RepublisherTests: XCTestCase {
                       "a thrown republish must not leak its reservation, got: \(held)")
     }
 
-    /// A `docx` republish reaches the real Word compile (report plan 4
-    /// Task 5). Of a book version's snapshot (here an EPUB's) it is no draft:
-    /// it lands under the version's `-r` name, carries no export label and
-    /// writes no sent copy.
-    func test_aDocxRepublishOfAVersionsSnapshotIsNoDraft() async throws {
+    /// R-S8: a Word file is never republished — not even of a book
+    /// version's snapshot (here an EPUB's), where it would leave with no label
+    /// and no sent copy, so a returned file could never be matched. Refused
+    /// in the ruling's sentence before the snapshot is read or anything is
+    /// minted.
+    func test_aDocxRepublishOfAVersionsSnapshotIsRefused() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
@@ -871,23 +872,28 @@ final class RepublisherTests: XCTestCase {
         guard case .completed(let initialPub, _) = initial else {
             return XCTFail("initial compile failed: \(initial)")
         }
+        let gate = PublishMintGate()
         let r = Republisher(
             projectURL: tmp, astSource: RepubSrc(),
             publicationStore: pubStore, snapshotStore: snapStore,
-            jobManager: CompileJobManager(), mintGate: PublishMintGate(),
+            jobManager: CompileJobManager(), mintGate: gate,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
-        let outcome = try await r.republish(
-            snapshotID: initialPub.snapshotID, format: .docx, label: nil)
-        guard case .completed(let pub, _) = outcome else {
-            return XCTFail("expected a completed Word republish, got \(outcome)")
+        do {
+            let outcome = try await r.republish(
+                snapshotID: initialPub.snapshotID, format: .docx, label: nil)
+            XCTFail("a Word republish must be refused, got \(outcome)")
+        } catch let error as RepublishError {
+            XCTAssertEqual(error.localizedDescription,
+                           "A Word draft isn't republished — export a new draft instead.")
         }
-        XCTAssertEqual(pub.format, .docx)
-        XCTAssertTrue(pub.version.hasPrefix("0.1-r"), pub.version)
-        let docx = tmp.appendingPathComponent(pub.outputPath)
-        XCTAssertNil(try ZipArchive.read(docx)["docProps/custom.xml"], "a version is no draft: no label")
         XCTAssertTrue(SentCopyStore(projectURL: tmp).drafts(book: "book").isEmpty)
         let pubs = try await pubStore.load()
-        XCTAssertEqual(pubs.map(\.publicationID), [initialPub.publicationID, pub.publicationID])
+        XCTAssertEqual(pubs.map(\.publicationID), [initialPub.publicationID], "nothing minted")
+        let held = await gate._inFlightForTesting
+        XCTAssertTrue(held.isEmpty, "nothing reserved: \(held)")
+        let exported = try FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)
+        XCTAssertFalse(exported.contains { $0.hasSuffix(".docx") }, "nothing exported: \(exported)")
     }
 
     /// A republish to a format this build can't produce throws

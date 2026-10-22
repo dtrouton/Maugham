@@ -240,7 +240,7 @@ public enum ReadPublicationPageTool: MCPTool {
 public enum RepublishTool: MCPTool {
     public static let method = "republish"
     public static let description =
-    "Recompile from a previous Publication's snapshot. Uses the snapshotted template/styles/config, not the current live ones. Produces a new Publication entry with republished_from set. It renders the CURRENT manuscript, so publish problems are re-checked: they come back carrying piece_id and paragraph_id, and a Report refuses on the error kinds before any version is minted."
+    "Recompile from a previous Publication's snapshot. Uses the snapshotted template/styles/config, not the current live ones. Produces a new Publication entry with republished_from set. It renders the CURRENT manuscript, so publish problems are re-checked: they come back carrying piece_id and paragraph_id, and a Report refuses on the error kinds before any version is minted. A Word export is a draft, never republished: format docx, or any format of a Word draft's snapshot, is refused as an invalid argument — \(RepublishError.wordIsNotRepublishedSentence)"
     public static let inputSchemaJSON = """
     {"type":"object","properties":{"project_id":{"type":"string"},"snapshot_id":{"type":"string"},"format":{"type":"string","enum":\(MCPFormatEnum.produced),"default":"pdf"},"label":{"type":"string"}},"required":["project_id","snapshot_id"]}
     """
@@ -303,7 +303,8 @@ public enum RepublishTool: MCPTool {
             // A format this build can't produce is the caller's argument, and
             // the caller reads its one sentence (`PublishFormatRefusal`), not
             // the enum's dump through the handler's `internal_error` arm.
-            guard case .unproducibleFormat = refusal else { throw refusal }
+            // So is a Word republish (R-S8).
+            guard refusal.isCallersArgument else { throw refusal }
             throw MCPError.invalidArgument(refusal.localizedDescription)
         }
         return try CompileResponseEncoder.encodeOutcome(outcome)

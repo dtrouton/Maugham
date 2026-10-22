@@ -9,7 +9,8 @@ import MaughamCore
 /// `draft-N`, so the four-part identity `(imprint, version, language, format)`
 /// stays unique. The filename spells it `{title}-draft{N}.docx`; the file's
 /// custom properties and its sent copy carry the export label, "Draft N, sent
-/// <date>", in the book's language.
+/// <date>", in the book's language, and the file names its sent copy
+/// (`MaughamExportID`). A Word file is never republished (R-S8).
 ///
 /// This type is the one spelling of the `draft-N` version, its filename
 /// token, the label and the custom properties.
@@ -54,7 +55,23 @@ public enum WordDraft {
     static func filenameToken(forVersion version: String) -> String? {
         guard let draft = number(ofVersion: version) else { return nil }
         let rest = version.dropFirst(prefix.count + String(draft).count)
-        return "draft\(draft)" + rest
+        return filenameToken(draft) + rest
+    }
+
+    private static let tokenPrefix = "draft"
+
+    /// A draft's filename token: 3 → `draft3`.
+    static func filenameToken(_ draft: Int) -> String { tokenPrefix + String(draft) }
+
+    /// The draft a name LEADS with as `draft<N>-…` (a sent copy's export id,
+    /// `SentCopyStore.exportID`), and what follows the dash. Nil for a name
+    /// that doesn't.
+    static func leadingDraft(of name: String) -> (draft: Int, rest: Substring)? {
+        guard name.hasPrefix(tokenPrefix) else { return nil }
+        let digits = name.dropFirst(tokenPrefix.count).prefix { $0.isASCII && $0.isNumber }
+        let after = name.dropFirst(tokenPrefix.count + digits.count)
+        guard !digits.isEmpty, after.hasPrefix("-"), let draft = Int(digits) else { return nil }
+        return (draft, after.dropFirst())
     }
 
     /// The folder name of what no imprint compiled: the book's own drafts.
@@ -85,11 +102,15 @@ public enum WordDraft {
         public let sentAt: Date
         /// `WordDraft.book(of:)`.
         public let book: String
+        /// The sent copy's folder (`SentCopyStore.freeExportID`), chosen
+        /// before the file is packaged so the file can name it (R-S8).
+        public let exportID: String
 
-        public init(draft: Int, sentAt: Date, book: String) {
+        public init(draft: Int, sentAt: Date, book: String, exportID: String) {
             self.draft = draft
             self.sentAt = sentAt
             self.book = book
+            self.exportID = exportID
         }
 
         /// The label's text for a body's folded metadata: `ElementWords`'
@@ -102,10 +123,13 @@ public enum WordDraft {
         }
 
         /// The file's custom properties (`docProps/custom.xml`).
+        /// `MaughamExportID` names the one sent copy a returned file answers,
+        /// even when two devices sent the same N offline (R-S8).
         func customProperties(metadata: PublishConfig.Metadata) -> [DOCXPackage.CustomProperty] {
             [.init(name: "MaughamExportLabel", value: text(metadata: metadata)),
              .init(name: "MaughamDraft", integer: draft),
-             .init(name: "MaughamBook", value: book)]
+             .init(name: "MaughamBook", value: book),
+             .init(name: "MaughamExportID", value: exportID)]
         }
     }
 

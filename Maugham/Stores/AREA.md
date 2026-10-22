@@ -51,7 +51,7 @@ Every file in `Maugham/Stores/` appears once.
 - `UIState.swift` — per-project UI state (.maugham/ui-state.json), `AuthorReaderChoice`.
 - `TrashStore.swift` — `<project>/.trash/` entries, `TrashSubject`, `sweep()`, `permanentlyDelete`.
 - `LetGoRecord.swift` — per-device ids of pieces let go from Trash. Tripwires 17, 24.
-- `SentCopyStore.swift` — a Word export's sent copies; `drafts(book:)` derives the draft count by scanning. Tripwires 17, 24.
+- `SentCopyStore.swift` — a Word export's sent copies; `drafts(book:)` derives the drafts from the folder's listing alone. Tripwires 17, 24.
 - `RemovedElsewhere.swift` — the derivation of pieces that left the structure without going to Trash.
 - `RenamePlan.swift` — a validated batch of path renames for `relocate(plan:)`.
 - `DesignProposalStore.swift` — staged design proposals under `.maugham/design/`.
@@ -89,7 +89,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/devices/`, `.maugham/people/` (`claims/`, `events/`) | `RegistryWriter` (Core) | the book's register (tripwire 40) |
 | `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | spec.md, `files/<path>`, proposal.json, then `scratch/` and `backup/` |
 | `.maugham/statements/proposals/<key>.json` | `StatementProposalStore` | one pending proposal per key |
-| `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent: export.docx and sent.json; the id is `yyyyMMdd-HHmmss-<slug>`; out of the backup signature |
+| `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent: export.docx and sent.json; the id is `draft<N>-yyyyMMdd-HHmmss-<slug>`, chosen before packaging and carried in the file; backed up (R-S9) |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
