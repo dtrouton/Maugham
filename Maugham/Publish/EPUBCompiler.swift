@@ -250,7 +250,11 @@ public struct EPUBCompiler {
         // one publication, titled in its source language, and `dc:language`'s
         // first entry is that body's. The same rule `PDFCompiler` applies to
         // `build/metadata.tex`.
-        let m = bodies[0].config.metadata
+        // A Report's "Untitled" config takes the project's title for
+        // `dc:title` and the filename, as its PDF and Word file do — the one
+        // rule, `PublishContext.reportTitled` (whole-branch I2).
+        let context = bodies[0].source.resolutionScope.publishContext()
+        let m = context.reportTitled(bodies[0].config).metadata
         let pkg = EPUBPackage(
             metadata: .init(
                 title: m.title, author: m.author,
@@ -269,7 +273,7 @@ public struct EPUBCompiler {
             await jobManager.updatePhase(jobID: id, phase: .compiling)
         }
 
-        let filename = makeOutputFilename(format: .epub, label: label)
+        let filename = makeOutputFilename(config: context.reportTitled(config), format: .epub, label: label)
         let exports = projectURL.appendingPathComponent(config.outputs.directory,
                                                        isDirectory: true)
         try FileManager.default.createDirectory(
@@ -445,7 +449,7 @@ public struct EPUBCompiler {
     }
 
     private func makeOutputFilename(
-        format: PublishConfig.Format, label: String?
+        config: PublishConfig, format: PublishConfig.Format, label: String?
     ) -> String {
         OutputFilenameBuilder.make(config: config, format: format, label: label,
                                   language: identity)

@@ -149,6 +149,26 @@ final class ReportStarterCompileTests: XCTestCase {
         XCTAssertTrue(core.contains("<dc:title>Quarterly Fixture</dc:title>"), core)
     }
 
+    /// Whole-branch I2: a Report's EPUB asks the same title rule as its PDF
+    /// and Word file (`PublishContext.reportTitled`) — the file and its
+    /// `dc:title` name the project while the starter's config still says
+    /// "Untitled".
+    func test_aReportsEPUB_isTitledByTheProject() async throws {
+        let store = try await makeReport("Quarterly Fixture", shape: .singleDocument)
+        XCTAssertEqual(try installedConfig(store).metadata.title, "Untitled", "premise: the starter's title")
+        let compiler = try EPUBCompiler(
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            config: try installedConfig(store), jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
+        let epub = URL(fileURLWithPath: result.outputPath)
+        XCTAssertTrue(epub.lastPathComponent.hasPrefix("Quarterly Fixture-v"), epub.lastPathComponent)
+        let opf = String(decoding: try XCTUnwrap(try ZipArchive.read(epub)["OEBPS/content.opf"]), as: UTF8.self)
+        XCTAssertTrue(opf.contains("<dc:title>Quarterly Fixture</dc:title>"), opf)
+        XCTAssertFalse(opf.contains("Untitled"), opf)
+    }
+
     /// I1: a single-document Report that gained a document through the
     /// binder prints that document's title and contents line; only the first
     /// piece — the report itself, titled with the project's name — is silent.

@@ -60,8 +60,9 @@ public struct PublishContext: Sendable {
 
 extension PublishContext {
     /// **A Report is titled by its project until the writer names it** (Task 7
-    /// M2, fix round 2) — the ONE rule the PDF title page and filename and the
-    /// .docx filename and `core.xml` title all ask. While the config's title is
+    /// M2, fix round 2) — the ONE rule the PDF title page and filename, the
+    /// EPUB's `dc:title` and filename, and the .docx filename and `core.xml`
+    /// title all ask. While the config's title is
     /// the starter's "Untitled" (`PublishConfig.Metadata.untitled`) or blank, a
     /// Report takes the manifest's current title. Every other book's config —
     /// and a Report the writer has titled — is returned unchanged, so its
