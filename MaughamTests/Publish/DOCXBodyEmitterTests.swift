@@ -456,6 +456,27 @@ final class DOCXBodyEmitterTests: XCTestCase {
         XCTAssertEqual(refs, [" REF l_fig_a_b \\h ", " REF l_fig_a_b_2 \\h "])
     }
 
+    /// Whole-branch M4: Word's bookmark names are case-insensitive, so two
+    /// labels differing only in case would be one bookmark to Word (one is
+    /// dropped or renamed on save, and a REF lands on the wrong figure). The
+    /// second takes a counter, and each REF finds its own.
+    func test_twoLabelsDifferingOnlyInCase_getACounter_andEachRefFindsItsOwn() throws {
+        let one = try file("one.png", Self.png(width: 2, height: 2))
+        let e = try emit(Book(pieces: [("a", [
+            ("a1b2", "![A](one.png){#fig:Chart}"),
+            ("c3d4", "![B](one.png){#fig:chart}"),
+            ("e5f6", "See @fig:Chart and @fig:chart."),
+        ])], context: Self.context()), figureFiles: ["a": [0: one, 1: one]])
+        let names = try nodes(e.document, "//*[name()='w:bookmarkStart']").compactMap { attr($0, "w:name") }
+        XCTAssertEqual(Set(names.map { $0.lowercased() }).count, names.count,
+                       "no two names are one name to Word: \(names)")
+        XCTAssertTrue(names.contains("l_fig_Chart"), "\(names)")
+        XCTAssertTrue(names.contains("l_fig_chart_2"), "\(names)")
+        let refs = try nodes(e.document, "//*[name()='w:instrText']").compactMap(\.stringValue)
+            .filter { $0.hasPrefix(" REF ") }
+        XCTAssertEqual(refs, [" REF l_fig_Chart \\h ", " REF l_fig_chart_2 \\h "])
+    }
+
     // MARK: - tables
 
     func test_table_isNative_withARepeatingHeader_aMatchingGrid_alignedCells_andASeqCaptionAbove() throws {

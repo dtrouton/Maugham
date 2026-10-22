@@ -152,6 +152,7 @@ enum DOCXBodyEmitter {
         /// The last `SEQ` result per identifier, document-wide: a caption
         /// whose number isn't the next one says so with `\r`.
         var lastSequence: [String: Int] = [:]
+        /// Every bookmark name used so far, lowercased (`uniqueName`).
         var bookmarkNames: Set<String> = []
     }
 
@@ -546,15 +547,17 @@ enum DOCXBodyEmitter {
         // MARK: bookmarks
 
         /// `base`, or `base` with the first counter that makes it unused in
-        /// the document; recorded as used.
+        /// the document; recorded as used. Compared case-insensitively, as
+        /// Word compares bookmark names: `l_fig_Chart` and `l_fig_chart` are
+        /// one bookmark to Word, so the second takes a counter (M4).
         func uniqueName(_ base: String) -> String {
             var name = base
             var counter = 2
-            while state.bookmarkNames.contains(name) {
+            while state.bookmarkNames.contains(name.lowercased()) {
                 name = DOCXNames.disambiguated(base, counter: counter)
                 counter += 1
             }
-            state.bookmarkNames.insert(name)
+            state.bookmarkNames.insert(name.lowercased())
             return name
         }
 
