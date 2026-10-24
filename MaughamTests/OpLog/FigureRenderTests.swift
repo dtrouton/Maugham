@@ -237,6 +237,79 @@ final class FigureRenderTests: XCTestCase {
         await store.closeFigure(figureId: src.id)
     }
 
+    /// **A figure's stream lands before its record** (final review I-4, the
+    /// T4 carry; R-6a-9 writes stream then record, and sync delivers them
+    /// apart). Sam, an author of piece A, makes two one-cell tables on his Mac.
+    /// Their streams arrive first: his lines are held (R-6a-12), nothing
+    /// renders. Then the manifest carrying both records is adopted: the OPEN
+    /// one re-reads under its piece's class and applies his cell, and both
+    /// CSVs render — the closed one through the cache, whose read is handed
+    /// the trust and the facts the record now gives it.
+    func test_aFigureStreamAheadOfItsRecordAppliesAndRendersWhenTheRecordIsAdopted() async throws {
+        let (store, projectStore) = try await openWindow()
+        await store.postureSettled()
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["piece-a"])))
+        await store.postureSettled()
+        await store.flushFigureChangesForTesting()
+
+        let samStore = OpLogStore(
+            projectURL: projectURL, identity: sam.author,
+            state: OpLogDeviceState(fileURL: projectURL.appendingPathComponent("sam-state.json")))
+        func samMakesATable(_ value: Double) async throws -> (String, CellKey) {
+            let id = ProjectStore.newId(prefix: DocumentClass.figureDocIdPrefix)
+            let row = RowID(TableID.mint(excluding: []))
+            let column = ColumnID(TableID.mint(excluding: [row.raw]))
+            let key = CellKey(row: row, column: column)
+            for (kind, payload) in [
+                (OpKind.figureCreate, FigureOpPayload(kind: .table)),
+                (.figureStructure, FigureOpPayload(structure: .insertRow(row, after: nil))),
+                (.figureStructure, FigureOpPayload(structure: .insertColumn(column, after: nil))),
+                (.figureCellSet, FigureOpPayload(cell: key, next: number(value), prior: nil)),
+            ] {
+                try await samStore.append(Op(
+                    opId: ULID.generate(), docId: id, at: Date(), device: sam.author.deviceId,
+                    session: "sams-mac", kind: kind, changes: [], figure: payload))
+            }
+            _ = try await samStore.sealChain(docId: id)
+            for file in OpLogStore.opLogFileURLs(forDocId: id, in: projectURL) {
+                store.presenterDidChangeSubitem(at: file)
+            }
+            return (id, key)
+        }
+        let (openId, openKey) = try await samMakesATable(4)
+        let (closedId, _) = try await samMakesATable(9)
+        await store.flushFigureChangesForTesting()
+
+        let open = try await store.openFigure(figureId: openId)
+        XCTAssertNil(open.state.kind, "his lines are held while the record is missing")
+        XCTAssertGreaterThan(open.provenance?.pendingLines ?? 0, 0)
+
+        // The record arrives: another Mac's manifest, adopted by this window.
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var incoming = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        let openRecord = FigureRecord(
+            id: openId, name: "sams", kind: .table, piece: "piece-a", path: "figures/sams.csv")
+        let closedRecord = FigureRecord(
+            id: closedId, name: "other", kind: .table, piece: "piece-a", path: "figures/other.csv")
+        incoming.figures = [openRecord, closedRecord]
+        try ProjectManifest.encodeForDisk(incoming).write(to: manifestURL)
+        store.presenterDidChangeSubitem(at: manifestURL)
+        XCTAssertEqual(projectStore.manifest.figures?.map(\.id), [openId, closedId],
+                       "precondition: the window adopted the records")
+        await store.flushFigureChangesForTesting()
+
+        XCTAssertEqual(open.state.table[openKey], number(4), "the open figure re-judged and applied")
+        XCTAssertEqual(open.provenance?.pendingLines, 0)
+        XCTAssertEqual(try csv(openRecord), "4\n", "and rendered")
+        XCTAssertEqual(try csv(closedRecord), "9\n",
+                       "the closed one rendered through the cache under the record's class")
+        await store.closeFigure(figureId: openId)
+    }
+
     /// **Ruling R-6a-11: opening the window renders every table figure**,
     /// deferred off the open path, so an outside edit to a CLOSED figure's CSV
     /// is overwritten at the next open, not kept until the figure next changes.

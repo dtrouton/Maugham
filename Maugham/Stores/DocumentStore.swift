@@ -2133,6 +2133,10 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // total, and none of those words were typed here.
             excludeForeignWords(adoption.wordCountDelta)
             letGoOfPiecesMovedElsewhere(adoption, store: live)
+            // A figure record that arrived, moved piece or changed name or
+            // path: its stream is judged again and its render follows.
+            figureRegistryAdopted(
+                from: adoption.previous.figures ?? [], to: adoption.adopted.figures ?? [])
         }
         // A piece that moved or a statement that arrived is a document whose
         // CLASS may have changed, and whose writers may have (P3c Task 2).

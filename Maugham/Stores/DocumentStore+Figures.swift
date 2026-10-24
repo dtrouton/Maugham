@@ -162,6 +162,26 @@ extension DocumentStore {
         await renderFigures(changed: changed)
     }
 
+    /// **The figure registry changed under an adopted manifest**
+    /// (`handleManifestChanged`). A figure's stream is written before its
+    /// record (R-6a-9) and the two sync independently, so a stream usually
+    /// lands first: its lines are held under `.unregisteredFigure`
+    /// (R-6a-12) and it has no render. When the record lands — or a record
+    /// changes piece, name, kind or path — each such figure goes through the
+    /// figure pass: its cached line dropped, an open host re-read under the
+    /// class the record now gives it, and it and its readers re-rendered. A
+    /// record that left is re-read too, so an open host stops applying what
+    /// its piece allowed.
+    func figureRegistryAdopted(from old: [FigureRecord], to new: [FigureRecord]) {
+        let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let after = Dictionary(new.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var changed = Set(after.compactMap { id, record in before[id] == record ? nil : id })
+        changed.formUnion(Set(before.keys).subtracting(after.keys))
+        guard !changed.isEmpty else { return }
+        pendingFigureChanges.formUnion(changed)
+        figureChangeScheduler.schedule(0)
+    }
+
     /// **Trust changed** (`invalidateTrust`, R-6a-6): the cache drops every
     /// line, each open figure's store forgets its table, and the open figures
     /// re-read and re-render through the figure pass.
