@@ -46,7 +46,7 @@ public struct FigureTable: Equatable, Codable, Sendable {
         rowSlots = try c.decode([Slot<RowID>].self, forKey: .rowSlots)
         columnSlots = try c.decode([Slot<ColumnID>].self, forKey: .columnSlots)
         cells = try c.decode([CellKey: Cell].self, forKey: .cells)
-        headerRows = try c.decode(Int.self, forKey: .headerRows)
+        headerRows = min(max(try c.decode(Int.self, forKey: .headerRows), 0), 1)   // didSet doesn't run in init
         hasTotalRow = try c.decode(Bool.self, forKey: .hasTotalRow)
         columnWidths = try c.decode([ColumnID: Double].self, forKey: .columnWidths)
         rowAxis = AxisIndex(rowSlots); columnAxis = AxisIndex(columnSlots)

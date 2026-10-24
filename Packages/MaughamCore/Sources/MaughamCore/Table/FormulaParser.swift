@@ -33,9 +33,10 @@ public enum FormulaParser {
     /// Fill/copy: relative parts shift by the live-position delta from `from` to `to`;
     /// `$` parts stay. A ref (or either edge of a range) that leaves its live grid becomes
     /// `.error(.ref)`. Refs into a figure shift against that figure's grid in `figures`;
-    /// research refs shift arithmetically and fall off below row/column 0.
+    /// research refs shift arithmetically and fall off below row/column 0. No default for `figures`:
+    /// a figure missing from it turns every relative ref into it into `#REF!`.
     public static func translate(_ formula: Formula, from: CellKey, to: CellKey, in table: FigureTable,
-                                 figures: [String: FigureTable] = [:]) -> Formula {
+                                 figures: [String: FigureTable]) -> Formula {
         guard let fr = table.rowIndex(of: from.row), let fc = table.columnIndex(of: from.column),
               let tr = table.rowIndex(of: to.row), let tc = table.columnIndex(of: to.column) else { return formula }
         let t = Translator(table: table, figures: figures, dRow: tr - fr, dColumn: tc - fc)

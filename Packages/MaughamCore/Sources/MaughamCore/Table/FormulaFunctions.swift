@@ -46,7 +46,7 @@ enum FormulaFunctions {
             numeric(args, .total) { xs in
                 guard !xs.isEmpty else { return .error(.num) }
                 let s = xs.sorted(), m = s.count / 2
-                return .number(s.count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2)
+                return s.count % 2 == 1 ? .number(s[m]) : FormulaCoercion.finite(s[m - 1] / 2 + s[m] / 2)
             }
         },
     ]

@@ -4,12 +4,24 @@ import Foundation
 public struct RowID: Hashable, Codable, Sendable {
     public let raw: String
     public init(_ raw: String) { self.raw = raw }
+    /// On the wire: the bare id string.
+    public init(from decoder: Decoder) throws { raw = try decoder.singleValueContainer().decode(String.self) }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(raw)
+    }
 }
 
 /// A column's stable identity within one figure table; never its position.
 public struct ColumnID: Hashable, Codable, Sendable {
     public let raw: String
     public init(_ raw: String) { self.raw = raw }
+    /// On the wire: the bare id string.
+    public init(from decoder: Decoder) throws { raw = try decoder.singleValueContainer().decode(String.self) }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(raw)
+    }
 }
 
 public enum TableID {

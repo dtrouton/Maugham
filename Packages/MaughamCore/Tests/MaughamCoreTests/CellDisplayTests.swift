@@ -91,6 +91,15 @@ final class CellDisplayTests: XCTestCase {
         XCTAssertEqual(CellDisplay.string(for: .empty, format: CellFormat(), locale: gb), "")
     }
 
+    func test_belowDecimalsRange_showsAsZeroAndDash() {
+        let two = NumberFormat.number(decimals: 2, grouping: true)
+        XCTAssertEqual(show(-1e-200, two, gb), "0.00")
+        XCTAssertEqual(show(-1e-200, two, gb, dash: true), "—")
+        XCTAssertEqual(show(-1e-200, two, gb, neg: .parentheses), "0.00")
+        XCTAssertEqual(show(-1e-200, .currency(symbol: nil, decimals: 2), gb), "£0.00")
+        XCTAssertEqual(show(1e-200, .percent(decimals: 1), gb, dash: true), "—")
+    }
+
     func test_dates() {
         func d(_ style: DateStyle, _ l: TableLocale) -> String {
             CellDisplay.string(for: .date(46319), format: CellFormat(number: .date(style)), locale: l)

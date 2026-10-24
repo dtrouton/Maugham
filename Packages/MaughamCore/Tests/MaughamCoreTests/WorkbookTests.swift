@@ -187,6 +187,19 @@ final class WorkbookTests: XCTestCase {
         XCTAssertEqual(wb.value(at: a1), .number(5))
     }
 
+    func test_positionalRangePartlyOffTheGrid_isREF() {
+        var wb = Workbook(pins: StubPins())
+        var t = FigureTable(rows: 2, columns: 2)
+        set(&t, "A1", "1"); set(&t, "B1", "2")
+        guard case .success(let off) = FormulaParser.parsePositional("SUM(A1:C3)"),
+              case .success(let on) = FormulaParser.parsePositional("SUM(A1:B1)") else { return XCTFail() }
+        t.setCell(Cell(content: .formula(off)), at: key(t, "A2"))
+        t.setCell(Cell(content: .formula(on)), at: key(t, "B2"))
+        wb.setTable(t, named: "t")
+        XCTAssertEqual(wb.value(at: address("t", t, "A2")), .error(.ref))
+        XCTAssertEqual(wb.value(at: address("t", t, "B2")), .number(3), "the same grid, wholly inside")
+    }
+
     func test_sumifSumRange_isADependencyAfterResizing() {
         var wb = Workbook(pins: StubPins())
         var t = FigureTable(rows: 3, columns: 4)

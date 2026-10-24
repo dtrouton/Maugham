@@ -235,4 +235,24 @@ final class FormulaFunctionsTests: XCTestCase {
         XCTAssertEqual(none.eval("COUNTIF(1,1)"), .error(.value))                   // the range must be a range
         XCTAssertEqual(none.eval("AVERAGEIF(A1:A2,\">0\")"), .error(.divideByZero))
     }
+
+    // MARK: final-review fixes
+
+    func test_median_ofTwoHugeValues_isFinite() {
+        XCTAssertEqual(none.eval("MEDIAN(1e308,1e308)"), .number(1e308))
+        XCTAssertEqual(none.eval("MEDIAN(-1e308,-1e308,5)"), .number(-1e308))
+        XCTAssertEqual(none.eval("MEDIAN(-1e308,-1e308,1e308,1e308)"), .number(0))
+    }
+
+    func test_excelRounding_belowDecimalsRange_roundsLikeAnyTinyValue() {
+        XCTAssertEqual(ExcelRounding.round(-1e-200, digits: 2), 0)
+        XCTAssertEqual(ExcelRounding.round(1e-200, digits: 0), 0)
+        XCTAssertEqual(ExcelRounding.roundDown(1e-200, digits: 2), 0)
+        XCTAssertEqual(ExcelRounding.roundUp(1e-200, digits: 2), 0.01)            // away from zero, as Excel
+        XCTAssertEqual(ExcelRounding.roundUp(-1e-200, digits: 2), -0.01)
+        XCTAssertEqual(ExcelRounding.roundUp(1e-200, digits: -1), 10)
+        XCTAssertEqual(none.eval("ROUND(1E-200,2)"), .number(0))
+        XCTAssertEqual(none.eval("ROUNDUP(-1E-200,2)"), .number(-0.01))
+    }
+
 }

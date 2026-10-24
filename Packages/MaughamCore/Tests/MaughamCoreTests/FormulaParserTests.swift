@@ -271,7 +271,7 @@ final class FormulaParserTests: XCTestCase {
         XCTAssertEqual(translated("A1", from: key(1, 2), to: key(0, 2)), "#REF!")
         XCTAssertEqual(translated("SUM(A3:A4)", from: key(0, 2), to: key(1, 2)), "SUM(#REF!)")
         let f = try XCTUnwrap(parse("A4+1"))
-        XCTAssertEqual(FormulaParser.translate(f, from: key(0, 2), to: key(1, 2), in: table).expr,
+        XCTAssertEqual(FormulaParser.translate(f, from: key(0, 2), to: key(1, 2), in: table, figures: figures).expr,
                        .binary(.add, .error(.ref), n(1)))
     }
 
@@ -285,15 +285,15 @@ final class FormulaParserTests: XCTestCase {
     func test_translate_shiftsAShrunkRange() {
         let f = parse("SUM(A1:A3)")!
         table.deleteRow(table.rows[2])     // A1:A3 now shows A1:A2
-        let t = FormulaParser.translate(f, from: key(0, 1), to: key(1, 1), in: table)
+        let t = FormulaParser.translate(f, from: key(0, 1), to: key(1, 1), in: table, figures: figures)
         XCTAssertEqual(FormulaParser.render(t, in: table), "SUM(A2:A3)")
     }
 
     func test_translate_absoluteEdgePassedByItsPartner_keepsEachFlagOnItsEdge() throws {
         let f = try XCTUnwrap(parse("SUM(A$3:A3)"))
-        let up = FormulaParser.translate(f, from: key(2, 1), to: key(0, 1), in: table)
+        let up = FormulaParser.translate(f, from: key(2, 1), to: key(0, 1), in: table, figures: figures)
         XCTAssertEqual(render(up), "SUM(A1:A$3)")
-        let down = FormulaParser.translate(up, from: key(0, 1), to: key(1, 1), in: table)
+        let down = FormulaParser.translate(up, from: key(0, 1), to: key(1, 1), in: table, figures: figures)
         XCTAssertEqual(render(down), "SUM(A2:A$3)", "the absolute row stays row 3")
         XCTAssertEqual(translated("SUM($C1:C1)", from: key(0, 2), to: key(0, 0)), "SUM(A1:$C1)")
         XCTAssertEqual(translated("SUM(research:m!A$3:A3)", from: key(2, 1), to: key(0, 1)), "SUM(research:m!A1:A$3)")

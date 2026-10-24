@@ -1,7 +1,7 @@
 import XCTest
 @testable import MaughamCore
 
-final class CellAddressTests: XCTestCase {
+final class A1Tests: XCTestCase {
     func test_columnLetters_andTheirInverses() {
         let pairs: [(Int, String)] = [(0, "A"), (25, "Z"), (26, "AA"), (701, "ZZ"), (702, "AAA")]
         for (index, letters) in pairs {
