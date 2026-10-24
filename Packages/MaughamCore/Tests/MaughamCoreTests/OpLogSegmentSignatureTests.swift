@@ -217,11 +217,11 @@ final class OpLogSegmentSignatureTests: XCTestCase {
         let store = makeStore()
         let filler = String(repeating: "x", count: 2_000)
         for id in ["01A", "01B"] { try await store.append(op(id, next: filler)) }
-        let tailURL = OpLogStore.opLogFileURL(
+        let tailURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
 
         // A directory where the sidecar wants to be: the write cannot succeed.
-        let segURL = OpLogStore.segmentFileURL(
+        let segURL = try OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: identity.slug, index: 1, in: projectURL)
         try FileManager.default.createDirectory(
             at: OpLogStore.segmentSignatureURL(for: segURL),

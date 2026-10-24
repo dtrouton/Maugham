@@ -68,7 +68,7 @@ final class ProjectStreamSealTests: XCTestCase {
     }
 
     private func projectTailURL(in url: URL, slug: DeviceSlug) -> URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: ProjectStore.projectTasksDocId, deviceSlug: slug, in: url)
     }
 
@@ -123,7 +123,7 @@ final class ProjectStreamSealTests: XCTestCase {
                 projectOp(index, device: signer.deviceId))
         }
 
-        let fileURL = OpLogStore.opLogFileURL(
+        let fileURL = try OpLogStore.opLogFileURL(
             forDocId: ProjectStore.projectTasksDocId,
             deviceSlug: signer.slug, in: url)
         let written = try lines(of: fileURL)

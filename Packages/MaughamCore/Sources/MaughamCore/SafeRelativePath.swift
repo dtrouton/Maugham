@@ -14,6 +14,8 @@ public enum SafeRelativePath {
         case absolutePath(String)
         case emptyComponent(String)
         case escapesRoot(String)
+        case notAPlainFileName(String)
+        case notADocId(String)
 
         public var errorDescription: String? {
             switch self {
@@ -25,6 +27,10 @@ public enum SafeRelativePath {
                 return "Path contains an empty component: \(path)"
             case .escapesRoot(let path):
                 return "Path escapes the project root: \(path)"
+            case .notAPlainFileName(let name):
+                return "Not one plain file name: \(name.debugDescription)"
+            case .notADocId(let id):
+                return "Not a document id that can name a file: \(id.debugDescription)"
             }
         }
     }
@@ -92,5 +98,49 @@ public enum SafeRelativePath {
         }
 
         return root.appendingPathComponent(relative)
+    }
+
+    /// **Is `name` one plain file name** — non-empty, no `/`, `\` or NUL,
+    /// and not dot-leading (so never `.` or `..`, and never a hidden file)?
+    /// Such a name joined onto a folder stays in that folder. The one rule
+    /// for a name that arrives in synced data (an op payload, a manifest
+    /// record) and becomes a file name: `FigureImageRef.isAPlainFileName`
+    /// and `FigureRender.renderPath` ask it.
+    public static func isPlainFileName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix(".")
+            && !name.contains("/") && !name.contains("\\") && !name.contains("\0")
+    }
+
+    /// **One plain file name inside one project-relative folder**:
+    /// `<root>/<folder>/<name>`. Throws `.notAPlainFileName` unless
+    /// `isPlainFileName(name)`, and whatever `resolve(_:under:)` throws for
+    /// `folder`. Unlike `resolve`, the folder is also checked on disk: a
+    /// folder that exists and is a symlink leading outside `root` throws
+    /// `.escapesRoot`, so a file written to the returned URL lands inside the
+    /// root. (A folder that does not exist yet is checked lexically, as
+    /// `resolve` does.) The returned URL is built from the original `root`.
+    public static func resolveFile(
+        named name: String, in folder: String, under root: URL
+    ) throws -> URL {
+        guard isPlainFileName(name) else { throw PathError.notAPlainFileName(name) }
+        let folderURL = try resolve(folder, under: root)
+        var rootPrefix = root.resolvingSymlinksInPath().standardizedFileURL.path
+        if !rootPrefix.hasSuffix("/") { rootPrefix += "/" }
+        let onDisk = folderURL.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        guard onDisk.hasPrefix(rootPrefix) else { throw PathError.escapesRoot(folder) }
+        return folderURL.appendingPathComponent(name)
+    }
+
+    /// **`id`, when it may become part of a file name** — the op log's
+    /// `<docId>.<slug>.jsonl`, a quarantine record, a conflict backup. The
+    /// same character rule as `isPlainFileName`: a doc id comes from synced
+    /// data (a manifest record, an op, an MCP argument), and one carrying a
+    /// `/` or a leading `..` would climb out of its folder. Every id the apps
+    /// mint passes (`doc-<hex>`, `scene-<hex>`, `d_…`, `fig-…`, `stmt-…`,
+    /// `res-…`, `__project__`). Throws `.notADocId`.
+    @discardableResult
+    public static func requireDocId(_ id: String) throws -> String {
+        guard isPlainFileName(id) else { throw PathError.notADocId(id) }
+        return id
     }
 }

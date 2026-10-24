@@ -140,7 +140,7 @@ public enum SegmentSealer {
         projectURL: URL, presenter: NSFilePresenter?, identities: LocalIdentities
     ) throws -> URL? {
         let fm = FileManager.default
-        let tailURL = OpLogStore.opLogFileURL(
+        let tailURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: deviceSlug, in: projectURL)
         let size = ((try? fm.attributesOfItem(atPath: tailURL.path))?[.size] as? Int) ?? 0
         guard size > threshold else { return nil }
@@ -175,7 +175,7 @@ public enum SegmentSealer {
                                         docId: docId, deviceSlug: deviceSlug)
             }
         let index = (existing.max() ?? 0) + 1
-        let segURL = OpLogStore.segmentFileURL(
+        let segURL = try OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL)
         guard !fm.fileExists(atPath: segURL.path) else { return nil }
         let container = try OpLogSegment.encode(jsonl: bytes)

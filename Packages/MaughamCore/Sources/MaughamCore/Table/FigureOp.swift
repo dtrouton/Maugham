@@ -311,15 +311,12 @@ public struct FigureImageRef: Codable, Equatable, Hashable, Sendable {
         self.contentHash = contentHash
     }
 
-    /// **Is `filename` one plain file name** — non-empty, no `/`, `\` or
-    /// NUL, and not dot-leading (so never `.` or `..`)? The name arrives in
-    /// ops from other devices and is joined onto `figures/` to write the
-    /// picture, so a name that could climb out of the folder is refused when
-    /// read (`FigureOpPayload.validate`), never written to.
-    public var isAPlainFileName: Bool {
-        !filename.isEmpty && !filename.hasPrefix(".")
-            && !filename.contains("/") && !filename.contains("\\") && !filename.contains("\0")
-    }
+    /// **Is `filename` one plain file name** (`SafeRelativePath.isPlainFileName`,
+    /// the one rule)? The name arrives in ops from other devices and is
+    /// joined onto `figures/` to write the picture, so a name that could
+    /// climb out of the folder is refused when read
+    /// (`FigureOpPayload.validate`), never written to.
+    public var isAPlainFileName: Bool { SafeRelativePath.isPlainFileName(filename) }
 }
 
 /// **A research pin** — the value a formula last read from a Research table

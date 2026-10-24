@@ -151,7 +151,7 @@ final class UnsignedDoorTests: XCTestCase {
     /// line, which is how these tests make a stream GROW.
     @discardableResult
     private func ghostFile(_ ops: [Op]) throws -> URL {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: ghost.author.slug, in: projectURL)
         try chained(try encoded(ops)).write(to: url, options: .atomic)
         return url
@@ -176,7 +176,7 @@ final class UnsignedDoorTests: XCTestCase {
             head: last, identity: identity, at: Date(timeIntervalSince1970: 50))
         bytes.append(seal)
         bytes.append(0x0A)
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -201,10 +201,10 @@ final class UnsignedDoorTests: XCTestCase {
     /// `sealTailIfNeeded` does for a device that cannot sign: the container is
     /// written, the tail is deleted, and NO `.sig` is written beside it.
     private func rotateGhostTail(index: Int = 1) throws {
-        let tail = OpLogStore.opLogFileURL(
+        let tail = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: ghost.author.slug, in: projectURL)
         let jsonl = try Data(contentsOf: tail)
-        let segment = OpLogStore.segmentFileURL(
+        let segment = try OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: ghost.author.slug,
             index: index, in: projectURL)
         try OpLogSegment.encode(jsonl: jsonl).write(to: segment, options: .atomic)
@@ -212,7 +212,7 @@ final class UnsignedDoorTests: XCTestCase {
     }
 
     private func writeGhostSegment(_ bytes: Data, index: Int = 1) throws -> URL {
-        let url = OpLogStore.segmentFileURL(
+        let url = try OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: ghost.author.slug,
             index: index, in: projectURL)
         try OpLogSegment.encode(jsonl: bytes).write(to: url, options: .atomic)

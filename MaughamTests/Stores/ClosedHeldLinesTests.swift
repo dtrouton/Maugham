@@ -227,7 +227,7 @@ final class ClosedHeldLinesTests: XCTestCase {
         XCTAssertNil(store.heldLinesByDevice()[stranger.fingerprint])
 
         try await writeStrangerFile(opIds: ["02", "03"])
-        store.presenterDidChangeSubitem(at: OpLogStore.opLogFileURL(
+        store.presenterDidChangeSubitem(at: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
         await store.flushPendingAnnounceForTesting()
         await settle(store)

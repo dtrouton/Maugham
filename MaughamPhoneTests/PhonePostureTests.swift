@@ -442,7 +442,7 @@ final class PhonePostureRoundTripTests: XCTestCase {
     }
 
     private var denversPhoneFile: URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: PhoneNarrowedBook.docId, deviceSlug: book.denverPhone.slug,
             in: book.projectURL)
     }

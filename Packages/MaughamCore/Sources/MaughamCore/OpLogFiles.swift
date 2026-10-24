@@ -13,10 +13,14 @@ public enum OpLogFiles {
     /// `docId(fromOpLogFilename:)`. Surfaces (phone `AnnotationWriter`, Mac
     /// `OpLogStore.store`) MUST call this, never hand-roll the `"\(docId).\(slug).jsonl"`
     /// template. See docs/superpowers/notes/cross-surface-contracts.md.
+    /// Throws `SafeRelativePath.PathError.notADocId` for a doc id that could
+    /// climb out of `.maugham/ops/` (`SafeRelativePath.requireDocId`): the id
+    /// comes from synced data.
     public nonisolated static func opLogFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, in projectURL: URL
-    ) -> URL {
-        projectURL
+    ) throws -> URL {
+        let docId = try SafeRelativePath.requireDocId(docId)
+        return projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
             .appendingPathComponent("\(docId).\(deviceSlug.raw).jsonl")
     }
@@ -24,9 +28,12 @@ public enum OpLogFiles {
     /// The doc id encoded in an op-log filename, or nil if `name` is not a
     /// manuscript doc op-log file. Filenames are `<docId>(.<slug>)?.jsonl`; the
     /// doc id is the component before the first `.` (doc ids contain no dot) and is
-    /// `doc-<hex>` / `scene-<hex>` (ADR 0008). Deliberately NOT format-validated —
-    /// this store is id-agnostic by contract; the only excluded stream is the
-    /// synthetic `__project__` (tasks/checkpoints — no manuscript content).
+    /// `doc-<hex>` / `scene-<hex>` (ADR 0008). Not checked against a shape — this
+    /// store is id-agnostic by contract; the only excluded stream is the
+    /// synthetic `__project__` (tasks/checkpoints — no manuscript content). The
+    /// one rule an id must meet is where it BECOMES a file name:
+    /// `opLogFileURL` and `segmentFileURL` refuse an id that fails
+    /// `SafeRelativePath.requireDocId` (no `/`, `\`, NUL, not dot-leading).
     ///
     /// SINGLE SOURCE OF TRUTH for filename→docId. Surfaces (phone + Mac) MUST call
     /// this, never hand-roll a predicate (a stricter local copy is what shipped the
@@ -93,10 +100,12 @@ public enum OpLogFiles {
     /// (ADR 0016 / growth spec §5.1). SINGLE SOURCE OF TRUTH for segment
     /// filename construction — never hand-roll the template (grep tripwires
     /// on both targets enforce; see cross-surface-contracts.md).
+    /// Throws for a doc id that fails `SafeRelativePath.requireDocId`.
     public nonisolated static func segmentFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, index: Int, in projectURL: URL
-    ) -> URL {
-        projectURL
+    ) throws -> URL {
+        let docId = try SafeRelativePath.requireDocId(docId)
+        return projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
             .appendingPathComponent(
                 "\(docId).\(deviceSlug.raw).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")

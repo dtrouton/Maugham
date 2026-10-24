@@ -121,4 +121,167 @@ final class SafeRelativePathTests: XCTestCase {
         XCTAssertThrowsError(
             try SafeRelativePath.resolve("../../../etc/passwd", under: link))
     }
+
+    // MARK: - isPlainFileName (report plan 6b Task 1)
+
+    private static let badNames = [
+        "", ".", "..", ".hidden", "a/b", "../x", "/abs", "a\\b", "a\0b", "a/../..",
+    ]
+
+    func test_isPlainFileName_acceptsOneOrdinaryName() {
+        for good in ["map.png", "figure 1.csv", "a..b.csv", "x"] {
+            XCTAssertTrue(SafeRelativePath.isPlainFileName(good), good)
+        }
+    }
+
+    func test_isPlainFileName_refusesAnythingThatCouldLeaveItsFolder() {
+        for bad in Self.badNames {
+            XCTAssertFalse(SafeRelativePath.isPlainFileName(bad), bad.debugDescription)
+        }
+    }
+
+    // MARK: - resolveFile(named:in:under:)
+
+    func test_resolveFile_joinsOneNameUnderTheFolder() throws {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try SafeRelativePath.resolveFile(named: "map.png", in: "figures", under: root)
+        XCTAssertEqual(url, root.appendingPathComponent("figures/map.png"))
+    }
+
+    func test_resolveFile_worksForANestedFolderThatDoesNotExistYet() throws {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try SafeRelativePath.resolveFile(
+            named: "res-1.json", in: ".maugham/research-tables", under: root)
+        XCTAssertEqual(url, root.appendingPathComponent(".maugham/research-tables/res-1.json"))
+    }
+
+    func test_resolveFile_refusesEveryBadName() {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for bad in Self.badNames {
+            XCTAssertThrowsError(
+                try SafeRelativePath.resolveFile(named: bad, in: "figures", under: root),
+                bad.debugDescription
+            ) { error in
+                guard case SafeRelativePath.PathError.notAPlainFileName = error else {
+                    return XCTFail("expected .notAPlainFileName for \(bad.debugDescription), got \(error)")
+                }
+            }
+        }
+    }
+
+    func test_resolveFile_refusesAFolderThatEscapesTheRoot() {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for folder in ["..", "../elsewhere", "/etc", "a/../..", "", "a\0b"] {
+            XCTAssertThrowsError(
+                try SafeRelativePath.resolveFile(named: "x.csv", in: folder, under: root),
+                folder.debugDescription)
+        }
+    }
+
+    /// A folder that is, on disk, a symlink pointing outside the root: the
+    /// file would land outside, so it is refused even though the spelling
+    /// is clean.
+    func test_resolveFile_refusesASymlinkedFolderThatEscapesTheRoot() throws {
+        let base = tempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("project")
+        let outside = base.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("figures"), withDestinationURL: outside)
+
+        XCTAssertThrowsError(
+            try SafeRelativePath.resolveFile(named: "map.png", in: "figures", under: root)
+        ) { error in
+            guard case SafeRelativePath.PathError.escapesRoot = error else {
+                return XCTFail("expected .escapesRoot, got \(error)")
+            }
+        }
+    }
+
+    /// A symlinked folder that stays inside the root is fine.
+    func test_resolveFile_acceptsASymlinkedFolderInsideTheRoot() throws {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("figures"), withDestinationURL: real)
+
+        let url = try SafeRelativePath.resolveFile(named: "map.png", in: "figures", under: root)
+        XCTAssertEqual(url, root.appendingPathComponent("figures/map.png"))
+    }
+
+    /// A symlinked ROOT (`/var` → `/private/var`) is not an escape.
+    func test_resolveFile_underASymlinkedRoot_resolves() throws {
+        let base = tempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let real = base.appendingPathComponent("real")
+        try FileManager.default.createDirectory(
+            at: real.appendingPathComponent("figures"), withIntermediateDirectories: true)
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let url = try SafeRelativePath.resolveFile(named: "map.png", in: "figures", under: link)
+        XCTAssertEqual(url, link.appendingPathComponent("figures/map.png"))
+    }
+
+    // MARK: - requireDocId
+
+    /// Every doc-id shape the apps mint passes: the legacy `d_` ids,
+    /// `doc-`/`scene-` hashes, figure ids, statement ids, research ids and
+    /// the synthetic project stream.
+    func test_requireDocId_passesEveryMintedShape() throws {
+        for id in ["d_01HZX3", "doc-3f2a9c1e00aa11bb", "scene-0123abcd", "fig-1a2b3c4d",
+                   "stmt-9f8e7d6c", "res-12345678", "prop-abcdef01", "__project__"] {
+            XCTAssertEqual(try SafeRelativePath.requireDocId(id), id)
+        }
+    }
+
+    func test_requireDocId_refusesAnIdThatCouldLeaveItsFolder() {
+        for bad in Self.badNames {
+            XCTAssertThrowsError(try SafeRelativePath.requireDocId(bad), bad.debugDescription) { error in
+                guard case SafeRelativePath.PathError.notADocId = error else {
+                    return XCTFail("expected .notADocId for \(bad.debugDescription), got \(error)")
+                }
+            }
+        }
+    }
+
+    // MARK: - A doc id becoming a file name
+
+    func test_opLogFileURL_refusesADocIdThatClimbs() {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertThrowsError(try OpLogFiles.opLogFileURL(
+            forDocId: "../x", deviceSlug: .unsafeForTesting("macA-1234"), in: root))
+        XCTAssertThrowsError(try OpLogStore.opLogFileURL(
+            forDocId: "../x", deviceSlug: .unsafeForTesting("macA-1234"), in: root))
+    }
+
+    func test_segmentFileURL_refusesADocIdThatClimbs() {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertThrowsError(try OpLogFiles.segmentFileURL(
+            forDocId: "../x", deviceSlug: .unsafeForTesting("macA-1234"), index: 1, in: root))
+    }
+
+    func test_quarantineRecord_refusesADocIdThatClimbs_andWritesNothing() throws {
+        let base = tempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try IntegrityQuarantine.record(
+            skipped: [.init(byteOffset: 0, raw: "torn")],
+            forDocId: "../../../../escaped", in: root, stamp: "20261025-000000"))
+        let written = FileManager.default.enumerator(atPath: base.path)?
+            .compactMap { $0 as? String }
+            .filter { $0.contains("escaped") } ?? []
+        XCTAssertEqual(written, [], "nothing is written for a refused doc id")
+    }
 }

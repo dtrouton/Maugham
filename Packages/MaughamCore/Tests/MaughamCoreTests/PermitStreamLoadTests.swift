@@ -574,7 +574,7 @@ final class PermitStreamLoadTests: XCTestCase {
     @discardableResult
     private func opsFile(by identity: DeviceIdentity, ops: [Op]) throws -> URL {
         try writeChained(
-            at: OpLogStore.opLogFileURL(
+            at: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: identity.slug, in: projectURL),
             by: identity, elements: try ops.map { try encoded($0) })
     }
@@ -642,7 +642,7 @@ final class PermitStreamLoadTests: XCTestCase {
     ) throws -> PermitMark.StreamMark {
         let element = try encoded(amendment(opId, by: sam.author))
         let ownFile = try writeChained(
-            at: OpLogStore.opLogFileURL(
+            at: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: sam.author.slug, in: projectURL),
             by: sam.author, elements: [element])
         // The same op id, in the file that belongs to no device. Sealed by
@@ -690,7 +690,7 @@ final class PermitStreamLoadTests: XCTestCase {
         try writeEvent("01", kind: .admitted, role: Permit.authorRole)
         let element = try encoded(amendment("w1", by: sam.author))
         try writeChained(
-            at: OpLogStore.opLogFileURL(
+            at: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: sam.author.slug, in: projectURL),
             by: sam.author, elements: [element])
         let line = OpLogChain.lineHash(

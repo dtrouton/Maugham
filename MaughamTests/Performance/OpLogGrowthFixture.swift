@@ -105,7 +105,7 @@ enum OpLogGrowthFixture {
                     presenter: nil,
                     burstIdle: .seconds(3600), burstMax: .seconds(3600))
                 if session == 0 { docIds.append(doc.docId) }
-                let tailURL = OpLogStore.opLogFileURL(
+                let tailURL = try OpLogStore.opLogFileURL(
                     forDocId: doc.docId,
                     deviceSlug: DeviceSlug.make(from: deviceName),
                     in: projectURL)

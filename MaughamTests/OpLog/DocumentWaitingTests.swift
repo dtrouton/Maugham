@@ -94,7 +94,7 @@ final class DocumentWaitingTests: XCTestCase {
     }
 
     private func fileURL(for identity: DeviceIdentity, docId: String = docId) -> URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
     }
 

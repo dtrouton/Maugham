@@ -497,7 +497,7 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.doc2.close()
         h.documentStore.unregister(path: "manuscript/c2.md")
         try FileManager.default.createDirectory(
-            at: OpLogStore.opLogFileURL(forDocId: docId,
+            at: try OpLogStore.opLogFileURL(forDocId: docId,
                                         deviceSlug: DeviceSlug.make(from: "bad"),
                                         in: h.projectURL),
             withIntermediateDirectories: true)

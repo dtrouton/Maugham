@@ -41,15 +41,15 @@ enum FigureRender {
     }
 
     /// The render's project-relative path, or nil when the record's `path` is
-    /// not one this render may write: exactly `figures/<file>.csv`, one
-    /// component under the folder, no dot-leading or parent component. A
-    /// record synced from another device is data, so its path is checked
-    /// before anything is written.
+    /// not one this render may write: exactly `figures/<file>.csv`, where
+    /// `<file>` is one plain file name (`SafeRelativePath.isPlainFileName`,
+    /// the one rule) with a stem before `.csv`. A record synced from another
+    /// device is data, so its path is checked before anything is written.
     static func renderPath(of record: FigureRecord) -> String? {
         let parts = record.path.split(separator: "/", omittingEmptySubsequences: false)
         guard parts.count == 2, parts[0] == Substring(ProjectStore.figuresFolder),
-              let file = parts.last, file.count > 4, file.hasSuffix(".csv"),
-              !file.hasPrefix("."), !file.contains("\\") else { return nil }
+              let file = parts.last.map(String.init), file.count > 4, file.hasSuffix(".csv"),
+              SafeRelativePath.isPlainFileName(file) else { return nil }
         return record.path
     }
 

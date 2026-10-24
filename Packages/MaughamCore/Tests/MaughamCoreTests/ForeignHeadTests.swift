@@ -111,7 +111,7 @@ final class ForeignHeadTests: XCTestCase {
     /// wrote it, exactly as `PermitLoadTests` builds one.
     @discardableResult
     private func writeFile(by identity: DeviceIdentity, ops: [Op]) throws -> URL {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try chained(ops, by: identity).write(to: url, options: .atomic)
         return url
@@ -223,7 +223,7 @@ final class ForeignHeadTests: XCTestCase {
             docId: docId, deviceSlug: sam.author.slug, threshold: 1)
         XCTAssertNotNil(segment, "a tail over the threshold rotates")
         XCTAssertFalse(
-            FileManager.default.fileExists(atPath: OpLogStore.opLogFileURL(
+            FileManager.default.fileExists(atPath: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: sam.author.slug,
                 in: projectURL).path),
             "rotation DELETES the tail — that is why this is hard")
@@ -269,7 +269,7 @@ final class ForeignHeadTests: XCTestCase {
         try writeRootRecord()
         try admitSam()
         // A zero-byte tail: synced ahead of its own contents.
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         try Data().write(to: url, options: .atomic)
 

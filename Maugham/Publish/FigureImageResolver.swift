@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import MaughamCore
 import ImageIO
 import CoreGraphics
 import UniformTypeIdentifiers
@@ -153,19 +153,13 @@ public enum FigureImageResolver {
 }
 
 extension FigureImageResolver {
-    /// The first 16 hex digits of a resolved image's SHA-256, read in 1 MB
-    /// chunks and never held whole: the content-addressed name both compilers
-    /// stage it under (`build/figures/<hash>.<ext>` for the PDF,
-    /// `OEBPS/images/<hash>.<ext>` for the EPUB), so the same image used twice
-    /// is one file. Throws when the file can't be read.
+    /// A resolved image's content hash (`ContentHash.ofFile`, shared with
+    /// the phone): the content-addressed name both compilers stage it under
+    /// (`build/figures/<hash>.<ext>` for the PDF, `OEBPS/images/<hash>.<ext>`
+    /// for the EPUB), so the same image used twice is one file. Throws when
+    /// the file can't be read.
     static func contentHash(of url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url) // adr-0018-ok: a figure image hashed for its staged name
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined().prefix(16).description
+        try ContentHash.ofFile(url)
     }
 }
 

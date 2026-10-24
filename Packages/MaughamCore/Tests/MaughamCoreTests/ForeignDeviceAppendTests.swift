@@ -52,7 +52,7 @@ final class ForeignDeviceAppendTests: XCTestCase {
     }
 
     private func fileURL(forDevice device: String) -> URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.make(from: device), in: projectURL)
     }
 

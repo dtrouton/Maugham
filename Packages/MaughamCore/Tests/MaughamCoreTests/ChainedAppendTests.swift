@@ -34,7 +34,7 @@ final class ChainedAppendTests: XCTestCase {
     }
 
     private var fileURL: URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
     }
 
@@ -283,7 +283,7 @@ final class ChainedAppendTests: XCTestCase {
     func test_anUnsignedDeviceSealsNothingAndThrowsNothing() async throws {
         let unsigned = DeviceIdentity.unsignedForTesting(token: Data(repeating: 7, count: 32))
         let store = OpLogStore(projectURL: projectURL, identity: unsigned, state: state)
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: unsigned.slug, in: projectURL)
         try await store.append(
             Op(opId: "op-1", docId: docId, at: Date(timeIntervalSince1970: 0),

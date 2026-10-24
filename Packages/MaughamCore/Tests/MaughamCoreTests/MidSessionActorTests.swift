@@ -132,7 +132,7 @@ final class MidSessionActorTests: XCTestCase {
         let rensStore = OpLogStore(
             projectURL: projectURL, identities: ren, state: renState)
         let assistant = ren.assistant
-        let lineFile = OpLogStore.opLogFileURL(
+        let lineFile = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: assistant.slug, in: projectURL)
 
         var listedBeforeTheLine: Bool?
@@ -214,7 +214,7 @@ final class MidSessionActorTests: XCTestCase {
             projectURL: projectURL, identities: ren, state: renState)
         try await rensStore.append(note("01", by: ren.assistant))
 
-        let lineFile = OpLogStore.opLogFileURL(
+        let lineFile = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: ren.assistant.slug, in: projectURL)
         let written = try String(contentsOf: lineFile, encoding: .utf8)
         XCTAssertTrue(written.contains("\"op_id\":\"01\""), "the line is on disk")

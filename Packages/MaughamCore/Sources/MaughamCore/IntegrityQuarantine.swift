@@ -9,7 +9,9 @@ public enum IntegrityQuarantine {
     /// `.maugham/conflicts/quarantine/<docId>.<contentHash>.<stamp>.jsonl`. Returns
     /// the file URL, or nil if there was nothing to quarantine **or an identical
     /// record was already quarantined for this doc**. `stamp` is injected (no
-    /// wall-clock in core) so the file name is deterministic in tests.
+    /// wall-clock in core) so the file name is deterministic in tests. Throws
+    /// `SafeRelativePath.PathError.notADocId` for a doc id that fails
+    /// `SafeRelativePath.requireDocId`, writing nothing.
     ///
     /// **Content dedup (audit N1):** the same op-log line stays torn forever (the
     /// log is append-only and never repaired), so this is called on *every* load of
@@ -27,6 +29,9 @@ public enum IntegrityQuarantine {
         stamp: String
     ) throws -> URL? {
         guard !skipped.isEmpty else { return nil }
+        // The id becomes part of the file name: one that could climb out of
+        // the quarantine folder is refused (the caller logs it).
+        try SafeRelativePath.requireDocId(docId)
         let dir = projectURL.appendingPathComponent(".maugham/conflicts/quarantine", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let body = skipped.map { line in

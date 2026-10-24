@@ -116,8 +116,10 @@ struct AnnotationWriter: Sendable {
     /// form per ADR 0008 (same string the creation op carries in `op.docId`); do NOT
     /// double-prefix it or the file lands in an untracked stream the Mac's
     /// `load(docId:)` glob never finds and the accept/reject silently never reaches the Mac.
-    private var opLogURL: URL {
-        OpLogStore.opLogFileURL(
+    /// Throws for a doc id that cannot name a file
+    /// (`SafeRelativePath.requireDocId`): nothing is appended.
+    private func opLogURL() throws -> URL {
+        try OpLogStore.opLogFileURL(
             forDocId: docId,
             deviceSlug: identity.slug,
             in: projectRoot
@@ -346,7 +348,7 @@ struct AnnotationWriter: Sendable {
     /// ops are rare lifecycle decisions, not a keystroke stream.
     private func append(_ op: Op) async throws -> Op {
         try await Self.appendChained(
-            op, to: opLogURL, identity: identity,
+            op, to: try opLogURL(), identity: identity,
             docId: docId, projectRoot: projectRoot)
         return op
     }

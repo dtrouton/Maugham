@@ -174,7 +174,7 @@ final class PermitLoadTests: XCTestCase {
         bytes.append(seal)
         bytes.append(0x0A)
 
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId ?? self.docId, deviceSlug: identity.slug,
             in: projectURL)
         try bytes.write(to: url, options: .atomic)
@@ -202,7 +202,7 @@ final class PermitLoadTests: XCTestCase {
             bytes.append(0x0A)
             head = OpLogChain.lineHash(line)
         }
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -229,7 +229,7 @@ final class PermitLoadTests: XCTestCase {
             bytes.append(0x0A)
             head = OpLogChain.lineHash(line)
         }
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -1072,7 +1072,7 @@ final class PermitLoadTests: XCTestCase {
         // Sam's key, sealed by Sam — in a file named for somebody else's slug.
         let bytes = try fileBytes(by: sam.author, ops: [op("hers", by: sam.author)])
         try bytes.write(
-            to: OpLogStore.opLogFileURL(
+            to: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: root.assistant.slug, in: projectURL),
             options: .atomic)
 
@@ -1136,7 +1136,7 @@ final class PermitLoadTests: XCTestCase {
         try writeRootRecord()
         try admitSam()
         try samsFile([op("before", by: sam.author), op("after", by: sam.author)])
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         try writeEvent("a", kind: .roleChanged, role: Permit.reviewerRole,
                        mark: try mark(of: url, cuttingAfterLineAt: 0))
@@ -1442,7 +1442,7 @@ final class PermitLoadTests: XCTestCase {
     /// of its own at the end.
     @discardableResult
     private func appendToSamsFile(_ ops: [Op]) throws -> URL {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         var bytes = try Data(contentsOf: url)
         let existing = bytes
@@ -1832,7 +1832,7 @@ final class PermitLoadTests: XCTestCase {
         try await samsStore.append(op("02", by: sam.author))
 
         let mark = PermitMark(try await seenMark())
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         let lines = try Data(contentsOf: url)
             .split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
@@ -1885,7 +1885,7 @@ final class PermitLoadTests: XCTestCase {
         try writeRootRecord()
         try declareSam()
         let url = try samsFile([op("01", by: sam.author)])
-        let elsewhere = OpLogStore.opLogFileURL(
+        let elsewhere = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: root.author.slug, in: projectURL)
         try Data().write(
             to: elsewhere.deletingLastPathComponent()

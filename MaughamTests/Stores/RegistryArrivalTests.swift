@@ -70,7 +70,7 @@ final class RegistryArrivalTests: XCTestCase {
             changes: [.init(paragraphId: "aaaa", prior: nil, next: "note01")],
             sequence: ["aaaa"]))
         try await rens.sealChain(docId: doc.docId)
-        let opFile = OpLogStore.opLogFileURL(
+        let opFile = try OpLogStore.opLogFileURL(
             forDocId: doc.docId, deviceSlug: ren.assistant.slug, in: projectURL)
         store.presenterDidChangeSubitem(at: opFile)
         try await doc.handleExternalLogChange()
@@ -139,7 +139,7 @@ final class RegistryArrivalTests: XCTestCase {
             changes: [.init(paragraphId: "aaaa", prior: nil, next: "ren01")],
             sequence: ["aaaa"]))
         try await rens.sealChain(docId: doc.docId)
-        let opFile = OpLogStore.opLogFileURL(
+        let opFile = try OpLogStore.opLogFileURL(
             forDocId: doc.docId, deviceSlug: ren.author.slug, in: projectURL)
         store.presenterDidChangeSubitem(at: opFile)
         try await doc.handleExternalLogChange()

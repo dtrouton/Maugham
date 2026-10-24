@@ -134,7 +134,7 @@ final class UnsignedSnapshotTests: XCTestCase {
             bytes.append(0x0A)
             head = OpLogChain.lineHash(line)
         }
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -157,7 +157,7 @@ final class UnsignedSnapshotTests: XCTestCase {
             at: Date(timeIntervalSince1970: 40))
         bytes.append(seal)
         bytes.append(0x0A)
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url

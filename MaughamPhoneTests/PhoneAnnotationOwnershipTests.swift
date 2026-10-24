@@ -195,7 +195,7 @@ struct PhoneNarrowedBook {
             at: Date(timeIntervalSince1970: 300))
         bytes.append(seal)
         bytes.append(0x0A)
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: Self.docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
     }

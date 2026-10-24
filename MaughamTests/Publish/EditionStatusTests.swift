@@ -267,7 +267,7 @@ final class EditionStatusTests: XCTestCase {
     /// unmistakably present. A missing `.md` does not do it: `Document.load`
     /// bootstraps an empty manuscript from one.
     private static func squatTheOpLog(ofDocId docId: String, in projectURL: URL) throws {
-        let squat = OpLogStore.opLogFileURL(
+        let squat = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.make(from: "bad"), in: projectURL)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
     }

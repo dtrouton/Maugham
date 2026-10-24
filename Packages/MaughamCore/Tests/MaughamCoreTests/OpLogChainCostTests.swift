@@ -138,7 +138,7 @@ final class OpLogChainCostTests: XCTestCase {
             device: stranger.deviceId, session: "s", kind: .typingBurst,
             changes: [.init(paragraphId: "aaaa", prior: nil, next: "kept")],
             sequence: ["aaaa"]))
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL)
         var bytes = try Data(contentsOf: url)
         bytes.append(try encodedLine(
@@ -235,7 +235,7 @@ final class OpLogChainCostTests: XCTestCase {
         for segment in 1...segments {
             let jsonl = try chainedRun(count: perSegment)
             totalBytes += jsonl.count
-            let segURL = OpLogStore.segmentFileURL(
+            let segURL = try OpLogStore.segmentFileURL(
                 forDocId: docId, deviceSlug: identity.slug, index: segment, in: projectURL)
             try OpLogSegment.encode(jsonl: jsonl).write(to: segURL)
             try SegmentSealer.writeSegmentSignature(
@@ -243,7 +243,7 @@ final class OpLogChainCostTests: XCTestCase {
         }
         let tail = try chainedRun(count: totalLines - perSegment * segments)
         totalBytes += tail.count
-        try tail.write(to: OpLogStore.opLogFileURL(
+        try tail.write(to: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL))
 
         /// Best of three. A single six-second reading swings by a few hundred
@@ -315,7 +315,7 @@ final class OpLogChainCostTests: XCTestCase {
         // load does that the control does not.
         var chainMs = Double.greatestFiniteMagnitude
         var signatureMs = Double.greatestFiniteMagnitude
-        let tailBytes = try Data(contentsOf: OpLogStore.opLogFileURL(
+        let tailBytes = try Data(contentsOf: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL))
         let fingerprint = identity.fingerprint
         for _ in 0..<3 {
@@ -327,7 +327,7 @@ final class OpLogChainCostTests: XCTestCase {
 
             let t2 = DispatchTime.now().uptimeNanoseconds
             for segment in 1...segments {
-                let segURL = OpLogStore.segmentFileURL(
+                let segURL = try OpLogStore.segmentFileURL(
                     forDocId: docId, deviceSlug: identity.slug,
                     index: segment, in: projectURL)
                 _ = SegmentSignature.read(
