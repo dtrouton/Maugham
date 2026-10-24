@@ -159,6 +159,13 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// init default, as every bump has. As with every bump since M1A, this
     /// makes the milestone a **paired Mac + phone release**.
     ///
+    /// 10 also covers the nine figure op kinds (report plan 6a): `figureCreate`
+    /// through `figurePinClear`, whose content rides in `Op.figure`. Schema 10
+    /// had not shipped when they joined it, so they take no bump of their own —
+    /// `OpKind`'s SCHEMA CONTRACT is met by the number they ship under. A book
+    /// with any figure is raised to 10 by `contentSchemaFloor`, through the
+    /// manifest's figure registry.
+    ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book
     /// with no v10 content still leaves it open to a v0.42 Mac.

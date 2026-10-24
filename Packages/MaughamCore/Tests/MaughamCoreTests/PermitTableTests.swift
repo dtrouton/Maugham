@@ -245,6 +245,19 @@ final class PermitTableTests: XCTestCase {
         .taskBodyEdit: .task,
         .taskArchive: .task,
 
+        // Ruling D-c (report plan 6a): a figure is its piece's content, so it
+        // is signed on the manuscript-text rung, though none of these folds
+        // into words.
+        .figureCreate: .manuscriptText,
+        .figureParked: .manuscriptText,
+        .figureResumed: .manuscriptText,
+        .figureCellSet: .manuscriptText,
+        .figureStructure: .manuscriptText,
+        .figureSettings: .manuscriptText,
+        .figureImageSet: .manuscriptText,
+        .figurePinSet: .manuscriptText,
+        .figurePinClear: .manuscriptText,
+
         .unknown: .unreadable
     ]
 
@@ -357,14 +370,19 @@ final class PermitTableTests: XCTestCase {
                        "the test's table names a kind that no longer exists")
     }
 
-    /// Manuscript text is asked of the deriver and not restated (spec §4.2).
+    /// Manuscript text is asked of the deriver and not restated (spec §4.2) —
+    /// plus the nine figure kinds, which ruling D-c files on the same rung
+    /// though the deriver folds none of them. Named here, so a tenth kind that
+    /// joins the row without folding into words fails this test.
     func test_theManuscriptRowIsTheDeriversOwnList() {
         for kind in OpKind.allCases {
             XCTAssertEqual(
                 Permit.group(of: kind) == .manuscriptText,
-                Deriver.appliesToManuscript(kind),
+                Deriver.appliesToManuscript(kind) || FigureOpPayload.kinds.contains(kind),
                 "OpKind.\(kind) disagrees with Deriver.appliesToManuscript")
         }
+        XCTAssertEqual(Set(FigureOpPayload.kinds).count, 9)
+        XCTAssertTrue(FigureOpPayload.kinds.allSatisfy { !Deriver.appliesToManuscript($0) })
     }
 
     // MARK: - The whole table

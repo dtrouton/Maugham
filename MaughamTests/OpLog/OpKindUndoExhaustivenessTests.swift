@@ -173,6 +173,23 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // writer did in this window."
             return .nonUndoable(reason: "MCP-originated annotation creation; never registers on a window's undo stack (ADR 0023 §5)")
 
+        // MARK: - Figures (report plan 6a) — no writer yet
+
+        case .figureCreate, .figureCellSet, .figureStructure,
+             .figureSettings, .figureImageSet:
+            // Task 1 adds the kinds and the payload only; nothing in the app
+            // appends a figure op yet. Plan 6a's FigureInverse (Task 3) and
+            // the figure host's undo registration (Task 6) move the
+            // invertible ones to `.inverseCovered` naming their mechanism; a
+            // row or column delete stays without an inverse until plan 6b's
+            // tombstone revive.
+            return .nonUndoable(reason: "no writer appends a figure op yet (report plan 6a Task 1); FigureInverse and the figure host's registrar land in Tasks 3 and 6")
+
+        case .figureParked, .figureResumed, .figurePinSet, .figurePinClear:
+            // Send to Research, bringing a figure back and research pins are
+            // plan 6b's acts; their undo story is decided there.
+            return .nonUndoable(reason: "send-to-Research, resume and research pins are written by report plan 6b, which decides their undo")
+
         case .unknown:
             // Forward-tolerance decode fallback for an op kind written by a
             // NEWER build (OpKind.init(from:)); this build never creates one,
@@ -260,6 +277,9 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         let excluded: [OpKind] = [
             .typingBurst, .externalEdit, .checkpoint, .bootstrap,
             .claudeSuggestion, .claudeComment, .claudeQuery, .claudeCraftNote,
+            .figureCreate, .figureCellSet, .figureStructure, .figureSettings,
+            .figureImageSet, .figureParked, .figureResumed, .figurePinSet,
+            .figurePinClear,
             .unknown,
         ]
         XCTAssertEqual(

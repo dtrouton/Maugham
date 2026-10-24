@@ -215,6 +215,15 @@ public enum Deriver {
             // (M3 P2): a stet's whole point is that the WORDS DO NOT CHANGE,
             // and a triage is a mark on a note, not on the prose.
             return false
+        case .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
+            // A figure's ops build a table or an image in the figure's own
+            // stream, never words: they carry `changes: []` and their content
+            // rides in `Op.figure`, which this deriver never reads. (The
+            // permit table still files them with manuscript text — ruling
+            // D-c, `Permit.group(of:)`.)
+            return false
         case .unknown:
             // An op kind written by a newer build. We can't know whether it
             // mutates the manuscript, so we treat it as inert — never apply it

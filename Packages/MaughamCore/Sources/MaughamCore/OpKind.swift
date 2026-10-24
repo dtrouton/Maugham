@@ -71,6 +71,22 @@ public enum OpKind: String, Codable, Equatable, Sendable, CaseIterable {
     case taskBodyEdit       = "task_body_edit"
     case taskArchive        = "task_archive"
 
+    // Figure lifecycle and content (report plan 6a). A figure is its own
+    // op-logged document (`DocumentClass.figure`); these ops ride the shared
+    // envelope with `changes: []`, and their content is `Op.figure`
+    // (`FigureOpPayload`, whose doc comment lists each kind's fields). None
+    // folds into manuscript text. Schema 10 covers them
+    // (`ProjectManifest.currentSchemaVersion`'s 9 → 10 note).
+    case figureCreate    = "figure_create"
+    case figureParked    = "figure_parked"
+    case figureResumed   = "figure_resumed"
+    case figureCellSet   = "figure_cell_set"
+    case figureStructure = "figure_structure"
+    case figureSettings  = "figure_settings"
+    case figureImageSet  = "figure_image_set"
+    case figurePinSet    = "figure_pin_set"
+    case figurePinClear  = "figure_pin_clear"
+
     /// Cross-version forward-tolerance: an op kind written by a *newer* build
     /// decodes to `.unknown` instead of throwing (which would quarantine the
     /// whole op line and silently drop the edits it carried). The op is kept,

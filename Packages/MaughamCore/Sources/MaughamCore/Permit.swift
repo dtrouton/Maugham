@@ -470,7 +470,9 @@ extension Permit {
     /// reader checking the ladder against the code should be able to ask which
     /// group a kind is in without reading the permission logic around it.
     public enum WrittenGroup: Equatable, Hashable, Sendable, CaseIterable {
-        /// Folds into the derived words. Exactly `Deriver.appliesToManuscript`.
+        /// Folds into the derived words — exactly `Deriver.appliesToManuscript` —
+        /// plus the figure kinds, which are the piece's content without being
+        /// words (ruling D-c).
         case manuscriptText
         /// Making a comment, a query, a suggestion or a craft note.
         case annotationCreation
@@ -550,6 +552,17 @@ extension Permit {
         case .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return .task
+        case .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
+            // Ruling D-c: a figure's content is the piece's content, so it is
+            // signed on the manuscript-text rung — the piece author's, or a
+            // whole-book author's, never a reviewer's or the assistant's —
+            // although `Deriver.appliesToManuscript` says no, because none of
+            // these folds into words. The one place the two disagree, and
+            // deliberately: the deriver's question is what becomes prose, this
+            // switch's is who may sign it.
+            return .manuscriptText
         case .unknown:
             return .unreadable
         }
@@ -871,7 +884,10 @@ extension Permit {
              .annotationEdit, .annotationWithdraw, .annotationReopen,
              .annotationStet, .annotationTriage, .taskStatusChange,
              .taskPriorityChange, .taskParentChange, .taskBodyEdit,
-             .taskArchive, .unknown:
+             .taskArchive, .unknown,
+             .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
             return false
         }
     }

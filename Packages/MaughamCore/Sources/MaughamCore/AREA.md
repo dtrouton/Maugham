@@ -179,6 +179,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `CellDisplay.swift` — a value and its format as the string the writer sees: Excel-rounded first, number, percent, currency, compact and date styles in the locale, financial-year labels.
 - `CellInput.swift` — typed or pasted cell text read in the book's language: formulas, text escapes, numbers, percentages, currency and dates, with the format Excel would suggest.
 - `TableCSV.swift` — a table as CSV: the clean values render, research copies that keep formulas, RFC 4180 reading with separator detection, and import with formulas resolved to ids and unreadable ones reported.
+- `FigureOp.swift` — a figure op's content on the shared envelope (`Op.figure`): the figure kind, cell, structure, settings, image and research-pin changes, and which fields each figure op kind needs.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.

@@ -1746,6 +1746,12 @@ private struct HistoryRow: View {
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
+        case .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
+            // A figure's own stream: the table or image changes, the words
+            // do not (`Deriver.appliesToManuscript`).
+            return false
         case .unknown:
             // Newer-build op (ADR 0015): treated as inert by the Deriver, so
             // it doesn't mutate the manuscript on this build.
@@ -1879,6 +1885,21 @@ private struct HistoryRow: View {
                 } else {
                     EmptyView()
                 }
+            case .figureParked:
+                if let path = op.figure?.parkedPath {
+                    Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    EmptyView()
+                }
+            case .figureImageSet:
+                if let name = op.figure?.image?.filename {
+                    Text(name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    EmptyView()
+                }
+            case .figureCreate, .figureResumed, .figureCellSet, .figureStructure,
+                 .figureSettings, .figurePinSet, .figurePinClear:
+                EmptyView()
             case .unknown:
                 // An op written by a newer Maugham build (ADR 0015). Show a
                 // neutral placeholder rather than crash; a future named kind
@@ -1991,6 +2012,15 @@ private struct HistoryRow: View {
             // and this row all say it.
             case .annotationStet: return "Annotation stetted"
             case .annotationTriage: return "Annotation triaged"
+            case .figureCreate: return "Figure created"
+            case .figureCellSet: return "Cell edited"
+            case .figureStructure: return "Rows or columns changed"
+            case .figureSettings: return "Table settings"
+            case .figureImageSet: return "Image replaced"
+            case .figurePinSet: return "Research pin set"
+            case .figurePinClear: return "Research pin cleared"
+            case .figureParked: return "Sent to Research"
+            case .figureResumed: return "Back from Research"
             case .unknown: return "Newer version"
             }
         case .checkpoint:
@@ -2021,6 +2051,15 @@ private struct HistoryRow: View {
             case .annotationReopen: return "arrow.uturn.up"
             case .annotationStet: return "checkmark.seal"
             case .annotationTriage: return "line.3.horizontal.decrease.circle"
+            case .figureCreate: return "tablecells"
+            case .figureCellSet: return "square.and.pencil"
+            case .figureStructure: return "rectangle.split.3x3"
+            case .figureSettings: return "slider.horizontal.3"
+            case .figureImageSet: return "photo"
+            case .figurePinSet: return "pin"
+            case .figurePinClear: return "pin.slash"
+            case .figureParked: return "tray.and.arrow.up"
+            case .figureResumed: return "tray.and.arrow.down"
             case .unknown: return "questionmark.square.dashed"
             }
         case .checkpoint: return "flag"
@@ -2046,6 +2085,10 @@ private struct HistoryRow: View {
                 return Color(red: 0.38, green: 0.76, blue: 0.45)
             case .annotationEdit, .annotationWithdraw, .annotationReopen,
                  .annotationStet, .annotationTriage: return .orange
+            case .figureCreate, .figureCellSet, .figureStructure,
+                 .figureSettings, .figureImageSet: return .indigo
+            case .figurePinSet, .figurePinClear: return .brown
+            case .figureParked, .figureResumed: return .mint
             case .unknown: return .gray
             }
         case .checkpoint: return .green
