@@ -144,7 +144,7 @@ enum CanvasCapture {
     /// nothing, on every drop, for ever, with nothing red. A scrap is measured
     /// from its own words; a picture takes `itemLabelOnlyHeight`, the honest floor
     /// the other two item-node creators write, refined to the picture's real shape
-    /// by `CanvasView.rebuildLayouts` on the next pass — inside the same bracket.
+    /// by `CanvasLayoutPass.rebuildLayouts` on the next pass — inside the same bracket.
     static func plan(_ content: Content,
                      _ placement: Placement,
                      captureID: String,
@@ -214,7 +214,7 @@ enum CanvasCapture {
     /// tripwire turns on is whether the arriving mutation has a bracket **of its
     /// own** to protect, and neither route has one: a command from another column
     /// has no gesture at all, and a drag that begins in the Inbox pane never
-    /// reaches `CanvasView.handleClick`, which is the only thing that runs
+    /// reaches `CanvasClickHandler.handleClick`, which is the only thing that runs
     /// `commitActiveEdit`. So the writer can be inside a scrap with "Edit Scrap"
     /// held open and *nothing on either side closes their bracket*. Through the
     /// inside verbs this nests — `beginGesture` takes no snapshot at depth 2 and

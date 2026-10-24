@@ -401,8 +401,15 @@ final class CanvasBoundPieceTests: XCTestCase {
             try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasView.swift"))
     }
 
+    /// The view and the helpers it builds per call (`CanvasSourceCensus.surfaceFiles`),
+    /// comments stripped, for the count and the ban: a call site that moves into
+    /// a helper is still seen. The "present" check stays on `canvasViewSource()`.
+    private func canvasSurfaceSource() throws -> String {
+        CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.surfaceSource())
+    }
+
     func test_theViewHandsThePieceTitlesToBothConsumers() throws {
-        let src = try canvasViewSource()
+        let src = try canvasSurfaceSource()
         XCTAssertEqual(src.components(separatedBy: "pieceTitles: pieceTitles").count - 1, 2,
                        "the drawn region and the spoken region must be handed the "
                        + "SAME map — one of them missing is a drawn/spoken "
@@ -426,7 +433,7 @@ final class CanvasBoundPieceTests: XCTestCase {
     /// Tripwire 30: the map is built where the manifest already is, and this view
     /// never builds one of its own.
     func test_theMapIsNeverBuiltOnTheCanvasSideAtAll() throws {
-        XCTAssertFalse(try canvasViewSource().contains("CanvasPieceTitles.over("),
+        XCTAssertFalse(try canvasSurfaceSource().contains("CanvasPieceTitles.over("),
                        "the canvas walks the manifest itself — that walk belongs on "
                        + "`ProjectWindow`'s body, which re-evaluates per manifest "
                        + "change, and not on this one, which re-evaluates per drag "

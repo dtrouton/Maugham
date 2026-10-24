@@ -248,7 +248,7 @@ final class CanvasLineGestureTests: XCTestCase {
 
     func test_aPressInsideTheSelectedCardsConnectHandleConnects() {
         let scene = twoCards()
-        XCTAssertTrue(CanvasView.pressStartsALine(at: insideAsConnectHandle,
+        XCTAssertTrue(CanvasDragHandler.pressStartsALine(at: insideAsConnectHandle,
                                                   selection: .node(a),
                                                   in: scene, shiftHeld: false),
                       "the mark is drawn on the selected card, so a drag out of it is "
@@ -257,13 +257,13 @@ final class CanvasLineGestureTests: XCTestCase {
 
     func test_theSamePointOnAnUnselectedCardDoesNot() {
         let scene = twoCards()
-        XCTAssertFalse(CanvasView.pressStartsALine(at: insideAsConnectHandle,
+        XCTAssertFalse(CanvasDragHandler.pressStartsALine(at: insideAsConnectHandle,
                                                    selection: .node(b),
                                                    in: scene, shiftHeld: false),
                        "no mark was drawn there, so the writer aimed at nothing — and "
                        + "`applyMouseDown` fires onClick before onDrag(.began), so the "
                        + "press that selects a card must not also start a line from it")
-        XCTAssertFalse(CanvasView.pressStartsALine(at: insideAsConnectHandle,
+        XCTAssertFalse(CanvasDragHandler.pressStartsALine(at: insideAsConnectHandle,
                                                    selection: nil,
                                                    in: scene, shiftHeld: false))
     }
@@ -273,7 +273,7 @@ final class CanvasLineGestureTests: XCTestCase {
         let region = CanvasRegionID("r1")
         scene.insertRegion(CanvasRegion(id: region, label: "Act II",
                                         frame: CGRect(x: -100, y: -100, width: 900, height: 400)))
-        XCTAssertFalse(CanvasView.pressStartsALine(at: insideAsConnectHandle,
+        XCTAssertFalse(CanvasDragHandler.pressStartsALine(at: insideAsConnectHandle,
                                                    selection: .region(region),
                                                    in: scene, shiftHeld: false),
                        "a card with no mark on it has no connect target, whatever else "
@@ -282,7 +282,7 @@ final class CanvasLineGestureTests: XCTestCase {
 
     func test_aPressOutsideTheHandleOnTheSelectedCardStillMovesIt() {
         let scene = twoCards()
-        XCTAssertFalse(CanvasView.pressStartsALine(at: insideA, selection: .node(a),
+        XCTAssertFalse(CanvasDragHandler.pressStartsALine(at: insideA, selection: .node(a),
                                                    in: scene, shiftHeld: false),
                        "the target is the mark, not the card — otherwise selecting a "
                        + "card would make it undraggable")
@@ -292,7 +292,7 @@ final class CanvasLineGestureTests: XCTestCase {
         let scene = twoCards()
         for selection: CanvasSelection? in [nil, .node(a), .node(b),
                                             .region(CanvasRegionID("nope"))] {
-            XCTAssertTrue(CanvasView.pressStartsALine(at: insideA, selection: selection,
+            XCTAssertTrue(CanvasDragHandler.pressStartsALine(at: insideA, selection: selection,
                                                       in: scene, shiftHeld: true),
                           "⇧ is the fast route and owes nothing to the selection; the "
                           + "two routes are independent and neither is a special case "
@@ -316,9 +316,9 @@ final class CanvasLineGestureTests: XCTestCase {
         XCTAssertNotNil(scene.topmostNode(at: atTheRightEdge),
                         "precondition: the point is on the card, so a false below is "
                         + "about the absent handle and not about missing the card")
-        XCTAssertFalse(CanvasView.pressStartsALine(at: atTheRightEdge, selection: .node(short),
+        XCTAssertFalse(CanvasDragHandler.pressStartsALine(at: atTheRightEdge, selection: .node(short),
                                                    in: scene, shiftHeld: false))
-        XCTAssertTrue(CanvasView.pressStartsALine(at: atTheRightEdge, selection: .node(short),
+        XCTAssertTrue(CanvasDragHandler.pressStartsALine(at: atTheRightEdge, selection: .node(short),
                                                   in: scene, shiftHeld: true),
                       "⇧ still works on a card with no mark — which is why the mark may "
                       + "be absent at all")
@@ -335,7 +335,7 @@ final class CanvasLineGestureTests: XCTestCase {
         XCTAssertEqual(scene.topmostNode(at: insideAsConnectHandle)?.id, cover,
                        "precondition: the covering card really is in front at that point")
 
-        XCTAssertFalse(CanvasView.pressStartsALine(at: insideAsConnectHandle,
+        XCTAssertFalse(CanvasDragHandler.pressStartsALine(at: insideAsConnectHandle,
                                                    selection: .node(a),
                                                    in: scene, shiftHeld: false))
     }

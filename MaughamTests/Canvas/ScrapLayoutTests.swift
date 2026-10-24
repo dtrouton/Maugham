@@ -27,7 +27,7 @@ final class ScrapLayoutTests: XCTestCase {
     }
 
     /// **A mounted editor outlives the `ScrapLayout` that built it**, and that is
-    /// the fact `CanvasView.rebuildLayouts` rests on.
+    /// the fact `CanvasLayoutPass.rebuildLayouts` rests on.
     ///
     /// `applySnapshot` replaces `layouts[id]` while the writer is still in the
     /// scrap, which releases that scrap's `ScrapLayout` synchronously — a whole

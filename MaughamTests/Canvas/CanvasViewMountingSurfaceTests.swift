@@ -217,7 +217,7 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
     /// `cachedHeight: nil` is what the sidecar persists.
     ///
     /// Task 5 supplied the measurement and this task added the per-frame
-    /// re-derive (`CanvasView.remeasure`'s `.item` arm), so the corner and the
+    /// re-derive (`CanvasLayoutPass.remeasure`'s `.item` arm), so the corner and the
     /// mark went back to being unconditional. **What is asserted here is the
     /// safety property the old guard bought, not the old guard**: after a corner
     /// drag on an item node the card still has a height, is still returned by

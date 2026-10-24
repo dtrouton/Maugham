@@ -372,7 +372,7 @@ final class CanvasLiveSeamTests: XCTestCase {
         XCTAssertFalse(
             assigns("onSceneChangedExternally",
                     in: view.replacingOccurrences(
-                        of: "model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }",
+                        of: "model.onSceneChangedExternally = { layoutPass.rebuildLayouts(bumpsStructuralCounter: false) }",
                         with: "_ = model.onSceneChangedExternally")),
             "same, for the hook: declared, read once, bound to nothing")
 

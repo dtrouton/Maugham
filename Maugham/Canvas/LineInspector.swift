@@ -19,7 +19,7 @@ import SwiftUI
 /// **Every commit goes through `CanvasModel.mutateFromInspector`, never
 /// `mutate`** (tripwire 32). This view is in the window's other column and the
 /// canvas may be holding "Edit Scrap" open the whole time the writer is in it —
-/// `CanvasView.commitActiveEdit` runs from `handleClick`, which only fires for
+/// `CanvasEditFocus.commitActiveEdit` runs from `handleClick`, which only fires for
 /// clicks on the canvas, and a double-click never reassigns `selection`. Nested,
 /// the commit takes no snapshot at depth 2 and registers nothing at depth 1, so
 /// **the name is on no undo step at all**: the open gesture's baseline predates
@@ -176,7 +176,7 @@ struct LineInspector: View {
 
     /// The same rule ⌫ follows: the line goes and both cards stay. The mirror of
     /// `RegionInspector.deleteRegion`, and no `isInGesture` refusal like
-    /// `CanvasView.deleteSelection`'s — that guard exists because a KEY can reach
+    /// `CanvasKeyHandler.deleteSelection`'s — that guard exists because a KEY can reach
     /// the event view mid-drag, and this button cannot be clicked while the mouse
     /// is down on the canvas. `mutateFromInspector` covers the gesture that *can*
     /// be open here.

@@ -105,7 +105,7 @@ enum CanvasClaudeWrite {
             // one.** An MCP call can arrive while the writer is inside a scrap
             // with "Edit Scrap" held open, and *nothing on this side of the window
             // closes their gesture*: `commitActiveEdit` runs from
-            // `CanvasView.handleClick`, which only fires for clicks on the canvas.
+            // `CanvasClickHandler.handleClick`, which only fires for clicks on the canvas.
             // Through `mutate` the write NESTS — `beginGesture` takes no snapshot
             // at depth 2, `endGesture` registers nothing above depth 0 — so
             // Claude's nodes reach no undo step of their own and ride into the

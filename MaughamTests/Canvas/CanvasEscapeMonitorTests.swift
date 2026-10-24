@@ -182,7 +182,7 @@ final class CanvasEscapeMonitorTests: XCTestCase {
 
     // MARK: - Refusal 4: the canvas did not use it
 
-    /// The canvas's own answer is `CanvasView.escapeAsksForTheWholeBoard()` and it
+    /// The canvas's own answer is `CanvasKeyHandler.escapeAsksForTheWholeBoard()` and it
     /// refuses an undimmed board and an open scrap. A monitor that consumed
     /// regardless would be invisible on screen and would take Escape from
     /// everything above.

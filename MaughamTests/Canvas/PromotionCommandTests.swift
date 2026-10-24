@@ -370,11 +370,21 @@ final class PromotionCommandTests: XCTestCase {
              + "discover the artifact had been deleted — which is CLAUDE.md rule "
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
             ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)",
-                                                 "CanvasDrop.apply(",
-                                                 "CanvasExternalDrop.ingest(",
-                                                 "CanvasExternalDrop.apply(",
-                                                 "CanvasDrop.payload(",
-                                                 "captureDrop.send("],
+                                                 "dropHandler.handleDrop(",
+                                                 "dropHandler.handleExternalDrop("],
+             "1C-d Task 10's drop MOUNT, which stays on `CanvasView.body` with its "
+             + "partner `.onDrop` (tripwire 33's order pin); the landing verbs it "
+             + "reaches live in `CanvasDropHandler` since the canvasview-split, and "
+             + "the entry below says why each is held. The two `dropHandler.` "
+             + "calls are the mount's reach into that handler: a drop closure "
+             + "that answers `false` beside a `dropHandler` nothing calls builds "
+             + "with no warning, keeps every token in the entry below, and drops "
+             + "nothing the writer drags in"),
+            ("type:CanvasDropHandler", ["CanvasDrop.apply(",
+                                        "CanvasExternalDrop.ingest(",
+                                        "CanvasExternalDrop.apply(",
+                                        "CanvasDrop.payload(",
+                                        "captureDrop.send("],
              "1C-d Task 10's drop target. `CanvasDrop` is a pure decision plus a "
              + "model verb, both fully testable with nothing mounting them — and "
              + "SwiftUI's drop delivery has no seam a test can post a drag session "
@@ -391,9 +401,11 @@ final class PromotionCommandTests: XCTestCase {
              + "the shape's own lesson two tasks later. Delete it from "
              + "`handleDrop`'s `.create` arm and the build succeeds with NO "
              + "warning (`node` is still read by the `model.selection` line under "
-             + "it), all twenty-one `CanvasDropTests` stay green because nothing "
-             + "in the repo drives `handleDrop` at all, both drop-route tripwires "
-             + "stay green — and a research row dragged onto the canvas makes no "
+             + "it), all twenty-one `CanvasDropTests` stay green because none of "
+             + "them drives `handleDrop`, both drop-route tripwires stay green "
+             + "(then nothing drove it at all; `CanvasSurfaceHelperTests`' "
+             + "writable drop control now does, windowless) — and a research row "
+             + "dragged onto the canvas makes no "
              + "card while the selection points at a node that does not exist, so "
              + "the right-hand column goes blank over a drag that looked like it "
              + "worked. Measured 2026-07-31, not argued. **`CanvasDrop.decide(` is "
@@ -702,7 +714,7 @@ final class PromotionCommandTests: XCTestCase {
         // `body` with a closure that reaches nothing, which no drop test and no
         // drop-route tripwire can see.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+            try missingTokens(in: "type:CanvasDropHandler",
                               required: ["CanvasExternalDrop.ingest(",
                                          "CanvasNotAnExternalDrop.ingest("]),
             ["CanvasNotAnExternalDrop.ingest("],
@@ -713,7 +725,7 @@ final class PromotionCommandTests: XCTestCase {
         // two lines go missing would be the only instrument holding the route,
         // holding nothing.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+            try missingTokens(in: "type:CanvasDropHandler",
                               required: ["CanvasDrop.payload(",
                                          "CanvasDrop.notARealClassifier(",
                                          "captureDrop.send(",
@@ -849,6 +861,36 @@ final class PromotionCommandTests: XCTestCase {
                                          ".dropDestination(for: NotARealPayload.self)"]),
             [".dropDestination(for: NotARealPayload.self)"],
             "the census reports the ABSENT drop-mount token and not the present one")
+        // And the mount's reach into `CanvasDropHandler` (canvasview-split): a
+        // planted view whose two drop closures answer `false` beside a
+        // `dropHandler` property nothing calls. The property's name alone must
+        // not satisfy either token; the real file is the control.
+        let base = try SourceTree.plantedTree([
+            "Maugham/Canvas/CanvasView.swift": """
+                struct CanvasView: View {
+                    var body: some View {
+                        Color.clear
+                            .dropDestination(for: String.self) { _, _ in false }
+                            .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in false }
+                    }
+                    // dropHandler.handleDrop( in a comment does not count.
+                    private var dropHandler: CanvasDropHandler { CanvasDropHandler() }
+                }
+                """,
+        ])
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dropCalls = [".dropDestination(for: String.self)",
+                         "dropHandler.handleDrop(",
+                         "dropHandler.handleExternalDrop("]
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/CanvasView.swift", required: dropCalls,
+                              base: base),
+            ["dropHandler.handleDrop(", "dropHandler.handleExternalDrop("],
+            "a drop closure that reaches nothing, beside an unused `dropHandler`, "
+            + "must be reported for both calls and not for the mount")
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/CanvasView.swift", required: dropCalls), [],
+            "control: the real view's two drop closures call the handler")
     }
 
     /// **The window's census reads by TYPE, and still fires.** A planted

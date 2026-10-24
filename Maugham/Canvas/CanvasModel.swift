@@ -194,9 +194,10 @@ final class CanvasModel {
     ///
     /// `CanvasItemIndex` is built once per manifest change in `ProjectWindow` and
     /// handed to `CanvasView` as a property of one *view* of this scene, which is
-    /// where it still belongs: `handleDrop` and `CanvasDrop.decide` read the view's
-    /// own, and that one is always the window's latest by construction. This is
-    /// the copy the MODEL keeps, and it exists because `CanvasView` is a struct.
+    /// where it still belongs: `CanvasDropHandler.handleDrop` and `CanvasDrop.decide`
+    /// read the view's own (`CanvasView.dropHandler` hands it in), and that one
+    /// is always the window's latest by construction. This is the copy the MODEL
+    /// keeps, and it exists because `CanvasView` is a struct.
     ///
     /// The closures above are captured from the view VALUE at first appear, so
     /// every plain stored property they read is frozen at that moment. The index
@@ -377,7 +378,7 @@ final class CanvasModel {
             // canvas happens to be on screen — a model that under-counts while a
             // view is attached is a model that is no longer correct on its own.
             // The view's own bump is suppressed on this one path instead; see
-            // `CanvasView.rebuildLayouts(bumpsStructuralCounter:)`.
+            // `CanvasLayoutPass.rebuildLayouts(bumpsStructuralCounter:)`.
             sceneRevision += 1
             scheduleSave()
         }
@@ -643,7 +644,7 @@ final class CanvasModel {
 
     /// Whether an undo bracket is open right now.
     ///
-    /// Read by `CanvasView.deleteSelection()`, which refuses mid-gesture: a
+    /// Read by `CanvasKeyHandler.deleteSelection()`, which refuses mid-gesture: a
     /// nested `beginGesture` takes no snapshot and a nested `endGesture`
     /// registers nothing, so a delete opened inside somebody else's bracket
     /// cannot be taken back on its own — and if that bracket never closes, not

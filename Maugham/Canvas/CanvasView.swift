@@ -267,7 +267,7 @@ struct CanvasView: View {
     /// column's region inspector reads *that* one. A view-side bump would move
     /// the accessibility tree and leave the inspector showing the membership as
     /// of the last edit made from the other column: the drop-to-join at
-    /// `handleDrag(.ended)` shipped that way, and the writer met a region that
+    /// `CanvasDragHandler.handleDrag(.ended)` shipped that way, and the writer met a region that
     /// still said "No cards live in this region yet" over a card the canvas had
     /// already drawn inside it, with the same card still offered under "Cite a
     /// Card" where choosing it did nothing at all.
@@ -331,16 +331,17 @@ struct CanvasView: View {
     /// has to ask about the selection as DRAWN, and `model.selection` is already
     /// the new one by the time a drag begins.** `CanvasEventNSView.applyMouseDown`
     /// fires `onClick` strictly before `onDrag(.began)` — a contract that file
-    /// states outright — and `handleClick` reassigns the selection to whatever is
+    /// states outright — and `CanvasClickHandler.handleClick` reassigns the selection to whatever is
     /// under the pointer. Read live at `.began`, the first press on an *unselected*
     /// card would therefore find that card selected and start a line out of a mark
     /// that was not on screen when the writer pressed: a 14 pt patch on the right
     /// edge of every card on the canvas that refuses to move it. Click, then
     /// press, is two gestures, and this is the one value that keeps them two.
     ///
-    /// Written in exactly one place — the head of `handleClick`, before anything
-    /// can move the selection — and read in exactly one, `handleDrag(.began)`. A
-    /// stale value is harmless: `pressStartsALine` also requires the selected card
+    /// Written in exactly one place — the head of `CanvasClickHandler.handleClick`,
+    /// before anything can move the selection — and read in exactly one,
+    /// `CanvasDragHandler.handleDrag(.began)`, through the binding each is handed.
+    /// A stale value is harmless: `pressStartsALine` also requires the selected card
     /// to be the one under the pointer.
     @State private var selectionWhenPressed: CanvasSelection?
 
@@ -487,15 +488,15 @@ struct CanvasView: View {
             CanvasEventView(
                 camera: $camera,
                 onClick: { viewPoint, clickCount in
-                    handleClick(at: camera.contentPoint(fromView: viewPoint),
-                                clickCount: clickCount)
+                    clickHandler.handleClick(at: camera.contentPoint(fromView: viewPoint),
+                                             clickCount: clickCount)
                 },
                 onDrag: { viewPoint, phase, shiftHeld, timestamp in
-                    handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase,
-                               shiftHeld: shiftHeld, timestamp: timestamp)
+                    dragHandler.handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase,
+                                           shiftHeld: shiftHeld, timestamp: timestamp)
                 },
-                onDeleteKey: { deleteSelection() },
-                onEscape: { escapeAsksForTheWholeBoard() },
+                onDeleteKey: { keyHandler.deleteSelection() },
+                onEscape: { keyHandler.escapeAsksForTheWholeBoard() },
                 // The one condition `CanvasEscapeMonitor` is installed under —
                 // and it is the SUBJECT's dim rather than
                 // `escapeAsksForTheWholeBoard`'s full answer, because the monitor
@@ -507,7 +508,7 @@ struct CanvasView: View {
                 //
                 // Bare, and not the recorder the editor gets: this path is only
                 // reachable with no scrap focused, and every route out of a scrap
-                // runs `commitActiveEdit`, so there is never an open gesture here
+                // runs `CanvasEditFocus.commitActiveEdit`, so there is never an open gesture here
                 // for `CanvasUndo.undo()` to close. A drag's gesture closes at
                 // `.ended`, before any ⌘Z can arrive.
                 //
@@ -519,7 +520,7 @@ struct CanvasView: View {
                 // survivable for ⌘Z, which closes the open gesture through the
                 // recorder either way; it was not survivable for delete, which
                 // registered into a bracket that was not its own. Hence the
-                // `isInGesture` guard at the head of `deleteSelection()`. Anything
+                // `isInGesture` guard at the head of `CanvasKeyHandler.deleteSelection()`. Anything
                 // new hung off a key here inherits the same problem and needs the
                 // same answer.
                 undoManager: model.undoManager)
@@ -581,10 +582,10 @@ struct CanvasView: View {
         // pins this one, because no test in this repo can drive a drag session —
         // which is why it reached a smoke in the first place.
         .dropDestination(for: String.self) { payloads, location in
-            handleDrop(payloads, at: location)
+            dropHandler.handleDrop(payloads, at: location)
         }
         .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, viewPoint in
-            handleExternalDrop(providers, at: viewPoint)
+            dropHandler.handleExternalDrop(providers, at: viewPoint)
         }
         .alert(dropError ?? "",
                isPresented: Binding(get: { dropError != nil },
@@ -660,7 +661,7 @@ struct CanvasView: View {
         // whatever index this canvas first appeared with.
         .onChange(of: itemIndex.fingerprint) { _, _ in
             model.itemIndex = itemIndex
-            rebuildLayouts()
+            layoutPass.rebuildLayouts()
         }
         // The thumbnails the last resolve missed, decoded OFF the frame path.
         //
@@ -697,7 +698,7 @@ struct CanvasView: View {
             // happens, because a picture that has just landed for the FIRST time
             // has taught the cache a shape its card was not measured with.
             if await thumbnails.servicePending() {
-                rebuildLayouts(bumpsThumbnailTicket: false)
+                layoutPass.rebuildLayouts(bumpsThumbnailTicket: false)
             }
         }
         // MIRRORED, not replaced. The model's counter is bumped by the inspector
@@ -707,7 +708,7 @@ struct CanvasView: View {
         .onDisappear {
             // Fold the live editor's text in BEFORE the write, or a persona
             // switch mid-sentence loses the sentence.
-            syncActiveEdit()
+            editFocus.syncActiveEdit()
             // Flush, drop `beforeFlush` and release the recorder — the three
             // edges of the cycle, all one layer out now. `beforeFlush` holds a
             // copy of this view, which holds the model, which holds the store, so
@@ -812,7 +813,7 @@ struct CanvasView: View {
                             },
                             // The ONE caller that is a real keystroke, and so
                             // the only one allowed to move an undo boundary.
-                            onTextChanged: { syncActiveEdit(fromKeystroke: true) })
+                            onTextChanged: { editFocus.syncActiveEdit(fromKeystroke: true) })
                 .frame(width: textSize.width * camera.zoom,
                        height: textSize.height * camera.zoom)
                 .position(x: viewOrigin.x + textSize.width * camera.zoom / 2,
@@ -836,7 +837,7 @@ struct CanvasView: View {
         // The store's own quit hook writes whatever was last queued; this makes
         // sure what was last queued includes the sentence the writer is halfway
         // through. `.onDisappear` does not fire on ⌘Q.
-        model.beforeFlush = { syncActiveEdit() }
+        model.beforeFlush = { editFocus.syncActiveEdit() }
         // Something in another column changed the scene — today the region and
         // line inspectors, a promotion writing its mark, and 1C-c3's write tool
         // adding cards to the canvas the writer is looking at.
@@ -865,7 +866,7 @@ struct CanvasView: View {
         // branch below hits and the layout the live `NSTextView` is bound to is
         // not replaced. Make that fold debounced and this line swaps the stack
         // under the writer mid-sentence and shows them the model's older text.
-        model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }
+        model.onSceneChangedExternally = { layoutPass.rebuildLayouts(bumpsStructuralCounter: false) }
         model.onSceneReplacedByUndo = {
             // FIRST. A coast steps the scene directly from the timeline, outside
             // any gesture and after the drag's own snapshot was taken at
@@ -884,13 +885,13 @@ struct CanvasView: View {
             // `straighten` would go on naming a node that no longer exists. Every
             // mouse-down repairs it in passing —
             // `CanvasEventNSView.applyMouseDown` runs `onClick` strictly before
-            // `onDrag(.began)`, so `handleClick` clears the stale id before any
+            // `onDrag(.began)`, so `CanvasClickHandler.handleClick` clears the stale id before any
             // drag guard reads it — but the state is wrong in the meantime, and
             // ⇧⌘Z brings the card back and drops the writer into an editor they
             // never clicked into. This is the state `.unenterableNode` in
-            // `handleClick` already refuses to leave standing, arriving from the
+            // `CanvasClickHandler.handleClick` already refuses to leave standing, arriving from the
             // undo path instead of the click path.
-            if let id = editingNodeID, model.scene.node(id) == nil { leaveTheOpenScrap() }
+            if let id = editingNodeID, model.scene.node(id) == nil { editFocus.leaveTheOpenScrap() }
             // Heights are DERIVED, so a restored scene is re-measured rather
             // than trusted — and a scrap whose text the undo changed gets a new
             // `ScrapLayout`, which is what makes `ScrapEditorHost` rebind the
@@ -905,7 +906,7 @@ struct CanvasView: View {
             // bump — so bumping here as well rebuilds the whole accessibility
             // tree TWICE for one ⌘Z, and a writer holding ⌘Z pays a scene sort
             // and a copy of every scrap's string per step, twice.
-            rebuildLayouts(bumpsStructuralCounter: false)
+            layoutPass.rebuildLayouts(bumpsStructuralCounter: false)
         }
         // Another column asking the camera to move — the arrival banner's Show
         // (1C-c3), and §8A.4's Send to Canvas (1C-d). `momentum.stop()` above is
@@ -931,7 +932,7 @@ struct CanvasView: View {
         // passes nothing and keeps the one `@State` made for it.
         if let thumbnailCache { thumbnails = thumbnailCache }
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
-        rebuildLayouts()
+        layoutPass.rebuildLayouts()
         // A reveal asked for while this view was not mounted — which is the
         // ordinary case, because Show switches persona and asks in one act. Last,
         // so it runs against the attached scene.
@@ -947,7 +948,7 @@ struct CanvasView: View {
     /// `CanvasCamera.revealViewPoint`, zoom untouched. Nothing here is new
     /// geometry: the join to the board is `CanvasNodeID.item(id)`, derived and
     /// O(1), and this is the third caller of the one reveal spelling
-    /// (`onRevealRequested` and `handleDrop`'s `.reveal` arm are the others).
+    /// (`onRevealRequested` and `CanvasDropHandler.handleDrop`'s `.reveal` arm are the others).
     ///
     /// **Nothing is selected.** A drop selects because a drop is a placement the
     /// writer just made and the inspector should show it; this is a click in the
@@ -956,7 +957,7 @@ struct CanvasView: View {
     /// answer to what the window is about.
     ///
     /// **The camera moves even when the card is already on screen**, which is
-    /// `handleDrop`'s cost for `handleDrop`'s reason: this view has no
+    /// `CanvasDropHandler.handleDrop`'s cost for its reason: this view has no
     /// `GeometryReader` (the viewport exists only inside the `Canvas` closure), so
     /// *"is it visible already"* is not a question it can ask.
     ///
@@ -1008,1328 +1009,98 @@ struct CanvasView: View {
                                                   pieceTitles: pieceTitles)
     }
 
-    /// Build a layout per scrap and fill in the derived heights the model needs
-    /// for hit testing and culling.
+    // MARK: - Helpers, built per call
+
+    /// The layout pass over this view's own `@State`, built fresh on every call
+    /// and never stored, so each call sees the latest view value. Built here and
+    /// nowhere else (`CanvasSourceCensus.surfaceFiles`, tripwire 32's surface
+    /// census), which is what lets tripwire 57's walk see its inputs: the walk
+    /// follows this property, so a changing view value handed in below is caught.
     ///
-    /// Called from `load`, and again from every path that can leave a node
-    /// unmeasured: creating a scrap, finishing a resize, committing an edit. A
-    /// node with no `cachedHeight` has no `frame`, so it is invisible to both
-    /// hit testing and culling — it is on the canvas and cannot be clicked.
-    ///
-    /// **Replacing a layout whose editor is MOUNTED is safe**, and this says so
-    /// with a measurement because it used to say the opposite with a warning.
-    ///
-    /// Task 15's undo is the caller that does it: `applySnapshot` restores an
-    /// older string into `scraps` while the writer is still in the scrap, so the
-    /// reuse branch below (keyed on `existing.text == text`) misses, `layouts[id]`
-    /// is overwritten, and the `ScrapLayout` the mounted `NSTextView` was built
-    /// from is released **synchronously** — a whole SwiftUI update pass before
-    /// `ScrapEditorHost.updateNSView` rebinds. The old warning called that window
-    /// a dangling stack, on the theory that the view retains only its
-    /// `NSTextContainer`, whose `textLayoutManager` back-link is weak.
-    ///
-    /// That theory is wrong. Measured 2026-07-26 on macOS 26.5: with the
-    /// `ScrapLayout` released and nothing but the text view left alive, the
-    /// `NSTextLayoutManager`, the `NSTextContentStorage` and the `NSTextStorage`
-    /// are all still alive, `textContainer.textLayoutManager` is non-nil,
-    /// `string` reads, and the view lays out and draws. An `NSTextView` built
-    /// through `NSTextView(frame:textContainer:)` owns its TextKit 2 stack
-    /// itself. `ScrapLayoutTests.test_theMountedEditorOutlivesTheScrapLayoutThatBuiltIt`
-    /// is that measurement in isolation, and
-    /// `CanvasViewMountingEditingTests.test_anUndoInsideAScrapLeavesItsLiveEditorUsableBeforeTheRebind`
-    /// is the same window reached through a real ⌘Z on the real surface.
-    ///
-    /// What that buys is a window that is safe, not one that is correct: through
-    /// it the mounted view still shows the text the undo discarded. Showing the
-    /// restored words is the REBIND's job — `updateNSView` sees a new layout
-    /// identity and remounts — which is why the replacement has to be a new
-    /// `ScrapLayout` rather than the old one mutated in place.
-    ///
-    /// `unorderedNodes`, not `nodes`: this measures every scrap and does not
-    /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on
-    /// every access.
-    ///
-    /// **The layout CACHE lives here; the HEIGHT arithmetic does not.** The
-    /// `ScrapLayout` objects are built and kept in this view because the mounted
-    /// `NSTextView` and the draw pass share one TextKit stack per scrap (tripwire
-    /// 26) — that sharing is §7A.2's structural mitigation and this loop is what
-    /// maintains it. The number that goes into the scene comes from
-    /// `CanvasScrapMeasure`, so a caller with no view on screen measures a card
-    /// exactly as this does.
-    ///
-    /// **It measures BOTH kinds as of 1C-d, and they are two arithmetics.** A
-    /// scrap's height comes from its text through the shared `ScrapLayout`; an
-    /// item node's comes from its picture's aspect ratio plus one line of label
-    /// (`CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`). Both are
-    /// functions of the card's WIDTH, which is the rule §7A.3 already had and is
-    /// what makes resizing an item node safe: `CanvasScene.setWidth`
-    /// clears the cached height by design, and this pass puts back one that
-    /// follows the new width.
-    ///
-    /// **`CanvasCardMetrics.itemLabelOnlyHeight` stays as the FLOOR**, which is
-    /// what a card with no picture measures to and what a card whose picture has
-    /// not decoded yet measures to as well. It is not bookkeeping: a node with no
-    /// `cachedHeight` has no `frame`, and a node with no frame is dropped by
-    /// `CanvasScene.topmostNode(at:)` and `nodes(intersecting:)` alike — neither
-    /// drawn nor clickable, and persisted that way, which is the 1C-c3
-    /// whole-branch Critical. Everything that can leave a node unmeasured now
-    /// lands on the floor instead of on nil: a hand-edited sidecar, a photograph
-    /// still decoding, a research item the writer deleted, and any future path
-    /// that clears a height the way `setWidth` does.
-    ///
-    /// **The item facts are re-resolved at the head of this function**, so the
-    /// measurement and the draw pass read the same value by construction. That is
-    /// also why a thumbnail landing calls this rather than only bumping the
-    /// redraw counter: the picture changes the card's *height*, not just its
-    /// pixels.
-    ///
-    /// **`bumpsThumbnailTicket` is `false` for exactly one caller — the `.task`
-    /// this function's own ticket schedules — and that is the whole of N1's
-    /// structural fix.**
-    ///
-    /// `CanvasItemPresentation.resolve` asks the cache for every item node in the
-    /// scene, and `CanvasThumbnails` evicts LRU over a byte budget: an evicted
-    /// path is a miss, and a miss is re-queued. So a rebuild run straight after a
-    /// service misses on whatever that service's own decodes evicted. Bump the
-    /// ticket there and the surface asks for exactly the work it has just undone,
-    /// for ever: resolve → miss → ticket → service → evict → resolve. Each turn
-    /// also bumps the structural counter, so the accessibility tree sorts the
-    /// scene and copies every scrap's string on a loop — tripwire 30's cost,
-    /// permanently, on a canvas holding more photographs than the budget can keep
-    /// (roughly 85 at the size an item card asks for).
-    ///
-    /// **The count-based schedule hid this by stalling** (the defect fixed one
-    /// commit earlier), which is why it appeared with the ticket and not before.
-    /// Going back to the count is not the answer: it trades an unbounded loop for
-    /// a silent stall on the far more reachable one-bad-file path.
-    ///
-    /// **A signature over the pending SET does not close it either**, and this is
-    /// worth writing down because it is the obvious next idea. Above the budget
-    /// the evicted tail ROTATES: `resolved` refreshes each hit's `lastUsed` in
-    /// iteration order, so servicing one pending set evicts a *different* set, and
-    /// the next pending set differs from the last. A signature bumps on every one
-    /// of them and the thrash runs at full speed; it only ever settles by
-    /// eventually repeating a set, i.e. by stalling — the defect it was meant to
-    /// avoid, arriving a lap later.
-    ///
-    /// What is left behind instead is bounded and honest: a canvas over the budget
-    /// keeps the shapes of all its photographs (`CanvasThumbnails.aspect`), so no
-    /// height moves, and the pixels the budget could not keep come back on the
-    /// next structural change rather than on a loop.
-    ///
-    /// `bumpsStructuralCounter` is `false` for a caller whose bump is already
-    /// arriving by another route — one that calls `model.bumpSceneRevision()` on
-    /// its own line, which the mirror in `body` turns into the view's bump. Every
-    /// other caller has changed the shape of the scene with nothing else about to
-    /// say so. **`grep "bumpsStructuralCounter: false"` for the current set**
-    /// rather than trusting a number here: this file has carried a stale count of
-    /// them before, and the rule is what a new caller needs to decide by.
-    /// **Keeping the suppression is what makes one ⌫ or one ⌘Z rebuild the
-    /// accessibility tree once rather than twice**, and a writer holding ⌘Z pays
-    /// a scene sort and a copy of every scrap's string per step.
-    /// The test that catches a mirror which stops delivering is
-    /// `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
-    /// which asks the published accessibility tree whether the deleted card has
-    /// left it.
-    private func rebuildLayouts(bumpsStructuralCounter: Bool = true,
-                                bumpsThumbnailTicket: Bool = true) {
-        // FIRST, and inside this function rather than beside its callers: every
-        // path that changes the scene has to re-ask what its item nodes are, and
-        // the measurement below reads the answer. `resolve` decodes nothing — a
-        // miss is recorded and serviced by the `.task` in `body`.
-        //
-        // **`model.itemIndex` and not this view's own** (issue #57). Two of this
-        // function's callers are closures the model holds — `onSceneChangedExternally`
-        // and `onSceneReplacedByUndo` — and a struct's closure captures the view
-        // VALUE it was made from, so through them `itemIndex` is the index of the
-        // canvas that first appeared. The model's copy is a reference they still
-        // reach, and `load()` plus the fingerprint `.onChange` keep it equal to the
-        // one the window last handed down.
-        itemPresentation = CanvasItemPresentation.resolve(scene: model.scene,
-                                                          index: model.itemIndex,
-                                                          thumbnails: thumbnails,
-                                                          projectRoot: projectRoot)
-        // ONE `withScene` around the whole loop rather than one per node, and
-        // `persist: false` because the caller owns the save.
-        let scraps = model.scraps
-        let items = itemPresentation
-        model.withScene(persist: false) { scene in
-            for node in scene.unorderedNodes {
-                // A `switch` rather than a `guard … else { continue }`, so a
-                // third kind is a compiler error here rather than a card that
-                // silently never gets a height.
-                switch node.kind {
-                case .item:
-                    // Measured from the picture when there is one, floored to a
-                    // line of label when there is not — see the doc above. The
-                    // height is DERIVED, so it is written unconditionally: an
-                    // older sidecar's number, or one left by a producer that
-                    // planned a card before its picture existed, is not evidence
-                    // about the card being drawn now.
-                    scene.setCachedHeight(
-                        CanvasCardMetrics.itemCardHeight(
-                            forCardWidth: node.width,
-                            pictureAspect: items.item(for: node.id)?.pictureAspect),
-                        for: node.id)
-                case .scrap:
-                    measureScrap(node, in: &scene, scraps: scraps)
-                }
-            }
-        }
-        // A resolve that missed something is work for the `.task` in `body`.
-        // Written after the measure, and bumped rather than assigned — see
-        // `thumbnailServiceTicket` for the stall that a count produced.
-        //
-        // **The caller that must NOT bump is the one this task feeds**: a resolve
-        // run right after a service misses on whatever that service's decodes
-        // evicted, so bumping here would ask for exactly the work that was just
-        // undone, for ever. See `bumpsThumbnailTicket`.
-        if bumpsThumbnailTicket, thumbnails.pendingCount > 0 { thumbnailServiceTicket += 1 }
-        // Layouts for nodes that no longer exist would keep their text alive.
-        layouts = layouts.filter { model.scene.node($0.key) != nil }
-        revision += 1
-        // Every caller of this — load, create, resize-end, undo — has changed the
-        // shape of the scene, so the accessibility tree is stale. Undo and delete
-        // are the two that bump the model's counter themselves; see the
-        // parameter's doc above.
-        if bumpsStructuralCounter { model.bumpSceneRevision() }
+    /// **`itemIndex: model.itemIndex` and not this view's own** (issue #57): two
+    /// of `rebuildLayouts`' callers are closures the model holds, and through
+    /// them this view's `itemIndex` is the one the canvas first appeared with.
+    private var layoutPass: CanvasLayoutPass {
+        CanvasLayoutPass(model: model,
+                         itemIndex: model.itemIndex,
+                         projectRoot: projectRoot,
+                         thumbnails: $thumbnails,
+                         layouts: $layouts,
+                         itemPresentation: $itemPresentation,
+                         thumbnailServiceTicket: $thumbnailServiceTicket,
+                         revision: $revision)
     }
 
-    /// One scrap's layout and the height that follows from it — `rebuildLayouts`'s
-    /// `.scrap` arm, lifted out so that loop reads as the two-kind routing it is.
-    ///
-    /// It reuses the cached `ScrapLayout` when the text is unchanged, because that
-    /// object is the SAME TextKit stack the mounted editor types into (tripwire
-    /// 26); replacing it on a pass that only changed a width would hand the editor
-    /// a stack nothing is drawing.
-    private func measureScrap(_ node: CanvasNode,
-                              in scene: inout CanvasScene,
-                              scraps: [CanvasNodeID: String]) {
-        let existing = layouts[node.id]
-        let text = scraps[node.id] ?? ""
-        let layout: ScrapLayout
-        if let existing, existing.text == text {
-            existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-            layout = existing
-        } else {
-            layout = ScrapLayout(
-                text: text,
-                width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
-                font: CanvasScrapMeasure.scrapFont,
-                textColor: CanvasRenderer.cardInk)
-            layouts[node.id] = layout
-        }
-        scene.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: node.id)
+    /// The open scrap — folding the writer's words in, the outer undo boundary,
+    /// and leaving — over this view's own `@State`, built per call like
+    /// `layoutPass`.
+    private var editFocus: CanvasEditFocus {
+        CanvasEditFocus(model: model,
+                        editingNodeID: $editingNodeID,
+                        caretIndex: $caretIndex,
+                        straighten: $straighten,
+                        lastKeystrokeAt: $lastKeystrokeAt,
+                        layouts: $layouts,
+                        revision: $revision)
     }
 
-    /// Re-derive ONE card's height from its current width, for the resize path.
-    ///
-    /// This is `rebuildLayouts()`'s per-node body for a single node, and it is
-    /// deliberately the same calls in the same order — so there is one spelling
-    /// of card geometry per kind. A second measurement path is precisely how
-    /// drawn and edited text end up on different rects (spec §7A.2).
-    ///
-    /// **It measures BOTH kinds as of 1C-d Task 6, and that is the half of the
-    /// resize that is not the gesture.** The corner used to be a `.scrap`'s
-    /// alone, and this function used to say so with a `case .scrap` in its guard;
-    /// the sentence that stood there — "neither of which can be resized" — was
-    /// true for the whole life of the guard and then quietly was not, because
-    /// 1C-c3's `CanvasClaudePlacement` began creating item nodes while the corner
-    /// test had no kind test on it. `setWidth` cleared the height, this guard
-    /// declined to refill it, and the card left the surface for good.
-    ///
-    /// So handing the corner back needs this arm and not only the pass in
-    /// `rebuildLayouts`: the rebuild runs at `.ended`, and a card healed only
-    /// there is off the surface for the whole length of the drag — invisible to
-    /// `topmostNode(at:)`, to `nodes(intersecting:)` and to the renderer while
-    /// the writer holds the mouse down, which is exactly how they meet it.
-    /// `CanvasViewMountingSurfaceTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`
-    /// reads the scene BETWEEN the samples for that reason.
-    ///
-    /// **The aspect is read off the presentation resolved by the last rebuild,
-    /// not re-resolved here.** `CanvasItemPresentation.resolve` asks the
-    /// thumbnail cache, and asking RECORDS A MISS — per drag frame that is the
-    /// pending queue growing at 60–120 Hz for a picture whose shape has not
-    /// changed and cannot. What a wider card wants is more PIXELS, and that
-    /// request is the rebuild's at `.ended`. A card whose photograph has not
-    /// decoded yet lands on `itemLabelOnlyHeight`, which is the floor and never
-    /// nil.
-    ///
-    /// A resize never changes a scrap's text, so its layout is always the reused
-    /// one; that guard is for a scrap whose layout has not been built.
-    ///
-    /// Does NOT touch `revision` or `sceneRevision` — the caller owns both, and
-    /// the structural counter must not move per frame.
-    private func remeasure(_ id: CanvasNodeID) {
-        guard let node = model.scene.node(id) else { return }
-        // A `switch` rather than a `guard … else { return }`, for
-        // `rebuildLayouts`' reason: a third kind is a compiler error here rather
-        // than a card that silently loses its height on the resize path.
-        switch node.kind {
-        case .item:
-            let height = CanvasCardMetrics.itemCardHeight(
-                forCardWidth: node.width,
-                pictureAspect: itemPresentation.item(for: id)?.pictureAspect)
-            model.withScene(persist: false) { $0.setCachedHeight(height, for: id) }
-        case .scrap:
-            guard let layout = layouts[id] else { return }
-            layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-            model.withScene(persist: false) {
-                $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
-            }
-        }
+    /// The drags — every gesture's press, move and release and the undo bracket
+    /// each opens and closes — over this view's own `@State`, built per call
+    /// like `layoutPass`. `editingNodeID` and `selectionWhenPressed` are only
+    /// read there, and are bindings anyway so a read is never a stale copy.
+    private var dragHandler: CanvasDragHandler {
+        CanvasDragHandler(model: model,
+                          subject: subject,
+                          layoutPass: layoutPass,
+                          interaction: $interaction,
+                          momentum: $momentum,
+                          revision: $revision,
+                          editingNodeID: $editingNodeID,
+                          selectionWhenPressed: $selectionWhenPressed)
     }
 
-    // MARK: - The writer's words
-
-    /// Fold the live editor's text back into the model and re-measure the card.
-    ///
-    /// **Called on EVERY keystroke** (`ScrapEditorHost.onTextChanged`), from
-    /// `.onDisappear`, and from `CanvasStore.beforeFlush`. Typing mutates the
-    /// `NSTextStorage` inside `ScrapLayout` in place; until this runs, `scraps`
-    /// still holds the text as it was before the writer typed, the queued save
-    /// payload is stale, and the drawn card never grows past the height it had
-    /// when it was last measured. Quit at that moment and the scrap comes back
-    /// empty — the words are safe is the one promise this surface cannot break.
-    ///
-    /// It folds the string and nothing else. `onTextChanged` fires synchronously
-    /// inside `textDidChange`, so rebuilding layouts from here would replace an
-    /// `NSTextStorage` from inside its own text view's change notification.
-    ///
-    /// Pushes no undo step of its OWN, deliberately — one per keystroke is the
-    /// other failure. What it does instead is move the INNER undo boundaries
-    /// inside the open "Edit Scrap" gesture, and **only when the change came from
-    /// a real keystroke**:
-    ///
-    /// - **The idle beat is asked BEFORE the fold**, so the step that closes ends
-    ///   where the writer actually stopped rather than one character into what
-    ///   they typed next.
-    /// - **The sentence rule is asked AFTER the fold**, so the full stop belongs
-    ///   to the step it closes rather than opening the following one.
-    ///
-    /// Swapping either would be invisible in the code and obvious to a writer:
-    /// ⌘Z after a pause would take back one extra character, and ⌘Z after a
-    /// sentence would leave the full stop stranded at the head of the next step.
-    ///
-    /// `fromKeystroke` is `false` by default because the other two callers —
-    /// `.onDisappear` and `CanvasStore.beforeFlush` — run at teardown and at app
-    /// quit. A writer who paused for two seconds and then quit would otherwise
-    /// trip the idle break at `beforeFlush`, closing a step and REOPENING a
-    /// gesture on a view that is going away: a half-open bracket, arriving from
-    /// the save path instead of the focus path. Neither of them may move a
-    /// boundary, and neither has to say so.
-    private func syncActiveEdit(fromKeystroke: Bool = false) {
-        guard let id = editingNodeID, let layout = layouts[id] else { return }
-        // Read once: `ScrapLayout.text` bridges out of an `NSTextStorage` on
-        // every access, and this runs on every keystroke.
-        let updated = layout.text
-        guard model.scraps[id] != updated else { return }
-        let previous = model.scraps[id] ?? ""
-        let now = Date()
-
-        // BEFORE the fold — see the doc above.
-        if fromKeystroke, ScrapUndoBeat.hasGoneIdle(since: lastKeystrokeAt, now: now,
-                                                    idleAfter: model.undoIdleInterval) {
-            model.breakGesture()
-        }
-
-        model.withScene(persist: false) {
-            $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
-        }
-        // The fold, and the save that carries both it and the height above.
-        model.setScrapText(updated, for: id)
-        revision += 1
-
-        // AFTER the fold — see the doc above.
-        if fromKeystroke,
-           ScrapUndoBeat.completesASentence(before: previous, after: updated) {
-            model.breakGesture()
-        }
-        if fromKeystroke { lastKeystrokeAt = now }
+    /// The clicks — select, enter a scrap or make one — over this view's own
+    /// `@State`, built per call like `layoutPass`. It writes
+    /// `selectionWhenPressed` at the head of `handleClick`, before anything moves
+    /// the selection; `dragHandler` reads it at `.began`.
+    private var clickHandler: CanvasClickHandler {
+        CanvasClickHandler(model: model,
+                           editFocus: editFocus,
+                           layoutPass: layoutPass,
+                           selectionWhenPressed: $selectionWhenPressed,
+                           editingNodeID: $editingNodeID,
+                           caretIndex: $caretIndex,
+                           lastKeystrokeAt: $lastKeystrokeAt,
+                           straighten: $straighten,
+                           layouts: $layouts,
+                           revision: $revision)
     }
 
-    /// The outer undo boundary: focus is leaving the scrap.
-    ///
-    /// `syncActiveEdit` has folded the text in on every keystroke and broken the
-    /// gesture at each sentence and each pause; this closes whatever is still
-    /// open. `endGesture` registers nothing when the state has not moved, so
-    /// clicking in and straight back out leaves no step behind — and it is a
-    /// no-op outside a gesture, which is what makes it safe at the head of
-    /// `handleClick`, where most clicks have nothing focused at all.
-    ///
-    /// Plus the accessibility tree, whose synthetic element for this scrap has
-    /// been stale for the whole visit — deliberately, because the real
-    /// `NSTextView` was the accessible thing while the writer was in it.
-    ///
-    /// **That bump is guarded on there having BEEN a visit, and the guard is the
-    /// point of it.** This runs at the head of `handleClick`, and
-    /// `CanvasEventNSView.applyMouseDown` emits `onClick` before `onDrag(.began)`
-    /// — so bumping unconditionally rebuilds the whole tree on every mouse-down
-    /// the canvas ever sees, including the press that begins a drag, which is the
-    /// moment the surface most needs to feel instant. With nothing focused there
-    /// is nothing to fold in either: `syncActiveEdit` returns on its first guard
-    /// and `endGesture` registers nothing. Every path that changes the scene with
-    /// no scrap focused bumps the counter where the change happens — `load` and
-    /// the create branch through `rebuildLayouts()`, the two `.ended` branches of
-    /// `handleDrag`, and a coast at `.began` or at rest — so nothing depends on
-    /// this one to notice a change it did not make.
-    private func commitActiveEdit() {
-        syncActiveEdit()
-        model.endGesture()
-        lastKeystrokeAt = nil
-        if editingNodeID != nil { model.bumpSceneRevision() }
+    /// The keys — ⌫ and Escape — over this view's own `editingNodeID`, built
+    /// per call like `layoutPass`. `deleteSelection` refuses mid-gesture
+    /// (tripwire 32), and `selectTheProjectRow` is the closure this view was
+    /// handed, read when the key arrives.
+    private var keyHandler: CanvasKeyHandler {
+        CanvasKeyHandler(model: model,
+                         subject: subject,
+                         selectTheProjectRow: selectTheProjectRow,
+                         editFocus: editFocus,
+                         layoutPass: layoutPass,
+                         editingNodeID: $editingNodeID)
     }
 
-    // MARK: - Clicks
-
-    /// What a double click landed on. Three cases, resolved from ONE hit test.
-    ///
-    /// `CanvasScene.topmostNode(at:)` filters the whole scene, so asking twice in
-    /// one click is an avoidable `O(scene)` pass; and asking it in a `guard` with
-    /// the other conditions is how the fall-through below went missing in the
-    /// first draft. Making the third case a NAMED case is what stops it being
-    /// forgotten again.
-    private enum ClickTarget {
-        /// Bare canvas — make a scrap here.
-        case emptyCanvas
-        /// A scrap this view has measured and laid out — enter it.
-        case scrap(node: CanvasNode, layout: ScrapLayout, frame: CGRect)
-        /// A node that cannot be entered: an item node (1C-d gives those their
-        /// own behaviour), or a scrap with no layout or no `cachedHeight` yet.
-        /// Reachable TODAY — Task 5's codec round-trips item nodes deliberately,
-        /// so a sidecar written by a later build opens with them present.
-        case unenterableNode
-        /// A line. Nothing to enter and nothing to make — see the switch below.
-        case line
-    }
-
-    private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
-        guard let node = model.scene.topmostNode(at: contentPoint) else {
-            // The SAME precedence as `CanvasScene.selectionTarget`, and it has
-            // to be:
-            // the `clickCount: 1` AppKit sends first has already selected
-            // whatever this resolves to, so a double click that answered a
-            // different question would act on something the writer is not
-            // looking at.
-            return CanvasLineHit.line(at: contentPoint, in: model.scene) != nil
-                ? .line : .emptyCanvas
-        }
-        guard case .scrap = node.kind,
-              let layout = layouts[node.id],
-              let frame = node.frame else { return .unenterableNode }
-        return .scrap(node: node, layout: layout, frame: frame)
-    }
-
-    /// Single click: leave whatever was being edited. Double click: enter the
-    /// scrap under the pointer, or make one on bare canvas.
-    ///
-    /// The single/double split is the standard canvas idiom, and it is what lets
-    /// a single click start a DRAG while the editor is unmounted — with the
-    /// editor frontmost, a focused scrap owns its own mouse.
-    ///
-    /// One accepted gap, from the same fact: a click that lands here while an
-    /// editor is already mounted on the SAME scrap updates `caretIndex` but does
-    /// not move the caret, because `ScrapEditorHost` re-claims focus only on a
-    /// rebind — by design, or every camera nudge would slam the caret back. It
-    /// can only happen inside the ~120 ms window where the editor is mounted but
-    /// still invisible and therefore not taking its own clicks; once the card is
-    /// level AppKit places the caret itself, which is the whole point of putting
-    /// the editor in front. A second double-click inside a tenth of a second
-    /// keeps the first one's caret.
-    private func handleClick(at contentPoint: CGPoint, clickCount: Int) {
-        // FIRST, above everything else in this method: the selection as the
-        // writer saw it when they pressed. The connect-mark drag reads it at
-        // `.began`, which runs after this whole method — see
-        // `selectionWhenPressed`.
-        selectionWhenPressed = model.selection
-        commitActiveEdit()
-
-        // A read-only canvas (issue #44) takes a double click as a single one:
-        // it selects, and makes, enters and mounts nothing.
-        guard CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly) >= 2 else {
-            model.selection = model.scene.selectionTarget(at: contentPoint)
-            // The selection is read INSIDE the draw closure, where a model value
-            // is not in SwiftUI's dependency graph — that is what this counter
-            // is for. `revision` and never `sceneRevision`: a selection change
-            // is not a structural one.
-            //
-            // **No test can see this line today, and that is measured rather
-            // than assumed** (mutation, 2026-07-27: removing it leaves the
-            // mounting and composition suites entirely green). `leaveTheOpenScrap()`
-            // on the next line writes three pieces of `@State`, which invalidates
-            // `body` and gets the redraw for free — so the bump is currently
-            // belt and braces. It stays because that cover is incidental: a
-            // selection set from anywhere that does NOT also move focus — the
-            // inspector in the other column, a keyboard selection — has nothing
-            // else to invalidate on, and the symptom is an accent that appears
-            // whenever something unrelated next redraws.
-            revision += 1
-            leaveTheOpenScrap()
-            model.scheduleSave()
-            return
-        }
-
-        switch clickTarget(at: contentPoint) {
-        case .scrap(let node, let layout, let frame):
-            // §7A.5 requirement 1: resolve the caret in the card's LOCAL,
-            // UNROTATED space at CLICK TIME — before the card straightens.
-            // Straightening first moves the click point out from under the
-            // cursor, and the caret lands somewhere the writer did not aim.
-            let angle = CanvasRenderer.drawnAngle(for: node, straighten: straighten)
-            let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
-            let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
-            caretIndex = layout.characterIndex(
-                at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
-
-            editingNodeID = node.id
-            lastKeystrokeAt = nil
-            // The editor mounts on this line's body pass and takes keystrokes at
-            // once; what it does not do yet is SHOW. `visibleEditorNodeID`
-            // withholds that until `straighten.isLevel(_:)`, about a tenth of a
-            // second from here, and until then the drawn text stays visible,
-            // keeps rotating, and grows as the writer types into the editor
-            // nobody can see. Spec §7A.5 calls that beat responsiveness rather
-            // than lag.
-            straighten.focus(node.id)
-            // The OUTER undo bracket for this visit. `commitActiveEdit` at the
-            // head of this method has already closed the previous one, so a
-            // click straight from one scrap into another never nests.
-            model.beginGesture("Edit Scrap")
-
-        case .emptyCanvas:
-            // Creating the card is its own step, closed before the visit opens:
-            // one ⌘Z takes back what the writer typed, a second takes back the
-            // card. Explicit begin/end rather than `mutate` — the new id has to
-            // escape the gesture, and `mutate`'s closure returns nothing.
-            model.beginGesture("New Scrap")
-            // The sentinel is never read: `withScene`'s closure is non-escaping
-            // and runs unconditionally, so `createScrap` has always assigned by
-            // the line below. (In 1C-a the equivalent `var` was genuinely
-            // reachable at its sentinel, because the recorder was optional and
-            // nil until `load()` had run; the model never is.)
-            var id = CanvasNodeID("")
-            model.withScene(persist: false) {
-                id = CanvasInteraction.createScrap(at: contentPoint, in: &$0)
-            }
-            model.setScrapText("", for: id)
-            // A new scrap has no cachedHeight, so it has no frame, so it is
-            // invisible to hit testing and culling until it is measured.
-            // `rebuildLayouts()` also bumps `sceneRevision`.
-            rebuildLayouts()
-            // A card made inside a region belongs to it (Denver, 2026-07-28:
-            // creation absorbs, transitions do not). AFTER the measure and not
-            // before it, because `joinTarget` reads the card's CENTRE and an
-            // unmeasured card has no frame to take one from — asked a line
-            // earlier this silently joins nothing, on every scrap the writer
-            // ever makes. Inside the "New Scrap" gesture, so one ⌘Z takes back
-            // the card and the membership together.
-            model.withScene(persist: false) {
-                if let home = CanvasInteraction.joinTarget(for: id, in: $0) {
-                    CanvasMembership.join(id, home: home, in: &$0)
-                    // The membership changed AFTER `rebuildLayouts()` bumped the
-                    // structural counter, and that bump is the only one on this
-                    // path — so without this the region inspector in the other
-                    // column is reading a scene from before the join, and the
-                    // new card is missing from "Lives here" until some unrelated
-                    // structural change happens along. It works today only
-                    // because SwiftUI reads the post-join scene in a later body
-                    // pass, which is an accident of ordering rather than a
-                    // guarantee: this is the exact shape of the stale-inspector
-                    // defect the first whole-branch review caught.
-                    model.bumpSceneRevision()
-                }
-            }
-            // Closed AFTER the measure, so the next gesture's baseline holds a
-            // card with a height. Close it before and "Edit Scrap" opens on a
-            // scene whose new node has no `cachedHeight`, so undoing the typing
-            // would restore a card with no frame — invisible to hit testing, to
-            // culling and to the renderer.
-            model.endGesture()
-            editingNodeID = id
-            caretIndex = 0
-            lastKeystrokeAt = nil
-            straighten.focus(id)
-            // Whatever the writer now types is a second, separate step.
-            model.beginGesture("Edit Scrap")
-
-        case .unenterableNode, .line:
-            // Nothing to enter, so this behaves like a single click. Falling
-            // through instead would leave `editingNodeID` and `straighten`
-            // pointing at whatever was open before: the invisible editor stays
-            // mounted on the card the writer just clicked AWAY from, and
-            // `visibleEditorNodeID` re-reveals it the moment `isLevel` fires.
-            //
-            // **A line shares this arm rather than falling to `.emptyCanvas`,
-            // and that is a real bug rather than a tidiness.** There it would
-            // mint a scrap UNDER the writer's own line — and AppKit sends
-            // `clickCount: 1` first, so that click has already selected the line
-            // and the other column is showing it. "Edit Scrap" open over a line
-            // selection is tripwire 32's own repro arriving through a new door.
-            // A double click on a line therefore opens no editor of any kind;
-            // its label is edited in the other column, which is where a region's
-            // label already is.
-            leaveTheOpenScrap()
-        }
-        model.scheduleSave()
-    }
-
-    /// Focus leaves the canvas's open scrap: unmount the editor and let the card
-    /// settle back over ~120 ms. `isSettled` is false the moment focus leaves —
-    /// it means "every card is at ITS target", not "every progress value is 1" —
-    /// so the clock keeps running until it lands.
-    private func leaveTheOpenScrap() {
-        editingNodeID = nil
-        caretIndex = nil
-        straighten.focus(nil)
-    }
-
-    // MARK: - Drops
-
-    /// A research row dropped on the canvas (spec §8A.1).
-    ///
-    /// **This method decides nothing.** `CanvasDrop.decide` is a pure function
-    /// over the payload, the scene and the item index, and `CanvasDrop.apply` owns
-    /// the undo bracket and the membership — because SwiftUI's drop delivery has
-    /// no seam a test can post into, so what a drop *means* has to be answerable
-    /// somewhere a test can reach exhaustively. What is left here is the camera
-    /// (a view's own state) and the selection, and that this modifier is mounted
-    /// at all is pinned by a census rather than by a test.
-    ///
-    /// **The first payload only, which is the house pattern rather than a
-    /// shortcut.** `ResearchRow`'s own `.dropDestination` takes `ids.first`, and
-    /// every `.draggable(id)` source in the app sends exactly one — the research
-    /// tree's multi-selection is expanded by the *receiver* (`ResearchView`'s
-    /// `ResearchSelectionSync.expandedDragIds`) rather than travelling in the
-    /// payload, and this receiver deliberately does not expand it: the canvas
-    /// cannot see the binder's selection, and inventing a rule from it would be a
-    /// second answer to "what did the writer drag". A batch that really does
-    /// arrive as several payloads is the external file drop, which is its own
-    /// modifier with its own arrangement rule.
-    ///
-    /// Returns whether anything happened, so a payload this canvas has no card for
-    /// is declined and the drag springs back rather than reporting success.
-    ///
-    /// **Two id spaces arrive here as of 1C-d Task 12, and `CanvasDrop.payload`
-    /// tells them apart before anything else runs** (spec §8A.4). An inbox
-    /// capture's ULID and a research item id are not tellable apart, so the inbox
-    /// row sends a PREFIXED payload; without the destructuring, `decide` would
-    /// look the ULID up in `CanvasItemIndex`, not find it, and refuse the drag
-    /// with nothing said. See `CanvasDrop`'s own doc comment for why the prefix
-    /// breaks the house's raw-id pattern deliberately.
-    private func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
-        guard let payload = payloads.first else { return false }
-        if case .capture(let entryID) = CanvasDrop.payload(payload) {
-            // Read-only (issue #44): springs back before the send, so no asset is
-            // copied and the entry stays new; the canvas's notice says why.
-            guard CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)
-            else { return false }
-            return handleCaptureDrop(entryID, at: viewPoint)
-        }
-        switch CanvasDrop.decide(payload: payload,
-                                 at: camera.contentPoint(fromView: viewPoint),
-                                 in: model.scene, index: itemIndex) {
-        case .ignored:
-            return false
-
-        case .reveal(let id):
-            // Not gated (issue #44): a reveal selects and moves the camera and
-            // changes nothing, so it works on a read-only canvas too.
-            // The item is already here. Say so by SHOWING it — a drop that
-            // silently did nothing is indistinguishable from a broken surface,
-            // which is this task's named failure. The card is not moved: that
-            // would be a geometry-driven change to something the writer placed.
-            //
-            // The camera moves even when the card was already on screen, and that
-            // is a real cost rather than an oversight: this view has no viewport
-            // outside the `Canvas` closure (no `GeometryReader`, by design), so
-            // "is it visible already" is not a question it can ask.
-            guard let node = model.scene.node(id) else { return false }
-            model.selection = .node(id)
-            camera.bring(node.origin, toViewPoint: CanvasCamera.revealViewPoint)
-            // The selection is read inside the draw closure, where a model value
-            // is not in SwiftUI's dependency graph — `handleClick`'s single-click
-            // arm bumps for the same reason. `revision` and never `sceneRevision`:
-            // nothing structural happened.
-            revision += 1
-            return true
-
-        case .create(let node):
-            guard CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)
-            else { return false }
-            CanvasDrop.apply(node, in: model)
-            // Selected, so the right-hand column shows the reference's own arm and
-            // the writer can see what landed. Outside the bracket: a snapshot
-            // carries the scene and the scrap text, never the selection.
-            model.selection = .node(node.id)
-            return true
-        }
-    }
-
-    /// An inbox capture dropped on the canvas (spec §8A.4) — the **third** caller
-    /// of this drop target, beside the research drag and the external file drop.
-    ///
-    /// **This method decides nothing either.** Everything the send does — reading
-    /// the capture, refusing one with nothing in it, ingesting a photograph,
-    /// writing the canvas inside one undo bracket and flipping the entry
-    /// `.promoted` only after all of it has succeeded — is
-    /// `InboxStore.sendToCanvas`, which a test can reach without a window. What is
-    /// left here is the drop point, the selection and the alert.
-    ///
-    /// **The capture lands where it was dropped, and the canvas gains no placement
-    /// rule for it** (§8A.4's amendment). That is the whole reason the drag is the
-    /// primary route: the writer has already said where.
-    ///
-    /// **The camera does NOT move**, unlike the command route's `CanvasCapture.show`
-    /// — the card arrived under the pointer, so a jump would be to somewhere the
-    /// writer is already looking.
-    ///
-    /// The content point is resolved **before** the await, exactly as the external
-    /// drop does it: `camera` can move under a drop that takes a moment (a coast
-    /// finishing, a rewind), and the capture belongs where the writer let go of it.
-    private func handleCaptureDrop(_ entryID: String, at viewPoint: CGPoint) -> Bool {
-        let contentPoint = camera.contentPoint(fromView: viewPoint)
-        Task {
-            do {
-                let id = try await captureDrop.send(entryID, contentPoint)
-                // Selected so the right-hand column shows the capture's own
-                // inspector arm. Outside the bracket: a snapshot carries the scene
-                // and the scrap text, never the selection.
-                model.selection = .node(id)
-            } catch {
-                dropError = error.localizedDescription
-            }
-        }
-        return true
-    }
-
-    /// A photograph dropped from the Finder or a browser (spec §8A.1).
-    ///
-    /// **This method decides nothing either.** Classification is
-    /// `DropClassification`'s — the canvas is its fifth adopter and adds no rule
-    /// of its own — and everything after it is `CanvasExternalDrop`'s, which is
-    /// where a test can reach it. What is left here is the camera, the selection
-    /// and the alert, which are this view's own state.
-    ///
-    /// **The return value is synchronous and the work is not**, which is what the
-    /// modifier's signature requires: `accepts` is a pasteboard question with an
-    /// immediate answer, so a drag carrying neither a file nor an image is
-    /// declined outright and springs back — a refusal the writer can see — while
-    /// the ingestion, which reads and writes files, runs in a `Task`.
-    ///
-    /// The content point is resolved **before** the await: `camera` can move
-    /// under a drop that takes a moment (a coast finishing, a rewind), and the
-    /// photograph belongs where the writer let go of it.
-    private func handleExternalDrop(_ providers: [NSItemProvider],
-                                    at viewPoint: CGPoint) -> Bool {
-        // Read-only (issue #44): refused BEFORE `ingest`, which copies into
-        // `canvas_assets/` first — a refused drop must strand no copy there.
-        guard CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)
-        else { return false }
-        let accepted = providers.filter { CanvasExternalDrop.accepts($0) }
-        guard !accepted.isEmpty else { return false }
-        let contentPoint = camera.contentPoint(fromView: viewPoint)
-        Task {
-            let outcome = await CanvasExternalDrop.ingest(providers: accepted,
-                                                          using: assetIngest)
-            let made = CanvasExternalDrop.apply(paths: outcome.paths,
-                                                at: contentPoint, in: model)
-            // Selected so the right-hand column shows the picture's own inspector
-            // arm. Outside the bracket: a snapshot carries the scene and the
-            // scrap text, never the selection.
-            if let first = made.first { model.selection = .node(first) }
-            dropError = outcome.message
-        }
-        return true
-    }
-
-    // MARK: - Delete
-
-    /// ⌫, from `CanvasEventNSView.keyDown`. The one thing the canvas has never
-    /// had: 1C-a built `CanvasScene.remove`, its inverse and the "Delete Scrap"
-    /// undo step and shipped no caller for any of them, so a stray double-click
-    /// left an empty card that ⌘Z took back only until the writer clicked away.
-    ///
-    /// The region case is the one with a rule behind it: **deleting a region
-    /// never deletes cards** — the canvas owns arrangement, not existence (spec
-    /// §3.1, generalised). Its membership records die with it, which is all
-    /// `CanvasScene.removeRegion` touches. **Deleting a line is the same rule in
-    /// a second id space**: the relationship goes and both cards stay.
-    ///
-    /// Nothing selected is a no-op rather than a guess — and it says so, by
-    /// returning **whether anything was actually deleted**. `CanvasEventNSView`
-    /// sends the key on to `super` when this is `false`, so a ⌫ over an empty
-    /// selection beeps rather than being silently swallowed; the reasoning is on
-    /// `keyDown`. A selection that no longer resolves is the same answer for the
-    /// same reason: nothing went, so nothing was used.
-    ///
-    /// **It refuses outright while any gesture is open, and that is a
-    /// correctness guard rather than a nicety.** `CanvasUndo.beginGesture` takes
-    /// no snapshot when it nests and `endGesture` registers nothing until depth
-    /// reaches zero, so a delete opened inside somebody else's bracket cannot be
-    /// taken back on its own — at best it collapses into that gesture under the
-    /// wrong name, and if the bracket never closes it is not recoverable at all.
-    /// Both states are reachable: press and hold on a card (which opens "Move
-    /// Scrap") and press ⌫; or press ⌫ in the runloop turn after a double-click,
-    /// before the editor has claimed first responder, while "Edit Scrap" is open
-    /// — then quit, and `detach()` drops the stack with the card already written
-    /// away. `test_backspaceBeforeTheEditorTakesFocusCannotLoseTheCardUnrecoverably`
-    /// measured exactly that: the card and its words gone from disk with nothing
-    /// that could have brought them back.
-    ///
-    /// Refusing rather than closing the bracket first is also the honest
-    /// semantics: mid-gesture the writer is holding something, so what a delete
-    /// means is genuinely ambiguous. Returning `false` sends the key to `super`,
-    /// and the beep says so.
-    private func deleteSelection() -> Bool {
-        guard !model.isInGesture else { return false }
-        // Read-only (issue #44): the card arm's `withScene(persist: false)`
-        // would remove the card from memory, unguarded by the model.
-        guard CanvasEditGate.deletes(isReadOnly: model.isReadOnly) else { return false }
-        switch model.selection {
-        case .region(let id):
-            guard model.scene.region(id) != nil else { return false }
-            model.mutate("Delete Region") { $0.removeRegion(id) }
-        case .node(let id):
-            guard model.scene.node(id) != nil else { return false }
-            // The writer cannot be standing in it — a single click both selected
-            // it and left the open scrap — but an undo can have moved focus
-            // since, and an editor bound to a node that no longer exists is the
-            // state `.unenterableNode` already refuses to leave standing.
-            if editingNodeID == id { leaveTheOpenScrap() }
-            // "Card" and not "Scrap": this arm deletes an item node too, and a
-            // writer who removed a photograph read *Undo Delete Scrap*. The noun
-            // is uniform across all three node steps for the reason recorded on
-            // `gestureName`, which is where the argument lives.
-            model.beginGesture("Delete Card")
-            model.withScene(persist: false) { $0.remove(id) }
-            model.removeScrapText(id)
-            model.endGesture()
-            // Another caller that does not bump the structural counter, for the
-            // same reason as the rest of them: `model.bumpSceneRevision()` below
-            // reaches this view through the mirror in `body`, so bumping here as
-            // well rebuilds the whole accessibility tree twice for one ⌫. The
-            // deleted card leaving that tree is what
-            // `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`
-            // asserts, so the delivery of that single bump is pinned rather than
-            // assumed.
-            //
-            // **No test can see this CALL today, and that is measured rather
-            // than assumed** (mutation, 2026-07-28: removing it leaves the whole
-            // mounting suite green). What it does that nothing observes is drop
-            // the deleted node's `ScrapLayout` — the filter at the end of
-            // `rebuildLayouts` — which otherwise keeps that scrap's whole
-            // `NSTextStorage` alive until some later structural change happens
-            // to run one.
-            rebuildLayouts(bumpsStructuralCounter: false)
-        case .line(let id):
-            guard model.scene.line(id) != nil else { return false }
-            // **A line delete never touches its cards.** The writer took back
-            // the relationship, not the things related — the mirror of a card
-            // delete, which DOES take its lines with it (`CanvasScene.remove`),
-            // because a line to a card that is gone draws into nowhere. One
-            // gesture either way, so one ⌘Z either way.
-            model.mutate("Delete Line") { $0.removeLine(id) }
-        case .none:
-            return false
-        }
-        model.selection = nil
-        // A delete IS a structural change. `CanvasView`'s own doc for
-        // `sceneRevision` used to say deletion was absent from the list because
-        // 1C-a had no delete path; this is the line that changes that.
-        model.bumpSceneRevision()
-        model.scheduleSave()
-        return true
-    }
-
-    /// **Escape: the way out of the dim** (§4.1). Returns whether the canvas used
-    /// the key — see `CanvasEventNSView.keyDown`.
-    ///
-    /// Two refusals, and neither is defensive:
-    ///
-    /// - **A mounted scrap keeps its Escape.** §4.1 rules that the canvas may
-    ///   only see the key with no editor mounted, and the responder chain
-    ///   delivers that on its own for as long as the editor holds first
-    ///   responder. This guard covers the window it does not: a scrap can be open
-    ///   while the event view still has the keyboard, which is the same window
-    ///   `deleteSelection`'s `isInGesture` guard exists for.
-    /// - **An undimmed board has nothing to leave**, so the key travels on.
-    ///   Escape means something to a great many responders above this one and a
-    ///   canvas that swallowed every one of them would look identical from here.
-    ///
-    /// It does not clear the canvas SELECTION, and that is what "the keyboard
-    /// spelling of the project row" means taken literally: clicking that row
-    /// leaves the selected card selected, so this must too. It asks the window to
-    /// name the project and stops there — the dim, the standing text and the
-    /// sweep's binding all follow from the subject, so there is exactly one
-    /// thing to change.
-    private func escapeAsksForTheWholeBoard() -> Bool {
-        guard editingNodeID == nil, subject.dimsTheBoard else { return false }
-        selectTheProjectRow()
-        return true
-    }
-
-    // MARK: - Drags
-
-    /// What the Edit menu will call this gesture. The writer reads these — the
-    /// item says "Undo Move Region", not "Undo" — so every mode `begin` can
-    /// enter needs one, and the compiler is what says so.
-    ///
-    /// `nil` cannot arrive: the one caller asks only when `isActive`. It has a
-    /// name anyway rather than a `!`, because the alternative to a harmless
-    /// fallback here is a crash on a surface the writer is dragging.
-    ///
-    /// **The node arms say "Card" and not "Scrap", and the noun is UNIFORM
-    /// rather than routed through the kind** *(1C-d, whole-branch review M2).*
-    /// They said "Scrap" while a scrap was the only node a writer could move or
-    /// resize; 1C-d made an item node a first-class card — it resizes, it has an
-    /// inspector arm, it promotes, and three routes create one — so a writer who
-    /// dragged a **photograph** read *Undo Move Scrap*. That is Task 6's own
-    /// `minimumScrapWidth` → `minimumCardWidth` argument ("it clamps every kind
-    /// now, so the old name is false") arriving on the strings the writer
-    /// actually reads, which is where it matters more than in an identifier.
-    ///
-    /// **Routing the noun through `CanvasNodeKind` was the other option and it is
-    /// the wrong one**: `PromotionSource.noun`'s recorded ruling is that **a card
-    /// is the NODE** the writer clicked and **a picture is the FILE** it holds, so
-    /// "Move Picture" would contradict a distinction this slice took a fix round
-    /// to settle — and it is false anyway of a referenced item node standing for a
-    /// note, a PDF or a recording. One noun that is true of every kind beats three
-    /// that are each true of one.
-    ///
-    /// **`"New Scrap"` deliberately does NOT move** (`handleClick`'s
-    /// `.emptyCanvas` arm): a double-click on bare canvas mints a scrap and can
-    /// mint nothing else, so there the narrower noun is the accurate one.
-    private static func gestureName(for kind: CanvasInteraction.Kind?) -> String {
-        switch kind {
-        case .movingNode: return "Move Card"
-        case .resizingNode: return "Resize Card"
-        case .movingRegion: return "Move Region"
-        case .resizingRegion: return "Resize Region"
-        case .drawingRegion: return "New Region"
-        case .drawingLine: return "Draw Line"
-        case nil: return "Canvas"
-        }
-    }
-
-    /// Whether this press begins a LINE rather than a move, a resize or a sweep.
-    ///
-    /// **Two routes, resolved into one `Bool` before `CanvasInteraction` sees
-    /// anything**: ⇧ held over any card, and a drag out of the connect mark on
-    /// the *selected* card. One answer means one implementation of what a connect
-    /// drag does, so the discoverable route and the fast one cannot drift into
-    /// behaving differently. It is a `static func` over its inputs rather than a
-    /// computed property on the view so it is reachable from a test without
-    /// hosting SwiftUI — a decision one level above a primitive is exactly where
-    /// this area has shipped unreachable halves before.
-    ///
-    /// **⇧ owes nothing to the selection**, and the mark route owes nothing to ⇧.
-    /// ⇧ on bare canvas still sweeps a region: `CanvasInteraction.begin` only
-    /// consults this when the press lands on a node, and there is no marquee
-    /// select here (§9) for ⇧ to collide with.
-    ///
-    /// Three things must all hold for the mark route, and each is a way for the
-    /// writer to have aimed at something else:
-    ///
-    /// - **A NODE is selected.** The mark is selection chrome and is drawn
-    ///   nowhere else, so on an unselected card — or with a region selected —
-    ///   there is nothing there to press. This is what stops the press that
-    ///   *selects* a card from also starting a line out of it: `applyMouseDown`
-    ///   fires `onClick` strictly before `onDrag(.began)`, so the first press
-    ///   would otherwise both reveal the mark and act on it, and the writer would
-    ///   have drawn a line at a mark that was not on screen when they pressed.
-    ///   Click, then press, is two gestures and is correct.
-    /// - **The press is inside `connectHandleRect`**, which is `.null` on a card
-    ///   too short to hold the mark above the resize corner. `CGRect.null`
-    ///   contains no point, so such a card simply has no connect target and ⇧ is
-    ///   the way in — pinned by test rather than assumed.
-    /// - **The selected card is the one under the pointer.** Another card in
-    ///   front hides the mark, and `begin` resolves the source with
-    ///   `topmostNode(at:)` — so without this the writer would press a card they
-    ///   can see and get a line out of one they cannot.
-    ///
-    /// **`nonisolated` because it is pure**, and that is worth saying now that the
-    /// enclosing struct carries `@MainActor` (1C-d): this reads its three
-    /// arguments and no view state, so isolating it would be a claim about where
-    /// it may be *called* that nothing about it justifies — and it would put every
-    /// caller, tests included, on the main actor for a rect test.
-    nonisolated static func pressStartsALine(at contentPoint: CGPoint,
-                                             selection: CanvasSelection?,
-                                             in scene: CanvasScene,
-                                             shiftHeld: Bool) -> Bool {
-        if shiftHeld { return true }
-        guard case .node(let id)? = selection,
-              let frame = scene.node(id)?.frame,
-              scene.topmostNode(at: contentPoint)?.id == id else { return false }
-        return CanvasRenderer.connectHandleRect(inCard: frame).contains(contentPoint)
-    }
-
-    /// A left-drag that begins over empty canvas now DRAWS A REGION, and one
-    /// that begins inside an existing region's interior is still a no-op:
-    /// `CanvasInteraction.begin` leaves the mode idle there, so `.changed` and
-    /// `.ended` below never register. Nested regions are out of scope (§9).
-    /// Panning is `scrollWheel`/`magnify`, not click-and-drag, and there is no
-    /// marquee-select — that is out of scope here, not merely unbuilt.
-    ///
-    /// **A drag that starts inside a FOCUSED scrap belongs to the editor**, which
-    /// is in front and takes the mouse itself, so it is a text selection rather
-    /// than a card move. Nothing currently lets a writer drag a focused card by
-    /// its text; whether that is right is a product question nobody has answered,
-    /// and it is flagged rather than decided here.
-    ///
-    /// **A ⇧-drag from a card, or a drag out of the selected card's connect mark,
-    /// draws a LINE.** Both are resolved into one `Bool` here — see
-    /// `pressStartsALine` — and after the focus guard rather than before it: a
-    /// drag inside a focused scrap belongs to the editor, which is in front and
-    /// takes the mouse itself, so asking about connect marks above that guard
-    /// would compute an answer for a press this view never sees.
-    ///
-    /// **`timestamp` is the EVENT's time, and it goes exactly two places** —
-    /// `interaction.update(…, now:)` and `interaction.end(now:)`, the pair that
-    /// decides whether a release was a throw (issue #34). Every other arm here
-    /// ignores it, and deliberately: a region sweep or a resize has no velocity
-    /// to age, so threading it further would be handing a clock to code with no
-    /// use for one. Before it arrived, both calls defaulted to
-    /// `CACurrentMediaTime()` at PROCESSING time, so a main-thread stall between
-    /// the last `mouseDragged` and the `mouseUp` aged a real writer's flick past
-    /// `CanvasInteraction.maximumFlickAge` and disarmed it — a card that stopped
-    /// dead where the pointer let go, and the reason the mounted flick test
-    /// flaked on a loaded CI machine.
-    ///
-    /// Undefaulted, for `shiftHeld`'s reason one level up: the default belongs
-    /// at the SEAM and nowhere below it, so the one call site here has to say
-    /// which clock it means.
-    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase, shiftHeld: Bool,
-                            timestamp: TimeInterval) {
-        switch phase {
-        case .began:
-            // ANY press stops a coast — this one included, and one on bare
-            // canvas nowhere near the moving card. Above the focus guard
-            // deliberately: the press that ENTERS a scrap is the second of a
-            // double-click, and if the first one jiggled far enough to launch a
-            // flick (the floor is half a point per frame) the card would go on
-            // coasting under the mounted editor, dragging the text box with it.
-            // The resting place reaches disk without a save of its own here: the
-            // `onClick` that preceded this call scheduled one — every branch of
-            // `handleClick` does — and `scene` already held every frame the
-            // coast had applied.
-            //
-            // A press TRUNCATES the coast, so the card comes to rest HERE and
-            // never reaches the timeline's rest branch — the only other place
-            // that bumps the structural counter for a coast. Leave this out and
-            // the accessibility tree keeps the frame the card had when the writer
-            // let go of it, for as long as it takes some other structural change
-            // to come along. This is the one path `commitActiveEdit`'s formerly
-            // unconditional bump covered by accident, which is why it arrived
-            // with the guard that removed it.
-            // `CanvasViewMountingSurfaceTests.test_aPressThatStopsACoastRefreshesTheAccessibilityFrame`
-            // reads 40 against a card drawn at 64 without it — and its cheap
-            // half, `…BumpsTheCounterTheTreeIsRebuiltOn`, catches the same
-            // removal without needing an assistive client to be attached.
-            let wasCoasting = !momentum.isAtRest
-            momentum.stop()
-            if wasCoasting { model.bumpSceneRevision() }
-            // A focused scrap owns its own mouse, so a drag can only start on an
-            // unfocused card. `onClick` has already run for this same mouse-down
-            // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
-            // the focus state the click just set.
-            guard editingNodeID == nil else { return }
-            // A read-only canvas (issue #44) begins no interaction, so
-            // `.changed`/`.ended` bail on `isActive` and no coast launches. Pan
-            // and zoom are scroll and magnify, and never reach this.
-            guard CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly) else { return }
-            // The two routes into a line, answered once, HERE — the gesture
-            // layer deliberately has no opinion about what is selected.
-            // `selectionWhenPressed` and NOT `model.selection`: `handleClick` has
-            // already run for this same mouse-down and moved the selection onto
-            // whatever is under the pointer. See that property.
-            let connecting = Self.pressStartsALine(at: contentPoint,
-                                                   selection: selectionWhenPressed,
-                                                   in: model.scene,
-                                                   shiftHeld: shiftHeld)
-            interaction.begin(at: contentPoint, in: model.scene, connecting: connecting)
-            // Only when `begin` found something. A press on bare canvas INSIDE a
-            // region leaves the interaction idle, so `.ended` bails on its first
-            // guard and would never close a gesture opened here — the next real
-            // drag would then nest inside it and two gestures would collapse
-            // into one ⌘Z.
-            if interaction.isActive {
-                model.beginGesture(Self.gestureName(for: interaction.kind))
-            }
-        case .changed:
-            guard interaction.isActive else { return }
-            // `persist: false`: a drag emits a position per frame and the save
-            // it owns is the one at `.ended`.
-            model.withScene(persist: false) {
-                interaction.update(to: contentPoint, in: &$0, now: timestamp)
-            }
-            // A resize rewraps, and `CanvasScene.setWidth` clears the cached
-            // height to say so. Re-derive it NOW, not at `.ended`: a node with
-            // no `cachedHeight` has no `frame`, and a node with no frame is
-            // invisible to `nodes(intersecting:)` — so without this the card
-            // blinks out for the whole drag and reappears on release, which is
-            // what the writer reported. Re-measuring live is also the point of
-            // a resize handle: the text visibly rewraps under the pointer.
-            //
-            // ONE node, not `rebuildLayouts()`, which measures every scrap on
-            // the canvas and runs at drag-frame rate here. And deliberately no
-            // `sceneRevision` bump — that is the STRUCTURAL counter and the
-            // accessibility tree is gated on it (tripwire 30); bumping it per
-            // frame would sort the scene and copy every scrap's string at
-            // 60–120 Hz. The end of the resize bumps it once, via
-            // `rebuildLayouts()`.
-            if interaction.isResizing, let id = interaction.activeNodeID {
-                remeasure(id)
-            }
-            revision += 1
-        case .ended:
-            guard interaction.isActive else { return }
-            let wasResizing = interaction.isResizing
-            // Both read BEFORE `end()` clears the mode. The swept rect lives in
-            // the interaction and nowhere else, so there is no second copy of it
-            // to go stale.
-            let drawnRegion = interaction.pendingRegionDraw
-            let movedNode = interaction.kind == .movingNode ? interaction.activeNodeID : nil
-            // A line is CLOSED up here rather than merely read, and it is the one
-            // of these that is not symmetrical with the sweep. The swept rect is
-            // a value and survives in a `let`; the SOURCE CARD of a line lives in
-            // the mode and nowhere else, so `endLine` has to run while the mode
-            // is still live. It leaves the interaction idle itself, so `end()`
-            // below reports no flick — the second guarantee that a line drag
-            // never sends the card it started from skating.
-            let wasDrawingLine = interaction.kind == .drawingLine
-            var mintedLine: CanvasLineID?
-            if wasDrawingLine {
-                model.withScene(persist: false) {
-                    mintedLine = interaction.endLine(at: contentPoint, in: &$0)
-                }
-            }
-            let flick = interaction.end(now: timestamp)
-
-            // Whether the sweep actually changed the scene, read below. A sweep
-            // that minted nothing and bound nothing changed no part of it, and it
-            // must not be mistaken for one that did — see the bump in the `else`
-            // branch, where BOTH shapes have to be counted or the area the writer
-            // just claimed stays dim.
-            var sweepChangedTheScene = false
-
-            if let drawnRegion {
-                model.withScene(persist: false) { scene in
-                    // *** §4.1's invariant, and it is the whole of slice 3's
-                    // mode: while the board is dimmed a sweep binds to whatever
-                    // the tree names. *** The routing — assign what it caught, or
-                    // create — is `sweepOutcome`'s, decided over the swept rect,
-                    // the subject and the scene together. It is not re-spelled
-                    // here, and the group exception lives there rather than in
-                    // this handler, where it would be one `if` away from being
-                    // lost in a later edit.
-                    //
-                    // Both arms are INSIDE this one `withScene`, in the bracket
-                    // `.began` opened, so one ⌘Z takes back the whole act — the
-                    // region and its binding, or every binding the sweep made.
-                    // The drop-join twenty lines down is the same shape for the
-                    // same reason. Anywhere else (a `mutate` of its own, or the
-                    // inspector's verb) is a SECOND step on the stack: the writer
-                    // presses ⌘Z, watches the box go, presses it again expecting
-                    // their last sentence back and re-runs a binding change
-                    // nothing can show them.
-                    //
-                    // **Never `mutateFromInspector`** — this is inside
-                    // `handleDrag`'s own open bracket, and close-run-reopen would
-                    // end a gesture the writer is still holding (tripwire 32's
-                    // converse, censused in `TripwireGrepTests`).
-                    switch CanvasInteraction.sweepOutcome(for: drawnRegion,
-                                                          subject: subject, in: scene) {
-                    case .bind(let regions, let piece):
-                        // **Nothing is created, nothing moves, nothing is
-                        // stolen** — so there is no `join`, no absorb and no
-                        // re-homing on this path, which is precisely where the
-                        // stealing would have bitten hardest. Tripwire 31 is not
-                        // even in play: no geometry is being turned into
-                        // membership, only into a binding the writer aimed at.
-                        //
-                        // Every region here is UNBOUND — `sweepOutcome` filtered
-                        // them, because a sweep never re-binds (Denver,
-                        // 2026-08-03). Moving a binding from one document to
-                        // another stays the inspector's Piece picker's job.
-                        for region in regions {
-                            RegionBinding.bind(region, toPiece: piece, in: &scene)
-                        }
-                        // The selection is deliberately NOT touched. Nothing was
-                        // created, so there is nothing new to hand the writer,
-                        // and several regions cannot be handed to a
-                        // single-subject inspector anyway. §4.1 names the undim
-                        // as *"the only confirmation the gesture gives"*.
-                        //
-                        // The bracket was named "New Region" at `.began`, before
-                        // the answer existed. Nothing was made, so say what was
-                        // done: the Edit menu reads *Undo Bind Region(s)*.
-                        model.renameGesture(regions.count == 1 ? "Bind Region"
-                                                              : "Bind Regions")
-                        sweepChangedTheScene = true
-                    case .create(let piece):
-                        // A sweep under `minimumSide` mints nothing — which is
-                        // what every single click on bare canvas is, since
-                        // `applyMouseDown` opens a drag session on every
-                        // mouse-down.
-                        //
-                        // **Tripwire 31 licenses the absorption inside
-                        // `createRegion` because it is a CREATION**: there is no
-                        // prior relationship to break. It is not a licence for a
-                        // move or a resize to touch membership or a binding.
-                        guard let id = CanvasInteraction.createRegion(drawnRegion,
-                                                                      in: &scene) else { break }
-                        model.selection = .region(id)
-                        if let piece { RegionBinding.bind(id, toPiece: piece, in: &scene) }
-                        sweepChangedTheScene = true
-                    case .doNothing:
-                        // Everything the sweep caught was already bound, so
-                        // there is nothing to bind and — the half that matters —
-                        // nothing to create either. Falling through to `.create`
-                        // here drops a fresh rectangle on top of a board that
-                        // already had regions on it, which is the defect §4.1
-                        // exists to remove, arriving through its own fix.
-                        //
-                        // `sweepChangedTheScene` stays false, so no
-                        // `sceneRevision` bump; the scene is untouched, so
-                        // `endGesture` registers no step. The gesture costs the
-                        // writer nothing at all.
-                        break
-                    }
-                }
-            } else if wasDrawingLine {
-                // The line itself was inserted above; what belongs here is what
-                // the writer is left holding. Selecting it is the same courtesy a
-                // swept region gets, and it is what puts the new line under ⌫ and
-                // under the inspector. A drag that minted nothing — bare canvas,
-                // or back onto the source card — leaves the selection exactly as
-                // it was: the writer changed nothing, so nothing they had should
-                // move.
-                if let mintedLine { model.selection = .line(mintedLine) }
-            } else if let movedNode, interaction.hasMoved {
-                // The drop, INSIDE the move's own gesture — so one ⌘Z takes back
-                // the move and the join together. Dropping outside every region
-                // removes nothing: removal is always its own act (§4.2), and the
-                // tether is what makes the resulting state legible.
-                model.withScene(persist: false) {
-                    if let target = CanvasInteraction.joinTarget(for: movedNode, in: $0) {
-                        CanvasMembership.join(movedNode, home: target, in: &$0)
-                    }
-                }
-            }
-
-            if wasResizing {
-                // The rewrap cleared the cached height; re-measure before the
-                // card is hit-tested or culled again. `rebuildLayouts()` bumps
-                // `sceneRevision` itself.
-                //
-                // *** UNCONDITIONAL, and NOT behind `hasMoved`. *** The two ask
-                // different questions: `hasMoved` is "did the pointer leave the
-                // press point", while `CanvasScene.setWidth` clears
-                // `cachedHeight` on EVERY `.changed`, including one delivered at
-                // exactly the press point with an identical width. Gate this on
-                // `hasMoved` and that one sample leaves the card with no height,
-                // therefore no `frame`, therefore invisible to `topmostNode(at:)`,
-                // to `nodes(intersecting:)` and to the renderer — the card
-                // vanishes, and only a reload brings it back.
-                //
-                // The cost is that a corner press that never moved re-measures
-                // and re-queues a save for an unchanged scene, which is cheap
-                // and idempotent. It is NOT a licence to push an undo step from
-                // here: anything added to this branch that the writer could
-                // notice still has to read `interaction.hasMoved`. The gesture
-                // closed below is not that — `endGesture` registers nothing at
-                // all when the scene did not move.
-                rebuildLayouts()
-                // AFTER the re-measure, and the ordering is the whole of it.
-                // `setWidth` clears `cachedHeight` on EVERY `.changed`, and
-                // `CanvasNode` is `Equatable` INCLUDING that field. Close the
-                // gesture first and the diff is "card with a height" against
-                // "card with none", which differ — so a corner press that never
-                // moved registers a step, and the writer's next ⌘Z appears to do
-                // nothing while the one after it takes back an edit they had
-                // forgotten about. Worse, that step's REDO re-applies the
-                // heightless card: no `frame`, so invisible to `topmostNode(at:)`,
-                // to `nodes(intersecting:)` and to the renderer at once.
-                // `test_aCornerPressThatNeverMovedLeavesNothingToUndo` is the one
-                // that fails if these two lines are swapped.
-                model.endGesture()
-            } else {
-                // A press that never moved is not a drag. AppKit opens a drag
-                // session on EVERY mouse-down, including the first of a
-                // double-click, so without this every click into a scrap would
-                // write the sidecar and rebuild the accessibility tree for
-                // nothing. Safe HERE and not above because a move mutates
-                // nothing until the pointer actually moves.
-                //
-                // The gesture closes ABOVE this bail-out, not below it: the
-                // press opened one at `.began` whether or not it turned into a
-                // drag, and returning with it still open would leave the next
-                // real drag nested inside it — two gestures, one ⌘Z, and the
-                // card jumping back further than the writer asked. Nothing
-                // moved, so `endGesture` registers no step.
-                model.endGesture()
-                // *** `|| mintedLine != nil` KEEPS THE WRITER'S LINE. *** This
-                // bail-out returns above `model.scheduleSave()`, and `hasMoved`
-                // is set by `update`, which runs only on `.changed` — so a press
-                // on one card and a release over another with no drag sample
-                // between them would insert a line under `persist: false` and
-                // then leave without ever queuing a write. A line the writer drew
-                // and watched appear, gone at quit, with nothing to say why.
-                //
-                // **The sweep does not need this and the line does**, which is
-                // the part that is not obvious from the symmetry: a sweep's rect
-                // comes from the mode's own `current`, so with no `.changed` it
-                // is a zero rect and `createRegion` refuses it — there is nothing
-                // to lose. `endLine` reads the RELEASE point directly and is the
-                // first gesture here that can mint something without a single
-                // drag sample.
-                guard interaction.hasMoved || mintedLine != nil else { return }
-                // *** KEEP THIS, AND KEEP ITS GUARD. *** A move is one structural
-                // change, recorded at the END of the gesture rather than once per
-                // drag frame, and both the accessibility tree and the region
-                // inspector's member lists are rebuilt from this counter alone. If
-                // the card is about to coast, the timeline bumps it again when the
-                // coast comes to rest.
-                //
-                // The guard is the sweep that minted nothing. `hasMoved` asks
-                // whether the pointer left the press point, and on a trackpad a
-                // press that drifted one point takes it — so on bare canvas that
-                // is MOST clicks, since `applyMouseDown` opens a drag session on
-                // every mouse-down and `createRegion` refuses anything under
-                // `CanvasRegionMetrics.minimumSide`. Bumping there sorts the whole
-                // scene and copies every scrap's string to rebuild a tree for a
-                // scene that did not change, and rebuilds the inspector's lists
-                // beside it, once per click on nothing.
-                //
-                // `drawnRegion == nil` is the other half of the same question and
-                // not a second rule: outside a sweep, `hasMoved` and a live
-                // interaction together mean a card or a region really moved.
-                //
-                // **A line drag that minted nothing takes the same guard**, and
-                // it GROWS this predicate rather than adding a second `if`
-                // beside it, because it is the same question asked of a third
-                // gesture. It is reachable the same way: every ⇧-press on a card
-                // opens a drag session, a trackpad press routinely drifts a
-                // point, and a release over bare canvas makes no line — without
-                // this each one would sort the scene, copy every scrap's string
-                // and rebuild two cached lists in the other column.
-                //
-                // **A sweep that BOUND without minting counts here too**, and
-                // that is §4.1's acceptance criterion rather than a nicety: the
-                // lit set is rebuilt from this counter, so a bind that skipped it
-                // would leave the region the writer just claimed dim until
-                // something unrelated moved. The whole confirmation the gesture
-                // gives is the undim, and it has to arrive inside the gesture.
-                // `sweepChangedTheScene` covers both shapes for exactly that
-                // reason — a `mintedRegion` here would have been true of one.
-                let changedSomething = sweepChangedTheScene || mintedLine != nil
-                if (drawnRegion == nil && !wasDrawingLine) || changedSomething {
-                    model.bumpSceneRevision()
-                }
-                if let flick { momentum.launch(flick.id, velocity: flick.velocity) }
-            }
-            model.scheduleSave()
-            revision += 1
-        }
+    /// The drops — a research row, an inbox capture and a photograph — over
+    /// this view's own `camera`, `revision` and `dropError`, built per call like
+    /// `layoutPass`. `itemIndex` is this view's own, as `handleDrop` has always
+    /// read it. The handler holds no sibling helper: its `Task` bodies write
+    /// only through the `dropError` binding and the model.
+    private var dropHandler: CanvasDropHandler {
+        CanvasDropHandler(model: model,
+                          itemIndex: itemIndex,
+                          captureDrop: captureDrop,
+                          assetIngest: assetIngest,
+                          camera: $camera,
+                          revision: $revision,
+                          dropError: $dropError)
     }
 }
