@@ -229,6 +229,69 @@ final class FigureDeriverTests: XCTestCase {
         XCTAssertTrue(s.diagnostics[0].contains(stray.opId))
     }
 
+    // MARK: - A not-yet-seen id waits (ruling R-6a-4)
+
+    /// Merged order is ULID order: under clock skew device A's edit of a row B
+    /// inserted can sort before B's insert. It must not be lost.
+    func test_anEditSortedBeforeItsInsert_survives() {
+        let edit = set(key(r3, c1), num(3), device: "macA")
+        let insert = insRow(r3, after: r2, device: "macB")
+        let s = FigureDeriver.derive(base() + [edit, insert])
+        XCTAssertEqual(s.table.rows, [r1, r2, r3])
+        XCTAssertEqual(s.table[key(r3, c1)], num(3))
+        XCTAssertEqual(s.held, [])
+        XCTAssertEqual(s.diagnostics, [])
+    }
+
+    func test_aHeldEditThenALaterEditOfTheSameCell_theLaterWins() {
+        let early = set(key(r3, c1), num(3), device: "macA")
+        let insert = insRow(r3, after: r2, device: "macB")
+        let later = set(key(r3, c1), num(4), device: "macB")
+        XCTAssertEqual(FigureDeriver.derive(base() + [early, insert, later]).table[key(r3, c1)], num(4))
+        // Both held, both replay in their original order: still the later one.
+        let laterHeld = set(key(r3, c1), num(5), device: "macB")
+        XCTAssertEqual(FigureDeriver.derive(base() + [early, laterHeld, insert]).table[key(r3, c1)], num(5))
+    }
+
+    func test_aDeleteSortedBeforeItsInsert_leavesTheRowDeleted() {
+        let delete = op(.figureStructure, FigureOpPayload(structure: .deleteRow(r3)), device: "macA")
+        let insert = insRow(r3, after: r2, device: "macB")
+        let s = FigureDeriver.derive(base() + [delete, insert])
+        XCTAssertEqual(s.table.rows, [r1, r2])
+        XCTAssertNotNil(s.table.rowSlotIndex(of: r3), "the row is a tombstone")
+        XCTAssertEqual(s.diagnostics, [])
+    }
+
+    func test_aHeldOpNeverResolved_givesExactlyOneDiagnostic() {
+        let stray = set(key(r3, c1), num(3))
+        // An unrelated insert re-folds the held set; the op is held again, not doubled.
+        let s = FigureDeriver.derive(base() + [stray, insCol(ColumnID("c3ffffff"), after: c2, device: "macB")])
+        XCTAssertNil(s.table[key(r3, c1)])
+        XCTAssertEqual(s.held, [stray])
+        XCTAssertEqual(s.diagnostics.count, 1)
+        XCTAssertTrue(s.diagnostics[0].contains(stray.opId), s.diagnostics[0])
+    }
+
+    func test_foldKeepsTheHeldSetAcrossCalls() {
+        var s = FigureDeriver.derive(base())
+        let edit = set(key(r3, c1), num(3))
+        FigureDeriver.fold(edit, into: &s)
+        XCTAssertEqual(s.held, [edit])
+        XCTAssertNotEqual(s, FigureDeriver.derive(base()), "the held set is part of the state")
+        XCTAssertEqual(s.diagnostics, [], "fold alone never diagnoses what is still waiting")
+        FigureDeriver.fold(insRow(r3, after: r2), into: &s)
+        XCTAssertEqual(s.held, [])
+        XCTAssertEqual(s.table[key(r3, c1)], num(3))
+    }
+
+    func test_tombstonedIdsStillDrop_notHeld() {
+        let delete = op(.figureStructure, FigureOpPayload(structure: .deleteRow(r2)))
+        let edit = set(key(r2, c1), num(1))
+        let s = FigureDeriver.derive(base() + [delete, edit])
+        XCTAssertEqual(s.held, [])
+        XCTAssertEqual(s.diagnostics.count, 1)
+    }
+
     // MARK: - Odd input
 
     func test_createSeenTwice_firstWins_withADiagnostic() {

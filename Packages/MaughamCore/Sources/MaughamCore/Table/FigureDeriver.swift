@@ -25,12 +25,21 @@ public struct FigureState: Equatable, Sendable {
     /// One line per op that could not apply, naming its op id. The op stays in
     /// the log; only the view drops it.
     public var diagnostics: [String]
+    /// **Ops waiting for an id this stream has not shown yet** (ruling R-6a-4),
+    /// in fold order: a cell set, pin, width, delete or move naming a row or
+    /// column no insert has folded. Merged order is ULID order, so under clock
+    /// skew an edit can sort before the insert it depends on; it is held here
+    /// and replays, in its original order, the moment that insert folds. Kept
+    /// on the state so `FigureDeriver.fold` carries it across calls; `derive`
+    /// diagnoses whatever is still held when the stream ends.
+    public internal(set) var held: [Op]
 
     public init(
         kind: FigureKind? = nil, table: FigureTable = FigureTable(rows: 0, columns: 0),
         image: FigureImageRef? = nil, pins: [CellKey: [FigureResearchPin]] = [:],
         parked: FigureParking? = nil, createdBy: String? = nil, diagnostics: [String] = []
     ) {
+        self.held = []
         self.kind = kind
         self.table = table
         self.image = image
@@ -47,8 +56,12 @@ public struct FigureState: Equatable, Sendable {
 /// conflict rule:
 /// - **Per-cell last writer wins** in fold order.
 /// - **Delete beats edit** (spec §11.5): a cell set, pin or column width on a
-///   deleted or unknown row or column is dropped from the view and diagnosed;
-///   a delete takes the cells, pins and width it held.
+///   deleted row or column is dropped from the view and diagnosed; a delete
+///   takes the cells, pins and width it held.
+/// - **A not-yet-seen id waits** (ruling R-6a-4): an op naming a row or column
+///   no insert has folded is held (`FigureState.held`) and replays in its
+///   original fold order when that insert folds; one still held at the end of
+///   `derive` is diagnosed. Only a tombstoned id drops.
 /// - **Concurrent inserts both survive**: an insert replays through
 ///   `FigureTable.insertRow(_:after:)` by id, so two inserts after one row both
 ///   land after it, the later-folded first.
@@ -63,6 +76,9 @@ public enum FigureDeriver {
     public static func derive(_ ops: [Op]) -> FigureState {
         var state = FigureState()
         for op in ops { fold(op, into: &state) }
+        for op in state.held {
+            state.diagnostics.append("\(op.opId): names a row or column no insert ever created, never applied")
+        }
         return state
     }
 
@@ -76,6 +92,11 @@ public enum FigureDeriver {
             return state.diagnostics.append("\(op.opId): \(op.kind.rawValue) is missing what it needs")
         }
         func drop(_ why: String) { state.diagnostics.append("\(op.opId): \(why)") }
+
+        if namesAnUnseenID(op.kind, p, in: state.table) {
+            state.held.append(op)
+            return
+        }
 
         switch op.kind {
         case .figureCreate:
@@ -96,13 +117,24 @@ public enum FigureDeriver {
         case .figureCellSet:
             guard let key = p.cell else { return }
             guard isLive(key, in: state.table) else {
-                return drop("cell set on a deleted or unknown row or column (\(key.row.raw), \(key.column.raw))")
+                return drop("cell set on a deleted row or column (\(key.row.raw), \(key.column.raw))")
             }
             state.table.setCell(p.next, at: key)
 
         case .figureStructure:
             guard let change = p.structure else { return }
-            if let why = applyStructure(change, to: &state) { drop(why) }
+            if let why = applyStructure(change, to: &state) { return drop(why) }
+            switch change {
+            case .insertRow, .insertColumn:
+                // A new id: whatever waited on it replays now, in fold order.
+                // Everything held is re-folded; an op still missing another id
+                // is held again, keeping its place.
+                let waiting = state.held
+                state.held = []
+                for held in waiting { fold(held, into: &state) }
+            default:
+                break
+            }
 
         case .figureSettings:
             guard let change = p.settings else { return }
@@ -113,7 +145,7 @@ public enum FigureDeriver {
                 state.table.hasTotalRow = total
             case .columnWidth(let column, let width, _):
                 guard state.table.columnIndex(of: column) != nil else {
-                    return drop("column width on a deleted or unknown column \(column.raw)")
+                    return drop("column width on a deleted column \(column.raw)")
                 }
                 state.table.columnWidths[column] = width
             }
@@ -124,7 +156,7 @@ public enum FigureDeriver {
         case .figurePinSet:
             guard let key = p.cell, let pin = p.pin else { return }
             guard isLive(key, in: state.table) else {
-                return drop("pin on a deleted or unknown row or column (\(key.row.raw), \(key.column.raw))")
+                return drop("pin on a deleted row or column (\(key.row.raw), \(key.column.raw))")
             }
             var list = state.pins[key] ?? []
             if let i = list.firstIndex(where: { sameSource($0, pin) }) {
@@ -165,30 +197,54 @@ public enum FigureDeriver {
             return nil
         case let .deleteRow(id):
             guard state.table.rowIndex(of: id) != nil else {
-                return "delete of a deleted or unknown row \(id.raw)"
+                return "delete of a deleted row \(id.raw)"
             }
             state.table.deleteRow(id)
             state.pins = state.pins.filter { $0.key.row != id }
             return nil
         case let .deleteColumn(id):
             guard state.table.columnIndex(of: id) != nil else {
-                return "delete of a deleted or unknown column \(id.raw)"
+                return "delete of a deleted column \(id.raw)"
             }
             state.table.deleteColumn(id)
             state.pins = state.pins.filter { $0.key.column != id }
             return nil
         case let .moveRow(id, after, _):
             guard state.table.rowIndex(of: id) != nil, after != id else {
-                return "move of a deleted or unknown row \(id.raw)"
+                return "move of a deleted row \(id.raw)"
             }
             state.table.moveRow(id, after: after)
             return nil
         case let .moveColumn(id, after, _):
             guard state.table.columnIndex(of: id) != nil, after != id else {
-                return "move of a deleted or unknown column \(id.raw)"
+                return "move of a deleted column \(id.raw)"
             }
             state.table.moveColumn(id, after: after)
             return nil
+        }
+    }
+
+    /// Does this op name a row or column that has no slot at all — never
+    /// inserted, as opposed to deleted? A move's `after:` anchor is not asked:
+    /// an unknown anchor places at the end, as an insert's does.
+    private static func namesAnUnseenID(_ kind: OpKind, _ p: FigureOpPayload, in table: FigureTable) -> Bool {
+        func unseen(_ r: RowID) -> Bool { table.rowSlotIndex(of: r) == nil }
+        func unseen(_ c: ColumnID) -> Bool { table.columnSlotIndex(of: c) == nil }
+        switch kind {
+        case .figureCellSet, .figurePinSet, .figurePinClear:
+            guard let key = p.cell else { return false }
+            return unseen(key.row) || unseen(key.column)
+        case .figureSettings:
+            if case let .columnWidth(column, _, _)? = p.settings { return unseen(column) }
+            return false
+        case .figureStructure:
+            switch p.structure {
+            case let .deleteRow(r)?, let .moveRow(r, _, _)?: return unseen(r)
+            case let .deleteColumn(c)?, let .moveColumn(c, _, _)?: return unseen(c)
+            default: return false
+            }
+        default:
+            return false
         }
     }
 

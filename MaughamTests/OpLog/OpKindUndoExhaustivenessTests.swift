@@ -181,9 +181,11 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // delete, a move goes back to priorAfter, a setting swaps, an
             // image set swaps to priorImage. Two shapes answer nil and so get
             // no undo: a row/column delete (reviving a tombstone is plan 6b's)
-            // and a first image (there is no clear). The figure host's
+            // and a first image (there is no clear). An undone insert is not
+            // redoable in 6a: the deriver refuses to re-insert a tombstoned
+            // id, so redo waits for plan 6b's revive (ruling R-6a-5). The figure host's
             // OpUndoRegistrar registration (Task 6) is the caller.
-            return .inverseCovered(mechanism: "FigureInverse.inverse (nil for a row/column delete and a first image), registered by the figure host (report plan 6a Task 6)")
+            return .inverseCovered(mechanism: "FigureInverse.inverse (nil for a row/column delete and a first image; insert undo declines redo until the revive API, since re-inserting a tombstoned id is refused, ruling R-6a-5), registered by the figure host (report plan 6a Task 6)")
 
         case .figureCreate:
             // Creating a figure is undone by deleting it, which is a registry
