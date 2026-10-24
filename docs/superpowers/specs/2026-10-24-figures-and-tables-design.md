@@ -107,16 +107,32 @@ Figures join **schema 10**. It is on origin but unreleased, so there is no migra
 - **Placement:** it then asks where in the text to put the line, at the caret or "leave unused". An unused figure is listed, numbered "—", and not published.
 - **Research CSVs:** cells beginning `=` are parsed as formulas (§5), and anything outside the supported set becomes its value. Images and PDFs follow the existing `FigureIngest` path (HEIC → PNG; PDF and SVG rasterised at publish).
 
-### 4.2 Send to Research
+### 4.2 Send to Research: the op log is parked, not converted (Denver, 2026-10-24)
 
 - **The verb:** on a figure, in the tree, inspector or card menu, or by dragging onto Research.
-- **What it does:**
-  - writes the figure back into Research (CSV with formulas as `=` cells, or the image) through the typed mover (tripwire 14);
-  - keeps its name, caption and pins in a sidecar under `.maugham/` keyed by the research item, so a later "Use in document" restores the same name;
-  - removes its line from the text as an ordinary, undoable edit.
+- **The figure's op log is parked.**
+  - It stays under `.maugham/ops/`, marked "parked in Research" by a `figure: send to Research` op, which records the working copy's research path and content hash.
+  - Nothing is appended to it while parked, and nothing is deleted (per-device streams are append-only, tripwire 17).
+- **Research gets a working copy,** written through the typed mover (tripwire 14):
+  - a table becomes a CSV with formulas as `=` cells, plus a research-side sidecar under `.maugham/` holding its formats, header/total rows, name and caption, so the Research grid shows it formatted;
+  - an image becomes the image file.
+- **From then on the copy follows Research rules:** plain file, last writer wins, unsigned. The AI may write to it, with versions kept (§10.1).
+- **Its line leaves the text** as an ordinary, undoable edit.
 - **Figures that referenced it** become pinned Research references (§4.3), keeping their last values instead of breaking.
 - **Text that referenced it** ("see Table 3") gets the amber underline "This table is in Research now". A Report refuses to publish with it, as with any broken cross-reference.
-- **Coming back:** "Use in document" brings it back under the same name, and both kinds of reference reconnect.
+
+**Coming back** ("Use in document" on that working copy):
+
+- **Recognising the copy.** The working copy is matched to its parked log by the sidecar's figure id, which follows the typed mover's renames and moves. A different Research file never attaches to a parked log.
+- **Unchanged in Research** (hash equals the parked hash): the log resumes with a `figure: use in document` op. History, formats, row/column ids, notes and suggestions return exactly as they were.
+- **Changed in Research:** the difference between the copy and the parked log's last state is appended to the same log as ordinary ops.
+  - Rows and columns are matched by content, using a longest-common-subsequence over row values (and column headers), so moved or surrounded rows keep their ids and their anchors.
+  - Formats come from the sidecar.
+  - Cells whose row or column has no match are deleted, and anchors on them are orphaned (§11.5).
+- **Who signs the changes.** The appended ops are signed by the actor bringing the figure back, and carry the reason "brought back from Research". Bringing it back is the author's acceptance of what happened on the workbench, including AI-written values. Research's version history still records who wrote each version.
+- **References reconnect.** The figure returns under its old name, so both kinds of reference reconnect. Pins that other figures took on it in §4.2 become live references again.
+- **Deleted copy.** If the working copy is deleted, the log stays parked indefinitely. It appears nowhere in the interface and costs only its disk space.
+- **Images** compare by hash only. A changed image comes back as one `image: set file` op.
 
 ### 4.3 Research pins
 
@@ -371,7 +387,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
 ## 13. Testing
 
 - **Core:** each function against Excel-computed fixtures; formats per language; references surviving inserts and deletes; cycles across tables; CSV round trips, including `=` cells and unsupported functions.
-- **Op log:** concurrent cell edits merge per cell; concurrent row inserts both survive; delete-versus-edit follows §11.5; signatures and permits (a suggest-only collaborator is refused a cell write); send to Research and back keeps the name and reconnects references.
+- **Op log:** concurrent cell edits merge per cell; concurrent row inserts both survive; delete-versus-edit follows §11.5; signatures and permits (a suggest-only collaborator is refused a cell write); send to Research and back keeps the name and reconnects references; an unchanged round trip resumes the parked log with anchors intact; a copy edited in Research (rows inserted, moved, deleted) comes back as appended ops that keep matched row ids and orphan only unmatched anchors, signed by the returning actor.
 - **Editor:** the card's reserved space under typing (harness and budget); expand and fold focus; ⌘Z inside the grid, and one ⌘Z for the visit after the fold; paste from Excel's TSV and HTML; Convert is one undo step.
 - **Publishing:** PDF, EPUB and Word tables carry formats and the language's separators; an error cell refuses a Report; a pin note stays amber.
 - **MCP:** a figure is read-only (no tool writes one); anchors follow inserts; Research writes keep a version; tool counts come from the catalogue.
