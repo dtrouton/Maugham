@@ -18,7 +18,14 @@ struct BinderView: View {
     /// do not care about the wall's door.
     var paletteWallTravels: Bool = false
     var onOpenPaletteWall: () -> Void = {}
+    /// Plan's Tab to the canvas and ⇧Tab back — see `TreeCanvasKeyboard`.
+    /// Defaulted for the tree fixtures with no canvas beside them; the window's
+    /// argument is censused in `PromotionCommandTests`.
+    var canvasKeyboard = TreeCanvasKeyboard()
     @State private var renamingItemId: String?
+    /// Written only from `canvasKeyboard.treeKeyboardRequest`'s changes; SwiftUI
+    /// keeps it true while the list holds the keyboard.
+    @FocusState private var listHoldsTheKeyboard: Bool
     @State private var pendingError: String?
     /// What a rename could not rewrite (controller ruling AH) — said, since
     /// those `[[links]]` now dangle for the whole book.
@@ -77,6 +84,21 @@ struct BinderView: View {
                                    onOpenPaletteWall: onOpenPaletteWall)
             }
             .listStyle(.sidebar)
+            // Plan's Tab hands the keyboard to the canvas; anywhere else, or
+            // during a rename, it is ignored and travels on as before.
+            .onKeyPress(keys: [.tab], phases: .down) { press in
+                guard press.modifiers.isEmpty,
+                      canvasKeyboard.tabGoesToTheCanvas(
+                        renamingRow: renamingItemId,
+                        renamingInSections: treeState.renamingItemId)
+                else { return .ignored }
+                canvasKeyboard.giveTheCanvasTheKeyboard()
+                return .handled
+            }
+            .focused($listHoldsTheKeyboard)
+            .onChange(of: canvasKeyboard.treeKeyboardRequest) { _, _ in
+                listHoldsTheKeyboard = true
+            }
             .overlay {
                 if store.manifest.structure.isEmpty { emptyState }
             }
@@ -642,5 +664,26 @@ struct TreeStructureVerbs: Equatable {
             return postureOf(DocumentClass.projectStreamDocId).allows(.restructure)
         }
         return pieces.allSatisfy { postureOf($0.id).allows(.restructure) }
+    }
+}
+
+/// Plan's Tab between the binder and the canvas (spec §1, "Getting to the
+/// canvas from the binder"), handed down by `ProjectWindow`. Both directions
+/// are one-way counters (tripwire 2): Tab here calls
+/// `giveTheCanvasTheKeyboard`, which bumps the window's request the canvas
+/// serves; the canvas's ⇧Tab bumps `treeKeyboardRequest`, and each change
+/// focuses the binder's `List`.
+///
+/// The default is the tree with no canvas beside it: Tab stays AppKit's.
+struct TreeCanvasKeyboard {
+    /// `Persona.centresTheCanvas` — whether there is a canvas to hand to.
+    var tabReachesTheCanvas = false
+    var giveTheCanvasTheKeyboard: () -> Void = {}
+    var treeKeyboardRequest = 0
+
+    /// Whether Tab goes to the canvas: only beside one, and never while a row
+    /// is being renamed — Tab in a rename stays in the rename.
+    func tabGoesToTheCanvas(renamingRow: String?, renamingInSections: String?) -> Bool {
+        tabReachesTheCanvas && renamingRow == nil && renamingInSections == nil
     }
 }

@@ -36,6 +36,9 @@ struct BinderPaneToggle: View {
     /// for why the message cannot be shown down here. Defaulted for
     /// `onOpenPaletteWall`'s reason.
     var onRestoreOutcome: (String) -> Void = { _ in }
+    /// Plan's Tab to the canvas and back, on its way to `BinderView` — see
+    /// `TreeCanvasKeyboard`. Defaulted for `onOpenPaletteWall`'s reason.
+    var canvasKeyboard = TreeCanvasKeyboard()
     /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
     /// Task 2) — collapsed by default, private to this view. It is `@State`
     /// rather than threaded in from `ProjectWindow` because nothing outside
@@ -123,7 +126,8 @@ struct BinderPaneToggle: View {
         BinderView(store: store, selectedSubject: $selectedSubject,
                    treeState: treeState,
                    paletteWallTravels: paletteWallTravels,
-                   onOpenPaletteWall: onOpenPaletteWall)
+                   onOpenPaletteWall: onOpenPaletteWall,
+                   canvasKeyboard: canvasKeyboard)
     }
 
     /// A screenplay's tree.

@@ -75,6 +75,7 @@ final class CanvasEditorKeyTests: XCTestCase {
             CanvasKeyHandler(model: model,
                              subject: subject,
                              selectTheProjectRow: {},
+                             returnKeyboardToTree: {},
                              editFocus: editFocus,
                              layoutPass: layoutPass,
                              scrapFlow: scrapFlow,

@@ -15,6 +15,8 @@ struct CanvasKeyHandler {
     let model: CanvasModel
     let subject: CanvasSubject
     let selectTheProjectRow: () -> Void
+    /// ⇧Tab's one-way ask: the window focuses the binder (`CanvasView`'s input).
+    let returnKeyboardToTree: () -> Void
     let editFocus: CanvasEditFocus
     let layoutPass: CanvasLayoutPass
     let scrapFlow: CanvasScrapFlow
@@ -110,8 +112,9 @@ struct CanvasKeyHandler {
         case (.arrow(let arrow), _):
             return selectNearest(arrow, from: selection, viewSize: viewSize)
         case (.backtab, _):
-            // Task 7: back to the binder.
-            return false
+            // Back to the binder; it creates nothing, so no gate.
+            returnKeyboardToTree()
+            return true
         case (.returnKey, nil):
             let size = CanvasKeyboard.newCardSize()
             let centre = camera.contentPoint(fromView: CGPoint(x: viewSize.width / 2,

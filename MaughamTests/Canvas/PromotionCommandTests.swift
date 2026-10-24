@@ -604,6 +604,26 @@ final class PromotionCommandTests: XCTestCase {
              + "keeps every assertion over the fold green — and the palette "
              + "wall silently stops taking the width it was given, while the "
              + "canvas collapse's takeover starts reading a stash nobody sets"),
+            // Spec §1: Plan's Tab from the binder to the canvas, and ⇧Tab back.
+            (Self.window,
+             ["keyboardRequest: canvasKeyboardRequest",
+              "returnKeyboardToTree: returnKeyboardToTree",
+              "returnKeyboardToTree: { treeKeyboardRequest += 1 }",
+              "tabReachesTheCanvas: persona.centresTheCanvas",
+              "giveTheCanvasTheKeyboard: { canvasKeyboardRequest += 1 }",
+              "treeKeyboardRequest: treeKeyboardRequest"],
+             "the keyboard hand-off between the binder and the canvas. "
+             + "`CanvasView.keyboardRequest` defaults to 0, "
+             + "`CanvasView.returnKeyboardToTree` to `{}` and `BinderView"
+             + ".canvasKeyboard` to a tree with no canvas: each is a real state "
+             + "that compiles and runs, so dropping any one argument leaves "
+             + "every test that hosts its own canvas or tree green while Tab "
+             + "stays in the binder, or ⇧Tab strands the keyboard on the "
+             + "canvas. `PlanBinderTabTests` drives the real window end to "
+             + "end; these tokens say which argument went missing"),
+            ("Maugham/Views/BinderPaneToggle.swift", ["canvasKeyboard: canvasKeyboard"],
+             "the shell hands the window's hand-off to `BinderView`; dropped, "
+             + "the default is a tree with no canvas beside it and Tab never leaves"),
             ("Maugham/Views/InboxPane.swift",
              [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
              "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "

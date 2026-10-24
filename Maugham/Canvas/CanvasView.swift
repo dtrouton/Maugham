@@ -172,6 +172,19 @@ struct CanvasView: View {
     /// refusal rather than as a drag that springs back saying nothing.
     var captureDrop: CanvasCaptureDrop = .unavailable
 
+    /// The window's ask for the keyboard: Plan's Tab in the binder bumps it,
+    /// and each change is served once as `CanvasKeyboardRequest.fromWindow`.
+    /// A counter, never a flag the canvas writes back (tripwire 2).
+    ///
+    /// Defaulted and censused for `selectTheProjectRow`'s reasons: `0` is a
+    /// real state, so a dropped argument would leave Tab in the binder with
+    /// nothing red. The census is in `PromotionCommandTests`.
+    var keyboardRequest: Int = 0
+
+    /// ⇧Tab on the canvas: a one-way ask the window answers by focusing the
+    /// binder's `List`. Defaulted and censused for `keyboardRequest`'s reasons.
+    var returnKeyboardToTree: () -> Void = {}
+
     @State private var camera = CanvasCamera()
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
     @State private var editingNodeID: CanvasNodeID?
@@ -533,7 +546,8 @@ struct CanvasView: View {
                 // new hung off a key here inherits the same problem and needs the
                 // same answer.
                 undoManager: model.undoManager,
-                keyboardRequest: CanvasKeyboardRequest(fromCanvas: keyboardTicket))
+                keyboardRequest: CanvasKeyboardRequest(fromCanvas: keyboardTicket,
+                                                       fromWindow: keyboardRequest))
 
             mountedEditor
         }
@@ -1072,12 +1086,13 @@ struct CanvasView: View {
     /// The keys — ⌫, Escape, those inside a scrap and those on the canvas —
     /// over this view's own `@State`, built per call like `layoutPass`.
     /// `deleteSelection` refuses mid-gesture (tripwire 32), and
-    /// `selectTheProjectRow` is the closure this view was handed, read when the
-    /// key arrives. It makes through the `scrapFlow` it is handed.
+    /// `selectTheProjectRow` and `returnKeyboardToTree` are the closures this
+    /// view was handed, read when the key arrives. It makes through the `scrapFlow` it is handed.
     private var keyHandler: CanvasKeyHandler {
         CanvasKeyHandler(model: model,
                          subject: subject,
                          selectTheProjectRow: selectTheProjectRow,
+                         returnKeyboardToTree: returnKeyboardToTree,
                          editFocus: editFocus,
                          layoutPass: layoutPass,
                          scrapFlow: scrapFlow,

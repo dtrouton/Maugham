@@ -45,6 +45,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let revision = Box(0)
         let camera = Box(CanvasCamera())
         let keyboardTicket = Box(0)
+        let treeAsks = Box(0)
 
         var layoutPass: CanvasLayoutPass {
             CanvasLayoutPass(model: model,
@@ -81,6 +82,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
             CanvasKeyHandler(model: model,
                              subject: subject,
                              selectTheProjectRow: {},
+                             returnKeyboardToTree: { treeAsks.value += 1 },
                              editFocus: editFocus,
                              layoutPass: layoutPass,
                              scrapFlow: scrapFlow,
@@ -561,6 +563,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
             XCTAssertEqual(model.selection, selection, "a key moved the selection mid-gesture")
             XCTAssertNil(f.editingNodeID.value)
             XCTAssertEqual(f.camera.value, CanvasCamera())
+            XCTAssertEqual(f.treeAsks.value, 0, "⇧Tab asked for the binder mid-gesture")
             model.endGesture()
             XCTAssertFalse(model.isInGesture, "the gesture was nested into, not left alone")
         }
@@ -572,11 +575,32 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let f = fixture(model, selecting: .node(a))
         f.editingNodeID.value = a
         let before = ids(model)
-        for key in [CanvasKey.returnKey, .tab, .commandReturn, .arrow(.down)] {
+        for key in [CanvasKey.returnKey, .tab, .backtab, .commandReturn, .arrow(.down)] {
             XCTAssertFalse(f.key(key), "\(key) with a scrap open")
         }
         XCTAssertEqual(ids(model), before)
         XCTAssertEqual(model.selection, .node(a))
+        XCTAssertEqual(f.treeAsks.value, 0, "⇧Tab asked for the binder with a scrap open")
+    }
+
+    // MARK: - ⇧Tab, back to the binder
+
+    /// ⇧Tab asks the window for the binder once, whatever is selected, and
+    /// changes nothing on the board. It creates nothing, so read-only does
+    /// not refuse it.
+    func test_backtabAsksForTheBinderAndTouchesNothing() throws {
+        let selections: [CanvasSelection?] = [nil, .node(a), .node(item), .region(r), .line(l)]
+        for readOnly in [false, true] {
+            for selection in selections {
+                let model = readOnly ? try readOnlyModel() : populatedModel()
+                let f = fixture(model, selecting: selection)
+                let before = ids(model)
+                let label = "⇧Tab on \(String(describing: selection))\(readOnly ? " read-only" : "")"
+                XCTAssertTrue(f.key(.backtab), label)
+                XCTAssertEqual(f.treeAsks.value, 1, label)
+                assertUntouched(f, before: before, selection: selection, label)
+            }
+        }
     }
 
     func test_everyCreatingKeyIsRefusedReadOnly() throws {

@@ -476,6 +476,7 @@ final class CanvasSurfaceHelperTests: XCTestCase {
             return CanvasKeyHandler(model: model,
                                     subject: subject,
                                     selectTheProjectRow: { asks.value += 1 },
+                                    returnKeyboardToTree: {},
                                     editFocus: CanvasEditFocus(model: model,
                                                                editingNodeID: editingNodeID.binding,
                                                                caretIndex: caretIndex.binding,
