@@ -25,6 +25,8 @@ final class CanvasKeyboardTests: XCTestCase {
         XCTAssertEqual(k("\t", []), .tab)
         XCTAssertEqual(k("\u{19}", []), .backtab)
         XCTAssertEqual(k("\t", .shift), .backtab)
+        XCTAssertEqual(k("\u{19}", .shift), .backtab, "AppKit keeps .shift set on ⇧Tab")
+        XCTAssertNil(k("\r", .control))
         XCTAssertNil(k("\t", .command))
         XCTAssertEqual(k("\u{F700}", [.numericPad, .function]), .arrow(.up))
         XCTAssertEqual(k("\u{F701}", []), .arrow(.down))
@@ -85,7 +87,23 @@ final class CanvasKeyboardTests: XCTestCase {
         for i in 0..<199 {
             XCTAssertFalse(placed.intersects(s.node(id("c\(i)"))!.frame!), "overlaps c\(i)")
         }
-        XCTAssertGreaterThan(p.y, 0)
+        // The step limit is why it stops here: 200 steps, each past one card, lands
+        // just below c199 (cards are one gap apart), at c200's origin.
+        XCTAssertEqual(p, s.node(id("c200"))!.origin)
+    }
+
+    func test_aHugeRegionDoesNotBlockPlacement() {
+        var s = CanvasScene()
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r"), label: "R",
+                                    frame: CGRect(x: -1000, y: -1000, width: 5000, height: 5000)))
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s), .zero)
+    }
+
+    func test_aCardAtExactly45DegreesAnswersToBothArrows() {
+        var s = CanvasScene()
+        s.insert(card("d", 200, 175))   // centre (250,200) from (50,0): dx = dy = 200
+        XCTAssertEqual(CanvasKeyboard.nearest(from: CGPoint(x: 50, y: 0), toward: .right, in: s, excluding: nil), id("d"))
+        XCTAssertEqual(CanvasKeyboard.nearest(from: CGPoint(x: 50, y: 0), toward: .down, in: s, excluding: nil), id("d"))
     }
 
     func test_placementStepsRightPastACard() {

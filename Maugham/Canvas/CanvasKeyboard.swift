@@ -36,7 +36,8 @@ enum CanvasKeyboard {
             if m.isEmpty { return .tab }
             return m == .shift ? .backtab : nil
         case "\u{19}":
-            return m.isEmpty ? .backtab : nil
+            // AppKit sends ⇧Tab as "\u{19}" with .shift still set.
+            return m.isEmpty || m == .shift ? .backtab : nil
         case "\u{F700}": return m.isEmpty ? .arrow(.up) : nil
         case "\u{F701}": return m.isEmpty ? .arrow(.down) : nil
         case "\u{F702}": return m.isEmpty ? .arrow(.left) : nil
@@ -75,12 +76,14 @@ enum CanvasKeyboard {
 
     /// The first spot at or after `startingAt`, stepping along `stepping`, whose
     /// card (plus a gap on every side) touches no visible measured card. After
-    /// `placementStepLimit` steps the last candidate is returned.
+    /// `placementStepLimit` steps the last candidate is returned. Only `.down`
+    /// and `.right` are supported (Tab, ⌘Return and Return all step down).
     static func clearOrigin(startingAt: CGPoint, stepping: CanvasArrow, size: CGSize,
                             in scene: CanvasScene) -> CGPoint {
         let frames = scene.unorderedNodes
             .filter { !scene.isHidden($0.id) }
             .compactMap(\.frame)
+        precondition(stepping == .down || stepping == .right, "clearOrigin steps down or right only")
         var candidate = startingAt
         for _ in 0..<placementStepLimit {
             let probe = CGRect(origin: candidate, size: size)

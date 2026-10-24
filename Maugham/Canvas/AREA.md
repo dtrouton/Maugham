@@ -20,8 +20,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasView.swift` — the SwiftUI view: every `@State` (camera, layouts, editing focus, straighten, momentum), `body`'s layer stack, the `revision`/`sceneRevision` mirror and `load()`; it builds its seven helpers per call (tripwires 27, 30, 32, 57). Its header comment lists its source-layout contracts.
 - `CanvasLayoutPass.swift` — `rebuildLayouts`/`remeasure`: the `ScrapLayout` cache and every card's derived height; `CanvasView` builds it per call (tripwires 26, 57).
 - `CanvasRenderer.swift` — the one draw pass (regions, lines, cards, chips, tethers), `CanvasFocusStraighten`, `cardTransform`/`seededRotation`, `paper(for:)`, `cullingBleed`, `rotationOverhang(of:)`, `elide` (tripwires 26, 29).
-- `CanvasCamera.swift` — the manual pan/zoom transform; `bring(_:toViewPoint:)` and `revealViewPoint` (tripwire 25).
-- `CanvasKeyboard.swift` — pure key tables, clear placement, arrow targets; no model or view.
+- `CanvasCamera.swift` — the manual pan/zoom transform; `bring(_:toViewPoint:)`, `reveal(_:viewSize:)` and `revealViewPoint` (tripwire 25).
 - `CanvasMaterial.swift` — every calibration constant of the canvas's look: ground, paper, tilt band, Claude's tints, dim (`dimmedAlpha(lit:)`).
 - `CanvasGround.swift` — the ground view and `CanvasGroundPalette`, beneath the content.
 - `CanvasGround.metal` — the ground shader; takes all material numbers as uniforms and holds no literals.
@@ -38,6 +37,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasDragHandler.swift` — `handleDrag`: each gesture's press, move and release and its undo bracket; `pressStartsALine`; built per call by `CanvasView` (tripwire 32).
 - `CanvasClickHandler.swift` — `handleClick`: select, enter a scrap or make one; writes `selectionWhenPressed` first; holds the `scrapFlow` it is handed; built per call by `CanvasView`.
 - `CanvasScrapFlow.swift` — `makeScrapAndEnter(at:joinedTo:)` (one "New Scrap" step: create, measure, join, bind, line) and `enter(_:caretIndex:)` (opens "Edit Scrap"): the one way to make or enter a scrap; built per call by `CanvasView`; takes `subject`.
+- `CanvasKeyboard.swift` — pure key tables, clear placement, arrow targets; no model or view.
 - `CanvasKeyHandler.swift` — `deleteSelection` (⌫, refused mid-gesture) and `escapeAsksForTheWholeBoard`; built per call by `CanvasView` (tripwire 32).
 - `CanvasDropHandler.swift` — `handleDrop(providers:at:)`, the one entry, routes to `handleDrop` (a research row or inbox capture) or `handleExternalDrop` (a photograph); holds no sibling helper; built per call by `CanvasView`, whose `body` mounts the one drop modifier.
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
