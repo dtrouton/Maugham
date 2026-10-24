@@ -15,6 +15,7 @@ Every file in `Maugham/OpLog/` appears once.
 - `Document+Tasks.swift` — task ops, `rebuildTasksCache`, `archiveTask`.
 - `Document+Rewind.swift` — `restoreToOp`, `applyRestore`, the restore door.
 - `Document+RewindUndo.swift` — `restoreToOpUndoable`: one grouped ⌘Z for a whole rewind.
+- `FigureDocument.swift` — a figure's host, never a `Document`: `load` emits nothing; mutators ask the figure's own posture (`editFigure`), else throw `FigureEditRefused`; ⌘Z via `registerFigureUndo`, drift-guarded.
 
 ### Typing, echo, recovery
 - `PendingBuffer.swift` — the burst buffer mirrored to the pending file (`{ basis?, changes, sequence }`).
@@ -185,7 +186,7 @@ Every file in `Maugham/OpLog/` appears once.
 - **A reopen is judged by what it undoes**: against the withdrawal it undoes by ownership (`AnnotationOwnership.mayAmend`), otherwise as a disposition (`mayDispose`), through `AnnotationAmendments`; the Mac door uses `requireRestoreHonoured` or `requireDispositionPermitted` with `dispositionProbe`. Restore follows who deleted the note, by key (`Document.restoreStanding`), never by the display name (`WithdrawnAnnotation.withdrawnBy`).
 - **A Restore beaten only by order refuses with `PostureRefusal.Cause.deletedAgainElsewhere`**, decided by re-deriving over the whole mirror plus a probe reopen sorting last. Do NOT go back to dropping later-sorting withdrawals (it dropped the root's too). The probe is never appended. `restoreStandingMemo` is cleared by `invalidateRestoreStandingMemo()` at every site that assigns or appends `_opLogMirror` or assigns `annotationAmendments` (census in `DocumentAmendmentOwnershipTests`).
 - **Every reader of the raw mirror asks the deriver's judgement** (`isWithdrawn`, `AnnotationDeriver.isHonouredLifecycleOp`), including the reject/splice repair, the rewind's return journey and `RewindImpact.preview`. A closed piece's rewind preview is judged as a load would (`Document.closedPieceHistory`, `Document.judgedAmendments`).
-- **Don't add a suspension point to `Document.load`**: its awaits are part of its contract (a pane can bind mid-load, `ProjectStore.withStatementDocument`). Even a bare `Task.yield()` before the bootstrap fails `PromotionPerformerTests.test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument`. Resolve on the store's actor (`trustOnThisActor`).
+- **Don't add a suspension point to `Document.load`**: its awaits are part of its contract (a pane can bind mid-load, `ProjectStore.withStatementDocument`). Resolve on the store's actor (`trustOnThisActor`).
 - **The stamp is live**: `Document.localWritePermit`'s one setter is `stamp(localWritePermit:)`, called by the load and by the posture refresh in `DocumentStore+Posture.swift` for every open document, statement editors included, in the same main-actor turn as the drawing publication. **A re-stamp keeps the author actor** (tripwire 38).
 - **Task ops have a door**: `appendTaskOpInternal` refuses a refused kind; `archiveTask` refuses up front if its op or its text splice is refused; undo declines with `UndoDecline.taskNotPermitted`. The project stream's verbs go through `ProjectStore.appendProjectTaskOp` (`projectTaskRefusal`), which registers no ⌘Z for a refused act.
 - **Every manuscript writer outside the editor asks first** (tripwire 52). A burst's emission is deliberately unguarded (the editor's membrane is in front of the keystroke). A restore refuses in `requireRestorePermitted` before its undo-stack clear, flush or op (`UndoDecline.restoreNotPermitted`). Project Replace, the rename's wiki-link sweep and statement writes ask `Document.mayWriteItsText` beside the store's settled posture (`Maugham/Stores/AREA.md`). The paragraph primitives also refuse inside (`Document.rejectTextWriteIfNotPermitted`). The population is `TripwireGrepTests.guardedDocumentMutators` and `manuscriptWriterCallSites`. Censuses: `TripwireGrepTests.test_everyGuardedDocumentMutatorIsClassified`, `test_everyManuscriptWriterOutsideTheEditorIsANamedSite`.
@@ -281,7 +282,7 @@ Checks: `TripwireGrepTests.test_everyGuardedDocumentMutatorIsClassified`, `test_
 1. Call `Document.load(url:actor:session:presenter:)` with the `DeviceActor` of the caller: `.author`, `.assistant`, `.translator` or `.maugham`. Never a `device:` string.
 2. Handle `DocumentLoadError.waitingForPiece` as a state, not an error, and never fall back to reading the `.md`.
 3. Add the path to `MaughamTests/OpLog/BootstrapWiringTests.swift`.
-4. Add no `await` inside `Document+Load.swift`'s load before the bootstrap: its suspension points are contract (see The load seam); resolve what you need on the store's actor.
+4. Add no `await` before the bootstrap in `Document+Load.swift` (see The load seam).
 
 Checks: `BootstrapWiringTests`, `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`, `DocumentWaitingTests`.
 

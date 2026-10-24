@@ -11960,6 +11960,21 @@ final class TripwireGrepTests: XCTestCase {
         "appendTaskOpInternal": "a task op — the task door",
         "appendTaskRewindCloser": "reached only after the doored restoreToOp",
         "applyMintedAnchors": "the load's own emission, the author's (tripwire 38), gated on mayAnchor",
+        // A figure's content (report plan 6a Task 6): FigureDocument's own
+        // `requireWritable` asks the FIGURE's posture (`.editFigure`) and
+        // throws `FigureEditRefused` before any op. Not a manuscript's words;
+        // report plan 6a Task 8 brings their spellings and callers into the
+        // writer census.
+        "setCell": "a figure's content — FigureDocument's door, the figure's posture",
+        "insertRow": "a figure's content — FigureDocument's door, the figure's posture",
+        "insertColumn": "a figure's content — FigureDocument's door, the figure's posture",
+        "deleteRow": "a figure's content — FigureDocument's door, the figure's posture",
+        "deleteColumn": "a figure's content — FigureDocument's door, the figure's posture",
+        "moveRow": "a figure's content — FigureDocument's door, the figure's posture",
+        "moveColumn": "a figure's content — FigureDocument's door, the figure's posture",
+        "setHeaderRows": "a figure's content — FigureDocument's door, the figure's posture",
+        "setTotalRow": "a figure's content — FigureDocument's door, the figure's posture",
+        "setColumnWidth": "a figure's content — FigureDocument's door, the figure's posture",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or

@@ -184,8 +184,10 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // and a first image (there is no clear). An undone insert is not
             // redoable in 6a: the deriver refuses to re-insert a tombstoned
             // id, so redo waits for plan 6b's revive (ruling R-6a-5). The figure host's
-            // OpUndoRegistrar registration (Task 6) is the caller.
-            return .inverseCovered(mechanism: "FigureInverse.inverse (nil for a row/column delete and a first image; insert undo declines redo until the revive API, since re-inserting a tombstoned id is refused, ruling R-6a-5), registered by the figure host (report plan 6a Task 6)")
+            // OpUndoRegistrar registration (`FigureDocument.registerFigureUndo`)
+            // is the caller; each undo declines when another device has since
+            // changed what the op wrote.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (nil for a row/column delete and a first image; insert undo declines redo until the revive API, since re-inserting a tombstoned id is refused, ruling R-6a-5), registered by FigureDocument.registerFigureUndo, drift-guarded")
 
         case .figureCreate:
             // Creating a figure is undone by deleting it, which is a registry
