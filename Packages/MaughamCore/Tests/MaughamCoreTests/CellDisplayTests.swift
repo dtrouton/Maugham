@@ -27,6 +27,9 @@ final class CellDisplayTests: XCTestCase {
         XCTAssertEqual(show(123_456_789_012, .general, gb), "1.23457E+11")
         XCTAssertEqual(show(2.0 / 3.0, .general, gb), "0.6666666667")
         XCTAssertEqual(show(-2.5, .general, gb), "-2.5")
+        XCTAssertEqual(show(1e-20, .general, gb), "1E-20")                 // scientific below 1e-9, never "0"
+        XCTAssertEqual(show(-1e-200, .general, gb), "-1E-200")
+        XCTAssertEqual(show(1.5e-10, .general, gb), "1.5E-10")
     }
 
     func test_number() {

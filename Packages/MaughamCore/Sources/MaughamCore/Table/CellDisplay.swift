@@ -44,7 +44,8 @@ public enum CellDisplay {
         case .number(let d, _), .currency(_, let d), .compact(let d): digits = clamp(d)
         case .percent(let d): digits = clamp(d) + 2
         }
-        var rounded = ExcelRounding.round(x, digits: digits ?? 15)
+        // General keeps 15 significant digits (0.1+0.2 is 0.3, 1e-20 stays 1E-20); fixed formats round to their places.
+        var rounded = digits.map { ExcelRounding.round(x, digits: $0) } ?? (Double(String(format: "%.15g", x)) ?? x)
         if case .compact = kind { rounded = ExcelRounding.round(x, digits: 15) }
         if rounded == 0 { rounded = 0 }                          // never "-0"
         if case .compact(let d) = kind, abs(rounded) < 1000, ExcelRounding.round(x, digits: clamp(d)) == 0 { rounded = 0 }
