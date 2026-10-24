@@ -126,6 +126,23 @@ final class FigureClassTests: XCTestCase {
             """)
     }
 
+    /// **A kind word from a later build never shuts the book** (ADR 0015,
+    /// ruling R-6a-3): the manifest decodes, the record keeps the word, and a
+    /// re-save writes the same bytes back.
+    func test_aFigureOfAnUnknownKindDecodesAndReEncodesByteIdentically() throws {
+        var chart = Self.record
+        chart.kind = .unknown("chart")
+        let original = try ProjectManifest.encodeForDisk(manifest(figures: [chart]))
+        let text = try XCTUnwrap(String(data: original, encoding: .utf8))
+        XCTAssertTrue(text.contains(#""kind" : "chart""#), text)
+        let decoded = try ProjectManifest.decodeGuardingSchema(original)
+        XCTAssertEqual(decoded.figures?.first?.kind, .unknown("chart"))
+        XCTAssertEqual(try ProjectManifest.encodeForDisk(decoded), original)
+        XCTAssertEqual(DocumentClass.resolve(docId: chart.id, manifest: decoded),
+                       .figure(id: chart.id, piece: "d_chapter1"),
+                       "whose figure it is does not turn on what it is")
+    }
+
     func test_aManifestWithFiguresRoundTripsThem() throws {
         var bookWide = Self.record
         bookWide.id = "fig-00000001"

@@ -2,9 +2,48 @@ import Foundation
 
 /// What a figure is: a table of cells, or an image. Fixed at `figureCreate`
 /// and recorded again in the manifest's figure registry.
-public enum FigureKind: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+///
+/// **Lossless for a later build's word** (ADR 0015, ruling R-6a-3). A kind
+/// is identity-bearing and sits in the manifest, so a word this build has
+/// never seen decodes as `.unknown(raw)` and re-encodes as that same string:
+/// the manifest still opens, and an older Mac that re-saves it relabels
+/// nothing. Nothing creates `.unknown`, and `FigureOpPayload.validate` refuses
+/// it for `figureCreate`. Not a `String`-raw enum, because the associated
+/// value cannot ride on `rawValue`; the coding is hand-written.
+public enum FigureKind: Codable, Equatable, Hashable, Sendable {
     case table
     case image
+    /// A kind word from a later build, kept verbatim.
+    case unknown(String)
+
+    /// The kinds this build knows — what a surface may offer.
+    public static let known: [FigureKind] = [.table, .image]
+
+    /// The wire word.
+    public var rawValue: String {
+        switch self {
+        case .table: return "table"
+        case .image: return "image"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    public init(rawValue: String) {
+        switch rawValue {
+        case "table": self = .table
+        case "image": self = .image
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
 }
 
 /// **A figure op's content** — `Op.figure`, JSON key `"figure"` (ruling D-a).
@@ -14,7 +53,7 @@ public enum FigureKind: String, Codable, Equatable, Hashable, Sendable, CaseIter
 /// rides here and never in `changes`.
 ///
 /// Every field is optional; which ones a kind needs is `validate(kind:payload:)`:
-/// - `figureCreate` — `kind`.
+/// - `figureCreate` — a `kind` this build knows (never `.unknown`).
 /// - `figureParked` — `parkedPath` and `parkedHash` (where the stream's figure
 ///   went in Research, and that file's content hash).
 /// - `figureResumed` — nothing.
@@ -84,7 +123,12 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     /// so it answers false.
     public static func validate(kind: OpKind, payload: FigureOpPayload) -> Bool {
         switch kind {
-        case .figureCreate: return payload.kind != nil
+        case .figureCreate:
+            // A later build's kind is kept when read, never created here.
+            switch payload.kind {
+            case .table?, .image?: return true
+            case .unknown?, nil: return false
+            }
         case .figureParked: return payload.parkedPath != nil && payload.parkedHash != nil
         case .figureResumed: return true
         case .figureCellSet: return payload.cell != nil

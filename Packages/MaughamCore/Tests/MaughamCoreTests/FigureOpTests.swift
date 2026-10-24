@@ -151,6 +151,22 @@ final class FigureOpTests: XCTestCase {
         XCTAssertEqual(Op.kind(ofLine: Data(raw.utf8)), .unknown)
     }
 
+    /// **A later build's FIGURE kind decodes too** (ruling R-6a-3): kept as
+    /// `.unknown`, re-encoded as the same word, and never a valid create.
+    func test_anUnknownFigureKindDecodesAndRoundTrips() throws {
+        let raw = #"{"at":"1970-01-01T00:00:00.000Z","changes":[],"device":"macA","doc_id":"fig-k3m9q2zt","figure":{"kind":"chart"},"kind":"figure_create","op_id":"01Z","session":"s"}"#
+        let op = try decoder().decode(Op.self, from: Data(raw.utf8))
+        XCTAssertEqual(op.kind, .figureCreate)
+        XCTAssertEqual(op.figure?.kind, .unknown("chart"))
+        XCTAssertFalse(FigureOpPayload.validate(kind: .figureCreate, payload: try XCTUnwrap(op.figure)),
+                       "a create of a kind this build cannot read is not a valid create")
+        XCTAssertEqual(String(data: try JSONEncoder().encode(FigureKind.unknown("chart")), encoding: .utf8),
+                       #""chart""#)
+        XCTAssertEqual(FigureKind(rawValue: "table"), .table)
+        XCTAssertEqual(FigureKind(rawValue: "image"), .image)
+        XCTAssertEqual(FigureKind.known, [.table, .image])
+    }
+
     // MARK: - The classifiers
 
     func test_noFigureKindIsManuscriptTextToTheDeriverOrALoadEmission() {
