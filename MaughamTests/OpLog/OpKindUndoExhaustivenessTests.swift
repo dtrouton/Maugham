@@ -173,17 +173,22 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // writer did in this window."
             return .nonUndoable(reason: "MCP-originated annotation creation; never registers on a window's undo stack (ADR 0023 §5)")
 
-        // MARK: - Figures (report plan 6a) — no writer yet
+        // MARK: - Figures (report plan 6a)
 
-        case .figureCreate, .figureCellSet, .figureStructure,
-             .figureSettings, .figureImageSet:
-            // Task 1 adds the kinds and the payload only; nothing in the app
-            // appends a figure op yet. Plan 6a's FigureInverse (Task 3) and
-            // the figure host's undo registration (Task 6) move the
-            // invertible ones to `.inverseCovered` naming their mechanism; a
-            // row or column delete stays without an inverse until plan 6b's
-            // tombstone revive.
-            return .nonUndoable(reason: "no writer appends a figure op yet (report plan 6a Task 1); FigureInverse and the figure host's registrar land in Tasks 3 and 6")
+        case .figureCellSet, .figureStructure, .figureSettings, .figureImageSet:
+            // FigureInverse.swift (Core) builds each compensating op from the
+            // payload alone: a cell set swaps next/prior, an insert becomes a
+            // delete, a move goes back to priorAfter, a setting swaps, an
+            // image set swaps to priorImage. Two shapes answer nil and so get
+            // no undo: a row/column delete (reviving a tombstone is plan 6b's)
+            // and a first image (there is no clear). The figure host's
+            // OpUndoRegistrar registration (Task 6) is the caller.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (nil for a row/column delete and a first image), registered by the figure host (report plan 6a Task 6)")
+
+        case .figureCreate:
+            // Creating a figure is undone by deleting it, which is a registry
+            // act built with the figure's lifecycle in plan 6b.
+            return .nonUndoable(reason: "creating a figure is undone by removing it, a registry act report plan 6b builds")
 
         case .figureParked, .figureResumed, .figurePinSet, .figurePinClear:
             // Send to Research, bringing a figure back and research pins are
@@ -267,6 +272,7 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
     /// construction — that's the point: the two must agree.
     func test_bucketMembership_matchesADR0023() {
         let covered: [OpKind] = [
+            .figureCellSet, .figureStructure, .figureSettings, .figureImageSet,
             .claudeReject, .claudeArchive, .annotationWithdraw, .annotationEdit,
             .annotationReopen, .annotationStet, .annotationTriage,
             .claudeAccept, .claudeAcceptRevert,
@@ -277,8 +283,7 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         let excluded: [OpKind] = [
             .typingBurst, .externalEdit, .checkpoint, .bootstrap,
             .claudeSuggestion, .claudeComment, .claudeQuery, .claudeCraftNote,
-            .figureCreate, .figureCellSet, .figureStructure, .figureSettings,
-            .figureImageSet, .figureParked, .figureResumed, .figurePinSet,
+            .figureCreate, .figureParked, .figureResumed, .figurePinSet,
             .figurePinClear,
             .unknown,
         ]

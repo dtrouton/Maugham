@@ -1,0 +1,203 @@
+import Foundation
+
+/// Where a parked figure went: its file in Research and that file's content
+/// hash (`figureParked`'s `parkedPath` / `parkedHash`).
+public struct FigureParking: Equatable, Sendable {
+    public var path: String
+    public var hash: String
+    public init(path: String, hash: String) { self.path = path; self.hash = hash }
+}
+
+/// **A figure as its op stream says it is** — content and lifecycle (ruling
+/// D-e). Name, piece and path are the manifest registry's (`FigureRecord`),
+/// never this.
+public struct FigureState: Equatable, Sendable {
+    /// The first `figureCreate`'s kind; nil before any create.
+    public var kind: FigureKind?
+    public var table: FigureTable
+    public var image: FigureImageRef?
+    /// Each cell's research pins, in the order first set; a cell with none has no key.
+    public var pins: [CellKey: [FigureResearchPin]]
+    /// Set while the figure is parked in Research; nil once resumed.
+    public var parked: FigureParking?
+    /// The device of the first `figureCreate`.
+    public var createdBy: String?
+    /// One line per op that could not apply, naming its op id. The op stays in
+    /// the log; only the view drops it.
+    public var diagnostics: [String]
+
+    public init(
+        kind: FigureKind? = nil, table: FigureTable = FigureTable(rows: 0, columns: 0),
+        image: FigureImageRef? = nil, pins: [CellKey: [FigureResearchPin]] = [:],
+        parked: FigureParking? = nil, createdBy: String? = nil, diagnostics: [String] = []
+    ) {
+        self.kind = kind
+        self.table = table
+        self.image = image
+        self.pins = pins
+        self.parked = parked
+        self.createdBy = createdBy
+        self.diagnostics = diagnostics
+    }
+}
+
+/// **Folds a figure's op stream onto a `FigureTable`.** Pure, no I/O, shared by
+/// the Mac and the phone (tripwire 19). Fold in the order `OpLogStore`'s
+/// `loadDiagnosed` / `loadSyncMerged` return — that merged order is the whole
+/// conflict rule:
+/// - **Per-cell last writer wins** in fold order.
+/// - **Delete beats edit** (spec §11.5): a cell set, pin or column width on a
+///   deleted or unknown row or column is dropped from the view and diagnosed;
+///   a delete takes the cells, pins and width it held.
+/// - **Concurrent inserts both survive**: an insert replays through
+///   `FigureTable.insertRow(_:after:)` by id, so two inserts after one row both
+///   land after it, the later-folded first.
+/// - The first `figureCreate` sets the kind; a later one is diagnosed and ignored.
+/// - `figureParked` sets `parked`, `figureResumed` clears it; content ops while
+///   parked still fold.
+///
+/// This is not the manuscript deriver, and never asks `Deriver.appliesToManuscript`
+/// (tripwire 44+1): a figure op is never manuscript text.
+public enum FigureDeriver {
+
+    public static func derive(_ ops: [Op]) -> FigureState {
+        var state = FigureState()
+        for op in ops { fold(op, into: &state) }
+        return state
+    }
+
+    /// Folds one op onto `state` — what `derive` does per op, for a host that
+    /// applies its own appends without re-deriving.
+    public static func fold(_ op: Op, into state: inout FigureState) {
+        guard FigureOpPayload.kinds.contains(op.kind) else {
+            return state.diagnostics.append("\(op.opId): \(op.kind.rawValue) is not a figure op")
+        }
+        guard let p = op.figure, FigureOpPayload.validate(kind: op.kind, payload: p) else {
+            return state.diagnostics.append("\(op.opId): \(op.kind.rawValue) is missing what it needs")
+        }
+        func drop(_ why: String) { state.diagnostics.append("\(op.opId): \(why)") }
+
+        switch op.kind {
+        case .figureCreate:
+            guard state.kind == nil else {
+                return drop("a second figure_create, ignored")
+            }
+            state.kind = p.kind
+            state.createdBy = op.device
+
+        case .figureParked:
+            if let path = p.parkedPath, let hash = p.parkedHash {
+                state.parked = FigureParking(path: path, hash: hash)
+            }
+
+        case .figureResumed:
+            state.parked = nil
+
+        case .figureCellSet:
+            guard let key = p.cell else { return }
+            guard isLive(key, in: state.table) else {
+                return drop("cell set on a deleted or unknown row or column (\(key.row.raw), \(key.column.raw))")
+            }
+            state.table.setCell(p.next, at: key)
+
+        case .figureStructure:
+            guard let change = p.structure else { return }
+            if let why = applyStructure(change, to: &state) { drop(why) }
+
+        case .figureSettings:
+            guard let change = p.settings else { return }
+            switch change {
+            case .headerRows(let rows, _):
+                state.table.headerRows = rows
+            case .totalRow(let total, _):
+                state.table.hasTotalRow = total
+            case .columnWidth(let column, let width, _):
+                guard state.table.columnIndex(of: column) != nil else {
+                    return drop("column width on a deleted or unknown column \(column.raw)")
+                }
+                state.table.columnWidths[column] = width
+            }
+
+        case .figureImageSet:
+            state.image = p.image
+
+        case .figurePinSet:
+            guard let key = p.cell, let pin = p.pin else { return }
+            guard isLive(key, in: state.table) else {
+                return drop("pin on a deleted or unknown row or column (\(key.row.raw), \(key.column.raw))")
+            }
+            var list = state.pins[key] ?? []
+            if let i = list.firstIndex(where: { sameSource($0, pin) }) {
+                list[i] = pin
+            } else {
+                list.append(pin)
+            }
+            state.pins[key] = list
+
+        case .figurePinClear:
+            guard let key = p.cell else { return }
+            if let pin = p.pin {
+                let list = (state.pins[key] ?? []).filter { !sameSource($0, pin) }
+                state.pins[key] = list.isEmpty ? nil : list
+            } else {
+                state.pins[key] = nil
+            }
+
+        default:
+            return   // unreachable: the kinds guard above
+        }
+    }
+
+    /// Applies `change`, or answers why it could not.
+    private static func applyStructure(_ change: FigureStructureChange, to state: inout FigureState) -> String? {
+        switch change {
+        case let .insertRow(id, after):
+            guard state.table.rowSlotIndex(of: id) == nil else {
+                return "insert of row \(id.raw), which already exists"
+            }
+            state.table.insertRow(id, after: after)
+            return nil
+        case let .insertColumn(id, after):
+            guard state.table.columnSlotIndex(of: id) == nil else {
+                return "insert of column \(id.raw), which already exists"
+            }
+            state.table.insertColumn(id, after: after)
+            return nil
+        case let .deleteRow(id):
+            guard state.table.rowIndex(of: id) != nil else {
+                return "delete of a deleted or unknown row \(id.raw)"
+            }
+            state.table.deleteRow(id)
+            state.pins = state.pins.filter { $0.key.row != id }
+            return nil
+        case let .deleteColumn(id):
+            guard state.table.columnIndex(of: id) != nil else {
+                return "delete of a deleted or unknown column \(id.raw)"
+            }
+            state.table.deleteColumn(id)
+            state.pins = state.pins.filter { $0.key.column != id }
+            return nil
+        case let .moveRow(id, after, _):
+            guard state.table.rowIndex(of: id) != nil, after != id else {
+                return "move of a deleted or unknown row \(id.raw)"
+            }
+            state.table.moveRow(id, after: after)
+            return nil
+        case let .moveColumn(id, after, _):
+            guard state.table.columnIndex(of: id) != nil, after != id else {
+                return "move of a deleted or unknown column \(id.raw)"
+            }
+            state.table.moveColumn(id, after: after)
+            return nil
+        }
+    }
+
+    private static func isLive(_ key: CellKey, in table: FigureTable) -> Bool {
+        table.rowIndex(of: key.row) != nil && table.columnIndex(of: key.column) != nil
+    }
+
+    /// Two pins read the same source cell: one research item, one row and column.
+    private static func sameSource(_ a: FigureResearchPin, _ b: FigureResearchPin) -> Bool {
+        a.research == b.research && a.row == b.row && a.column == b.column
+    }
+}
