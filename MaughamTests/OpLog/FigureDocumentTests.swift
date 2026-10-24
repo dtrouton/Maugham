@@ -36,6 +36,7 @@ final class FigureDocumentTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        ProjectStore.beforeFigureAppendForTesting = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -491,5 +492,112 @@ final class FigureDocumentTests: XCTestCase {
         XCTAssertEqual(b.state.table[keyB], text("sam"), "control: in his own piece's figure it applies")
         await a.close()
         await b.close()
+    }
+
+    // MARK: - The window's door (ruling R-6a-8)
+
+    /// A window on the book: this Mac roots the empty book at open.
+    private func openWindow() async throws -> (DocumentStore, ProjectStore) {
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        return (store, projectStore)
+    }
+
+    /// Sam is admitted as the author of piece B, so this root yields on B.
+    private func samWritesPieceB(_ store: DocumentStore) async throws {
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([Self.pieceB])))
+        await store.postureSettled()
+    }
+
+    /// **A figure follows its piece's window posture**: while the root yields
+    /// piece B to Sam, B's text and B's figures are both refused — editing one
+    /// and creating one; *Edit Anyway* on the piece lifts both.
+    func test_aFigureInAYieldedPieceIsRefusedWhileItsTextIs_editAnywayLiftsBoth() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createFigure(kind: .table, name: "b_table", piece: Self.pieceB)
+        try await samWritesPieceB(store)
+        XCTAssertFalse(store.posture(forDocId: Self.pieceB).allows(.writeText),
+                       "precondition: the piece's text is yielded")
+
+        let doc = try await FigureDocument.load(
+            figureId: record.id, projectURL: projectURL, actor: .author,
+            session: "s", presenter: nil, documentStore: store)
+        let key = try firstKey(doc)
+        let before = try streamBytes(of: record.id)
+        do {
+            try await doc.setCell(text("x"), at: key, undoManager: nil)
+            XCTFail("an edit in a yielded piece's figure was not refused")
+        } catch let refused as FigureEditRefused {
+            XCTAssertEqual(refused.what, .figure)
+        }
+        do {
+            _ = try await projectStore.createFigure(kind: .table, name: "more", piece: Self.pieceB)
+            XCTFail("creating a figure in a yielded piece was not refused")
+        } catch is FigureEditRefused {}
+        XCTAssertEqual(try streamBytes(of: record.id), before, "nothing was appended")
+        XCTAssertEqual(projectStore.manifest.figures?.count, 1, "and nothing was created")
+
+        store.overrideYield(docId: Self.pieceB)
+        XCTAssertTrue(store.posture(forDocId: Self.pieceB).allows(.writeText),
+                      "Edit Anyway lifts the piece's text")
+        try await doc.setCell(text("x"), at: key, undoManager: nil)
+        XCTAssertEqual(doc.state.table[key], text("x"), "and its figure")
+        let more = try await projectStore.createFigure(kind: .table, name: "more", piece: Self.pieceB)
+        XCTAssertEqual(more.piece, Self.pieceB, "and creating one there")
+        await doc.close()
+    }
+
+    /// **An undo refused at the door declines out loud**: the edit was made
+    /// while this Mac could write the figure; the yield began afterwards.
+    func test_anUndoRefusedAtTheDoorDeclines() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createFigure(kind: .table, name: "b_table", piece: Self.pieceB)
+        let doc = try await FigureDocument.load(
+            figureId: record.id, projectURL: projectURL, actor: .author,
+            session: "s", presenter: nil, documentStore: store)
+        let key = try firstKey(doc)
+        let um = UndoManager()
+        try await doc.setCell(text("mine"), at: key, undoManager: um)
+        try await samWritesPieceB(store)
+        let count = try ops(of: record.id).count
+
+        let said = await notices {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(said, ["Couldn't change the table — this Mac can no longer change this figure."])
+        XCTAssertEqual(doc.state.table[key], text("mine"), "the edit stands")
+        XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
+        await doc.close()
+    }
+
+    // MARK: - Write order
+
+    /// **The stream first, the record second**: an append that fails leaves no
+    /// registry record — at most a stream nobody lists.
+    func test_aFailedAppendLeavesNoRecord() async throws {
+        struct Boom: Error {}
+        let store = try await ProjectStore.load(from: projectURL)
+        ProjectStore.beforeFigureAppendForTesting = { op in
+            if op.kind == .figureStructure { throw Boom() }
+        }
+        do {
+            _ = try await store.createFigure(kind: .table, name: "t", piece: nil)
+            XCTFail("the injected append failure did not surface")
+        } catch is Boom {}
+        XCTAssertTrue(store.manifest.figures?.isEmpty ?? true, "no record in memory")
+        let onDisk = try ProjectManifest.makeDecoder().decode(
+            ProjectManifest.self,
+            from: Data(contentsOf: projectURL.appendingPathComponent(ProjectManifest.fileName)))
+        XCTAssertNil(onDisk.figures, "and none on disk")
+
+        ProjectStore.beforeFigureAppendForTesting = nil
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        XCTAssertEqual(record.name, "t", "the name was never taken")
     }
 }

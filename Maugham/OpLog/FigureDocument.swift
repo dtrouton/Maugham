@@ -41,8 +41,9 @@ public struct FigureEditInvalid: LocalizedError, Equatable {
 ///   so `Permit.isALoadEmission` is false for every figure kind and there is
 ///   nothing here for `authorEmissionDevice` to redirect.
 /// - **Every mutator asks the FIGURE's posture** (`Posture.Verb.editFigure`,
-///   through `PostureDoor` over this document's own `OpLogStore` and the
-///   manifest's `FigureRecord.piece`) behind its `requireWritable("…")` guard —
+///   the class carrying the manifest's `FigureRecord.piece`) behind its
+///   `requireWritable("…")` guard — the window's door where a window holds
+///   the figure, so the piece's yields and *Edit Anyway* apply (R-6a-8);
 ///   never a piece's posture, which answers yes under Option A. A refusal
 ///   throws `FigureEditRefused` before anything is written.
 /// - **Undo appends a compensating op** (ADR 0023) built by
@@ -79,6 +80,12 @@ public final class FigureDocument {
     /// `state` is re-derived from when an append fails.
     @ObservationIgnored private(set) var _ops: [Op]
 
+    /// The window's posture door, where a window holds this figure (ruling
+    /// R-6a-8): the figure's piece owner and starter yields and *Edit Anyway*
+    /// come from it. Nil for a figure no window holds, which asks Core's
+    /// `PostureDoor` directly (`RulingPerformer`'s windowless precedent).
+    @ObservationIgnored public weak var documentStore: DocumentStore?
+
     /// Test seam: the async hop of the last undo/redo (`Document`'s mirror).
     @ObservationIgnored internal var _lastUndoWorkTask: Task<Void, Never>?
 
@@ -113,14 +120,17 @@ public final class FigureDocument {
     /// `actor`, never a device string (tripwire 38).
     public static func load(
         figureId: String, projectURL: URL, actor: DeviceActor,
-        session: String, presenter: NSFilePresenter?
+        session: String, presenter: NSFilePresenter?,
+        documentStore: DocumentStore? = nil
     ) async throws -> FigureDocument {
         let opStore = Document.makeLoadOpStore(projectURL: projectURL, presenter: presenter)
         let (ops, provenance) = try await readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
-        return FigureDocument(
+        let doc = FigureDocument(
             figureId: figureId, projectURL: projectURL, actor: actor,
             session: session, opStore: opStore, ops: ops, provenance: provenance)
+        doc.documentStore = documentStore
+        return doc
     }
 
     /// Re-read the stream after another device's lines changed it (the
@@ -172,28 +182,40 @@ public final class FigureDocument {
 
     // MARK: - The door
 
-    /// **May this device's own hand change this figure?** The figure's posture
-    /// — its class is `.figure(id:, piece:)` from the registry — asked fresh,
-    /// so a demotion that landed since the load closes the door at the next
-    /// press. Never a piece's posture (Option A widens a piece, not a figure).
-    func mayEditHere() -> Bool {
+    /// **May this device's own hand change this figure?** The FIGURE's
+    /// posture — its class is `.figure(id:, piece:)` from the registry — never
+    /// a piece's (Option A widens a piece, not a figure). Asked fresh at every
+    /// press, so a demotion that landed since the load closes the door.
+    ///
+    /// **The window's door where a window holds it** (ruling R-6a-8): figure
+    /// edits follow the same window posture as the piece's text, so the
+    /// piece owner's and starter's yields and *Edit Anyway* apply —
+    /// `DocumentStore.settledPosture`, the acting accessor. With no window,
+    /// Core's `PostureDoor` directly. A `.settling` answer refuses.
+    func mayEditHere() async -> Bool {
         guard !isClosed else { return false }
-        return PostureDoor.posture(
-            forDocId: figureId, in: projectURL, as: actor, using: opStore
-        ).allows(.editFigure)
+        let posture: Posture
+        if let documentStore {
+            posture = await documentStore.settledPosture(forDocId: figureId, as: actor)
+        } else {
+            posture = PostureDoor.posture(
+                forDocId: figureId, in: projectURL, as: actor, using: opStore)
+        }
+        guard !isClosed, !posture.isSettling else { return false }
+        return posture.allows(.editFigure)
     }
 
     /// The guard every mutator opens with — the spelling tripwire 52's
     /// population is derived from. A closed document throws
     /// `DocumentNotWritableError`; a posture that refuses throws
     /// `FigureEditRefused` (`RefusedWhat.figure`).
-    func requireWritable(_ site: StaticString) throws {
+    func requireWritable(_ site: StaticString) async throws {
         if isClosed {
             documentLog.error(
                 "\(site, privacy: .public) called on a closed FigureDocument \(self.figureId, privacy: .public); no-op")
             throw DocumentNotWritableError(site: "\(site)")
         }
-        guard mayEditHere() else {
+        guard await mayEditHere() else {
             documentLog.error(
                 "\(site, privacy: .public) refused on \(self.figureId, privacy: .public): this device may not change this figure")
             throw FigureEditRefused(site: "\(site)")
@@ -204,7 +226,7 @@ public final class FigureDocument {
 
     /// Set (or clear, with nil) one cell. `prior` is the cell it replaces.
     public func setCell(_ cell: Cell?, at key: CellKey, undoManager: UndoManager? = nil) async throws {
-        try requireWritable("setCell")
+        try await requireWritable("setCell")
         try requireTable()
         guard isLive(key) else { throw FigureEditInvalid(reason: "that cell's row or column is gone") }
         let prior = state.table[key]
@@ -222,7 +244,7 @@ public final class FigureDocument {
     /// Insert a row after `after` (nil = first). Answers its minted id.
     @discardableResult
     public func insertRow(after: RowID?, undoManager: UndoManager? = nil) async throws -> RowID {
-        try requireWritable("insertRow")
+        try await requireWritable("insertRow")
         try requireTable()
         if let after, state.table.rowSlotIndex(of: after) == nil {
             throw FigureEditInvalid(reason: "no such row to insert after")
@@ -239,7 +261,7 @@ public final class FigureDocument {
     /// Insert a column after `after` (nil = first). Answers its minted id.
     @discardableResult
     public func insertColumn(after: ColumnID?, undoManager: UndoManager? = nil) async throws -> ColumnID {
-        try requireWritable("insertColumn")
+        try await requireWritable("insertColumn")
         try requireTable()
         if let after, state.table.columnSlotIndex(of: after) == nil {
             throw FigureEditInvalid(reason: "no such column to insert after")
@@ -255,7 +277,7 @@ public final class FigureDocument {
 
     /// Delete a row. **No ⌘Z in 6a**: reviving a tombstone is plan 6b's.
     public func deleteRow(_ id: RowID) async throws {
-        try requireWritable("deleteRow")
+        try await requireWritable("deleteRow")
         try requireTable()
         guard state.table.rowIndex(of: id) != nil else { throw FigureEditInvalid(reason: "that row is gone") }
         try await commit(.figureStructure, FigureOpPayload(structure: .deleteRow(id)))
@@ -263,7 +285,7 @@ public final class FigureDocument {
 
     /// Delete a column. **No ⌘Z in 6a**: reviving a tombstone is plan 6b's.
     public func deleteColumn(_ id: ColumnID) async throws {
-        try requireWritable("deleteColumn")
+        try await requireWritable("deleteColumn")
         try requireTable()
         guard state.table.columnIndex(of: id) != nil else { throw FigureEditInvalid(reason: "that column is gone") }
         try await commit(.figureStructure, FigureOpPayload(structure: .deleteColumn(id)))
@@ -271,7 +293,7 @@ public final class FigureDocument {
 
     /// Move a row to just after `after` (nil = first).
     public func moveRow(_ id: RowID, after: RowID?, undoManager: UndoManager? = nil) async throws {
-        try requireWritable("moveRow")
+        try await requireWritable("moveRow")
         try requireTable()
         guard state.table.rowIndex(of: id) != nil, after != id else { throw FigureEditInvalid(reason: "that row cannot move there") }
         if let after, state.table.rowSlotIndex(of: after) == nil {
@@ -294,7 +316,7 @@ public final class FigureDocument {
 
     /// Move a column to just after `after` (nil = first).
     public func moveColumn(_ id: ColumnID, after: ColumnID?, undoManager: UndoManager? = nil) async throws {
-        try requireWritable("moveColumn")
+        try await requireWritable("moveColumn")
         try requireTable()
         guard state.table.columnIndex(of: id) != nil, after != id else { throw FigureEditInvalid(reason: "that column cannot move there") }
         if let after, state.table.columnSlotIndex(of: after) == nil {
@@ -318,7 +340,7 @@ public final class FigureDocument {
     /// Header rows: 0 or 1 (`FigureTable` clamps; so does this, so the op
     /// says what the table will hold).
     public func setHeaderRows(_ rows: Int, undoManager: UndoManager? = nil) async throws {
-        try requireWritable("setHeaderRows")
+        try await requireWritable("setHeaderRows")
         try requireTable()
         let rows = min(max(rows, 0), 1)
         let prior = state.table.headerRows
@@ -335,7 +357,7 @@ public final class FigureDocument {
 
     /// Whether the last row is a total row.
     public func setTotalRow(_ total: Bool, undoManager: UndoManager? = nil) async throws {
-        try requireWritable("setTotalRow")
+        try await requireWritable("setTotalRow")
         try requireTable()
         let prior = state.table.hasTotalRow
         guard prior != total else { return }
@@ -351,7 +373,7 @@ public final class FigureDocument {
 
     /// A column's width; nil is the automatic width.
     public func setColumnWidth(_ column: ColumnID, _ width: Double?, undoManager: UndoManager? = nil) async throws {
-        try requireWritable("setColumnWidth")
+        try await requireWritable("setColumnWidth")
         try requireTable()
         guard state.table.columnIndex(of: column) != nil else { throw FigureEditInvalid(reason: "that column is gone") }
         let prior = state.table.columnWidths[column]
@@ -411,10 +433,11 @@ public final class FigureDocument {
     /// `OpKindUndoExhaustivenessTests` names. The inverse is
     /// `FigureInverse.inverse` of the forward op's payload; where it answers
     /// nil (a delete, a first image) nothing is registered. The undo:
-    /// 1. **drift guard** — `stillAsWritten` must hold (the cell still holds
+    /// 1. **the door** — this Mac must still be allowed to change the figure
+    ///    (the window's posture, yields included);
+    /// 2. **drift guard** — `stillAsWritten` must hold (the cell still holds
     ///    the op's `next`, the row is still where the move put it, …), or it
     ///    declines rather than clobber another device's write;
-    /// 2. **the door** — this Mac must still be allowed to change the figure;
     /// 3. appends the compensating op, registering nothing further (the
     ///    registrar has already put `redo` on the redo stack).
     func registerFigureUndo(
@@ -429,8 +452,11 @@ public final class FigureDocument {
             undoManager, actionName: actionName, target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { d in
+                guard !d.isClosed else { return }
+                guard await d.mayEditHere() else { return d.decline(.notPermitted) }
+                // After the door's await, so nothing lands between the check
+                // and the append.
                 guard stillAsWritten(d) else { return d.decline(.drifted) }
-                guard d.mayEditHere() else { return d.decline(.notPermitted) }
                 do { try await d.commit(kind, inverse) } catch {
                     documentLog.error("figure undo append failed on \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }

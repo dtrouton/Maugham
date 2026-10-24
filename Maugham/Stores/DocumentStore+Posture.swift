@@ -223,14 +223,26 @@ extension DocumentStore {
     private func assemble(
         _ permit: LocalWritePermit, forDocId docId: String, as actor: DeviceActor
     ) -> Posture {
+        assemble(permit, yieldPiece: postureYieldPiece(forDocId: docId),
+                 overrideKey: docId, as: actor)
+    }
+
+    /// `assemble` over a yield piece the caller already knows — the class's
+    /// piece, or (a figure not yet in the manifest) the piece it will join.
+    /// `overrideKey` is what *Edit Anyway* was recorded under where the class
+    /// names no piece.
+    private func assemble(
+        _ permit: LocalWritePermit, yieldPiece: String?, overrideKey: String,
+        as actor: DeviceActor
+    ) -> Posture {
         let book = postureBook
         if actor == .author, let starter = permit.unsettledStarter,
-           !book.overridden.contains(postureYieldPiece(forDocId: docId) ?? docId) {
+           !book.overridden.contains(yieldPiece ?? overrideKey) {
             return PostureDoor.posture(
                 permit: permit, yieldingTo: starter.yieldName)
         }
         guard actor == .author, !book.yields.isEmpty,
-              let piece = postureYieldPiece(forDocId: docId),
+              let piece = yieldPiece,
               !book.overridden.contains(piece),
               let yielding = book.yields[piece]
         else { return PostureDoor.posture(permit: permit) }
@@ -296,18 +308,8 @@ extension DocumentStore {
     func settledPosture(
         forDocId docId: String, as actor: DeviceActor = .author
     ) async -> Posture {
-        await postureSettled()
+        await warmPostureTableForActing()
         let book = postureBook
-        for _ in 0..<Self.settleAttempts {
-            if postureTableIsWarm() { break }
-            let generation = book.generation
-            let signature = TrustResolution.signature(of: projectURL)
-            await postureOpStore.prepareTrust()
-            // A trust change that arrived meanwhile forgot the table this
-            // warmed; its own refresh will set the signature.
-            if book.generation == generation { book.readySignature = signature }
-            await postureSettled()
-        }
         let key = PostureBook.Key(docId: docId, actor: actor)
         book.asked.insert(key)
         let permit = book.permits[key] ?? {
@@ -325,6 +327,41 @@ extension DocumentStore {
         forPath path: String, as actor: DeviceActor = .author
     ) async -> Posture {
         await settledPosture(forDocId: postureDocId(forPath: path), as: actor)
+    }
+
+    /// **The acting answer for a figure that does not exist yet** (report
+    /// plan 6a, ruling R-6a-8): `createFigure` asks the class the new figure
+    /// WILL have — `.figure(id:, piece:)`, which no manifest names yet, so it
+    /// cannot be asked by id — and the piece's yields and *Edit Anyway* apply
+    /// exactly as they will once it exists (`yieldPiece(of:)`'s figure arm).
+    /// Never provisional, never cached.
+    func settledPosture(
+        forNewFigure figureId: String, piece: String?, as actor: DeviceActor = .author
+    ) async -> Posture {
+        await warmPostureTableForActing()
+        postureBook.builderCalls += 1
+        let permit = postureOpStore.localWritePermit(as: actor) {
+            .figure(id: figureId, piece: piece)
+        }
+        return assemble(permit, yieldPiece: piece, overrideKey: figureId, as: actor)
+    }
+
+    /// Wait out any refresh, then make sure the table is warm before an acting
+    /// answer is built: if the folder moved since it was warmed, warm it again
+    /// off the main actor, a bounded number of times.
+    private func warmPostureTableForActing() async {
+        await postureSettled()
+        let book = postureBook
+        for _ in 0..<Self.settleAttempts {
+            if postureTableIsWarm() { break }
+            let generation = book.generation
+            let signature = TrustResolution.signature(of: projectURL)
+            await postureOpStore.prepareTrust()
+            // A trust change that arrived meanwhile forgot the table this
+            // warmed; its own refresh will set the signature.
+            if book.generation == generation { book.readySignature = signature }
+            await postureSettled()
+        }
     }
 
     private static var settleAttempts: Int { 3 }
