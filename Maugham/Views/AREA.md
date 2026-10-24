@@ -253,7 +253,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The subject and the tree
 - **The tree is the window's single subject-picker** (`BinderSubject`, no `rawValue`, no `init(String)`): a second picker beside it is two controls that can disagree.
 - **Every tree's `List` selects through `BinderTreeSelection`, never `List(selection: $selectedSubject)`**: AppKit writes `nil` when an untagged placeholder row is clicked, and the binding refuses it (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`).
-- **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`**: one-way counters both ways (tripwire 2), the window's arguments censused in `PromotionCommandTests`; Tab inside a rename stays in it (`PlanBinderTabTests`).
+- **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`**: one-way counters both ways (tripwire 2), censused in `PromotionCommandTests`; ⇧Tab only where `ProjectWindow.binderTakesTheKeyboardBack`; a rename keeps Tab (`PlanBinderTabTests`).
 - **The subject is DERIVED from the tree's selection set**: an anchor that leaves is replaced by the first remaining row in tree order (`ordered`, never `Set.first`). There is no sweep of the set; `SubjectValidationModifier` is the one rule about dead ids.
 - **Only a homogeneous research selection batches**: a set holding the project row or a chapter degrades every research verb to the row it was aimed at.
 - **The five dead strip spellings — `BinderSegment`, `binderSegments(`, `binderHome(`, `findActive`, `selectedResearchId` — never return to production code**: `TripwireGrepTests.test_noProductionSpellingOfTheDeadStripSurvives`.

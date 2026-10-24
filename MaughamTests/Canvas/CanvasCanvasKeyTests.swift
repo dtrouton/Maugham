@@ -46,6 +46,8 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let camera = Box(CanvasCamera())
         let keyboardTicket = Box(0)
         let treeAsks = Box(0)
+        /// Whether a visible binder answers ⇧Tab; the window hands nil if not.
+        var treeAnswers = true
 
         var layoutPass: CanvasLayoutPass {
             CanvasLayoutPass(model: model,
@@ -82,7 +84,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
             CanvasKeyHandler(model: model,
                              subject: subject,
                              selectTheProjectRow: {},
-                             returnKeyboardToTree: { treeAsks.value += 1 },
+                             returnKeyboardToTree: treeAnswers ? { treeAsks.value += 1 } : nil,
                              editFocus: editFocus,
                              layoutPass: layoutPass,
                              scrapFlow: scrapFlow,
@@ -584,6 +586,16 @@ final class CanvasCanvasKeyTests: XCTestCase {
     }
 
     // MARK: - ⇧Tab, back to the binder
+
+    /// With no visible binder to answer (nil), ⇧Tab is not used and travels on.
+    func test_backtabWithNoBinderToAnswerTravelsOn() {
+        let model = populatedModel()
+        var f = fixture(model, selecting: .node(a))
+        f.treeAnswers = false
+        let before = ids(model)
+        XCTAssertFalse(f.key(.backtab), "⇧Tab was claimed with no binder to answer it")
+        assertUntouched(f, before: before, selection: .node(a), "⇧Tab with no binder")
+    }
 
     /// ⇧Tab asks the window for the binder once, whatever is selected, and
     /// changes nothing on the board. It creates nothing, so read-only does

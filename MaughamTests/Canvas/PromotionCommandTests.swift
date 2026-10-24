@@ -608,7 +608,8 @@ final class PromotionCommandTests: XCTestCase {
             (Self.window,
              ["keyboardRequest: canvasKeyboardRequest",
               "returnKeyboardToTree: returnKeyboardToTree",
-              "returnKeyboardToTree: { treeKeyboardRequest += 1 }",
+              "Self.binderTakesTheKeyboardBack(",
+              "? { treeKeyboardRequest += 1 } : nil",
               "tabReachesTheCanvas: persona.centresTheCanvas",
               "giveTheCanvasTheKeyboard: { canvasKeyboardRequest += 1 }",
               "treeKeyboardRequest: treeKeyboardRequest"],
@@ -620,10 +621,20 @@ final class PromotionCommandTests: XCTestCase {
              + "every test that hosts its own canvas or tree green while Tab "
              + "stays in the binder, or ⇧Tab strands the keyboard on the "
              + "canvas. `PlanBinderTabTests` drives the real window end to "
-             + "end; these tokens say which argument went missing"),
+             + "end; these tokens say which argument went missing. ⇧Tab's "
+             + "closure is nil unless `binderTakesTheKeyboardBack` says a "
+             + "visible binder will answer, so the key travels on otherwise"),
             ("Maugham/Views/BinderPaneToggle.swift", ["canvasKeyboard: canvasKeyboard"],
              "the shell hands the window's hand-off to `BinderView`; dropped, "
              + "the default is a tree with no canvas beside it and Tab never leaves"),
+            ("Maugham/Views/BinderView.swift", ["renamingRow: renamingItemId",
+                                                "renamingInSections: treeState.renamingItemId"],
+             "Tab inside a rename stays in the rename, and the gate is asked "
+             + "with BOTH trees' rename state at the call site. The chapter "
+             + "rename is `BinderView`'s private `@State`, which no mounted "
+             + "test can start without a press (tripwire 33), so passing nil "
+             + "or the wrong state here would send a chapter rename's Tab to "
+             + "the canvas with every test green"),
             ("Maugham/Views/InboxPane.swift",
              [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
              "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "

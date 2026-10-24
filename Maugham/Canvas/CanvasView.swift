@@ -182,8 +182,9 @@ struct CanvasView: View {
     var keyboardRequest: Int = 0
 
     /// ⇧Tab on the canvas: a one-way ask the window answers by focusing the
-    /// binder's `List`. Defaulted and censused for `keyboardRequest`'s reasons.
-    var returnKeyboardToTree: () -> Void = {}
+    /// binder's `List`. Nil where no visible binder would answer, and then ⇧Tab
+    /// travels on. Defaulted and censused for `keyboardRequest`'s reasons.
+    var returnKeyboardToTree: (() -> Void)? = nil
 
     @State private var camera = CanvasCamera()
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]

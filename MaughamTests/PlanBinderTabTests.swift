@@ -45,15 +45,44 @@ final class PlanBinderTabTests: XCTestCase {
     func test_tabGoesToTheCanvasOnlyBesideOneAndNeverDuringARename() {
         for persona in Persona.allCases {
             let keyboard = TreeCanvasKeyboard(tabReachesTheCanvas: persona.centresTheCanvas)
-            XCTAssertEqual(keyboard.tabGoesToTheCanvas(renamingRow: nil, renamingInSections: nil),
+            XCTAssertEqual(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: nil, renamingInSections: nil),
                            persona.centresTheCanvas, "\(persona)")
-            XCTAssertFalse(keyboard.tabGoesToTheCanvas(renamingRow: "d1", renamingInSections: nil),
+            XCTAssertFalse(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: "d1", renamingInSections: nil),
                            "\(persona): Tab left a chapter's rename")
-            XCTAssertFalse(keyboard.tabGoesToTheCanvas(renamingRow: nil, renamingInSections: "r1"),
+            XCTAssertFalse(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: nil, renamingInSections: "r1"),
                            "\(persona): Tab left a research row's rename")
+        }
+        let plan = TreeCanvasKeyboard(tabReachesTheCanvas: true)
+        XCTAssertTrue(plan.tabGoesToTheCanvas(modifiers: .capsLock, renamingRow: nil, renamingInSections: nil),
+                      "Caps Lock on stopped Tab reaching the canvas")
+        for modifier: EventModifiers in [.shift, .option, .control, .command, [.capsLock, .option]] {
+            XCTAssertFalse(plan.tabGoesToTheCanvas(modifiers: modifier, renamingRow: nil, renamingInSections: nil),
+                           "a modified Tab (\(modifier.rawValue)) went to the canvas")
         }
         XCTAssertFalse(TreeCanvasKeyboard().tabReachesTheCanvas,
                        "a tree with no canvas beside it must keep AppKit's Tab")
+    }
+
+    /// ⇧Tab is answered only by a visible `BinderView`: the binder's project
+    /// kinds, no find overlay, no ⌘\ collapse, not `.detailOnly`.
+    func test_onlyAVisibleBinderTakesTheKeyboardBack() {
+        func ask(_ type: ProjectType, find: Bool = false, collapsed: Bool = false,
+                 _ visibility: NavigationSplitViewVisibility) -> Bool {
+            ProjectWindow.binderTakesTheKeyboardBack(
+                projectType: type, treeFindActive: find, canvasCollapsed: collapsed,
+                columnVisibility: visibility)
+        }
+        for type in [ProjectType.novel, .shortStory, .unknown, .screenplay, .collection] {
+            let binder = TreePane(for: type) == .binder
+            // `.automatic` is the window's launch value, and it `==`s
+            // `.doubleColumn`, so the collapse is the stash, not the visibility.
+            for visibility in [NavigationSplitViewVisibility.all, .automatic] {
+                XCTAssertEqual(ask(type, visibility), binder, "\(type), sidebar showing")
+                XCTAssertFalse(ask(type, find: true, visibility), "\(type): find covers the tree")
+                XCTAssertFalse(ask(type, collapsed: true, visibility), "\(type): ⌘\\ collapsed it")
+            }
+            XCTAssertFalse(ask(type, .detailOnly), "\(type): detail only")
+        }
     }
 
     // MARK: - The real window
@@ -118,6 +147,40 @@ final class PlanBinderTabTests: XCTestCase {
         XCTAssertEqual(binder.selectedRow, 2, "Return in the binder moved the selection")
     }
 
+    /// ⌘\ collapses the sidebar under the canvas: ⇧Tab there must not move
+    /// the keyboard into the hidden binder, and must not be swallowed — it
+    /// travels on to the window, as an unused canvas key does. The collapse is
+    /// the window's own command, posted, not pressed. The control: the same
+    /// key with the sidebar showing is claimed and never reaches the window.
+    func test_shiftTabWithTheSidebarCollapsedStaysOnTheCanvas() async throws {
+        let window: TravelCountingWindow = try await planWindow(as: TravelCountingWindow.self)
+        let control = try canvasView(in: window)
+        XCTAssertTrue(window.makeFirstResponder(control))
+        NSApp.sendEvent(backtab(window))
+        await waitOut(0.3)
+        XCTAssertEqual(window.backtabsReachingTheWindow, 0,
+                       "control: with the sidebar showing, ⇧Tab is the canvas's")
+
+        let binder = try binderOutline(in: window)
+        let canvas = try canvasView(in: window)
+        MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
+        _ = await pumpUntil(deadline: 3) { binder.window == nil || binder.isHiddenOrHasHiddenAncestor
+            || binder.visibleRect.isEmpty }
+        pump(0.4)
+        XCTAssertTrue(window.makeFirstResponder(canvas), "precondition: the canvas holds the keyboard")
+
+        NSApp.sendEvent(backtab(window))
+        await waitOut(0.5)
+
+        XCTAssertEqual(window.backtabsReachingTheWindow, 1,
+                       "⇧Tab with the sidebar collapsed was claimed for a binder nobody can see")
+        XCTAssertFalse(window.firstResponder === binder,
+                       "⇧Tab moved the keyboard into a collapsed binder")
+        XCTAssertTrue(window.firstResponder === canvas,
+                      "⇧Tab with the sidebar collapsed left the keyboard at "
+                      + String(describing: window.firstResponder))
+    }
+
     /// Author's centre is the editor: a Tab in its binder asks nothing of a
     /// canvas. Driven in the probe, so a canvas IS beside the tree and could
     /// have been reached; the window passes `persona.centresTheCanvas`
@@ -146,7 +209,11 @@ final class PlanBinderTabTests: XCTestCase {
     }
 
     /// Tab inside a rename belongs to the rename: the field keeps the keyboard
-    /// and the canvas is not asked.
+    /// and the canvas is not asked. This drives a research-row rename; the
+    /// chapter half (`BinderView`'s private rename state, unreachable without
+    /// a press) is pinned by the decision test above and by the
+    /// `renamingRow: renamingItemId` / `renamingInSections:
+    /// treeState.renamingItemId` census tokens in `PromotionCommandTests`.
     func test_tabDuringABinderRenameStaysInTheRename() async throws {
         let (window, probe) = try await probeWindow(persona: .plan, researchNote: "Tides")
         let canvas = try canvasView(in: window)
@@ -169,6 +236,10 @@ final class PlanBinderTabTests: XCTestCase {
     // MARK: - Hosts
 
     private func planWindow() async throws -> NSWindow {
+        try await planWindow(as: KeyTestWindow.self)
+    }
+
+    private func planWindow<W: NSWindow>(as type: W.Type) async throws -> W {
         let url = try await novel(chapters: 3, persona: .plan)
         let registry = ProjectRegistry()
         let window = TestWindow.mount(
@@ -179,7 +250,7 @@ final class PlanBinderTabTests: XCTestCase {
                     .environment(ProjectSessionRegistry(mcp: registry))
                     .environment(BackupCoordinator())),
             size: CGSize(width: 1200, height: 700),
-            as: KeyTestWindow.self, styleMask: [.titled, .resizable],
+            as: type, styleMask: [.titled, .resizable],
             present: .key)
         windows.append(window)
         _ = await pumpUntil(deadline: 20) {
@@ -297,6 +368,17 @@ final class PlanBinderTabTests: XCTestCase {
                          windowNumber: window.windowNumber, context: nil,
                          characters: characters, charactersIgnoringModifiers: characters,
                          isARepeat: false, keyCode: keyCode)!
+    }
+}
+
+/// A silent window that reports key and counts the ⇧Tabs reaching its own
+/// `keyDown` — the end of the responder chain, which a claimed key never reaches.
+private final class TravelCountingWindow: SilentTestWindow {
+    private(set) var backtabsReachingTheWindow = 0
+    override var isKeyWindow: Bool { true }
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == "\u{19}" { backtabsReachingTheWindow += 1 }
+        super.keyDown(with: event)
     }
 }
 

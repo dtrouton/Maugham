@@ -15,8 +15,9 @@ struct CanvasKeyHandler {
     let model: CanvasModel
     let subject: CanvasSubject
     let selectTheProjectRow: () -> Void
-    /// ⇧Tab's one-way ask: the window focuses the binder (`CanvasView`'s input).
-    let returnKeyboardToTree: () -> Void
+    /// ⇧Tab's one-way ask: the window focuses the binder (`CanvasView`'s
+    /// input). Nil where no visible binder answers it.
+    let returnKeyboardToTree: (() -> Void)?
     let editFocus: CanvasEditFocus
     let layoutPass: CanvasLayoutPass
     let scrapFlow: CanvasScrapFlow
@@ -112,7 +113,9 @@ struct CanvasKeyHandler {
         case (.arrow(let arrow), _):
             return selectNearest(arrow, from: selection, viewSize: viewSize)
         case (.backtab, _):
-            // Back to the binder; it creates nothing, so no gate.
+            // Back to the binder; it creates nothing, so no gate. With no
+            // binder to answer, the key is not used and travels on.
+            guard let returnKeyboardToTree else { return false }
             returnKeyboardToTree()
             return true
         case (.returnKey, nil):

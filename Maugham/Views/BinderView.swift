@@ -87,8 +87,8 @@ struct BinderView: View {
             // Plan's Tab hands the keyboard to the canvas; anywhere else, or
             // during a rename, it is ignored and travels on as before.
             .onKeyPress(keys: [.tab], phases: .down) { press in
-                guard press.modifiers.isEmpty,
-                      canvasKeyboard.tabGoesToTheCanvas(
+                guard canvasKeyboard.tabGoesToTheCanvas(
+                        modifiers: press.modifiers,
                         renamingRow: renamingItemId,
                         renamingInSections: treeState.renamingItemId)
                 else { return .ignored }
@@ -683,7 +683,10 @@ struct TreeCanvasKeyboard {
 
     /// Whether Tab goes to the canvas: only beside one, and never while a row
     /// is being renamed — Tab in a rename stays in the rename.
-    func tabGoesToTheCanvas(renamingRow: String?, renamingInSections: String?) -> Bool {
-        tabReachesTheCanvas && renamingRow == nil && renamingInSections == nil
+    /// Caps Lock is not a modifier the writer chose, so it does not stop it.
+    func tabGoesToTheCanvas(modifiers: EventModifiers,
+                            renamingRow: String?, renamingInSections: String?) -> Bool {
+        modifiers.subtracting(.capsLock).isEmpty
+            && tabReachesTheCanvas && renamingRow == nil && renamingInSections == nil
     }
 }

@@ -1261,7 +1261,11 @@ struct ProjectWindow: View {
             runRoundWhenPieceOpens: { runRoundWhenPieceOpens(pieceId: $0) },
             posture: { postureDrawn(forDocId: $0) },
             canvasKeyboardRequest: canvasKeyboardRequest,
-            returnKeyboardToTree: { treeKeyboardRequest += 1 })
+            // Only a visible binder answers ⇧Tab; otherwise the key travels on.
+            returnKeyboardToTree: Self.binderTakesTheKeyboardBack(
+                projectType: store.manifest.type, treeFindActive: treeFindActive,
+                canvasCollapsed: inspectorWasVisibleBeforeCanvasCollapse != nil,
+                columnVisibility: columnVisibility) ? { treeKeyboardRequest += 1 } : nil)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
@@ -1915,6 +1919,27 @@ struct ProjectWindow: View {
             return .release(columnVisibility: .all, showInspector: prior)
         default:
             return .unchanged
+        }
+    }
+
+    /// Whether a visible `BinderView` can answer the canvas's ⇧Tab (spec §1):
+    /// the project's tree is the binder, find does not cover it, ⌘\ has not
+    /// collapsed the sidebar, and the columns are not `.detailOnly`. Anywhere
+    /// else ⇧Tab travels on rather than being claimed by a tree that is not
+    /// there to take it.
+    ///
+    /// The collapse is read from its stash, not from `columnVisibility`:
+    /// `.automatic == .doubleColumn` (measured 2026-10-24), and the window
+    /// starts at `.automatic`, so `==` cannot tell the collapse from launch.
+    static func binderTakesTheKeyboardBack(projectType: ProjectType,
+                                           treeFindActive: Bool,
+                                           canvasCollapsed: Bool,
+                                           columnVisibility: NavigationSplitViewVisibility) -> Bool {
+        guard !treeFindActive, !canvasCollapsed,
+              columnVisibility != .detailOnly else { return false }
+        switch TreePane(for: projectType) {
+        case .binder: return true
+        case .sceneNavigator, .collectionPieces: return false
         }
     }
 

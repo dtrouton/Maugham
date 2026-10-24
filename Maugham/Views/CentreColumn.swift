@@ -57,9 +57,10 @@ struct CentreColumn: View {
     /// The drawing door's posture for one document.
     let posture: (_ docId: String) -> Posture
     /// Plan's Tab from the binder (`CanvasView.keyboardRequest`) and the
-    /// canvas's ⇧Tab back (`CanvasView.returnKeyboardToTree`).
+    /// canvas's ⇧Tab back (`CanvasView.returnKeyboardToTree`; nil where no
+    /// visible binder answers it).
     let canvasKeyboardRequest: Int
-    let returnKeyboardToTree: () -> Void
+    let returnKeyboardToTree: (() -> Void)?
 
     /// **The board's open-notes column, computed OFF the body path** — piece id
     /// → how many notes it still has open, and the pieces whose op logs could
