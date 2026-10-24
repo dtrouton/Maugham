@@ -6437,8 +6437,8 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - The canvas has one drop modifier (canvas-keyboard-flow Task 1)
 
-    /// `file:codeLine` for every drop modifier under `dir`, comments excluded:
-    /// each `.onDrop(of:` and each `.dropDestination(for:`.
+    /// `file:line` (1-based, in the source file) for every drop modifier under
+    /// `dir`, comments excluded: each `.onDrop(of:` and each `.dropDestination(for:`.
     private func dropModifiers(under dir: URL) throws -> (onDrop: [String], destination: [String]) {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
@@ -6446,12 +6446,11 @@ final class TripwireGrepTests: XCTestCase {
         }
         var onDrop: [String] = [], destination: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let lines = SourceScan.codeLines(of: try String(contentsOf: url, encoding: .utf8))
-            for (i, line) in lines.enumerated() {
-                if line.contains(".onDrop(of:") { onDrop.append("\(url.lastPathComponent):\(i)") }
-                if line.contains(".dropDestination(for:") {
-                    destination.append("\(url.lastPathComponent):\(i)")
-                }
+            let source = try String(contentsOf: url, encoding: .utf8)
+            for line in SourceScan.numberedCodeLines(of: source) {
+                let at = "\(url.lastPathComponent):\(line.number)"
+                if line.text.contains(".onDrop(of:") { onDrop.append(at) }
+                if line.text.contains(".dropDestination(for:") { destination.append(at) }
             }
         }
         return (onDrop.sorted(), destination.sorted())
@@ -6521,6 +6520,9 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: two planted `.onDrop`s, and the comment not counted: \(found.onDrop)")
         XCTAssertEqual(found.destination.count, 1,
             "Self-check: the planted String destination is caught: \(found.destination)")
+        XCTAssertEqual(found.onDrop, ["PlantedCanvas.swift:6", "PlantedCanvas.swift:7"],
+            "the census reports 1-based source lines, comment lines counted")
+        XCTAssertEqual(found.destination, ["PlantedCanvas.swift:5"])
     }
 
     // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)

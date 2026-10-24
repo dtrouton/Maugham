@@ -60,7 +60,9 @@ enum CanvasCapture {
     enum Placement: Equatable {
         /// **The drag.** Exactly where the writer let go, joining whatever region
         /// its CENTRE lands in. The third caller of Task 10's drop target.
-        case dropped(at: CGPoint)
+        /// With `wrappingInPiece`, a card that lands in no region is wrapped in
+        /// a new one bound to that chapter (`CanvasDropWrap`).
+        case dropped(at: CGPoint, wrappingInPiece: String?)
 
         /// **The command.** No drop point, so: loose, clear of the writer's
         /// existing work, and **never in a region**.
@@ -89,6 +91,9 @@ enum CanvasCapture {
         /// Whether this landing may take a region's membership. False for the
         /// command, by the ruling on `Placement.loose`.
         let joinsARegion: Bool
+        /// The chapter a drop that joins no region is wrapped in; nil for the
+        /// command and for a drop with no chapter selected.
+        let wrapsInPiece: String?
 
         /// The words keyed by the node that will hold them — the shape both
         /// `CanvasModel.mutateFromInspector(_:scrapTexts:)` and
@@ -157,10 +162,12 @@ enum CanvasCapture {
         let id = nodeID(forCapture: captureID)
         let origin: CGPoint
         let joins: Bool
+        var wraps: String?
         switch placement {
-        case .dropped(let point):
+        case .dropped(let point, let piece):
             origin = point
             joins = true
+            wraps = piece
         case .loose:
             // The ONE spelling of "clear of the writer's work" (§8A.4 amendment
             // names it by its rule). A second `occupied.maxX + gutter` here would
@@ -177,7 +184,8 @@ enum CanvasCapture {
                                                                         cardWidth: width),
                                  z: scene.topZ + 1),
                 text: text,
-                joinsARegion: joins)
+                joinsARegion: joins,
+                wrapsInPiece: wraps)
         case .picture(let path):
             return Landing(
                 node: CanvasNode(id: id, kind: .item(.owned(path: path)), origin: origin,
@@ -185,20 +193,25 @@ enum CanvasCapture {
                                  cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
                                  z: scene.topZ + 1),
                 text: nil,
-                joinsARegion: joins)
+                joinsARegion: joins,
+                wrapsInPiece: wraps)
         }
     }
 
     /// The only writer of a `Landing`, so the two persistence routes below produce
-    /// identical scenes rather than similar ones.
-    static func apply(_ landing: Landing, to scene: inout CanvasScene) {
+    /// identical scenes rather than similar ones. Returns the region a wrapped
+    /// drop made (`CanvasDropWrap`), or nil.
+    @discardableResult
+    static func apply(_ landing: Landing, to scene: inout CanvasScene) -> CanvasRegionID? {
         scene.insert(landing.node)
-        guard landing.joinsARegion else { return }
+        guard landing.joinsARegion else { return nil }
         // Tripwire 31: the drop's ONE geometric reading, in the existing spelling,
         // reading the node's CENTRE. Creation absorbs; transitions never do.
         if let home = CanvasInteraction.joinTarget(for: landing.node.id, in: scene) {
             CanvasMembership.join(landing.node.id, home: home, in: &scene)
         }
+        guard let piece = landing.wrapsInPiece else { return nil }
+        return CanvasDropWrap.wrap([landing.node.id], toPiece: piece, in: &scene)
     }
 
     // MARK: - Write

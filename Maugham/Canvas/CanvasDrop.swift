@@ -209,7 +209,14 @@ enum CanvasDrop {
     /// scene through this verb: a region inspector open in the other column has to
     /// see the card that just joined, or it goes on showing "No cards live in this
     /// region yet" over a card the canvas has already drawn inside it.
-    static func apply(_ node: CanvasNode, in model: CanvasModel) {
+    ///
+    /// **With `wrappingInPiece`, a card that joined no region is wrapped in a new
+    /// one bound to that chapter** (`CanvasDropWrap`), inside the same bracket,
+    /// so one ⌘Z takes both. Returns that region, or nil.
+    @discardableResult
+    static func apply(_ node: CanvasNode, in model: CanvasModel,
+                      wrappingInPiece piece: String?) -> CanvasRegionID? {
+        var wrapped: CanvasRegionID?
         model.mutateFromInspector(undoStepName) { scene in
             scene.insert(node)
             // Tripwire 31: this is the drop's ONE geometric reading, it is
@@ -219,8 +226,12 @@ enum CanvasDrop {
             if let home = CanvasInteraction.joinTarget(for: node.id, in: scene) {
                 CanvasMembership.join(node.id, home: home, in: &scene)
             }
+            if let piece {
+                wrapped = CanvasDropWrap.wrap([node.id], toPiece: piece, in: &scene)
+            }
         }
         model.bumpSceneRevision()
+        return wrapped
     }
 }
 
@@ -267,14 +278,16 @@ struct CanvasAssetIngest {
 /// `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`.
 @MainActor
 struct CanvasCaptureDrop {
-    /// Land the capture `entryID` names at a **content** point, and report the
-    /// node it made so the view can select it.
-    var send: (_ entryID: String, _ at: CGPoint) async throws -> CanvasNodeID
+    /// Land the capture `entryID` names at a **content** point, wrapped in a
+    /// region bound to `wrappingInPiece` when it lands in none (`CanvasDropWrap`),
+    /// and report the node it made so the view can select it.
+    var send: (_ entryID: String, _ at: CGPoint,
+               _ wrappingInPiece: String?) async throws -> CanvasNodeID
 
     struct Unavailable: Error {}
 
     static var unavailable: CanvasCaptureDrop {
-        CanvasCaptureDrop(send: { _, _ in throw Unavailable() })
+        CanvasCaptureDrop(send: { _, _, _ in throw Unavailable() })
     }
 }
 
@@ -442,12 +455,19 @@ enum CanvasExternalDrop {
     /// photograph's, which has not decoded yet and cannot be waited for while the
     /// writer holds a mouse button. A cascade at `CanvasClaudePlacement.cardGap`
     /// stays true whatever the pictures turn out to be.
+    ///
+    /// **With `wrappingInPiece`, the cards that joined no region share ONE new
+    /// region bound to that chapter** (`CanvasDropWrap`), inside the same
+    /// bracket; `wrappedIn` is that region, or nil.
     @discardableResult
     static func apply(paths: [String],
                       at contentPoint: CGPoint,
-                      in model: CanvasModel) -> [CanvasNodeID] {
-        guard !paths.isEmpty else { return [] }
+                      in model: CanvasModel,
+                      wrappingInPiece piece: String?)
+        -> (nodes: [CanvasNodeID], wrappedIn: CanvasRegionID?) {
+        guard !paths.isEmpty else { return ([], nil) }
         var made: [CanvasNodeID] = []
+        var wrapped: CanvasRegionID?
         model.mutateFromInspector(CanvasDrop.undoStepName) { scene in
             for (step, path) in paths.enumerated() {
                 // Minted against the LIVE scene as each card is inserted, so a
@@ -468,9 +488,12 @@ enum CanvasExternalDrop {
                 }
                 made.append(id)
             }
+            if let piece {
+                wrapped = CanvasDropWrap.wrap(made, toPiece: piece, in: &scene)
+            }
         }
         model.bumpSceneRevision()
-        return made
+        return (made, wrapped)
     }
 
     private static func classify(_ provider: NSItemProvider) -> DropAction {

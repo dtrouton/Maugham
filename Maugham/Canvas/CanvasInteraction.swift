@@ -514,6 +514,16 @@ struct CanvasInteraction {
         return id
     }
 
+    /// A region id that is not already in the scene: the sweep's and the
+    /// drop wrap's (`CanvasDropWrap`) one spelling.
+    static func newRegionID(in scene: CanvasScene) -> CanvasRegionID {
+        var id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
+        while scene.region(id) != nil {
+            id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
+        }
+        return id
+    }
+
     // MARK: - Lines
 
     /// A line id that is not already in the scene. `createScrap` and
@@ -843,10 +853,7 @@ struct CanvasInteraction {
     static func createRegion(_ rect: CGRect, in scene: inout CanvasScene) -> CanvasRegionID? {
         guard rect.width >= CanvasRegionMetrics.minimumSide,
               rect.height >= CanvasRegionMetrics.minimumSide else { return nil }
-        var id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
-        while scene.region(id) != nil {
-            id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
-        }
+        let id = newRegionID(in: scene)
         // Read BEFORE the region exists, so the decision is made against the
         // scene the writer was looking at when they swept.
         let absorbed = absorbedNodes(by: rect, in: scene)

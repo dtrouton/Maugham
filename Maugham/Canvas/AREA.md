@@ -72,6 +72,7 @@ Every file in `Maugham/Canvas/` appears once.
 
 ### Routes onto the canvas
 - `CanvasDropRoute.swift` — pure: where a drop goes by type (`route(typeIdentifiers:)`; a file, URL or image before text) and `acceptedTypes`.
+- `CanvasDropWrap.swift` — pure: a drop landing in no region, with a chapter selected, is wrapped in one new region bound to it (`wrap`, `frame(around:)`, `piece(for:)`).
 - `CanvasDrop.swift` — `CanvasDrop` (internal drag: `payload`, `decide`, `apply`, `inboxPayload`), `CanvasExternalDrop` (Finder/browser images), `CanvasAssetIngest`, `CanvasCaptureDrop` (tripwire 32 census).
 - `CanvasCapture.swift` — an Inbox capture onto the canvas, by drag or by command; `liveModel` is shared (tripwire 32 census).
 - `CanvasClaudePlacement.swift` — where Claude's batch lands: pure `plan`, `apply`, `PlannedSource`, `looseOrigin`, `defaultRegionLabel`.
@@ -114,7 +115,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **Hit testing is on the unrotated rect, for cards and regions alike**; only a region's drawing is rotated. `cullingBleed` and `rotationOverhang(of:)` carry the `r·θ` term so a tilted corner still on screen is never culled (`CanvasRendererTests.test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt`).
 
 ### Regions and membership
-- **Creation absorbs; transitions do not.** Moving or resizing never adds or removes a member. A sweep takes in every card whose CENTRE is inside it (`absorbedNodes(by:in:)`), a scrap made inside a region joins it, and a drop joins by centre (`joinTarget(for:in:)`, at `.ended` of a node move only). Those are the only geometric readings for membership; never `region.frame.contains(…)` in a move or resize path, and never `contains(node.origin)` anywhere (tripwire 31; `CanvasMembershipTests`, `CanvasRegionInteractionTests`, `CanvasViewMountingRegionTests`).
+- **Creation absorbs; transitions do not.** Moving or resizing never adds or removes a member. A sweep takes in every card whose CENTRE is inside it (`absorbedNodes(by:in:)`), a scrap made inside a region joins it, and a drop joins by centre (`joinTarget(for:in:)`, at `.ended` of a node move only). A drop's wrap region (`CanvasDropWrap`) joins only the dropped items, never bystanders. Those are the only geometric readings for membership; never `region.frame.contains(…)` in a move or resize path, and never `contains(node.origin)` anywhere (tripwire 31; `CanvasMembershipTests`, `CanvasRegionInteractionTests`, `CanvasViewMountingRegionTests`).
 - **`CanvasMembership` decides nothing geometric**: deciding is the gesture's job, recording is this file's. Absorption skips unmeasured and hidden cards; a card already living elsewhere is taken in and `join` moves its home.
 - **Drop ties resolve greatest overlap, then the smaller region, then the smaller id; collapsed regions are skipped** — a card that joins a collapsed region vanishes on drop. Dropping outside every region removes nothing; removal is its own act (⌫, the inspector's minus).
 - **One home, many appearances, disjoint by construction.** Home uniqueness is enforced in `CanvasMembership.join` and in `CanvasSceneCodec`'s loader, both "first in id order keeps it", the loser demoted to an appearance rather than dropped. `homeRegion` walks `scene.regions`, never `unorderedRegions`.
@@ -180,7 +181,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **External images: never `.dropDestination(for: URL.self)`**; use providers (`CanvasDropRoute.acceptedTypes`) and `DropClassification` (`TripwireGrepTests.test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination`).
 - **A non-image is refused before anything is copied** with `ImagePasteHandler.isIngestableImage` (`CanvasDropTests.test_theCanvasDropStillRefusesItInItsOwnWords`). Await ingestion first, touch the scene second. Several files cascade at `CanvasClaudePlacement.cardGap`.
 - **A failure is an alert naming the files, not another transient banner.** `ProjectStore` never reaches this view; `CanvasAssetIngest` and `CanvasCaptureDrop` closures do.
-- **A capture sent from the Inbox** is `CanvasCapture`, sibling of `CanvasClaudeWrite`: `.dropped(at:)` joins by centre, `.loose` (the command) never joins a region (`Landing.joinsARegion`). The command's card is told by selecting it, a camera request and a line in `InboxPane`. The store half is `InboxStore.sendToCanvas` (`Maugham/Stores/AREA.md`).
+- **A capture sent from the Inbox** is `CanvasCapture`, sibling of `CanvasClaudeWrite`: `.dropped(at:wrappingInPiece:)` joins by centre, `.loose` (the command) never joins a region (`Landing.joinsARegion`). The command's card is told by selecting it, a camera request and a line in `InboxPane`. The store half is `InboxStore.sendToCanvas` (`Maugham/Stores/AREA.md`).
 - **`CanvasClaudeWrite.liveModel` is the one place `store.liveCanvas` and `isAttached` are written together** (`CanvasLiveSeamTests.test_theLiveCanvasDiscriminatorIsSpelledOnce`).
 
 ### Promotion

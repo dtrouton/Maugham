@@ -456,10 +456,10 @@ struct CentreColumn: View {
                    // An inbox row dragged onto the canvas (spec §8A.4) — the store's
                    // third promote sibling. The only production site that hands the
                    // canvas a way to reach it; without it the drag springs back silently.
-                   captureDrop: CanvasCaptureDrop(send: { entryID, point in
+                   captureDrop: CanvasCaptureDrop(send: { entryID, point, piece in
                        try await documentStore.inboxStore.sendToCanvas(
                            entryID: entryID, projectStore: store,
-                           placement: .dropped(at: point))
+                           placement: .dropped(at: point, wrappingInPiece: piece))
                    }))
         // Issue #44: a layout file this build refused says why, over the canvas
         // and outside its layer stack; not chrome, so ⌘\ keeps it.

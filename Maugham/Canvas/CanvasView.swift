@@ -1073,10 +1073,11 @@ struct CanvasView: View {
     /// The drops — a research row, an inbox capture and a photograph — over
     /// this view's own `camera`, `revision` and `dropError`, built per call like
     /// `layoutPass`. `itemIndex` is this view's own, as `handleDrop` has always
-    /// read it. The handler holds no sibling helper: its `Task` bodies write
+    /// read it; `subject` is read when the drop arrives (`CanvasDropWrap`). The handler holds no sibling helper: its `Task` bodies write
     /// only through the `dropError` binding and the model.
     private var dropHandler: CanvasDropHandler {
         CanvasDropHandler(model: model,
+                          subject: subject,
                           itemIndex: itemIndex,
                           captureDrop: captureDrop,
                           assetIngest: assetIngest,

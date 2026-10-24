@@ -149,7 +149,7 @@ final class InboxToCanvasTests: XCTestCase {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t1" })
 
         let id = try await f.inbox.sendToCanvas(
-            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 300, y: 220)))
+            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 300, y: 220), wrappingInPiece: nil))
 
         let node = try addedNode(id, in: model.scene)
         XCTAssertEqual(node.kind, .scrap, "a text capture becomes a scrap, not an item")
@@ -173,7 +173,7 @@ final class InboxToCanvasTests: XCTestCase {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "v1" })
 
         let id = try await f.inbox.sendToCanvas(
-            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 40, y: 90)))
+            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 40, y: 90), wrappingInPiece: nil))
 
         let node = try addedNode(id, in: model.scene)
         XCTAssertEqual(node.kind, .scrap)
@@ -199,7 +199,7 @@ final class InboxToCanvasTests: XCTestCase {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "p1" })
 
         let id = try await f.inbox.sendToCanvas(
-            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 12, y: 34)))
+            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 12, y: 34), wrappingInPiece: nil))
 
         let node = try addedNode(id, in: model.scene)
         guard case .item(.owned(let path)) = node.kind else {
@@ -338,7 +338,7 @@ final class InboxToCanvasTests: XCTestCase {
 
         let dragged = try XCTUnwrap(f.inbox.entries.first { $0.id == "t3" })
         let droppedID = try await f.inbox.sendToCanvas(
-            dragged, projectStore: f.store, placement: .dropped(at: CGPoint(x: 100, y: 100)))
+            dragged, projectStore: f.store, placement: .dropped(at: CGPoint(x: 100, y: 100), wrappingInPiece: nil))
         XCTAssertEqual(CanvasMembership.homeRegion(of: droppedID, in: model.scene),
                        region.id,
                        "creation absorbs: a card dropped inside a region joins it, by "
@@ -603,7 +603,7 @@ final class InboxToCanvasTests: XCTestCase {
         _ = attached(f)
         do {
             _ = try await f.inbox.sendToCanvas(
-                entryID: "nope", projectStore: f.store, placement: .dropped(at: .zero))
+                entryID: "nope", projectStore: f.store, placement: .dropped(at: .zero, wrappingInPiece: nil))
             XCTFail("an id no live capture answers to must fail loudly")
         } catch {}
     }
@@ -614,7 +614,7 @@ final class InboxToCanvasTests: XCTestCase {
         try await seed(f, [textEntry("t10", "resolved by id")])
 
         let id = try await f.inbox.sendToCanvas(
-            entryID: "t10", projectStore: f.store, placement: .dropped(at: CGPoint(x: 5, y: 6)))
+            entryID: "t10", projectStore: f.store, placement: .dropped(at: CGPoint(x: 5, y: 6), wrappingInPiece: nil))
 
         XCTAssertEqual(model.scraps[id], "resolved by id")
         await assertResolved(f, "t10")

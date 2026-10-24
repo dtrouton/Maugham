@@ -13,9 +13,15 @@ import SwiftUI
 /// would be frozen at build time for that later work (tripwire 57). What the
 /// `Task` bodies write after the await, `dropError` and `model.selection`,
 /// goes through the binding and the model, so the write lands in live state.
+///
+/// `subject` is the binder's selection as the drop arrives (the handler is
+/// built when the drop's closure runs); with a chapter selected, a drop that
+/// lands in no region is wrapped in one bound to it (`CanvasDropWrap`). It
+/// never reaches `CanvasEditFocus` or `CanvasLayoutPass` (tripwire 57).
 @MainActor
 struct CanvasDropHandler {
     let model: CanvasModel
+    let subject: CanvasSubject
     let itemIndex: CanvasItemIndex
     let captureDrop: CanvasCaptureDrop
     let assetIngest: CanvasAssetIngest
@@ -46,8 +52,11 @@ struct CanvasDropHandler {
     /// arrive as several payloads is the external file drop, which is its own
     /// modifier with its own arrangement rule.
     ///
-    /// Returns whether anything happened, so a payload this canvas has no card for
-    /// is declined and the drag springs back rather than reporting success.
+    /// Returns whether anything happened. Since canvas-keyboard-flow Task 1 the
+    /// drag itself has already been accepted (`handleDrop(providers:at:)` loads
+    /// the string after answering), so an id this canvas has no card for, or a
+    /// drop a read-only canvas refuses, does nothing rather than springing back
+    /// (ruled).
     ///
     /// **Two id spaces arrive here as of 1C-d Task 12, and `CanvasDrop.payload`
     /// tells them apart before anything else runs** (spec §8A.4). An inbox
@@ -59,8 +68,9 @@ struct CanvasDropHandler {
     func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
         guard let payload = payloads.first else { return false }
         if case .capture(let entryID) = CanvasDrop.payload(payload) {
-            // Read-only (issue #44): springs back before the send, so no asset is
-            // copied and the entry stays new; the canvas's notice says why.
+            // Read-only (issue #44): refused before the send, so no asset is
+            // copied and the entry stays new; the drag was already accepted, so
+            // nothing happens and the canvas's notice says why.
             guard CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)
             else { return false }
             return handleCaptureDrop(entryID, at: viewPoint)
@@ -96,7 +106,8 @@ struct CanvasDropHandler {
         case .create(let node):
             guard CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)
             else { return false }
-            CanvasDrop.apply(node, in: model)
+            CanvasDrop.apply(node, in: model,
+                             wrappingInPiece: CanvasDropWrap.piece(for: subject))
             // Selected, so the right-hand column shows the reference's own arm and
             // the writer can see what landed. Outside the bracket: a snapshot
             // carries the scene and the scrap text, never the selection.
@@ -128,9 +139,10 @@ struct CanvasDropHandler {
     /// finishing, a rewind), and the capture belongs where the writer let go of it.
     private func handleCaptureDrop(_ entryID: String, at viewPoint: CGPoint) -> Bool {
         let contentPoint = camera.contentPoint(fromView: viewPoint)
+        let piece = CanvasDropWrap.piece(for: subject)
         Task {
             do {
-                let id = try await captureDrop.send(entryID, contentPoint)
+                let id = try await captureDrop.send(entryID, contentPoint, piece)
                 // Selected so the right-hand column shows the capture's own
                 // inspector arm. Outside the bracket: a snapshot carries the scene
                 // and the scrap text, never the selection.
@@ -168,15 +180,18 @@ struct CanvasDropHandler {
         let accepted = providers.filter { CanvasExternalDrop.accepts($0) }
         guard !accepted.isEmpty else { return false }
         let contentPoint = camera.contentPoint(fromView: viewPoint)
+        // Read at drop time, before the ingest's await.
+        let piece = CanvasDropWrap.piece(for: subject)
         Task {
             let outcome = await CanvasExternalDrop.ingest(providers: accepted,
                                                           using: assetIngest)
             let made = CanvasExternalDrop.apply(paths: outcome.paths,
-                                                at: contentPoint, in: model)
+                                                at: contentPoint, in: model,
+                                                wrappingInPiece: piece)
             // Selected so the right-hand column shows the picture's own inspector
             // arm. Outside the bracket: a snapshot carries the scene and the
             // scrap text, never the selection.
-            if let first = made.first { model.selection = .node(first) }
+            if let first = made.nodes.first { model.selection = .node(first) }
             dropError = outcome.message
         }
         return true

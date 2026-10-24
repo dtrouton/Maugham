@@ -581,9 +581,11 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let camera = SurfaceHelperBox(CanvasCamera())
         let revision = SurfaceHelperBox(0)
         let dropError = SurfaceHelperBox<String?>(nil)
+        var subject: CanvasSubject = .wholeProject
 
         var handler: CanvasDropHandler {
             CanvasDropHandler(model: model,
+                              subject: subject,
                               itemIndex: itemIndex,
                               captureDrop: .unavailable,
                               assetIngest: .unavailable,
@@ -651,11 +653,32 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         defer { model.detach() }
         XCTAssertTrue(model.isReadOnly, "precondition: the damaged layout file was refused")
 
-        let fixture = DropHandlerFixture(model: model, itemIndex: droppedNoteIndex)
+        let fixture = DropHandlerFixture(model: model, itemIndex: droppedNoteIndex,
+                                         subject: .piece("p1"))
         XCTAssertFalse(fixture.handler.handleDrop([droppedNoteID], at: point),
                        "a read-only canvas took a research drop")
         XCTAssertTrue(model.scene.nodes.isEmpty, "a read-only canvas placed a card")
+        XCTAssertEqual(model.scene.regionCount, 0,
+                       "a read-only canvas wrapped a refused drop in a region")
         XCTAssertNil(model.selection, "a refused drop selected a card that was never made")
         XCTAssertFalse(model.isInGesture)
+    }
+
+    /// The handler hands its `subject` to the landing verb: with a chapter
+    /// selected the drop arrives in a region bound to it; with the book, loose.
+    func test_theDropHandlerWrapsUnderTheChapterItWasBuiltWith() throws {
+        let point = CGPoint(x: 300, y: 300)
+        let chapter = CanvasModel()
+        _ = DropHandlerFixture(model: chapter, itemIndex: droppedNoteIndex, subject: .piece("p1"))
+            .handler.handleDrop([droppedNoteID], at: point)
+        let region = try XCTUnwrap(chapter.scene.regions.first, "the drop was wrapped")
+        XCTAssertEqual(region.boundPieceID, "p1")
+        XCTAssertEqual(region.homeMembers, Set(chapter.scene.nodes.map(\.id)))
+
+        let book = CanvasModel()
+        _ = DropHandlerFixture(model: book, itemIndex: droppedNoteIndex)
+            .handler.handleDrop([droppedNoteID], at: point)
+        XCTAssertEqual(book.scene.nodes.count, 1)
+        XCTAssertEqual(book.scene.regionCount, 0, "with the book selected the drop lands loose")
     }
 }
