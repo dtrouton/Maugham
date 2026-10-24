@@ -975,3 +975,38 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the six Map rows the 
 
 - `flush()` on quit observes with `queue: nil`: with a queue the block may never run before exit.
 
+
+## Moved from the guide by canvas-keyboard-flow Task 0 (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the keyboard flow's Map rows and rules. Each is the why behind a rule that is still in the guide, under the section named; the rule and its test citation stayed. The Routes rule's second sentence ("The external `.onDrop` is applied first (innermost) and the `String.self` destination after it") was deleted outright, not moved: it was the reverse of `CanvasView.body`, and Task 1 rewrites that rule.
+
+- The dim / collapse: “`unorderedNodes` still returns hidden nodes, because `rebuildLayouts` must keep measuring them”.
+- Lines: “Keep its hairline inset: `!box.intersection(viewport).isEmpty` culls every horizontal line, and the true reason is that `CGRect.intersects` is false only for a null rect”.
+- Routes onto the canvas: “a drag that begins outside the canvas has no bracket of its own, and the delivery site is not what tripwire 32 turns on”.
+- Item nodes and thumbnails: “because ingest discards the writer's filename”.
+- Item nodes and thumbnails: “because the height changes”.
+- Promotion: “because an `inout CanvasScene` cannot cross an `await`”.
+- Promotion: “because an image well is append-only for every producer”.
+- Ownership, counters and undo: “which is why a press that truncates a coast bumps at `handleDrag(.began)`”.
+- Claude on the canvas: “because `writeNow` swallows I/O errors”.
+- Scale and tests: “which catch O(n²) and not a lost constant factor”.
+- The mounted editor and Delete: “a `where` binds only to the last pattern”.
+- Accessibility: “One rule covers both: a signal is added to a channel that would otherwise be silent about a fact the writer needs, and withheld where it would be ambiguous with one already there”.
+- Accepted costs: “which is already level; inventing a lean would undo the provenance signal”.
+- The dim: “a restore is not an arrival, and keying it on `revision` or `sceneRevision` snatches the card from under the writer's hand”.
+- The dim: “because `NSWindow.sendEvent(_:)` bypasses monitors and monitor order is not stable”.
+- The dim: “which is app-wide”.
+- Lines: “or no line is ever created”.
+- The scene model / membership: “so drawing, culling, hit testing and accessibility agree”.
+- The dim: “the dim is entered by a click, and a deletion is not one”.
+- The dim: “two handlers leave the tree one click behind”.
+- Promotion: “since deferring it puts the walk on the drag loop”.
+- Promotion: “or its stale image list overwrites the new pictures”.
+- Persistence: “The canvas has no op log behind it, so do not let "matches `DocumentStore`" imply parity”.
+- Routes onto the canvas: “so a refusal and a failure stay separate sentences”.
+- Ownership, counters and undo: “being inside its own bracket by construction”.
+- Ownership, counters and undo: “so the editor's rebind shows the restored words”.
+- Promotion: “the sheet can be opened mid-visit”.
+- Routes onto the canvas: “since no test can post a drag session”.
+- Item nodes and thumbnails: “so the cache cannot feed itself”.
+- Membership: “seeded per process”.
