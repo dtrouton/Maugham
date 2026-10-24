@@ -35,15 +35,17 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
 
     /// Set once Return, Escape or a lost focus has reported. Set BEFORE the
     /// report, so the `controlTextDidEndEditing` that follows a Return or an
-    /// Escape (the field resigning as it is torn down) commits nothing.
+    /// Escape (the field resigning as it is torn down) commits nothing — and
+    /// cleared again when the report comes back refused (`false`), so a field
+    /// whose write was refused still takes Return and Escape.
     private(set) var hasReported = false
 
     private var wantsFocus = false
 
     var onTextChanged: ((String) -> Void)?
-    var onCommit: ((String) -> Void)?
-    var onCancel: (() -> Void)?
-    var onLostFocus: ((String) -> Void)?
+    var onCommit: ((String) -> Bool)?
+    var onCancel: (() -> Bool)?
+    var onLostFocus: ((String) -> Bool)?
 
     override var isFlipped: Bool { true }
 
@@ -124,12 +126,12 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
         case #selector(NSResponder.insertNewline(_:)):
             guard !hasReported else { return true }
             hasReported = true
-            onCommit?(field.stringValue)
+            if onCommit?(field.stringValue) == false { hasReported = false }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             guard !hasReported else { return true }
             hasReported = true
-            onCancel?()
+            if onCancel?() == false { hasReported = false }
             return true
         default:
             return false
@@ -139,7 +141,7 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
     func controlTextDidEndEditing(_ notification: Notification) {
         guard !hasReported else { return }
         hasReported = true
-        onLostFocus?(field.stringValue)
+        if onLostFocus?(field.stringValue) == false { hasReported = false }
     }
 }
 
@@ -150,9 +152,9 @@ struct RegionTitleEditorHost: NSViewRepresentable {
     let label: String
     let zoom: CGFloat
     let onTextChanged: (String) -> Void
-    let onCommit: (String) -> Void
-    let onCancel: () -> Void
-    let onLostFocus: (String) -> Void
+    let onCommit: (String) -> Bool
+    let onCancel: () -> Bool
+    let onLostFocus: (String) -> Bool
 
     func makeNSView(context: Context) -> RegionTitleEditorContainer {
         let c = RegionTitleEditorContainer(frame: .zero)

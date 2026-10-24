@@ -712,10 +712,17 @@ struct CanvasView: View {
         // from the other column; the view's is what the grep-pinned rebuild above
         // watches, and it must keep both its name and its home here.
         .onChange(of: model.sceneRevision) { _, _ in sceneRevision += 1 }
+        // An undo can take away the region whose title is open; forget it, so
+        // a redo cannot remount the field and take the keyboard. Here and not
+        // in `load()`'s undo hook (tripwire 57).
+        .onChange(of: model.sceneRevision) { _, _ in regionTitleEditing.forgetIfTheRegionIsGone() }
         .onDisappear {
             // Fold the live editor's text in BEFORE the write, or a persona
             // switch mid-sentence loses the sentence.
             editFocus.syncActiveEdit()
+            // …and a half-typed region name, for the same reason (spec §3: a
+            // click elsewhere commits; leaving the canvas is one).
+            regionTitleEditing.commitIfOpen()
             // Flush, drop `beforeFlush` and release the recorder — the three
             // edges of the cycle, all one layer out now. `beforeFlush` holds a
             // copy of this view, which holds the model, which holds the store, so

@@ -292,8 +292,8 @@ final class RegionTitleEditingTests: XCTestCase {
         let container = RegionTitleEditorContainer(frame: CGRect(x: 0, y: 0, width: 200, height: 18))
         var cancels = 0
         var lost: [String] = []
-        container.onCancel = { cancels += 1 }
-        container.onLostFocus = { lost.append($0) }
+        container.onCancel = { cancels += 1; return true }
+        container.onLostFocus = { lost.append($0); return true }
         container.bind(to: r, label: "Fog")
         container.field.stringValue = "typed"
         let editor = NSTextView()
@@ -308,7 +308,7 @@ final class RegionTitleEditingTests: XCTestCase {
         // The control: a lost focus with no Escape before it does report.
         let other = RegionTitleEditorContainer(frame: .zero)
         var otherLost: [String] = []
-        other.onLostFocus = { otherLost.append($0) }
+        other.onLostFocus = { otherLost.append($0); return true }
         other.bind(to: r, label: "Fog")
         other.field.stringValue = "typed"
         other.controlTextDidEndEditing(note)
@@ -419,7 +419,9 @@ final class RegionTitleEditingTests: XCTestCase {
         XCTAssertTrue(g.drops.handleDrop([noteID], at: CGPoint(x: 1300, y: 1300)))
         let wrap = try XCTUnwrap(busy.scene.regions.first { $0.id != r }, "precondition: wrapped")
         XCTAssertNil(g.titleID.value, "a wrap opened a title while a scrap was open")
-        XCTAssertEqual(busy.selection, .region(wrap.id))
+        XCTAssertEqual(busy.selection, wrap.homeMembers.first.map { .node($0) },
+                       "with the title shut, the dropped card is selected, as before")
+        XCTAssertEqual(wrap.homeMembers.count, 1, "precondition: the wrap holds the dropped card")
         XCTAssertEqual(g.editingNodeID.value, s, "the drop closed the writer's scrap")
     }
 
@@ -518,5 +520,59 @@ final class RegionTitleEditingTests: XCTestCase {
         f.drags.handleDrag(at: onTheTitle, phase: .began, shiftHeld: false, timestamp: 0)
         XCTAssertFalse(f.interaction.value.isActive, "a drag began under the open title")
         XCTAssertFalse(model.isInGesture)
+    }
+
+    // MARK: - Review round 1
+
+    /// **A refused write leaves a live field.** Mid-gesture (or read-only) the
+    /// commit is refused and reported as such, the title stays open with the
+    /// words, and the field takes Return again; the control is an accepted
+    /// commit, which reports once.
+    func test_aRefusedCommitLeavesTheTitleOpenAndTheFieldLive() {
+        let model = populatedModel()
+        let f = Fixture(model: model)
+        f.titles.begin(r)
+        f.titles.noteTyping("Falls", in: r)
+        model.beginGesture("Move Card")
+        XCTAssertFalse(f.titles.commit("Falls"), "a commit mid-gesture was not refused")
+        XCTAssertEqual(f.titleID.value, r, "a refused commit closed the title")
+        XCTAssertEqual(f.titleDraft.value?.text, "Falls", "a refused commit dropped the words")
+        XCTAssertEqual(model.scene.region(r)?.label, "Fog")
+        model.endGesture()
+        XCTAssertTrue(f.titles.commit("Falls"), "control: the same commit, gesture closed")
+        XCTAssertEqual(model.scene.region(r)?.label, "Falls")
+
+        let container = RegionTitleEditorContainer(frame: .zero)
+        var commits = 0
+        var accepts = false
+        container.onCommit = { _ in commits += 1; return accepts }
+        container.bind(to: r, label: "Fog")
+        let returnKey = #selector(NSResponder.insertNewline(_:))
+        _ = container.control(container.field, textView: NSTextView(), doCommandBy: returnKey)
+        _ = container.control(container.field, textView: NSTextView(), doCommandBy: returnKey)
+        XCTAssertEqual(commits, 2, "after a refused Return the field took no second Return")
+        accepts = true
+        _ = container.control(container.field, textView: NSTextView(), doCommandBy: returnKey)
+        _ = container.control(container.field, textView: NSTextView(), doCommandBy: returnKey)
+        XCTAssertEqual(commits, 3, "control: an accepted Return reports once")
+    }
+
+    /// **An undo that takes the region away closes its title**, so a redo
+    /// cannot bring the field back and take the keyboard. Nothing is written.
+    func test_aTitleWhoseRegionAnUndoTookAwayIsForgotten() {
+        let model = attachedModel()
+        let f = Fixture(model: model)
+        f.sweep(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 400, y: 340))
+        XCTAssertNotNil(f.titleID.value, "precondition: the title opened")
+        f.titles.forgetIfTheRegionIsGone()
+        XCTAssertNotNil(f.titleID.value, "control: a region still there is not forgotten")
+
+        model.undo.undo()
+        XCTAssertEqual(model.scene.regionCount, 0, "precondition: the undo took the region")
+        f.titles.forgetIfTheRegionIsGone()
+        XCTAssertNil(f.titleID.value, "the title still names a region the undo took away")
+        model.undo.redo()
+        XCTAssertEqual(model.scene.regionCount, 1, "precondition: the redo brought it back")
+        XCTAssertNil(f.titleID.value, "the redo reopened the title")
     }
 }

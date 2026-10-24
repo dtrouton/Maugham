@@ -120,7 +120,11 @@ struct CanvasDropHandler {
             // Selected, so the right-hand column shows the reference's own arm and
             // the writer can see what landed. Outside the bracket: a snapshot
             // carries the scene and the scrap text, never the selection.
-            if let wrapped { openTheWrapsTitle(wrapped) } else { model.selection = .node(node.id) }
+            if let wrapped {
+                openTheWrapsTitle(wrapped, orSelect: node.id)
+            } else {
+                model.selection = .node(node.id)
+            }
             return true
         }
     }
@@ -169,7 +173,7 @@ struct CanvasDropHandler {
                 // region the send REPORTS making — never one read off where the
                 // card ended up, which for a join is a region the writer had.
                 if let wrapped = sent.wrappedIn {
-                    openTheWrapsTitle(wrapped)
+                    openTheWrapsTitle(wrapped, orSelect: sent.node)
                 } else {
                     model.selection = .node(sent.node)
                 }
@@ -219,7 +223,7 @@ struct CanvasDropHandler {
             // arm. Outside the bracket: a snapshot carries the scene and the
             // scrap text, never the selection.
             if let wrapped = made.wrappedIn {
-                openTheWrapsTitle(wrapped)
+                openTheWrapsTitle(wrapped, orSelect: made.nodes.first)
             } else if let first = made.nodes.first {
                 model.selection = .node(first)
             }
@@ -261,23 +265,28 @@ struct CanvasDropHandler {
         }
     }
 
-    /// A drop wrapped in a new region: the region is selected, and its title
-    /// opens for typing exactly as after a sweep (spec §2) — unless a gesture,
-    /// a scrap or another title is open, when it is only selected. Asked in the
+    /// A drop wrapped in a new region: its title opens for typing exactly as
+    /// after a sweep (spec §2), with the region selected — unless a gesture, a
+    /// scrap or another title is open, when the dropped `node` is selected as
+    /// before, so the inspector shows what landed. Asked in the
     /// surface's order (`CanvasEditGateTests`): the gesture, the gate, then
     /// whatever is open; a drop does not close the writer's scrap for them.
     ///
     /// It writes the binding rather than calling `CanvasRegionTitleEditing`:
     /// this handler holds no sibling helper (its `Task` bodies call this). With
     /// nothing open there is nothing for `begin` to finish.
-    private func openTheWrapsTitle(_ region: CanvasRegionID) {
-        model.selection = .region(region)
+    private func openTheWrapsTitle(_ region: CanvasRegionID, orSelect node: CanvasNodeID?) {
         revision += 1
-        guard !model.isInGesture else { return }
-        guard CanvasEditGate.editsValues(isReadOnly: model.isReadOnly) else { return }
         // A title left naming a region an undo took away is no open title.
-        guard editingNodeID == nil,
-              regionTitleEditingID.flatMap({ model.scene.region($0) }) == nil else { return }
+        let opens = !model.isInGesture
+            && CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)
+            && editingNodeID == nil
+            && regionTitleEditingID.flatMap({ model.scene.region($0) }) == nil
+        guard opens else {
+            if let node { model.selection = .node(node) }
+            return
+        }
+        model.selection = .region(region)
         regionTitleEditingID = region
     }
 

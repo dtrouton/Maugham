@@ -64,19 +64,26 @@ struct CanvasRegionTitleEditing {
 
     /// Return: write the name and close, then hand the keyboard back to the
     /// canvas so the next key means something there.
-    func commit(_ text: String) {
-        guard let id = regionTitleEditingID else { return }
-        guard writeTitle(text, to: id) else { return }
+    /// Returns false when the write was refused (mid-gesture, or the canvas
+    /// went read-only): the title stays open with the words in it, and the
+    /// field takes Return again.
+    @discardableResult
+    func commit(_ text: String) -> Bool {
+        guard let id = regionTitleEditingID else { return true }
+        guard writeTitle(text, to: id) else { return false }
         close()
         keyboardTicket += 1
+        return true
     }
 
     /// Escape: close with nothing written and no undo step. A region just
     /// swept stays, untitled (spec §3) — Escape is not ⌘Z.
-    func cancel() {
-        guard regionTitleEditingID != nil else { return }
+    @discardableResult
+    func cancel() -> Bool {
+        guard regionTitleEditingID != nil else { return true }
         close()
         keyboardTicket += 1
+        return true
     }
 
     /// Commit whatever was typed into the open title and close it, without
@@ -99,9 +106,19 @@ struct CanvasRegionTitleEditing {
     /// `id`'s field lost the keyboard to something other than Return or
     /// Escape — a click elsewhere, Tab, the inspector. Commits what was typed
     /// and closes, without taking the keyboard from wherever it went.
-    func fieldLostFocus(_ text: String, in id: CanvasRegionID) {
-        guard regionTitleEditingID == id else { return }
-        guard writeTitle(text, to: id) else { return }
+    @discardableResult
+    func fieldLostFocus(_ text: String, in id: CanvasRegionID) -> Bool {
+        guard regionTitleEditingID == id else { return true }
+        guard writeTitle(text, to: id) else { return false }
+        close()
+        return true
+    }
+
+    /// The open title names a region no longer in the scene (an undo took it):
+    /// close it, so a redo bringing the region back does not remount the field
+    /// and take the keyboard. Called on every structural change.
+    func forgetIfTheRegionIsGone() {
+        guard let id = regionTitleEditingID, model.scene.region(id) == nil else { return }
         close()
     }
 

@@ -241,6 +241,16 @@ final class CanvasCompositionTests: XCTestCase {
             XCTAssertFalse(body.contains(editor),
                            "body composes a text editor (\(editor)) outside mountedEditor")
         }
+        // Leaving the canvas commits a half-typed name, before the flush; and
+        // a structural change forgets a title whose region an undo took away.
+        let disappear = try XCTUnwrap(body.range(of: ".onDisappear {"))
+        let commit = try XCTUnwrap(body.range(of: "regionTitleEditing.commitIfOpen()"),
+                                   "leaving the canvas does not commit an open title")
+        let detach = try XCTUnwrap(body.range(of: "model.detach()"))
+        XCTAssertTrue(disappear.lowerBound < commit.lowerBound && commit.lowerBound < detach.lowerBound,
+                      "the open title must be committed in .onDisappear, before the detach flushes")
+        XCTAssertTrue(body.contains(".onChange(of: model.sceneRevision) { _, _ in "
+                                    + "regionTitleEditing.forgetIfTheRegionIsGone() }"))
         XCTAssertTrue(body.contains("let namingRegionID = regionTitleEditingID")
                       && body.contains("namingRegionID: namingRegionID"),
                       "the renderer is not handed the open title, so the drawn label "

@@ -1814,4 +1814,29 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
         pump(until: { asked == 1 })
         XCTAssertEqual(asked, 1, "control: an Escape the canvas holds lifts the dim")
     }
+
+    /// **A half-typed name survives leaving the canvas** (a persona switch, a
+    /// window closing): `.onDisappear` commits it as "Rename Region" before
+    /// the flush, and it reaches disk.
+    func test_aHalfTypedNameIsCommittedWhenTheCanvasGoesAway() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        let region = try XCTUnwrap(model.scene.regions.first, "precondition: the sweep made a region")
+        _ = try titleFieldHoldingTheKeyboard(in: window)
+        for (character, code) in [("W", UInt16(13)), ("e", 14)] {
+            NSApp.sendEvent(key(character, keyCode: code, in: window))
+        }
+        pump(0.1)
+
+        let saved = savedScene(after: window, root: root)
+        XCTAssertEqual(model.scene.region(region.id)?.label, "We",
+                       "leaving the canvas lost the half-typed name")
+        XCTAssertEqual(saved.region(region.id)?.label, "We", "the name never reached disk")
+    }
 }
