@@ -114,11 +114,13 @@ public enum SafeRelativePath {
     /// **One plain file name inside one project-relative folder**:
     /// `<root>/<folder>/<name>`. Throws `.notAPlainFileName` unless
     /// `isPlainFileName(name)`, and whatever `resolve(_:under:)` throws for
-    /// `folder`. Unlike `resolve`, the folder is also checked on disk: a
-    /// folder that exists and is a symlink leading outside `root` throws
-    /// `.escapesRoot`, so a file written to the returned URL lands inside the
-    /// root. (A folder that does not exist yet is checked lexically, as
-    /// `resolve` does.) The returned URL is built from the original `root`.
+    /// `folder`. Unlike `resolve`, the folder is also checked on disk: its
+    /// deepest existing ancestor is resolved through any symlinks and the
+    /// rest of the folder appended, and a result outside `root` throws
+    /// `.escapesRoot` — so `figures` linked outside the root is refused even
+    /// when `figures/sub` does not exist yet, and a file written to the
+    /// returned URL lands inside the root. The returned URL is built from the
+    /// original `root`.
     public static func resolveFile(
         named name: String, in folder: String, under root: URL
     ) throws -> URL {
@@ -126,21 +128,42 @@ public enum SafeRelativePath {
         let folderURL = try resolve(folder, under: root)
         var rootPrefix = root.resolvingSymlinksInPath().standardizedFileURL.path
         if !rootPrefix.hasSuffix("/") { rootPrefix += "/" }
-        let onDisk = folderURL.resolvingSymlinksInPath().standardizedFileURL.path + "/"
-        guard onDisk.hasPrefix(rootPrefix) else { throw PathError.escapesRoot(folder) }
+        guard (canonicalPath(of: folderURL) + "/").hasPrefix(rootPrefix) else {
+            throw PathError.escapesRoot(folder)
+        }
         return folderURL.appendingPathComponent(name)
     }
 
-    /// **`id`, when it may become part of a file name** — the op log's
-    /// `<docId>.<slug>.jsonl`, a quarantine record, a conflict backup. The
-    /// same character rule as `isPlainFileName`: a doc id comes from synced
-    /// data (a manifest record, an op, an MCP argument), and one carrying a
-    /// `/` or a leading `..` would climb out of its folder. Every id the apps
-    /// mint passes (`doc-<hex>`, `scene-<hex>`, `d_…`, `fig-…`, `stmt-…`,
-    /// `res-…`, `__project__`). Throws `.notADocId`.
+    /// `url` with its deepest existing ancestor resolved through symlinks and
+    /// the not-yet-existing remainder appended. An entry counts as existing
+    /// when it is there itself, even a symlink whose target is missing
+    /// (`attributesOfItem` does not follow the last link).
+    private static func canonicalPath(of url: URL) -> String {
+        var existing = url.standardizedFileURL
+        var missing: [String] = []
+        let fm = FileManager.default
+        while (try? fm.attributesOfItem(atPath: existing.path)) == nil, existing.path != "/" {
+            missing.insert(existing.lastPathComponent, at: 0)
+            existing = existing.deletingLastPathComponent()
+        }
+        var resolved = existing.resolvingSymlinksInPath().standardizedFileURL
+        for component in missing { resolved.appendPathComponent(component) }
+        return resolved.standardizedFileURL.path
+    }
+
+    /// **`id`, when it becomes part of a file name**: today the op log's
+    /// `<docId>.<slug>.jsonl` and sealed segments (`OpLogFiles`) and a
+    /// quarantine record (`IntegrityQuarantine.record`). The rule of
+    /// `isPlainFileName` plus no `.` at all: a doc id comes from synced data
+    /// (a manifest record, an op, an MCP argument), one carrying a `/` or a
+    /// leading `..` would climb out of its folder, and the read side
+    /// (`OpLogFiles.docId(fromOpLogFilename:)`, which cuts at the first dot)
+    /// already assumes an id has no dot. Every id the apps mint passes
+    /// (`doc-<hex>`, `scene-<hex>`, `d_…`, `fig-…`, `stmt-…`, `res-…`,
+    /// `__project__`). Throws `.notADocId`.
     @discardableResult
     public static func requireDocId(_ id: String) throws -> String {
-        guard isPlainFileName(id) else { throw PathError.notADocId(id) }
+        guard isPlainFileName(id), !id.contains(".") else { throw PathError.notADocId(id) }
         return id
     }
 }

@@ -204,6 +204,28 @@ final class SafeRelativePathTests: XCTestCase {
         }
     }
 
+    /// A symlink one level ABOVE a folder that does not exist yet:
+    /// `figures` → outside, `figures/sub` absent. The file would still land
+    /// outside, so it is refused.
+    func test_resolveFile_refusesASymlinkAboveAFolderThatDoesNotExistYet() throws {
+        let base = tempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("project")
+        let outside = base.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("figures"), withDestinationURL: outside)
+
+        XCTAssertThrowsError(
+            try SafeRelativePath.resolveFile(named: "map.png", in: "figures/sub", under: root)
+        ) { error in
+            guard case SafeRelativePath.PathError.escapesRoot = error else {
+                return XCTFail("expected .escapesRoot, got \(error)")
+            }
+        }
+    }
+
     /// A symlinked folder that stays inside the root is fine.
     func test_resolveFile_acceptsASymlinkedFolderInsideTheRoot() throws {
         let root = tempRoot()
@@ -244,7 +266,7 @@ final class SafeRelativePathTests: XCTestCase {
     }
 
     func test_requireDocId_refusesAnIdThatCouldLeaveItsFolder() {
-        for bad in Self.badNames {
+        for bad in Self.badNames + ["a.b", "doc-1.macA"] {
             XCTAssertThrowsError(try SafeRelativePath.requireDocId(bad), bad.debugDescription) { error in
                 guard case SafeRelativePath.PathError.notADocId = error else {
                     return XCTFail("expected .notADocId for \(bad.debugDescription), got \(error)")
