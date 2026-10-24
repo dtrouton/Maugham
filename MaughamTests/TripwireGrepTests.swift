@@ -11929,17 +11929,23 @@ final class TripwireGrepTests: XCTestCase {
     /// D-c: figure kinds are `.manuscriptText` in `Permit.group`), so its
     /// writers join this census: `FigureDocument`'s ten guarded mutators
     /// (`figureMutatorSpellings`), `createFigure(` (a figure's birth, behind
-    /// its own posture question), and `FigureOpPayload(` — where a figure op's
-    /// content is minted, so a writer that appends one without a mutator is
-    /// still a named site.
+    /// its own posture question), and `figureOpMintSpelling` — every `Op(`
+    /// built with a `figure:` argument, which is where a figure op is born,
+    /// so a writer that appends one without a mutator (an inverse, a payload
+    /// copied off another op) is still a named site.
     static let manuscriptWriterPatterns = [
         "setFullText(", "applyRestore(", "restoreToOp(", "restoreToOpUndoable(",
         "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
         "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
-        "createFigure(", "FigureOpPayload(",
+        "createFigure(", figureOpMintSpelling,
     ]
+
+    /// The key a figure op's minting is counted under: an `Op(` call with a
+    /// `figure:` argument at its own depth, however many lines it spans
+    /// (`figureOpMintLines`). Not a substring — the call is walked.
+    static let figureOpMintSpelling = "Op(…figure:"
 
     /// **`FigureDocument`'s mutator spellings, counted only as an AWAITED
     /// call.** The names are generic — plan 5's `FigureTable.setCell(`/
@@ -11948,34 +11954,119 @@ final class TripwireGrepTests: XCTestCase {
     /// synchronous, while `FigureDocument`'s are `async throws` and so are
     /// always reached as `await <receiver>.setCell(` (or `await setCell(`
     /// from inside). A spelling here counts only in that shape
-    /// (`isAwaitedCall`), so the census names the figure host's callers and
+    /// (`awaitedCallLines`), so the census names the figure host's callers and
     /// not every table helper in the codebase.
     static let figureMutatorSpellings: Set<String> = [
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
     ]
 
-    /// `line` holds `spelling` as an awaited call: `await`, then an optional
-    /// receiver chain (`d.`, `self.figure?.`, `figures[i].`), then the name.
-    static func isAwaitedCall(of spelling: String, on line: String) -> Bool {
-        let pattern = #"\bawait\s+(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?[?!]?\.)*"#
-            + NSRegularExpression.escapedPattern(for: spelling)
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
-        return regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+    /// `text` with every line comment cut (newlines kept, so line numbers
+    /// survive). Like `deviceArgumentsAtDocumentLoad`'s stripper it does not
+    /// know string literals; the failure direction is a false positive.
+    static func strippingLineComments(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> String in
+                guard let comment = line.range(of: "//") else { return String(line) }
+                return String(line[line.startIndex..<comment.lowerBound])
+            }
+            .joined(separator: "\n")
     }
 
-    /// The writer spellings one line carries — a figure mutator's only in its
-    /// awaited shape, every other spelling as a substring. SHARED by the
-    /// census and its controls.
-    static func manuscriptWriterSpellings(on line: String) -> [String: Int] {
-        var spellings: [String: Int] = [:]
-        for spelling in manuscriptWriterPatterns {
-            let counts = figureMutatorSpellings.contains(spelling)
-                ? isAwaitedCall(of: spelling, on: line)
-                : line.contains(spelling)
-            if counts { spellings[spelling, default: 0] += 1 }
+    /// The 1-based line of every awaited call of `spelling` in `text`: `await`,
+    /// then an optional receiver chain, then the name. A chain segment is a
+    /// name with optional call arguments or a subscript (one level of nested
+    /// parentheses inside), an optional `?`/`!`, and a dot — whitespace,
+    /// newlines included, allowed around the dot. So `d.setCell(`,
+    /// `self.figure?.setCell(`, `figures[i].setCell(`,
+    /// `store.openFigure(figureId: f).setCell(` and `try await figure` with
+    /// `.setCell(` on the next line all count. A call whose arguments nest
+    /// two levels deep before the name is missed — which is how
+    /// `commit(.figureStructure, FigureOpPayload(structure: .insertRow(` is
+    /// told apart, and a known limit. The line is the NAME's line.
+    static func awaitedCallLines(of spelling: String, in text: String) -> [Int] {
+        let args = #"(?:\((?:[^()]|\([^()]*\))*\)|\[[^\]]*\])"#
+        let segment = #"[A-Za-z_][A-Za-z0-9_]*"# + args + #"*[?!]?\s*\.\s*"#
+        let pattern = #"\bawait\s+(?:"# + segment + ")*("
+            + NSRegularExpression.escapedPattern(for: spelling) + ")"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let stripped = strippingLineComments(text)
+        let ns = stripped as NSString
+        return regex.matches(in: stripped, range: NSRange(location: 0, length: ns.length)).map {
+            let upTo = ns.substring(to: $0.range(at: 1).location)
+            return upTo.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
         }
-        return spellings
+    }
+
+    /// The 1-based line of every `figure:` argument passed directly to an
+    /// `Op(` call in `text` — a CALL-SHAPED walk like
+    /// `deviceArgumentsAtDocumentLoad`'s, since an `Op(` spans several lines.
+    /// `Op(` must not be the tail of a longer name (`FigureOp(`), and the
+    /// label must sit at the call's own depth (a nested `Thing(figure:` is
+    /// not the op's) and not be the tail of a longer label.
+    static func figureOpMintLines(in text: String) -> [Int] {
+        let chars = Array(strippingLineComments(text))
+        let needle = Array("Op(")
+        let label = Array("figure:")
+        func isIdent(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" }
+        var lines: [Int] = []
+        var line = 1, depth = 0, i = 0
+        var openCalls: [Int] = []
+        while i < chars.count {
+            switch chars[i] {
+            case "\n":
+                line += 1
+            case "(":
+                depth += 1
+                let start = i + 1 - needle.count
+                if start >= 0, Array(chars[start...i]) == needle,
+                   start == 0 || !isIdent(chars[start - 1]) {
+                    openCalls.append(depth)
+                }
+            case ")":
+                if openCalls.last == depth { openCalls.removeLast() }
+                depth -= 1
+            default:
+                if openCalls.last == depth, chars[i] == "f",
+                   i + label.count <= chars.count,
+                   Array(chars[i..<(i + label.count)]) == label {
+                    let prev: Character = i > 0 ? chars[i - 1] : " "
+                    if !(isIdent(prev) || prev == ".") { lines.append(line) }
+                }
+            }
+            i += 1
+        }
+        return lines
+    }
+
+    /// Every writer spelling in one file's `text`, per line: the substring
+    /// spellings line by line (`manuscriptWriterExcludeLine` skipping comments
+    /// and declarations), a figure mutator only as an awaited call, a figure
+    /// op only as an `Op(` with `figure:`. SHARED by the census and its
+    /// controls.
+    static func manuscriptWriterHits(
+        file: String, text: String
+    ) -> [(hit: SourceTree.Hit, value: [String: Int])] {
+        var out: [(hit: SourceTree.Hit, value: [String: Int])] = []
+        let plain = manuscriptWriterPatterns.filter {
+            !figureMutatorSpellings.contains($0) && $0 != figureOpMintSpelling
+        }
+        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let lineStr = String(line)
+            if manuscriptWriterExcludeLine(lineStr) { continue }
+            var spellings: [String: Int] = [:]
+            for spelling in plain where lineStr.contains(spelling) { spellings[spelling, default: 0] += 1 }
+            if !spellings.isEmpty { out.append((SourceTree.Hit(file: file, line: i + 1), spellings)) }
+        }
+        for spelling in figureMutatorSpellings.sorted() {
+            for line in awaitedCallLines(of: spelling, in: text) {
+                out.append((SourceTree.Hit(file: file, line: line), [spelling: 1]))
+            }
+        }
+        for line in figureOpMintLines(in: text) {
+            out.append((SourceTree.Hit(file: file, line: line), [figureOpMintSpelling: 1]))
+        }
+        return out
     }
 
     /// **Every production call site, by file and by count** — count the array,
@@ -12041,20 +12132,20 @@ final class TripwireGrepTests: XCTestCase {
     ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
     ///   deliberately NOT gated, because it stands in for a keystroke and is
     ///   how a rig drives a burst the read side must then set aside.
-    /// - `FigureDocument.swift` — a figure's host (report plan 6a). Its ten
-    ///   `FigureOpPayload(` mints each sit in a mutator after
-    ///   `requireWritable("…")`, which asks posture (the figure's own,
+    /// - `FigureDocument.swift` — a figure's host (report plan 6a). Its one
+    ///   `Op(…, figure:)` is `commit`, reached only from a mutator after
+    ///   `requireWritable("…")` — which asks posture (the figure's own,
     ///   `.editFigure`, through the window's door) and throws
-    ///   `FigureEditRefused` before any op; its awaited mutator calls are the
-    ///   redo closures, each re-entering that doored mutator, a refusal said
+    ///   `FigureEditRefused` before any op — or from `registerFigureUndo`'s
+    ///   undo after `mayEditHere`. Its awaited mutator calls are the redo
+    ///   closures, each re-entering that doored mutator, a refusal said
     ///   (`decline(.notPermitted)`).
-    /// - `ProjectStore+Figures.swift` × 3 — `createFigure`'s `figureCreate`
-    ///   and its row and column inserts: it asks posture (`.editFigure` of the
-    ///   class the new figure will have) before it mints a line, and throws
-    ///   `FigureEditRefused`.
-    /// - `FigureInverse.swift` × 4 — Core's pure inverse of a figure op; it
-    ///   appends nothing, and its one caller, `registerFigureUndo`, asks
-    ///   posture (`mayEditHere`) before it commits one.
+    /// - `ProjectStore+Figures.swift` × 1 — `createFigure`'s `op(_:_:)`, which
+    ///   mints its `figureCreate` and row and column inserts: it asks posture
+    ///   (`.editFigure` of the class the new figure will have) before it mints
+    ///   a line, and throws `FigureEditRefused`.
+    /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
+    ///   built (and judged) by one of the above, never a new figure write.
     ///
     /// `createFigure(` has no production caller yet: plan 7's surfaces add
     /// theirs here, each drawn and pressed only where the posture allows
@@ -12083,12 +12174,12 @@ final class TripwireGrepTests: XCTestCase {
         "TestEditTool.swift": ["setFullText(": 1],
         // Figures (report plan 6a): each asks posture before it writes.
         "FigureDocument.swift": [
-            "FigureOpPayload(": 10,
+            figureOpMintSpelling: 1,
             "setCell(": 1, "moveRow(": 1, "moveColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1,
         ],
-        "ProjectStore+Figures.swift": ["FigureOpPayload(": 3],
-        "FigureInverse.swift": ["FigureOpPayload(": 4],
+        "ProjectStore+Figures.swift": [figureOpMintSpelling: 1],
+        "Op.swift": [figureOpMintSpelling: 1],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.
@@ -12096,24 +12187,18 @@ final class TripwireGrepTests: XCTestCase {
         admissionExcludeLine(line) || line.contains("func ")
     }
 
-    /// Call sites under `roots`, per file and per SPELLING — every spelling a
-    /// line carries is counted (no production line carries two today).
+    /// Call sites under `roots`, per file and per SPELLING
+    /// (`manuscriptWriterHits` over each file).
     private func manuscriptWriterCallCounts(
         in roots: [URL]
     ) throws -> [(hit: SourceTree.Hit, value: [String: Int])] {
         var counts: [(hit: SourceTree.Hit, value: [String: Int])] = []
         for root in roots {
-            let hits = try grepSwift(
-                in: root,
-                patterns: Self.manuscriptWriterPatterns,
-                allowed: [],
-                excludeLine: Self.manuscriptWriterExcludeLine)
-            for hit in hits {
-                // A figure mutator's name that is not an awaited call (a
-                // table helper's, a structure change's case) is no writer.
-                let spellings = Self.manuscriptWriterSpellings(on: hit)
-                if spellings.isEmpty { continue }
-                counts.append((try XCTUnwrap(SourceTree.Hit(offender: hit)), spellings))
+            guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+            else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                counts += Self.manuscriptWriterHits(file: url.lastPathComponent, text: text)
             }
         }
         return counts
@@ -12276,8 +12361,8 @@ final class TripwireGrepTests: XCTestCase {
     /// Task 8): a planted `FigureDocument`-shaped mutator behind
     /// `requireWritable("…")` joins the derived population and is refused
     /// until classified; classified as a figure writer but left out of the
-    /// spelling lists, it is refused again; spelled, it passes — and taken
-    /// away, the production population passes as it stands.
+    /// spelling lists, it is refused again. Without the planted mutator, the
+    /// production population passes as it stands.
     func test_theGuardedMutatorCensusFiresOnAPlantedFigureMutator() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
@@ -12356,7 +12441,8 @@ final class TripwireGrepTests: XCTestCase {
         try await figure.setTotalRow(true)
         try await figure.setColumnWidth(column, 120)
         let record = try await store.createFigure(kind: .table, name: "Prices", piece: p)
-        ops.append(op(.figureCreate, FigureOpPayload(kind: kind)))
+        let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
+                    session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
                   atomically: true, encoding: .utf8)
 
@@ -12396,13 +12482,35 @@ final class TripwireGrepTests: XCTestCase {
         Button("Move Up") { model.moveRow(at.row, by: -1) }
         set: { model.setCell(row, column, to: $0) })
         let op = try await commit(.figureStructure, structure: .insertRow(id, after: after))
+        try await commit(.figureStructure, FigureOpPayload(structure: .insertRow(id, after: after)))
         public func setCell(_ cell: Cell?, at key: CellKey) async throws {
+        let payload = FigureOpPayload(cell: key, next: nil, prior: nil)
+        let words = ElementWords(figure: "Figure", table: "Table")
+        let wrapped = FigureOp(figure: payload)
+        let nested = Op(kind: k, provenance: Provenance(figure: p))
+        public init(opId: String, figure: FigureOpPayload? = nil) {}
         """
         try helpers.write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
                           atomically: true, encoding: .utf8)
         XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
             "Self-check: no table helper, structure case, grid-model call, "
-            + "declaration or comment is counted as a figure writer")
+            + "declaration, comment, bare payload or other `figure:` label is "
+            + "counted as a figure writer")
+
+        // Each awaited shape a caller may take counts once: a receiver that
+        // ends in a call, and a call split across lines.
+        try (helpers + """
+
+        try await documentStore.openFigure(figureId: f).setCell(cell, at: key)
+        _ = try await figure
+            .insertRow(after: nil)
+        """).write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                   atomically: true, encoding: .utf8)
+        let shapes = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(Self.byFile(shapes), ["FigureDeriver.swift": ["setCell(": 1, "insertRow(": 1]],
+            "Self-check: the chained and the split awaited calls each count")
+        XCTAssertEqual(Set(shapes.map(\.hit.line)), [17, 19],
+            "and each is counted on the line holding the mutator's name")
 
         try (helpers + "\ntry await figure.setCell(cell, at: key)\n")
             .write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
@@ -12419,6 +12527,46 @@ final class TripwireGrepTests: XCTestCase {
             XCTAssertNil(production[helperFile],
                 "\(helperFile) holds table helpers, not figure writers")
         }
+    }
+
+    /// **A figure op is counted where the OP is born, not the payload**
+    /// (report plan 6a Task 8 fix round 1): a writer that appends an `Op(`
+    /// reusing another op's payload (`figure: someOp.figure`) — a restore, a
+    /// replay — builds no `FigureOpPayload(` and calls no mutator, and is
+    /// still caught, on the label's line, across a multi-line call. Taken
+    /// away, the planted file leaves the census.
+    func test_theFigureOpMintCensusFiresOnAReusedPayload() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-mint-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let file = tmp.appendingPathComponent("FigureCheckpointRestore.swift")
+
+        let clean = """
+        // A restore may say Op(…, figure: someOp.figure) in a comment.
+        let ops = try await store.loadDiagnosed(docId: figureId).ops
+        """
+        try (clean + """
+
+        for someOp in ops {
+            try await opStore.append(Op(
+                opId: ULID.generate(), docId: figureId, at: Date(), device: device,
+                session: session, kind: someOp.kind, changes: [], figure: someOp.figure))
+        }
+        """).write(to: file, atomically: true, encoding: .utf8)
+        let planted = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(Self.byFile(planted),
+                       ["FigureCheckpointRestore.swift": [Self.figureOpMintSpelling: 1]],
+            "Self-check: the reused payload's op is counted once")
+        XCTAssertEqual(planted.map(\.hit.line), [6], "on the line holding `figure:`")
+        XCTAssertNotEqual(Self.byFile(planted), Self.manuscriptWriterCallSites,
+            "and a file off the list fails the census it feeds")
+
+        try clean.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
+            "and taken away, nothing is counted")
     }
 
     /// **A swap inside a listed file fails the census** (Task 9): the same
