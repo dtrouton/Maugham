@@ -38,6 +38,24 @@ Plan (⌘1) puts a **canvas** where the editor usually sits — a place to think
 - **Scroll to pan, pinch to zoom.** Zoom stays crisp all the way in and out. Cards sit at a slight angle — the one you're editing straightens itself while you write in it, and leans back when you leave.
 - **Select a card with a single click**, and press **⌫** to delete it. ⌘Z brings it back, with its words.
 
+**The keyboard does the same work.** Inside a scrap:
+
+- **↩** finishes the scrap and leaves it selected; **⇧↩** makes a new line.
+- **⎋** finishes the scrap too. It never throws your words away.
+- **⇥** finishes it, then makes a new scrap beside it, joined by a line, and starts you typing in it.
+- **⌘↩** finishes it, then makes a new scrap below with no line, and starts you typing in it.
+
+On the canvas itself (these work while the canvas holds the keyboard):
+
+- **↩** with nothing selected makes a scrap at the centre of the view; with a scrap selected it starts typing in it; with a region selected it renames the region.
+- **⇥** or **⌘↩** with a scrap or an item card selected makes a joined or a below scrap.
+- **The arrow keys** move the selection to the nearest card in that direction.
+- **⌫** deletes, as before.
+
+In Plan, **⇥ in the binder moves the keyboard to the canvas**, and **⇧⇥ on the canvas moves it back** whenever the binder is showing.
+
+**Select a chapter first, and new scraps belong to it.** A scrap made inside an unbound region is bound to the chapter; inside a region already bound to that chapter it follows the region; inside a region bound to another chapter it stays unbound and follows the region. With the book selected, scraps stay unbound.
+
 **Selecting something in the tree can dim the board too.** Select a chapter or a group and every card and region not bound to it dims, so what's relevant to that selection stands out. Select a research note or palette card instead and the canvas looks for its card the same way: already on the board, and that one card lights up while the rest dims; not there yet, and the whole board dims with a line in the middle — *"This item isn't on this canvas yet. Drag its row from the tree to place it."* — that clears the moment you drag the row over. Arriving at a research subject this way, or via Claude's **Show**, pans the camera to its card even if it's already on screen; reopening the project on a research subject you'd left selected doesn't move the camera again, so your view stays exactly where you left it.
 
 Your scraps are saved as you type, into a plain `canvas.md` file at the top of the project — readable in any text editor, like everything else Maugham writes. Where the cards sit is kept separately, as scratch layout; deleting that never costs you a word.
@@ -52,7 +70,8 @@ A **region** is an area you draw around cards that belong together — an act, a
 - **A new scrap made inside a region joins it too.** Double-click on empty space within a region and the card it makes is a member.
 - **Drag a card so its middle lands inside** to put it in. Drag it out and drop it somewhere else and it moves to that region instead; drop it on bare canvas and it stays where it is *and stays a member*. Leaving is its own decision, not a side effect of where you parked something. If a card ends up sitting outside the region that holds it, a faint line is drawn between the two so you can see the relationship you actually have.
 - **Drag the label bar** to move the region, and the cards that live in it travel with it. One ⌘Z puts the whole thing back. Drag the bottom-right corner to resize it. **Moving and resizing never change who belongs**: a region dragged over a card does not swallow it, and one resized past a card does not drop it. Drawing is where you say what belongs together; after that, membership only changes when you say so.
-- **Click the label bar** to select the region. The Inspector (⌘⌥I) is where you name it, and where the rest of this lives.
+- **Click the label bar** to select the region. The Inspector (⌘⌥I) is where the rest of this lives.
+- **Name it where it sits.** The title opens for typing right after you sweep a region, and after a drop that makes one. **↩** keeps the name, **⎋** leaves it untitled, and clicking away keeps it. **Double-click a region's title** to rename it later, or select the region and press **↩**. The Inspector's Name field still works.
 
 **Living in a region and appearing in one are different things**, and the Inspector lists them separately. A card **lives** in exactly one region — that's the region it travels with, and the one that counts it as its own. A card can also **appear** in another: a reference to the card, not a second copy of it, drawn on the canvas as a small chip hairlined back to the real one so there's never a question about which is the actual card. **To cite a card here, use "Cite a Card" under "Appears here"** and pick it from the list — it stays exactly where it is, and keeps the region it lives in. The minus button on a row takes a card out of a region; the card itself stays on the canvas.
 
@@ -113,8 +132,10 @@ A promoted card wears a **thin stripe down its left edge**, and a promoted regio
 Typing a scrap is the quickest way to put something on the canvas, and it is not the only one. Three other things can be dropped straight onto it, and each lands exactly where you let go of it.
 
 - **A research note, image or folder from the binder.** Drag a row out of the research tree onto the canvas and it becomes a card showing that item's real title and kind — a *reference*, not a copy: the file stays where it is, and the canvas holds only its position. Drag the same item in twice and the second drop takes you to the card you already have rather than making another. Deleting the card never deletes the item.
-- **A photograph from the Finder, or an image dragged out of a web page.** It is copied into the project — into a `canvas_assets` folder beside `canvas.md` — so the card keeps working after you have tidied up wherever you dragged it from. Drop several at once and they cascade rather than stacking, so you can see there are four.
+- **A photograph from the Finder, or an image dragged out of a web page.** It is copied into the project — into a `canvas_assets` folder beside `canvas.md` — so the card keeps working after you have tidied up wherever you dragged it from. Drop several at once and they cascade rather than stacking, so you can see there are four. They drop straight onto the canvas from the Finder.
 - **A capture from your Inbox** — see below.
+
+**Where a drop lands depends on what is selected.** Drop onto bare canvas with a chapter selected and the items arrive wrapped in a new region bound to that chapter, its title open for typing; several items dropped together share one region. Drop onto an existing region and they join it. With the book selected, drops land loose.
 
 Anything that is not a picture is refused with a line saying so, rather than landing as a card that can never draw.
 
