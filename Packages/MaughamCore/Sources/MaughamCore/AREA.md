@@ -177,6 +177,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `Workbook.swift` — a document's tables evaluated together: live refs between tables, research refs read through a pin source, recalculation of only what reads a change, cycles as `#CIRC!`, the NPV first-flow note.
 - `TableLocale.swift` — the book's language for a table: separators, currency symbol, day-first order, financial-year start month; region from the tag, else a fallback.
 - `CellDisplay.swift` — a value and its format as the string the writer sees: Excel-rounded first, number, percent, currency, compact and date styles in the locale, financial-year labels.
+- `CellInput.swift` — typed or pasted cell text read in the book's language: formulas, text escapes, numbers, percentages, currency and dates, with the format Excel would suggest.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.
