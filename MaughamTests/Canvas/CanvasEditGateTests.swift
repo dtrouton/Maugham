@@ -101,9 +101,9 @@ final class CanvasEditGateTests: XCTestCase {
              // The CARD arm: its `withScene(persist: false)` is the one the
              // model does not guard, which is what this gate exists for.
              "model.beginGesture(\"Delete Card\")"),
-            ("func handleDrop(", "CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)",
+            ("func handleDrop(_ payloads:", "CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)",
              "handleCaptureDrop(entryID"),
-            ("func handleDrop(", "CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)",
+            ("func handleDrop(_ payloads:", "CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)",
              "CanvasDrop.apply("),
             ("func handleExternalDrop(", "CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)",
              "CanvasExternalDrop.ingest("),

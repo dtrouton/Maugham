@@ -37,7 +37,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasDragHandler.swift` — `handleDrag`: each gesture's press, move and release and its undo bracket; `pressStartsALine`; built per call by `CanvasView` (tripwire 32).
 - `CanvasClickHandler.swift` — `handleClick`: select, enter a scrap or make one; writes `selectionWhenPressed` first; built per call by `CanvasView`.
 - `CanvasKeyHandler.swift` — `deleteSelection` (⌫, refused mid-gesture) and `escapeAsksForTheWholeBoard`; built per call by `CanvasView` (tripwire 32).
-- `CanvasDropHandler.swift` — `handleDrop` (a research row or inbox capture) and `handleExternalDrop` (a photograph); holds no sibling helper; built per call by `CanvasView`, whose `body` keeps both drop modifiers in order.
+- `CanvasDropHandler.swift` — `handleDrop(providers:at:)`, the one entry, routes to `handleDrop` (a research row or inbox capture) or `handleExternalDrop` (a photograph); holds no sibling helper; built per call by `CanvasView`, whose `body` mounts the one drop modifier.
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
 
 ### State, persistence, undo
@@ -70,6 +70,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `PromotionSheet.swift` — `PromotionSheetModel` and the sheet.
 
 ### Routes onto the canvas
+- `CanvasDropRoute.swift` — pure: where a drop goes by type (`route(typeIdentifiers:)`; a file, URL or image before text) and `acceptedTypes`.
 - `CanvasDrop.swift` — `CanvasDrop` (internal drag: `payload`, `decide`, `apply`, `inboxPayload`), `CanvasExternalDrop` (Finder/browser images), `CanvasAssetIngest`, `CanvasCaptureDrop` (tripwire 32 census).
 - `CanvasCapture.swift` — an Inbox capture onto the canvas, by drag or by command; `liveModel` is shared (tripwire 32 census).
 - `CanvasClaudePlacement.swift` — where Claude's batch lands: pure `plan`, `apply`, `PlannedSource`, `looseOrigin`, `defaultRegionLabel`.
@@ -168,12 +169,13 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **`ItemInspector.promotes(_:)` is asserted against `Promotion.targets` and `isPromotable`** (`test_theArmsGateAgreesWithTheTargetsAndTheCommand`).
 
 ### Routes onto the canvas
-- **What a drop means is a pure decision (`CanvasDrop.decide`) plus a model verb (`apply`)**; that the modifiers are mounted at all is pinned only by `PromotionCommandTests`' wiring census.
+- **One drop modifier: `CanvasView.body` mounts a provider `.onDrop(of: CanvasDropRoute.acceptedTypes)` and no typed destination beside it.** Each drop modifier is its own AppKit view and only the innermost gets the drag (`TripwireGrepTests.test_theCanvasHasOneDropModifierAndItIsTheProviderRoute`). `CanvasDropRoute` sends a file or an image external and text alone to the id route; an unknown id is accepted and does nothing (ruled).
+- **What a drop means is a pure decision (`CanvasDrop.decide`) plus a model verb (`apply`)**; that the modifier is mounted at all is pinned only by `PromotionCommandTests`' wiring census.
 - **Validation is membership in `CanvasItemIndex`**: anything not there is refused. A second id space arrives prefixed — an Inbox capture's payload is `inbox:<id>`, spelled only in `CanvasDrop.inboxPayload(for:)` and destructured first by `CanvasDrop.payload`.
 - **A research group is accepted by the drop** (where `add_canvas_scraps` refuses one as a source page).
 - **A second drop of the same item REVEALS (select and bring on screen); it never re-creates and never moves.**
 - **Drops, captures and Claude's writes go through `mutateFromInspector`.**
-- **External images: never `.dropDestination(for: URL.self)`**; use `[.fileURL, .image]` providers and `DropClassification` (`TripwireGrepTests.test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination`).
+- **External images: never `.dropDestination(for: URL.self)`**; use providers (`CanvasDropRoute.acceptedTypes`) and `DropClassification` (`TripwireGrepTests.test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination`).
 - **A non-image is refused before anything is copied** with `ImagePasteHandler.isIngestableImage` (`CanvasDropTests.test_theCanvasDropStillRefusesItInItsOwnWords`). Await ingestion first, touch the scene second. Several files cascade at `CanvasClaudePlacement.cardGap`.
 - **A failure is an alert naming the files, not another transient banner.** `ProjectStore` never reaches this view; `CanvasAssetIngest` and `CanvasCaptureDrop` closures do.
 - **A capture sent from the Inbox** is `CanvasCapture`, sibling of `CanvasClaudeWrite`: `.dropped(at:)` joins by centre, `.loose` (the command) never joins a region (`Landing.joinsARegion`). The command's card is told by selecting it, a camera request and a line in `InboxPane`. The store half is `InboxStore.sendToCanvas` (`Maugham/Stores/AREA.md`).

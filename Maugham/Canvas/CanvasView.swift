@@ -541,51 +541,20 @@ struct CanvasView: View {
         // to before filling, which is not a rect anything else on this surface
         // measures against.
         //
-        // `for: String.self` is the app's established internal-drag pattern, the
-        // other end of `ResearchRow`'s `.draggable(item.id)`. **Not**
-        // `.dropDestination(for: URL.self)`, which silently rejects a browser's
-        // rendered-bitmap drag; external drops are their own route through
-        // `DropClassification` and are not this modifier's business.
-        //
-        // *** THE ORDER OF THE NEXT TWO MODIFIERS IS NOT A PREFERENCE. It is the
-        // only order in which both routes work, and it was settled by a smoke
-        // rather than by reasoning — the reasoning was written down here first
-        // and was WRONG. ***
-        //
-        // `.dropDestination(for: String.self)` FIRST (innermost), the provider
-        // `.onDrop` after it. Written the other way round, `.onDrop(of:)` claims
-        // the drag session **on hover, before any payload is examined**, so the
-        // string destination behind it is never offered the drop at all: a
-        // photograph from the Finder landed correctly while a research drag and
-        // an inbox drag both did nothing whatever, and the Inbox's "Send to
-        // Canvas" *command* — which touches no drop target — went on working,
-        // which is what identified the modifiers rather than the routers.
-        //
-        // The comment that used to sit here claimed a research row's
-        // `.draggable(item.id)` "carries neither a file URL nor an image, so it
-        // never matches this one and falls through to the router below". **It
-        // does not fall through.** A typed destination does not decline a session
-        // on the strength of its payload type; the outer one simply never sees it.
-        //
-        // `ResearchRow.swift:69`/`:79` is the shipped precedent and ships THIS
-        // order — an id drag and a browser image drag both land on that row
-        // today. **No general depth rule should be read off the tree**:
-        // `ResearchView` and `PaletteCardEditor` mount the provider `.onDrop`
-        // with no typed destination beside it at all, so what matters is the
-        // PAIRING rather than which kind goes outermost. (`CollectionResearchPane`
-        // has the same pairing on its sections in the OTHER order — recorded in
-        // this task's report, not fixed here: its inner per-row and per-header
-        // destinations narrow the exposure to the blank space between rows, and
-        // that fix wants its own smoke rather than the reasoning that failed
-        // here.) `TripwireGrepTests
-        // .test_theCanvasStringDropDestinationIsMountedBeforeTheProviderDrop`
-        // pins this one, because no test in this repo can drive a drag session —
-        // which is why it reached a smoke in the first place.
-        .dropDestination(for: String.self) { payloads, location in
-            dropHandler.handleDrop(payloads, at: location)
-        }
-        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, viewPoint in
-            dropHandler.handleExternalDrop(providers, at: viewPoint)
+        // **ONE drop modifier, deliberately, and never two.** SwiftUI gives each
+        // drop modifier its own AppKit view registered for every type, and
+        // AppKit hands a drag to the frontmost one only — there is no falling
+        // through to a sibling. With a String destination in front of a
+        // provider `.onDrop`, a Finder PNG was answered "no operation" at hover
+        // (nothing fired) and a browser image was taken by its page-URL text
+        // and refused as an unknown id; both slid back. So one provider
+        // `.onDrop` takes every drag, and `CanvasDropRoute` sends it by type:
+        // a file or an image to the external route, text alone to the id
+        // route. The two-modifier history is in docs/history/canvas.md.
+        // `TripwireGrepTests.test_theCanvasHasOneDropModifierAndItIsTheProviderRoute`
+        // pins it, because no test can drive a drag session.
+        .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { providers, viewPoint in
+            dropHandler.handleDrop(providers: providers, at: viewPoint)
         }
         .alert(dropError ?? "",
                isPresented: Binding(get: { dropError != nil },

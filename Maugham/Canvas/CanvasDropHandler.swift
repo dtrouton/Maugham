@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// `CanvasView`'s drops: a research row or an inbox capture (`handleDrop`) and
-/// a photograph from the Finder or a browser (`handleExternalDrop`) — over
-/// bindings to the view's own `camera`, `revision` and `dropError`. Each
-/// returns whether the drop was taken; the two modifiers that deliver them,
-/// and their order, stay on `CanvasView.body`.
+/// `CanvasView`'s drops: one entry point, `handleDrop(providers:at:)`, which
+/// `CanvasDropRoute` sends either to a research row or an inbox capture
+/// (`handleDrop`) or to a photograph from the Finder or a browser
+/// (`handleExternalDrop`) — over bindings to the view's own `camera`,
+/// `revision` and `dropError`. Each returns whether the drop was taken; the
+/// one modifier that delivers them stays on `CanvasView.body`.
 ///
 /// Built fresh per call by `CanvasView.dropHandler` and never stored; built
 /// nowhere else (tripwire 32's surface census). **It holds no sibling
@@ -179,5 +180,46 @@ struct CanvasDropHandler {
             dropError = outcome.message
         }
         return true
+    }
+
+    /// Every drag dropped on the canvas arrives here, from the canvas's one
+    /// `.onDrop` (spec §4). `CanvasDropRoute` decides by type, over every
+    /// provider's types, and a file or an image always wins over text.
+    ///
+    /// **An internal payload is taken before its string is read**, because
+    /// the modifier wants its answer now and the string loads asynchronously.
+    /// So a payload with an id this canvas has no card for is accepted and
+    /// then does nothing, rather than springing back: a cost accepted by
+    /// ruling (canvas-keyboard-flow Task 1). The read-only refusal is still
+    /// `handleDrop`'s, run when the string arrives.
+    ///
+    /// The content point is resolved **before** the await and mapped back
+    /// through the live camera after it, so the card lands where the writer
+    /// let go even if the camera moved meanwhile.
+    func handleDrop(providers: [NSItemProvider], at viewPoint: CGPoint) -> Bool {
+        let types = providers.flatMap(\.registeredTypeIdentifiers)
+        switch CanvasDropRoute.route(typeIdentifiers: types) {
+        case .external:
+            return handleExternalDrop(providers, at: viewPoint)
+        case .refuse:
+            return false
+        case .internalPayload:
+            guard let provider = providers.first else { return false }
+            let contentPoint = camera.contentPoint(fromView: viewPoint)
+            Task {
+                guard let payload = await Self.string(from: provider) else { return }
+                _ = handleDrop([payload],
+                               at: camera.viewPoint(fromContent: contentPoint))
+            }
+            return true
+        }
+    }
+
+    private static func string(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadTransferable(type: String.self) { result in
+                continuation.resume(returning: try? result.get())
+            }
+        }
     }
 }
