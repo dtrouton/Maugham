@@ -243,7 +243,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **`CanvasModel.attach` surfaces orphan words** (text with no node) as loose cards, and drops blank ones; a refused sidecar is never written back at load.
 - **`CanvasStore.load()` reads both files directly under `// adr-0018-ok:`** — scrap text has one persisted representation, so ADR 0018's drift cannot arise.
 - **`flush()` covers app quit through `NSApplication.willTerminateNotification` with `queue: nil`.**
-- **The crash floor: a force-quit loses up to 750 ms of typing.**
+- **The crash floor: a force-quit loses up to 750 ms of typing.** Do not read it as parity with `DocumentStore`: the canvas has no op log.
 
 ### Accessibility
 - **We own the tree**: `CanvasAccessibility` mirrors every node in rows-then-columns order (a proximity walk with `rowBand`); never `.accessibilityElement(children: .ignore)` on the stack, and never name it or `accessibilityHidden(true)` even in a comment on the canvas surface (`CanvasSourceCensus.surfaceFiles`; a raw-source scan).
@@ -253,7 +253,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **`summary` counts the whole line set and every node, collapsed regions included**; a collapsed region says separately what it holds.
 - **Claude's provenance is spoken on every primitive with one wording** shared with `CanvasClaudePlacement.defaultRegionLabel` and `CanvasClaudeWrite.undoStepName` (`test_theSpokenTermAgreesWithTheRegionLabelAndTheUndoStep`). The tree is flat, so the term is repeated on each card of a Claude region and is not suppressed when a region's name already contains it.
 - **A line is not an element; it is named at both its ends** (`connectionPhrase`, built from one index in one pass — `CanvasPerformanceProbeTests.test_theAccessibilityRebuildDoesNotGoQuadraticInTheLines`). A line to a hidden end is not named; one to an unmeasured end is. Phrase names follow `scene.lines`' id order.
-- **The surface has two deliberate drawn/spoken divergences, in opposite directions**: a Claude item node is announced and not tinted; a contribution record is neither drawn nor announced. Any other divergence is decided and recorded here, or it is a defect.
+- **The surface has two deliberate drawn/spoken divergences, in opposite directions**: a Claude item node is announced and not tinted; a contribution record is neither drawn nor announced. One rule covers both: a signal is added to a channel that would otherwise be silent about a fact the writer needs, and withheld where it would be ambiguous with one already there. Any other divergence is decided and recorded here, or it is a defect.
 - **On macOS 14/15 a lone card publishes its container's frame**; nothing in production works around it, and `test_aLoneCardOnTheCanvasIsAnElementOfItsOwn` skips on the observation, never on `#available`.
 
 ### Claude on the canvas

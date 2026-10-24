@@ -991,7 +991,6 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the keyboard flow's M
 - Claude on the canvas: “because `writeNow` swallows I/O errors”.
 - Scale and tests: “which catch O(n²) and not a lost constant factor”.
 - The mounted editor and Delete: “a `where` binds only to the last pattern”.
-- Accessibility: “One rule covers both: a signal is added to a channel that would otherwise be silent about a fact the writer needs, and withheld where it would be ambiguous with one already there”.
 - Accepted costs: “which is already level; inventing a lean would undo the provenance signal”.
 - The dim: “a restore is not an arrival, and keying it on `revision` or `sceneRevision` snatches the card from under the writer's hand”.
 - The dim: “because `NSWindow.sendEvent(_:)` bypasses monitors and monitor order is not stable”.
@@ -1002,7 +1001,6 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the keyboard flow's M
 - The dim: “two handlers leave the tree one click behind”.
 - Promotion: “since deferring it puts the walk on the drag loop”.
 - Promotion: “or its stale image list overwrites the new pictures”.
-- Persistence: “The canvas has no op log behind it, so do not let "matches `DocumentStore`" imply parity”.
 - Routes onto the canvas: “so a refusal and a failure stay separate sentences”.
 - Ownership, counters and undo: “being inside its own bracket by construction”.
 - Ownership, counters and undo: “so the editor's rebind shows the restored words”.
