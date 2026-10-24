@@ -40,15 +40,34 @@ final class FigureClassTests: XCTestCase {
             .figure(id: "fig-1a2b3c4d", piece: nil))
     }
 
-    /// **The registry lost it — and it is still a figure, the book's.** Never
-    /// `.piece`: a scoped author's figure would be nobody's, and the deriver
-    /// would read its stream as prose.
-    func test_aFigureIdTheRegistryDoesNotCarryIsAFigureOfTheWholeBook() {
+    /// **The registry has not got it — and it is still a figure, one whose
+    /// record is on its way** (ruling R-6a-12). Never `.piece`: a scoped
+    /// author's figure would be nobody's, and the deriver would read its
+    /// stream as prose. Never the whole book's either: that would set aside a
+    /// scoped author's lines the arriving record puts in her own piece.
+    func test_aFigureIdTheRegistryDoesNotCarryIsAnUnregisteredFigure() {
         for figures in [nil, [], [Self.record]] as [[FigureRecord]?] {
             XCTAssertEqual(
                 DocumentClass.resolve(docId: "fig-99999999", manifest: manifest(figures: figures)),
-                .figure(id: "fig-99999999", piece: nil))
+                .unregisteredFigure("fig-99999999"))
         }
+        XCTAssertNil(DocumentClass.unregisteredFigure("fig-99999999").piece)
+    }
+
+    /// **Held, not refused, where the record could change the answer** — the
+    /// scoped author's figure content and dispositions; the book author's
+    /// `.yes` and the reviewer's refusal stand, since no record changes them.
+    func test_anUnregisteredFiguresLinesAreHeldForAScopedAuthorOnly() {
+        let cls = DocumentClass.unregisteredFigure("fig-99999999")
+        let sam = Permit.author(.pieces(["d_chapter1"]))
+        for kind in FigureOpPayload.kinds {
+            XCTAssertEqual(sam.allows(.op(kind), in: cls, actor: .author), .cannotJudge, "\(kind)")
+            XCTAssertEqual(Permit.author(.book).allows(.op(kind), in: cls, actor: .author), .yes, "\(kind)")
+            XCTAssertEqual(Permit.reviewer.allows(.op(kind), in: cls, actor: .author), .no(.figure), "\(kind)")
+            XCTAssertEqual(sam.allows(.op(kind), in: cls, actor: .assistant), .no(.figure),
+                           "the assistant is the reviewer row, whatever the record says")
+        }
+        XCTAssertEqual(sam.allows(.op(.claudeComment), in: cls, actor: .author), .yes)
     }
 
     func test_anIdThatIsNotAFigureIsUntouched() {

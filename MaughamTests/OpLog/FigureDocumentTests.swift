@@ -566,6 +566,79 @@ final class FigureDocumentTests: XCTestCase {
         await b.close()
     }
 
+    /// **Ruling R-6a-12**: a figure's stream is written before its record and
+    /// the two sync independently, so a receiving Mac routinely reads a
+    /// scoped author's figure lines before the record naming her piece. Those
+    /// lines are HELD — not applied, and not set aside as written by a device
+    /// that may not write here — and the same lines apply once the record
+    /// lands.
+    func test_aScopedAuthorsFigureLineAheadOfItsRecordIsHeldThenAppliesWhenTheRecordLands() async throws {
+        let sam = try rootWithSamNarrowedToPieceB()
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        let withoutRecord = try Data(contentsOf: manifestURL)
+
+        let store = try await ProjectStore.load(from: projectURL)
+        let ofB = try await store.createFigure(kind: .table, name: "of_b", piece: Self.pieceB)
+        let read = try await load(ofB.id)
+        let key = try firstKey(read)
+        await read.close()
+        let withRecord = try Data(contentsOf: manifestURL)
+
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam,
+            state: OpLogDeviceState(fileURL: projectURL.appendingPathComponent("sam-state.json")))
+        try await samsStore.append(Op(
+            opId: ULID.generate(), docId: ofB.id, at: Date(), device: sam.author.deviceId,
+            session: "sam", kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: key, next: text("sam"), prior: nil)))
+        _ = try await samsStore.sealChain(docId: ofB.id)
+
+        // The stream has arrived; the record has not.
+        try withoutRecord.write(to: manifestURL)
+        let early = try await load(ofB.id)
+        XCTAssertNil(early.state.table[key], "Sam's line is not applied before its record")
+        XCTAssertGreaterThan(early.provenance?.pendingLines ?? 0, 0, "it is HELD")
+        XCTAssertEqual(early.provenance?.quarantinedLines ?? -1, 0, "and never set aside")
+        XCTAssertEqual(early.state.table.rows.count, 3, "the book author's own lines stand")
+        await early.close()
+
+        // The record lands: the same lines are judged again, and apply.
+        try withRecord.write(to: manifestURL)
+        let late = try await load(ofB.id)
+        XCTAssertEqual(late.state.table[key], text("sam"), "applied once the record names his piece")
+        XCTAssertEqual(late.provenance?.pendingLines ?? -1, 0)
+        await late.close()
+    }
+
+    /// This device is the book's root; Sam's Mac is admitted and narrowed to
+    /// piece B. Answers Sam's identities.
+    private func rootWithSamNarrowedToPieceB() throws -> LocalIdentities {
+        try writeThisDevicesRecord()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: identities.author.fingerprint, label: "Denver", ownName: "This Mac",
+                role: Permit.authorRole, admittedAt: Date(timeIntervalSince1970: 1_000),
+                admittedBy: identities.author.fingerprint),
+            signedBy: identities.author, in: projectURL)
+        let sam = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: sam.author.fingerprint, name: "Sam's Mac", kind: .mac,
+                actors: Dictionary(uniqueKeysWithValues: DeviceActor.allCases.map {
+                    ($0.rawValue, sam[$0].fingerprint)
+                }),
+                madeAt: Date(timeIntervalSince1970: 2_000)),
+            signedBy: sam.author, in: projectURL)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: sam.author.fingerprint, label: "Sam", ownName: "Sam's Mac",
+                role: Permit.authorRole, admittedAt: Date(timeIntervalSince1970: 2_000),
+                admittedBy: identities.author.fingerprint),
+            signedBy: identities.author, in: projectURL)
+        try narrow(sam.author.fingerprint, by: identities.author, pieces: [Self.pieceB])
+        return sam
+    }
+
     // MARK: - The window's door (ruling R-6a-8)
 
     /// A window on the book: this Mac roots the empty book at open.

@@ -87,6 +87,23 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
     /// an author of some pieces wrote in a figure of her own piece.
     case figure(id: String, piece: String?)
 
+    /// **A figure whose registry record this Mac has not got** — an id with
+    /// the figure prefix that the manifest's `figures` does not carry (ruling
+    /// R-6a-12, amending D-b). A figure's stream is written before its record
+    /// (R-6a-9) and iCloud syncs the two files independently, so on a
+    /// receiving Mac the stream outrunning its record is the NORMAL case, not
+    /// damage. The value is the figure's own document id.
+    ///
+    /// A class of its own for the reason `.unplaceable` is one: where the
+    /// record's piece could change the answer, the line is held
+    /// (`.cannotJudge`) and re-judged when the record lands, rather than set
+    /// aside as written by a device that may not write it here. Where it
+    /// could not, the answer stands — a book author may write it, anybody may
+    /// annotate it, a reviewer's refusals are refusals in every figure alike
+    /// (`Permit.unregisteredFigureRow`). It is never `.piece`, whose content
+    /// the deriver would read as prose, and never a guess at a piece.
+    case unregisteredFigure(String)
+
     /// The synthetic document id of the project stream.
     ///
     /// Spelled here because this is the one type whose job is to say what a
@@ -124,7 +141,8 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
         }
 
         /// No manifest: no statements and no figures, which resolves every
-        /// statement-shaped id to a piece and every figure to the book's.
+        /// statement-shaped id to a piece and every figure to one whose record
+        /// is not here (`.unregisteredFigure`).
         public static let empty = Facts(statements: [], figures: [])
     }
 
@@ -155,10 +173,10 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
     /// is not folded into `.projectStatement`.
     ///
     /// **A figure is its registry record's piece** (ruling D-b). An id with the
-    /// figure prefix that the registry does not carry — a record lost to a
-    /// stale manifest, or one that has not synced yet — is a figure of the
-    /// whole book, `.figure(id, piece: nil)`: never `.piece`, whose content the
-    /// deriver would read as prose, and never a guess at a piece.
+    /// figure prefix that the registry does not carry — a record that has not
+    /// synced yet, or one lost to a stale manifest — is
+    /// `.unregisteredFigure(id)` (ruling R-6a-12): never `.piece`, whose
+    /// content the deriver would read as prose, and never a guess at a piece.
     public static func resolve(docId: String, facts: Facts) -> DocumentClass {
         if docId == projectStreamDocId { return .projectStream }
         if let statement = facts.statements.first(where: { $0.id == docId }) {
@@ -174,7 +192,7 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
         if let record = facts.figures.first(where: { $0.id == docId }) {
             return .figure(id: docId, piece: record.piece)
         }
-        if isFigureDocId(docId) { return .figure(id: docId, piece: nil) }
+        if isFigureDocId(docId) { return .unregisteredFigure(docId) }
         return .piece(docId)
     }
 
@@ -200,7 +218,8 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
         // `.unplaceable` has a docId, and it is deliberately NOT offered here:
         // a statement's own id is not a piece id, and answering the scope test
         // with one would be a coincidence rather than a permission.
-        case .projectStatement, .projectStream, .inbox, .unplaceable: return nil
+        // `.unregisteredFigure` has no piece until its record says one.
+        case .projectStatement, .projectStream, .inbox, .unplaceable, .unregisteredFigure: return nil
         }
     }
 }

@@ -27,7 +27,7 @@ final class PermitTableTests: XCTestCase {
     private static let hers = "p-hers"
     private static let theirs = "p-theirs"
 
-    /// **Thirteen streams.** Every `DocumentClass` case, with the ones that
+    /// **Fourteen streams.** Every `DocumentClass` case, with the ones that
     /// carry a piece id appearing once about her piece and once about
     /// somebody's — and a figure a third time, belonging to no piece.
     private let classes: [DocumentClass] = [
@@ -47,7 +47,9 @@ final class PermitTableTests: XCTestCase {
         // unplaceable STATEMENT could turn out to be.
         .figure(id: "fig-0000000a", piece: PermitTableTests.hers),    // 10
         .figure(id: "fig-0000000b", piece: PermitTableTests.theirs),  // 11
-        .figure(id: "fig-0000000c", piece: nil)                       // 12
+        .figure(id: "fig-0000000c", piece: nil),                      // 12
+        // Ruling R-6a-12: a figure whose registry record has not arrived.
+        .unregisteredFigure("fig-0000000d")                           // 13
     ]
 
     /// The one stream whose PLACEMENT is unknown — the row every other row is
@@ -142,7 +144,11 @@ final class PermitTableTests: XCTestCase {
             // 10–12 a figure: content of the piece it belongs to — hers, then
             // somebody else's, then the whole book's, which only a book author
             // writes. On a figure's stream the noun is the figure.
-            "fyyc", "ffyc", "ffyc"
+            "fyyc", "ffyc", "ffyc",
+            // 13 a figure whose record has not arrived (R-6a-12): row 12 with
+            // the scoped author HELD wherever 12 refuses her — the record could
+            // name her piece. The reviewer's refusal is the same in 10–12.
+            "fcyc"
         ],
 
         // The reviewer row. A reviewer may annotate any piece of the book —
@@ -150,7 +156,8 @@ final class PermitTableTests: XCTestCase {
         .annotationCreation: [
             "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
             "yyyc",  // 9 — `y` in every row above, so no placement could change it
-            "yyyc", "yyyc", "yyyc"  // 10–12
+            "yyyc", "yyyc", "yyyc",  // 10–12
+            "yyyc"  // 13
         ],
 
         // Also the reviewer row — WHOSE annotation is a same-person rule that
@@ -158,7 +165,8 @@ final class PermitTableTests: XCTestCase {
         .ownAnnotation: [
             "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
             "yyyc",  // 9
-            "yyyc", "yyyc", "yyyc"  // 10–12
+            "yyyc", "yyyc", "yyyc",  // 10–12
+            "yyyc"  // 13
         ],
 
         // Settling a note is the writer's act. A reviewer raises them; the
@@ -166,14 +174,16 @@ final class PermitTableTests: XCTestCase {
         .disposition: [
             "dyyc", "ddyc", "syyc", "ssyc", "ssyc", "ddyc", "dyyc", "ddyc", "ddyc",
             "ccyc",  // 9 — the reviewer's noun differs by placement (d vs s), so held
-            "dyyc", "ddyc", "ddyc"  // 10–12 — a note settled on a figure is a disposition
+            "dyyc", "ddyc", "ddyc",  // 10–12 — a note settled on a figure is a disposition
+            "dcyc"  // 13
         ],
 
         // ⌘S's breadcrumb: an author's mark on a stream they may write.
         .checkpoint: [
             "oyyc", "ooyc", "syyc", "ssyc", "ssyc", "ooyc", "oyyc", "ooyc", "ooyc",
             "ccyc",  // 9
-            "oyyc", "ooyc", "ooyc"  // 10–12
+            "oyyc", "ooyc", "ooyc",  // 10–12
+            "ocyc"  // 13
         ],
 
         // The one thing an author of some pieces may write OUTSIDE her pieces:
@@ -184,7 +194,8 @@ final class PermitTableTests: XCTestCase {
             // there is no second answer to wait for. The scoped author's does
             // change (`y` on her pieces and on the project stream), so she is held.
             "tcyc",
-            "tyyc", "ttyc", "ttyc"  // 10–12 — her piece's figure is hers
+            "tyyc", "ttyc", "ttyc",  // 10–12 — her piece's figure is hers
+            "tcyc"  // 13
         ],
 
         // A translation of a piece is the piece's: hers if the piece is hers.
@@ -192,14 +203,16 @@ final class PermitTableTests: XCTestCase {
             "ryyc", "rryc", "ryyc", "rryc", "rryc", "rryc", "ryyc", "rryc", "rryc",
             "rcyc",  // 9 — the reviewer's `r` is uniform above; hers is not
             // 10–12 — a figure's text cells translate with its piece.
-            "ryyc", "rryc", "rryc"
+            "ryyc", "rryc", "rryc",
+            "rcyc"  // 13
         ],
 
         // The reviewer row's third member.
         .inboxRow: [
             "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
             "yyyc",  // 9
-            "yyyc", "yyyc", "yyyc"  // 10–12
+            "yyyc", "yyyc", "yyyc",  // 10–12
+            "yyyc"  // 13
         ],
 
         // A later build's kind. Nothing may be decided — not applied, and not
@@ -207,7 +220,8 @@ final class PermitTableTests: XCTestCase {
         .unreadable: [
             "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc",
             "cccc",  // 9
-            "cccc", "cccc", "cccc"  // 10–12
+            "cccc", "cccc", "cccc",  // 10–12
+            "cccc"  // 13
         ]
     ]
 

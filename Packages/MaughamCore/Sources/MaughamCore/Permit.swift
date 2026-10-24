@@ -638,6 +638,7 @@ extension Permit {
     /// One row of the ladder: what this permit may write, in this class.
     private func row(_ group: WrittenGroup, _ documentClass: DocumentClass) -> Allowed {
         if case .unplaceable = documentClass { return unplacedRow(group) }
+        if case .unregisteredFigure(let id) = documentClass { return unregisteredFigureRow(group, id) }
         switch group {
         case .annotationCreation, .ownAnnotation, .inboxRow:
             // **The reviewer row**, and therefore everybody's: the rungs above
@@ -703,6 +704,25 @@ extension Permit {
                 return .cannotJudge
             }
         }
+    }
+
+    /// **The row for a figure whose registry record has not arrived**
+    /// (`DocumentClass.unregisteredFigure`, ruling R-6a-12) — `unplacedRow`'s
+    /// question asked of a figure: *could knowing the record's piece change
+    /// the answer?*
+    ///
+    /// The answer is first read as a figure of the whole book
+    /// (`.figure(id, piece: nil)`), the narrowest placement a record could
+    /// give. Where that is `.yes` — a book author, the reviewer row — no
+    /// record could take it away. Where it is a refusal for an author of some
+    /// pieces, the record could name one of hers, so the line is **held**
+    /// (`.cannotJudge`) and re-judged when the record lands: an older picture
+    /// of the manifest must not set aside what the arriving record would
+    /// apply. A reviewer's refusals do not turn on any piece and stand.
+    private func unregisteredFigureRow(_ group: WrittenGroup, _ id: String) -> Allowed {
+        let asTheBooks = row(group, .figure(id: id, piece: nil))
+        if case .author(.pieces) = self, case .no = asTheBooks { return .cannotJudge }
+        return asTheBooks
     }
 
     /// **Whether this permit authors this class** — the scope test, asked once.
@@ -951,7 +971,7 @@ extension Permit {
             // the true word for what was refused.
             onAStatement = true
             onAFigure = false
-        case .figure:
+        case .figure, .unregisteredFigure:
             onAStatement = false
             onAFigure = true
         case .piece, .projectStream, .translation, .inbox:

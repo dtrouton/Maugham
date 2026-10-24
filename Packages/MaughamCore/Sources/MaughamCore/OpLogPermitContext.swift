@@ -378,7 +378,8 @@ extension OpLogStore {
     /// manifest is no statements and no figures, which resolves every
     /// manuscript id to `.piece(docId)`, which is the WIDENING direction — a piece is the class
     /// an author of some pieces can actually hold, where `.projectStatement`
-    /// would refuse her. The load is not the right place to discover a broken
+    /// would refuse her — and every figure to `.unregisteredFigure`, whose
+    /// lines an author of some pieces has HELD, never refused (R-6a-12). The load is not the right place to discover a broken
     /// manifest; `ProjectStore.load` is, and it says so in its own words.
     ///
     /// A caller that already HOLDS a manifest must not come here — it calls
