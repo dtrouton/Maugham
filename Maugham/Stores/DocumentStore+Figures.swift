@@ -172,14 +172,25 @@ extension DocumentStore {
     /// class the record now gives it, and it and its readers re-rendered. A
     /// record that left is re-read too, so an open host stops applying what
     /// its piece allowed.
+    ///
+    /// **A closed figure's held lines are re-counted too** (residual N-2):
+    /// while unlisted, a closed pass skips its stream, so a stranger's lines
+    /// in a figure whose stream arrived first were not counted for People &
+    /// Devices. Each record that arrived or changed is queued for one closed
+    /// pass, which skips any figure that is open. (A record that left needs
+    /// none: the closed map stops counting what the manifest no longer lists.)
     func figureRegistryAdopted(from old: [FigureRecord], to new: [FigureRecord]) {
         let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(new.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var changed = Set(after.compactMap { id, record in before[id] == record ? nil : id })
-        changed.formUnion(Set(before.keys).subtracting(after.keys))
+        let arrivedOrChanged = Set(after.compactMap { id, record in before[id] == record ? nil : id })
+        let changed = arrivedOrChanged.union(Set(before.keys).subtracting(after.keys))
         guard !changed.isEmpty else { return }
         pendingFigureChanges.formUnion(changed)
         figureChangeScheduler.schedule(0)
+        if !arrivedOrChanged.isEmpty {
+            closedReclassifyPending.formUnion(arrivedOrChanged)
+            reclassifyPendingClosedDocuments()
+        }
     }
 
     /// **Trust changed** (`invalidateTrust`, R-6a-6): the cache drops every

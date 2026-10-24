@@ -95,8 +95,9 @@ extension DocumentStore {
         closedProvenance[document.docId] = document.provenance
     }
 
-    /// A figure leaving the window (`closeFigure`, `closeFigures`) takes its
-    /// live provenance into the closed map, as a document does.
+    /// A figure the window closes (`closeFigure`) takes its live provenance
+    /// into the closed map, as a document does. The window's own teardown
+    /// (`closeFigures`) does not: nothing counts held lines after it.
     func rememberClosedProvenance(of figure: FigureDocument) {
         closedProvenanceStamps[figure.figureId, default: 0] += 1
         closedProvenance[figure.figureId] = figure.provenance

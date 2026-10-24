@@ -353,5 +353,53 @@ final class ClosedHeldLinesTests: XCTestCase {
         XCTAssertTrue(DocumentStore.sweptDocIds(in: created.manifest).contains(record.id))
         await store.close()
     }
-}
 
+    /// **Residual N-2**: a closed figure whose stream arrived before its
+    /// record is re-swept when the record is adopted. While unlisted, the
+    /// open sweep skips the stream; adopting the record queues a closed pass
+    /// over it, so the stranger's line is counted without waiting for a
+    /// reopen, a trust change or another line.
+    func test_aClosedFiguresHeldLinesAreCountedWhenItsRecordIsAdopted() async throws {
+        try await bootstrapTheBookAndCloseIt()
+        let created = try await ProjectStore.load(from: projectURL)
+        let record = try await created.createFigure(kind: .table, name: "t", piece: nil)
+        let read = try await FigureDocument.load(
+            figureId: record.id, projectURL: projectURL, actor: .author, session: "s",
+            presenter: nil, documentStore: nil)
+        let key = CellKey(row: try XCTUnwrap(read.state.table.rows.first),
+                          column: try XCTUnwrap(read.state.table.columns.first))
+        await read.close()
+
+        let theirs = OpLogStore(projectURL: projectURL, identity: stranger, state: strangerState)
+        try await theirs.append(Op(
+            opId: ULID.generate(), docId: record.id, at: Date(), device: stranger.deviceId,
+            session: "s", kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: key, next: Cell(content: .value(.text("x"))), prior: nil)))
+        let sealed = try await theirs.sealChain(docId: record.id)
+        XCTAssertTrue(sealed)
+
+        // The stream is here; the record is not.
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        let withRecord = manifest
+        manifest.figures = []
+        try ProjectManifest.encodeForDisk(manifest).write(to: manifestURL)
+
+        let (project, store) = try await openWindow()
+        XCTAssertNil(store.heldLinesByDevice()[stranger.fingerprint],
+                     "precondition: an unlisted figure is not swept")
+
+        // The record arrives: another Mac's manifest, adopted by this window.
+        try ProjectManifest.encodeForDisk(withRecord).write(to: manifestURL)
+        store.presenterDidChangeSubitem(at: manifestURL)
+        XCTAssertEqual(project.manifest.figures?.map(\.id), [record.id],
+                       "precondition: the window adopted the record")
+        await settle(store)
+
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "the closed figure was re-swept when its record landed")
+        XCTAssertNotNil(store.closedProvenance[record.id])
+        await store.close()
+    }
+}
