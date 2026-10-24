@@ -170,6 +170,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FormulaEvaluator.swift` — evaluates a formula over an environment of cell and range readers: Excel's coercion, comparison and error rules.
 - `FormulaFunctions.swift` — the function table (totals, rounding, IF/IFERROR, the …IF criteria with wildcards), one dictionary per group.
 - `ExcelRounding.swift` — ROUND, ROUNDUP and ROUNDDOWN on the value's 15-significant-digit decimal form.
+- `FinanceFunctions.swift` — NPV, IRR, MIRR, PV, FV, PMT, NPER, RATE and CAGR to Excel's values; IRR and RATE fall back to bisection where Newton fails.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.
