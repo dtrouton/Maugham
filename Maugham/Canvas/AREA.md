@@ -21,6 +21,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasLayoutPass.swift` — `rebuildLayouts`/`remeasure`: the `ScrapLayout` cache and every card's derived height; `CanvasView` builds it per call (tripwires 26, 57).
 - `CanvasRenderer.swift` — the one draw pass (regions, lines, cards, chips, tethers), `CanvasFocusStraighten`, `cardTransform`/`seededRotation`, `paper(for:)`, `cullingBleed`, `rotationOverhang(of:)`, `elide` (tripwires 26, 29).
 - `CanvasCamera.swift` — the manual pan/zoom transform; `bring(_:toViewPoint:)` and `revealViewPoint` (tripwire 25).
+- `CanvasKeyboard.swift` — pure key tables, clear placement, arrow targets; no model or view.
 - `CanvasMaterial.swift` — every calibration constant of the canvas's look: ground, paper, tilt band, Claude's tints, dim (`dimmedAlpha(lit:)`).
 - `CanvasGround.swift` — the ground view and `CanvasGroundPalette`, beneath the content.
 - `CanvasGround.metal` — the ground shader; takes all material numbers as uniforms and holds no literals.
