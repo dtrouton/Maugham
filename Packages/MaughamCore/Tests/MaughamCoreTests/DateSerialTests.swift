@@ -54,4 +54,17 @@ final class DateSerialTests: XCTestCase {
         XCTAssertEqual(add(-3, 2026, 1, 15), "2025-10-15")
         XCTAssertNil(add(-1600, 2026, 1, 1))
     }
+
+    func test_centuryAndLeapBoundaries() {
+        XCTAssertEqual(DateSerial.serial(year: 2000, month: 2, day: 29), 36585)
+        XCTAssertNil(DateSerial.serial(year: 2100, month: 2, day: 29))
+        XCTAssertEqual(DateSerial.serial(year: 2100, month: 2, day: 28), 73109)
+        XCTAssertEqual(DateSerial.serial(year: 2100, month: 3, day: 1), 73110)
+        XCTAssertEqual(DateSerial.serial(year: 9999, month: 12, day: 31), 2958465)
+        for (serial, y, m, d) in [(36585, 2000, 2, 29), (73109, 2100, 2, 28), (73110, 2100, 3, 1), (2958465, 9999, 12, 31)] {
+            let c = DateSerial.components(serial)
+            XCTAssertEqual(c?.year, y); XCTAssertEqual(c?.month, m); XCTAssertEqual(c?.day, d)
+        }
+        XCTAssertNil(DateSerial.components(2958466))
+    }
 }

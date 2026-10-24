@@ -41,7 +41,8 @@ final class DateFunctionsTests: XCTestCase {
         g.cells["C1"] = .number(r)
         guard case .number(let n) = g.eval("XNPV(C1, A1:A5, B1:B5)") else { return XCTFail("not a number") }
         XCTAssertEqual(n, 0, accuracy: 1e-4)
-        XCTAssertEqual(microsoft.eval("XIRR(A1:A5, B1:B5, 0.5)"), microsoft.eval("XIRR(A1:A5, B1:B5, 0.5)"))
+        guard case .number(let r2) = microsoft.eval("XIRR(A1:A5, B1:B5, 0.5)") else { return XCTFail("not a number") }
+        XCTAssertEqual(r2, 0.373362535, accuracy: 1e-6)
     }
 
     func test_xnpvAndXirrErrors() {
@@ -53,5 +54,34 @@ final class DateFunctionsTests: XCTestCase {
         XCTAssertEqual(g.eval("XNPV(0.09, A1:A5, B1:B5)"), .error(.num))
         let positive = FormulaTestGrid(["A1": .number(1), "A2": .number(2), "B1": d(2026, 1, 1), "B2": d(2027, 1, 1)])
         XCTAssertEqual(positive.eval("XIRR(A1:A2, B1:B2)"), .error(.num))
+    }
+
+    func test_hugeDatesAreNumNotACrash() {
+        let big = CellValue.number(1e30)
+        for (cell, label) in [("B1", "first"), ("B3", "later")] {
+            var g = microsoft
+            g.cells[cell] = big
+            XCTAssertEqual(g.eval("XNPV(0.09, A1:A5, B1:B5)"), .error(.num), label)
+            XCTAssertEqual(g.eval("XIRR(A1:A5, B1:B5)"), .error(.num), label)
+            g.cells[cell] = .number(-1e30)
+            XCTAssertEqual(g.eval("XNPV(0.09, A1:A5, B1:B5)"), .error(.num), label)
+            XCTAssertEqual(g.eval("YEAR(\(cell))"), .error(.num), label)
+        }
+        XCTAssertEqual(FormulaTestGrid(["A1": big]).eval("EDATE(A1, 1)"), .error(.num))
+        XCTAssertEqual(microsoft.eval("EDATE(A1, 1e30)"), .error(.num))
+    }
+
+    func test_pairsAlignByPosition_blanksAreValueErrors() {
+        var g = microsoft
+        g.cells["A6"] = .number(100); g.cells["B6"] = d(2009, 5, 1)
+        g.cells["A3"] = nil              // blank in values at position 3
+        XCTAssertEqual(g.eval("XNPV(0.09, A1:A6, B1:B6)"), .error(.value))
+        g.cells["A3"] = .number(4250); g.cells["B5"] = nil   // blank in dates at a different position
+        XCTAssertEqual(g.eval("XNPV(0.09, A1:A6, B1:B6)"), .error(.value))
+        XCTAssertEqual(g.eval("XIRR(A1:A6, B1:B6)"), .error(.value))
+        g.cells["A3"] = nil              // blanks at different positions in each list
+        XCTAssertEqual(g.eval("XNPV(0.09, A1:A6, B1:B6)"), .error(.value))
+        g.cells["A3"] = .text("x"); g.cells["B5"] = d(2009, 4, 1)
+        XCTAssertEqual(g.eval("XNPV(0.09, A1:A6, B1:B6)"), .error(.value))
     }
 }

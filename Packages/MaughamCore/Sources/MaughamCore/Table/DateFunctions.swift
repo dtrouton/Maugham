@@ -80,43 +80,46 @@ extension FormulaFunctions {
         }
     }
 
-    /// XNPV's and XIRR's pairs: the values and, for each, years (days ÷ 365) since the first
-    /// date. Counts must match and no date may precede the first, else `#NUM!`.
+    /// XNPV's and XIRR's pairs, aligned by position: the values and, for each, years (days ÷ 365)
+    /// since the first date. Counts must match (else `#NUM!`); a blank or non-number at any
+    /// position of either list is `#VALUE!`, an error cell propagates; no date may precede the
+    /// first or lie outside the supported serials, else `#NUM!`.
     private static func datedFlows(_ valuesArg: FormulaArgument, _ datesArg: FormulaArgument) -> Result<([Double], [Double]), FormulaError> {
-        switch (flatNumbers(valuesArg), flatNumbers(datesArg)) {
-        case (.failure(let e), _), (_, .failure(let e)): return .failure(e)
-        case (.success(let values), .success(let dates)):
-            guard values.count == dates.count, let first = dates.first else { return .failure(.num) }
-            let d0 = first.rounded(.towardZero)
-            var times: [Double] = []
-            for d in dates {
-                let day = d.rounded(.towardZero)
-                guard day >= d0, DateSerial.components(Int(day)) != nil else { return .failure(.num) }
-                times.append((day - d0) / 365)
+        guard let valueCells = cells(valuesArg), let dateCells = cells(datesArg), valueCells.count == dateCells.count,
+              !valueCells.isEmpty else { return .failure(.num) }
+        var values: [Double] = [], dates: [Double] = []
+        for (v, d) in zip(valueCells, dateCells) {
+            switch (numberOrDate(v), numberOrDate(d)) {
+            case (.failure(let e), _), (_, .failure(let e)): return .failure(e)
+            case (.success(let x), .success(let y)): values.append(x); dates.append(y)
             }
-            return .success((values, times))
+        }
+        let low = Double(DateSerial.earliest), high = Double(DateSerial.latest)
+        let d0 = dates[0].rounded(.towardZero)
+        guard d0 >= low, d0 <= high else { return .failure(.num) }
+        var times: [Double] = []
+        for d in dates {
+            let day = d.rounded(.towardZero)
+            guard day.isFinite, day >= d0, day <= high else { return .failure(.num) }
+            times.append((day - d0) / 365)
+        }
+        return .success((values, times))
+    }
+
+    private static func cells(_ arg: FormulaArgument) -> [CellValue]? {
+        switch arg {
+        case .missing: return nil
+        case .scalar(let v): return [v]
+        case .range(let rows): return rows.flatMap { $0 }
         }
     }
 
-    /// The numbers and dates of one argument in order; empties are skipped, errors propagate,
-    /// anything else is `#VALUE!`.
-    private static func flatNumbers(_ arg: FormulaArgument) -> Result<[Double], FormulaError> {
-        let cells: [CellValue]
-        switch arg {
-        case .missing: return .failure(.num)
-        case .scalar(let v): cells = [v]
-        case .range(let rows): cells = rows.flatMap { $0 }
+    private static func numberOrDate(_ v: CellValue) -> Result<Double, FormulaError> {
+        switch v {
+        case .number(let x): return .success(x)
+        case .date(let d): return .success(Double(d))
+        case .error(let e): return .failure(e)
+        default: return .failure(.value)
         }
-        var xs: [Double] = []
-        for v in cells {
-            switch v {
-            case .number(let x): xs.append(x)
-            case .date(let d): xs.append(Double(d))
-            case .empty: break
-            case .error(let e): return .failure(e)
-            default: return .failure(.value)
-            }
-        }
-        return .success(xs)
     }
 }
