@@ -61,6 +61,9 @@ final class ProjectSession {
         // narrowing (P3b Task 3) has to be able to tell the live store what
         // it just wrote to disk. Weak on both sides; the session owns them.
         ds.projectStore = s
+        // Every table figure renders once, off the open path (R-6a-11): an
+        // outside edit to a closed figure's CSV is overwritten at open.
+        ds.renderEveryTableFigureDeferred()
 
         // The Intent pane's strata, on the same device slug and the same
         // rule as every other derived sidecar (tripwire 24 at the filename

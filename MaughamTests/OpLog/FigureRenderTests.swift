@@ -237,6 +237,68 @@ final class FigureRenderTests: XCTestCase {
         await store.closeFigure(figureId: src.id)
     }
 
+    /// **Ruling R-6a-11: opening the window renders every table figure**,
+    /// deferred off the open path, so an outside edit to a CLOSED figure's CSV
+    /// is overwritten at the next open, not kept until the figure next changes.
+    func test_openingTheWindowRestoresAClosedFiguresSpoiledCSV() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let doc = try await store.openFigure(figureId: record.id)
+        try await doc.setCell(number(3), at: key(doc.state.table, row: 0, column: 0))
+        await store.close()
+        try spoil(record)
+
+        let session = try await ProjectSession.open(url: projectURL)
+        await session.documentStore.awaitOpenFigureRenderForTesting()
+        XCTAssertEqual(try csv(record), "3,,\n,,\n,,\n", "the open re-rendered the closed figure")
+        await session.close()
+    }
+
+    /// **Closing the window closes its figures**: each open figure is sealed
+    /// while the presenter is installed, the map is cleared, and a pending
+    /// figure pass is cancelled — nothing is written after close.
+    func test_closingTheWindowSealsItsFiguresAndCancelsAPendingPass() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let doc = try await store.openFigure(figureId: record.id)
+        try await doc.setCell(number(3), at: key(doc.state.table, row: 0, column: 0))
+        try spoil(record)
+        store.figureStreamChanged(record.id)   // a debounced pass now pending
+
+        await store.close()
+
+        XCTAssertTrue(doc.isClosed, "the open figure was closed")
+        XCTAssertNil(store.openFigure(forId: record.id))
+        XCTAssertTrue(store.openFigures.isEmpty, "and the map cleared")
+        try await Task.sleep(for: .milliseconds(600))
+        await store.flushFigureChangesForTesting()
+        XCTAssertEqual(try csv(record), "edited,in,Excel\n=1+1,,\n", "no pass ran after close")
+        let tails = OpLogStore.opLogFileURLs(forDocId: record.id, in: projectURL)
+            .filter { $0.pathExtension == "jsonl" }
+        XCTAssertFalse(tails.isEmpty)
+        for tail in tails {
+            let last = try XCTUnwrap(try Data(contentsOf: tail)
+                .split(separator: UInt8(0x0A), omittingEmptySubsequences: true).last)
+            XCTAssertTrue(OpLogChain.isSealLine(Data(last)), "\(tail.lastPathComponent) ends on a seal")
+        }
+    }
+
+    /// **Two records naming one file render neither**, and say so, rather
+    /// than overwrite each other on every pass.
+    func test_twoRecordsSharingAPathRenderNeither() async throws {
+        let (store, projectStore) = try await openWindow()
+        let one = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let two = try await projectStore.createFigure(kind: .table, name: "other", piece: nil)
+        var figures = try XCTUnwrap(projectStore.manifest.figures)
+        figures[1] = FigureRecord(id: two.id, name: two.name, kind: .table, piece: nil, path: one.path)
+        projectStore.manifest.figures = figures
+        try spoil(one)
+
+        await store.renderFigures(changed: [one.id, two.id])
+
+        XCTAssertEqual(try csv(one), "edited,in,Excel\n=1+1,,\n", "neither wrote the shared file")
+    }
+
     /// **A trust change drops the figure cache** (ruling R-6a-6): the cache
     /// is keyed by files and the registry, never by trust.
     func test_aTrustChangeDropsTheFigureCache() async throws {

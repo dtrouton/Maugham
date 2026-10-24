@@ -188,6 +188,10 @@ public final class DocumentStore {
 
     var _figureChangeScheduler: DebounceScheduler<Int>?
 
+    /// The deferred render of every table figure at window open (R-6a-11);
+    /// cancelled by `close()`.
+    var _openFigureRenderTask: Task<Void, Never>?
+
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
     /// app quit via `flushSessionOnQuit()`.
@@ -675,6 +679,10 @@ public final class DocumentStore {
         for doc in openDocs {
             await doc.close()
         }
+        // And the figures, the same way and for the same reason (report plan
+        // 6a Task 7): each is sealed by its close while the presenter is still
+        // installed, and no pending figure pass may write after it is gone.
+        await closeFigures()
         if let presenter = _presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
             self._presenter = nil

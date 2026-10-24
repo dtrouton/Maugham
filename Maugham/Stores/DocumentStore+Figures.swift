@@ -53,6 +53,39 @@ extension DocumentStore {
         await renderFigures(changed: [figureId])
     }
 
+    /// **Every table figure renders once when a window opens the book**
+    /// (ruling R-6a-11), deferred off the open path: an outside edit to a
+    /// closed figure's CSV is discarded at the next open, not kept until the
+    /// figure next changes. Called once the window's `ProjectStore` is
+    /// attached (`ProjectSession.open`).
+    func renderEveryTableFigureDeferred() {
+        _openFigureRenderTask?.cancel()
+        _openFigureRenderTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled,
+                  let records = self.projectStore?.manifest.figures else { return }
+            await self.renderFigures(changed: Set(records.filter { $0.kind == .table }.map(\.id)))
+        }
+    }
+
+    /// Test seam: await the deferred open render.
+    func awaitOpenFigureRenderForTesting() async {
+        await _openFigureRenderTask?.value
+    }
+
+    /// **The window is closing** (`close()`): every open figure is closed and
+    /// sealed, the map cleared, and any pending or deferred figure pass
+    /// cancelled — nothing renders after the presenter is removed.
+    func closeFigures() async {
+        _openFigureRenderTask?.cancel()
+        _openFigureRenderTask = nil
+        _figureChangeScheduler?.cancel()
+        pendingFigureChanges = []
+        let open = Array(openFigures.values)
+        openFigures.removeAll()
+        for doc in open { await doc.close() }
+    }
+
     // MARK: - The presenter's figure arm
 
     /// A figure's stream changed on disk. Coalesced: a device arrives as a
@@ -158,8 +191,21 @@ extension DocumentStore {
             names.insert(record.name)
             names.formUnion(book.tablesReading(record.name))
         }
+        // Two records naming one file (two devices made "cash" before either
+        // saw the other's) would overwrite each other on every pass: neither
+        // renders, and it is said, until a rename separates them (plan 6b).
+        var byPath: [String: [FigureRecord]] = [:]
+        for record in records { byPath[record.path.lowercased(), default: []].append(record) }
+        let shared = Set(byPath.values.filter { $0.count > 1 }.flatMap { $0.map(\.id) })
         let facts = DocumentClass.Facts(manifest)
         for record in records where record.kind == .table && names.contains(record.name) {
+            if shared.contains(record.id) {
+                documentLog.error(
+                    "figure \(record.name, privacy: .public) was not rendered: another figure names the same file, \(record.path, privacy: .public)")
+                continue
+            }
+            // A window closing mid-pass: nothing writes once its presenter is gone.
+            guard presenter != nil else { return }
             let state: FigureState
             if let open = openFigure(forId: record.id) {
                 state = open.state
