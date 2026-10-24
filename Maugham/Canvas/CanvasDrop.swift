@@ -132,32 +132,34 @@ enum CanvasDrop {
     /// `CanvasClaudePlacement.PlannedSource` cites an existing page rather than
     /// relocating it.
     ///
-    /// **The created node is born MEASURED, at `CanvasCardMetrics.itemLabelOnlyHeight`.**
+    /// **The created node is born MEASURED, at its picture's real height.**
     /// A node with no `cachedHeight` has no `frame`, and both
     /// `CanvasScene.nodes(intersecting:)` and `topmostNode(at:)` drop one that has
     /// none — neither drawn nor clickable, and persisted that way through a save.
     /// That is 1C-c3's whole-branch Critical, and this is the door it would arrive
-    /// through next. The floor is the honest number rather than a placeholder: an
-    /// item card's height *is* the label-only floor until its thumbnail decodes, and
-    /// the decode is unbounded while the writer is holding a mouse button.
-    /// `CanvasClaudePlacement` writes the same constant at creation for the same
-    /// reason, and `CanvasLayoutPass.rebuildLayouts` refines it to the picture's real
-    /// shape on the very next pass — inside the same undo bracket, see `apply`.
+    /// through next. `pictureAspect` is handed in as a VALUE (the memoised
+    /// thumbnail shape, else `CanvasThumbnails.headerAspect` — the handler's
+    /// read; this layer reads no file), so the card, its centre join and a wrap
+    /// region are its real size. Nil — not a picture, or an unreadable one — is
+    /// `itemCardHeight`'s label-only floor.
     ///
     /// The drop point is the card's ORIGIN, exactly as `CanvasInteraction.createScrap`
     /// treats a double-click's point: one rule for where a new card appears.
     static func decide(payload: String,
                        at contentPoint: CGPoint,
                        in scene: CanvasScene,
-                       index: CanvasItemIndex) -> Decision {
+                       index: CanvasItemIndex,
+                       pictureAspect: CGFloat?) -> Decision {
         guard index.entry(of: payload) != nil else { return .ignored }
         let id = CanvasNodeID.item(payload)
         guard scene.node(id) == nil else { return .reveal(id) }
+        let width = CanvasInteraction.defaultScrapWidth
         return .create(CanvasNode(id: id,
                                   kind: .item(.project(id: payload)),
                                   origin: contentPoint,
-                                  width: CanvasInteraction.defaultScrapWidth,
-                                  cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
+                                  width: width,
+                                  cachedHeight: CanvasCardMetrics.itemCardHeight(
+                                      forCardWidth: width, pictureAspect: pictureAspect),
                                   z: scene.topZ + 1))
     }
 
@@ -192,18 +194,17 @@ enum CanvasDrop {
     /// and returns nil for a node with no `frame`, so a join asked of an
     /// unmeasured node silently joins nothing — on every drop, for ever, with
     /// nothing red. `decide` closes that by construction rather than by an
-    /// ordering: the card is born at `CanvasCardMetrics.itemLabelOnlyHeight`, the
-    /// same constant `CanvasClaudePlacement` writes at creation for the same
-    /// reason. The refinement to the picture's real height arrives on the next
-    /// line anyway — `mutateFromInspector` fires `onSceneChangedExternally`, which
-    /// `CanvasView` binds to `CanvasLayoutPass.rebuildLayouts`, **inside this bracket** — so the
-    /// re-measure belongs to the step the writer can take back.
+    /// ordering: the card is born at its picture's real height, read from the
+    /// file's header (`CanvasThumbnails.headerAspect`) without a decode. So the
+    /// centre the join reads, and the frame a wrap region is sized around, are
+    /// the photograph's, not a 17 pt label's.
     ///
-    /// The consequence of measuring at the floor is stated rather than avoided:
-    /// the centre the join reads is the label-only card's, so an item whose
-    /// photograph has not decoded yet joins by a centre 17 pt below its origin
-    /// rather than by the taller card's. Awaiting a decode to make it exact is not
-    /// available — the wait is unbounded and the writer is holding a mouse button.
+    /// `mutateFromInspector` then fires `onSceneChangedExternally`, which
+    /// `CanvasView` binds to `CanvasLayoutPass.rebuildLayouts`, **inside this
+    /// bracket**. For a picture not yet decoded that pass writes the label-only
+    /// floor, and the decode's own pass writes the height back (the thumbnail's
+    /// aspect agrees with the header's within `aspectReshapeTolerance`); the
+    /// membership and the wrap frame are already settled by then.
     ///
     /// **The bump is on its own line**, as it is for every writer that reaches the
     /// scene through this verb: a region inspector open in the other column has to
@@ -324,6 +325,9 @@ enum CanvasExternalDrop {
     struct Outcome: Equatable {
         /// Project-relative paths, in drop order, one per file that landed.
         var paths: [String] = []
+        /// Each landed path's picture shape (`CanvasThumbnails.headerAspect`, or
+        /// a dragged bitmap's own), so `apply` births the card at its real height.
+        var aspects: [String: CGFloat] = [:]
         /// Names the canvas declined — not pictures.
         var refused: [String] = []
         /// Names whose ingestion threw.
@@ -412,16 +416,23 @@ enum CanvasExternalDrop {
                     outcome.refused.append(url.lastPathComponent)
                     continue
                 }
-                do { outcome.paths.append(try await ingest.file(url)) }
-                catch { outcome.failed.append(url.lastPathComponent) }
+                do {
+                    let path = try await ingest.file(url)
+                    outcome.paths.append(path)
+                    // The source's header: the well holds a byte copy of it.
+                    outcome.aspects[path] = CanvasThumbnails.headerAspect(of: url)
+                } catch { outcome.failed.append(url.lastPathComponent) }
 
             case .image:
                 guard let image = await DropClassification.image(from: provider) else {
                     outcome.failed.append(name(of: provider))
                     continue
                 }
-                do { outcome.paths.append(try await ingest.image(image)) }
-                catch { outcome.failed.append(name(of: provider)) }
+                do {
+                    let path = try await ingest.image(image)
+                    outcome.paths.append(path)
+                    outcome.aspects[path] = aspect(of: image)
+                } catch { outcome.failed.append(name(of: provider)) }
 
             case .ignore:
                 continue
@@ -441,12 +452,12 @@ enum CanvasExternalDrop {
     /// no undo step of its own, so a ⌘Z aimed at a sentence takes the photograph
     /// with it.
     ///
-    /// **Born measured at `CanvasCardMetrics.itemLabelOnlyHeight`**, the same
-    /// constant `CanvasDrop.decide` and `CanvasClaudePlacement` write at creation:
-    /// a node with no `cachedHeight` has no `frame`, so it is neither drawn nor
-    /// clickable *and* `joinTarget` returns nil for it — a join that silently
-    /// joins nothing. `CanvasLayoutPass.rebuildLayouts` refines the height to the
-    /// picture's real shape on the next pass, inside this bracket.
+    /// **Born measured at its picture's real height** (`aspects`, from
+    /// `ingest`; a path with none takes the label-only floor): a node with no
+    /// `cachedHeight` has no `frame`, so it is neither drawn nor clickable *and*
+    /// `joinTarget` returns nil for it. At the real height its centre join and
+    /// a wrap region (`CanvasDropWrap`) fit the photograph; see `CanvasDrop.apply`
+    /// for the in-bracket layout pass.
     ///
     /// **Several files CASCADE rather than stacking or columning.** Two cards at
     /// one point read as one card, and the writer concludes the rest were lost.
@@ -461,6 +472,7 @@ enum CanvasExternalDrop {
     /// bracket; `wrappedIn` is that region, or nil.
     @discardableResult
     static func apply(paths: [String],
+                      aspects: [String: CGFloat],
                       at contentPoint: CGPoint,
                       in model: CanvasModel,
                       wrappingInPiece piece: String?)
@@ -479,7 +491,9 @@ enum CanvasExternalDrop {
                     kind: .item(.owned(path: path)),
                     origin: CGPoint(x: contentPoint.x + gap, y: contentPoint.y + gap),
                     width: CanvasInteraction.defaultScrapWidth,
-                    cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
+                    cachedHeight: CanvasCardMetrics.itemCardHeight(
+                        forCardWidth: CanvasInteraction.defaultScrapWidth,
+                        pictureAspect: aspects[path]),
                     z: scene.topZ + 1))
                 // Tripwire 31: the drop's ONE geometric reading, the existing
                 // spelling, and it reads the node's CENTRE. Creation absorbs.
@@ -494,6 +508,14 @@ enum CanvasExternalDrop {
         }
         model.bumpSceneRevision()
         return (made, wrapped)
+    }
+
+    /// A dragged bitmap's shape, from its size (the PNG the well writes keeps
+    /// its proportions). Nil for an empty image.
+    static func aspect(of image: NSImage) -> CGFloat? {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        return size.width / size.height
     }
 
     private static func classify(_ provider: NSItemProvider) -> DropAction {

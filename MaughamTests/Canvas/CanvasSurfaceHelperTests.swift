@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import XCTest
 @testable import Maugham
@@ -581,14 +582,18 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let camera = SurfaceHelperBox(CanvasCamera())
         let revision = SurfaceHelperBox(0)
         let dropError = SurfaceHelperBox<String?>(nil)
+        let thumbnails = SurfaceHelperBox(CanvasThumbnails())
         var subject: CanvasSubject = .wholeProject
+        var projectRoot: URL = TestTemp.root
 
         var handler: CanvasDropHandler {
             CanvasDropHandler(model: model,
                               subject: subject,
                               itemIndex: itemIndex,
+                              projectRoot: projectRoot,
                               captureDrop: .unavailable,
                               assetIngest: .unavailable,
+                              thumbnails: thumbnails.binding,
                               camera: camera.binding,
                               revision: revision.binding,
                               dropError: dropError.binding)
@@ -662,6 +667,32 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                        "a read-only canvas wrapped a refused drop in a region")
         XCTAssertNil(model.selection, "a refused drop selected a card that was never made")
         XCTAssertFalse(model.isInGesture)
+    }
+
+    /// The handler reads a research photo's shape from its file's header, so
+    /// the card is born at its real height (task 3 review).
+    func test_theDropHandlerBirthsAResearchPhotoAtItsHeadersHeight() throws {
+        let project = TestTemp.root.appendingPathComponent("drop-photo-\(UUID().uuidString)")
+        let assets = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 100, pixelsHigh: 200, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+            .write(to: assets.appendingPathComponent("tall.png"))
+        let index = CanvasItemIndex(entriesByID: [
+            "rp01": .init(title: "Tall", kind: .image, thumbnailPath: "research/tall.png"),
+        ])
+
+        let model = CanvasModel()
+        _ = DropHandlerFixture(model: model, itemIndex: index, projectRoot: project)
+            .handler.handleDrop(["rp01"], at: CGPoint(x: 300, y: 300))
+
+        XCTAssertEqual(model.scene.nodes.first?.cachedHeight,
+                       CanvasCardMetrics.itemCardHeight(
+                        forCardWidth: CanvasInteraction.defaultScrapWidth, pictureAspect: 0.5))
     }
 
     /// The handler hands its `subject` to the landing verb: with a chapter

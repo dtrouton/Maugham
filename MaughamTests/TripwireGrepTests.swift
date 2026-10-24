@@ -6521,7 +6521,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(found.destination.count, 1,
             "Self-check: the planted String destination is caught: \(found.destination)")
         XCTAssertEqual(found.onDrop, ["PlantedCanvas.swift:6", "PlantedCanvas.swift:7"],
-            "the census reports 1-based source lines, comment lines counted")
+            "the census reports 1-based source lines; line numbers count comment lines")
         XCTAssertEqual(found.destination, ["PlantedCanvas.swift:5"])
     }
 

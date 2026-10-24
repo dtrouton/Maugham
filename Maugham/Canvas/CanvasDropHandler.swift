@@ -1,3 +1,4 @@
+import MaughamCore
 import SwiftUI
 
 /// `CanvasView`'s drops: one entry point, `handleDrop(providers:at:)`, which
@@ -23,8 +24,10 @@ struct CanvasDropHandler {
     let model: CanvasModel
     let subject: CanvasSubject
     let itemIndex: CanvasItemIndex
+    let projectRoot: URL
     let captureDrop: CanvasCaptureDrop
     let assetIngest: CanvasAssetIngest
+    @Binding var thumbnails: CanvasThumbnails
     @Binding var camera: CanvasCamera
     @Binding var revision: Int
     @Binding var dropError: String?
@@ -77,7 +80,8 @@ struct CanvasDropHandler {
         }
         switch CanvasDrop.decide(payload: payload,
                                  at: camera.contentPoint(fromView: viewPoint),
-                                 in: model.scene, index: itemIndex) {
+                                 in: model.scene, index: itemIndex,
+                                 pictureAspect: pictureAspect(ofItem: payload)) {
         case .ignored:
             return false
 
@@ -114,6 +118,17 @@ struct CanvasDropHandler {
             model.selection = .node(node.id)
             return true
         }
+    }
+
+    /// A research item's picture shape, so its card is born at its real height:
+    /// the memoised thumbnail's when this session has decoded it, else the
+    /// file's header (`CanvasThumbnails.headerAspect`, contained by
+    /// `SafeRelativePath` as the decode is). Nil for an item with no pixels.
+    private func pictureAspect(ofItem id: String) -> CGFloat? {
+        guard let path = itemIndex.entry(of: id)?.thumbnailPath else { return nil }
+        if let memo = thumbnails.aspect(path, in: projectRoot) { return memo }
+        guard let url = try? SafeRelativePath.resolve(path, under: projectRoot) else { return nil }
+        return CanvasThumbnails.headerAspect(of: url)
     }
 
     /// An inbox capture dropped on the canvas (spec §8A.4) — the **third** caller
@@ -186,6 +201,7 @@ struct CanvasDropHandler {
             let outcome = await CanvasExternalDrop.ingest(providers: accepted,
                                                           using: assetIngest)
             let made = CanvasExternalDrop.apply(paths: outcome.paths,
+                                                aspects: outcome.aspects,
                                                 at: contentPoint, in: model,
                                                 wrappingInPiece: piece)
             // Selected so the right-hand column shows the picture's own inspector

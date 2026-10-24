@@ -50,8 +50,9 @@ enum CanvasCapture {
         /// A typed note's text, or a voice memo's transcript.
         case words(String)
         /// A project-relative path into `canvas_assets/`, from the one ingestion
-        /// pair (`ProjectStore.ingestCanvasAsset`).
-        case picture(path: String)
+        /// pair (`ProjectStore.ingestCanvasAsset`), and its shape
+        /// (`CanvasThumbnails.headerAspect`; nil takes the label-only floor).
+        case picture(path: String, aspect: CGFloat?)
     }
 
     /// Where it lands — the two routes' only difference, as a value, so the
@@ -147,9 +148,9 @@ enum CanvasCapture {
     /// way through a save (1C-c3's whole-branch Critical). It also makes
     /// `joinTarget` silently return nil, so the drag's membership would join
     /// nothing, on every drop, for ever, with nothing red. A scrap is measured
-    /// from its own words; a picture takes `itemLabelOnlyHeight`, the honest floor
-    /// the other two item-node creators write, refined to the picture's real shape
-    /// by `CanvasLayoutPass.rebuildLayouts` on the next pass — inside the same bracket.
+    /// from its own words; a picture at its real height from the aspect the
+    /// content carries (`itemCardHeight`, the label-only floor when nil), so its
+    /// centre join and a wrap region fit it (`CanvasDrop.apply` on the layout pass).
     static func plan(_ content: Content,
                      _ placement: Placement,
                      captureID: String,
@@ -186,11 +187,12 @@ enum CanvasCapture {
                 text: text,
                 joinsARegion: joins,
                 wrapsInPiece: wraps)
-        case .picture(let path):
+        case .picture(let path, let aspect):
             return Landing(
                 node: CanvasNode(id: id, kind: .item(.owned(path: path)), origin: origin,
                                  width: width,
-                                 cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
+                                 cachedHeight: CanvasCardMetrics.itemCardHeight(
+                                     forCardWidth: width, pictureAspect: aspect),
                                  z: scene.topZ + 1),
                 text: nil,
                 joinsARegion: joins,

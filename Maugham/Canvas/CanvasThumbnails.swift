@@ -411,10 +411,8 @@ public final class CanvasThumbnails {
         // number: two Ints out of a header multiply to a trap on overflow, and a
         // crash is a worse answer than a refusal. An overflowing product is over
         // any cap by construction.
-        if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-           let width = props[kCGImagePropertyPixelWidth] as? Int,
-           let height = props[kCGImagePropertyPixelHeight] as? Int {
-            let (pixels, overflowed) = width.multipliedReportingOverflow(by: height)
+        if let header = header(of: source) {
+            let (pixels, overflowed) = header.width.multipliedReportingOverflow(by: header.height)
             if overflowed || pixels > sourcePixelCap { return nil }
         }
         let options: [CFString: Any] = [
@@ -424,6 +422,34 @@ public final class CanvasThumbnails {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// **A picture's shape from its header alone, no decode** — width over
+    /// height as it is DRAWN, so EXIF orientations 5–8 (a phone's portrait
+    /// shot, stored on its side) swap the two, matching the `…WithTransform`
+    /// thumbnail `store` memoises. Nil for a file with no readable dimensions.
+    ///
+    /// What the drop routes birth a picture card with (`CanvasDrop.decide`,
+    /// `CanvasExternalDrop.ingest`, `InboxStore.sendToCanvas`), so the card,
+    /// its centre join and a wrap region (`CanvasDropWrap`) are its real size
+    /// inside the drop's one undo step.
+    nonisolated static func headerAspect(of url: URL) -> CGFloat? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions),
+              let header = header(of: source),
+              header.width > 0, header.height > 0 else { return nil }
+        let w = CGFloat(header.width), h = CGFloat(header.height)
+        return (5...8).contains(header.orientation) ? h / w : w / h
+    }
+
+    /// The header's pixel size and EXIF orientation (1 when absent), or nil
+    /// when it states no size.
+    nonisolated private static func header(of source: CGImageSource)
+        -> (width: Int, height: Int, orientation: Int)? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int,
+              let height = props[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return (width, height, props[kCGImagePropertyOrientation] as? Int ?? 1)
     }
 
     // MARK: - Storage and eviction

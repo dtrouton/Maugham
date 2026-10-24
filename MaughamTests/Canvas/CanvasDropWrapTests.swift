@@ -1,3 +1,6 @@
+import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 @testable import Maugham
 
@@ -35,8 +38,9 @@ final class CanvasDropWrapTests: XCTestCase {
 
     private func researchNode(at point: CGPoint, in model: CanvasModel) throws -> CanvasNode {
         guard case .create(let node) = CanvasDrop.decide(
-            payload: noteID, at: point, in: model.scene, index: index()) else {
-            throw XCTSkip("precondition: a known id creates")
+            payload: noteID, at: point, in: model.scene, index: index(), pictureAspect: nil) else {
+            XCTFail("precondition: a known id creates")
+            throw CocoaError(.featureUnsupported)
         }
         return node
     }
@@ -63,7 +67,7 @@ final class CanvasDropWrapTests: XCTestCase {
 
         let made = CanvasExternalDrop.apply(
             paths: ["canvas_assets/a.png", "canvas_assets/b.png", "canvas_assets/c.png"],
-            at: CGPoint(x: 300, y: 300), in: model, wrappingInPiece: "p1")
+            aspects: [:], at: CGPoint(x: 300, y: 300), in: model, wrappingInPiece: "p1")
 
         XCTAssertEqual(made.nodes.count, 3)
         XCTAssertEqual(model.scene.regionCount, 1, "one drop, one region")
@@ -151,6 +155,84 @@ final class CanvasDropWrapTests: XCTestCase {
         model.undo.undo()
         XCTAssertEqual(model.scene, before, "one ⌘Z takes the card and its region")
         XCTAssertFalse(model.undoManager.canUndo, "and it was one step")
+    }
+
+    // MARK: - A photograph is born at its real height (task 3 review)
+
+    /// A portrait PNG on disk, outside any project: 200×400.
+    private func writePortraitPNG() throws -> URL {
+        let url = root.appendingPathComponent("portrait-\(UUID().uuidString).png")
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 200, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 200, height: 400))
+        let image = try XCTUnwrap(context.makeImage())
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(
+            url as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return url
+    }
+
+    private var portraitHeight: CGFloat {
+        CanvasCardMetrics.itemCardHeight(forCardWidth: CanvasInteraction.defaultScrapWidth,
+                                         pictureAspect: 0.5)
+    }
+
+    private func assertSitsInside(_ node: CanvasNodeID, _ region: CanvasRegionID,
+                                  _ scene: CanvasScene, file: StaticString = #filePath,
+                                  line: UInt = #line) throws {
+        let frame = try XCTUnwrap(scene.node(node)?.frame, file: file, line: line)
+        let wrap = try XCTUnwrap(scene.region(region)?.frame, file: file, line: line)
+        XCTAssertTrue(wrap.contains(frame), "\(frame) is not inside its wrap \(wrap)",
+                      file: file, line: line)
+    }
+
+    func test_aPortraitPhotoDroppedFromTheFinderSitsInsideItsWrap() async throws {
+        let png = try writePortraitPNG()
+        let seam = CanvasAssetIngest(file: { _ in "canvas_assets/portrait.png" },
+                                     image: { _ in throw CanvasAssetIngest.Unavailable() })
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: [NSItemProvider(item: png as NSURL,
+                                       typeIdentifier: UTType.fileURL.identifier)],
+            using: seam)
+        XCTAssertEqual(outcome.aspects["canvas_assets/portrait.png"] ?? 0, 0.5, accuracy: 0.0001)
+
+        let model = attachedModel()
+        let made = CanvasExternalDrop.apply(paths: outcome.paths, aspects: outcome.aspects,
+                                            at: CGPoint(x: 100, y: 100), in: model,
+                                            wrappingInPiece: "p1")
+
+        let id = try XCTUnwrap(made.nodes.first)
+        XCTAssertEqual(model.scene.node(id)?.cachedHeight, portraitHeight,
+                       "born at the photograph's height, not a label's")
+        XCTAssertGreaterThan(portraitHeight, CanvasCardMetrics.itemLabelOnlyHeight)
+        try assertSitsInside(id, try XCTUnwrap(made.wrappedIn), model.scene)
+    }
+
+    func test_aPortraitCaptureSitsInsideItsWrap() throws {
+        var scene = CanvasScene()
+        let landing = CanvasCapture.plan(.picture(path: "canvas_assets/p.png", aspect: 0.5),
+                                         .dropped(at: CGPoint(x: 40, y: 90), wrappingInPiece: "p1"),
+                                         captureID: "c1", in: scene)
+        XCTAssertEqual(landing.node.cachedHeight, portraitHeight)
+
+        let region = try XCTUnwrap(CanvasCapture.apply(landing, to: &scene))
+        try assertSitsInside(landing.node.id, region, scene)
+    }
+
+    func test_aResearchPhotoIsBornAtItsAspectAndANoteAtTheLabelFloor() throws {
+        let scene = CanvasScene()
+        guard case .create(let photo) = CanvasDrop.decide(
+            payload: noteID, at: .zero, in: scene, index: index(), pictureAspect: 0.5),
+              case .create(let note) = CanvasDrop.decide(
+            payload: noteID, at: .zero, in: scene, index: index(), pictureAspect: nil) else {
+            return XCTFail("a known id creates")
+        }
+        XCTAssertEqual(photo.cachedHeight, portraitHeight)
+        XCTAssertEqual(note.cachedHeight, CanvasCardMetrics.itemLabelOnlyHeight)
     }
 
     func test_aWrappedCaptureDropLandsInABoundRegion() throws {

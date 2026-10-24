@@ -902,7 +902,10 @@ final class InboxStore {
             }
             // A COPY into the canvas's own well; the inbox original goes below,
             // after the flip commits.
-            content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset))
+            // The shape from the original's header, so the card is born at its
+            // real height (the well holds a byte copy).
+            content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset),
+                               aspect: CanvasThumbnails.headerAspect(of: asset))
             originalToRemove = asset
         }
         let node = try CanvasCapture.send(content, placement, captureID: entry.id,
