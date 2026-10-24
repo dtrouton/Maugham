@@ -5,11 +5,16 @@ import Foundation
 struct FormulaFunction: Sendable {
     let minArguments: Int
     let maxArguments: Int
+    /// SUMIF/AVERAGEIF: the evaluator hands over the third argument resized to the first
+    /// range's shape from its own top-left cell, as Excel does.
+    let resizesThirdToFirst: Bool
     let apply: @Sendable ([FormulaArgument]) -> CellValue
 
-    init(_ minArguments: Int, _ maxArguments: Int = .max, _ apply: @escaping @Sendable ([FormulaArgument]) -> CellValue) {
+    init(_ minArguments: Int, _ maxArguments: Int = .max, resizesThirdToFirst: Bool = false,
+         _ apply: @escaping @Sendable ([FormulaArgument]) -> CellValue) {
         self.minArguments = minArguments
         self.maxArguments = maxArguments
+        self.resizesThirdToFirst = resizesThirdToFirst
         self.apply = apply
     }
 }
@@ -160,7 +165,9 @@ enum FormulaFunctions {
             let condition: Bool
             switch value(args[0]) {
             case .error(let err): return .error(err)
-            case .text: return .error(.value)
+            case .text(let t):
+                guard let b = FormulaCoercion.textBool(t) else { return .error(.value) }
+                condition = b
             case .bool(let b): condition = b
             case .empty: condition = false
             case .number(let x): condition = x != 0
@@ -179,7 +186,7 @@ enum FormulaFunctions {
     // MARK: Conditional totals
 
     static let conditionalTotals: [String: FormulaFunction] = [
-        "SUMIF": FormulaFunction(2, 3) { args in
+        "SUMIF": FormulaFunction(2, 3, resizesThirdToFirst: true) { args in
             conditional(args) { xs in FormulaCoercion.finite(xs.reduce(0, +)) }
         },
         "COUNTIF": FormulaFunction(2, 2) { args in
@@ -190,7 +197,7 @@ enum FormulaFunctions {
                 return .number(Double(rows.reduce(0) { $0 + $1.filter(criteria.matches).count }))
             }
         },
-        "AVERAGEIF": FormulaFunction(2, 3) { args in
+        "AVERAGEIF": FormulaFunction(2, 3, resizesThirdToFirst: true) { args in
             conditional(args) { xs in
                 xs.isEmpty ? .error(.divideByZero) : FormulaCoercion.finite(xs.reduce(0, +) / Double(xs.count))
             }
@@ -198,8 +205,8 @@ enum FormulaFunctions {
     ]
 
     /// SUMIF/AVERAGEIF: the numbers in the third range (default the first) at the positions
-    /// where the first range meets the criteria. The third range takes the first's shape
-    /// from its own top-left, clipped to its size; a matched error there propagates.
+    /// where the first range meets the criteria. The evaluator has already resized the third
+    /// range to the first's shape; a matched error there propagates.
     private static func conditional(_ args: [FormulaArgument], _ body: ([Double]) -> CellValue) -> CellValue {
         let criteriaRows: [[CellValue]]
         switch range(args[0]) {
@@ -231,7 +238,8 @@ enum FormulaFunctions {
 
 /// An Excel criteria for SUMIF, COUNTIF and AVERAGEIF: a value, or a string that may
 /// start with `= <> < > <= >=`. `""` matches empty cells, `"="` only truly empty ones and
-/// `"<>"` non-empty ones; `<>` anything matches every cell `=` that would not.
+/// `"<>"` non-empty ones; `<>` anything matches every cell `=` that would not. A numeric
+/// `=` matches numbers, dates and number-like text; `< > <= >=` only numbers and dates.
 struct FormulaCriteria: Sendable {
     enum Comparison: Sendable { case equal, less, greater, lessOrEqual, greaterOrEqual }
 
@@ -275,11 +283,8 @@ struct FormulaCriteria: Sendable {
 
     private static func operand(_ text: String, _ c: Comparison) -> Test {
         if let x = FormulaCoercion.plainNumber(text) { return .number(c, x) }
-        switch text.uppercased() {
-        case "TRUE": return .bool(c, true)
-        case "FALSE": return .bool(c, false)
-        default: return .text(c, text)
-        }
+        if let b = FormulaCoercion.textBool(text) { return .bool(c, b) }
+        return .text(c, text)
     }
 
     func matches(_ cell: CellValue) -> Bool { negated != passes(cell) }
@@ -293,6 +298,9 @@ struct FormulaCriteria: Sendable {
             switch cell {
             case .number(let y): return Self.holds(c, FormulaCoercion.compare(.number(y), .number(x)))
             case .date(let d): return Self.holds(c, FormulaCoercion.compare(.number(Double(d)), .number(x)))
+            case .text(let s):            // `=` also matches number-like text; ordering never does
+                guard c == .equal, let y = FormulaCoercion.plainNumber(s) else { return false }
+                return FormulaCoercion.compare(.number(y), .number(x)) == .orderedSame
             default: return false
             }
         case .bool(let c, let b):

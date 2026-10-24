@@ -112,6 +112,12 @@ final class FormulaFunctionsTests: XCTestCase {
         XCTAssertEqual(none.eval("IF(0,\"y\",\"n\")"), .text("n"))
         XCTAssertEqual(none.eval("IF(A1,\"y\",\"n\")"), .text("n"))                  // empty is false
         XCTAssertEqual(none.eval("IF(\"x\",1,2)"), .error(.value))
+        XCTAssertEqual(none.eval("IF(\"TRUE\",1,2)"), .number(1))                  // R-P5-6
+        XCTAssertEqual(none.eval("IF(\"true\",1,2)"), .number(1))
+        XCTAssertEqual(none.eval("IF(\"False\",1,2)"), .number(2))
+        XCTAssertEqual(FormulaTestGrid(["A1": .text("TRUE")]).eval("IF(A1,1,2)"), .number(1))
+        XCTAssertEqual(FormulaTestGrid(["A1": .text("false")]).eval("IF(A1,1,2)"), .number(2))
+        XCTAssertEqual(FormulaTestGrid(["A1": .text("yes")]).eval("IF(A1,1,2)"), .error(.value))
         XCTAssertEqual(none.eval("IF(1/0,1,2)"), .error(.divideByZero))
         XCTAssertEqual(none.eval("IF(FALSE,1)"), .bool(false))                       // missing b
         XCTAssertEqual(none.eval("IF(TRUE,,1)"), .number(0))                         // missing a
@@ -136,10 +142,15 @@ final class FormulaFunctionsTests: XCTestCase {
         XCTAssertEqual(oneToFour.eval("COUNTIF(A1:A4,\"<2\")"), .number(1))
         XCTAssertEqual(oneToFour.eval("COUNTIF(A1:A4,\"=4\")"), .number(1))
         XCTAssertEqual(oneToFour.eval("AVERAGEIF(A1:A4,\">1\")"), .number(3))
-        // A numeric operand matches only number or date cells.
+        // R-P5-8: a numeric `=` matches numbers, dates and number-like text; ordering
+        // comparisons match only numbers and dates; `<>` matches what `=` would not.
         let g = FormulaTestGrid(column: "A", [.text("5"), .number(5), .date(5), .bool(true)])
-        XCTAssertEqual(g.eval("COUNTIF(A1:A4,5)"), .number(2))
+        XCTAssertEqual(g.eval("COUNTIF(A1:A4,5)"), .number(3))
+        XCTAssertEqual(g.eval("COUNTIF(A1:A4,\"=5\")"), .number(3))
+        XCTAssertEqual(g.eval("COUNTIF(A1:A4,\"<>5\")"), .number(1))
         XCTAssertEqual(g.eval("COUNTIF(A1:A4,\">0\")"), .number(2))
+        XCTAssertEqual(g.eval("COUNTIF(A1:A4,\">=5\")"), .number(2))
+        XCTAssertEqual(g.eval("SUMIF(A1:A4,5)"), .number(10))                   // the text "5" matches but sums nothing
     }
 
     func test_notEqual_matchesEveryOtherCell_blanksIncluded() {
@@ -189,10 +200,30 @@ final class FormulaFunctionsTests: XCTestCase {
         var g = FormulaTestGrid(column: "A", [.text("North"), .text("West"), .text("NORTH")])
         g.cells.merge(FormulaTestGrid(column: "B", [.number(10), .number(20), .number(30)]).cells) { a, _ in a }
         XCTAssertEqual(g.eval("SUMIF(A1:A3,\"north\",B1:B3)"), .number(40))
-        XCTAssertEqual(g.eval("SUMIF(A1:A3,\"north\",B1)"), .number(10))           // clipped to its size
+        // R-P5-7: the sum range is resized to the criteria range's shape from its top-left.
+        XCTAssertEqual(g.eval("SUMIF(A1:A3,\"north\",B1)"), .number(40))
+        XCTAssertEqual(g.eval("SUMIF(A1:A3,\"north\",B1:B2)"), .number(40))
+        XCTAssertEqual(g.eval("SUMIF(A1:A3,\"north\",B3:B1)"), .number(40))
+        XCTAssertEqual(g.eval("AVERAGEIF(A1:A3,\"north\",B1)"), .number(20))
+        g.cells["C2"] = .number(100)
+        XCTAssertEqual(g.eval("SUMIF(A1:A3,\"west\",B1:C3)"), .number(20))       // a wider sum range narrows
         XCTAssertEqual(g.eval("AVERAGEIF(A1:A3,\"north\",B1:B3)"), .number(20))
         XCTAssertEqual(g.eval("AVERAGEIF(A1:A3,\"south\",B1:B3)"), .error(.divideByZero))
         XCTAssertEqual(g.eval("SUMIF(A1:A3,\"south\",B1:B3)"), .number(0))
+    }
+
+    func test_sumRangeResize_asksTheEnvironment() {
+        let base = FormulaTestGrid(column: "A", [.number(1), .number(1)]).environment
+        let asked = FormulaResultBox<[Int]>([])
+        let env = FormulaEnvironment(cell: base.cell, range: base.range, resized: { _, rows, columns in
+            asked.set([rows, columns])
+            return [[.number(7)], [.number(8)]]
+        })
+        let f = try! FormulaParser.parsePositional("SUMIF(A1:A2,1,Z9)").get()
+        XCTAssertEqual(FormulaEvaluator.evaluate(f, in: env), .number(15))
+        XCTAssertEqual(asked.get(), [2, 1])
+        let refused = FormulaEnvironment(cell: base.cell, range: base.range, resized: { _, _, _ in nil })
+        XCTAssertEqual(FormulaEvaluator.evaluate(f, in: refused), .error(.ref))
     }
 
     func test_conditionalTotals_errors() {

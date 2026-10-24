@@ -10,15 +10,29 @@ public enum FormulaArgument: Sendable {
 }
 
 /// Where a formula's references are read. `range` returns the range's live cells row by
-/// row, or nil when the range is `#REF!`.
+/// row, or nil when the range is `#REF!`. `resized` returns the `rows`×`columns` block that
+/// starts at a range's top-left cell (SUMIF's sum range takes its criteria range's shape),
+/// or nil for `#REF!`; by default it extends positional refs arithmetically through `range`
+/// and gives nil for refs stored by id.
 public struct FormulaEnvironment: Sendable {
     public var cell: @Sendable (FormulaRef) -> CellValue
     public var range: @Sendable (FormulaRange) -> [[CellValue]]?
+    public var resized: @Sendable (FormulaRange, _ rows: Int, _ columns: Int) -> [[CellValue]]?
 
     public init(cell: @escaping @Sendable (FormulaRef) -> CellValue,
-                range: @escaping @Sendable (FormulaRange) -> [[CellValue]]?) {
+                range: @escaping @Sendable (FormulaRange) -> [[CellValue]]?,
+                resized: (@Sendable (FormulaRange, _ rows: Int, _ columns: Int) -> [[CellValue]]?)? = nil) {
         self.cell = cell
         self.range = range
+        self.resized = resized ?? { g, rows, columns in
+            guard rows > 0, columns > 0,
+                  case .position(let r0, let c0) = g.start.anchor,
+                  case .position(let r1, let c1) = g.end.anchor else { return nil }
+            var start = g.start, end = g.end
+            start.anchor = .position(row: min(r0, r1), column: min(c0, c1))
+            end.anchor = .position(row: min(r0, r1) + rows - 1, column: min(c0, c1) + columns - 1)
+            return range(FormulaRange(start: start, end: end))
+        }
     }
 }
 
@@ -64,7 +78,20 @@ public enum FormulaEvaluator {
     private static func call(_ name: String, _ arguments: [FormulaExpr], _ env: FormulaEnvironment) -> CellValue {
         guard let f = FormulaFunctions.all[name] else { return .error(.name) }
         guard arguments.count >= f.minArguments, arguments.count <= f.maxArguments else { return .error(.value) }
-        return f.apply(arguments.map { argument($0, env) })
+        var args = arguments.map { argument($0, env) }
+        if f.resizesThirdToFirst, args.count == 3, case .range(let shape) = args[0] {
+            let block: FormulaRange?
+            switch arguments[2] {
+            case .ref(let r): block = FormulaRange(start: r, end: r)
+            case .range(let g): block = g
+            default: block = nil
+            }
+            if let block {
+                let cells = env.resized(block, shape.count, shape.first?.count ?? 0)
+                args[2] = cells.map { .range($0) } ?? .scalar(.error(.ref))
+            }
+        }
+        return f.apply(args)
     }
 
     private static func unary(_ op: UnaryOperator, _ v: CellValue) -> CellValue {
@@ -142,6 +169,15 @@ enum FormulaCoercion {
         case .text(let s):
             guard let x = plainNumber(s) else { return .failure(.value) }
             return .success(x)
+        }
+    }
+
+    /// The text `TRUE` or `FALSE` in any case as a boolean, else nil.
+    static func textBool(_ text: String) -> Bool? {
+        switch text.uppercased() {
+        case "TRUE": return true
+        case "FALSE": return false
+        default: return nil
         }
     }
 
