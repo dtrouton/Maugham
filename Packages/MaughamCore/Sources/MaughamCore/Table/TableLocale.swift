@@ -24,6 +24,20 @@ public struct TableLocale: Equatable, Sendable {
         self.financialYearStartMonth = (1...12).contains(financialYearStartMonth) ? financialYearStartMonth : 1
     }
 
+    private init(copying o: TableLocale, decimalSeparator: String, groupingSeparator: String) {
+        locale = o.locale
+        self.decimalSeparator = decimalSeparator
+        self.groupingSeparator = groupingSeparator
+        currencySymbol = o.currencySymbol
+        dayFirst = o.dayFirst
+        financialYearStartMonth = o.financialYearStartMonth
+    }
+
+    /// The same language with "," as the decimal mark ("." groups), for reading a ";"-separated file.
+    func readingDecimalComma() -> TableLocale {
+        decimalSeparator == "," ? self : TableLocale(copying: self, decimalSeparator: ",", groupingSeparator: ".")
+    }
+
     public let locale: Locale            // language + resolved region
     public let decimalSeparator: String
     public let groupingSeparator: String

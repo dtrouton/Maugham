@@ -178,6 +178,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `TableLocale.swift` — the book's language for a table: separators, currency symbol, day-first order, financial-year start month; region from the tag, else a fallback.
 - `CellDisplay.swift` — a value and its format as the string the writer sees: Excel-rounded first, number, percent, currency, compact and date styles in the locale, financial-year labels.
 - `CellInput.swift` — typed or pasted cell text read in the book's language: formulas, text escapes, numbers, percentages, currency and dates, with the format Excel would suggest.
+- `TableCSV.swift` — a table as CSV: the clean values render, research copies that keep formulas, RFC 4180 reading with separator detection, and import with formulas resolved to ids and unreadable ones reported.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.
