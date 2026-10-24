@@ -1,0 +1,104 @@
+import XCTest
+@testable import MaughamCore
+
+final class CellDisplayTests: XCTestCase {
+    private let gb = TableLocale(languageTag: "en-GB", fallbackRegion: "US")
+    private let us = TableLocale(languageTag: "en-US", fallbackRegion: "GB")
+    private let es = TableLocale(languageTag: "es-ES", fallbackRegion: "US")
+
+    private func show(_ x: Double, _ n: NumberFormat, _ l: TableLocale, neg: NegativeStyle = .minus, dash: Bool = false) -> String {
+        CellDisplay.string(for: .number(x), format: CellFormat(number: n, negatives: neg, zeroAsDash: dash), locale: l)
+    }
+
+    func test_localeResolution() {
+        XCTAssertEqual(TableLocale(languageTag: "en_us", fallbackRegion: "GB").locale.region?.identifier, "US")
+        XCTAssertEqual(TableLocale(languageTag: "en", fallbackRegion: "GB").locale.region?.identifier, "GB")
+        XCTAssertEqual(TableLocale(languageTag: "es", fallbackRegion: "ES").currencySymbol, "€")
+        XCTAssertTrue(gb.dayFirst)
+        XCTAssertFalse(us.dayFirst)
+        XCTAssertEqual(es.decimalSeparator, ",")
+        XCTAssertEqual(es.groupingSeparator, ".")
+    }
+
+    func test_general() {
+        XCTAssertEqual(show(0.1 + 0.2, .general, gb), "0.3")
+        XCTAssertEqual(show(1234.5, .general, gb), "1234.5")
+        XCTAssertEqual(show(1234.5, .general, TableLocale(languageTag: "es", fallbackRegion: "ES")), "1234,5")
+        XCTAssertEqual(show(123_456_789_012, .general, gb), "1.23457E+11")
+        XCTAssertEqual(show(2.0 / 3.0, .general, gb), "0.6666666667")
+        XCTAssertEqual(show(-2.5, .general, gb), "-2.5")
+    }
+
+    func test_number() {
+        XCTAssertEqual(show(1234.567, .number(decimals: 2, grouping: true), gb), "1,234.57")
+        XCTAssertEqual(show(1234.567, .number(decimals: 2, grouping: true), es), "1.234,57")
+        XCTAssertEqual(show(2.675, .number(decimals: 2, grouping: true), gb), "2.68")
+        XCTAssertEqual(show(1234567.5, .number(decimals: 0, grouping: false), gb), "1234568")
+    }
+
+    func test_percent() {
+        XCTAssertEqual(show(0.1234, .percent(decimals: 1), gb), "12.3%")
+        let f = NumberFormatter()
+        f.locale = es.locale; f.numberStyle = .percent
+        f.minimumFractionDigits = 1; f.maximumFractionDigits = 1; f.roundingMode = .halfUp
+        XCTAssertEqual(show(0.1234, .percent(decimals: 1), es), f.string(from: NSNumber(value: 0.123)))
+    }
+
+    func test_currency() {
+        XCTAssertEqual(show(1234, .currency(symbol: nil, decimals: 0), gb), "£1,234")
+        XCTAssertEqual(show(1234, .currency(symbol: nil, decimals: 0), us), "$1,234")
+        XCTAssertTrue(show(1234, .currency(symbol: nil, decimals: 0), TableLocale(languageTag: "es", fallbackRegion: "ES")).contains("€"))
+        XCTAssertEqual(show(1234, .currency(symbol: "$", decimals: 0), gb), "$1,234")
+    }
+
+    func test_compact() {
+        XCTAssertEqual(show(1234, .compact(decimals: 1), gb), "1.2K")
+        XCTAssertEqual(show(3_400_000, .compact(decimals: 1), gb), "3.4M")
+        XCTAssertEqual(show(5_600_000_000, .compact(decimals: 1), us), "5.6B")
+    }
+
+    func test_negativesAndDash() {
+        XCTAssertEqual(show(-1200, .number(decimals: 0, grouping: true), gb, neg: .parentheses), "(1,200)")
+        XCTAssertEqual(show(-1200, .currency(symbol: nil, decimals: 0), gb, neg: .parentheses), "(£1,200)")
+        XCTAssertEqual(show(-1200, .number(decimals: 0, grouping: true), gb), "-1,200")
+        XCTAssertEqual(show(0, .number(decimals: 2, grouping: true), gb, dash: true), "—")
+        XCTAssertEqual(show(0.004, .number(decimals: 2, grouping: true), gb, dash: true), "—")
+        XCTAssertEqual(show(-0.004, .number(decimals: 2, grouping: true), gb), "0.00")
+        XCTAssertEqual(CellDisplay.string(for: .empty, format: CellFormat(zeroAsDash: true), locale: gb), "—")
+        XCTAssertEqual(CellDisplay.string(for: .empty, format: CellFormat(), locale: gb), "")
+    }
+
+    func test_dates() {
+        func d(_ style: DateStyle, _ l: TableLocale) -> String {
+            CellDisplay.string(for: .date(46319), format: CellFormat(number: .date(style)), locale: l)
+        }
+        XCTAssertEqual(d(.day, gb), "24 Oct 2026")
+        XCTAssertEqual(d(.day, us), "Oct 24, 2026")
+        XCTAssertEqual(d(.month, gb), "Oct 2026")
+        XCTAssertEqual(d(.iso, gb), "2026-10-24")
+        XCTAssertEqual(d(.year, gb), "2026")
+        XCTAssertEqual(CellDisplay.string(for: .date(46319), format: CellFormat(), locale: gb), "24 Oct 2026")
+        XCTAssertEqual(CellDisplay.string(for: .number(46319), format: CellFormat(number: .date(.iso)), locale: gb), "2026-10-24")
+        XCTAssertEqual(CellDisplay.string(for: .date(46319), format: CellFormat(number: .number(decimals: 0, grouping: true)), locale: gb), "46,319")
+        XCTAssertFalse(d(.quarter, gb).isEmpty)
+    }
+
+    func test_financialYear() {
+        let fy = TableLocale(languageTag: "en-GB", fallbackRegion: "GB", financialYearStartMonth: 4)
+        func d(_ serial: Int, _ style: DateStyle) -> String {
+            CellDisplay.string(for: .date(serial), format: CellFormat(number: .date(style)), locale: fy)
+        }
+        XCTAssertEqual(d(46319, .quarter), "Q3 FY27")
+        XCTAssertEqual(d(46319, .year), "FY2027")
+        let march31 = DateSerial.serial(year: 2026, month: 3, day: 31)!
+        XCTAssertEqual(d(march31, .quarter), "Q4 FY26")
+        XCTAssertEqual(d(46319, .day), "24 Oct 2026")
+    }
+
+    func test_codesAndWords() {
+        XCTAssertEqual(CellDisplay.string(for: .error(.divideByZero), format: CellFormat(), locale: gb), "#DIV/0!")
+        XCTAssertEqual(CellDisplay.string(for: .bool(true), format: CellFormat(), locale: gb), "TRUE")
+        XCTAssertEqual(CellDisplay.string(for: .bool(false), format: CellFormat(), locale: gb), "FALSE")
+        XCTAssertEqual(CellDisplay.string(for: .text("hi"), format: CellFormat(number: .percent(decimals: 1)), locale: gb), "hi")
+    }
+}
