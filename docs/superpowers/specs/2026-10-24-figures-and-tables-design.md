@@ -64,7 +64,7 @@ A figure appears in the text as the existing figure line, extended to tables:
 ### 3.3 A table's content
 
 - **Rows and columns have stable ids,** minted from the `¶id` alphabet but 8 characters long, because devices mint them concurrently without a shared view (plan 5 ruling). A cell is (row id, column id). Two devices inserting rows concurrently merge without clobbering each other.
-- **Formulas store references by id,** and display them as A1 (`B3`, `$B$2`, `B2:B9`, `revenue!B9`, `research:model-v3!B9`). Inserting or deleting a row then adjusts every formula for free, as Excel does. A deleted referenced cell shows `#REF!`.
+- **Formulas store references by id** — rows, columns, other figures and Research items alike (Denver, 2026-10-24: a rename is then one registry change) — and display them as A1 and current names (`B3`, `$B$2`, `B2:B9`, `revenue!B9`, `research:model-v3!B9`). Inserting or deleting a row then adjusts every formula for free, as Excel does. A deleted referenced cell shows `#REF!`.
 - **Each cell holds:**
   - a value (number, text, date, empty) or a formula;
   - a number or date format;
@@ -118,7 +118,7 @@ Figures join **schema 10**. It is on origin but unreleased, so there is no migra
   - an image becomes the image file.
 - **From then on the copy follows Research rules:** plain file, last writer wins, unsigned. The AI may write to it, with versions kept (§10.1).
 - **Its line leaves the text** as an ordinary, undoable edit.
-- **Figures that referenced it** become pinned Research references (§4.3), keeping their last values instead of breaking.
+- **Figures that referenced it** keep their last values (the parked state) instead of breaking. When the working copy changes they say "Research has changed — refresh?", and Refresh writes pins into the reading figure only, by someone who may edit it (§4.3). Nobody writes another person's figure at send time (Denver, 2026-10-24).
 - **Text that referenced it** ("see Table 3") gets the amber underline "This table is in Research now". A Report refuses to publish with it, as with any broken cross-reference.
 
 **Coming back** ("Use in document" on that working copy):
@@ -357,7 +357,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - The function set with Excel fixtures.
    - Number and date formats with localisation.
    - CSV render and import, with research CSVs' `=` cells.
-6. **Storage: figures in the op log.** Split by its survey into 6a (the figure document: payload, class, deriver, cache, host, render, censuses, image figures) and 6b (moving, rename, pins, translations, research versions, checkpoint restore). Denver, 2026-10-24: a figure belongs to the piece it was created in — that piece's author and whole-book authors may edit it.
+6. **Storage: figures in the op log.** Split by its surveys into 6a (the figure document: payload, class, deriver, cache, host, render, censuses, image figures), 6b (the whole-app synced-path checker and census, references by id, revive, rename/remove, Use in document, Send to Research and back, pins) and 6c (translations, research versions, checkpoint restore, promotion). Denver, 2026-10-24: every path from synced data reaches the disk through one checker; a figure in an unclaimed piece follows its piece's text posture exactly. Denver, 2026-10-24: a figure belongs to the piece it was created in — that piece's author and whole-book authors may edit it.
    - Figure document class, op kinds, schema 10, permits and censuses.
    - The `figures/` render.
    - Use in document / Send to Research through the typed mover.
