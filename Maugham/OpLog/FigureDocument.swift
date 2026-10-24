@@ -268,7 +268,7 @@ public final class FigureDocument {
         let op = try await commit(.figureStructure, FigureOpPayload(structure: .insertRow(id, after: after)))
         registerFigureUndo(
             undoManager, actionName: "Insert Row", forward: op,
-            stillAsWritten: { d in d.state.table.rowIndex(of: id) != nil },
+            stillAsWritten: { d in d.rowIsUntouched(id) },
             redo: { d in d.decline(.insertNotRedoable) })
         return id
     }
@@ -285,7 +285,7 @@ public final class FigureDocument {
         let op = try await commit(.figureStructure, FigureOpPayload(structure: .insertColumn(id, after: after)))
         registerFigureUndo(
             undoManager, actionName: "Insert Column", forward: op,
-            stillAsWritten: { d in d.state.table.columnIndex(of: id) != nil },
+            stillAsWritten: { d in d.columnIsUntouched(id) },
             redo: { d in d.decline(.insertNotRedoable) })
         return id
     }
@@ -635,6 +635,24 @@ public final class FigureDocument {
 
     private func isLive(_ key: CellKey) -> Bool {
         state.table.rowIndex(of: key.row) != nil && state.table.columnIndex(of: key.column) != nil
+    }
+
+    /// **May an insert's undo take this row back?** (ruling R-6a-13) Only
+    /// while it is live, holds no cell and no pin: the inverse is a delete,
+    /// which takes everything in it and which 6a cannot undo, so a row another
+    /// device has typed into since is left standing (Review Focus 5).
+    func rowIsUntouched(_ id: RowID) -> Bool {
+        state.table.rowIndex(of: id) != nil
+            && !state.table.cells.keys.contains { $0.row == id }
+            && !state.pins.keys.contains { $0.row == id }
+    }
+
+    /// The column's twin of `rowIsUntouched`; a width set on it counts too.
+    func columnIsUntouched(_ id: ColumnID) -> Bool {
+        state.table.columnIndex(of: id) != nil
+            && state.table.columnWidths[id] == nil
+            && !state.table.cells.keys.contains { $0.column == id }
+            && !state.pins.keys.contains { $0.column == id }
     }
 
     /// Every row and column id this table has ever held, tombstones too: a

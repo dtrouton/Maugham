@@ -314,6 +314,76 @@ final class FigureDocumentTests: XCTestCase {
         await doc.close()
     }
 
+    /// Another device's op on this figure, appended and sealed under its own
+    /// identity, then read into `doc`.
+    private func theirOp(
+        _ doc: FigureDocument, _ kind: OpKind, _ payload: FigureOpPayload
+    ) async throws {
+        let other = LocalIdentities.softwareForTesting()
+        let theirs = OpLogStore(
+            projectURL: projectURL, identities: other,
+            state: OpLogDeviceState(fileURL: projectURL.appendingPathComponent("other-\(UUID().uuidString).json")))
+        try await theirs.append(Op(
+            opId: ULID.generate(), docId: doc.figureId, at: Date(), device: other.author.deviceId,
+            session: "x", kind: kind, changes: [], figure: payload))
+        _ = try await theirs.sealChain(docId: doc.figureId)
+        try await doc.reload()
+    }
+
+    /// **Ruling R-6a-13 (Review Focus 5)**: the inverse of an insert is a
+    /// delete, which takes every cell and pin in the row or column and which
+    /// 6a cannot undo. So an undo of an insert declines once another device
+    /// has typed into (or pinned) the inserted row or column — their content
+    /// stands; an empty one still undoes (the control).
+    func test_undoOfAnInsertDeclinesOnceAnotherDeviceFilledIt() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let um = UndoManager()
+        um.groupsByEvent = false
+        let declined = "Couldn't undo the change to the figure — it changed on another device."
+
+        // A row another device typed into.
+        um.beginUndoGrouping()
+        let row = try await doc.insertRow(after: doc.state.table.rows.last, undoManager: um)
+        um.endUndoGrouping()
+        let rowKey = CellKey(row: row, column: try XCTUnwrap(doc.state.table.columns.first))
+        try await theirOp(doc, .figureCellSet, FigureOpPayload(cell: rowKey, next: text("theirs"), prior: nil))
+        XCTAssertEqual(doc.state.table[rowKey], text("theirs"), "precondition: their cell arrived")
+        var count = try ops(of: record.id).count
+        var said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, [declined])
+        XCTAssertNotNil(doc.state.table.rowIndex(of: row), "the row stands")
+        XCTAssertEqual(doc.state.table[rowKey], text("theirs"), "and their cell with it")
+        XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
+
+        // A column another device pinned research into (no cell value).
+        um.beginUndoGrouping()
+        let column = try await doc.insertColumn(after: doc.state.table.columns.last, undoManager: um)
+        um.endUndoGrouping()
+        let colKey = CellKey(row: try XCTUnwrap(doc.state.table.rows.first), column: column)
+        let pin = FigureResearchPin(
+            research: "r-1", row: 0, column: 0, value: .text("v"), sourceHash: "h", at: Date())
+        try await theirOp(doc, .figurePinSet, FigureOpPayload(cell: colKey, pin: pin))
+        XCTAssertNil(doc.state.table[colKey])
+        XCTAssertNotNil(doc.state.pins[colKey], "precondition: their pin arrived")
+        count = try ops(of: record.id).count
+        said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, [declined])
+        XCTAssertNotNil(doc.state.table.columnIndex(of: column), "the column stands")
+        XCTAssertNotNil(doc.state.pins[colKey], "and their pin with it")
+        XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
+
+        // Control: an inserted row nobody touched still undoes.
+        um.beginUndoGrouping()
+        let empty = try await doc.insertRow(after: nil, undoManager: um)
+        um.endUndoGrouping()
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertNil(doc.state.table.rowIndex(of: empty), "an empty inserted row undoes")
+        await doc.close()
+    }
+
     // MARK: - Registry fixtures
 
     /// A foreign root that admits this device as a book author.
