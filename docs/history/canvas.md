@@ -1055,3 +1055,21 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the region-title rows
 
 **Why the drop opens the title by writing the binding.** `CanvasDropHandler` finishes in `Task` bodies, and a file that holds a sibling helper schedules no work (tripwire 32's construction census), so the wrap writes `regionTitleEditingID` itself and opens only with no gesture, scrap or title open — when there is nothing for `begin` to finish. The capture route opens the region its send reports (`CanvasCapture.Sent.wrappedIn`), never the card's home: a capture that joined an existing region would otherwise open that region's title.
 
+
+## Moved from the guide by the canvas-keyboard-flow whole-branch review (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for three rules: a dimmed selected card is no selection for Return, Tab and ⌘Return under a chapter; a key-placed scrap keeps out of other chapters' regions and off its home region's edge; a region title takes the keyboard only from no other text view. Each is the why behind a rule still in the guide, under the section named.
+
+- Card metrics: "— the mark and the target are one decision" (the resize target and mark share a kind test).
+- Focus straightens the card: "(`NSView.frameRotation` rotates a real view crisply)" (the editor is level by design).
+- The mounted editor and Delete: "`NSBackspaceCharacter` is Ctrl-H" (the two delete keys ⌫ handles).
+- The mounted editor and Delete: "anything new hung off a key on this view inherits the same hazard" (a ⌫ mid-gesture deletes nothing).
+- The dim: "each with its own test" (Escape's two mechanisms against a mounted scrap editor).
+- Promotion: "a card is the node, a picture the file" (no refusal an owned node reaches calls it a card).
+- Accessibility: "One rule covers both: a signal is added to a channel that would otherwise be silent about a fact the writer needs, and withheld where it would be ambiguous with one already there." (the two drawn/spoken divergences).
+
+**Why a dimmed selection is no selection.** A card selected under one chapter stays selected when the writer picks another in the binder. Return on it would open the other chapter's scrap, so the writer's "make a scrap for this chapter" became "edit that one". Denver's ruling: under a `.piece` subject, Return, Tab and ⌘Return ignore a selected card the board dims, judged by the renderer's own lit set so the key and the eye agree. The arrows still move from it, because moving is how the writer gets off it.
+
+**Why the new scrap avoids foreign regions and its home's edge.** Membership is decided by centre at creation, so a key-placed scrap whose start fell inside a region bound to another chapter joined it, followed its binding and was born dimmed. And Tab's 12pt card gap is narrower than a drop wrap's 16pt padding, so the first candidate hung 4pt over the wrap's edge without being a member. The placement now treats foreign regions as obstacles and starts again past the home region's far edge when the card would straddle it.
+
+**Why the title checks the keyboard before claiming it.** A drop's wrap opens its title after an async load, by when the writer may be typing in an inspector field. The binder's list is allowed: after a click on a chapter it holds the keyboard, and a drop is the writer's own act on the canvas.

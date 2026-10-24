@@ -500,8 +500,9 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
 }
 
 /// Asks `CanvasEventNSView` to take the keyboard: each counter belongs to one
-/// asker (`fromCanvas`, a finished scrap; `fromWindow`, unasked so far), and
-/// any change is served once.
+/// asker (`fromCanvas`, the canvas's own helpers — a finished scrap, a closed
+/// region title; `fromWindow`, Tab in Plan's binder through
+/// `CanvasView.keyboardRequest`), and any change is served once.
 struct CanvasKeyboardRequest: Equatable {
     var fromCanvas = 0
     var fromWindow = 0

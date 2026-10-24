@@ -49,12 +49,13 @@ On the canvas itself (these work while the canvas holds the keyboard):
 
 - **↩** with nothing selected makes a scrap at the centre of the view; with a scrap selected it starts typing in it; with a region selected it renames the region.
 - **⇥** or **⌘↩** with a scrap or an item card selected makes a joined or a below scrap.
-- **The arrow keys** move the selection to the nearest card in that direction.
+- **The arrow keys** move the selection to the nearest card in that direction. Select a card first (click it, or make one): with nothing selected they do nothing on the canvas.
+- With a chapter selected in the binder, a card left selected from another chapter (dimmed) counts as nothing selected: **↩** makes a new scrap for your chapter instead of opening that card, and **⇥** and **⌘↩** act as if nothing were selected. The arrow keys still move from it.
 - **⌫** deletes, as before.
 
-In Plan, **⇥ in the binder moves the keyboard to the canvas**, and **⇧⇥ on the canvas moves it back** whenever the binder is showing.
+In Plan, **⇥ in the binder moves the keyboard to the canvas**, and **⇧⇥ on the canvas moves it back** whenever the binder is showing. This works in a novel's or short story's binder; in a screenplay's scene navigator or a collection's pieces tree, click the canvas instead.
 
-**Select a chapter first, and new scraps belong to it.** A scrap made inside an unbound region is bound to the chapter; inside a region already bound to that chapter it follows the region; inside a region bound to another chapter it stays unbound and follows the region. With the book selected, scraps stay unbound.
+**Select a chapter first, and new scraps belong to it.** A scrap made inside an unbound region is bound to the chapter; inside a region already bound to that chapter it follows the region; inside a region bound to another chapter it stays unbound and follows the region. A scrap made from the keyboard keeps out of other chapters' regions, so it lands outside them. With the book selected, scraps stay unbound.
 
 **Selecting something in the tree can dim the board too.** Select a chapter or a group and every card and region not bound to it dims, so what's relevant to that selection stands out. Select a research note or palette card instead and the canvas looks for its card the same way: already on the board, and that one card lights up while the rest dims; not there yet, and the whole board dims with a line in the middle — *"This item isn't on this canvas yet. Drag its row from the tree to place it."* — that clears the moment you drag the row over. Arriving at a research subject this way, or via Claude's **Show**, pans the camera to its card even if it's already on screen; reopening the project on a research subject you'd left selected doesn't move the camera again, so your view stays exactly where you left it.
 
