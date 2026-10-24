@@ -63,4 +63,24 @@ final class CellInputTests: XCTestCase {
             _ = p(s); _ = p(s, es)
         }
     }
+
+    func test_ambiguousStringsStayText() {
+        for s in ["1-2", "3.4.5", "May", "Q4 2026 plan", "555-123-4567", "555-1234", "+44 20 7946", "April 2020 report"] {
+            XCTAssertEqual(p(s).textValue, s, s)
+        }
+    }
+
+    func test_nonDateWordCellsNeverBuildMonthNames() {
+        let fresh = TableLocale(languageTag: "fr-CA", fallbackRegion: "CA")
+        let before = CellInput.monthNameBuilds
+        for s in ["John Smith", "Chapter one", "Q4 sales"] { XCTAssertEqual(p(s, fresh).textValue, s) }
+        XCTAssertEqual(CellInput.monthNameBuilds, before)
+        _ = p("24 oct 2026", fresh)
+        _ = p("25 oct 2026", fresh)
+        XCTAssertEqual(CellInput.monthNameBuilds, before + 1)   // built once, then cached
+    }
+}
+
+private extension CellEntry {
+    var textValue: String? { if case .value(.text(let t), _) = self { return t } else { return nil } }
 }

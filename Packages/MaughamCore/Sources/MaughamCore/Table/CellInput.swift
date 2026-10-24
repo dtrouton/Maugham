@@ -148,7 +148,22 @@ public enum CellInput {
         return f
     }
 
+    private static let nameCache = NSLock()
+    nonisolated(unsafe) private static var cachedNames: [String: [String: Int]] = [:]
+    nonisolated(unsafe) static var monthNameBuilds = 0   // test spy: how many dictionaries were built
+
     private static func monthNames(_ locale: TableLocale) -> [String: Int] {
+        let key = locale.locale.identifier
+        nameCache.lock()
+        defer { nameCache.unlock() }
+        if let hit = cachedNames[key] { return hit }
+        let built = buildMonthNames(locale)
+        cachedNames[key] = built
+        monthNameBuilds += 1
+        return built
+    }
+
+    private static func buildMonthNames(_ locale: TableLocale) -> [String: Int] {
         var names: [String: Int] = [:]
         for loc in [Locale(identifier: "en_US"), locale.locale] {
             let f = DateFormatter()
@@ -171,6 +186,7 @@ public enum CellInput {
             if let q = quarter(tokens[0], tokens[1]) ?? quarter(tokens[1], tokens[0]) { return q }
         }
         guard (2...3).contains(tokens.count), tokens.contains(where: { $0.contains(where: \.isLetter) }) else { return nil }
+        guard tokens.contains(where: allDigits) else { return nil }
         let names = monthNames(locale)
         func month(_ s: String) -> Int? { s.first.map { !isDigit($0) } == true ? names[fold(s)] : nil }
         switch tokens.count {
