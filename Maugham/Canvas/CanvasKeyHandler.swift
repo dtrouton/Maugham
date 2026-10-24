@@ -1,12 +1,14 @@
 import SwiftUI
 
 /// `CanvasView`'s keys: ⌫ deletes the selection, refusing mid-gesture
-/// (tripwire 32), and Escape asks the window for the whole board — over a
-/// binding to the view's own `editingNodeID`. Each returns whether the canvas
-/// used the key; `CanvasEventNSView.keyDown` sends an unused one to `super`.
+/// (tripwire 32), Escape asks the window for the whole board, and the keys
+/// inside a scrap finish it or make the next one — over bindings to the view's
+/// own `@State`. Each returns whether the canvas used the key;
+/// `CanvasEventNSView.keyDown` sends an unused one to `super`.
 ///
 /// Built fresh per call by `CanvasView.keyHandler` and never stored; built
-/// nowhere else (tripwire 32's surface census).
+/// nowhere else (tripwire 32's surface census). It holds `scrapFlow` and
+/// `editFocus`, so it schedules nothing.
 @MainActor
 struct CanvasKeyHandler {
     let model: CanvasModel
@@ -14,7 +16,65 @@ struct CanvasKeyHandler {
     let selectTheProjectRow: () -> Void
     let editFocus: CanvasEditFocus
     let layoutPass: CanvasLayoutPass
+    let scrapFlow: CanvasScrapFlow
     @Binding var editingNodeID: CanvasNodeID?
+    @Binding var revision: Int
+    @Binding var camera: CanvasCamera
+    /// Bumped to ask `CanvasEventNSView` to take the keyboard (its
+    /// `serveKeyboardRequest`).
+    @Binding var keyboardTicket: Int
+
+    // MARK: - Keys inside a scrap
+
+    /// Return, Escape (`.finish`), Tab (`.makeJoined`) and ⌘Return
+    /// (`.makeBelow`) from the mounted editor; `viewSize` is the canvas's, for
+    /// the reveal. Every command FINISHES first — fold, leave, select — so no
+    /// typed word is ever lost, whatever follows.
+    ///
+    /// A make then asks, in the order `CanvasEditGateTests` pins: the gate
+    /// (before the fold), the fold (which closes "Edit Scrap"), and whether a
+    /// gesture is still open. A refused make has still finished, so it returns
+    /// `true`: handing the key back would let the text view insert a tab or
+    /// newline into the scrap just left, words the model never sees.
+    ///
+    /// The canvas is asked for the keyboard only when nothing new was entered;
+    /// a new scrap's editor requests focus itself. Asking both wins for the
+    /// editor today only because it mounts after the event view updates
+    /// (measured by mutation, 2026-10-24), so the ask is withheld rather than
+    /// left to that order.
+    func handleEditorCommand(_ command: ScrapEditorCommand, viewSize: CGSize) -> Bool {
+        guard let id = editingNodeID else { return false }
+        let mayCreate = CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)
+        editFocus.commitActiveEdit()
+        editFocus.leaveTheOpenScrap()
+        if model.scene.node(id) != nil { model.selection = .node(id) }
+        revision += 1
+        let start: CGPoint?
+        switch command {
+        case .finish:
+            start = nil
+        case .makeJoined, .makeBelow:
+            if let frame = model.scene.node(id)?.frame {
+                start = command == .makeJoined
+                    ? CGPoint(x: frame.maxX + CanvasKeyboard.placementGap, y: frame.minY)
+                    : CGPoint(x: frame.minX, y: frame.maxY + CanvasKeyboard.placementGap)
+            } else {
+                start = nil
+            }
+        }
+        guard let start, mayCreate, !model.isInGesture else {
+            keyboardTicket += 1
+            return true
+        }
+        let origin = CanvasKeyboard.clearOrigin(startingAt: start, stepping: .down,
+                                                size: CanvasKeyboard.newCardSize(), in: model.scene)
+        let made = scrapFlow.makeScrapAndEnter(at: origin,
+                                               joinedTo: command == .makeJoined ? id : nil)
+        if let frame = model.scene.node(made)?.frame {
+            camera.reveal(frame, viewSize: viewSize)
+        }
+        return true
+    }
 
     // MARK: - Delete
 

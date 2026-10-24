@@ -21,6 +21,7 @@ final class CanvasEditGateTests: XCTestCase {
         }
         XCTAssertTrue(CanvasEditGate.dragBegins(isReadOnly: false))
         XCTAssertTrue(CanvasEditGate.deletes(isReadOnly: false))
+        XCTAssertTrue(CanvasEditGate.keyCreates(isReadOnly: false))
         for drop in CanvasEditGate.Drop.allCases {
             XCTAssertTrue(CanvasEditGate.accepts(drop, isReadOnly: false), "\(drop)")
         }
@@ -41,6 +42,7 @@ final class CanvasEditGateTests: XCTestCase {
     func test_aReadOnlyCanvasBeginsNoDragAndDeletesNothing() {
         XCTAssertFalse(CanvasEditGate.dragBegins(isReadOnly: true))
         XCTAssertFalse(CanvasEditGate.deletes(isReadOnly: true))
+        XCTAssertFalse(CanvasEditGate.keyCreates(isReadOnly: true))
     }
 
     /// Every drop that would add something springs back. (Showing a card that
@@ -98,6 +100,14 @@ final class CanvasEditGateTests: XCTestCase {
             // The make moved into `CanvasScrapFlow`; the click still gates it.
             ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
              "scrapFlow.makeScrapAndEnter("),
+            // A key inside a scrap: the gate, then the fold (which closes
+            // "Edit Scrap"), then the gesture check, then the make.
+            ("func handleEditorCommand(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "scrapFlow.makeScrapAndEnter("),
+            ("func handleEditorCommand(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "editFocus.commitActiveEdit()"),
+            ("func handleEditorCommand(", "editFocus.commitActiveEdit()", "!model.isInGesture"),
+            ("func handleEditorCommand(", "!model.isInGesture", "scrapFlow.makeScrapAndEnter("),
             ("func handleDrag(", "CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly)",
              "interaction.begin("),
             ("func deleteSelection(", "CanvasEditGate.deletes(isReadOnly: model.isReadOnly)",

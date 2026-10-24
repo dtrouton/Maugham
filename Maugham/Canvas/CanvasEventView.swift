@@ -136,6 +136,30 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         syncEscapeMonitor()
+        claimKeyboardIfPending()
+    }
+
+    // MARK: - The keyboard, requested
+
+    /// The last request this view answered. `makeNSView` sets it to the value
+    /// the view is made with, so mounting never takes the keyboard from a field
+    /// the writer is typing in; only a CHANGE claims it (tripwire 27's rule).
+    var servedKeyboardRequest = CanvasKeyboardRequest()
+    private var keyboardClaimPending = false
+
+    /// Take the keyboard if `request` is new — or, with no window yet, as soon
+    /// as there is one: `makeFirstResponder` on a nil window is a silent no-op.
+    func serveKeyboardRequest(_ request: CanvasKeyboardRequest) {
+        guard request != servedKeyboardRequest else { return }
+        servedKeyboardRequest = request
+        keyboardClaimPending = true
+        claimKeyboardIfPending()
+    }
+
+    private func claimKeyboardIfPending() {
+        guard keyboardClaimPending, let window else { return }
+        keyboardClaimPending = false
+        window.makeFirstResponder(self)
     }
 
     /// Test-only reader for the pairing above: **is this canvas watching for
@@ -447,6 +471,14 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     static let escape = String(UnicodeScalar(UInt8(0x1B)))
 }
 
+/// Asks `CanvasEventNSView` to take the keyboard: each counter belongs to one
+/// asker (`fromCanvas`, a finished scrap; `fromWindow`, unasked so far), and
+/// any change is served once.
+struct CanvasKeyboardRequest: Equatable {
+    var fromCanvas = 0
+    var fromWindow = 0
+}
+
 /// Bridges `CanvasEventNSView` into SwiftUI. Transparent — it contributes no
 /// drawing, only events.
 struct CanvasEventView: NSViewRepresentable {
@@ -469,10 +501,15 @@ struct CanvasEventView: NSViewRepresentable {
     /// census for a one-call-site view.
     var dimsTheBoard: Bool
     var undoManager: UndoManager?
+    /// A change takes the keyboard — see `CanvasEventNSView.serveKeyboardRequest`.
+    /// Not defaulted, for `dimsTheBoard`'s reason.
+    var keyboardRequest: CanvasKeyboardRequest
 
     func makeNSView(context: Context) -> CanvasEventNSView {
         let v = CanvasEventNSView(frame: .zero)
         v.camera = camera
+        // Served already: mounting requests nothing.
+        v.servedKeyboardRequest = keyboardRequest
         wire(v)
         return v
     }
@@ -482,6 +519,7 @@ struct CanvasEventView: NSViewRepresentable {
         // fights its own updates.
         if v.camera != camera { v.camera = camera }
         wire(v)
+        v.serveKeyboardRequest(keyboardRequest)
     }
 
     private func wire(_ v: CanvasEventNSView) {

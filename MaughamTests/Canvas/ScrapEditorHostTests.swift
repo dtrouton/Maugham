@@ -651,4 +651,103 @@ final class ScrapEditorHostTests: XCTestCase {
                       "the editor leaves the AX tree while the card straightens, "
                       + "so VoiceOver loses the scrap it is focused on")
     }
+
+    // MARK: - Keys inside a scrap (the delivery; the meaning is CanvasEditorKeyTests')
+
+    private func keyEquivalent(_ modifiers: NSEvent.ModifierFlags, in window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: "\r", charactersIgnoringModifiers: "\r",
+                         isARepeat: false, keyCode: 36)!
+    }
+
+    /// Return and Shift+Return arrive as the SAME selector (`insertNewline:`,
+    /// measured 2026-10-24), so the container reads the key's modifiers;
+    /// `currentModifiers` stands in for the event a direct `doCommand(by:)`
+    /// does not have. Return is taken and the scrap keeps its words; ⇧Return is
+    /// left to the text view, which inserts the newline. Tab is taken as the
+    /// joined make.
+    func test_returnIsTakenAndShiftReturnInsertsANewline() throws {
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        var commands: [ScrapEditorCommand] = []
+        container.onCommand = { command in commands.append(command); return true }
+        let l = layout("words")
+        container.mount(layout: l, unscaledSize: size, zoom: 1)
+        host(container)
+        let tv = try XCTUnwrap(container.textView)
+        tv.setSelectedRange(NSRange(location: 5, length: 0))
+
+        container.currentModifiers = { [] }
+        tv.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(commands, [.finish])
+        XCTAssertEqual(l.text, "words", "a taken Return still reached the text")
+
+        container.currentModifiers = { .shift }
+        tv.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(commands, [.finish], "⇧Return was taken as a finish")
+        XCTAssertEqual(l.text, "words\n", "⇧Return did not insert a newline")
+
+        container.currentModifiers = { [] }
+        tv.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        XCTAssertEqual(commands, [.finish, .makeJoined])
+        XCTAssertEqual(l.text, "words\n", "a taken Tab still inserted a tab")
+    }
+
+    /// An input method composing (Japanese, Chinese, accents) owns Return: it
+    /// commits the candidate. The control is the same Return once it has.
+    func test_aKeyDuringMarkedTextIsLeftToTheInputMethod() throws {
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        var commands: [ScrapEditorCommand] = []
+        container.onCommand = { command in commands.append(command); return true }
+        container.currentModifiers = { [] }
+        container.mount(layout: layout("x"), unscaledSize: size, zoom: 1)
+        host(container)
+        let tv = try XCTUnwrap(container.textView)
+        tv.setSelectedRange(NSRange(location: 1, length: 0))
+        tv.setMarkedText("ka", selectedRange: NSRange(location: 2, length: 0),
+                         replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(tv.hasMarkedText(), "precondition: the input method is composing")
+
+        tv.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(commands, [], "Return was taken from the input method")
+
+        tv.unmarkText()
+        tv.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(commands, [.finish], "control: Return is taken once nothing is marked")
+    }
+
+    /// ⌘⇧Return is the app's own menu shortcut; the scrap never claims it.
+    /// The control is ⌘Return, claimed as the make below.
+    func test_commandShiftReturnInsideAScrapIsNotTaken() throws {
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        var commands: [ScrapEditorCommand] = []
+        container.onCommand = { command in commands.append(command); return true }
+        container.mount(layout: layout(), unscaledSize: size, zoom: 1)
+        let window = host(container)
+        XCTAssertTrue(window.makeFirstResponder(container.textView))
+
+        XCTAssertFalse(container.performKeyEquivalent(with: keyEquivalent([.command, .shift], in: window)))
+        XCTAssertEqual(commands, [])
+
+        XCTAssertTrue(container.performKeyEquivalent(with: keyEquivalent(.command, in: window)),
+                      "control: ⌘Return inside a scrap is the make below")
+        XCTAssertEqual(commands, [.makeBelow])
+    }
+
+    /// A key equivalent walks the whole view tree, so the container is asked
+    /// whatever holds the keyboard. ⌘Return belongs to the scrap only while the
+    /// writer is in it.
+    func test_commandReturnIsNotTakenWhenTheTextViewIsNotFirstResponder() throws {
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        var commands: [ScrapEditorCommand] = []
+        container.onCommand = { command in commands.append(command); return true }
+        container.mount(layout: layout(), unscaledSize: size, zoom: 1)
+        let window = host(container)
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertFalse(window.firstResponder === container.textView, "precondition")
+
+        XCTAssertFalse(container.performKeyEquivalent(with: keyEquivalent(.command, in: window)))
+        XCTAssertEqual(commands, [])
+    }
 }

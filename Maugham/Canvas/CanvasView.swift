@@ -345,6 +345,14 @@ struct CanvasView: View {
     /// to be the one under the pointer.
     @State private var selectionWhenPressed: CanvasSelection?
 
+    /// Bumped by `CanvasKeyHandler` when a key finishes a scrap and enters no
+    /// other, to hand the keyboard to `CanvasEventNSView`.
+    @State private var keyboardTicket = 0
+
+    /// The canvas's own size, the viewport a key's new scrap is revealed in.
+    /// Written only on a resize (`.onGeometryChange` in `body`).
+    @State private var canvasSize = CGSize.zero
+
     /// The most any single tick of the timeline may advance an animation.
     ///
     /// **Without this the ~120 ms straighten completes on its FIRST frame, every
@@ -523,7 +531,8 @@ struct CanvasView: View {
                 // `isInGesture` guard at the head of `CanvasKeyHandler.deleteSelection()`. Anything
                 // new hung off a key here inherits the same problem and needs the
                 // same answer.
-                undoManager: model.undoManager)
+                undoManager: model.undoManager,
+                keyboardRequest: CanvasKeyboardRequest(fromCanvas: keyboardTicket))
 
             mountedEditor
         }
@@ -556,6 +565,7 @@ struct CanvasView: View {
         .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { providers, viewPoint in
             dropHandler.handleDrop(providers: providers, at: viewPoint)
         }
+        .onGeometryChange(for: CGSize.self, of: { $0.size }) { canvasSize = $0 }
         .alert(dropError ?? "",
                isPresented: Binding(get: { dropError != nil },
                                     set: { if !$0 { dropError = nil } })) {
@@ -782,7 +792,8 @@ struct CanvasView: View {
                             },
                             // The ONE caller that is a real keystroke, and so
                             // the only one allowed to move an undo boundary.
-                            onTextChanged: { editFocus.syncActiveEdit(fromKeystroke: true) })
+                            onTextChanged: { editFocus.syncActiveEdit(fromKeystroke: true) },
+                            onCommand: { keyHandler.handleEditorCommand($0, viewSize: canvasSize) })
                 .frame(width: textSize.width * camera.zoom,
                        height: textSize.height * camera.zoom)
                 .position(x: viewOrigin.x + textSize.width * camera.zoom / 2,
@@ -1057,17 +1068,22 @@ struct CanvasView: View {
                            revision: $revision)
     }
 
-    /// The keys — ⌫ and Escape — over this view's own `editingNodeID`, built
-    /// per call like `layoutPass`. `deleteSelection` refuses mid-gesture
-    /// (tripwire 32), and `selectTheProjectRow` is the closure this view was
-    /// handed, read when the key arrives.
+    /// The keys — ⌫, Escape, and those inside a scrap — over this view's own
+    /// `@State`, built per call like `layoutPass`. `deleteSelection` refuses
+    /// mid-gesture (tripwire 32), and `selectTheProjectRow` is the closure this
+    /// view was handed, read when the key arrives. It makes through the
+    /// `scrapFlow` it is handed.
     private var keyHandler: CanvasKeyHandler {
         CanvasKeyHandler(model: model,
                          subject: subject,
                          selectTheProjectRow: selectTheProjectRow,
                          editFocus: editFocus,
                          layoutPass: layoutPass,
-                         editingNodeID: $editingNodeID)
+                         scrapFlow: scrapFlow,
+                         editingNodeID: $editingNodeID,
+                         revision: $revision,
+                         camera: $camera,
+                         keyboardTicket: $keyboardTicket)
     }
 
     /// The drops — a research row, an inbox capture and a photograph — over

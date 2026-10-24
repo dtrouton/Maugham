@@ -389,4 +389,47 @@ final class CanvasEventViewTests: XCTestCase {
         XCTAssertTrue(v.acceptsFirstResponder)
         XCTAssertTrue(v.undoManager === manager)
     }
+
+    // MARK: - The keyboard request
+
+    /// The keyboard is REQUESTED by a change of value, never taken by mounting
+    /// (tripwire 27's rule, for the canvas): the value the view was made with
+    /// is already served, and only a new one claims first responder.
+    func test_aChangedKeyboardRequestClaimsTheKeyboardAndTheFirstValueDoesNot() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 300, height: 200)
+        let content = NSView(frame: bounds)
+        let field = NSTextField(frame: CGRect(x: 0, y: 0, width: 100, height: 24))
+        content.addSubview(field)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: bounds,
+                                     contentView: content, present: .unshown)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let typing = try XCTUnwrap(window.firstResponder)
+
+        let v = CanvasEventNSView(frame: bounds)
+        v.servedKeyboardRequest = CanvasKeyboardRequest()
+        content.addSubview(v)
+        v.serveKeyboardRequest(CanvasKeyboardRequest())
+        XCTAssertTrue(window.firstResponder === typing,
+                      "the value the canvas was made with took the keyboard")
+
+        v.serveKeyboardRequest(CanvasKeyboardRequest(fromCanvas: 1))
+        XCTAssertTrue(window.firstResponder === v, "a new request did not claim the keyboard")
+    }
+
+    /// A request made before the view has a window is pended, not dropped:
+    /// `makeFirstResponder` on a nil window is a silent no-op.
+    func test_aKeyboardRequestWithNoWindowIsClaimedWhenTheViewArrives() {
+        let bounds = CGRect(x: 0, y: 0, width: 300, height: 200)
+        let v = CanvasEventNSView(frame: bounds)
+        v.servedKeyboardRequest = CanvasKeyboardRequest()
+        v.serveKeyboardRequest(CanvasKeyboardRequest(fromWindow: 1))
+        XCTAssertNil(v.window, "precondition")
+
+        let content = NSView(frame: bounds)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: bounds,
+                                     contentView: content, present: .unshown)
+        content.addSubview(v)
+
+        XCTAssertTrue(window.firstResponder === v, "the pended request was dropped")
+    }
 }

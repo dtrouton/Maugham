@@ -29,16 +29,16 @@ Every file in `Maugham/Canvas/` appears once.
 - `CanvasThumbnails.swift` — off-frame image decoding, an LRU byte-budgeted pixel cache, and the permanent aspect-ratio memo (tripwire 22's path key).
 
 ### Input
-- `CanvasEventView.swift` — `CanvasEventNSView`: mouse, keys (⌫/⌦ as `backwardDelete`/`forwardDelete`), undo forwarding, Escape-consumer registration with `WindowEscapeArbiter`.
+- `CanvasEventView.swift` — `CanvasEventNSView`: mouse, keys (⌫/⌦ as `backwardDelete`/`forwardDelete`), undo forwarding, Escape-consumer registration with `WindowEscapeArbiter`, `serveKeyboardRequest`.
 - `CanvasInteraction.swift` — the gesture state machine (move, resize, sweep, line), `joinTarget`, `absorbedNodes`, `isCaught`, `caughtRegions`, `sweepOutcome`, `regionHit`, `endLine`; `CanvasMomentum` (tripwire 31).
 - `CanvasEscapeMonitor.swift` — the window-scoped local `NSEvent` monitor `WindowEscapeArbiter` holds one of per window.
-- `ScrapEditorHost.swift` — the one mounted `NSTextView` (`ScrapEditorContainer`), its visibility and pointer transparency, `undo:`/`redo:` forwarding, `ScrapEditorGeometry` (tripwires 27, 28).
+- `ScrapEditorHost.swift` — the one mounted `NSTextView` (`ScrapEditorContainer`), its visibility and pointer transparency, `undo:`/`redo:` forwarding, the in-scrap keys (`onCommand`), `ScrapEditorGeometry` (tripwires 27, 28).
 - `CanvasEditFocus.swift` — the open scrap: `syncActiveEdit` (per-keystroke fold), `commitActiveEdit`, `leaveTheOpenScrap`; built per call by `CanvasView` (tripwire 28).
 - `CanvasDragHandler.swift` — `handleDrag`: each gesture's press, move and release and its undo bracket; `pressStartsALine`; built per call by `CanvasView` (tripwire 32).
 - `CanvasClickHandler.swift` — `handleClick`: select, enter a scrap or make one; writes `selectionWhenPressed` first; holds the `scrapFlow` it is handed; built per call by `CanvasView`.
 - `CanvasScrapFlow.swift` — `makeScrapAndEnter(at:joinedTo:)` (one "New Scrap" step: create, measure, join, bind, line) and `enter(_:caretIndex:)` (opens "Edit Scrap"): the one way to make or enter a scrap; built per call by `CanvasView`; takes `subject`.
 - `CanvasKeyboard.swift` — pure key tables, clear placement, arrow targets; no model or view.
-- `CanvasKeyHandler.swift` — `deleteSelection` (⌫, refused mid-gesture) and `escapeAsksForTheWholeBoard`; built per call by `CanvasView` (tripwire 32).
+- `CanvasKeyHandler.swift` — `deleteSelection` (⌫, refused mid-gesture), `escapeAsksForTheWholeBoard` and `handleEditorCommand`; holds `scrapFlow`; built per call by `CanvasView` (tripwire 32).
 - `CanvasDropHandler.swift` — `handleDrop(providers:at:)`, the one entry, routes to `handleDrop` (a research row or inbox capture) or `handleExternalDrop` (a photograph); holds no sibling helper; built per call by `CanvasView`, whose `body` mounts the one drop modifier.
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
 
@@ -233,6 +233,8 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **Caret clamping is in UTF-16 units.**
 - **⌫ is `CanvasEventNSView.keyDown` → `CanvasKeyHandler.deleteSelection()`**, a `keyDown` and not `deleteBackward(_:)`. The keys are `NSDeleteCharacter` (⌫) and `NSDeleteFunctionKey` (⌦); `NSBackspaceCharacter` is Ctrl-H. Keep the condition as an `if` in the case body.
 - **A ⌫ while any gesture is open deletes nothing** (`CanvasModel.isInGesture`, tripwire 32); anything new hung off a key on this view inherits the same hazard. **⌫ never fights the editor** — while a scrap is focused the mounted `NSTextView` is first responder and deletes a character.
+- **Inside a scrap, Return and Escape finish it and Tab and ⌘Return make the next** (`CanvasKeyHandler.handleEditorCommand`): every command folds first, so no word is lost; ⇧Return, marked text and ⌘⇧Return stay the text view's (`CanvasEditorKeyTests`, `ScrapEditorHostTests`).
+- **The canvas takes the keyboard only on a changed `CanvasKeyboardRequest`, never on mount** (`test_mountingTheCanvasDoesNotTakeTheKeyboard`); a make withholds the ask, its editor requests focus.
 - **A region delete keeps its cards; a node delete takes its words and its lines; a line delete keeps both cards** — one ⌘Z restores each whole.
 - **Nothing selected is a no-op and the key travels on to `super` (the beep)**; `deleteSelection()` reports whether anything went. The tests send a real `NSEvent` and read disk (`test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`, `test_backspaceInsideAScrapDeletesACharacterAndNotTheCard`); do not replace them with a direct call.
 

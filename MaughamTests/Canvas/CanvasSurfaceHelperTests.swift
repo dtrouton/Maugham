@@ -460,9 +460,19 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
         let thumbnails = SurfaceHelperBox(CanvasThumbnails())
         let ticket = SurfaceHelperBox(0)
+        let camera = SurfaceHelperBox(CanvasCamera())
+        let keyboardTicket = SurfaceHelperBox(0)
 
         var handler: CanvasKeyHandler {
             let asks = projectRowAsks
+            let layoutPass = CanvasLayoutPass(model: model,
+                                              itemIndex: model.itemIndex,
+                                              projectRoot: URL(fileURLWithPath: "/nonexistent"),
+                                              thumbnails: thumbnails.binding,
+                                              layouts: layouts.binding,
+                                              itemPresentation: itemPresentation.binding,
+                                              thumbnailServiceTicket: ticket.binding,
+                                              revision: revision.binding)
             return CanvasKeyHandler(model: model,
                                     subject: subject,
                                     selectTheProjectRow: { asks.value += 1 },
@@ -473,15 +483,18 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                                                                lastKeystrokeAt: lastKeystrokeAt.binding,
                                                                layouts: layouts.binding,
                                                                revision: revision.binding),
-                                    layoutPass: CanvasLayoutPass(model: model,
-                                                                 itemIndex: model.itemIndex,
-                                                                 projectRoot: URL(fileURLWithPath: "/nonexistent"),
-                                                                 thumbnails: thumbnails.binding,
-                                                                 layouts: layouts.binding,
-                                                                 itemPresentation: itemPresentation.binding,
-                                                                 thumbnailServiceTicket: ticket.binding,
-                                                                 revision: revision.binding),
-                                    editingNodeID: editingNodeID.binding)
+                                    layoutPass: layoutPass,
+                                    scrapFlow: CanvasScrapFlow(model: model,
+                                                               subject: subject,
+                                                               layoutPass: layoutPass,
+                                                               editingNodeID: editingNodeID.binding,
+                                                               caretIndex: caretIndex.binding,
+                                                               lastKeystrokeAt: lastKeystrokeAt.binding,
+                                                               straighten: straighten.binding),
+                                    editingNodeID: editingNodeID.binding,
+                                    revision: revision.binding,
+                                    camera: camera.binding,
+                                    keyboardTicket: keyboardTicket.binding)
         }
     }
 
