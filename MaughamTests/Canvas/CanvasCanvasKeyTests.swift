@@ -197,23 +197,36 @@ final class CanvasCanvasKeyTests: XCTestCase {
         model.endGesture()
     }
 
+    /// Under a camera that is panned AND zoomed, so the view's centre is a
+    /// different content point from the identity camera's.
     func test_returnOnAnEmptyCanvasMakesAScrapAtTheViewCentreClearOfCards() throws {
         let model = populatedModel()
+        var camera = CanvasCamera()
+        camera.panBy(CGSize(width: 300, height: -150))
+        camera.zoom(to: 1.5, anchoringViewPoint: CGPoint(x: 100, y: 80))
+        XCTAssertNotEqual(camera.zoom, 1, "premise: the camera is zoomed")
+        XCTAssertNotEqual(camera.pan, .zero, "premise: the camera is panned")
+        let viewSize = CGSize(width: 1200, height: 700)
+        let centre = camera.contentPoint(fromView: CGPoint(x: 600, y: 350))
+        XCTAssertNotEqual(centre, CanvasCamera().contentPoint(fromView: CGPoint(x: 600, y: 350)),
+                          "premise: this camera's centre differs from the identity camera's")
         // A card squarely at the view's centre, so the placement has to step.
         let blocker = CanvasNodeID("b1oc")
         model.withScene(persist: false) {
             $0.insert(CanvasNode(id: blocker, kind: .scrap,
-                                 origin: CGPoint(x: 480, y: 330), width: 240, cachedHeight: 60))
+                                 origin: CGPoint(x: centre.x - 120, y: centre.y - 30),
+                                 width: 240, cachedHeight: 60))
         }
         let f = fixture(model, selecting: nil)
+        f.camera.value = camera
         let before = ids(model)
 
-        XCTAssertTrue(f.key(.returnKey, viewSize: CGSize(width: 1200, height: 700)))
+        XCTAssertTrue(f.key(.returnKey, viewSize: viewSize))
 
         let made = try XCTUnwrap(ids(model).subtracting(before).first, "Return made no scrap")
         let madeFrame = try frame(made, in: model)
-        let centre = CanvasCamera().contentPoint(fromView: CGPoint(x: 600, y: 350))
         XCTAssertEqual(madeFrame.minX, centre.x - CanvasKeyboard.newCardSize().width / 2,
+                       accuracy: 0.001,
                        "the scrap left the view's centre column instead of stepping down")
         XCTAssertGreaterThan(madeFrame.minY, try frame(blocker, in: model).maxY,
                              "the placement did not step down past the card in the way")
@@ -223,6 +236,44 @@ final class CanvasCanvasKeyTests: XCTestCase {
         }
         XCTAssertEqual(f.editingNodeID.value, made)
         model.endGesture()
+    }
+
+    /// A selected card that is gone, or hidden by a collapsed region, is no
+    /// selection: Return makes a scrap at the view's centre, and an arrow
+    /// travels on.
+    func test_aStaleOrHiddenSelectionIsNoSelection() throws {
+        let gone = CanvasNodeID("g1ne")
+        let hidden = CanvasNodeID("h1dn")
+        for (selected, hide) in [(gone, false), (hidden, true)] {
+            let model = emptyModel(at: root.appendingPathComponent(UUID().uuidString))
+            if hide {
+                model.withScene(persist: false) {
+                    $0.insert(CanvasNode(id: hidden, kind: .scrap,
+                                         origin: CGPoint(x: 2000, y: 2000), width: 240, cachedHeight: 60))
+                    $0.insertRegion(CanvasRegion(id: r, label: "Folded",
+                                                 frame: CGRect(x: 1900, y: 1900, width: 500, height: 300),
+                                                 homeMembers: [hidden], isCollapsed: true))
+                }
+                XCTAssertTrue(model.scene.isHidden(hidden), "premise: the collapse hides the card")
+            }
+            let f = fixture(model, selecting: .node(selected))
+            let before = ids(model)
+
+            XCTAssertFalse(f.key(.arrow(.right)), "an arrow from \(selected) did not travel on")
+            XCTAssertEqual(model.selection, .node(selected), "the arrow moved the selection")
+
+            XCTAssertTrue(f.key(.returnKey, viewSize: CGSize(width: 1000, height: 700)))
+            let made = try XCTUnwrap(ids(model).subtracting(before).first,
+                                     "Return with \(selected) selected made no scrap")
+            let centre = CanvasCamera().contentPoint(fromView: CGPoint(x: 500, y: 350))
+            let size = CanvasKeyboard.newCardSize()
+            XCTAssertEqual(try XCTUnwrap(model.scene.node(made)).origin,
+                           CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2),
+                           "the scrap is not at the view's centre")
+            XCTAssertEqual(f.editingNodeID.value, made)
+            XCTAssertNotEqual(f.editingNodeID.value, selected, "the hidden card was entered")
+            model.endGesture()
+        }
     }
 
     func test_none_tab() {

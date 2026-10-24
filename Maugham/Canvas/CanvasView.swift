@@ -1070,10 +1070,10 @@ struct CanvasView: View {
     }
 
     /// The keys — ⌫, Escape, those inside a scrap and those on the canvas —
-    /// over this view's own `@State`, built per call like `layoutPass`. `deleteSelection` refuses
-    /// mid-gesture (tripwire 32), and `selectTheProjectRow` is the closure this
-    /// view was handed, read when the key arrives. It makes through the
-    /// `scrapFlow` it is handed.
+    /// over this view's own `@State`, built per call like `layoutPass`.
+    /// `deleteSelection` refuses mid-gesture (tripwire 32), and
+    /// `selectTheProjectRow` is the closure this view was handed, read when the
+    /// key arrives. It makes through the `scrapFlow` it is handed.
     private var keyHandler: CanvasKeyHandler {
         CanvasKeyHandler(model: model,
                          subject: subject,
