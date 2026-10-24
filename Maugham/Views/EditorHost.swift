@@ -869,13 +869,15 @@ struct EditorHost: View {
                 // The profile colours a problem underline (plan 3b Task 6):
                 // red for what a Report refuses to publish on, amber otherwise.
                 projectProfile: { [store] in store.manifest.profile },
-                // Figures backed by research (plan 3a Task 6): Insert Figure…,
-                // an image drop and an image paste copy the picture into this
-                // document's research (R-3a-3) and hand back its path relative
-                // to the document. A failure is told on the notice banner.
-                figureImporter: { [store] url in
+                // Image figures (plan 3a Task 6, report plan 6a Task 9):
+                // Insert Figure…, an image drop and an image paste make an
+                // image figure of this document's piece in `figures/` and hand
+                // back its path relative to the document. A failure is told
+                // on the notice banner.
+                figureImporter: { [store] url, taken in
                     try await FigureIngest.importImage(url, documentId: doc.docId,
-                                                       documentPath: path, store: store)
+                                                       documentPath: path, taken: taken,
+                                                       store: store)
                 },
                 commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)

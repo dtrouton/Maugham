@@ -23,10 +23,13 @@ struct FigureImagePanelConfiguration: Equatable {
     }
 }
 
-/// **A figure backed by research** (plan 3a Task 6, R-3a-3 and R-3a-4): an
-/// image from Insert Figure… (⌘⇧I), a drop or a paste is copied into the
-/// document's research, and `![Caption](relative/path){#fig:name}` is written
-/// as its own paragraph with `Caption` selected.
+/// **An image figure** (plan 3a Task 6, R-3a-4; report plan 6a Task 9): an
+/// image from Insert Figure… (⌘⇧I), a drop or a paste becomes an image
+/// figure — its file in the project's `figures/`, its hash in the op log
+/// (`ProjectStore.createImageFigure`) — and
+/// `![Caption](relative/path){#fig:name}` is written as its own paragraph
+/// with `Caption` selected. Figure lines written before, pointing into
+/// research, keep resolving (spec §4.4).
 ///
 /// The pure rules live here and are pinned without a window
 /// (`FigureIngestTests`); the store half is `importImage`, which `EditorHost`
@@ -44,12 +47,13 @@ enum FigureIngest {
 
     // MARK: - R-3a-3 the path
 
-    /// The figure line's path: `researchPath` (project-relative) written
-    /// relative to the folder of `docPath` (project-relative), the way
-    /// `FigureImageResolver.resolve` reads it back — `manuscript/ch1.md` reaches
-    /// `research/x.png` as `../research/x.png`, a root `story.md` as
-    /// `research/x.png`, a Collection piece `pieces/a/a.md` its own
-    /// `pieces/a/research/x.png` as `research/x.png`.
+    /// The figure line's path: `researchPath` (project-relative — a figure's
+    /// `figures/x.png`, or a research file) written relative to the folder of
+    /// `docPath` (project-relative), the way `FigureImageResolver.resolve`
+    /// reads it back — `manuscript/ch1.md` reaches `figures/x.png` as
+    /// `../figures/x.png`, a root `story.md` as `figures/x.png`, a Collection
+    /// piece `pieces/a/a.md` as `../../figures/x.png` (and its own
+    /// `pieces/a/research/x.png` as `research/x.png`).
     static func relativePath(fromDocument docPath: String, toResearch researchPath: String) -> String {
         let folder = Array(components(docPath).dropLast())
         let target = components(researchPath)
@@ -269,7 +273,7 @@ enum FigureIngest {
 
     /// `url` itself when its format is kept; otherwise a PNG of its first
     /// image, written to a temporary folder under the same stem (so the
-    /// research item and the label are named as the writer named the file).
+    /// figure and its label are named as the writer named the file).
     /// The caller removes the PNG's folder (`removeTemporary`).
     static func copyableFile(for url: URL) throws -> (url: URL, isTemporary: Bool) {
         guard !keptExtensions.contains(url.pathExtension.lowercased()) else { return (url, false) }
@@ -315,28 +319,33 @@ enum FigureIngest {
 
     // MARK: - The store half
 
-    /// Copies `url` into the document's research and returns the figure path
-    /// relative to the document. `createResearchAsset(scope: .document)` is
-    /// R-3a-3's routing: a Collection piece's image lands in its own
-    /// `pieces/<x>/research/` (contained, so not linked — a link there is the
-    /// legacy data `TreeDropIntent` ignores); a novel chapter's in the
-    /// project's `research/`, linked to the chapter, as the binder's drop
-    /// does; a short story's or screenplay's in `research/`, where every
-    /// research item is already the document's. The copy is
-    /// `DocumentStore.executeCopy` (or the piece copy), never a move. A
-    /// format the outputs can't show is re-encoded as PNG first (R-S5,
-    /// `copyableFile`), off the main thread; the PNG is removed afterwards.
+    /// **What the editor hands a picture to**: the picture, and the `fig:`
+    /// names the text already uses (`existingFigureNames`, read when the
+    /// ingest begins); it answers the figure path relative to the document,
+    /// whose file stem is the figure's name — the label the line takes.
+    typealias Importer = @MainActor (URL, Set<String>) async throws -> String
+
+    /// Makes `url` an image figure of the document and returns the figure
+    /// path relative to the document (report plan 6a Task 9).
+    /// `ProjectStore.createImageFigure` asks the figure's posture, copies
+    /// the picture into the project's `figures/` through
+    /// `DocumentStore.executeCopy` (never a move) under a vacant name, HEIC
+    /// and other formats the outputs can't show re-encoded as PNG first
+    /// (R-S5, `copyableFile`), and records its hash in the figure's op log.
+    ///
+    /// **The figure is the document's piece's** (Denver's ruling): `piece`
+    /// is `documentId`, the id the document's own text resolves to
+    /// (`DocumentClass.piece(docId)`) — a chapter's, a Collection piece's,
+    /// and the one document of a short story or a Report alike — so the
+    /// figure is editable exactly where its text is. `taken` keeps the name
+    /// clear of the labels the text already uses, so the line's label is the
+    /// figure's name.
     @MainActor
     static func importImage(_ url: URL, documentId: String, documentPath: String,
-                            store: ProjectStore) async throws -> String {
-        let copyable = try await Task.detached { try copyableFile(for: url) }.value
-        defer { if copyable.isTemporary { removeTemporary(copyable.url) } }
-        let item = try await store.createResearchAsset(scope: .document(documentId),
-                                                       fromURL: copyable.url)
-        guard let path = item.path else {
-            throw ProjectStoreError.fileSystemError("The copied picture has no path")
-        }
-        return relativePath(fromDocument: documentPath, toResearch: path)
+                            taken: Set<String>, store: ProjectStore) async throws -> String {
+        let record = try await store.createImageFigure(
+            fromURL: url, piece: documentId, avoiding: taken)
+        return relativePath(fromDocument: documentPath, toResearch: record.path)
     }
 
     /// Writes pasted image data as a PNG the importer can copy, named for the

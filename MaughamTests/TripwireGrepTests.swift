@@ -11927,8 +11927,8 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// **A figure's content is manuscript content** (report plan 6a, ruling
     /// D-c: figure kinds are `.manuscriptText` in `Permit.group`), so its
-    /// writers join this census: `FigureDocument`'s ten guarded mutators
-    /// (`figureMutatorSpellings`), `createFigure(` (a figure's birth, behind
+    /// writers join this census: `FigureDocument`'s guarded mutators
+    /// (`figureMutatorSpellings`), `createFigure(` and `createImageFigure(` (a figure's birth, behind
     /// its own posture question), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
@@ -11939,7 +11939,7 @@ final class TripwireGrepTests: XCTestCase {
         "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
-        "createFigure(", figureOpMintSpelling,
+        "setImage(", "createFigure(", "createImageFigure(", figureOpMintSpelling,
     ]
 
     /// The key a figure op's minting is counted under: an `Op(`/`Op.init(`
@@ -11960,6 +11960,7 @@ final class TripwireGrepTests: XCTestCase {
     static let figureMutatorSpellings: Set<String> = [
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
+        "setImage(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12310,10 +12311,17 @@ final class TripwireGrepTests: XCTestCase {
     ///   undo after `mayEditHere`. Its awaited mutator calls are the redo
     ///   closures, each re-entering that doored mutator, a refusal said
     ///   (`decline(.notPermitted)`).
-    /// - `ProjectStore+Figures.swift` × 1 — `createFigure`'s `op(_:_:)`, which
-    ///   mints its `figureCreate` and row and column inserts: it asks posture
-    ///   (`.editFigure` of the class the new figure will have) before it mints
-    ///   a line, and throws `FigureEditRefused`.
+    /// - `ProjectStore+Figures.swift` × 1 — `figureOpMinter`, which mints
+    ///   `createFigure`'s `figureCreate` and row and column inserts and
+    ///   `createImageFigure`'s `figureCreate` and `figureImageSet`: each asks
+    ///   posture (`.editFigure` of the class the new figure will have,
+    ///   `requireNewFigurePermitted`) before it mints a line, and throws
+    ///   `FigureEditRefused`.
+    /// - `FigureIngest.swift` × 1 — `importImage`'s `createImageFigure(`, the
+    ///   editor's Insert Figure…, image drop and image paste (report plan 6a
+    ///   Task 9): reached only once the editor's membrane allows writing, and
+    ///   `createImageFigure` asks the figure's own posture before it copies
+    ///   or mints anything.
     /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
     ///   built (and judged) by one of the above, never a new figure write.
     ///
@@ -12347,8 +12355,10 @@ final class TripwireGrepTests: XCTestCase {
             figureOpMintSpelling: 1,
             "setCell(": 1, "moveRow(": 1, "moveColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1,
+            "setImage(": 1,
         ],
         "ProjectStore+Figures.swift": [figureOpMintSpelling: 1],
+        "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
     ]
 
@@ -12422,7 +12432,7 @@ final class TripwireGrepTests: XCTestCase {
         "setCell": "figure", "insertRow": "figure", "insertColumn": "figure",
         "deleteRow": "figure", "deleteColumn": "figure", "moveRow": "figure",
         "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
-        "setColumnWidth": "figure",
+        "setColumnWidth": "figure", "setImage": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12610,7 +12620,9 @@ final class TripwireGrepTests: XCTestCase {
         try await setHeaderRows(1)
         try await figure.setTotalRow(true)
         try await figure.setColumnWidth(column, 120)
+        try await figure.setImage(fromURL: picture)
         let record = try await store.createFigure(kind: .table, name: "Prices", piece: p)
+        let image = try await store.createImageFigure(fromURL: picture, piece: p)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

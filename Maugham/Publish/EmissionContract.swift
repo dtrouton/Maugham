@@ -286,8 +286,9 @@ public enum EmissionContract {
 
     ### Figures are staged
 
-    A figure's image must sit inside a research folder of the project; the \
-    path is written relative to the piece's own file. The PDF compile copies \
+    A figure's image must sit inside the project's `figures/` folder or a \
+    research folder of the project; the path is written relative to the \
+    piece's own file. The PDF compile copies \
     it to `build/figures/<content-hash>.<ext>` (PNG, JPEG or PDF) and \
     `\\includegraphics` reads that copy, so no project path — spaces and all \
     — ever reaches TeX. The EPUB copies it to `OEBPS/images/` (PNG, JPEG, \

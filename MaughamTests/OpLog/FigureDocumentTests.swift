@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import Maugham
 @testable import MaughamCore
 
@@ -307,7 +308,7 @@ final class FigureDocumentTests: XCTestCase {
             um.undo()
             await doc.awaitPendingUndoWork()
         }
-        XCTAssertEqual(said, ["Couldn't undo the change to the table — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
         XCTAssertEqual(doc.state.table[key], text("theirs"), "their value stands")
         XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
         await doc.close()
@@ -503,6 +504,7 @@ final class FigureDocumentTests: XCTestCase {
         let projectStore = try await ProjectStore.load(from: projectURL)
         projectStore.documentStore = store
         store.projectStore = projectStore
+        await store.postureSettled()
         return (store, projectStore)
     }
 
@@ -575,6 +577,152 @@ final class FigureDocumentTests: XCTestCase {
         XCTAssertEqual(doc.state.table[key], text("mine"), "the edit stands")
         XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
         await doc.close()
+    }
+
+    // MARK: - Image figures (report plan 6a Task 9)
+
+    /// A real PNG outside the project, of one colour, so two colours hash apart.
+    private func png(_ name: String, _ color: NSColor) throws -> URL {
+        let dir = TestTemp.root.appendingPathComponent("figdoc-png-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 4, height: 4).fill()
+        image.unlockFocus()
+        let url = dir.appendingPathComponent(name)
+        try ImagePasteHandler.encodePNG(image).write(to: url)
+        return url
+    }
+
+    private func figureFile(_ name: String) -> URL {
+        projectURL.appendingPathComponent("figures").appendingPathComponent(name)
+    }
+
+    /// **An image figure is born from its picture**: the file is copied into
+    /// `figures/`, the stream opens with `figureCreate(.image)` and one
+    /// `figureImageSet` carrying the file's name and hash, and the record
+    /// names `figures/<name>.<ext>` with the piece it was made in.
+    func test_createImageFigure_copiesIntoFiguresAndRecordsTheFilesHash() async throws {
+        let (store, projectStore) = try await openWindow()
+        let source = try png("Site Map.png", .red)
+
+        let record = try await projectStore.createImageFigure(fromURL: source, piece: Self.pieceA)
+
+        XCTAssertEqual(record.name, "site-map")
+        XCTAssertEqual(record.kind, .image)
+        XCTAssertEqual(record.piece, Self.pieceA)
+        XCTAssertEqual(record.path, "figures/site-map.png")
+        XCTAssertEqual(try Data(contentsOf: figureFile("site-map.png")), try Data(contentsOf: source))
+        let written = try ops(of: record.id)
+        XCTAssertEqual(written.map(\.kind), [.figureCreate, .figureImageSet])
+        let hash = try FigureImageResolver.contentHash(of: source)
+        XCTAssertEqual(written.last?.figure?.image,
+                       FigureImageRef(filename: "site-map.png", contentHash: hash))
+        XCTAssertNil(written.last?.figure?.priorImage, "a first picture replaces nothing")
+
+        let doc = try await store.openFigure(figureId: record.id)
+        XCTAssertEqual(doc.state.image, FigureImageRef(filename: "site-map.png", contentHash: hash))
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// Refused at the figure's door, nothing is copied or written.
+    func test_createImageFigureInAYieldedPieceCopiesNothing() async throws {
+        let (store, projectStore) = try await openWindow()
+        try await samWritesPieceB(store)
+        do {
+            _ = try await projectStore.createImageFigure(fromURL: try png("a.png", .red), piece: Self.pieceB)
+            XCTFail("an image figure in a yielded piece was not refused")
+        } catch is FigureEditRefused {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: figureFile("a.png").path))
+        XCTAssertTrue(projectStore.manifest.figures?.isEmpty ?? true)
+    }
+
+    /// **Replacing a picture is a recorded change, and ⌘Z puts the old one
+    /// back**: the file is replaced under its own name, one `figureImageSet`
+    /// carries the new hash and the prior picture; undo restores the old bytes
+    /// and appends the inverse; redo puts the new picture back.
+    func test_setImage_replacesTheFile_undoRestoresTheOldPicture_redoReappliesIt() async throws {
+        let (store, projectStore) = try await openWindow()
+        let first = try png("chart.png", .red)
+        let record = try await projectStore.createImageFigure(fromURL: first, piece: Self.pieceA)
+        let doc = try await store.openFigure(figureId: record.id)
+        let file = figureFile("chart.png")
+        let oldBytes = try Data(contentsOf: file)
+        let old = try XCTUnwrap(doc.state.image)
+        let second = try png("other name.png", .blue)
+        let newBytes = try Data(contentsOf: second)
+        let um = UndoManager()
+
+        try await doc.setImage(fromURL: second, undoManager: um)
+
+        XCTAssertEqual(try Data(contentsOf: file), newBytes, "the file was replaced in place")
+        let next = FigureImageRef(filename: "chart.png",
+                                  contentHash: try FigureImageResolver.contentHash(of: second))
+        XCTAssertEqual(doc.state.image, next, "the file keeps its name, so every line still finds it")
+        let set = try XCTUnwrap(try ops(of: record.id).last?.figure)
+        XCTAssertEqual(set.image, next)
+        XCTAssertEqual(set.priorImage, old)
+        XCTAssertEqual(projectStore.manifest.figures?.first?.path, "figures/chart.png")
+        XCTAssertTrue(um.canUndo)
+
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(try Data(contentsOf: file), oldBytes, "undo put the old picture back")
+        XCTAssertEqual(doc.state.image, old)
+        XCTAssertEqual(try ops(of: record.id).last?.figure?.image, old, "and appended the inverse")
+
+        um.redo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(try Data(contentsOf: file), newBytes, "redo put the new picture back")
+        XCTAssertEqual(doc.state.image, next)
+        XCTAssertTrue(um.canUndo, "and the redo is undoable again")
+
+        let count = try ops(of: record.id).count
+        try await doc.setImage(fromURL: second, undoManager: um)
+        XCTAssertEqual(try ops(of: record.id).count, count, "the same picture again writes nothing")
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// A picture in another format would break every line pointing at the
+    /// file's name: refused, nothing written.
+    func test_aPictureOfAnotherFormatCannotReplaceTheFigures() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createImageFigure(
+            fromURL: try png("chart.png", .red), piece: Self.pieceA)
+        let doc = try await store.openFigure(figureId: record.id)
+        let before = try streamBytes(of: record.id)
+        let pdf = TestTemp.root.appendingPathComponent("figdoc-\(UUID().uuidString).pdf")
+        var box = CGRect(x: 0, y: 0, width: 20, height: 20)
+        let context = try XCTUnwrap(CGContext(pdf as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil); context.fill(box); context.endPDFPage(); context.closePDF()
+        defer { try? FileManager.default.removeItem(at: pdf) }
+
+        do {
+            try await doc.setImage(fromURL: pdf)
+            XCTFail("a PDF replaced a PNG figure's picture")
+        } catch is FigureEditInvalid {}
+        XCTAssertEqual(try streamBytes(of: record.id), before)
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **A figure's first picture has no inverse**: nothing is registered on
+    /// ⌘Z, and the record's path gains the file's extension.
+    func test_aFirstPictureRegistersNoUndoAndGivesTheRecordItsExtension() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createFigure(kind: .image, name: "plan", piece: Self.pieceA)
+        XCTAssertEqual(record.path, "figures/plan")
+        let doc = try await store.openFigure(figureId: record.id)
+        let um = UndoManager()
+
+        try await doc.setImage(fromURL: try png("anything.png", .green), undoManager: um)
+
+        XCTAssertFalse(um.canUndo, "a first picture replaces nothing, so there is no ⌘Z")
+        XCTAssertEqual(doc.state.image?.filename, "plan.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: figureFile("plan.png").path))
+        XCTAssertEqual(projectStore.manifest.figures?.first?.path, "figures/plan.png")
+        await store.closeFigure(figureId: record.id)
     }
 
     // MARK: - Write order

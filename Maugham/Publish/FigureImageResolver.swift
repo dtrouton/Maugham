@@ -10,22 +10,24 @@ import UniformTypeIdentifiers
 /// A figure path is written relative to its piece's own file, the way a
 /// Markdown editor previews it: `manuscript/ch1.md` reaches the project's
 /// research as `../research/x.png`, a root-level `story.md` as
-/// `research/x.png`. It is accepted only inside a research folder of the
-/// project — the project's `research/`, or, for a Collection piece at
-/// `pieces/<x>/<file>`, that piece's own `pieces/<x>/research/`
-/// (`ResearchScope.pieceResearchPrefix`'s rule). Another piece's research
-/// folder is refused.
+/// `research/x.png`. It is accepted only inside the project's `figures/`
+/// (where an image figure's file lives, report plan 6a Task 9, reached
+/// from any piece) or a research folder of the project — the project's
+/// `research/`, or, for a Collection piece at `pieces/<x>/<file>`, that
+/// piece's own `pieces/<x>/research/` (`ResearchScope.pieceResearchPrefix`'s
+/// rule), where figure lines written before figures had a folder of their
+/// own point (spec §4.4). Another piece's research folder is refused.
 ///
 /// The order is the safety: everything that can be decided from the string —
 /// an absolute path, a `~`, a URL scheme (`http:`, `file:`, `data:`), a `..`
-/// that climbs out of the project, a folder that isn't research — is decided
+/// that climbs out of the project, a folder that isn't figures or research — is decided
 /// before the disk is touched. Only then are symlinks resolved, and the
-/// resolved file must still sit under the resolved research folder, itself
+/// resolved file must still sit under the resolved allowed folder, itself
 /// under the resolved project. `resolve` stats the file and never reads a
 /// byte; the compilers read it at staging (`openingProblem`, `contentHash`).
 ///
 /// The two refusals map onto R-P2-1's two error kinds: `.notLocal` is "a
-/// figure path outside a research folder", `.unreadable` is "an image that
+/// figure path outside figures and research", `.unreadable` is "an image that
 /// can't be read" (missing, not a regular file, or a format this output
 /// can't show).
 public enum FigureImageResolver {
@@ -33,9 +35,9 @@ public enum FigureImageResolver {
     public enum Outcome: Equatable {
         /// The resolved (symlink-free) file to stage.
         case file(URL)
-        /// Not a file inside a research folder of this project.
+        /// Not a file inside this project's `figures/` or a research folder.
         case notLocal
-        /// Inside research, but not usable; the reason is a sentence.
+        /// Inside an allowed folder, but not usable; the reason is a sentence.
         case unreadable(String)
     }
 
@@ -53,7 +55,7 @@ public enum FigureImageResolver {
         guard isRelative(path), isRelative(piecePath),
               let piece = standardised(components(piecePath)), !piece.isEmpty,
               let target = standardised(Array(piece.dropLast()) + components(path)),
-              let root = researchRoot(of: target, piece: piece)
+              let root = allowedRoot(of: target, piece: piece)
         else { return .notLocal }
 
         let ext = (target.last.map { ($0 as NSString).pathExtension } ?? "").lowercased()
@@ -68,7 +70,7 @@ public enum FigureImageResolver {
         // follows links, so a dangling link is missing too): a missing file
         // keeps its `/private/var/…` spelling through `resolvingSymlinksInPath`
         // while its existing folders resolve to `/var/…`, so letting it reach
-        // the containment check would misreport it as outside research.
+        // the containment check would misreport it as outside its folder.
         guard FileManager.default.fileExists(atPath: appending(target, to: projectURL).path) else {
             return .unreadable("there is no file at \(path)")
         }
@@ -125,10 +127,11 @@ public enum FigureImageResolver {
         return out
     }
 
-    /// The research folder `target` sits strictly inside, or nil: the
-    /// project's `research/`, or the owning Collection piece's own.
-    private static func researchRoot(of target: [String], piece: [String]) -> [String]? {
-        var roots: [[String]] = [["research"]]
+    /// The allowed folder `target` sits strictly inside, or nil: the
+    /// project's `figures/` (any piece's), the project's `research/`, or the
+    /// owning Collection piece's own research.
+    private static func allowedRoot(of target: [String], piece: [String]) -> [String]? {
+        var roots: [[String]] = [["figures"], ["research"]]
         if piece.count == 3, piece[0] == "pieces" {
             roots.append(["pieces", piece[1], "research"])
         }
@@ -156,7 +159,7 @@ extension FigureImageResolver {
     /// `OEBPS/images/<hash>.<ext>` for the EPUB), so the same image used twice
     /// is one file. Throws when the file can't be read.
     static func contentHash(of url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url) // adr-0018-ok: research image hashed for its staged name
+        let handle = try FileHandle(forReadingFrom: url) // adr-0018-ok: a figure image hashed for its staged name
         defer { try? handle.close() }
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
@@ -184,7 +187,7 @@ extension FigureImageResolver {
         if ext == "pdf" { return pdfProblem(url) }
         if ext == "svg" { return svgProblem(url) }
         guard let expected = rasterTypes[ext] else { return nil }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), // adr-0018-ok: research image header sniffed
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), // adr-0018-ok: a figure image header sniffed
               CGImageSourceGetCount(source) > 0,
               let type = CGImageSourceGetType(source) as String?,
               CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
@@ -207,7 +210,7 @@ extension FigureImageResolver {
     ]
 
     private static func pdfProblem(_ url: URL) -> String? {
-        guard let document = CGPDFDocument(url as CFURL) else { // adr-0018-ok: research PDF opened to check it can be placed
+        guard let document = CGPDFDocument(url as CFURL) else { // adr-0018-ok: a figure PDF opened to check it can be placed
             return "won't open as a PDF (it may be damaged or cut short)"
         }
         if document.isEncrypted { return "is an encrypted PDF, which can't be placed in a book" }
@@ -216,7 +219,7 @@ extension FigureImageResolver {
     }
 
     private static func svgProblem(_ url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "can't be read" } // adr-0018-ok: research SVG's opening bytes sniffed
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "can't be read" } // adr-0018-ok: a figure SVG's opening bytes sniffed
         defer { try? handle.close() }
         let head = (try? handle.read(upToCount: 64 * 1024)) ?? Data()
         return String(decoding: head, as: UTF8.self).contains("<svg")
@@ -227,7 +230,7 @@ extension FigureImageResolver {
     /// and CRC — until `IEND`, reading 8 bytes per chunk. False when a chunk
     /// runs past the end of the file or the file ends first.
     private static func pngReachesItsEnd(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url), // adr-0018-ok: research PNG's chunk headers walked
+        guard let handle = try? FileHandle(forReadingFrom: url), // adr-0018-ok: a figure PNG's chunk headers walked
               let size = try? handle.seekToEnd() else { return false }
         defer { try? handle.close() }
         var offset: UInt64 = 8   // the signature

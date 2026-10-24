@@ -3,8 +3,9 @@ import XCTest
 
 /// Report foundations plan 2, Task 3: a figure's image path, written relative
 /// to its piece's own file, resolves only to a regular file of an allowed
-/// format inside a research folder of the REAL project — the project's
-/// `research/`, or a Collection piece's own `pieces/<x>/research/`. Anything
+/// format inside the project's `figures/` (report plan 6a Task 9) or a
+/// research folder of the REAL project — the project's `research/`, or a
+/// Collection piece's own `pieces/<x>/research/`. Anything
 /// absolute, schemed, escaping, or outside research is refused before the disk
 /// is touched; a symlink out of research is refused after resolving it.
 final class FigureImageResolverTests: XCTestCase {
@@ -14,13 +15,14 @@ final class FigureImageResolverTests: XCTestCase {
 
     override func setUpWithError() throws {
         project = TestTemp.root.appendingPathComponent("FigureImage-\(UUID().uuidString)")
-        for dir in ["research", "manuscript", "pieces/01-a/research", "pieces/02-b/research", "elsewhere"] {
+        for dir in ["research", "figures", "manuscript", "pieces/01-a/research", "pieces/02-b/research",
+                    "elsewhere"] {
             try FileManager.default.createDirectory(
                 at: project.appendingPathComponent(dir), withIntermediateDirectories: true)
         }
         for file in ["research/x.png", "research/notes.txt", "research/x.bmp",
                      "pieces/01-a/research/a.png", "pieces/02-b/research/b.png",
-                     "elsewhere/secret.png", "manuscript/inline.png"] {
+                     "elsewhere/secret.png", "manuscript/inline.png", "figures/fig.png"] {
             try Data([0x89]).write(to: project.appendingPathComponent(file))
         }
     }
@@ -45,6 +47,36 @@ final class FigureImageResolverTests: XCTestCase {
             return XCTFail("expected .unreadable, got \(outcome)", file: file, line: line)
         }
         XCTAssertFalse(reason.isEmpty, file: file, line: line)
+    }
+
+    // MARK: - figures/ (report plan 6a Task 9)
+
+    /// An image figure's file lives in the project's `figures/`, reached from
+    /// a chapter, a root document and a Collection piece alike.
+    func test_theProjectsFiguresFolderIsReachedFromEveryKindOfDocument() {
+        expectFile(resolve("../figures/fig.png", from: "manuscript/ch1.md"), "figures/fig.png")
+        expectFile(resolve("figures/fig.png", from: "story.md"), "figures/fig.png")
+        expectFile(resolve("../../figures/fig.png", from: "pieces/01-a/a.md"), "figures/fig.png")
+    }
+
+    /// Lines written before figures had a folder keep resolving (spec §4.4).
+    func test_anOldResearchLineStillResolvesBesideFigures() {
+        expectFile(resolve("../research/x.png", from: "manuscript/ch1.md"), "research/x.png")
+        expectFile(resolve("research/a.png", from: "pieces/01-a/a.md"), "pieces/01-a/research/a.png")
+    }
+
+    /// `figures/` is the project's only: a piece's own `figures/` folder, the
+    /// folder itself, and a symlink out of it are refused.
+    func test_onlyTheProjectsFiguresFolderIsAllowed() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: project.appendingPathComponent("pieces/01-a/figures"),
+                               withIntermediateDirectories: true)
+        try Data([0x89]).write(to: project.appendingPathComponent("pieces/01-a/figures/p.png"))
+        XCTAssertEqual(resolve("figures/p.png", from: "pieces/01-a/a.md"), .notLocal)
+        XCTAssertEqual(resolve("../figures", from: "manuscript/ch1.md"), .notLocal)
+        try fm.createSymbolicLink(at: project.appendingPathComponent("figures/out.png"),
+                                  withDestinationURL: project.appendingPathComponent("elsewhere/secret.png"))
+        XCTAssertEqual(resolve("../figures/out.png", from: "manuscript/ch1.md"), .notLocal)
     }
 
     // MARK: - relative to the piece

@@ -27,7 +27,7 @@ The ones you'll use most:
 | `⌘⌥Z` | Restore last deletion |
 | `⌘⇧T` | Insert ▸ Table — a three-column table with a caption and a `{#tbl:…}` label, on its own paragraph at the caret |
 | `⌘⇧N` | Insert ▸ Footnote — a numbered `[^n]` at the caret, with its definition opened below the paragraph |
-| `⌘⇧I` | Insert ▸ Figure… — an image from a file, made into a figure backed by research |
+| `⌘⇧I` | Insert ▸ Figure… — an image from a file, made into an image figure in the project's `figures/` folder |
 | `⌘⇧C` | Insert ▸ Citation… — writes `[@` and opens the citation picker over your research sources; typing `[@` opens it too, and `;` inside a citation adds the next source |
 | `⌘⇧X` | Insert ▸ Cross-Reference… — writes `@` and opens a picker over the project's labelled figures, tables and sections, in book order; typing `@` and a label kind with its colon (`@fig:`, `@tbl:`, `@sec:`) opens it too |
 | `⌘⌥⇧T` | Insert ▸ Edit Table… — opens the table under the caret in a grid: add, remove and move rows and columns, set each column's alignment, the caption and the label, and paste cells copied from Excel, Numbers or Sheets. Double-clicking the dashed line under a table's header opens it too |

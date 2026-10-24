@@ -89,6 +89,12 @@ public final class FigureDocument {
     /// Test seam: the async hop of the last undo/redo (`Document`'s mirror).
     @ObservationIgnored internal var _lastUndoWorkTask: Task<Void, Never>?
 
+    /// Where `setImage` keeps the pictures its ⌘Z and redo put back — the
+    /// one replaced and the one that replaced it, by content hash — for this
+    /// open document only: a temporary folder, never `.maugham/` (nothing
+    /// syncs it), removed at `close()`.
+    @ObservationIgnored private var imageUndoFolder: URL?
+
     private init(
         figureId: String, projectURL: URL, actor: DeviceActor, session: String,
         opStore: OpLogStore, ops: [Op], provenance: OpLogProvenance?
@@ -181,6 +187,8 @@ public final class FigureDocument {
     public func close() async {
         guard !isClosed else { return }
         isClosed = true
+        if let imageUndoFolder { try? FileManager.default.removeItem(at: imageUndoFolder) }
+        imageUndoFolder = nil
         do { _ = try await opStore.sealChain(docId: figureId) } catch {
             documentLog.error(
                 "figure seal at close failed for \(self.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -399,6 +407,110 @@ public final class FigureDocument {
             })
     }
 
+    /// **Replace an image figure's picture** (report plan 6a Task 9): the
+    /// file under `figures/` is replaced through the window's coordinated
+    /// door (`DocumentStore.replaceFigureImage`), then one `figureImageSet`
+    /// is appended carrying the new file's name and hash and the picture it
+    /// replaced (`priorImage`) — a recorded, attributed change.
+    ///
+    /// - The file keeps its name, so every figure line pointing at it keeps
+    ///   resolving: a picture in another format than the figure's file is
+    ///   refused (`FigureEditInvalid`), after HEIC and the like are re-encoded
+    ///   as PNG (`FigureIngest.copyableFile`). The same picture again writes
+    ///   nothing.
+    /// - **⌘Z puts the old picture back**, bytes and op: both pictures are
+    ///   kept for this open document (`imageUndoFolder`), and the undo
+    ///   restores the file before it appends the inverse. A figure's FIRST
+    ///   picture has no inverse (`FigureInverse` answers nil), so nothing is
+    ///   registered; its record's path gains the extension
+    ///   (`ProjectStore.recordFigureImagePath`).
+    ///
+    /// Needs the window that holds the figure (`documentStore`): the file is
+    /// written through its coordinated door.
+    public func setImage(fromURL source: URL, undoManager: UndoManager? = nil) async throws {
+        try await requireWritable("setImage")
+        guard state.kind == .image else {
+            throw FigureEditInvalid(reason: "this figure is not an image")
+        }
+        guard let documentStore else {
+            throw FigureEditInvalid(reason: "a picture is replaced only in a window that holds the figure")
+        }
+        let copyable = try await Task.detached { try FigureIngest.copyableFile(for: source) }.value
+        defer { if copyable.isTemporary { FigureIngest.removeTemporary(copyable.url) } }
+        let ext = copyable.url.pathExtension.lowercased()
+        let prior = state.image
+        let filename: String
+        if let prior {
+            filename = prior.filename
+            let current = (prior.filename as NSString).pathExtension.lowercased()
+            guard Self.sameImageFormat(current, ext) else {
+                throw FigureEditInvalid(
+                    reason: "this figure's picture is a .\(current) file; a .\(ext) picture can't replace it")
+            }
+        } else {
+            guard let record = documentStore.projectStore?.manifest.figures?
+                .first(where: { $0.id == figureId }) else {
+                throw FigureEditInvalid(reason: "this figure is not in the book's list of figures")
+            }
+            filename = (record.path as NSString).lastPathComponent + "." + ext
+        }
+        let hash = try await Task.detached { try FigureImageResolver.contentHash(of: copyable.url) }.value
+        guard hash != prior?.contentHash else { return }
+
+        let destination = projectURL
+            .appendingPathComponent(ProjectStore.figuresFolder, isDirectory: true)
+            .appendingPathComponent(filename)
+        // Both pictures kept before anything changes, so ⌘Z and redo can put
+        // either back; the prior one only if it is still on disk.
+        let keptPrior = prior.flatMap { try? keepForUndo(destination, hash: $0.contentHash) }
+        let keptNext = try keepForUndo(copyable.url, hash: hash)
+        try await documentStore.replaceFigureImage(at: destination, withCopyOf: copyable.url)
+
+        let next = FigureImageRef(filename: filename, contentHash: hash)
+        let op = try await commit(.figureImageSet, FigureOpPayload(image: next, priorImage: prior))
+        if prior == nil {
+            try await documentStore.projectStore?.recordFigureImagePath(
+                figureId: figureId, path: "\(ProjectStore.figuresFolder)/\(filename)")
+        }
+        registerFigureUndo(
+            undoManager, actionName: "Replace Picture", forward: op,
+            stillAsWritten: { d in d.state.image == next },
+            restoring: { d in
+                guard let keptPrior, let store = d.documentStore else {
+                    throw FigureEditInvalid(reason: "the replaced picture is no longer kept")
+                }
+                try await store.replaceFigureImage(at: destination, withCopyOf: keptPrior)
+            },
+            redo: { [weak undoManager] d in
+                guard d.state.image == prior else { return d.decline(.drifted) }
+                await d.redoing { try await d.setImage(fromURL: keptNext, undoManager: undoManager) }
+            })
+    }
+
+    /// `jpg` and `jpeg` are one format; every other extension is its own.
+    private static func sameImageFormat(_ a: String, _ b: String) -> Bool {
+        let jpeg: Set<String> = ["jpg", "jpeg"]
+        return a == b || (jpeg.contains(a) && jpeg.contains(b))
+    }
+
+    /// A copy of `file` in `imageUndoFolder`, named by its hash; the copy
+    /// already there when the same picture was kept before.
+    private func keepForUndo(_ file: URL, hash: String) throws -> URL {
+        let fm = FileManager.default
+        let folder: URL
+        if let imageUndoFolder {
+            folder = imageUndoFolder
+        } else {
+            folder = fm.temporaryDirectory.appendingPathComponent(
+                "maugham-figure-undo-\(UUID().uuidString)", isDirectory: true)
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            imageUndoFolder = folder
+        }
+        let kept = folder.appendingPathComponent(hash).appendingPathExtension(file.pathExtension)
+        if !fm.fileExists(atPath: kept.path) { try fm.copyItem(at: file, to: kept) }
+        return kept
+    }
+
     // MARK: - Undo
 
     /// Why an undo or redo did not happen — said, never swallowed.
@@ -409,15 +521,19 @@ public final class FigureDocument {
         case notPermitted
         /// An undone insert is not redoable until plan 6b's revive (R-6a-5).
         case insertNotRedoable
+        /// The picture an undo would put back is no longer kept.
+        case pictureNotKept
 
         var sentence: String {
             switch self {
             case .drifted:
-                "Couldn't undo the change to the table — it changed on another device."
+                "Couldn't undo the change to the figure — it changed on another device."
             case .notPermitted:
                 "Couldn't change the table — this Mac can no longer change this figure."
             case .insertNotRedoable:
                 "Couldn't put the row or column back — a removed row or column can't return yet."
+            case .pictureNotKept:
+                "Couldn't put the picture back — the one it replaced is no longer kept."
             }
         }
     }
@@ -445,11 +561,14 @@ public final class FigureDocument {
     /// 2. **drift guard** — `stillAsWritten` must hold (the cell still holds
     ///    the op's `next`, the row is still where the move put it, …), or it
     ///    declines rather than clobber another device's write;
-    /// 3. appends the compensating op, registering nothing further (the
+    /// 3. `restoring`, where the op's content lives outside the stream (an
+    ///    image's file): put back first, and a failure there appends nothing;
+    /// 4. appends the compensating op, registering nothing further (the
     ///    registrar has already put `redo` on the redo stack).
     func registerFigureUndo(
         _ undoManager: UndoManager?, actionName: String, forward: Op,
         stillAsWritten: @escaping @MainActor (FigureDocument) -> Bool,
+        restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
         guard let payload = forward.figure,
@@ -464,6 +583,10 @@ public final class FigureDocument {
                 // After the door's await, so nothing lands between the check
                 // and the append.
                 guard stillAsWritten(d) else { return d.decline(.drifted) }
+                do { try await restoring?(d) } catch {
+                    documentLog.error("figure undo could not restore \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    return d.decline(.pictureNotKept)
+                }
                 do { try await d.commit(kind, inverse) } catch {
                     documentLog.error("figure undo append failed on \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }

@@ -469,7 +469,7 @@ final class FigureThumbnailTests: XCTestCase {
                                 paragraphFocus: false, showElementGutter: false),
             control: EditorControl())
         configuration.answersInsertCommands = true
-        configuration.paragraphProviders.figureImporter = { _ in "../research/a.png" }
+        configuration.paragraphProviders.figureImporter = { _, _ in "../research/a.png" }
         configuration.paragraphProviders.figureImageResolver = { _ in .notLocal }
         let window = TestWindow.mount(
             EditorSurface(text: Binding(get: { box.text }, set: { box.text = $0 }),

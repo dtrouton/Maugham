@@ -35,6 +35,36 @@ extension DocumentStore {
         return doc
     }
 
+    /// **An image figure's file, replaced** (`FigureDocument.setImage` and its
+    /// ⌘Z): a copy of `source` takes `destination`'s place in one coordinated
+    /// write. The copy is staged in the system's replacement folder on the
+    /// destination's volume and swapped in with `replaceItemAt`, so a reader
+    /// sees the old picture or the new one, never half of either. A
+    /// destination not there yet (a figure's first picture) is a plain
+    /// coordinated copy (`executeCopy`).
+    func replaceFigureImage(at destination: URL, withCopyOf source: URL) async throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: destination.path) else {
+            try fm.createDirectory(at: destination.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
+            return try await executeCopy(from: source, to: destination)
+        }
+        let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                 appropriateFor: destination, create: true)
+        defer { try? fm.removeItem(at: staging) }
+        let staged = staging.appendingPathComponent(destination.lastPathComponent)
+        try fm.copyItem(at: source, to: staged)
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var replaceError: Error?
+        coordinator.coordinate(writingItemAt: destination, options: .forReplacing,
+                               error: &coordError) { url in
+            do { _ = try fm.replaceItemAt(url, withItemAt: staged) } catch { replaceError = error }
+        }
+        if let coordError { throw coordError }
+        if let replaceError { throw replaceError }
+    }
+
     /// Close a figure this window opened: sealed, and no longer reloaded.
     func closeFigure(figureId: String) async {
         guard let doc = openFigures.removeValue(forKey: figureId) else { return }
