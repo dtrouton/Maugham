@@ -273,6 +273,8 @@ final class CanvasEditorKeyTests: XCTestCase {
         let model = modelWithACard()
         let fixture = Fixture(model: model)
         fixture.enter(a, typed: "held")
+        // Relies on undo gestures NESTING ("Edit Scrap" inside "Move Card"); a
+        // change to flat brackets must revisit this test.
         model.beginGesture("Move Card")
         let count = model.scene.count
 

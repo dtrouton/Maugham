@@ -1016,3 +1016,17 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the keyboard flow's M
 **What the probe and the measurement found.** Denver dragged four things onto the shipped arrangement. A research row and an inbox capture landed. A PNG from the Finder and an image from a web page both slid back. The logging probe showed the browser image reaching the String closure with the *page's* URL as its payload, which `handleDrop` refused as an unknown id, and the Finder PNG reaching **neither** closure. Feeding the same two-modifier arrangement a drag through `NSDraggingDestination` in a scratch harness explained both: SwiftUI gives each drop modifier its **own** `_PlatformDraggingDestinationView`, every one registered for `public.data`/`public.item`, and AppKit offers a drag to the frontmost (the innermost modifier) only. The String view answered a Finder file "no operation" at `draggingEntered`, so AppKit refused at hover and nothing fired; it answered a browser image "copy" because its URL text loads. So "claims on hover" was the right symptom with the wrong mechanism: whichever drop modifier is innermost receives every drag, and the other is unreachable. The earlier smoke saw the same thing from the other side.
 
 **The fix is one modifier**: `.onDrop(of: CanvasDropRoute.acceptedTypes)` (`[.fileURL, .image, .utf8PlainText]`), with `CanvasDropRoute.route(typeIdentifiers:)` deciding by type: a file URL, any URL or an image wins over text, and text alone is an id. The measured provider types were `["public.png"]` (Finder PNG), `["public.png", "public.utf8-plain-text"]` (browser image) and `["public.utf8-plain-text"]` (research row). **Accepted cost (ruled):** the id string loads asynchronously, so an id this canvas has no card for is accepted and does nothing, rather than springing back.
+
+## Moved from the guide by canvas-keyboard-flow Task 6 (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the canvas-keys rule (`handleCanvasKey`) and for Tasks 7 and 8. Each is the why behind a rule still in the guide, under the section named.
+
+- The dim: “so the canvas gets the answer (`CanvasSubject`) and never the question” (Escape is the keyboard spelling of the project row).
+- The surface: “the grain peaks at 0.9575 over `lightBase` (0.930, 0.915, 0.880)” (why red is the bound channel in light mode).
+- Performance: “read `CanvasScene`'s doc comment rather than leaning on the probe budgets” (Supported: 2,000 nodes).
+- The scene model: “and `joinTarget` silently joins nothing for it” (a node with no `cachedHeight`).
+- Ownership, counters and undo: “snapshots own scrap text” (why the mounted editor has `allowsUndo = false`).
+- Regions and membership: “which fails when the list empties or grows” (`test_makingAnAppearanceHasAProductionCaller`).
+- Regions and membership: “a collapsed region is drawn at its frame, and `begin` refuses to start a sweep inside any region” (why `caughtRegions` has no exclusions and no `minimumSide` floor).
+
+**A canvas key asks the gesture before the fold.** `CanvasEditFocus.commitActiveEdit()` calls `model.endGesture()` whether or not a scrap is open, so a key that folded first while a drag held "Move Card" would close the writer's bracket under them. `handleCanvasKey` therefore refuses mid-gesture first, then asks the gate and folds; `CanvasCanvasKeyTests.test_everyCanvasKeyIsRefusedMidGesture` goes red if the fold moves above the check (mutation, 2026-10-24).

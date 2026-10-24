@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// `CanvasView`'s keys: ⌫ deletes the selection, refusing mid-gesture
-/// (tripwire 32), Escape asks the window for the whole board, and the keys
-/// inside a scrap finish it or make the next one — over bindings to the view's
+/// (tripwire 32), Escape asks the window for the whole board, the keys inside
+/// a scrap finish it or make the next one, and Return, Tab, ⌘Return and the
+/// arrows on the canvas make, enter and select — over bindings to the view's
 /// own `@State`. Each returns whether the canvas used the key;
 /// `CanvasEventNSView.keyDown` sends an unused one to `super`.
 ///
@@ -54,13 +55,8 @@ struct CanvasKeyHandler {
         case .finish:
             start = nil
         case .makeJoined, .makeBelow:
-            if let frame = model.scene.node(id)?.frame {
-                start = command == .makeJoined
-                    ? CGPoint(x: frame.maxX + CanvasKeyboard.placementGap, y: frame.minY)
-                    : CGPoint(x: frame.minX, y: frame.maxY + CanvasKeyboard.placementGap)
-            } else {
-                start = nil
-            }
+            start = model.scene.node(id)?.frame
+                .map { Self.nextScrapStart(beside: $0, joined: command == .makeJoined) }
         }
         guard let start, mayCreate, !model.isInGesture else {
             keyboardTicket += 1
@@ -73,6 +69,104 @@ struct CanvasKeyHandler {
         if let frame = model.scene.node(made)?.frame {
             camera.reveal(frame, viewSize: viewSize)
         }
+        return true
+    }
+
+    /// Where Tab's joined scrap (to the right) or ⌘Return's (below) starts
+    /// looking for room, beside a card at `frame`; `clearOrigin` steps it down.
+    private static func nextScrapStart(beside frame: CGRect, joined: Bool) -> CGPoint {
+        joined
+            ? CGPoint(x: frame.maxX + CanvasKeyboard.placementGap, y: frame.minY)
+            : CGPoint(x: frame.minX, y: frame.maxY + CanvasKeyboard.placementGap)
+    }
+
+    // MARK: - Keys on the canvas
+
+    /// Return, Tab, ⌘Return and the arrows with the canvas holding the
+    /// keyboard (`CanvasEventNSView.onKey`); spec §1's table. Returns whether
+    /// the key was used, and an unused one travels on — Tab with nothing
+    /// selected moves along the key-view loop.
+    ///
+    /// Nothing while a scrap is open (its keys are the editor's) or a gesture
+    /// is (tripwire 32). The gesture is asked FIRST, before the gate and the
+    /// fold: `commitActiveEdit` ends whatever gesture is open, so asked
+    /// mid-drag it would close "Move Card" under the writer's hand. Then a
+    /// creating or entering key asks the gate, folds (a no-op with no scrap
+    /// open, kept so every make reads the same), and makes or enters — the
+    /// order `CanvasEditGateTests` pins. The arrows ask no gate: selecting is
+    /// not editing.
+    func handleCanvasKey(_ key: CanvasKey, viewSize: CGSize) -> Bool {
+        guard editingNodeID == nil, !model.isInGesture else { return false }
+        let mayCreate = CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)
+        // A selection that no longer resolves, or hides in a collapsed
+        // region, is no selection: the writer sees nothing selected.
+        var selection = model.selection
+        if case .node(let id)? = selection, model.scene.node(id) == nil || model.scene.isHidden(id) {
+            selection = nil
+        }
+        let start: CGPoint
+        var joinedTo: CanvasNodeID?
+        switch (key, selection) {
+        case (.arrow(let arrow), _):
+            return selectNearest(arrow, from: selection, viewSize: viewSize)
+        case (.backtab, _):
+            // Task 7: back to the binder.
+            return false
+        case (.returnKey, nil):
+            let size = CanvasKeyboard.newCardSize()
+            let centre = camera.contentPoint(fromView: CGPoint(x: viewSize.width / 2,
+                                                               y: viewSize.height / 2))
+            start = CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2)
+        case (.returnKey, .node(let id)?):
+            guard let node = model.scene.node(id), case .scrap = node.kind else {
+                // An item card: nothing to enter, but the key is meant.
+                return true
+            }
+            guard mayCreate, let frame = node.frame else { return false }
+            editFocus.commitActiveEdit()
+            scrapFlow.enter(id, caretIndex: (model.scraps[id] ?? "").utf16.count)
+            camera.reveal(frame, viewSize: viewSize)
+            return true
+        case (.returnKey, .region?):
+            // Task 8: rename the region in place.
+            return false
+        case (.returnKey, .line?):
+            return true
+        case (.tab, .node(let id)?), (.commandReturn, .node(let id)?):
+            guard let frame = model.scene.node(id)?.frame else { return false }
+            start = Self.nextScrapStart(beside: frame, joined: key == .tab)
+            if key == .tab { joinedTo = id }
+        case (.tab, _), (.commandReturn, _):
+            return false
+        }
+        guard mayCreate else { return false }
+        editFocus.commitActiveEdit()
+        let origin = CanvasKeyboard.clearOrigin(startingAt: start, stepping: .down,
+                                                size: CanvasKeyboard.newCardSize(), in: model.scene)
+        let made = scrapFlow.makeScrapAndEnter(at: origin, joinedTo: joinedTo)
+        if let frame = model.scene.node(made)?.frame {
+            camera.reveal(frame, viewSize: viewSize)
+        }
+        return true
+    }
+
+    /// An arrow: the nearest card that way from the selection's centre. With
+    /// nothing selected it travels on; with no card that way it is swallowed,
+    /// because the writer pressed a key the canvas understood.
+    private func selectNearest(_ arrow: CanvasArrow, from selection: CanvasSelection?,
+                               viewSize: CGSize) -> Bool {
+        guard let selection,
+              let from = CanvasKeyboard.centre(of: selection, in: model.scene) else { return false }
+        var excluding: CanvasNodeID?
+        if case .node(let id) = selection { excluding = id }
+        guard let target = CanvasKeyboard.nearest(from: from, toward: arrow, in: model.scene,
+                                                  excluding: excluding),
+              let frame = model.scene.node(target)?.frame else { return true }
+        model.selection = .node(target)
+        // `revision`, never `sceneRevision`: a selection is not structural.
+        revision += 1
+        camera.reveal(frame, viewSize: viewSize)
+        model.scheduleSave()
         return true
     }
 

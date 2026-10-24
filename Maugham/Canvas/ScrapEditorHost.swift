@@ -94,7 +94,9 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     var onCommand: ((ScrapEditorCommand) -> Bool)?
     /// The modifiers of the key being interpreted. Production reads the event
     /// AppKit is dispatching; a test that calls `doCommand(by:)` directly has
-    /// none, so it sets this.
+    /// none, so it sets this. A programmatic `insertNewline:` with no keyDown
+    /// current reads as no modifiers, so it finishes the scrap; nothing is
+    /// lost, because the finish folds first.
     var currentModifiers: () -> NSEvent.ModifierFlags = {
         guard let event = NSApp.currentEvent, event.type == .keyDown else { return [] }
         return event.modifierFlags

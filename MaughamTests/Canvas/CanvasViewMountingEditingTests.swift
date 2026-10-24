@@ -1696,6 +1696,35 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
         XCTAssertEqual(model.scraps[scrapID], scrapText, "Return changed the words")
     }
 
+    /// Return on a SELECTED scrap — the canvas holding the keyboard — enters it
+    /// with the caret at the end, and what the writer types next lands in the
+    /// scrap's words. Real key events through `NSApp.sendEvent(_:)`.
+    func test_returnOnASelectedScrapEntersItAndTypingLands() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 60, y: 40), in: window)
+        XCTAssertEqual(model.selection, .node(scrapID), "precondition: the scrap is selected")
+        XCTAssertTrue(window.firstResponder === events, "precondition: the canvas holds the keyboard")
+
+        NSApp.sendEvent(returnKeyEvent(for: window))
+        let contentView = try XCTUnwrap(window.contentView)
+        func editor() -> NSTextView? {
+            firstDescendant(ScrapEditorContainer.self, in: contentView)?.textView
+        }
+        pump(until: { editor().map { window.firstResponder === $0 } ?? false })
+
+        let text = try XCTUnwrap(editor(), "Return on a selected scrap mounted no editor")
+        XCTAssertTrue(window.firstResponder === text, "the writer is not in the scrap after Return")
+        XCTAssertEqual(text.selectedRange().location, (scrapText as NSString).length,
+                       "the caret is not at the end of the scrap's words")
+        text.insertText(" — and more", replacementRange: text.selectedRange())
+        XCTAssertEqual(model.scraps[scrapID], scrapText + " — and more",
+                       "what the writer typed after Return did not reach the scrap")
+    }
+
     /// The arbitration, pinned end to end: the first Escape belongs to the
     /// scrap (it finishes it, and the dim stays); only the second, with no
     /// editor mounted, is the canvas's, and asks for the project row.

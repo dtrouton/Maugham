@@ -303,6 +303,130 @@ final class CanvasEventViewTests: XCTestCase {
                        + "matches more than the two keys it is about")
     }
 
+    // MARK: - The canvas's own keys (Return, Tab, ⌘Return, the arrows)
+
+    private func key(_ characters: String, modifiers: NSEvent.ModifierFlags,
+                     keyCode: UInt16, window: NSWindow? = nil) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window?.windowNumber ?? 0, context: nil,
+                         characters: characters, charactersIgnoringModifiers: characters,
+                         isARepeat: false, keyCode: keyCode)!
+    }
+
+    /// A decoded key reaches `onKey` with the view's own size (the reveal's
+    /// viewport); one the canvas did not use travels on to `super`, so it can
+    /// beep or move along the key-view loop.
+    func test_returnReachesOnKeyAndAnUnusedKeyTravelsToSuper() {
+        let v = view()
+        let beyond = KeyRecorder()
+        v.nextResponder = beyond
+        var received: [CanvasKey] = []
+        var sizes: [CGSize] = []
+        var answer = true
+        v.onKey = { key, size in received.append(key); sizes.append(size); return answer }
+
+        v.keyDown(with: key("\r", modifiers: [], keyCode: 36))
+        XCTAssertEqual(received, [.returnKey])
+        XCTAssertEqual(sizes, [CGSize(width: 800, height: 600)], "onKey was not handed the view's size")
+        XCTAssertEqual(beyond.keys, [], "a Return the canvas used travelled on as well")
+
+        // An arrow arrives with .numericPad and .function set; it still decodes.
+        v.keyDown(with: key("\u{F701}", modifiers: [.numericPad, .function], keyCode: 125))
+        XCTAssertEqual(received, [.returnKey, .arrow(.down)])
+
+        answer = false
+        v.keyDown(with: key("\t", modifiers: [], keyCode: 48))
+        XCTAssertEqual(received.last, .tab)
+        XCTAssertEqual(beyond.keys, ["\t"], "a Tab the canvas did not use was swallowed")
+
+        // ⌘Return is `performKeyEquivalent`'s; `keyDown` never asks for it.
+        answer = true
+        v.keyDown(with: key("\r", modifiers: .command, keyCode: 36))
+        XCTAssertEqual(received.count, 3, "keyDown handed ⌘Return to onKey")
+        XCTAssertEqual(beyond.keys, ["\t", "\r"])
+
+        v.onKey = nil
+        v.keyDown(with: key("\r", modifiers: [], keyCode: 36))
+        XCTAssertEqual(beyond.keys, ["\t", "\r", "\r"], "an unwired canvas swallowed Return")
+    }
+
+    /// `performKeyEquivalent` is offered to every view in the window, whoever
+    /// holds the keyboard — so ⌘Return is the canvas's only while the canvas is
+    /// first responder, and only when `onKey` used it.
+    @MainActor
+    func test_commandReturnIsClaimedOnlyWhileTheCanvasIsFirstResponder() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let content = NSView(frame: bounds)
+        let field = NSTextField(frame: CGRect(x: 0, y: 0, width: 100, height: 24))
+        content.addSubview(field)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: bounds,
+                                     contentView: content, present: .unshown)
+        windows.append(window)
+        let v = view()
+        content.addSubview(v)
+        var received: [CanvasKey] = []
+        var answer = true
+        v.onKey = { key, _ in received.append(key); return answer }
+        let commandReturn = key("\r", modifiers: .command, keyCode: 36, window: window)
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertFalse(v.performKeyEquivalent(with: commandReturn),
+                       "the canvas took ⌘Return from a field the writer is typing in")
+        XCTAssertEqual(received, [])
+
+        XCTAssertTrue(window.makeFirstResponder(v))
+        XCTAssertTrue(v.performKeyEquivalent(with: commandReturn))
+        XCTAssertEqual(received, [.commandReturn])
+
+        answer = false
+        XCTAssertFalse(v.performKeyEquivalent(with: commandReturn),
+                       "a ⌘Return the canvas did not use was claimed anyway")
+        XCTAssertFalse(v.performKeyEquivalent(with: key("\r", modifiers: [], keyCode: 36, window: window)),
+                       "a plain Return is keyDown's, not a key equivalent")
+        XCTAssertEqual(received, [.commandReturn, .commandReturn])
+    }
+
+    /// ⌘⇧Return is the app's Promote… shortcut; the canvas never claims it.
+    @MainActor
+    func test_commandShiftReturnIsNeverClaimed() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: bounds,
+                                     present: .unshown)
+        windows.append(window)
+        let v = view()
+        window.contentView?.addSubview(v)
+        XCTAssertTrue(window.makeFirstResponder(v))
+        let beyond = KeyRecorder()
+        v.nextResponder = beyond
+        var received: [CanvasKey] = []
+        v.onKey = { key, _ in received.append(key); return true }
+        let event = key("\r", modifiers: [.command, .shift], keyCode: 36, window: window)
+
+        XCTAssertFalse(v.performKeyEquivalent(with: event))
+        v.keyDown(with: event)
+
+        XCTAssertEqual(received, [], "⌘⇧Return reached the canvas's keys")
+        XCTAssertEqual(beyond.keys, ["\r"])
+    }
+
+    /// The new keys did not take ⌫'s arm: delete still goes to `onDeleteKey`
+    /// and never to `onKey`.
+    func test_deleteStillGoesToOnDeleteKey() {
+        let v = view()
+        v.nextResponder = KeyRecorder()
+        var deletes = 0
+        var received: [CanvasKey] = []
+        v.onDeleteKey = { deletes += 1; return true }
+        v.onKey = { key, _ in received.append(key); return true }
+
+        v.keyDown(with: key(CanvasEventNSView.backwardDelete))
+        v.keyDown(with: key(CanvasEventNSView.forwardDelete))
+
+        XCTAssertEqual(deletes, 2)
+        XCTAssertEqual(received, [])
+    }
+
     // MARK: - The first link of the delivery chain
 
     /// **A click on the canvas takes first responder, and nothing asserted that

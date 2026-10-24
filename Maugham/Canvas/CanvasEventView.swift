@@ -75,6 +75,11 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// that claimed every Escape on an undimmed board would take it away from all
     /// of them and look, from in here, exactly like one that handled it.
     var onEscape: (() -> Bool)?
+    /// Return, Tab, ⇧Tab, ⌘Return and the arrows, with the canvas holding first
+    /// responder, and this view's `bounds.size` for the reveal. What they do is
+    /// `CanvasKeyHandler.handleCanvasKey`'s business. Returns whether the key
+    /// was used; an unused one travels on, as ⌫'s does.
+    var onKey: ((CanvasKey, CGSize) -> Bool)?
 
     /// Whether the tree's subject dims the board — the one condition
     /// `CanvasEscapeMonitor` is installed under.
@@ -442,14 +447,37 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// ⌫ keeps its arm because nothing changed for it: it is meaningful only with
     /// a canvas selection, which only a click on this view can make, so the
     /// responder chain is the right filter for it and the wrong one for Escape.
+    ///
+    /// The canvas's own keys (`CanvasKeyboard.canvasKey`) go to `onKey`, and
+    /// travel on when it did not use them. ⌘Return is not taken here: it is a
+    /// key equivalent, offered first to `performKeyEquivalent` below.
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
         case Self.backwardDelete, Self.forwardDelete:
             if onDeleteKey?() == true { return }
             super.keyDown(with: event)
         default:
+            if let key = CanvasKeyboard.canvasKey(characters: event.charactersIgnoringModifiers,
+                                                  modifiers: event.modifierFlags),
+               key != .commandReturn,
+               onKey?(key, bounds.size) == true { return }
             super.keyDown(with: event)
         }
+    }
+
+    /// ⌘Return. AppKit offers a key equivalent to EVERY view in the window,
+    /// whoever holds the keyboard, so it is the canvas's only while the canvas
+    /// is first responder — never from the binder's rename, the find bar or an
+    /// inspector field — and only when `onKey` used it. ⌘⇧Return (Promote…)
+    /// does not decode, so it always travels on.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self,
+           CanvasKeyboard.canvasKey(characters: event.charactersIgnoringModifiers,
+                                    modifiers: event.modifierFlags) == .commandReturn,
+           onKey?(.commandReturn, bounds.size) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     /// `NSDeleteCharacter` and `NSDeleteFunctionKey` as the strings
@@ -490,6 +518,8 @@ struct CanvasEventView: NSViewRepresentable {
     var onDeleteKey: () -> Bool
     /// Returns whether the canvas used the Escape — see the same.
     var onEscape: () -> Bool
+    /// The canvas's own keys, with its size — see `CanvasEventNSView.onKey`.
+    var onKey: (CanvasKey, CGSize) -> Bool
     /// Whether the tree's subject dims the board, and so whether
     /// `CanvasEscapeMonitor` is installed — see `CanvasEventNSView.boardIsDimmed`.
     ///
@@ -528,6 +558,7 @@ struct CanvasEventView: NSViewRepresentable {
         v.onDrag = onDrag
         v.onDeleteKey = onDeleteKey
         v.onEscape = onEscape
+        v.onKey = onKey
         // Assigned AFTER `onEscape`: the flag's `didSet` installs the monitor,
         // and a monitor installed against an unwired callback would decline every
         // Escape until the next update pass.

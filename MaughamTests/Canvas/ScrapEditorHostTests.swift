@@ -694,6 +694,16 @@ final class ScrapEditorHostTests: XCTestCase {
         XCTAssertEqual(l.text, "words\n", "a taken Tab still inserted a tab")
     }
 
+    /// With no keyDown being dispatched — a programmatic `insertNewline:` —
+    /// the default reads no modifiers, so the Return finishes the scrap rather
+    /// than inserting a newline. Nothing is lost: the finish folds first.
+    func test_theDefaultModifiersAreNoneWithNoKeyDownCurrent() {
+        XCTAssertNotEqual(NSApp.currentEvent?.type, .keyDown,
+                          "premise: no key is being dispatched while this test runs")
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        XCTAssertEqual(container.currentModifiers(), [])
+    }
+
     /// An input method composing (Japanese, Chinese, accents) owns Return: it
     /// commits the candidate. The control is the same Return once it has.
     func test_aKeyDuringMarkedTextIsLeftToTheInputMethod() throws {

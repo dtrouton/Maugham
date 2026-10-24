@@ -108,6 +108,18 @@ final class CanvasEditGateTests: XCTestCase {
              "editFocus.commitActiveEdit()"),
             ("func handleEditorCommand(", "editFocus.commitActiveEdit()", "!model.isInGesture"),
             ("func handleEditorCommand(", "!model.isInGesture", "scrapFlow.makeScrapAndEnter("),
+            // A key on the canvas itself: the gesture check FIRST — the fold
+            // ends whatever gesture is open, so asked mid-drag it would close
+            // "Move Card" under the writer — then the gate, the fold, the
+            // make or the enter.
+            ("func handleCanvasKey(", "!model.isInGesture", "editFocus.commitActiveEdit()"),
+            ("func handleCanvasKey(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "editFocus.commitActiveEdit()"),
+            ("func handleCanvasKey(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "scrapFlow.makeScrapAndEnter("),
+            ("func handleCanvasKey(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "scrapFlow.enter("),
+            ("func handleCanvasKey(", "!model.isInGesture", "scrapFlow.makeScrapAndEnter("),
             ("func handleDrag(", "CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly)",
              "interaction.begin("),
             ("func deleteSelection(", "CanvasEditGate.deletes(isReadOnly: model.isReadOnly)",

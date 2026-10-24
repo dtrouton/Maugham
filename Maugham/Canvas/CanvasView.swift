@@ -505,6 +505,7 @@ struct CanvasView: View {
                 },
                 onDeleteKey: { keyHandler.deleteSelection() },
                 onEscape: { keyHandler.escapeAsksForTheWholeBoard() },
+                onKey: { key, viewSize in keyHandler.handleCanvasKey(key, viewSize: viewSize) },
                 // The one condition `CanvasEscapeMonitor` is installed under —
                 // and it is the SUBJECT's dim rather than
                 // `escapeAsksForTheWholeBoard`'s full answer, because the monitor
@@ -1068,8 +1069,8 @@ struct CanvasView: View {
                            revision: $revision)
     }
 
-    /// The keys — ⌫, Escape, and those inside a scrap — over this view's own
-    /// `@State`, built per call like `layoutPass`. `deleteSelection` refuses
+    /// The keys — ⌫, Escape, those inside a scrap and those on the canvas —
+    /// over this view's own `@State`, built per call like `layoutPass`. `deleteSelection` refuses
     /// mid-gesture (tripwire 32), and `selectTheProjectRow` is the closure this
     /// view was handed, read when the key arrives. It makes through the
     /// `scrapFlow` it is handed.
