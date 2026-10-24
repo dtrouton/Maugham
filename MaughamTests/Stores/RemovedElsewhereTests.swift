@@ -42,6 +42,38 @@ final class RemovedElsewhereTests: XCTestCase {
         XCTAssertEqual(found, ["doc-gone"])
     }
 
+    /// **A figure is never a piece removed elsewhere** (report plan 6a Task
+    /// 7): its stream is op-logged like a piece's, but no outline holds it, so
+    /// it is never a candidate — named by the registry or not.
+    func test_aFigureStreamIsNeverACandidate() {
+        let found = RemovedElsewhere.candidates(
+            opLogDocIds: ["doc-gone", "fig-0a1b2c3d", "fig-orphan1"],
+            live: [], statementIds: [], trashedIds: [], letGoIds: [])
+        XCTAssertEqual(found, ["doc-gone"])
+    }
+
+    /// And the scan over a book whose ops folder holds a figure stream, with an
+    /// archive that (wrongly) held its id as a document, lists only the piece.
+    func test_theScanNeverListsAFigureEvenWhenAnArchiveHeldItsId() throws {
+        let url = temp.url.appendingPathComponent("figure-scan")
+        let ops = url.appendingPathComponent(".maugham/ops")
+        try FileManager.default.createDirectory(at: ops, withIntermediateDirectories: true)
+        try Data().write(to: ops.appendingPathComponent("fig-0a1b2c3d.jsonl"))
+        try Data().write(to: ops.appendingPathComponent("doc-gone.jsonl"))
+        let conflicts = url.appendingPathComponent(".maugham/conflicts")
+        try FileManager.default.createDirectory(at: conflicts, withIntermediateDirectories: true)
+        let archived = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [doc("fig-0a1b2c3d", "Not a piece"), doc("doc-gone", "Gone")], research: [])
+        let name = ManifestConflictArchive.fileName(for: Date())
+        try ProjectManifest.makeEncoder().encode(archived)
+            .write(to: conflicts.appendingPathComponent(name))
+
+        XCTAssertEqual(RemovedElsewhere.scan(
+            projectURL: url, live: [], statementIds: [], trashedIds: []).map(\.id),
+            ["doc-gone"], "the piece beside it is listed; the figure is not")
+    }
+
     /// **Emptying Trash records the let-go** (Denver, 2026-09-24): an id any
     /// device let go of is accounted for, like a live row or a Trash entry.
     func test_anIdSomeDeviceLetGoOfIsNotACandidate() {

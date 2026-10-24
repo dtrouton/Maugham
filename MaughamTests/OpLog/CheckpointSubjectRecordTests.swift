@@ -59,7 +59,7 @@ final class CheckpointSubjectRecordTests: XCTestCase {
         try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: subject,
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s", label: label)
     }
 

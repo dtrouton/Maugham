@@ -67,7 +67,8 @@ final class FigureDocumentTests: XCTestCase {
 
     private func load(_ id: String, as actor: DeviceActor = .author) async throws -> FigureDocument {
         try await FigureDocument.load(
-            figureId: id, projectURL: projectURL, actor: actor, session: "s", presenter: nil)
+            figureId: id, projectURL: projectURL, actor: actor, session: "s", presenter: nil,
+            documentStore: nil)
     }
 
     /// Every op in every file of the figure's stream, seals excluded.

@@ -118,10 +118,16 @@ public final class FigureDocument {
     ///   `figures/<name>.csv` is never read (tripwire 20).
     ///
     /// `actor`, never a device string (tripwire 38).
+    ///
+    /// `documentStore` is **required**: a window passes its own store
+    /// (`DocumentStore.openFigure` is the door a window opens a figure
+    /// through), so the figure asks the window's posture and renders its CSV;
+    /// only a caller with no window passes an explicit nil — it asks Core's
+    /// door directly, and renders nothing.
     public static func load(
         figureId: String, projectURL: URL, actor: DeviceActor,
         session: String, presenter: NSFilePresenter?,
-        documentStore: DocumentStore? = nil
+        documentStore: DocumentStore?
     ) async throws -> FigureDocument {
         let opStore = Document.makeLoadOpStore(projectURL: projectURL, presenter: presenter)
         let (ops, provenance) = try await readHistory(
@@ -134,7 +140,8 @@ public final class FigureDocument {
     }
 
     /// Re-read the stream after another device's lines changed it (the
-    /// presenter's figure arm). The same read as the load; writes nothing.
+    /// presenter's figure arm, `DocumentStore.applyPendingFigureChanges`).
+    /// The same read as the load; writes nothing.
     public func reload() async throws {
         guard !isClosed else { return }
         let (ops, provenance) = try await Self.readHistory(
@@ -488,6 +495,10 @@ public final class FigureDocument {
             state = Self.derive(_ops)
             throw error
         }
+        // The render follows every op this host appends (report plan 6a
+        // Task 7): `figures/<name>.csv` and every table reading this one.
+        // Windowless, there is no coordinated door to write through.
+        await documentStore?.figureHostAppended(figureId)
         return op
     }
 

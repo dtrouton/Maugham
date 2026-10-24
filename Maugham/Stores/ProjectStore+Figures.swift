@@ -37,6 +37,8 @@ extension ProjectStore {
     /// 5. Only then is the record written, through the manifest's one door
     ///    (`saveManifest` → `ProjectManifest.encodeForDisk`, which raises the
     ///    content floor to 10 for a manifest with figures).
+    /// 6. A table's `figures/<name>.csv` is rendered where a window holds the
+    ///    book (`DocumentStore.renderFigures`).
     @discardableResult
     public func createFigure(
         kind: FigureKind, name: String, piece: String?,
@@ -112,6 +114,9 @@ extension ProjectStore {
         manifest.figures = figures
         manifest.modified = Date()
         try await saveManifest()
+        // Its render exists from the start: `figures/<name>.csv`, written
+        // through the window's coordinated door (report plan 6a Task 7).
+        await documentStore?.renderFigures(changed: [figureId])
         return placed
     }
 

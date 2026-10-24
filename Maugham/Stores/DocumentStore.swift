@@ -168,6 +168,26 @@ public final class DocumentStore {
     /// Anyway* (plan ruling R2) lifts the posture in this window alone.
     let postureBook = PostureBook()
 
+    /// **The book's figures, derived** (report plan 6a Task 7): one cache per
+    /// window, keyed by each stream's file token and the registry's facts.
+    /// Trust is not in its key, so `invalidateTrust` drops it whole (R-6a-6).
+    /// Everything about it lives in `DocumentStore+Figures.swift`.
+    let figureCache = FigureCache()
+
+    /// The figures this window holds open, by figure id — what the
+    /// presenter's figure arm reloads. Written by `openFigure`/`closeFigure`.
+    var openFigures: [String: FigureDocument] = [:]
+
+    /// Figure streams the presenter reported changed, drained by the
+    /// debounced figure pass (`figureChangeScheduler`).
+    var pendingFigureChanges: Set<String> = []
+
+    /// The figures the last workbook assembly could not read (R-6a-7), by
+    /// name with the error — logged by the render pass and kept here.
+    var lastUnreadableFigures: [(name: String, error: String)] = []
+
+    var _figureChangeScheduler: DebounceScheduler<Int>?
+
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
     /// app quit via `flushSessionOnQuit()`.
@@ -1869,6 +1889,11 @@ public final class DocumentStore {
         // recounted — off this call, one table for the pass, none of it in the
         // writer's session (`recountFromOpLogs`). Open pieces are counted by
         // the re-read that follows every call of this verb.
+        // **And the figures** (R-6a-6): a figure's derived table is keyed by
+        // its files and the registry, never by trust, so a changed table
+        // drops every line; each open figure's store forgets its table too,
+        // and the open figures re-read and re-render off this call.
+        figureTrustChanged()
         if let store = projectStore {
             store.derivedCache.invalidateAll()
             store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
@@ -1908,6 +1933,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             handleManifestChanged()
 
         case .opLog(let docId):
+            // **A figure's stream** (report plan 6a Task 7): the cache forgets
+            // it, an open figure re-reads, and it and every table whose
+            // formulas name it re-render — debounced, since a device arrives
+            // as a burst. The arm below still runs: a closed stream's
+            // annotations and held lines are counted as any other's.
+            if DocumentClass.isFigureDocId(docId) {
+                figureStreamChanged(docId)
+            }
             if let doc = document(forDocId: docId) {
                 Task { @MainActor in
                     // The merge announces `.maughamAnnotationsChanged` itself,

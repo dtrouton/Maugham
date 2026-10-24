@@ -39,7 +39,7 @@ final class CheckpointCaptureTests: XCTestCase {
         let cp = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: "doc-1",
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s",
             label: nil)        // auto
 
@@ -56,6 +56,43 @@ final class CheckpointCaptureTests: XCTestCase {
         XCTAssertTrue(ops.contains(where: { $0.kind == .checkpoint }))
     }
 
+    /// **A checkpoint records each figure stream's pointer** (ruling D-g), so
+    /// plan 6b can restore a figure to it. A figure is not a document: no
+    /// breadcrumb lands on it even when the window names it, and its ops count
+    /// no words.
+    func test_captureCheckpoint_recordsFigurePointers_butAFigureIsNotADocument() async throws {
+        let opStore = OpLogStore(projectURL: tmp)
+        let seedOp = Op(
+            opId: ULID.generate(), docId: "doc-1", at: Date(),
+            device: "m", session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: "a", prior: nil, next: "Two words.")])
+        try await opStore.append(seedOp)
+        let create = Op(
+            opId: ULID.generate(), docId: "fig-0a1b2c3d", at: Date(),
+            device: "m", session: "s", kind: .figureCreate, changes: [],
+            figure: FigureOpPayload(kind: .table))
+        let row = Op(
+            opId: ULID.generate(), docId: "fig-0a1b2c3d", at: Date(),
+            device: "m", session: "s", kind: .figureStructure, changes: [],
+            figure: FigureOpPayload(structure: .insertRow(RowID("r1"), after: nil)))
+        try await opStore.append(create)
+        try await opStore.append(row)
+
+        let cp = try await CheckpointCapture.run(
+            projectURL: tmp,
+            activeDocId: "fig-0a1b2c3d",
+            allDocIds: ["doc-1"], figureIds: ["fig-0a1b2c3d"],
+            device: "m", session: "s",
+            label: nil)
+
+        XCTAssertEqual(cp.docPointers["doc-1"], seedOp.opId)
+        XCTAssertEqual(cp.docPointers["fig-0a1b2c3d"], row.opId, "the figure's last op")
+        XCTAssertNil(cp.activeDoc, "a figure is not the checkpoint's document")
+        XCTAssertEqual(cp.manuscriptWordCount, 2, "the figure counts no words")
+        let figureOps = try await opStore.load(docId: "fig-0a1b2c3d")
+        XCTAssertFalse(figureOps.contains { $0.kind == .checkpoint }, "no breadcrumb on a figure")
+    }
+
     func test_captureCheckpoint_userLabel_isHonored() async throws {
         let opStore = OpLogStore(projectURL: tmp)
         try await opStore.append(Op(
@@ -65,7 +102,7 @@ final class CheckpointCaptureTests: XCTestCase {
         let cp = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: "doc-1",
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s",
             label: "end of draft 2")
         XCTAssertEqual(cp.label, "end of draft 2")
@@ -111,7 +148,7 @@ final class CheckpointCaptureTests: XCTestCase {
         _ = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: doc.docId,
-            allDocIds: [doc.docId],
+            allDocIds: [doc.docId], figureIds: [],
             device: "m", session: "s",
             label: nil,
             activeDocument: doc)

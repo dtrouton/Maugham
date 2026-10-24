@@ -67,6 +67,7 @@ public enum TestCheckpointTool: MCPTool {
             projectURL: entry.url,
             activeDocId: p.doc_id,
             allDocIds: ds.allOpenDocuments().map { $0.docId },
+            figureIds: (entry.store.manifest.figures ?? []).map(\.id),
             device: doc.device,
             session: doc.session,
             label: p.label,

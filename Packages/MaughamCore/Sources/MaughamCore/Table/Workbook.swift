@@ -88,6 +88,21 @@ public struct Workbook: Sendable {
         return out
     }
 
+    /// Every table whose formulas read `name`, directly or through another table, never
+    /// `name` itself: what must re-render when `name` changes. A table naming a figure not
+    /// (yet) in the workbook counts, so it re-renders when that figure arrives.
+    public func tablesReading(_ name: String) -> Set<String> {
+        var found = Set<String>()
+        var queue = [name]
+        while let next = queue.popLast() {
+            for reader in tableReaders[next] ?? [] where reader.table != name && !found.contains(reader.table) {
+                found.insert(reader.table)
+                queue.append(reader.table)
+            }
+        }
+        return found
+    }
+
     // MARK: - Recalculation
 
     private mutating func recalculate(seeds: Set<CellAddress>, before: inout [CellAddress: CellValue]) -> Set<CellAddress> {

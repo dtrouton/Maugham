@@ -146,13 +146,17 @@ enum AnnotationLoading {
     ///
     /// docId → chapter is `StructureItem.id == docId` (the same id the op-log
     /// filename carries). A docId not in `structure` falls back to the `research`
-    /// tree ("Research" header); a docId in neither is surfaced under "Other"
-    /// with a docId-stub title (never dropped — fail-visible). Mapped chapters
-    /// sort by binder pre-order; unmapped/Other sort last.
+    /// tree ("Research" header), then to the manifest's `figures` registry — a
+    /// figure's own stream, titled "Table: <name>" or "Figure: <name>" under a
+    /// "Figures" header (report plan 6a); a docId in none is surfaced under
+    /// "Other" with a docId-stub title (never dropped — fail-visible). Mapped
+    /// chapters sort by binder pre-order, then research, then figures;
+    /// unmapped/Other sort last.
     static func groupByChapter(
         _ annotations: [LoadedAnnotation],
         structure: [StructureItem],
-        research: [ResearchItem]
+        research: [ResearchItem],
+        figures: [FigureRecord]
     ) -> [ChapterAnnotations] {
         // 1. docId -> (title, parentGroupTitle) + a binder-order index.
         var meta: [String: (title: String, group: String?)] = [:]
@@ -180,6 +184,13 @@ enum AnnotationLoading {
             order[item.id] = counter; counter += 1
         }
 
+        // Figures last among the mapped: a note on a table is the table's,
+        // named as the writer named it.
+        for figure in figures where meta[figure.id] == nil {
+            meta[figure.id] = (figureTitle(figure), "Figures")
+            order[figure.id] = counter; counter += 1
+        }
+
         // 2. Bucket by docId.
         var byDoc: [String: [LoadedAnnotation]] = [:]
         for a in annotations { byDoc[a.docId, default: []].append(a) }
@@ -203,6 +214,15 @@ enum AnnotationLoading {
             return a.docId < b.docId    // stable tie-break for two unmapped docs
         }
         return chapters
+    }
+
+    /// A figure's row title: "Table: <name>" for a table, "Figure: <name>"
+    /// for an image or a kind this build does not know.
+    static func figureTitle(_ figure: FigureRecord) -> String {
+        switch figure.kind {
+        case .table: return "Table: \(figure.name)"
+        case .image, .unknown: return "Figure: \(figure.name)"
+        }
     }
 
     /// Short, human-readable stub of an unmapped docId for the "Other" fallback.

@@ -13,6 +13,7 @@ Every file in `Maugham/Stores/` appears once.
 - `DocumentStore.swift` — the project-folder coordinator: the `NSFilePresenter` callbacks (`presenterDidChangeSubitem`), the `Document` registry, manifest IO and adoption hand-off, sessions and UI state, the typed mover (`relocate(plan:)`, `relocateUserContent`, `trash`), `coordinatedMove`/`coordinatedWrite`, `admit`, `invalidateTrust`, `reReadAfterExternalChange`. Tripwires 14, 40, 49, 50.
 - `DocumentStore+Registry.swift` — `revoke(person:)`, `retire(device:)`, `claim(adopting:)`, `forgetPersonKey(person:)`, `settle`, `heldLines()`/`heldLinesByDevice()`, `highestOpIdApplied(fromPerson:)`, the silent-admission queue. Tripwires 41, 53.
 - `DocumentStore+ClosedHeldLines.swift` — held lines in documents nobody has open (`closedProvenance`, `sweepClosedProvenance`).
+- `DocumentStore+Figures.swift` — figures in a window: `openFigure` (this store is the figure's door), the presenter's figure pass (reload, re-render the figure and its readers), `renderFigures`, the figure cache's trust drop.
 - `DocumentStore+Posture.swift` — the Mac's posture door: `PostureBook`, `posture(forDocId:as:)`, `settledPosture(forDocId:as:)`, `posture(forPath:)`, `overrideYield(docId:)`. Tripwires 46, 51.
 - `ProjectFolderPresenter.swift` — the `NSFilePresenter` that forwards callbacks to its delegate (`DocumentStore`).
 - `MaughamSidecarPath.swift` — typed classification of a project-relative URL; the presenter dispatches on it. Tripwire 40.

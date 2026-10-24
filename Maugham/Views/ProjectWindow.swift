@@ -263,6 +263,7 @@ struct ProjectWindow: View {
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
                     let projectURL = store.url
                     let allDocIds: [String] = Self.documentIds(in: store.manifest.structure)
+                    let figureIds: [String] = (store.manifest.figures ?? []).map(\.id)
                     CheckpointLabelPromptSheet(
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
@@ -272,7 +273,7 @@ struct ProjectWindow: View {
                                 await CheckpointFlashDecision.labelled(
                                     label, projectURL: projectURL,
                                     activeDocId: activeDocId, allDocIds: allDocIds,
-                                    device: _checkpointDeviceId,
+                                    figureIds: figureIds, device: _checkpointDeviceId,
                                     session: _checkpointSessionId,
                                     activeDocument: activeDoc,
                                     posture: { await documentStore.settledPosture(forDocId: $0) },

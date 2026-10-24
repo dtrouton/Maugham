@@ -16,6 +16,7 @@ Every file in `Maugham/OpLog/` appears once.
 - `Document+Rewind.swift` — `restoreToOp`, `applyRestore`, the restore door.
 - `Document+RewindUndo.swift` — `restoreToOpUndoable`: one grouped ⌘Z for a whole rewind.
 - `FigureDocument.swift` — a figure's host, never a `Document`: `load` emits nothing; mutators ask the figure's own posture (`editFigure`), else throw `FigureEditRefused`; ⌘Z via `registerFigureUndo`, drift-guarded.
+- `FigureRender.swift` — a table's `figures/<name>.csv`: computed values, written through `coordinatedWrite`, never read.
 
 ### Typing, echo, recovery
 - `PendingBuffer.swift` — the burst buffer mirrored to the pending file (`{ basis?, changes, sequence }`).
@@ -85,7 +86,7 @@ Every file in `Maugham/OpLog/` appears once.
 
 ### Checkpoints
 - **Checkpoints restore partially** — this document, not everything.
-- **A checkpoint never carries a non-document where a document goes.** `CheckpointCapture.documentSubject(of:in:)` is the one answer to "is this a manuscript document?", and its `nil` is honoured everywhere: no `.checkpoint` breadcrumb op, no parenthetical on the label, no `activeDoc`, no `.document(…)` seed in `PartialRestorePicker`. The label and the record are one decision (`CheckpointSubjectRecordTests.test_theLabelAndTheRecordCannotDisagree`). A recorded `activeDoc` is re-checked against the project's census on read; it is optional in memory and always present on the wire (`""` for nil), because older builds decode it non-optionally.
+- **A checkpoint never carries a non-document where a document goes.** `CheckpointCapture.documentSubject(of:in:)` is the one answer to "is this a manuscript document?"; its `nil` means no `.checkpoint` breadcrumb, no label parenthetical, no `activeDoc`, no `PartialRestorePicker` seed. The label and the record are one decision (`CheckpointSubjectRecordTests.test_theLabelAndTheRecordCannotDisagree`). A recorded `activeDoc` is re-checked on read and always written (`""` for nil) for older builds. A figure stream gets a pointer, never a breadcrumb.
 - **Don't collapse `OpLogStore`/`CheckpointStore` into bare `JSONLAppendStore<T>` calls**: the wrappers keep the hot-path and cold-path concurrency profiles explicit. New shared persistence semantics go into `JSONLAppendStore`. Both partition per device (tripwire 17); checkpoints are not chained. Tripwire 17's census: `OpLogStoreSegmentTests.test_legacyFile_neverSealed`.
 - A checkpoint the subject's posture forbids throws `CheckpointRefusal` before writing; ⌘S swallows exactly that and still flashes.
 

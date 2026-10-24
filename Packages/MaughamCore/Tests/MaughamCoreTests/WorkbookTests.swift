@@ -72,6 +72,36 @@ final class WorkbookTests: XCTestCase {
         XCTAssertEqual(wb.value(at: b1), .number(250))
     }
 
+    /// **Which tables a re-render must follow** (report plan 6a Task 7): every
+    /// table whose formulas name the changed one, directly or through another,
+    /// never the table itself; a table that names a figure not yet in the
+    /// workbook still counts, so it re-renders when that figure arrives.
+    func test_tablesReading_followsFormulasTransitively() {
+        var wb = Workbook(pins: StubPins())
+        var cash = FigureTable(rows: 6, columns: 6)
+        set(&cash, "E5", "100")
+        wb.setTable(cash, named: "cashflow")
+        var summary = FigureTable(rows: 2, columns: 2)
+        set(&summary, "B1", "=cashflow!E5", figures: ["cashflow": cash])
+        wb.setTable(summary, named: "summary")
+        var report = FigureTable(rows: 2, columns: 2)
+        set(&report, "A1", "=summary!B1", figures: ["summary": summary])
+        wb.setTable(report, named: "report")
+        var loose = FigureTable(rows: 2, columns: 2)
+        set(&loose, "A1", "=A2")
+        wb.setTable(loose, named: "loose")
+
+        XCTAssertEqual(wb.tablesReading("cashflow"), ["summary", "report"])
+        XCTAssertEqual(wb.tablesReading("summary"), ["report"])
+        XCTAssertEqual(wb.tablesReading("report"), [])
+        XCTAssertEqual(wb.tablesReading("loose"), [], "a table reading only itself is nobody's dependant")
+
+        var waiting = FigureTable(rows: 2, columns: 2)
+        set(&waiting, "A1", "=later!A1", figures: ["later": FigureTable(rows: 2, columns: 2)])
+        wb.setTable(waiting, named: "waiting")
+        XCTAssertEqual(wb.tablesReading("later"), ["waiting"], "a missing table's readers are known")
+    }
+
     func test_researchRef_readsPin_andPinsChangedRecalculates() {
         let pins = MutablePins()
         pins.set("model-v3!B9", .number(7))

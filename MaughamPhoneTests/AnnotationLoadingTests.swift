@@ -99,7 +99,7 @@ final class AnnotationLoadingTests: XCTestCase {
             loaded("n1", docId: "doc-a", status: .open),
             loaded("n2", docId: "doc-b", status: .open),
         ]
-        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [])
+        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [], figures: [])
         XCTAssertEqual(chapters.map(\.docId), ["doc-a", "doc-b", "doc-c"], "binder order, not annotation order")
         XCTAssertEqual(chapters.map(\.chapterTitle), ["Arrival", "The Letter", "Nightfall"])
         XCTAssertEqual(chapters.map(\.groupTitle), ["Act I", "Act I", "Act II"])
@@ -112,7 +112,7 @@ final class AnnotationLoadingTests: XCTestCase {
             loaded("n2", docId: "doc-a", status: .accepted),
             loaded("n3", docId: "doc-a", status: .archived),
         ]
-        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [])
+        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [], figures: [])
         XCTAssertEqual(chapters.count, 1)
         XCTAssertEqual(chapters[0].open.map(\.id), ["n1"])
         XCTAssertEqual(Set(chapters[0].resolved.map(\.id)), ["n2", "n3"])
@@ -122,13 +122,13 @@ final class AnnotationLoadingTests: XCTestCase {
 
     func test_groupByChapter_ungroupedDocument_hasNilGroupTitle() {
         let structure = [doc("doc-a", "Loose Chapter")]
-        let chapters = AnnotationLoading.groupByChapter([loaded("n1", docId: "doc-a", status: .open)], structure: structure, research: [])
+        let chapters = AnnotationLoading.groupByChapter([loaded("n1", docId: "doc-a", status: .open)], structure: structure, research: [], figures: [])
         XCTAssertEqual(chapters[0].groupTitle, nil)
     }
 
     func test_groupByChapter_researchFallbackTitle() {
         let research = [ResearchItem(id: "doc-r", title: "World Bible", type: .asset, kind: .document, path: "r.md")]
-        let chapters = AnnotationLoading.groupByChapter([loaded("n1", docId: "doc-r", status: .open)], structure: [], research: research)
+        let chapters = AnnotationLoading.groupByChapter([loaded("n1", docId: "doc-r", status: .open)], structure: [], research: research, figures: [])
         XCTAssertEqual(chapters.map(\.chapterTitle), ["World Bible"])
         XCTAssertEqual(chapters.map(\.groupTitle), ["Research"])
     }
@@ -139,14 +139,43 @@ final class AnnotationLoadingTests: XCTestCase {
             loaded("n1", docId: "doc-a", status: .open),
             loaded("n2", docId: "doc-ORPHAN9999", status: .open),
         ]
-        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [])
+        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [], figures: [])
         XCTAssertEqual(chapters.map(\.docId), ["doc-a", "doc-ORPHAN9999"], "unmapped sorts last, never dropped")
         XCTAssertEqual(chapters.last?.groupTitle, "Other")
         XCTAssertTrue(chapters.last?.chapterTitle.contains("doc-ORPHAN") ?? false)
     }
 
+    /// **A figure's notes are the figure's** (report plan 6a Task 7): a note
+    /// in a figure's own stream is titled from the registry — "Table: <name>"
+    /// or "Figure: <name>" under "Figures", after the manuscript and research
+    /// — never "Other". A figure stream the registry does not name stays
+    /// fail-visible under "Other".
+    func test_groupByChapter_figureNotesAreTitledFromTheRegistry() {
+        let structure = [doc("doc-a", "Arrival")]
+        let research = [ResearchItem(id: "doc-r", title: "World Bible", type: .asset, kind: .document, path: "r.md")]
+        let figures = [
+            FigureRecord(id: "fig-0a1b2c3d", name: "cashflow", kind: .table, piece: "doc-a", path: "figures/cashflow.csv"),
+            FigureRecord(id: "fig-1a2b3c4d", name: "map", kind: .image, piece: nil, path: "figures/map.png"),
+        ]
+        let anns = [
+            loaded("n4", docId: "fig-9z9z9z9z", status: .open),
+            loaded("n3", docId: "fig-1a2b3c4d", status: .open),
+            loaded("n2", docId: "fig-0a1b2c3d", status: .open),
+            loaded("n0", docId: "doc-r", status: .open),
+            loaded("n1", docId: "doc-a", status: .open),
+        ]
+        let chapters = AnnotationLoading.groupByChapter(
+            anns, structure: structure, research: research, figures: figures)
+        XCTAssertEqual(chapters.map(\.docId),
+                       ["doc-a", "doc-r", "fig-0a1b2c3d", "fig-1a2b3c4d", "fig-9z9z9z9z"])
+        XCTAssertEqual(chapters.map(\.chapterTitle).prefix(4),
+                       ["Arrival", "World Bible", "Table: cashflow", "Figure: map"])
+        XCTAssertEqual(chapters.map(\.groupTitle).prefix(4), [nil, "Research", "Figures", "Figures"])
+        XCTAssertEqual(chapters.last?.groupTitle, "Other", "an unregistered figure stream stays visible")
+    }
+
     func test_groupByChapter_empty_isEmpty() {
-        XCTAssertTrue(AnnotationLoading.groupByChapter([], structure: [], research: []).isEmpty)
+        XCTAssertTrue(AnnotationLoading.groupByChapter([], structure: [], research: [], figures: []).isEmpty)
     }
 
     // MARK: - mode filters

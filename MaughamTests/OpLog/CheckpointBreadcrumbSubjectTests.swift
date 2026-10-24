@@ -78,7 +78,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
         _ = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: "grp-1",
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s", label: nil)
 
         XCTAssertEqual(
@@ -95,7 +95,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
         _ = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: BinderSubject.noDocumentSubject,
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s", label: nil)
 
         XCTAssertEqual(
@@ -112,7 +112,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
         _ = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: BinderSubject.noDocumentSubject,
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s", label: nil)
 
         let projectOps = try await OpLogStore(projectURL: tmp).load(docId: "__project__")
@@ -130,7 +130,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
         let cp = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: "grp-1",
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s", label: "part one done")
 
         let stored = await CheckpointStore(projectURL: tmp).load().checkpoints
@@ -153,7 +153,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
         _ = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: "doc-1",
-            allDocIds: ["doc-1"],
+            allDocIds: ["doc-1"], figureIds: [],
             device: "m", session: "s", label: nil)
 
         let ops = try await OpLogStore(projectURL: tmp).load(docId: "doc-1")

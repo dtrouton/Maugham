@@ -601,7 +601,7 @@ final class PostureStandingLineTests: XCTestCase {
         try await CheckpointCapture.run(
             projectURL: fixture.projectURL,
             activeDocId: PostureFixture.docId,
-            allDocIds: [PostureFixture.docId],
+            allDocIds: [PostureFixture.docId], figureIds: [],
             device: "m", session: "s", label: label,
             posture: { await store.settledPosture(forDocId: $0) })
     }
@@ -646,7 +646,7 @@ final class PostureStandingLineTests: XCTestCase {
         var flashes = 0
         await CheckpointFlashDecision.labelled(
             "Before the cut", projectURL: fixture.projectURL,
-            activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId],
+            activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId], figureIds: [],
             device: "m", session: "s", activeDocument: nil,
             posture: { await store.settledPosture(forDocId: $0) },
             backups: BackupCoordinator(),
@@ -659,7 +659,7 @@ final class PostureStandingLineTests: XCTestCase {
         try await fixture.changeMyPermit(to: .bookAuthor, store: store)
         await CheckpointFlashDecision.labelled(
             "After", projectURL: fixture.projectURL,
-            activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId],
+            activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId], figureIds: [],
             device: "m", session: "s", activeDocument: nil,
             posture: { await store.settledPosture(forDocId: $0) },
             backups: BackupCoordinator(),
@@ -687,7 +687,7 @@ final class PostureStandingLineTests: XCTestCase {
         func confirm(_ label: String) async {
             await CheckpointFlashDecision.labelled(
                 label, projectURL: fixture.projectURL,
-                activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId],
+                activeDocId: PostureFixture.docId, allDocIds: [PostureFixture.docId], figureIds: [],
                 device: "m", session: "s", activeDocument: nil,
                 posture: { await store.settledPosture(forDocId: $0) },
                 backups: coordinator,

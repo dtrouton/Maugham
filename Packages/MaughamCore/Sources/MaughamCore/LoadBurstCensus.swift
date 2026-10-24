@@ -143,6 +143,10 @@ public enum LoadBurstCensus {
             let isSegment = name.hasSuffix(".\(OpLogSegment.fileExtension)")
             guard name.hasSuffix(".jsonl") || isSegment else { continue }
             let url = ops.appendingPathComponent(name)
+            // A figure's stream holds table ops, never a burst: not a
+            // manuscript, so not read (report plan 6a).
+            if let stream = PermitMark.stream(of: url),
+               DocumentClass.isFigureDocId(stream.docId) { continue }
             guard let raw = try? Data(contentsOf: url) else {  // adr-0018-ok: op-log tail or sealed segment, never a manuscript file
                 unreadable.append(name)
                 continue
