@@ -24,16 +24,23 @@ public enum TableCSV {
     }
 
     /// A research copy: formulas as "=" + their A1 text, values as in `render`. A text value that
-    /// would read back as a formula or an escape gets the "'" escape.
+    /// would not read back as exactly that text (a number, date, TRUE, a formula, padding) gets the "'" escape.
     public static func renderResearch(_ table: FigureTable, figures: [String: FigureTable] = [:]) -> String {
         write(table) { key in
             guard let cell = table[key] else { return "" }
             switch cell.content {
             case .formula(let f): return "=" + FormulaParser.render(f, in: table, figures: figures)
-            case .value(.text(let s)): return s.hasPrefix("=") || s.hasPrefix("'") ? "'" + s : s
+            case .value(.text(let s)): return readsBackVerbatim(s) ? s : "'" + s
             case .value(let v): return text(v)
             }
         }
+    }
+
+    private static let posix = TableLocale(languageTag: "en-US")
+
+    private static func readsBackVerbatim(_ s: String) -> Bool {
+        if s.isEmpty { return true }
+        return CellInput.parse(s, locale: posix) == .value(.text(s), suggested: nil)
     }
 
     private static func write(_ table: FigureTable, field: (CellKey) -> String) -> String {
@@ -58,7 +65,7 @@ public enum TableCSV {
     }
 
     private static func quote(_ s: String) -> String {
-        let needs = s.unicodeScalars.contains { $0 == "," || $0 == "\"" || $0 == "\r" || $0 == "\n" }
+        let needs = s.unicodeScalars.contains { $0 == "," || $0 == ";" || $0 == "\t" || $0 == "\"" || $0 == "\r" || $0 == "\n" }
             || s.hasPrefix(" ") || s.hasSuffix(" ")
         return needs ? "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : s
     }
@@ -139,7 +146,7 @@ public enum TableCSV {
         let width = parsed.map(\.count).max() ?? 0
         var table = FigureTable(rows: parsed.count, columns: width)
         let ids = (rows: table.rows, columns: table.columns)
-        let cellLocale = separator == ";" ? locale.readingDecimalComma() : locale
+        let cellLocale = separator == ";" ? locale.readingDecimalComma() : locale.readingDecimalPoint()
         var problems: [CSVReadProblem] = []
         var entries: [[CellEntry]] = []
 
@@ -147,7 +154,9 @@ public enum TableCSV {
             var line: [CellEntry] = []
             for c in 0..<width {
                 let field = c < raw.count ? raw[c] : ""
-                var entry = CellInput.parse(field, locale: cellLocale)
+                // The "'" escape keeps the rest verbatim, padding included.
+                var entry = field.hasPrefix("'") ? CellEntry.value(.text(String(field.dropFirst())), suggested: nil)
+                                                 : CellInput.parse(field, locale: cellLocale)
                 var content: CellContent?
                 var format = CellFormat()
                 switch entry {

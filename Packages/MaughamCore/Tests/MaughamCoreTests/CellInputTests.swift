@@ -56,6 +56,16 @@ final class CellInputTests: XCTestCase {
         XCTAssertEqual(p("hello"), .value(.text("hello"), suggested: nil))
     }
 
+    func test_exponentFormIsANumber() {
+        XCTAssertEqual(p("1.5E+20"), .value(.number(1.5e20), suggested: nil))
+        XCTAssertEqual(p("1e-7"), .value(.number(1e-7), suggested: nil))
+        XCTAssertEqual(p("2E5"), .value(.number(200000), suggested: nil))
+        XCTAssertEqual(p("2E5", es), .value(.number(200000), suggested: nil))
+        for s in ["e5", "1e", "1e+", "1.2.3e4", "1e5e5", ".e5", "1e99999", "1e5x"] {
+            XCTAssertEqual(p(s).textValue, s, s)
+        }
+    }
+
     func test_totalOnHostileInput() {
         let long = String(repeating: "9", count: 400)
         XCTAssertEqual(p(long), .value(.text(long), suggested: nil))

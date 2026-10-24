@@ -82,8 +82,22 @@ public enum CellInput {
     /// The locale's reading first, else POSIX.
     private static func readBody(_ s: String, locale: TableLocale) -> (canonical: String, decimals: Int, grouped: Bool)? {
         guard !s.isEmpty else { return nil }
+        if let r = exponentForm(s) { return r }
         if let r = read(s, decimal: locale.decimalSeparator, grouping: locale.groupingSeparator) { return r }
         return read(s, decimal: ".", grouping: nil)
+    }
+
+    /// POSIX exponent form (1.5E+20, 1e-7, 2E5), which a table writes for very large and small numbers.
+    private static func exponentForm(_ s: String) -> (canonical: String, decimals: Int, grouped: Bool)? {
+        let parts = s.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "e" || $0 == "E" })
+        guard parts.count == 2 else { return nil }
+        let mantissa = parts[0].split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...2).contains(mantissa.count), mantissa.allSatisfy({ $0.isEmpty || allDigits(String($0)) }),
+              mantissa.contains(where: { !$0.isEmpty }) else { return nil }
+        var exp = Substring(parts[1])
+        if let c = exp.first, c == "+" || c == "-" { exp = exp.dropFirst() }
+        guard allDigits(String(exp)), exp.count <= 4 else { return nil }
+        return (s, mantissa.count == 2 ? mantissa[1].count : 0, false)
     }
 
     private static func read(_ raw: String, decimal: String, grouping: String?) -> (canonical: String, decimals: Int, grouped: Bool)? {

@@ -180,4 +180,67 @@ final class TableCSVTests: XCTestCase {
         XCTAssertEqual(once, twice)
         XCTAssertEqual(once.split(separator: "\n").count, 21)
     }
+
+    // MARK: fix round 1
+
+    private func textTable(_ rows: [[String]]) -> FigureTable {
+        var t = FigureTable(rows: rows.count, columns: rows.map(\.count).max() ?? 0)
+        for (r, line) in rows.enumerated() {
+            for (c, v) in line.enumerated() {
+                t.setCell(Cell(content: .value(.text(v))), at: CellKey(row: t.rows[r], column: t.columns[c]))
+            }
+        }
+        return t
+    }
+
+    func test_researchRoundTrip_keepsTextVerbatim() {
+        let odd = ["007", "TRUE", "2026-10-24", "50%", " padded ", " =x", "=x", "'quoted", " 'x", "1.5E+20", "12", "-3"]
+        let plain = ["Tea", "hello world", "Q4 plan"]
+        let t = textTable([odd + plain])
+        let csv = TableCSV.renderResearch(t)
+        for v in plain { XCTAssertFalse(csv.contains("'" + v), v) }
+        let (back, problems) = TableCSV.read(csv, locale: gb)
+        XCTAssertTrue(problems.isEmpty)
+        for (c, v) in (odd + plain).enumerated() {
+            XCTAssertEqual(back[CellKey(row: back.rows[0], column: back.columns[c])]?.content, .value(.text(v)), v)
+        }
+    }
+
+    func test_writer_quotesSemicolonsAndTabs_soSniffingCannotMisfire() {
+        for rows in [[["a; b; c"], ["x\ty\tz"]], [["a; b; c,d", "e"], ["1", "2"]]] {
+            let t = textTable(rows)
+            let (back, _) = TableCSV.read(TableCSV.renderResearch(t), locale: gb)
+            XCTAssertEqual(back.rows.count, rows.count)
+            XCTAssertEqual(back.columns.count, rows[0].count)
+            XCTAssertEqual(back[CellKey(row: back.rows[0], column: back.columns[0])]?.content, .value(.text(rows[0][0])))
+        }
+    }
+
+    func test_commaAndTabFilesReadDecimalPoint_whateverTheLocale() {
+        for tag in ["de-DE", "es-ES"] {
+            let l = TableLocale(languageTag: tag)
+            for sep in [",", "\t"] {
+                let (t, _) = TableCSV.read("1.234\(sep)1.5\n", locale: l)
+                XCTAssertEqual(t[key(t, "A1")]?.content, .value(.number(1.234)), tag)
+                XCTAssertEqual(t[key(t, "B1")]?.content, .value(.number(1.5)), tag)
+            }
+            let (semi, _) = TableCSV.read("1,5;1.234,5;2;3\n", locale: l)
+            XCTAssertEqual(semi[key(semi, "A1")]?.content, .value(.number(1.5)), tag)
+            XCTAssertEqual(semi[key(semi, "B1")]?.content, .value(.number(1234.5)), tag)
+            // The writer's own output survives a round trip.
+            var t = FigureTable(rows: 1, columns: 1)
+            t.setCell(Cell(content: .value(.number(1.234))), at: key(t, "A1"))
+            let back = TableCSV.read(render(t), locale: l).table
+            XCTAssertEqual(back[key(back, "A1")]?.content, .value(.number(1.234)), tag)
+        }
+    }
+
+    func test_exponentNumbersRoundTrip() {
+        var t = FigureTable(rows: 1, columns: 2)
+        t.setCell(Cell(content: .value(.number(1.5e20))), at: key(t, "A1"))
+        t.setCell(Cell(content: .value(.number(1e-7))), at: key(t, "B1"))
+        let back = TableCSV.read(render(t), locale: gb).table
+        XCTAssertEqual(back[key(back, "A1")]?.content, .value(.number(1.5e20)))
+        XCTAssertEqual(back[key(back, "B1")]?.content, .value(.number(1e-7)))
+    }
 }
