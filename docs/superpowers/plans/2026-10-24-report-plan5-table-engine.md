@@ -359,7 +359,7 @@ Excel gives up after 20 iterations, so where Excel converges we must give its ro
   - `IRR(-70000, 12000, 15000, 18000, 21000, 26000)` ≈ 0.086631 (8.7%).
   - `IRR(-70000, 12000, 15000, guess: -0.1)` ≈ −0.443507 (−44.4%).
   - **For every IRR:** also assert the defining property, |NPV at the result of the flows with the first undiscounted| < 1e-6 × the largest flow.
-  - `MIRR(-120000, 39000, 30000, 21000, 37000, 46000; 10%, 12%)` ≈ 0.12609; the first five flows ≈ −0.04804; reinvesting at 14% ≈ 0.13476.
+  - `MIRR(-120000, 39000, 30000, 21000, 37000, 46000; 10%, 12%)` ≈ 0.12609; the first four flows (Microsoft's A2:A5) ≈ −0.04804; reinvesting at 14% ≈ 0.13476.
   - `PMT(8%/12, 10, 10000)` = −1037.03; with `type` 1 → −1030.16.
   - `PV(8%/12, 240, 500)` = −59777.15.
   - `FV(6%/12, 10, -200, -500, 1)` = 2581.40.
