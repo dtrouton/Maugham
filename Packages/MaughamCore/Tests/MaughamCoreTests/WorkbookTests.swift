@@ -236,13 +236,18 @@ final class WorkbookTests: XCTestCase {
 
     func test_dependentOfCycle_isCIRC() {
         var wb = Workbook(pins: StubPins())
-        var t = FigureTable(rows: 4, columns: 1)
+        var t = FigureTable(rows: 6, columns: 2)
         set(&t, "A1", "=A2")
         set(&t, "A2", "=A1")
         set(&t, "A3", "=A1+1")
-        set(&t, "A4", "=IFERROR(A3,0)")                                  // a cycle has no value to catch
+        set(&t, "A4", "=IFERROR(A3,0)")                                  // R-P5-12: an ordinary error, caught
+        set(&t, "B1", "4")
+        set(&t, "A5", "=COUNT(A1:B3)")                                   // COUNT ignores the cycle's errors
+        set(&t, "A6", "=SUM(A1:B1)")
         wb.setTable(t, named: "t")
-        for a in ["A1", "A2", "A3", "A4"] { XCTAssertEqual(wb.value(at: address("t", t, a)), .error(.circular), a) }
+        for a in ["A1", "A2", "A3", "A6"] { XCTAssertEqual(wb.value(at: address("t", t, a)), .error(.circular), a) }
+        XCTAssertEqual(wb.value(at: address("t", t, "A4")), .number(0))
+        XCTAssertEqual(wb.value(at: address("t", t, "A5")), .number(1))
     }
 
     func test_cycleBroken_recovers() {

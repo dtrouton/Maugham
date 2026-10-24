@@ -10,12 +10,18 @@ public struct FigureTable: Equatable, Codable, Sendable {
         public init(id: ID, isDeleted: Bool = false) { self.id = id; self.isDeleted = isDeleted }
     }
 
-    public private(set) var rowSlots: [Slot<RowID>]
-    public private(set) var columnSlots: [Slot<ColumnID>]
+    public private(set) var rowSlots: [Slot<RowID>] { didSet { rowAxis = AxisIndex(rowSlots) } }
+    public private(set) var columnSlots: [Slot<ColumnID>] { didSet { columnAxis = AxisIndex(columnSlots) } }
     public private(set) var cells: [CellKey: Cell]
     public var headerRows: Int { didSet { headerRows = min(max(headerRows, 0), 1) } }
     public var hasTotalRow: Bool
     public var columnWidths: [ColumnID: Double]
+
+    /// Id → slot index and id → live position for each axis, so every id lookup is a
+    /// dictionary read. Derived from the slots: never encoded, rebuilt on decode, and
+    /// rebuilt by the slots' `didSet` on every insert, delete and move (each already O(n)).
+    private var rowAxis: AxisIndex<RowID>
+    private var columnAxis: AxisIndex<ColumnID>
 
     public init(rows: Int, columns: Int) {
         var used = Set<String>()
@@ -28,23 +34,47 @@ public struct FigureTable: Equatable, Codable, Sendable {
         }
         rowSlots = r; columnSlots = c; cells = [:]
         headerRows = 0; hasTotalRow = false; columnWidths = [:]
+        rowAxis = AxisIndex(r); columnAxis = AxisIndex(c)
     }
 
-    public var rows: [RowID] { rowSlots.filter { !$0.isDeleted }.map(\.id) }
-    public var columns: [ColumnID] { columnSlots.filter { !$0.isDeleted }.map(\.id) }
+    private enum CodingKeys: String, CodingKey {
+        case rowSlots, columnSlots, cells, headerRows, hasTotalRow, columnWidths
+    }
 
-    public func rowIndex(of id: RowID) -> Int? {
-        var n = 0
-        for s in rowSlots where !s.isDeleted { if s.id == id { return n }; n += 1 }
-        return nil
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rowSlots = try c.decode([Slot<RowID>].self, forKey: .rowSlots)
+        columnSlots = try c.decode([Slot<ColumnID>].self, forKey: .columnSlots)
+        cells = try c.decode([CellKey: Cell].self, forKey: .cells)
+        headerRows = try c.decode(Int.self, forKey: .headerRows)
+        hasTotalRow = try c.decode(Bool.self, forKey: .hasTotalRow)
+        columnWidths = try c.decode([ColumnID: Double].self, forKey: .columnWidths)
+        rowAxis = AxisIndex(rowSlots); columnAxis = AxisIndex(columnSlots)
     }
-    public func columnIndex(of id: ColumnID) -> Int? {
-        var n = 0
-        for s in columnSlots where !s.isDeleted { if s.id == id { return n }; n += 1 }
-        return nil
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(rowSlots, forKey: .rowSlots)
+        try c.encode(columnSlots, forKey: .columnSlots)
+        try c.encode(cells, forKey: .cells)
+        try c.encode(headerRows, forKey: .headerRows)
+        try c.encode(hasTotalRow, forKey: .hasTotalRow)
+        try c.encode(columnWidths, forKey: .columnWidths)
     }
-    public func rowSlotIndex(of id: RowID) -> Int? { rowSlots.firstIndex { $0.id == id } }
-    public func columnSlotIndex(of id: ColumnID) -> Int? { columnSlots.firstIndex { $0.id == id } }
+
+    /// Equality ignores the derived indexes.
+    public static func == (a: FigureTable, b: FigureTable) -> Bool {
+        a.rowSlots == b.rowSlots && a.columnSlots == b.columnSlots && a.cells == b.cells
+            && a.headerRows == b.headerRows && a.hasTotalRow == b.hasTotalRow && a.columnWidths == b.columnWidths
+    }
+
+    public var rows: [RowID] { rowAxis.live }
+    public var columns: [ColumnID] { columnAxis.live }
+
+    public func rowIndex(of id: RowID) -> Int? { rowAxis.position[id] }
+    public func columnIndex(of id: ColumnID) -> Int? { columnAxis.position[id] }
+    public func rowSlotIndex(of id: RowID) -> Int? { rowAxis.slot[id] }
+    public func columnSlotIndex(of id: ColumnID) -> Int? { columnAxis.slot[id] }
 
     public subscript(key: CellKey) -> Cell? { cells[key] }
 
@@ -111,6 +141,27 @@ public struct FigureTable: Equatable, Codable, Sendable {
         guard let after else { return 0 }
         if let i = slots.firstIndex(where: { $0.id == after }) { return i + 1 }
         return slots.count
+    }
+}
+
+/// One axis's derived lookups: each id's first slot index, each live id's first live
+/// position, and the live ids in order (the answers the old scans gave).
+private struct AxisIndex<ID: Hashable & Codable & Sendable>: Sendable {
+    let slot: [ID: Int]
+    let position: [ID: Int]
+    let live: [ID]
+
+    init(_ slots: [FigureTable.Slot<ID>]) {
+        var slot = [ID: Int](minimumCapacity: slots.count), position = [ID: Int](minimumCapacity: slots.count)
+        var live = [ID]()
+        live.reserveCapacity(slots.count)
+        for (i, s) in slots.enumerated() {
+            if slot[s.id] == nil { slot[s.id] = i }
+            guard !s.isDeleted else { continue }
+            if position[s.id] == nil { position[s.id] = live.count }
+            live.append(s.id)
+        }
+        self.slot = slot; self.position = position; self.live = live
     }
 }
 

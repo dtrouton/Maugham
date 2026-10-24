@@ -14,15 +14,14 @@ public enum FormulaNote: Hashable, Sendable {
 
 /// A document's figure tables evaluated together: refs between tables are live, research
 /// refs read pins, and an edit recalculates only the cells that read what changed, in
-/// dependency order. A reference cycle is `#CIRC!` on every cell in it and every cell that
-/// reads it. Dependencies are static (both branches of an `IF` count), as in Excel.
+/// dependency order. A reference cycle is `#CIRC!` on every cell in it; a cell that reads
+/// it sees that error as any other (IFERROR catches it). Dependencies are static (both branches of an `IF` count), as in Excel.
 public struct Workbook: Sendable {
     public private(set) var tables: [String: FigureTable] = [:]
     /// Test seam: how many formula cells the last `setTable`/`pinsChanged` evaluated.
     public private(set) var lastEvaluationCount = 0
 
     private let pins: any ResearchPinSource
-    private var layouts: [String: TableLayout] = [:]
     private var formulas: [CellAddress: Formula] = [:]
     private var values: [CellAddress: CellValue] = [:]          // formula cells' results
     private var graph = DependencyGraph()
@@ -30,7 +29,6 @@ public struct Workbook: Sendable {
     private var tableReaders: [String: Set<CellAddress>] = [:]
     private var researchRead: [CellAddress: Set<String>] = [:]   // formula → research items it reads directly
     private var researchReadersIndex: [String: Set<CellAddress>] = [:]
-    private var circular: Set<CellAddress> = []
     private var npvNoted: Set<CellAddress> = []
 
     public init(pins: ResearchPinSource) { self.pins = pins }
@@ -58,7 +56,6 @@ public struct Workbook: Sendable {
         for a in changed { before[a] = value(at: a) }
 
         tables[name] = table
-        layouts[name] = table.map(TableLayout.init)
 
         var resolve = Set<CellAddress>()
         for a in changed {
@@ -101,12 +98,9 @@ public struct Workbook: Sendable {
                 for a in component.members { markCircular(a) }
                 continue
             }
+            // A cell reading a cycle sees #CIRC! as an ordinary error: it propagates through
+            // arithmetic, IFERROR catches it and COUNT ignores it (R-P5-12).
             let a = component.members[0]
-            if let reads = graph.precedents[a], reads.contains(where: { circular.contains($0) }) {
-                markCircular(a)                                // a cycle's value propagates as #CIRC!
-                continue
-            }
-            circular.remove(a)
             let (v, noted) = evaluate(a)
             values[a] = v
             if noted { npvNoted.insert(a) } else { npvNoted.remove(a) }
@@ -117,7 +111,6 @@ public struct Workbook: Sendable {
 
     private mutating func markCircular(_ a: CellAddress) {
         values[a] = .error(.circular)
-        circular.insert(a)
         npvNoted.remove(a)
     }
 
@@ -128,7 +121,6 @@ public struct Workbook: Sendable {
         for r in researchRead.removeValue(forKey: a) ?? [] { Self.remove(a, from: r, in: &researchReadersIndex) }
         formulas[a] = nil
         values[a] = nil
-        circular.remove(a)
         npvNoted.remove(a)
     }
 
@@ -152,7 +144,7 @@ public struct Workbook: Sendable {
     }
 
     private func resolver(home: String) -> WorkbookResolver {
-        WorkbookResolver(tables: tables, layouts: layouts, home: home)
+        WorkbookResolver(tables: tables, home: home)
     }
 
     /// The formula's value and whether it carries the NPV first-flow note.
@@ -244,26 +236,6 @@ public struct Workbook: Sendable {
 
 // MARK: - Resolution
 
-/// Each table's live positions and slot indices, rebuilt when the table is set, so
-/// resolving a reference is a lookup rather than a scan.
-private struct TableLayout: Sendable {
-    let rowSlot: [RowID: Int]
-    let columnSlot: [ColumnID: Int]
-    let rows: [RowID]
-    let columns: [ColumnID]
-    let rowPosition: [RowID: Int]
-    let columnPosition: [ColumnID: Int]
-
-    init(_ t: FigureTable) {
-        rowSlot = Dictionary(t.rowSlots.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
-        columnSlot = Dictionary(t.columnSlots.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
-        rows = t.rows
-        columns = t.columns
-        rowPosition = Dictionary(rows.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-        columnPosition = Dictionary(columns.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-}
-
 /// What a formula reads: cells (for the dependency graph), table names (re-resolved on a
 /// structural change or when the table comes or goes) and research items.
 private struct References {
@@ -273,11 +245,10 @@ private struct References {
 }
 
 /// Turns a formula's refs into workbook addresses, the same way for dependencies and for
-/// evaluation. Id ranges go through `FigureTable.liveRows/liveColumns(betweenSlots:)`, the
+/// evaluation, through the table's own O(1) id lookups. Id ranges go through `FigureTable.liveRows/liveColumns(betweenSlots:)`, the
 /// one range definition rendering also uses, so a deleted edge shrinks the range.
 private struct WorkbookResolver: Sendable {
     let tables: [String: FigureTable]
-    let layouts: [String: TableLayout]
     let home: String
 
     func tableName(_ target: RefTarget) -> String? {
@@ -290,32 +261,34 @@ private struct WorkbookResolver: Sendable {
 
     /// A single ref's cell; nil (`#REF!`) for a missing table, a tombstone or off-grid.
     func address(_ ref: FormulaRef) -> CellAddress? {
-        guard let name = tableName(ref.target), let layout = layouts[name] else { return nil }
+        guard let name = tableName(ref.target), let table = tables[name] else { return nil }
         switch ref.anchor {
         case .id(let row, let column):
-            guard layout.rowPosition[row] != nil, layout.columnPosition[column] != nil else { return nil }
+            guard table.rowIndex(of: row) != nil, table.columnIndex(of: column) != nil else { return nil }
             return CellAddress(table: name, key: CellKey(row: row, column: column))
         case .position(let row, let column):
-            guard layout.rows.indices.contains(row), layout.columns.indices.contains(column) else { return nil }
-            return CellAddress(table: name, key: CellKey(row: layout.rows[row], column: layout.columns[column]))
+            let rows = table.rows, columns = table.columns
+            guard rows.indices.contains(row), columns.indices.contains(column) else { return nil }
+            return CellAddress(table: name, key: CellKey(row: rows[row], column: columns[column]))
         }
     }
 
     /// A range's live cells row by row; nil (`#REF!`) when nothing between its edges is live.
     func cells(_ g: FormulaRange) -> [[CellAddress]]? {
-        guard let name = tableName(g.start.target), let table = tables[name], let layout = layouts[name] else { return nil }
+        guard let name = tableName(g.start.target), let table = tables[name] else { return nil }
         let rows: [RowID], columns: [ColumnID]
         switch (g.start.anchor, g.end.anchor) {
         case let (.id(r0, c0), .id(r1, c1)):
-            guard let rs0 = layout.rowSlot[r0], let rs1 = layout.rowSlot[r1],
-                  let cs0 = layout.columnSlot[c0], let cs1 = layout.columnSlot[c1] else { return nil }
+            guard let rs0 = table.rowSlotIndex(of: r0), let rs1 = table.rowSlotIndex(of: r1),
+                  let cs0 = table.columnSlotIndex(of: c0), let cs1 = table.columnSlotIndex(of: c1) else { return nil }
             rows = table.liveRows(betweenSlots: rs0, rs1)
             columns = table.liveColumns(betweenSlots: cs0, cs1)
         case (.position, .position):
+            let live = table.rows, liveColumns = table.columns
             guard let (rr, cr) = Self.positions(g),
-                  rr.upperBound < layout.rows.count, cr.upperBound < layout.columns.count else { return nil }
-            rows = Array(layout.rows[rr])
-            columns = Array(layout.columns[cr])
+                  rr.upperBound < live.count, cr.upperBound < liveColumns.count else { return nil }
+            rows = Array(live[rr])
+            columns = Array(liveColumns[cr])
         default:
             return nil
         }
@@ -325,12 +298,13 @@ private struct WorkbookResolver: Sendable {
 
     /// The `rows`×`columns` block from the range's live top-left (SUMIF's sum range); nil off-grid.
     func block(_ g: FormulaRange, rows rowCount: Int, columns columnCount: Int) -> [[CellAddress]]? {
-        guard rowCount > 0, columnCount > 0, let name = tableName(g.start.target), let layout = layouts[name],
+        guard rowCount > 0, columnCount > 0, let name = tableName(g.start.target), let table = tables[name],
               let topLeft = cells(g)?.first?.first,
-              let r0 = layout.rowPosition[topLeft.key.row], let c0 = layout.columnPosition[topLeft.key.column],
-              r0 + rowCount <= layout.rows.count, c0 + columnCount <= layout.columns.count else { return nil }
-        return layout.rows[r0..<(r0 + rowCount)].map { r in
-            layout.columns[c0..<(c0 + columnCount)].map { c in CellAddress(table: name, key: CellKey(row: r, column: c)) }
+              let r0 = table.rowIndex(of: topLeft.key.row), let c0 = table.columnIndex(of: topLeft.key.column) else { return nil }
+        let rows = table.rows, columns = table.columns
+        guard r0 + rowCount <= rows.count, c0 + columnCount <= columns.count else { return nil }
+        return rows[r0..<(r0 + rowCount)].map { r in
+            columns[c0..<(c0 + columnCount)].map { c in CellAddress(table: name, key: CellKey(row: r, column: c)) }
         }
     }
 

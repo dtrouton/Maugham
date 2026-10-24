@@ -181,4 +181,75 @@ final class FigureTableTests: XCTestCase {
         XCTAssertEqual(back, t)
         XCTAssertNotNil(back.rowSlotIndex(of: r[1]))
     }
+
+    // MARK: the id lookup cache (R-P5-13)
+
+    /// What the lookups answered before the cache: scans over the slots.
+    private func assertLookupsMatchScans(_ t: FigureTable, ids: Set<String>, columnIDs: Set<String>,
+                                         file: StaticString = #filePath, line: UInt = #line) {
+        let liveRows = t.rowSlots.filter { !$0.isDeleted }.map(\.id)
+        XCTAssertEqual(t.rows, liveRows, file: file, line: line)
+        XCTAssertEqual(t.columns, t.columnSlots.filter { !$0.isDeleted }.map(\.id), file: file, line: line)
+        for s in ids.union(["zzzzzzzz"]) {
+            let id = RowID(s)
+            XCTAssertEqual(t.rowSlotIndex(of: id), t.rowSlots.firstIndex { $0.id == id }, s, file: file, line: line)
+            XCTAssertEqual(t.rowIndex(of: id), liveRows.firstIndex(of: id), s, file: file, line: line)
+        }
+        let liveColumns = t.columnSlots.filter { !$0.isDeleted }.map(\.id)
+        for s in columnIDs.union(["zzzzzzzz"]) {
+            let id = ColumnID(s)
+            XCTAssertEqual(t.columnSlotIndex(of: id), t.columnSlots.firstIndex { $0.id == id }, s, file: file, line: line)
+            XCTAssertEqual(t.columnIndex(of: id), liveColumns.firstIndex(of: id), s, file: file, line: line)
+        }
+    }
+
+    func test_decodeRoundTrip_rebuildsTheLookups_andEncodesNoCache() throws {
+        var t = FigureTable(rows: 4, columns: 3)
+        let r = t.rows, c = t.columns
+        t.deleteRow(r[1])
+        t.moveRow(r[3], after: nil)
+        t.deleteColumn(c[0])
+        let data = try JSONEncoder().encode(t)
+        let keys = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
+        XCTAssertEqual(Set(keys), ["rowSlots", "columnSlots", "cells", "headerRows", "hasTotalRow", "columnWidths"])
+        let back = try JSONDecoder().decode(FigureTable.self, from: data)
+        XCTAssertEqual(back, t)
+        XCTAssertEqual(back.rows, [r[3], r[0], r[2]])
+        XCTAssertEqual(back.rowIndex(of: r[3]), 0)
+        XCTAssertNil(back.rowIndex(of: r[1]))
+        XCTAssertEqual(back.rowSlotIndex(of: r[1]), 2)
+        XCTAssertEqual(back.columnIndex(of: c[1]), 0)
+        assertLookupsMatchScans(back, ids: Set(r.map(\.raw)), columnIDs: Set(c.map(\.raw)))
+    }
+
+    func test_randomisedMutations_keepTheLookupsInStepWithTheSlots() {
+        var rng = SplitMix64(seed: 0x5eed_7ab1e)
+        var t = FigureTable(rows: 3, columns: 3)
+        var rowIDs = Set(t.rows.map(\.raw)), columnIDs = Set(t.columns.map(\.raw))
+        func pick<T>(_ xs: [T]) -> T? { xs.isEmpty ? nil : xs[Int(rng.next() % UInt64(xs.count))] }
+        for step in 0..<600 {
+            let allRows = t.rowSlots.map(\.id), allColumns = t.columnSlots.map(\.id)
+            switch rng.next() % 9 {
+            case 0: rowIDs.insert(t.insertRow(after: pick(allRows)).raw)
+            case 1:                                                       // a replayed insert, sometimes a repeat
+                let id = rng.next() % 4 == 0 ? (pick(allRows) ?? RowID("r0000000")) : RowID("r\(step)")
+                t.insertRow(id, after: rng.next() % 5 == 0 ? nil : pick(allRows))
+                rowIDs.insert(id.raw)
+            case 2: if let id = pick(allRows) { t.deleteRow(id) }
+            case 3: if let id = pick(allRows) { t.moveRow(id, after: rng.next() % 4 == 0 ? nil : pick(allRows)) }
+            case 4: columnIDs.insert(t.insertColumn(after: pick(allColumns)).raw)
+            case 5:
+                let id = ColumnID("c\(step)")
+                t.insertColumn(id, after: pick(allColumns))
+                columnIDs.insert(id.raw)
+            case 6: if let id = pick(allColumns) { t.deleteColumn(id) }
+            case 7: if let id = pick(allColumns) { t.moveColumn(id, after: pick(allColumns)) }
+            default:                                                      // a copy mutated apart keeps its own lookups
+                var copy = t
+                if let id = pick(copy.rows) { copy.deleteRow(id) }
+                assertLookupsMatchScans(copy, ids: rowIDs, columnIDs: columnIDs)
+            }
+            assertLookupsMatchScans(t, ids: rowIDs, columnIDs: columnIDs)
+        }
+    }
 }
