@@ -374,6 +374,48 @@ final class TripwirePhoneGrepTest: XCTestCase {
             "Self-check: the planted unannotated Data(contentsOf:) should be caught.")
     }
 
+    /// **A figure's render is never read as truth** (report plan 6a Task 8),
+    /// the phone twin of the Mac's planted control: `figures/<name>.csv` is
+    /// derived from the figure's op log, so a production-shaped read of one
+    /// with no `// adr-0018-ok:` reason fires; a reasoned read does not; and
+    /// taken away, the planted file is clean.
+    func test_phoneManuscriptReadTripwireFiresOnAPlantedFigureRenderRead() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("phone-tripwire-adr0018-figure-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let reasoned = """
+        func shareCSV(_ url: URL) throws -> Data {
+            try Data(contentsOf: url) // adr-0018-ok: a research CSV handed to the share sheet — never a figure's render
+        }
+        """
+        let offending = """
+        func figureTable(_ projectURL: URL) throws -> String {
+            try String(contentsOf: projectURL.appendingPathComponent("figures/x.csv"), encoding: .utf8)
+        }
+        """
+        let planted = tmp.appendingPathComponent("FigureReader.swift")
+        func offenders() throws -> [String] {
+            try grepSwiftDir(
+                in: tmp,
+                patterns: Self.adr0018ReadPatterns,
+                excludeLine: Self.adr0018ExcludeLine,
+                extraOffender: Self.adr0018IsAsyncURLLinesRead)
+        }
+
+        try (reasoned + "\n" + offending).write(to: planted, atomically: true, encoding: .utf8)
+        let caught = try offenders()
+        XCTAssertEqual(caught.count, 1,
+            "Self-check: the unreasoned read of figures/x.csv fires, the reasoned "
+            + "one does not. Caught:\n" + caught.joined(separator: "\n"))
+        XCTAssertTrue(caught.first?.contains("figures/x.csv") == true)
+
+        try reasoned.write(to: planted, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try offenders(), [], "and taken away, the file is clean")
+    }
+
     // MARK: - InboxConvention subdir literal tripwire (E5a) — Mac twin
 
     /// Recurrence-tripper: `InboxCaptureWriter`'s inbox asset subdir literals

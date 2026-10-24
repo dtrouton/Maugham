@@ -2261,6 +2261,52 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: synchronous script.lines iteration must NOT fire.")
     }
 
+    /// **A figure's render is never read as truth** (report plan 6a Task 8):
+    /// `figures/<name>.csv` is derived from the figure's op log exactly as a
+    /// manuscript's `.md` is, so a production-shaped read of one with no
+    /// `// adr-0018-ok:` reason fires the census, in each read shape; a
+    /// deliberate import input that says so goes through; and with the
+    /// offending reads taken away the planted file is clean.
+    func test_manuscriptReadTripwireFiresOnAPlantedFigureRenderRead() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-adr0018-figure-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let reasoned = """
+        func importCSV(from research: URL) throws -> String {
+            try String(contentsOf: research, encoding: .utf8) // adr-0018-ok: a research CSV, the Import input — never a figure's render
+        }
+        """
+        let offending = """
+        func figureTable(_ projectURL: URL) throws -> String {
+            try String(contentsOf: projectURL.appendingPathComponent("figures/x.csv"), encoding: .utf8)
+        }
+        func figureBytes(_ projectURL: URL) -> Data? {
+            FileManager.default.contents(atPath: projectURL.appendingPathComponent("figures/x.csv").path)
+        }
+        """
+        let planted = tmp.appendingPathComponent("FigureReader.swift")
+        func offenders() throws -> [String] {
+            try grepSwift(
+                in: tmp,
+                patterns: Self.adr0018ReadPatterns,
+                excludeLine: Self.adr0018ExcludeLine,
+                extraOffender: Self.adr0018IsAsyncURLLinesRead)
+        }
+
+        try (reasoned + "\n" + offending).write(to: planted, atomically: true, encoding: .utf8)
+        let caught = try offenders()
+        XCTAssertEqual(caught.count, 2,
+            "Self-check: both unreasoned reads of figures/x.csv fire, the reasoned "
+            + "import does not. Caught:\n" + caught.joined(separator: "\n"))
+        XCTAssertTrue(caught.allSatisfy { $0.contains("figures/x.csv") })
+
+        try reasoned.write(to: planted, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try offenders(), [], "and taken away, the file is clean")
+    }
+
     // MARK: - Dev-only TestMCPToolCatalog registration tripwire
 
     /// Repo root, computed the same way `sourceDir` does (2x
@@ -9316,6 +9362,11 @@ final class TripwireGrepTests: XCTestCase {
     /// Every `device:` argument found inside a `Document.load(` call
     /// expression in `text`, by line number.
     ///
+    /// **Figures too** (report plan 6a Task 8): the needle is matched as a
+    /// SUFFIX, so `FigureDocument.load(` — a figure's one load door, which
+    /// must keep `Document.load`'s guarantees — is parsed by the same walk,
+    /// and so is any later `…Document.load(` host. Do not anchor the needle.
+    ///
     /// The scan is CALL-SHAPED rather than line-shaped because every
     /// production call site spans four or five lines: it walks the source with
     /// a paren counter, remembers the depth at which each `Document.load(`
@@ -9441,6 +9492,33 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the two planted `device:` arguments should be the ones "
             + "caught, and neither the actor call, the other constructors, the "
             + "`deviceId:` label, nor the comment. Caught lines: \(offenders)")
+    }
+
+    /// **The census reaches a figure's load** (report plan 6a Task 8):
+    /// `FigureDocument.load(` with a `device:` label is caught, on one line or
+    /// across several; the production call (an actor) and a comment naming
+    /// the forbidden argument are not. Taken away, the planted file is clean.
+    func test_theDocumentLoadActorCensusFiresOnAPlantedFigureLoad() throws {
+        let control = """
+        // A comment may say FigureDocument.load(figureId: f, device: "mcp").
+        let figure = try await FigureDocument.load(
+            figureId: figureId, projectURL: projectURL, actor: .author,
+            session: session, presenter: presenter, documentStore: self)
+        """
+        XCTAssertEqual(Self.deviceArgumentsAtDocumentLoad(in: control), [],
+            "Self-check: the actor call and the comment go through")
+
+        let planted = control + """
+
+        let bad = try await FigureDocument.load(
+            figureId: figureId, projectURL: projectURL,
+            device: "figure-import",
+            session: session, presenter: nil, documentStore: nil)
+        let alsoBad = try await FigureDocument.load(figureId: f, projectURL: p, device: d, session: s, presenter: nil, documentStore: nil)
+        """
+        XCTAssertEqual(Self.deviceArgumentsAtDocumentLoad(in: planted), [7, 9],
+            "Self-check: both planted `device:` arguments to FigureDocument.load "
+            + "are caught. Caught lines: \(Self.deviceArgumentsAtDocumentLoad(in: planted))")
     }
 
     // MARK: - The spawned session is the reader's own (spec 2026-09-09 §3)
@@ -10191,6 +10269,52 @@ final class TripwireGrepTests: XCTestCase {
             + "and is very likely restating. Add it to "
             + "`manuscriptClassifierCallers` with its reason, or take the "
             + "second opinion out. Found: \(callers.sorted())")
+    }
+
+    /// **A figure op is never words** (report plan 6a, ruling D-c): figure
+    /// kinds are `.manuscriptText` in `Permit.group`'s own switch, while
+    /// `Deriver.appliesToManuscript` answers false for them, so the figure
+    /// deriver has no business asking it — the census's named set already
+    /// keeps it out; this pins it by name. A planted `FigureDeriver.swift`
+    /// that asks is seen and fails the named set; taken away, the planted
+    /// tree has no asker.
+    func test_theFigureDeriverNeverAsksTheManuscriptClassifier() throws {
+        let fm = FileManager.default
+        let figureDeriver = repoRoot.appendingPathComponent(
+            "Packages/MaughamCore/Sources/MaughamCore/Table/FigureDeriver.swift")
+        let text = try String(contentsOf: figureDeriver, encoding: .utf8)
+        let asks = text.split(separator: "\n").map(String.init)
+            .filter { !Self.admissionExcludeLine($0) && $0.contains(Self.manuscriptClassifierPattern) }
+        XCTAssertEqual(asks, [], "FigureDeriver.swift asks Deriver.appliesToManuscript")
+        XCTAssertFalse(Self.manuscriptClassifierCallers.contains("FigureDeriver.swift"))
+
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-classifier-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        func callers() throws -> Set<String> {
+            Set(try grepSwift(
+                in: tmp, patterns: [Self.manuscriptClassifierPattern],
+                allowed: [], excludeLine: Self.admissionExcludeLine
+            ).map { String($0.prefix(while: { $0 != ":" })) })
+        }
+        let clean = """
+        // A comment may name Deriver.appliesToManuscript(kind) without asking it.
+        public static func fold(_ op: Op, into state: inout FigureState) {}
+        """
+        try (clean + "\nguard !Deriver.appliesToManuscript(op.kind) else { return }\n")
+            .write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                   atomically: true, encoding: .utf8)
+        let planted = try callers()
+        XCTAssertEqual(planted, ["FigureDeriver.swift"],
+            "Self-check: a FigureDeriver that asks is seen by name")
+        XCTAssertFalse(planted.isSubset(of: Self.manuscriptClassifierCallers),
+            "and fails the named set")
+
+        try clean.write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                        atomically: true, encoding: .utf8)
+        XCTAssertEqual(try callers(), [], "and taken away, nothing asks")
     }
 
     /// The spellings that would restate the permission table somewhere else.
@@ -11800,11 +11924,59 @@ final class TripwireGrepTests: XCTestCase {
     /// `test_everyGuardedDocumentMutatorIsClassified` derives the population
     /// from `Document`'s own `rejectMutationIfNotWritable`/`requireWritable`
     /// sites and fails on a new one nobody classified.
+    ///
+    /// **A figure's content is manuscript content** (report plan 6a, ruling
+    /// D-c: figure kinds are `.manuscriptText` in `Permit.group`), so its
+    /// writers join this census: `FigureDocument`'s ten guarded mutators
+    /// (`figureMutatorSpellings`), `createFigure(` (a figure's birth, behind
+    /// its own posture question), and `FigureOpPayload(` — where a figure op's
+    /// content is minted, so a writer that appends one without a mutator is
+    /// still a named site.
     static let manuscriptWriterPatterns = [
         "setFullText(", "applyRestore(", "restoreToOp(", "restoreToOpUndoable(",
         "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
         "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
+        "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
+        "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
+        "createFigure(", "FigureOpPayload(",
     ]
+
+    /// **`FigureDocument`'s mutator spellings, counted only as an AWAITED
+    /// call.** The names are generic — plan 5's `FigureTable.setCell(`/
+    /// `insertRow(`/`moveRow(` in Core, `FigureStructureChange.insertRow(`,
+    /// the grid editor's `model.setCell(` — and every one of those is
+    /// synchronous, while `FigureDocument`'s are `async throws` and so are
+    /// always reached as `await <receiver>.setCell(` (or `await setCell(`
+    /// from inside). A spelling here counts only in that shape
+    /// (`isAwaitedCall`), so the census names the figure host's callers and
+    /// not every table helper in the codebase.
+    static let figureMutatorSpellings: Set<String> = [
+        "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
+        "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
+    ]
+
+    /// `line` holds `spelling` as an awaited call: `await`, then an optional
+    /// receiver chain (`d.`, `self.figure?.`, `figures[i].`), then the name.
+    static func isAwaitedCall(of spelling: String, on line: String) -> Bool {
+        let pattern = #"\bawait\s+(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?[?!]?\.)*"#
+            + NSRegularExpression.escapedPattern(for: spelling)
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        return regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+    }
+
+    /// The writer spellings one line carries — a figure mutator's only in its
+    /// awaited shape, every other spelling as a substring. SHARED by the
+    /// census and its controls.
+    static func manuscriptWriterSpellings(on line: String) -> [String: Int] {
+        var spellings: [String: Int] = [:]
+        for spelling in manuscriptWriterPatterns {
+            let counts = figureMutatorSpellings.contains(spelling)
+                ? isAwaitedCall(of: spelling, on: line)
+                : line.contains(spelling)
+            if counts { spellings[spelling, default: 0] += 1 }
+        }
+        return spellings
+    }
 
     /// **Every production call site, by file and by count** — count the array,
     /// never a number in prose. Each entry says where its posture question is
@@ -11869,6 +12041,24 @@ final class TripwireGrepTests: XCTestCase {
     ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
     ///   deliberately NOT gated, because it stands in for a keystroke and is
     ///   how a rig drives a burst the read side must then set aside.
+    /// - `FigureDocument.swift` — a figure's host (report plan 6a). Its ten
+    ///   `FigureOpPayload(` mints each sit in a mutator after
+    ///   `requireWritable("…")`, which asks posture (the figure's own,
+    ///   `.editFigure`, through the window's door) and throws
+    ///   `FigureEditRefused` before any op; its awaited mutator calls are the
+    ///   redo closures, each re-entering that doored mutator, a refusal said
+    ///   (`decline(.notPermitted)`).
+    /// - `ProjectStore+Figures.swift` × 3 — `createFigure`'s `figureCreate`
+    ///   and its row and column inserts: it asks posture (`.editFigure` of the
+    ///   class the new figure will have) before it mints a line, and throws
+    ///   `FigureEditRefused`.
+    /// - `FigureInverse.swift` × 4 — Core's pure inverse of a figure op; it
+    ///   appends nothing, and its one caller, `registerFigureUndo`, asks
+    ///   posture (`mayEditHere`) before it commits one.
+    ///
+    /// `createFigure(` has no production caller yet: plan 7's surfaces add
+    /// theirs here, each drawn and pressed only where the posture allows
+    /// `.editFigure`.
     ///
     /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
     /// file that swapped one writer for another — a Replace that began
@@ -11891,6 +12081,14 @@ final class TripwireGrepTests: XCTestCase {
         "type:RewindModifier": ["restoreToOpUndoable(": 1],
         "PartialRestorePicker.swift": ["buildRestoreOp(": 1],
         "TestEditTool.swift": ["setFullText(": 1],
+        // Figures (report plan 6a): each asks posture before it writes.
+        "FigureDocument.swift": [
+            "FigureOpPayload(": 10,
+            "setCell(": 1, "moveRow(": 1, "moveColumn(": 1,
+            "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1,
+        ],
+        "ProjectStore+Figures.swift": ["FigureOpPayload(": 3],
+        "FigureInverse.swift": ["FigureOpPayload(": 4],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.
@@ -11911,10 +12109,10 @@ final class TripwireGrepTests: XCTestCase {
                 allowed: [],
                 excludeLine: Self.manuscriptWriterExcludeLine)
             for hit in hits {
-                var spellings: [String: Int] = [:]
-                for spelling in Self.manuscriptWriterPatterns where hit.contains(spelling) {
-                    spellings[spelling, default: 0] += 1
-                }
+                // A figure mutator's name that is not an awaited call (a
+                // table helper's, a structure change's case) is no writer.
+                let spellings = Self.manuscriptWriterSpellings(on: hit)
+                if spellings.isEmpty { continue }
                 counts.append((try XCTUnwrap(SourceTree.Hit(offender: hit)), spellings))
             }
         }
@@ -11960,21 +12158,16 @@ final class TripwireGrepTests: XCTestCase {
         "appendTaskOpInternal": "a task op — the task door",
         "appendTaskRewindCloser": "reached only after the doored restoreToOp",
         "applyMintedAnchors": "the load's own emission, the author's (tripwire 38), gated on mayAnchor",
-        // A figure's content (report plan 6a Task 6): FigureDocument's own
-        // `requireWritable` asks the FIGURE's posture (`.editFigure`) and
-        // throws `FigureEditRefused` before any op. Not a manuscript's words;
-        // report plan 6a Task 8 brings their spellings and callers into the
-        // writer census.
-        "setCell": "a figure's content — FigureDocument's door, the figure's posture",
-        "insertRow": "a figure's content — FigureDocument's door, the figure's posture",
-        "insertColumn": "a figure's content — FigureDocument's door, the figure's posture",
-        "deleteRow": "a figure's content — FigureDocument's door, the figure's posture",
-        "deleteColumn": "a figure's content — FigureDocument's door, the figure's posture",
-        "moveRow": "a figure's content — FigureDocument's door, the figure's posture",
-        "moveColumn": "a figure's content — FigureDocument's door, the figure's posture",
-        "setHeaderRows": "a figure's content — FigureDocument's door, the figure's posture",
-        "setTotalRow": "a figure's content — FigureDocument's door, the figure's posture",
-        "setColumnWidth": "a figure's content — FigureDocument's door, the figure's posture",
+        // Figure writers (report plan 6a) — a figure's content is manuscript
+        // content (ruling D-c). Each is `FigureDocument`'s, opening with
+        // `requireWritable("…")`, which asks the FIGURE's posture
+        // (`.editFigure`) and throws `FigureEditRefused` before any op; each
+        // is spelled in `manuscriptWriterPatterns` AND in
+        // `figureMutatorSpellings` (counted only as an awaited call).
+        "setCell": "figure", "insertRow": "figure", "insertColumn": "figure",
+        "deleteRow": "figure", "deleteColumn": "figure", "moveRow": "figure",
+        "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
+        "setColumnWidth": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -11998,19 +12191,48 @@ final class TripwireGrepTests: XCTestCase {
         return names
     }
 
+    /// What is wrong with `classified` against the guarded `names` found —
+    /// empty when every name is classified, every classification is still
+    /// found, every TEXT or FIGURE writer's spelling is in
+    /// `manuscriptWriterPatterns`, and every FIGURE writer's is also in
+    /// `figureMutatorSpellings` (so it is counted in its awaited shape).
+    /// SHARED by the census and its planted-offender controls.
+    static func guardedMutatorProblems(
+        names: Set<String>, classified: [String: String]
+    ) -> [String] {
+        var problems: [String] = []
+        for name in names.subtracting(classified.keys).sorted() {
+            problems.append("\(name): guarded but unclassified")
+        }
+        for name in Set(classified.keys).subtracting(names).sorted() {
+            problems.append("\(name): classified but no longer guarded")
+        }
+        for (name, kind) in classified.sorted(by: { $0.key < $1.key })
+        where kind == "text" || kind == "figure" {
+            if !manuscriptWriterPatterns.contains(where: { $0.hasPrefix(name + "(") }) {
+                problems.append("\(name): a \(kind) writer not in manuscriptWriterPatterns")
+            }
+            if kind == "figure", !figureMutatorSpellings.contains(name + "(") {
+                problems.append("\(name): a figure writer not in figureMutatorSpellings")
+            }
+        }
+        return problems
+    }
+
     func test_everyGuardedDocumentMutatorIsClassified() throws {
         let names = try guardedDocumentMutatorNames(in: sourceDir)
         XCTAssertFalse(names.isEmpty, "precondition: the guarded mutators were found")
-        XCTAssertEqual(names, Set(Self.guardedDocumentMutators.keys),
-            "A guarded Document mutator appeared or disappeared. Classify it in "
-            + "`guardedDocumentMutators`: a TEXT writer's spelling joins "
-            + "`manuscriptWriterPatterns` and its callers `manuscriptWriterCallSites`. "
-            + "Found: \(names.sorted())")
-        for (name, kind) in Self.guardedDocumentMutators where kind == "text" {
-            XCTAssertTrue(
-                Self.manuscriptWriterPatterns.contains { $0.hasPrefix(name + "(") },
-                "\(name) writes text and is not in manuscriptWriterPatterns")
-        }
+        XCTAssertTrue(
+            ["setCell", "setColumnWidth"].allSatisfy(names.contains),
+            "precondition: FigureDocument's guarded mutators are in the population")
+        let problems = Self.guardedMutatorProblems(
+            names: names, classified: Self.guardedDocumentMutators)
+        XCTAssertTrue(problems.isEmpty,
+            "A guarded Document or FigureDocument mutator appeared, disappeared "
+            + "or lost its spelling. Classify it in `guardedDocumentMutators`: a "
+            + "TEXT or FIGURE writer's spelling joins `manuscriptWriterPatterns` "
+            + "(a figure's also `figureMutatorSpellings`) and its callers "
+            + "`manuscriptWriterCallSites`. Problems:\n" + problems.joined(separator: "\n"))
     }
 
     /// **The classification census's control** (P3c plan 2 Task 9): a planted
@@ -12042,6 +12264,60 @@ final class TripwireGrepTests: XCTestCase {
         let production = try guardedDocumentMutatorNames(in: sourceDir)
         XCTAssertNotEqual(production.union(planted), Set(Self.guardedDocumentMutators.keys),
             "and a guarded mutator nobody classified fails the census")
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(
+                names: production.union(planted), classified: Self.guardedDocumentMutators),
+            ["appendSomewhereNew: guarded but unclassified",
+             "rewriteEverything: guarded but unclassified"],
+            "and the census's own check names each one")
+    }
+
+    /// **A figure mutator nobody classified fails the census** (report plan 6a
+    /// Task 8): a planted `FigureDocument`-shaped mutator behind
+    /// `requireWritable("…")` joins the derived population and is refused
+    /// until classified; classified as a figure writer but left out of the
+    /// spelling lists, it is refused again; spelled, it passes — and taken
+    /// away, the production population passes as it stands.
+    func test_theGuardedMutatorCensusFiresOnAPlantedFigureMutator() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-mutator-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        extension FigureDocument {
+            public func setCellFormat(_ format: CellFormat, at key: CellKey) async throws {
+                try await requireWritable("setCellFormat")
+                try await commit(.figureCellSet, FigureOpPayload(cell: key, next: nil, prior: nil))
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("FigureDocument+Format.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let production = try guardedDocumentMutatorNames(in: sourceDir)
+        let planted = try guardedDocumentMutatorNames(in: tmp)
+        XCTAssertEqual(planted, ["setCellFormat"], "Self-check: the planted guard is read")
+        let withPlanted = production.union(planted)
+
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(names: withPlanted, classified: Self.guardedDocumentMutators),
+            ["setCellFormat: guarded but unclassified"],
+            "an unclassified figure mutator fails the census")
+
+        var classified = Self.guardedDocumentMutators
+        classified["setCellFormat"] = "figure"
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(names: withPlanted, classified: classified),
+            ["setCellFormat: a figure writer not in manuscriptWriterPatterns",
+             "setCellFormat: a figure writer not in figureMutatorSpellings"],
+            "classified as a figure writer, it still fails until its spelling is listed")
+
+        XCTAssertTrue(
+            Self.guardedMutatorProblems(names: production, classified: Self.guardedDocumentMutators)
+                .isEmpty,
+            "and with the planted mutator taken away the census passes")
     }
 
     /// The census's control: it counts a planted call of each spelling, not the
@@ -12069,6 +12345,18 @@ final class TripwireGrepTests: XCTestCase {
         _ = doc.insertParagraph(after: last, text: orphan)
         doc.deleteParagraph(id: pid)
         doc.reorder(sequence: ids)
+        try await figure.setCell(cell, at: key)
+        _ = try await figure.insertRow(after: nil)
+        _ = try await self.figure?.insertColumn(after: nil)
+        try await figures[i].deleteRow(row)
+        try await figure.deleteColumn(column)
+        await d.redoing { try await d.moveRow(id, after: after, undoManager: undoManager) }
+        try await figure.moveColumn(column, after: nil)
+        try await setHeaderRows(1)
+        try await figure.setTotalRow(true)
+        try await figure.setColumnWidth(column, 120)
+        let record = try await store.createFigure(kind: .table, name: "Prices", piece: p)
+        ops.append(op(.figureCreate, FigureOpPayload(kind: kind)))
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
                   atomically: true, encoding: .utf8)
 
@@ -12079,6 +12367,58 @@ final class TripwireGrepTests: XCTestCase {
             + "comment and the declaration are not. Counted: \(planted)")
         XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
             "and a file that is not on the list fails the census it feeds")
+    }
+
+    /// **A figure mutator's generic name counts only on FigureDocument's
+    /// receiver shape** (report plan 6a Task 8). Plan 5's `FigureTable`
+    /// mutators in Core, `FigureStructureChange`'s cases and the grid
+    /// editor's model share the names `setCell(`/`insertRow(`/`moveRow(`, and
+    /// all are synchronous: none is counted, so Core's `FigureDeriver.swift`
+    /// and `TableCSV.swift` are not writer sites. The awaited
+    /// `FigureDocument` call on the same file is, and taken away the file
+    /// leaves the census. The production census's own result is checked the
+    /// same way: no file that only holds a table helper is in it.
+    func test_theFigureWriterSpellingsCountOnlyTheFigureHostsCalls() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-writers-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let helpers = """
+        // A comment may say try await figure.setCell(cell, at: key).
+        state.table.setCell(p.next, at: key)
+        table.setCell(Cell(content: content, format: format), at: CellKey(row: r, column: c))
+        state.table.insertRow(id, after: after)
+        state.table.moveRow(id, after: after)
+        case let .insertRow(id, after):
+        Button("Move Up") { model.moveRow(at.row, by: -1) }
+        set: { model.setCell(row, column, to: $0) })
+        let op = try await commit(.figureStructure, structure: .insertRow(id, after: after))
+        public func setCell(_ cell: Cell?, at key: CellKey) async throws {
+        """
+        try helpers.write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                          atomically: true, encoding: .utf8)
+        XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
+            "Self-check: no table helper, structure case, grid-model call, "
+            + "declaration or comment is counted as a figure writer")
+
+        try (helpers + "\ntry await figure.setCell(cell, at: key)\n")
+            .write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                   atomically: true, encoding: .utf8)
+        let planted = Self.byFile(try manuscriptWriterCallCounts(in: [tmp]))
+        XCTAssertEqual(planted, ["FigureDeriver.swift": ["setCell(": 1]],
+            "the planted FigureDocument call is counted, and only it")
+        XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
+            "and a file off the list fails the census it feeds")
+
+        let production = Self.byFile(try manuscriptWriterCallCounts(in: admissionRoots))
+        for helperFile in ["FigureDeriver.swift", "TableCSV.swift", "FigureOp.swift",
+                           "FigureTable.swift", "TableGridEditor.swift"] {
+            XCTAssertNil(production[helperFile],
+                "\(helperFile) holds table helpers, not figure writers")
+        }
     }
 
     /// **A swap inside a listed file fails the census** (Task 9): the same

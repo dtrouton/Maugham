@@ -33,7 +33,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+WikiLink.swift` — `[[…]]` title resolution (`WikiLinkProject` conformance).
 - `ProjectStore+Search.swift` — project search and Replace (`performSearch`, `replaceMatch`, `replaceAll`, `replaceInManuscript`). Tripwire 52.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
-- `ProjectStore+Figures.swift` — `createFigure`: asks the window's posture for the new figure first, mints `fig-` ids, writes `figureCreate` and its rows and columns, then the de-duplicated record through `saveManifest`.
+- `ProjectStore+Figures.swift` — `createFigure`: asks the window's posture for the new figure first, mints `fig-` ids, writes `figureCreate` and its rows and columns, then the de-duplicated record through `saveManifest`. Tripwire 52.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54), so a count says unknown rather than a short number. Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
@@ -362,7 +362,7 @@ Two things deliberately live elsewhere:
 2. If the seam moves or deletes files, route them through `DocumentStore`'s typed mover. The file joins `test_noRawMoveOfUserContentOutsideTypedMover` automatically (every `ProjectStore+*.swift`).
 3. If a verb awaits before saving the manifest, bracket it with `beginStructuralVerb()`/`endStructuralVerb()`, or add a reasoned exception in `MaughamTests/Stores/StructuralVerbCensusTests.swift`.
 4. If it constructs a `StructureItem` piece, set `startedBy: thisMacAsAStarter`.
-5. If it writes manuscript or statement text, ask the posture and add the call to `TripwireGrepTests.manuscriptWriterCallSites`.
+5. If it writes manuscript, statement or figure content, ask the posture and add the call to `TripwireGrepTests.manuscriptWriterCallSites`.
 6. `./gen.sh`, then add the file to this guide's Map.
 
 Checks: `StructuralVerbCensusTests`, `TripwireGrepTests`.

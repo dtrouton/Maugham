@@ -15,7 +15,7 @@ Every file in `Maugham/OpLog/` appears once.
 - `Document+Tasks.swift` — task ops, `rebuildTasksCache`, `archiveTask`.
 - `Document+Rewind.swift` — `restoreToOp`, `applyRestore`, the restore door.
 - `Document+RewindUndo.swift` — `restoreToOpUndoable`: one grouped ⌘Z for a whole rewind.
-- `FigureDocument.swift` — a figure's host, never a `Document`: `load` emits nothing; mutators ask the figure's own posture (`editFigure`), else throw `FigureEditRefused`; ⌘Z via `registerFigureUndo`, drift-guarded.
+- `FigureDocument.swift` — a figure's host, never a `Document`: `load` emits nothing; mutators ask the figure's own posture (`editFigure`), else throw `FigureEditRefused`; ⌘Z via `registerFigureUndo`, drift-guarded. Tripwires 38, 52.
 - `FigureRender.swift` — a table's `figures/<name>.csv`: computed values, written through `coordinatedWrite`, never read.
 
 ### Typing, echo, recovery
