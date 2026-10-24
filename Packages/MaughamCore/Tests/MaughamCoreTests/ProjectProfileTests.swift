@@ -115,6 +115,46 @@ final class ProjectProfileTests: XCTestCase {
         XCTAssertEqual(try ProjectManifest.decodeGuardingSchema(bytes).schemaVersion, 10)
     }
 
+    // MARK: - Report plan 6a Task 5: a book with figures needs schema 10
+
+    private let aFigure = FigureRecord(
+        id: "fig-0a1b2c3d", name: "cashflow", kind: .table, piece: nil,
+        path: "figures/cashflow.csv")
+
+    func test_aFigureRecordRaisesTheFloorToTen() {
+        var m = manifest(9)
+        XCTAssertEqual(m.contentSchemaFloor, 0)
+        m.figures = [aFigure]
+        XCTAssertEqual(m.contentSchemaFloor, 10)
+        m.figures = []
+        XCTAssertEqual(m.contentSchemaFloor, 0, "an empty registry is no figures")
+    }
+
+    func test_aSchemaNineBookThatGainsAFigureEncodesAtTen() throws {
+        var m = manifest(9)
+        m.figures = [aFigure]
+        let bytes = try ProjectManifest.encodeForDisk(m)
+        XCTAssertEqual(ProjectManifest.schemaVersion(of: bytes), 10)
+        XCTAssertEqual(try ProjectManifest.decodeGuardingSchema(bytes).figures, [aFigure])
+    }
+
+    /// There is no seam to lower `currentSchemaVersion`, so this reproduces the
+    /// schema-9 build's gate (`decodeGuardingSchema`'s one comparison, against
+    /// `narrowingSchemaVersion`, the number a 9 build supports) over the bytes
+    /// this build writes for a book with figures.
+    func test_aSchemaNineBuildRefusesABookWithFigures() throws {
+        var m = manifest(9)
+        m.figures = [aFigure]
+        let bytes = try ProjectManifest.encodeForDisk(m)
+        let found = try XCTUnwrap(ProjectManifest.schemaVersion(of: bytes))
+        let nineBuildSupports = ProjectManifest.narrowingSchemaVersion
+        XCTAssertEqual(nineBuildSupports, 9)
+        XCTAssertGreaterThan(found, nineBuildSupports,
+                             "a v9 decoder throws SchemaTooNewError(found: 10, supported: 9)")
+        XCTAssertEqual(ProjectManifest.SchemaTooNewError(found: found, supported: nineBuildSupports),
+                       ProjectManifest.SchemaTooNewError(found: 10, supported: 9))
+    }
+
     /// The floor raises; it never lowers. A number above the floor is kept.
     func test_encodeForDiskNeverLowersTheNumber() throws {
         let m = manifest(ProjectManifest.currentSchemaVersion)
