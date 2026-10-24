@@ -63,7 +63,7 @@ A figure appears in the text as the existing figure line, extended to tables:
 
 ### 3.3 A table's content
 
-- **Rows and columns have stable ids,** minted like `¶id`s with `mintUnique(excluding:)`. A cell is (row id, column id). Two devices inserting rows concurrently merge without clobbering each other.
+- **Rows and columns have stable ids,** minted from the `¶id` alphabet but 8 characters long, because devices mint them concurrently without a shared view (plan 5 ruling). A cell is (row id, column id). Two devices inserting rows concurrently merge without clobbering each other.
 - **Formulas store references by id,** and display them as A1 (`B3`, `$B$2`, `B2:B9`, `revenue!B9`, `research:model-v3!B9`). Inserting or deleting a row then adjusts every formula for free, as Excel does. A deleted referenced cell shows `#REF!`.
 - **Each cell holds:**
   - a value (number, text, date, empty) or a formula;
@@ -105,7 +105,7 @@ Figures join **schema 10**. It is on origin but unreleased, so there is no migra
   - copies the item into `figures/` under a name derived from its title and de-duplicated, as an op-logged figure create;
   - records where it came from (source path and content hash at snapshot time).
 - **Placement:** it then asks where in the text to put the line, at the caret or "leave unused". An unused figure is listed, numbered "—", and not published.
-- **Research CSVs:** cells beginning `=` are parsed as formulas (§5), and anything outside the supported set becomes its value. Images and PDFs follow the existing `FigureIngest` path (HEIC → PNG; PDF and SVG rasterised at publish).
+- **Research CSVs:** cells beginning `=` are parsed as formulas (§5). A CSV holds no computed value to fall back on, so an unsupported function stays a formula and shows `#NAME?`, as in Excel, and a formula that cannot be parsed becomes text holding its `=…` and is reported (plan 5 ruling). Images and PDFs follow the existing `FigureIngest` path (HEIC → PNG; PDF and SVG rasterised at publish).
 
 ### 4.2 Send to Research: the op log is parked, not converted (Denver, 2026-10-24)
 
