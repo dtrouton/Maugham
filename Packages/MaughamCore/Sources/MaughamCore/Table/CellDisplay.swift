@@ -36,31 +36,37 @@ public enum CellDisplay {
 
     private static func number(_ x: Double, _ kind: NumberFormat, _ format: CellFormat, _ locale: TableLocale) -> String {
         guard x.isFinite else { return FormulaError.num.rawValue }
-        // Round to what is shown, then everything after sees the rounded value.
+        // Round to what is shown, then everything after sees the rounded value. Compact rounds the
+        // scaled mantissa in the formatter, never the raw value (1499.6 at 0 decimals is 1K, not 2K).
         let digits: Int?
         switch kind {
         case .general, .date: digits = nil
         case .number(let d, _), .currency(_, let d), .compact(let d): digits = clamp(d)
         case .percent(let d): digits = clamp(d) + 2
         }
-        let rounded: Double
-        if let digits { rounded = ExcelRounding.round(x, digits: digits) } else { rounded = ExcelRounding.round(x, digits: 15) }
+        var rounded = ExcelRounding.round(x, digits: digits ?? 15)
+        if case .compact = kind { rounded = ExcelRounding.round(x, digits: 15) }
+        if rounded == 0 { rounded = 0 }                          // never "-0"
+        if case .compact(let d) = kind, abs(rounded) < 1000, ExcelRounding.round(x, digits: clamp(d)) == 0 { rounded = 0 }
         if rounded == 0 && format.zeroAsDash { return dash }
-        let magnitude = abs(rounded)
-        let negative = rounded < 0
+        // `.minus` formats the signed value, so the locale's own negative pattern places the sign;
+        // `.parentheses` formats the magnitude.
+        let wrap = rounded < 0 && format.negatives == .parentheses
+        let v = wrap ? abs(rounded) : rounded
         let body: String
         switch kind {
-        case .general, .date: body = general(magnitude, locale)
-        case .number(let d, let grouping): body = plain(magnitude, clamp(d), grouping, locale)
-        case .percent(let d): body = formatted(magnitude, .percent, clamp(d), nil, locale)
-        case .currency(let symbol, let d): body = formatted(magnitude, .currency, clamp(d), symbol ?? locale.currencySymbol, locale)
-        case .compact(let d): body = compact(magnitude, clamp(d), locale)
+        case .general, .date: body = (v < 0 ? minusSign(locale) : "") + general(abs(v), locale)
+        case .number(let d, _): body = formatted(v, .decimal, clamp(d), nil, locale, grouping: groupingAsked(kind))
+        case .percent(let d): body = formatted(v, .percent, clamp(d), nil, locale, grouping: true)
+        case .currency(let symbol, let d): body = formatted(v, .currency, clamp(d), symbol ?? locale.currencySymbol, locale, grouping: true)
+        case .compact(let d): body = compact(v, clamp(d), locale)
         }
-        guard negative else { return body }
-        switch format.negatives {
-        case .parentheses: return "(" + body + ")"
-        case .minus: return minusSign(locale) + body
-        }
+        return wrap ? "(" + body + ")" : body
+    }
+
+    private static func groupingAsked(_ kind: NumberFormat) -> Bool {
+        if case .number(_, let g) = kind { return g }
+        return true
     }
 
     private static func clamp(_ d: Int) -> Int { max(0, min(15, d)) }
@@ -86,32 +92,12 @@ public enum CellDisplay {
         return "\(d)".replacingOccurrences(of: ".", with: locale.decimalSeparator)
     }
 
-    /// `.number`: the locale's digits, grouped in threes whenever asked (some locales, es among them,
-    /// skip a four-digit group by default; an explicit ask gets one).
-    private static func plain(_ x: Double, _ decimals: Int, _ grouping: Bool, _ locale: TableLocale) -> String {
-        let f = formatter(locale, .decimal, decimals, nil, grouping: false)
-        let s = f.string(from: NSNumber(value: x)) ?? String(x)
-        guard grouping else { return s }
-        let decimal = f.decimalSeparator ?? "."
-        let integer: String, rest: String
-        if let r = s.range(of: decimal) { integer = String(s[..<r.lowerBound]); rest = String(s[r.lowerBound...]) } else { integer = s; rest = "" }
-        guard integer.count > 3, integer.allSatisfy(\.isNumber) else { return s }
-        var out = "", n = 0
-        for ch in integer.reversed() {
-            if n > 0 && n % 3 == 0 { out.append(contentsOf: locale.groupingSeparator.reversed()) }
-            out.append(ch); n += 1
-        }
-        return String(out.reversed()) + rest
-    }
-
-    private static func formatted(_ x: Double, _ style: NumberFormatter.Style, _ decimals: Int, _ symbol: String?, _ locale: TableLocale) -> String {
-        formatter(locale, style, decimals, symbol, grouping: true).string(from: NSNumber(value: x)) ?? String(x)
+    private static func formatted(_ x: Double, _ style: NumberFormatter.Style, _ decimals: Int, _ symbol: String?, _ locale: TableLocale, grouping: Bool) -> String {
+        formatter(locale, style, decimals, symbol, grouping: grouping).string(from: NSNumber(value: x)) ?? String(x)
     }
 
     private static func compact(_ x: Double, _ decimals: Int, _ locale: TableLocale) -> String {
-        // English is K / M / B / T in every region (a ruling); en-GB's own "k / m / bn" is not used.
-        let l = locale.locale.language.languageCode?.identifier == "en" ? Locale(identifier: "en") : locale.locale
-        return x.formatted(.number.notation(.compactName).precision(.fractionLength(decimals)).locale(l))
+        x.formatted(.number.notation(.compactName).rounded(rule: .toNearestOrAwayFromZero).precision(.fractionLength(decimals)).locale(locale.locale))
     }
 
     // MARK: Formatter cache (one per locale, style, digits, symbol, grouping)
