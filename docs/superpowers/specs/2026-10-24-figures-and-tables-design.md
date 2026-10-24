@@ -357,7 +357,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - The function set with Excel fixtures.
    - Number and date formats with localisation.
    - CSV render and import, with research CSVs' `=` cells.
-6. **Storage: figures in the op log.**
+6. **Storage: figures in the op log.** Split by its survey into 6a (the figure document: payload, class, deriver, cache, host, render, censuses, image figures) and 6b (moving, rename, pins, translations, research versions, checkpoint restore). Denver, 2026-10-24: a figure belongs to the piece it was created in — that piece's author and whole-book authors may edit it.
    - Figure document class, op kinds, schema 10, permits and censuses.
    - The `figures/` render.
    - Use in document / Send to Research through the typed mover.
