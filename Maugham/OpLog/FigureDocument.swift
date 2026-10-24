@@ -89,6 +89,23 @@ public final class FigureDocument {
     /// Test seam: the async hop of the last undo/redo (`Document`'s mirror).
     @ObservationIgnored internal var _lastUndoWorkTask: Task<Void, Never>?
 
+    /// **This host's own ops no read has shown it yet** — committed (or
+    /// committing) here, by op id. A reload whose read began before one of
+    /// them reached the stream would otherwise drop it from `state` until
+    /// the echo's reload ~300 ms later, and the next edit's `prior` and a
+    /// ⌘Z's drift guard would read the regressed table (final review I-5).
+    /// `reload` carries every one its read lacks; one is forgotten once a
+    /// read contains it, or when its append fails.
+    @ObservationIgnored private var unconfirmedLocalOpIds: Set<String> = []
+
+    /// Bumped by every `reload`: a read that a later reload overtook does not
+    /// land over the later one's answer.
+    @ObservationIgnored private var reloadGeneration = 0
+
+    /// Test seam: runs in `reload` after the read and before it lands — where
+    /// a local commit racing the read is put. Nil in production.
+    static var afterReloadReadForTesting: (@MainActor (FigureDocument) async -> Void)?
+
     /// Where `setImage` keeps the pictures its ⌘Z and redo put back — the
     /// one replaced and the one that replaced it, by content hash — for this
     /// open document only: a temporary folder, never `.maugham/` (nothing
@@ -148,13 +165,24 @@ public final class FigureDocument {
     /// Re-read the stream after another device's lines changed it (the
     /// presenter's figure arm, `DocumentStore.applyPendingFigureChanges`).
     /// The same read as the load; writes nothing.
+    ///
+    /// **A local op that commits during the read is kept**: the read cannot
+    /// contain an op appended after it began, so every op of this host's own
+    /// that the read lacks (`unconfirmedLocalOpIds`) is carried after it, in
+    /// the order it was committed — what the incremental fold already shows.
     public func reload() async throws {
         guard !isClosed else { return }
+        reloadGeneration += 1
+        let generation = reloadGeneration
         let (ops, provenance) = try await Self.readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
-        _ops = ops
+        if let hook = Self.afterReloadReadForTesting { await hook(self) }
+        guard !isClosed, generation == reloadGeneration else { return }
+        unconfirmedLocalOpIds.subtract(ops.map(\.opId))
+        let carried = _ops.filter { unconfirmedLocalOpIds.contains($0.opId) }
+        _ops = ops + carried
         self.provenance = provenance
-        state = Self.derive(ops)
+        state = Self.derive(_ops)
     }
 
     private static func readHistory(
@@ -610,10 +638,12 @@ public final class FigureDocument {
             opId: ULID.generate(), docId: figureId, at: Date(), device: device,
             session: session, kind: kind, changes: [], figure: payload)
         _ops.append(op)
+        unconfirmedLocalOpIds.insert(op.opId)
         FigureDeriver.fold(op, into: &state)
         do {
             try await opStore.append(op)
         } catch {
+            unconfirmedLocalOpIds.remove(op.opId)
             _ops.removeAll { $0.opId == op.opId }
             state = Self.derive(_ops)
             throw error

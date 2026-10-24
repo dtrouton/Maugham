@@ -38,6 +38,7 @@ final class FigureDocumentTests: XCTestCase {
 
     override func tearDown() async throws {
         ProjectStore.beforeFigureAppendForTesting = nil
+        FigureDocument.afterReloadReadForTesting = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -381,6 +382,31 @@ final class FigureDocumentTests: XCTestCase {
         um.undo()
         await doc.awaitPendingUndoWork()
         XCTAssertNil(doc.state.table.rowIndex(of: empty), "an empty inserted row undoes")
+        await doc.close()
+    }
+
+    /// **Final review I-5**: a reload whose read began before a local edit
+    /// reached the stream keeps that edit — it is not dropped from `state`
+    /// until the echo's reload, so the next edit's `prior` is right.
+    func test_aReloadKeepsALocalEditThatCommittedDuringItsRead() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let key = try firstKey(doc)
+        FigureDocument.afterReloadReadForTesting = { d in
+            FigureDocument.afterReloadReadForTesting = nil
+            try? await d.setCell(self.text("typed during the read"), at: key, undoManager: nil)
+        }
+
+        try await doc.reload()
+
+        XCTAssertEqual(doc.state.table[key], text("typed during the read"),
+                       "the edit that committed during the read survives it")
+        try await doc.setCell(text("next"), at: key, undoManager: nil)
+        XCTAssertEqual(try ops(of: record.id).last?.figure?.prior, text("typed during the read"),
+                       "and the next edit's prior is what the table held")
+        try await doc.reload()
+        XCTAssertEqual(doc.state.table[key], text("next"), "a later read agrees")
         await doc.close()
     }
 
