@@ -11942,9 +11942,10 @@ final class TripwireGrepTests: XCTestCase {
         "createFigure(", figureOpMintSpelling,
     ]
 
-    /// The key a figure op's minting is counted under: an `Op(` call with a
-    /// `figure:` argument at its own depth, however many lines it spans
-    /// (`figureOpMintLines`). Not a substring — the call is walked.
+    /// The key a figure op's minting is counted under: an `Op(`/`Op.init(`
+    /// (or an `opId:`-carrying bare `.init(`) with a `figure:` argument at its
+    /// own depth, however many lines it spans (`figureOpMintLines`). Not a
+    /// substring — the call is walked.
     static let figureOpMintSpelling = "Op(…figure:"
 
     /// **`FigureDocument`'s mutator spellings, counted only as an AWAITED
@@ -11961,82 +11962,243 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
     ]
 
-    /// `text` with every line comment cut (newlines kept, so line numbers
-    /// survive). Like `deviceArgumentsAtDocumentLoad`'s stripper it does not
-    /// know string literals; the failure direction is a false positive.
-    static func strippingLineComments(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                guard let comment = line.range(of: "//") else { return String(line) }
-                return String(line[line.startIndex..<comment.lowerBound])
+    /// `text` with every comment and string literal blanked to spaces, its
+    /// newlines kept, so line numbers survive and nothing inside a literal —
+    /// a `"a//b"`, a `"(("`, a `figure:` in prose — can cut a line, skew a
+    /// paren depth or pose as a label. Lexes `//` and nested `/* */`
+    /// comments, `"…"` with escapes and `\(…)` interpolations (themselves
+    /// holding strings), multi-line `"""…"""`, and raw `#"…"#` of any number
+    /// of `#`s. SHARED by the figure scanners and their controls.
+    static func blankingCommentsAndStrings(_ text: String) -> String {
+        let c = Array(text)
+        var out = c
+        var i = 0
+        func blank(_ k: Int) { if c[k] != "\n" { out[k] = " " } }
+        func at(_ k: Int, _ s: String) -> Bool {
+            var n = k
+            for ch in s {
+                guard n < c.count, c[n] == ch else { return false }
+                n += 1
             }
-            .joined(separator: "\n")
-    }
-
-    /// The 1-based line of every awaited call of `spelling` in `text`: `await`,
-    /// then an optional receiver chain, then the name. A chain segment is a
-    /// name with optional call arguments or a subscript (one level of nested
-    /// parentheses inside), an optional `?`/`!`, and a dot — whitespace,
-    /// newlines included, allowed around the dot. So `d.setCell(`,
-    /// `self.figure?.setCell(`, `figures[i].setCell(`,
-    /// `store.openFigure(figureId: f).setCell(` and `try await figure` with
-    /// `.setCell(` on the next line all count. A call whose arguments nest
-    /// two levels deep before the name is missed — which is how
-    /// `commit(.figureStructure, FigureOpPayload(structure: .insertRow(` is
-    /// told apart, and a known limit. The line is the NAME's line.
-    static func awaitedCallLines(of spelling: String, in text: String) -> [Int] {
-        let args = #"(?:\((?:[^()]|\([^()]*\))*\)|\[[^\]]*\])"#
-        let segment = #"[A-Za-z_][A-Za-z0-9_]*"# + args + #"*[?!]?\s*\.\s*"#
-        let pattern = #"\bawait\s+(?:"# + segment + ")*("
-            + NSRegularExpression.escapedPattern(for: spelling) + ")"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let stripped = strippingLineComments(text)
-        let ns = stripped as NSString
-        return regex.matches(in: stripped, range: NSRange(location: 0, length: ns.length)).map {
-            let upTo = ns.substring(to: $0.range(at: 1).location)
-            return upTo.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+            return true
         }
+        // Blanks a string body from `k` (just past its opening delimiter)
+        // through its closing delimiter; answers the index after it.
+        func string(from k: Int, hashes: Int, multiline: Bool) -> Int {
+            var k = k
+            let close = (multiline ? "\"\"\"" : "\"") + String(repeating: "#", count: hashes)
+            let escape = "\\" + String(repeating: "#", count: hashes)
+            while k < c.count {
+                if !multiline, c[k] == "\n" { return k }
+                if at(k, escape) {
+                    let past = k + escape.count
+                    for j in k..<min(past, c.count) { blank(j) }
+                    if past < c.count, c[past] == "(" {
+                        // An interpolation: code (and strings) to its `)`.
+                        var depth = 0, j = past
+                        while j < c.count {
+                            if c[j] == "\"" {
+                                blank(j); j = string(from: j + 1, hashes: 0, multiline: false); continue
+                            }
+                            if c[j] == "(" { depth += 1 }
+                            if c[j] == ")" { depth -= 1 }
+                            blank(j); j += 1
+                            if depth == 0 { break }
+                        }
+                        k = j
+                    } else {
+                        if past < c.count { blank(past) }
+                        k = past + 1
+                    }
+                    continue
+                }
+                if at(k, close) {
+                    for j in k..<(k + close.count) { blank(j) }
+                    return k + close.count
+                }
+                blank(k); k += 1
+            }
+            return k
+        }
+        while i < c.count {
+            if c[i] != "/" && c[i] != "\"" && c[i] != "#" {
+                i += 1
+            } else if at(i, "//") {
+                while i < c.count, c[i] != "\n" { blank(i); i += 1 }
+            } else if at(i, "/*") {
+                var depth = 0
+                while i < c.count {
+                    if at(i, "/*") { depth += 1; blank(i); blank(i + 1); i += 2; continue }
+                    if at(i, "*/") { depth -= 1; blank(i); blank(i + 1); i += 2; if depth == 0 { break }; continue }
+                    blank(i); i += 1
+                }
+            } else if c[i] == "#" || c[i] == "\"" {
+                var hashes = 0
+                while i + hashes < c.count, c[i + hashes] == "#" { hashes += 1 }
+                let q = i + hashes
+                guard q < c.count, c[q] == "\"" else { i += max(hashes, 1); continue }
+                let multiline = at(q, "\"\"\"")
+                let open = q + (multiline ? 3 : 1)
+                for j in i..<open { blank(j) }
+                i = string(from: open, hashes: hashes, multiline: multiline)
+            } else {
+                i += 1
+            }
+        }
+        return String(out)
     }
 
-    /// The 1-based line of every `figure:` argument passed directly to an
-    /// `Op(` call in `text` — a CALL-SHAPED walk like
-    /// `deviceArgumentsAtDocumentLoad`'s, since an `Op(` spans several lines.
-    /// `Op(` must not be the tail of a longer name (`FigureOp(`), and the
-    /// label must sit at the call's own depth (a nested `Thing(figure:` is
-    /// not the op's) and not be the tail of a longer label.
-    static func figureOpMintLines(in text: String) -> [Int] {
-        let chars = Array(strippingLineComments(text))
-        let needle = Array("Op(")
-        let label = Array("figure:")
-        func isIdent(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" }
+    /// The 1-based line of every AWAITED call of `spelling` in `text`. Over
+    /// the blanked text (`blankingCommentsAndStrings`), an occurrence of the
+    /// name counts when it is
+    /// - a CALL: a member call, whose receiver ends in a name, `)`, `]`, `?`
+    ///   or `!` before the dot (whitespace and newlines allowed between —
+    ///   `d.setCell(`, `$0.setCell(`, `(await x).setCell(`,
+    ///   `store.openFigure(figureId: f).setCell(`, `figure` then `.setCell(`
+    ///   on the next line), or a bare call (`setCell(` from inside); not an
+    ///   implicit member like `structure: .insertRow(` or `case .insertRow(`,
+    ///   and not a `func`/`case` declaration; and
+    /// - AWAITED: its statement, read backwards to a `{`, `}` or `;` outside
+    ///   any parentheses, or to a line break that does not continue (the next
+    ///   line starts with `.`, or this one ends in `=`, `(`, `,`, `try` or
+    ///   `await`), says `await` or `async let` before it.
+    /// So one `await` covering several calls counts each. The line is the
+    /// NAME's line. Every sync table helper has no `await` in its statement;
+    /// a sync call sharing a statement with an `await` is counted — the safe
+    /// direction.
+    static func awaitedCallLines(of spelling: String, in text: String) -> [Int] {
+        awaitedCallLines(of: spelling, inBlanked: Array(blankingCommentsAndStrings(text)))
+    }
+
+    /// `awaitedCallLines` over text already blanked, so a file is lexed once.
+    static func awaitedCallLines(of spelling: String, inBlanked c: [Character]) -> [Int] {
+        let name = Array(spelling)
+        func isIdent(_ x: Character) -> Bool { x.isLetter || x.isNumber || x == "_" || x == "$" }
+        func lineText(endingAt k: Int) -> String {   // the line whose "\n" is at k
+            var j = k - 1
+            while j >= 0, c[j] != "\n" { j -= 1 }
+            return String(c[(j + 1)..<k])
+        }
+        func lineText(startingAfter k: Int) -> String {
+            var j = k + 1
+            while j < c.count, c[j] != "\n" { j += 1 }
+            return String(c[(k + 1)..<j])
+        }
+        func continues(at newline: Int) -> Bool {
+            let next = lineText(startingAfter: newline).trimmingCharacters(in: .whitespaces)
+            if next.hasPrefix(".") { return true }
+            let prev = lineText(endingAt: newline).trimmingCharacters(in: .whitespaces)
+            if prev.hasSuffix("=") || prev.hasSuffix("(") || prev.hasSuffix(",") { return true }
+            let last = prev.split(separator: " ").last.map(String.init) ?? ""
+            return ["try", "try?", "try!", "await"].contains(last)
+        }
+        let awaitRegex = try? NSRegularExpression(pattern: #"\bawait\b|\basync\s+let\b"#)
         var lines: [Int] = []
-        var line = 1, depth = 0, i = 0
-        var openCalls: [Int] = []
-        while i < chars.count {
-            switch chars[i] {
+        var line = 1
+        var i = 0
+        while i < c.count {
+            if c[i] == "\n" { line += 1; i += 1; continue }
+            guard c[i] == name[0], i + name.count <= c.count,
+                  c[i..<(i + name.count)].elementsEqual(name),
+                  i == 0 || !isIdent(c[i - 1]) else { i += 1; continue }
+            // A member call, a bare call, or neither.
+            var j = i - 1
+            while j >= 0, c[j] == " " || c[j] == "\t" { j -= 1 }
+            var start = i
+            if j >= 0, c[j] == "." {
+                // Glued to its receiver, or leading its own line after one;
+                // a dot after a space mid-line is an implicit member.
+                var r = j - 1
+                if r >= 0, c[r] == " " || c[r] == "\t" {
+                    while r >= 0, c[r] == " " || c[r] == "\t" { r -= 1 }
+                    guard r >= 0, c[r] == "\n" else { i += 1; continue }
+                    while r >= 0, c[r].isWhitespace { r -= 1 }
+                } else if r >= 0, c[r] == "\n" {
+                    while r >= 0, c[r].isWhitespace { r -= 1 }
+                }
+                guard r >= 0, isIdent(c[r]) || ")]?!".contains(c[r]) else { i += 1; continue }
+                start = j
+            } else {
+                let before = String(c[max(0, i - 6)..<i])
+                if before.hasSuffix("func ") || before.hasSuffix("case ") { i += 1; continue }
+            }
+            // The statement, read backwards from the call.
+            var k = start - 1, depth = 0
+            while k >= 0 {
+                let x = c[k]
+                if x == ")" { depth += 1 } else if x == "(" { depth -= 1 }
+                if depth <= 0, x == "{" || x == "}" || x == ";" { break }
+                if depth == 0, x == "\n", !continues(at: k) { break }
+                k -= 1
+            }
+            let prefix = String(c[(k + 1)..<start])
+            if let awaitRegex,
+               awaitRegex.firstMatch(in: prefix, range: NSRange(prefix.startIndex..., in: prefix)) != nil {
+                lines.append(line)
+            }
+            i += name.count
+        }
+        return lines
+    }
+
+    /// The 1-based line of every `figure:` argument that mints an `Op` in
+    /// `text` — a CALL-SHAPED walk over the blanked text, since an op spans
+    /// several lines. The calls are `Op(`, `Op.init(` (neither the tail of a
+    /// longer name — `FigureOp(` is not one), and a bare `.init(` whose own
+    /// argument list also carries `opId:` (`Op.init`'s first, required label —
+    /// which keeps `ElementWords`' `.init(figure: "Figura", …)` out). The label
+    /// must sit at the call's own depth (a nested `Thing(figure:` is not the
+    /// op's) and not be the tail of a longer label. `Op.figure` is a `let`,
+    /// so an op's payload is set only at its construction.
+    static func figureOpMintLines(in text: String) -> [Int] {
+        figureOpMintLines(inBlanked: Array(blankingCommentsAndStrings(text)))
+    }
+
+    /// `figureOpMintLines` over text already blanked, so a file is lexed once.
+    static func figureOpMintLines(inBlanked c: [Character]) -> [Int] {
+        func isIdent(_ x: Character) -> Bool { x.isLetter || x.isNumber || x == "_" }
+        func ends(at k: Int, with s: String) -> Bool {
+            let a = Array(s)
+            let start = k + 1 - a.count
+            guard start >= 0, Array(c[start...k]) == a else { return false }
+            return start == 0 || !isIdent(c[start - 1])
+        }
+        func label(_ s: String, at k: Int) -> Bool {
+            let a = Array(s)
+            guard k + a.count <= c.count, Array(c[k..<(k + a.count)]) == a else { return false }
+            let prev: Character = k > 0 ? c[k - 1] : " "
+            return !(isIdent(prev) || prev == ".")
+        }
+        struct Open { let depth: Int; let needsOpId: Bool; var sawOpId = false; var figureLines: [Int] = [] }
+        var lines: [Int] = []
+        var line = 1, depth = 0
+        var open: [Open] = []
+        for k in c.indices {
+            switch c[k] {
             case "\n":
                 line += 1
             case "(":
                 depth += 1
-                let start = i + 1 - needle.count
-                if start >= 0, Array(chars[start...i]) == needle,
-                   start == 0 || !isIdent(chars[start - 1]) {
-                    openCalls.append(depth)
+                if ends(at: k, with: "Op(") || ends(at: k, with: "Op.init(") {
+                    open.append(Open(depth: depth, needsOpId: false))
+                } else if k >= 5, String(c[(k - 5)...k]) == ".init(",
+                          k == 5 || !(isIdent(c[k - 6]) || c[k - 6] == ".") {
+                    open.append(Open(depth: depth, needsOpId: true))
                 }
             case ")":
-                if openCalls.last == depth { openCalls.removeLast() }
+                if let last = open.last, last.depth == depth {
+                    open.removeLast()
+                    if !last.needsOpId || last.sawOpId { lines += last.figureLines }
+                }
                 depth -= 1
             default:
-                if openCalls.last == depth, chars[i] == "f",
-                   i + label.count <= chars.count,
-                   Array(chars[i..<(i + label.count)]) == label {
-                    let prev: Character = i > 0 ? chars[i - 1] : " "
-                    if !(isIdent(prev) || prev == ".") { lines.append(line) }
-                }
+                guard var last = open.last, last.depth == depth else { break }
+                if label("figure:", at: k) { last.figureLines.append(line) }
+                if label("opId:", at: k) { last.sawOpId = true }
+                open[open.count - 1] = last
             }
-            i += 1
         }
-        return lines
+        return lines.sorted()
     }
 
     /// Every writer spelling in one file's `text`, per line: the substring
@@ -12058,13 +12220,21 @@ final class TripwireGrepTests: XCTestCase {
             for spelling in plain where lineStr.contains(spelling) { spellings[spelling, default: 0] += 1 }
             if !spellings.isEmpty { out.append((SourceTree.Hit(file: file, line: i + 1), spellings)) }
         }
-        for spelling in figureMutatorSpellings.sorted() {
-            for line in awaitedCallLines(of: spelling, in: text) {
+        // The figure scanners lex the file once, and only a file that could
+        // hold a figure writer at all.
+        let mutators = figureMutatorSpellings.sorted().filter { text.contains($0) }
+        let mayMint = text.contains("figure:")
+        guard !mutators.isEmpty || mayMint else { return out }
+        let blanked = Array(blankingCommentsAndStrings(text))
+        for spelling in mutators {
+            for line in awaitedCallLines(of: spelling, inBlanked: blanked) {
                 out.append((SourceTree.Hit(file: file, line: line), [spelling: 1]))
             }
         }
-        for line in figureOpMintLines(in: text) {
-            out.append((SourceTree.Hit(file: file, line: line), [figureOpMintSpelling: 1]))
+        if mayMint {
+            for line in figureOpMintLines(inBlanked: blanked) {
+                out.append((SourceTree.Hit(file: file, line: line), [figureOpMintSpelling: 1]))
+            }
         }
         return out
     }
@@ -12567,6 +12737,57 @@ final class TripwireGrepTests: XCTestCase {
         try clean.write(to: file, atomically: true, encoding: .utf8)
         XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
             "and taken away, nothing is counted")
+    }
+
+    /// **The figure scanners read every call shape, and through strings**
+    /// (report plan 6a Task 8 fix round 2). Each planted shape below is
+    /// counted on its own line, and taken away the file leaves the census:
+    /// - awaited mutators: `async let`, a `$0.` receiver, `(await x).`, and
+    ///   one `await` covering two calls (each counted);
+    /// - op mints: `Op.init(`, a bare `.init(` carrying `opId:`, and an `Op(`
+    ///   whose earlier string arguments hold `//` and `((`;
+    /// - and NOT: a mutator or an `Op(…figure:` spelled inside a string
+    ///   (single-line, interpolated or multi-line), a bare `.init(figure:`
+    ///   without `opId:` (`ElementWords`' shape), or a `/* */` comment.
+    func test_theFigureScannersReadThroughStringsAndEveryCallShape() throws {
+        let quiet = #"""
+        let words: [String: ElementWords] = ["es": .init(figure: "Figura", table: "Tabla")]
+        let prose = "try await figure.setCell(x) and Op(opId: i, figure: p)"
+        let mixed = "\(name) says try await figure.setRow( \("Op(figure: q)") ("
+        let note = """
+            try await figure.setCell(cell, at: key)
+            Op(opId: a, figure: b)
+            """
+        /* try await figure.setCell(c, at: k); Op(opId: z, figure: y) */
+        """#
+        XCTAssertEqual(Self.manuscriptWriterHits(file: "Quiet.swift", text: quiet).count, 0,
+            "Self-check: nothing in a string, an ElementWords .init or a comment counts")
+
+        let loud = quiet + #"""
+
+        async let r = figure.setCell(cell, at: key)
+        try await cells.forEachAsync { try await $0.setHeaderRows(1) }
+        try await (await store.openFigure(figureId: f)).setTotalRow(true)
+        _ = try await (figure.moveRow(a, after: nil), other.moveRow(b, after: nil))
+        let one = Op.init(opId: i, docId: d, at: t, device: v, session: s,
+                          kind: k, changes: [], figure: p)
+        let two: Op = .init(opId: i, docId: d, at: t, device: v, session: s, kind: k, changes: [], figure: p)
+        let three = Op(opId: i, docId: d, at: t, device: "a//b", session: "((",
+                       kind: k, changes: [], figure: p)
+        let four = Op(opId: i, docId: d, at: t, device: v, session: s, kind: k, changes: [], figure: p)
+        """#
+        let hits = Self.manuscriptWriterHits(file: "Loud.swift", text: loud)
+        func linesOf(_ spelling: String) -> [Int] {
+            hits.filter { $0.value[spelling] != nil }.map(\.hit.line).sorted()
+        }
+        XCTAssertEqual(linesOf("setCell("), [9], "async let")
+        XCTAssertEqual(linesOf("setHeaderRows("), [10], "a $0. receiver")
+        XCTAssertEqual(linesOf("setTotalRow("), [11], "(await x).")
+        XCTAssertEqual(linesOf("moveRow("), [12, 12], "one await, two calls, each counted")
+        XCTAssertEqual(linesOf(Self.figureOpMintSpelling), [14, 15, 17, 18],
+            "Op.init(, a bare .init( with opId:, an Op( past \"a//b\" and \"((\", "
+            + "and the Op( after it — the depth is not skewed")
+        XCTAssertEqual(hits.count, 9, "and nothing else: \(hits)")
     }
 
     /// **A swap inside a listed file fails the census** (Task 9): the same
