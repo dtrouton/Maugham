@@ -4,7 +4,8 @@ import XCTest
 final class FormulaParserTests: XCTestCase {
     private var table = FigureTable(rows: 4, columns: 3)
     private var revenue = FigureTable(rows: 2, columns: 2)
-    private var figures: [String: FigureTable] { ["revenue": revenue] }
+    private var cashFlow = FigureTable(rows: 3, columns: 3)
+    private var figures: [String: FigureTable] { ["revenue": revenue, "cash-flow": cashFlow, "A1": revenue] }
 
     private func n(_ x: Double) -> FormulaExpr { .number(x) }
 
@@ -140,20 +141,37 @@ final class FormulaParserTests: XCTestCase {
         }
     }
 
-    func test_parse_isTotal_onArbitraryInput() {
-        var generator = SplitMix(seed: 42)
-        let alphabet = Array("AB$1:2!(),\"'#%^*/+-=<> .eE_research REF?é\n")
-        for _ in 0..<5_000 {
-            let length = Int(generator.next() % 24)
-            let text = String((0..<length).map { _ in alphabet[Int(generator.next() % UInt64(alphabet.count))] })
-            if case .success(let f) = FormulaParser.parse(text, in: table, figures: figures) {
-                _ = FormulaParser.render(f, in: table, figures: figures)
+    func test_parse_isTotal_onArbitraryInput_onA512KBThread() {
+        let table = self.table, figures = self.figures
+        onSmallStack {
+            var generator = SplitMix(seed: 42)
+            let alphabet = Array("AB$1:2!(),\"'#%^*/+-=<> .eE_research REF?é\n")
+            for _ in 0..<5_000 {
+                let length = Int(generator.next() % 24)
+                let text = String((0..<length).map { _ in alphabet[Int(generator.next() % UInt64(alphabet.count))] })
+                if case .success(let f) = FormulaParser.parse(text, in: table, figures: figures) {
+                    _ = FormulaParser.render(f, in: table, figures: figures)
+                }
+                _ = FormulaParser.parsePositional(text)
             }
-            _ = FormulaParser.parsePositional(text)
+            let message = "This formula is too long or too deeply nested — try SUM or split it"
+            // Shapes that pile pending operators onto every nesting level, inside the length cap.
+            let hostile = [
+                String(repeating: "(", count: 8_000) + "1",
+                String(repeating: "-", count: 8_000) + "1",
+                String(repeating: "F(", count: 4_000),
+                String(repeating: "1=1+1*1^(", count: 600) + "1" + String(repeating: ")", count: 600),
+                String(repeating: "1=SUM(1+(1*-(", count: 400) + "1" + String(repeating: ")))", count: 400),
+                "1" + String(repeating: "+1", count: 4_000),
+            ]
+            for text in hostile {
+                guard case .failure(let e) = FormulaParser.parse(text, in: table, figures: figures) else {
+                    XCTFail("accepted: \(text.prefix(30))…"); continue
+                }
+                XCTAssertEqual(e.message, message)
+                if case .success = FormulaParser.parsePositional(text) { XCTFail("positional accepted: \(text.prefix(30))…") }
+            }
         }
-        XCTAssertNotNil(parseError(String(repeating: "(", count: 50_000) + "1"))
-        XCTAssertNotNil(parseError(String(repeating: "-", count: 50_000) + "1"))
-        XCTAssertNotNil(parseError(String(repeating: "F(", count: 50_000)))
     }
 
     // MARK: render
@@ -269,6 +287,105 @@ final class FormulaParserTests: XCTestCase {
         table.deleteRow(table.rows[2])     // A1:A3 now shows A1:A2
         let t = FormulaParser.translate(f, from: key(0, 1), to: key(1, 1), in: table)
         XCTAssertEqual(FormulaParser.render(t, in: table), "SUM(A2:A3)")
+    }
+
+    func test_translate_absoluteEdgePassedByItsPartner_keepsEachFlagOnItsEdge() throws {
+        let f = try XCTUnwrap(parse("SUM(A$3:A3)"))
+        let up = FormulaParser.translate(f, from: key(2, 1), to: key(0, 1), in: table)
+        XCTAssertEqual(render(up), "SUM(A1:A$3)")
+        let down = FormulaParser.translate(up, from: key(0, 1), to: key(1, 1), in: table)
+        XCTAssertEqual(render(down), "SUM(A2:A$3)", "the absolute row stays row 3")
+        XCTAssertEqual(translated("SUM($C1:C1)", from: key(0, 2), to: key(0, 0)), "SUM(A1:$C1)")
+        XCTAssertEqual(translated("SUM(research:m!A$3:A3)", from: key(2, 1), to: key(0, 1)), "SUM(research:m!A1:A$3)")
+    }
+
+    // MARK: figure names (ruling R-P5-2)
+
+    func test_hyphenAfterAnUnquotedToken_isSubtraction() {
+        XCTAssertEqual(parse("A1-revenue!B2")?.expr, .binary(.subtract, .ref(this(0, 0)),
+            .ref(FormulaRef(target: .figure(name: "revenue"), anchor: .id(row: revenue.rows[1], column: revenue.columns[1])))))
+    }
+
+    func test_quotedFigureName_resolves() {
+        XCTAssertEqual(parse("'cash-flow'!B2")?.expr,
+                       .ref(FormulaRef(target: .figure(name: "cash-flow"), anchor: .id(row: cashFlow.rows[1], column: cashFlow.columns[1]))))
+    }
+
+    func test_render_quotesFigureNamesThatNeedIt_andRoundTrips() {
+        let text = "'cash-flow'!B2+SUM('cash-flow'!A1:$B$3)*'A1'!B2-revenue!A1"
+        XCTAssertEqual(render(parse(text)), text)
+    }
+
+    func test_figureNamesThatMustBeQuoted_failUnquoted() {
+        XCTAssertEqual(parseError("A1!B2")?.message, "A table named like a cell needs quotes, as in 'A1'!B2")
+        XCTAssertNotNil(parseError("2024!A1"))
+        XCTAssertEqual(parseError("cash-flow!B2")?.message, "“cash” isn't a cell, a function or a value", "a hyphen is subtraction")
+    }
+
+    // MARK: size bounds (ruling R-P5-3)
+
+    /// Runs `body` on a thread with a 512 KB stack: Swift concurrency's and a secondary thread's size.
+    private func onSmallStack(_ body: @escaping @Sendable () -> Void) {
+        let done = expectation(description: "512 KB thread")
+        let thread = Thread { body(); done.fulfill() }
+        thread.stackSize = 512 * 1024
+        thread.start()
+        wait(for: [done], timeout: 60)
+    }
+
+    /// The deepest-encoding shape: calls nested around a figure range, `depth` levels in all.
+    private func nestedCalls(depth: Int) -> String {
+        String(repeating: "SUM(", count: depth - 1) + "'cash-flow'!A1:B2" + String(repeating: ")", count: depth - 1)
+    }
+
+    func test_depthBound_roundTripsAndRendersOnA512KBThread() {
+        let n = FormulaParser.maxDepth
+        XCTAssertGreaterThanOrEqual(n, 100)
+        let texts = [
+            nestedCalls(depth: n),
+            "1" + String(repeating: "+1", count: n - 1),                                   // left-deep flat chain
+            String(repeating: "-", count: n - 1) + "1",                                    // prefix chain
+            String(repeating: "(", count: n - 1) + "1" + String(repeating: ")", count: n - 1),
+        ]
+        let table = self.table, figures = self.figures
+        onSmallStack {
+            for text in texts {
+                guard case .success(let f) = FormulaParser.parse(text, in: table, figures: figures) else {
+                    XCTFail("refused at the bound: \(text.prefix(40))…"); continue
+                }
+                do {
+                    let back = try JSONDecoder().decode(Formula.self, from: JSONEncoder().encode(f))
+                    XCTAssertEqual(back, f)
+                } catch {
+                    XCTFail("codable round trip failed: \(error)")
+                }
+                let rendered = FormulaParser.render(f, in: table, figures: figures)
+                XCTAssertEqual(try? FormulaParser.parse(rendered, in: table, figures: figures).get(), f)
+                _ = FormulaParser.translate(f, from: CellKey(row: table.rows[0], column: table.columns[0]),
+                                            to: CellKey(row: table.rows[1], column: table.columns[0]), in: table, figures: figures)
+            }
+        }
+    }
+
+    func test_pastTheDepthBound_isRefused() {
+        let n = FormulaParser.maxDepth
+        let message = "This formula is too long or too deeply nested — try SUM or split it"
+        XCTAssertEqual(parseError(nestedCalls(depth: n + 1))?.message, message)
+        XCTAssertEqual(parseError("1" + String(repeating: "+1", count: n))?.message, message)
+        XCTAssertEqual(parseError(String(repeating: "-", count: n) + "1")?.message, message)
+        XCTAssertEqual(parseError(String(repeating: "(", count: n) + "1" + String(repeating: ")", count: n))?.message, message)
+    }
+
+    func test_lengthBound_isExcels8192Characters() {
+        let fits = "\"" + String(repeating: "a", count: FormulaParser.maxLength - 2) + "\""
+        XCTAssertEqual(fits.count, 8_192)
+        XCTAssertNotNil(parse(fits))
+        let over = "\"" + String(repeating: "a", count: FormulaParser.maxLength - 1) + "\""
+        XCTAssertEqual(parseError(over)?.message, "This formula is too long or too deeply nested — try SUM or split it")
+    }
+
+    func test_sixtyFourNestedFunctions_parse() {
+        XCTAssertNotNil(parse(String(repeating: "ABS(", count: 64) + "1" + String(repeating: ")", count: 64)))
     }
 
     // MARK: codable
