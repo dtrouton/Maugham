@@ -766,6 +766,22 @@ struct CanvasInteraction {
         return bindable.isEmpty ? .doNothing : .bind(regions: bindable, toPiece: piece)
     }
 
+    /// The piece a scrap made right now binds to of its own, or nil.
+    ///
+    /// Only a selected chapter (`.piece`) binds; the book, a group and a
+    /// research item name no one piece. `home` is the region the new scrap
+    /// joins by centre, and **the region wins** (ruled 2026-10-24): an unbound
+    /// home leaves the chapter to the scrap, a home bound to this chapter is
+    /// already the scrap's link to it, and a home bound to ANOTHER chapter
+    /// leaves the scrap unbound, following its region. Never re-binds a region,
+    /// for the same reason a sweep does not.
+    static func creationBinding(subject: CanvasSubject, home: CanvasRegionID?,
+                                in scene: CanvasScene) -> String? {
+        guard case .piece(let piece) = subject else { return nil }
+        guard let home, let region = scene.region(home) else { return piece }
+        return region.boundPieceID == nil ? piece : nil
+    }
+
     /// Which cards a rect swept on bare canvas takes in.
     ///
     /// **CREATION ABSORBS; transitions do not.** (Denver, 2026-07-28.) §4.2's

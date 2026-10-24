@@ -1028,18 +1028,30 @@ struct CanvasView: View {
                           selectionWhenPressed: $selectionWhenPressed)
     }
 
+    /// Making and entering a scrap — the one way, chapter-aware — over this
+    /// view's own `@State`, built per call like `layoutPass`. `subject` goes
+    /// here and to the other input handlers only, never to `editFocus` or
+    /// `layoutPass`, which `load()`'s closures reach (tripwire 57).
+    private var scrapFlow: CanvasScrapFlow {
+        CanvasScrapFlow(model: model,
+                        subject: subject,
+                        layoutPass: layoutPass,
+                        editingNodeID: $editingNodeID,
+                        caretIndex: $caretIndex,
+                        lastKeystrokeAt: $lastKeystrokeAt,
+                        straighten: $straighten)
+    }
+
     /// The clicks — select, enter a scrap or make one — over this view's own
     /// `@State`, built per call like `layoutPass`. It writes
     /// `selectionWhenPressed` at the head of `handleClick`, before anything moves
-    /// the selection; `dragHandler` reads it at `.began`.
+    /// the selection; `dragHandler` reads it at `.began`. It enters and makes
+    /// through the `scrapFlow` it is handed.
     private var clickHandler: CanvasClickHandler {
         CanvasClickHandler(model: model,
                            editFocus: editFocus,
-                           layoutPass: layoutPass,
+                           scrapFlow: scrapFlow,
                            selectionWhenPressed: $selectionWhenPressed,
-                           editingNodeID: $editingNodeID,
-                           caretIndex: $caretIndex,
-                           lastKeystrokeAt: $lastKeystrokeAt,
                            straighten: $straighten,
                            layouts: $layouts,
                            revision: $revision)

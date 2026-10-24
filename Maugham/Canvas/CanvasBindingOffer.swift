@@ -38,10 +38,12 @@ enum CanvasBindingOffer {
     /// §4's third row: a manuscript document with nothing on this canvas bound to
     /// it. The instruction is the next move in the writer's own verb — the guide
     /// calls the gesture *"drag on empty canvas to draw one"*, and the binding is
-    /// what §4.1's invariant adds to it while the board is dimmed.
+    /// what §4.1's invariant adds to it while the board is dimmed. A scrap made
+    /// while the chapter is selected binds to it too
+    /// (`CanvasInteraction.creationBinding`), so the scrap is offered first.
     static let nothingBound = Message(
         headline: "Nothing on this canvas is bound to this document yet.",
-        instruction: "Drag out a region and it binds to it.")
+        instruction: "Double-click or press Return to add a scrap to it, or drag out a region.")
 
     /// §4's *"its card highlighted on the board"* with no card to highlight
     /// (stage 3b). The board still dims — that is Task 1's ruling and the reason

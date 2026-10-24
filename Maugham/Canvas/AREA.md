@@ -17,7 +17,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `ScrapText.swift` — renders and parses `canvas.md`, the scrap text keyed by node id.
 
 ### Drawing and geometry
-- `CanvasView.swift` — the SwiftUI view: every `@State` (camera, layouts, editing focus, straighten, momentum), `body`'s layer stack, the `revision`/`sceneRevision` mirror and `load()`; it builds its six helpers per call (tripwires 27, 30, 32, 57). Its header comment lists its source-layout contracts.
+- `CanvasView.swift` — the SwiftUI view: every `@State` (camera, layouts, editing focus, straighten, momentum), `body`'s layer stack, the `revision`/`sceneRevision` mirror and `load()`; it builds its seven helpers per call (tripwires 27, 30, 32, 57). Its header comment lists its source-layout contracts.
 - `CanvasLayoutPass.swift` — `rebuildLayouts`/`remeasure`: the `ScrapLayout` cache and every card's derived height; `CanvasView` builds it per call (tripwires 26, 57).
 - `CanvasRenderer.swift` — the one draw pass (regions, lines, cards, chips, tethers), `CanvasFocusStraighten`, `cardTransform`/`seededRotation`, `paper(for:)`, `cullingBleed`, `rotationOverhang(of:)`, `elide` (tripwires 26, 29).
 - `CanvasCamera.swift` — the manual pan/zoom transform; `bring(_:toViewPoint:)` and `revealViewPoint` (tripwire 25).
@@ -35,7 +35,8 @@ Every file in `Maugham/Canvas/` appears once.
 - `ScrapEditorHost.swift` — the one mounted `NSTextView` (`ScrapEditorContainer`), its visibility and pointer transparency, `undo:`/`redo:` forwarding, `ScrapEditorGeometry` (tripwires 27, 28).
 - `CanvasEditFocus.swift` — the open scrap: `syncActiveEdit` (per-keystroke fold), `commitActiveEdit`, `leaveTheOpenScrap`; built per call by `CanvasView` (tripwire 28).
 - `CanvasDragHandler.swift` — `handleDrag`: each gesture's press, move and release and its undo bracket; `pressStartsALine`; built per call by `CanvasView` (tripwire 32).
-- `CanvasClickHandler.swift` — `handleClick`: select, enter a scrap or make one; writes `selectionWhenPressed` first; built per call by `CanvasView`.
+- `CanvasClickHandler.swift` — `handleClick`: select, enter a scrap or make one; writes `selectionWhenPressed` first; holds the `scrapFlow` it is handed; built per call by `CanvasView`.
+- `CanvasScrapFlow.swift` — `makeScrapAndEnter(at:joinedTo:)` (one "New Scrap" step: create, measure, join, bind, line) and `enter(_:caretIndex:)` (opens "Edit Scrap"): the one way to make or enter a scrap; built per call by `CanvasView`; takes `subject`.
 - `CanvasKeyHandler.swift` — `deleteSelection` (⌫, refused mid-gesture) and `escapeAsksForTheWholeBoard`; built per call by `CanvasView` (tripwire 32).
 - `CanvasDropHandler.swift` — `handleDrop(providers:at:)`, the one entry, routes to `handleDrop` (a research row or inbox capture) or `handleExternalDrop` (a photograph); holds no sibling helper; built per call by `CanvasView`, whose `body` mounts the one drop modifier.
 - `CanvasEditGate.swift` — what a read-only (refused-sidecar) canvas still offers: every gesture, key, drop and inspector control asks it first.
@@ -146,6 +147,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **The dim is de-emphasis, never disabling**: dimmed things stay hit-tested and selectable, the selection ring stays full strength, and the sweep and pending line are never dimmed.
 - **Alpha is replaced, never multiplied** — through `CanvasMaterial.dimmedAlpha(lit:)` or `CanvasRenderer.alpha(_:dimmed:)`; the region wash and card border stay as they are; card words go through `textInk(_:dimmed:)` (`CanvasHighlightRenderTests`).
 - **The dim is a mode and its only indicator**: while anything is dimmed, a sweep binds to the subject; on an undimmed board a sweep is just a sweep. Never add a second "binding is armed" signal.
+- **A scrap made while a chapter is selected binds to it unless its home region is bound** (`CanvasInteraction.creationBinding`): a bound home, to any chapter, wins and the scrap follows it. Every route that makes a scrap goes through `CanvasScrapFlow.makeScrapAndEnter`, binding inside the "New Scrap" step (`CanvasScrapFlowTests`).
 - **A binding sweep assigns what it catches and creates only when it catches nothing; it never re-binds a bound region** — routed by the pure `CanvasInteraction.sweepOutcome(for:subject:in:)`, whose third case `.doNothing` covers a sweep over only bound regions (`test_aSweepCatchingOnlyBoundRegionsCreatesNothingEither`). A group subject makes a plain region. Changing a binding stays the inspector's Piece picker.
 - **The bind happens inside `handleDrag(.ended)`'s `model.withScene(persist: false)`**, so one ⌘Z takes back the whole act; never `mutateFromInspector` there. The step is renamed at `.ended` through `CanvasModel.renameGesture`, and a bind without a mint still bumps `sceneRevision` (`test_aSweepAcrossExistingRegionsBindsThemAndCreatesNothing`).
 - **Escape is the keyboard spelling of the project row** — `CanvasView.selectTheProjectRow` is a one-way ask the window answers by writing the project row's own tag, so the canvas gets the answer (`CanvasSubject`) and never the question. On an undimmed board Escape is refused and travels on; never a menu key equivalent.

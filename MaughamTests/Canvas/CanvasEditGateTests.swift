@@ -95,6 +95,9 @@ final class CanvasEditGateTests: XCTestCase {
         let orders: [(function: String, gate: String, act: String)] = [
             ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
              "switch clickTarget(at:"),
+            // The make moved into `CanvasScrapFlow`; the click still gates it.
+            ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
+             "scrapFlow.makeScrapAndEnter("),
             ("func handleDrag(", "CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly)",
              "interaction.begin("),
             ("func deleteSelection(", "CanvasEditGate.deletes(isReadOnly: model.isReadOnly)",
