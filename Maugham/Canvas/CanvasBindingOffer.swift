@@ -41,9 +41,11 @@ enum CanvasBindingOffer {
     /// what §4.1's invariant adds to it while the board is dimmed. A scrap made
     /// while the chapter is selected binds to it too
     /// (`CanvasInteraction.creationBinding`), so the scrap is offered first.
+    /// Tab comes before Return because the writer reads this just after a
+    /// click in the binder, which keeps the keyboard until Tab hands it over.
     static let nothingBound = Message(
         headline: "Nothing on this canvas is bound to this document yet.",
-        instruction: "Double-click or press Return to add a scrap to it, or drag out a region.")
+        instruction: "Double-click, or press Tab then Return, to add a scrap to it, or drag out a region.")
 
     /// §4's *"its card highlighted on the board"* with no card to highlight
     /// (stage 3b). The board still dims — that is Task 1's ruling and the reason
