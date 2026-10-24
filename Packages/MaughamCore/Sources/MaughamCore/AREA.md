@@ -171,6 +171,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FormulaFunctions.swift` — the function table (totals, rounding, IF/IFERROR, the …IF criteria with wildcards), one dictionary per group.
 - `ExcelRounding.swift` — ROUND, ROUNDUP and ROUNDDOWN on the value's 15-significant-digit decimal form.
 - `FinanceFunctions.swift` — NPV, IRR, MIRR, PV, FV, PMT, NPER, RATE and CAGR to Excel's values; IRR and RATE fall back to bisection where Newton fails.
+- `DateSerial.swift` — Excel's 1900 date serials as integer calendar arithmetic: serial and components, ISO strings, month addition clamped to month end.
+- `DateFunctions.swift` — YEAR, MONTH, EDATE, XNPV and XIRR; XIRR shares the finance solver.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.

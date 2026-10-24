@@ -22,7 +22,7 @@ struct FormulaFunction: Sendable {
 /// The function table, name (uppercased) → implementation, built from one dictionary per
 /// group. A new group is a static dictionary added to `groups`; a name not in `all` is `#NAME?`.
 enum FormulaFunctions {
-    static let groups: [[String: FormulaFunction]] = [totals, rounding, logic, conditionalTotals, finance]
+    static let groups: [[String: FormulaFunction]] = [totals, rounding, logic, conditionalTotals, finance, dates]
 
     static let all: [String: FormulaFunction] = groups.reduce(into: [:]) { table, group in
         table.merge(group) { _, _ in preconditionFailure("a formula function is registered twice") }
