@@ -99,7 +99,7 @@ final class FigureCacheTests: XCTestCase {
     func test_workbookEvaluatesACrossFigureReferenceByName() throws {
         let (root, manifest, _) = try twoFigureBook()
         let cache = FigureCache()
-        let wb = workbook(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        let wb = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins()).workbook
         XCTAssertEqual(Set(wb.tables.keys), ["cashflow", "summary"])
         let t = try XCTUnwrap(wb.tables["summary"])
         XCTAssertEqual(wb.value(at: CellAddress(table: "summary", key: CellKey(row: t.rows[0], column: t.columns[0]))),
@@ -111,10 +111,52 @@ final class FigureCacheTests: XCTestCase {
         try append([op("fig-cash0001", .figureParked,
                        FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h1"))],
                    docId: "fig-cash0001", to: root)
-        let wb = workbook(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        let wb = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins()).workbook
         XCTAssertNil(wb.tables["cashflow"])
         let t = try XCTUnwrap(wb.tables["summary"])
         XCTAssertEqual(wb.value(at: CellAddress(table: "summary", key: CellKey(row: t.rows[0], column: t.columns[0]))),
                        .error(.ref))
+    }
+
+    func test_aRecordAppearingOrItsPieceChanging_missesTheCacheByItself() throws {
+        let root = newRoot()
+        let id = "fig-aaaa1111"
+        try append(skeleton(id), docId: id, to: root)
+        let cache = FigureCache()
+        func facts(_ rs: [FigureRecord]) -> DocumentClass.Facts { .init(statements: [], figures: rs) }
+        _ = try cache.state(forFigureId: id, in: root, facts: facts([]))
+        _ = try cache.state(forFigureId: id, in: root, facts: facts([]))
+        XCTAssertEqual(cache.deriveCount, 1)
+        _ = try cache.state(forFigureId: id, in: root, facts: facts([record(id, "a", piece: "p1")]))
+        XCTAssertEqual(cache.deriveCount, 2, "a record appearing misses")
+        _ = try cache.state(forFigureId: id, in: root, facts: facts([record(id, "a", piece: "p1")]))
+        XCTAssertEqual(cache.deriveCount, 2)
+        _ = try cache.state(forFigureId: id, in: root, facts: facts([record(id, "a", piece: "p2")]))
+        XCTAssertEqual(cache.deriveCount, 3, "a piece change misses")
+    }
+
+    func test_anUnreadableFigureIsListed_andItsDependantsAreREF() throws {
+        let (root, manifest, _) = try twoFigureBook()
+        let file = root.appendingPathComponent(".maugham/ops/fig-cash0001.jsonl")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        XCTAssertEqual(r.unreadable.map(\.name), ["cashflow"])
+        XCTAssertNil(r.workbook.tables["cashflow"])
+        let t = try XCTUnwrap(r.workbook.tables["summary"])
+        XCTAssertEqual(r.workbook.value(at: CellAddress(table: "summary", key: CellKey(row: t.rows[0], column: t.columns[0]))),
+                       .error(.ref))
+    }
+
+    func test_assembling_evictsFiguresNoLongerInTheManifest() throws {
+        let (root, manifest, _) = try twoFigureBook()
+        let cache = FigureCache()
+        _ = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        XCTAssertEqual(cache.deriveCount, 2)
+        var smaller = manifest
+        smaller.figures = [record("fig-summ0001", "summary")]
+        _ = FigureWorkbook.assemble(for: smaller, cache: cache, projectURL: root, pins: NoPins())
+        _ = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        XCTAssertEqual(cache.deriveCount, 3, "summary still cached; cashflow was evicted, so re-derived")
     }
 }

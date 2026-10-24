@@ -18,6 +18,8 @@ public final class FigureCache {
 
     private struct Line {
         let token: DerivedManuscriptCache.Token
+        /// What the facts say about THIS figure: absent, or present with its piece.
+        let facts: String
         let state: FigureState
     }
 
@@ -36,17 +38,28 @@ public final class FigureCache {
         facts: DocumentClass.Facts
     ) throws -> FigureState {
         let token = DerivedManuscriptCache.token(forDocId: figureId, in: projectURL)
-        if let line = lines[figureId], line.token == token { return line.state }
+        // A record appearing or its piece changing moves the figure's class, and so
+        // the permit's judgement of its lines, with no op-log file moving.
+        let fingerprint = facts.figures.first { $0.id == figureId }
+            .map { "present:\($0.piece ?? "-")" } ?? "absent"
+        if let line = lines[figureId], line.token == token, line.facts == fingerprint {
+            return line.state
+        }
         let ops = try OpLogStore.loadSyncMerged(
             forDocId: figureId, in: projectURL, trust: trust, facts: facts)
         let state = FigureDeriver.derive(ops)
         deriveCount &+= 1
-        lines[figureId] = Line(token: token, state: state)
+        lines[figureId] = Line(token: token, facts: fingerprint, state: state)
         return state
     }
 
     /// Drop one figure's cached line (a guaranteed re-derive without racing mtime).
     public func invalidate(figureId: String) { lines[figureId] = nil }
+
+    /// Drop every line whose figure is not in `keeping`.
+    func evict(except keeping: Set<String>) {
+        for id in lines.keys where !keeping.contains(id) { lines[id] = nil }
+    }
 
     /// Drop everything, e.g. when trust or the registry changed.
     public func invalidateAll() { lines.removeAll() }
@@ -55,19 +68,31 @@ public final class FigureCache {
 /// **A book's figures as one `Workbook`**, keyed by each record's NAME (the
 /// name a formula writes). Holds every table figure whose state is not parked;
 /// a parked figure is absent, so a reference to it is `#REF!`. A figure whose
-/// stream cannot be read is left out too, as a missing one is.
-@MainActor
-public func workbook(
-    for manifest: ProjectManifest, cache: FigureCache, projectURL: URL,
-    trust: TrustTable? = nil, pins: ResearchPinSource
-) -> Workbook {
-    var book = Workbook(pins: pins)
-    let facts = DocumentClass.Facts(manifest)
-    for record in manifest.figures ?? [] where record.kind == .table {
-        guard let state = try? cache.state(
-            forFigureId: record.id, in: projectURL, trust: trust, facts: facts),
-              state.parked == nil else { continue }
-        book.setTable(state.table, named: record.name)
+/// stream cannot be read (RULING-54) is absent too, but is LISTED in
+/// `unreadable`, never silently conflated with a parked one.
+public struct FigureWorkbook: Sendable {
+    public var workbook: Workbook
+    public var unreadable: [(name: String, error: String)]
+
+    @MainActor
+    public static func assemble(
+        for manifest: ProjectManifest, cache: FigureCache, projectURL: URL,
+        trust: TrustTable? = nil, pins: ResearchPinSource
+    ) -> FigureWorkbook {
+        var book = Workbook(pins: pins)
+        var unreadable: [(name: String, error: String)] = []
+        let facts = DocumentClass.Facts(manifest)
+        cache.evict(except: Set(facts.figures.map(\.id)))
+        for record in facts.figures where record.kind == .table {
+            do {
+                let state = try cache.state(
+                    forFigureId: record.id, in: projectURL, trust: trust, facts: facts)
+                guard state.parked == nil else { continue }
+                book.setTable(state.table, named: record.name)
+            } catch {
+                unreadable.append((record.name, String(describing: error)))
+            }
+        }
+        return FigureWorkbook(workbook: book, unreadable: unreadable)
     }
-    return book
 }
