@@ -502,6 +502,11 @@ public final class FigureDocument {
             }
             filename = (record.path as NSString).lastPathComponent + "." + ext
         }
+        // The name came from the op log or a synced record: written to only
+        // when it is one file inside `figures/` (`isAPlainFileName`).
+        guard FigureImageRef(filename: filename, contentHash: "").isAPlainFileName else {
+            throw FigureEditInvalid(reason: "this figure's file name is not a file in figures/")
+        }
         let hash = try await Task.detached { try FigureImageResolver.contentHash(of: copyable.url) }.value
         guard hash != prior?.contentHash else { return }
 

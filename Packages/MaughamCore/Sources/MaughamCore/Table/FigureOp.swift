@@ -122,6 +122,10 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     /// doc comment. A kind that is not a figure kind never carries a payload,
     /// so it answers false.
     public static func validate(kind: OpKind, payload: FigureOpPayload) -> Bool {
+        // A picture's file name is joined onto `figures/`: one that could
+        // leave the folder makes the whole op invalid, whatever its kind.
+        for image in [payload.image, payload.priorImage].compactMap({ $0 })
+        where !image.isAPlainFileName { return false }
         switch kind {
         case .figureCreate:
             // A later build's kind is kept when read, never created here.
@@ -305,6 +309,16 @@ public struct FigureImageRef: Codable, Equatable, Hashable, Sendable {
     public init(filename: String, contentHash: String) {
         self.filename = filename
         self.contentHash = contentHash
+    }
+
+    /// **Is `filename` one plain file name** — non-empty, no `/`, `\` or
+    /// NUL, and not dot-leading (so never `.` or `..`)? The name arrives in
+    /// ops from other devices and is joined onto `figures/` to write the
+    /// picture, so a name that could climb out of the folder is refused when
+    /// read (`FigureOpPayload.validate`), never written to.
+    public var isAPlainFileName: Bool {
+        !filename.isEmpty && !filename.hasPrefix(".")
+            && !filename.contains("/") && !filename.contains("\\") && !filename.contains("\0")
     }
 }
 

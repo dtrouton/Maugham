@@ -224,4 +224,22 @@ final class FigureOpTests: XCTestCase {
         XCTAssertFalse(FigureOpPayload.validate(kind: .typingBurst, payload: FigureOpPayload(kind: .table)),
                        "a non-figure kind never carries a figure payload")
     }
+
+    /// A picture's file name is joined onto `figures/` when the picture is
+    /// replaced, and it arrives in ops from other devices: one that could
+    /// leave the folder makes the op invalid, so it is never folded and never
+    /// written to (security review, path traversal).
+    func test_aPictureNameThatCouldLeaveTheFiguresFolderMakesTheOpInvalid() {
+        let good = FigureImageRef(filename: "chart.png", contentHash: "h")
+        XCTAssertTrue(FigureOpPayload.validate(kind: .figureImageSet, payload: FigureOpPayload(image: good)))
+        for bad in ["../notes.md", "../../x.png", "a/b.png", "a\\b.png", "..", ".", ".hidden.png", "", "x\0.png"] {
+            let ref = FigureImageRef(filename: bad, contentHash: "h")
+            XCTAssertFalse(ref.isAPlainFileName, bad)
+            XCTAssertFalse(FigureOpPayload.validate(kind: .figureImageSet, payload: FigureOpPayload(image: ref)), bad)
+            XCTAssertFalse(FigureOpPayload.validate(
+                kind: .figureImageSet, payload: FigureOpPayload(image: good, priorImage: ref)), bad)
+            XCTAssertFalse(FigureOpPayload.validate(
+                kind: .figureCreate, payload: FigureOpPayload(kind: .image, image: ref)), bad)
+        }
+    }
 }

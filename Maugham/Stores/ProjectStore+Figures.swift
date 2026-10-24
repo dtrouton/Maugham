@@ -150,7 +150,9 @@ extension ProjectStore {
             let candidate = vacantFigureName(basedOn: base, kind: .image) {
                 takenLower.contains($0.lowercased()) || stems.contains($0.lowercased())
             }
-            let filename = "\(candidate).\(ext)"
+            // The file takes the name's filesystem-safe form (`figurePath`).
+            let filename = (Self.figurePath(name: candidate, kind: .image) as NSString)
+                .lastPathComponent + ".\(ext)"
             let destination = folder.appendingPathComponent(filename)
             do {
                 try await documentStore.executeCopy(from: copyable.url, to: destination)
