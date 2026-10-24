@@ -1773,6 +1773,38 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
                        "the name never reached disk")
     }
 
+    /// **Tab in the title commits and hands the canvas the keyboard** — never
+    /// AppKit's key-view loop, which would carry it off to whatever field is
+    /// next. Real keys through `NSApp.sendEvent(_:)`.
+    func test_tabInTheTitleNamesTheRegionAndLeavesTheCanvasTheKeyboard() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        let region = try XCTUnwrap(model.scene.regions.first, "precondition: the sweep made a region")
+        _ = try titleFieldHoldingTheKeyboard(in: window)
+
+        for (character, code) in [("F", UInt16(3)), ("o", 31), ("g", 5)] {
+            NSApp.sendEvent(key(character, keyCode: code, in: window))
+        }
+        NSApp.sendEvent(key("\t", keyCode: 48, in: window))
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(until: {
+            model.scene.region(region.id)?.label == "Fog"
+                && window.firstResponder === events
+                && self.firstDescendant(RegionTitleField.self, in: hosted) == nil
+        })
+
+        XCTAssertEqual(model.scene.region(region.id)?.label, "Fog", "Tab did not commit the name")
+        XCTAssertNil(firstDescendant(RegionTitleField.self, in: hosted), "the title field outlived Tab")
+        XCTAssertTrue(window.firstResponder === events,
+                      "after Tab the canvas does not hold the keyboard")
+    }
+
     /// **Escape while naming belongs to the title** — on a dimmed board, where
     /// an Escape the canvas held would select the project row. It leaves the
     /// swept region untitled and kept, and the dim stays.

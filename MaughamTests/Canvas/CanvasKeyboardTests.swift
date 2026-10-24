@@ -72,7 +72,7 @@ final class CanvasKeyboardTests: XCTestCase {
 
     func test_placementOnAnEmptySceneIsTheStart() {
         let p = CanvasKeyboard.clearOrigin(startingAt: CGPoint(x: 7, y: 9), stepping: .down,
-                                           size: size, in: CanvasScene())
+                                           size: size, in: CanvasScene(), avoiding: [])
         XCTAssertEqual(p, CGPoint(x: 7, y: 9))
     }
 
@@ -82,7 +82,7 @@ final class CanvasKeyboardTests: XCTestCase {
         for i in 0..<300 {
             s.insert(card("c\(i)", 0, CGFloat(i) * (50 + gap)))
         }
-        let p = CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s)
+        let p = CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s, avoiding: [])
         let placed = CGRect(origin: p, size: size)
         for i in 0..<199 {
             XCTAssertFalse(placed.intersects(s.node(id("c\(i)"))!.frame!), "overlaps c\(i)")
@@ -96,7 +96,7 @@ final class CanvasKeyboardTests: XCTestCase {
         var s = CanvasScene()
         s.insertRegion(CanvasRegion(id: CanvasRegionID("r"), label: "R",
                                     frame: CGRect(x: -1000, y: -1000, width: 5000, height: 5000)))
-        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s), .zero)
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s, avoiding: []), .zero)
     }
 
     func test_aCardAtExactly45DegreesAnswersToBothArrows() {
@@ -109,7 +109,7 @@ final class CanvasKeyboardTests: XCTestCase {
     func test_placementStepsRightPastACard() {
         var s = CanvasScene()
         s.insert(card("a", 0, 0))
-        let p = CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .right, size: size, in: s)
+        let p = CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .right, size: size, in: s, avoiding: [])
         XCTAssertEqual(p, CGPoint(x: 100 + CanvasKeyboard.placementGap, y: 0))
     }
 
@@ -121,13 +121,13 @@ final class CanvasKeyboardTests: XCTestCase {
                                     isCollapsed: true))
         CanvasMembership.join(id("a"), home: CanvasRegionID("r"), in: &s)
         XCTAssertTrue(s.isHidden(id("a")))
-        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s), .zero)
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s, avoiding: []), .zero)
     }
 
     func test_placementIgnoresUnmeasuredCards() {
         var s = CanvasScene()
         s.insert(card("a", 0, 0, h: nil))
-        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s), .zero)
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size, in: s, avoiding: []), .zero)
     }
 
     func test_aCardExactlyOneGapAwayIsClear() {
@@ -135,9 +135,42 @@ final class CanvasKeyboardTests: XCTestCase {
         let gap = CanvasKeyboard.placementGap
         s.insert(card("a", 0, 0))
         let start = CGPoint(x: 0, y: 50 + gap)
-        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: start, stepping: .down, size: size, in: s), start)
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: start, stepping: .down, size: size, in: s, avoiding: []), start)
         let tooClose = CGPoint(x: 0, y: 50 + gap - 1)
-        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: tooClose, stepping: .down, size: size, in: s), start)
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: tooClose, stepping: .down, size: size, in: s, avoiding: []), start)
+    }
+
+    /// An avoided rect is an obstacle like a card: kept a gap clear of.
+    func test_placementStepsPastAnAvoidedRectByAGap() {
+        let gap = CanvasKeyboard.placementGap
+        let region = CGRect(x: -50, y: 20, width: 400, height: 300)
+        let p = CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size,
+                                           in: CanvasScene(), avoiding: [region])
+        XCTAssertEqual(p, CGPoint(x: 0, y: region.maxY + gap))
+        XCTAssertEqual(CanvasKeyboard.clearOrigin(startingAt: .zero, stepping: .down, size: size,
+                                                  in: CanvasScene(), avoiding: []), .zero,
+                       "control: nothing avoided, nothing stepped")
+    }
+
+    /// With a chapter selected, only OPEN regions bound to ANOTHER chapter are
+    /// kept out of: an unbound region and the chapter's own still take a new
+    /// scrap, and a collapsed one takes nothing anyway. The book selected keeps
+    /// out of none.
+    func test_theForeignRegionsAreTheOpenOnesBoundElsewhere() {
+        var s = CanvasScene()
+        let foreign = CGRect(x: 0, y: 0, width: 100, height: 100)
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("f"), label: "", frame: foreign,
+                                    boundPieceID: "p2"))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("o"), label: "",
+                                    frame: CGRect(x: 200, y: 0, width: 100, height: 100),
+                                    boundPieceID: "p1"))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("u"), label: "",
+                                    frame: CGRect(x: 400, y: 0, width: 100, height: 100)))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("c"), label: "",
+                                    frame: CGRect(x: 600, y: 0, width: 100, height: 100),
+                                    boundPieceID: "p2", isCollapsed: true))
+        XCTAssertEqual(CanvasKeyboard.foreignRegions(for: .piece("p1"), in: s), [foreign])
+        XCTAssertEqual(CanvasKeyboard.foreignRegions(for: .wholeProject, in: s), [])
     }
 
     func test_newCardSizeIsTheDefaultWidthAndAnEmptyCardsHeight() {

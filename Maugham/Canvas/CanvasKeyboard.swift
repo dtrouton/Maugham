@@ -75,14 +75,15 @@ enum CanvasKeyboard {
     }
 
     /// The first spot at or after `startingAt`, stepping along `stepping`, whose
-    /// card (plus a gap on every side) touches no visible measured card. After
-    /// `placementStepLimit` steps the last candidate is returned. Only `.down`
-    /// and `.right` are supported (Tab, ⌘Return and Return all step down).
+    /// card (plus a gap on every side) touches no visible measured card and
+    /// none of `regions` (`foreignRegions`). After `placementStepLimit` steps
+    /// the last candidate is returned. Only `.down` and `.right` are supported
+    /// (Tab, ⌘Return and Return all step down).
     static func clearOrigin(startingAt: CGPoint, stepping: CanvasArrow, size: CGSize,
-                            in scene: CanvasScene) -> CGPoint {
+                            in scene: CanvasScene, avoiding regions: [CGRect]) -> CGPoint {
         let frames = scene.unorderedNodes
             .filter { !scene.isHidden($0.id) }
-            .compactMap(\.frame)
+            .compactMap(\.frame) + regions
         precondition(stepping == .down || stepping == .right, "clearOrigin steps down or right only")
         var candidate = startingAt
         for _ in 0..<placementStepLimit {
@@ -98,6 +99,45 @@ enum CanvasKeyboard {
             }
         }
         return candidate
+    }
+
+    /// The regions a key-placed scrap must keep out of under `subject`:
+    /// with a chapter selected, every open region bound to ANOTHER chapter.
+    /// A scrap landing in one follows that region and is born dimmed.
+    static func foreignRegions(for subject: CanvasSubject, in scene: CanvasScene) -> [CGRect] {
+        guard case .piece(let piece) = subject else { return [] }
+        return scene.unorderedRegions
+            .filter { !$0.isCollapsed && $0.boundPieceID != nil && $0.boundPieceID != piece }
+            .map(\.frame)
+    }
+
+    /// Where Tab's joined scrap (to the right) or ⌘Return's (below) goes,
+    /// beside `source`, stepping down until clear.
+    ///
+    /// **Wholly inside the source's home region or wholly outside it.** The
+    /// card gap (12) is narrower than a drop wrap's padding (16), so the first
+    /// candidate can hang 4pt over the region's edge without being its member.
+    /// Kept inside where it fits; otherwise it starts again one gap past the
+    /// region's far edge (right for Tab, below for ⌘Return), from where
+    /// stepping down never re-enters it.
+    static func nextScrapOrigin(beside source: CanvasNodeID, joined: Bool,
+                                in scene: CanvasScene, avoiding regions: [CGRect]) -> CGPoint? {
+        guard let frame = scene.node(source)?.frame else { return nil }
+        let size = newCardSize()
+        let start = joined
+            ? CGPoint(x: frame.maxX + placementGap, y: frame.minY)
+            : CGPoint(x: frame.minX, y: frame.maxY + placementGap)
+        let origin = clearOrigin(startingAt: start, stepping: .down, size: size,
+                                 in: scene, avoiding: regions)
+        guard let home = CanvasMembership.homeRegion(of: source, in: scene),
+              let edge = scene.region(home)?.frame else { return origin }
+        let placed = CGRect(origin: origin, size: size)
+        guard placed.intersects(edge), !edge.contains(placed) else { return origin }
+        let beyond = joined
+            ? CGPoint(x: edge.maxX + placementGap, y: start.y)
+            : CGPoint(x: start.x, y: edge.maxY + placementGap)
+        return clearOrigin(startingAt: beyond, stepping: .down, size: size,
+                           in: scene, avoiding: regions)
     }
 
     // MARK: - Arrow targets

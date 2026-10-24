@@ -15,6 +15,10 @@ import SwiftUI
 struct CanvasKeyHandler {
     let model: CanvasModel
     let subject: CanvasSubject
+    /// What the board lights under `subject` — the renderer's own cached set
+    /// (`CanvasView.highlight`), so a key treats as dimmed exactly what the
+    /// writer sees dimmed.
+    let highlight: CanvasHighlight
     let selectTheProjectRow: () -> Void
     /// ⇧Tab's one-way ask: the window focuses the binder (`CanvasView`'s
     /// input). Nil where no visible binder answers it.
@@ -55,20 +59,19 @@ struct CanvasKeyHandler {
         editFocus.leaveTheOpenScrap()
         if model.scene.node(id) != nil { model.selection = .node(id) }
         revision += 1
-        let start: CGPoint?
+        let origin: CGPoint?
         switch command {
         case .finish:
-            start = nil
+            origin = nil
         case .makeJoined, .makeBelow:
-            start = model.scene.node(id)?.frame
-                .map { Self.nextScrapStart(beside: $0, joined: command == .makeJoined) }
+            origin = CanvasKeyboard.nextScrapOrigin(
+                beside: id, joined: command == .makeJoined, in: model.scene,
+                avoiding: CanvasKeyboard.foreignRegions(for: subject, in: model.scene))
         }
-        guard let start, mayCreate, !model.isInGesture else {
+        guard let origin, mayCreate, !model.isInGesture else {
             keyboardTicket += 1
             return true
         }
-        let origin = CanvasKeyboard.clearOrigin(startingAt: start, stepping: .down,
-                                                size: CanvasKeyboard.newCardSize(), in: model.scene)
         let made = scrapFlow.makeScrapAndEnter(at: origin,
                                                joinedTo: command == .makeJoined ? id : nil)
         if let frame = model.scene.node(made)?.frame {
@@ -77,20 +80,25 @@ struct CanvasKeyHandler {
         return true
     }
 
-    /// Where Tab's joined scrap (to the right) or ⌘Return's (below) starts
-    /// looking for room, beside a card at `frame`; `clearOrigin` steps it down.
-    private static func nextScrapStart(beside frame: CGRect, joined: Bool) -> CGPoint {
-        joined
-            ? CGPoint(x: frame.maxX + CanvasKeyboard.placementGap, y: frame.minY)
-            : CGPoint(x: frame.minX, y: frame.maxY + CanvasKeyboard.placementGap)
-    }
-
     // MARK: - Keys on the canvas
 
     /// Return, Tab, ⌘Return and the arrows with the canvas holding the
     /// keyboard (`CanvasEventNSView.onKey`); spec §1's table. Returns whether
     /// the key was used, and an unused one travels on — Tab with nothing
-    /// selected moves along the key-view loop.
+    /// selected moves along the key-view loop. Tab and ⌘Return on a region or
+    /// a line do nothing and are used, so they never carry the keyboard off
+    /// to an inspector field.
+    ///
+    /// **A dimmed card is no selection under a chapter** (Denver's ruling):
+    /// with a `.piece` subject, a selected card the board dims — a leftover
+    /// from another chapter — is ignored by Return, Tab and ⌘Return, so
+    /// Return makes the chapter a new scrap rather than opening the other
+    /// chapter's. The arrows still move from it. "Dimmed" is `highlight`, the
+    /// renderer's own lit set.
+    ///
+    /// **A scrap placed by key keeps out of regions bound to another chapter**
+    /// (`CanvasKeyboard.foreignRegions`): landing in one, it would follow that
+    /// region and be born dimmed.
     ///
     /// Nothing while a scrap is open (its keys are the editor's) or a gesture
     /// is (tripwire 32). The gesture is asked FIRST, before the gate and the
@@ -109,11 +117,17 @@ struct CanvasKeyHandler {
         if case .node(let id)? = selection, model.scene.node(id) == nil || model.scene.isHidden(id) {
             selection = nil
         }
-        let start: CGPoint
+        // What the arrows move from: a dimmed card is still somewhere to be.
+        let arrowsFrom = selection
+        if case .piece = subject, case .node(let id)? = selection, highlight.isDimmed(node: id) {
+            selection = nil
+        }
+        let obstacles = CanvasKeyboard.foreignRegions(for: subject, in: model.scene)
+        let origin: CGPoint
         var joinedTo: CanvasNodeID?
         switch (key, selection) {
         case (.arrow(let arrow), _):
-            return selectNearest(arrow, from: selection, viewSize: viewSize)
+            return selectNearest(arrow, from: arrowsFrom, viewSize: viewSize)
         case (.backtab, _):
             // Back to the binder; it creates nothing, so no gate. With no
             // binder to answer, the key is not used and travels on.
@@ -124,7 +138,9 @@ struct CanvasKeyHandler {
             let size = CanvasKeyboard.newCardSize()
             let centre = camera.contentPoint(fromView: CGPoint(x: viewSize.width / 2,
                                                                y: viewSize.height / 2))
-            start = CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2)
+            origin = CanvasKeyboard.clearOrigin(
+                startingAt: CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2),
+                stepping: .down, size: size, in: model.scene, avoiding: obstacles)
         case (.returnKey, .node(let id)?):
             guard let node = model.scene.node(id), case .scrap = node.kind else {
                 // An item card: nothing to enter, but the key is meant.
@@ -147,16 +163,18 @@ struct CanvasKeyHandler {
         case (.returnKey, .line?):
             return true
         case (.tab, .node(let id)?), (.commandReturn, .node(let id)?):
-            guard let frame = model.scene.node(id)?.frame else { return false }
-            start = Self.nextScrapStart(beside: frame, joined: key == .tab)
+            guard let next = CanvasKeyboard.nextScrapOrigin(beside: id, joined: key == .tab,
+                                                            in: model.scene, avoiding: obstacles)
+            else { return false }
+            origin = next
             if key == .tab { joinedTo = id }
-        case (.tab, _), (.commandReturn, _):
+        case (.tab, .region?), (.tab, .line?), (.commandReturn, .region?), (.commandReturn, .line?):
+            return true
+        case (.tab, nil), (.commandReturn, nil):
             return false
         }
         guard mayCreate else { return false }
         editFocus.commitActiveEdit()
-        let origin = CanvasKeyboard.clearOrigin(startingAt: start, stepping: .down,
-                                                size: CanvasKeyboard.newCardSize(), in: model.scene)
         let made = scrapFlow.makeScrapAndEnter(at: origin, joinedTo: joinedTo)
         if let frame = model.scene.node(made)?.frame {
             camera.reveal(frame, viewSize: viewSize)

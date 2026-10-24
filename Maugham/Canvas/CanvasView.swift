@@ -845,7 +845,8 @@ struct CanvasView: View {
                                   onTextChanged: { regionTitleEditing.noteTyping($0, in: rid) },
                                   onCommit: { regionTitleEditing.commit($0) },
                                   onCancel: { regionTitleEditing.cancel() },
-                                  onLostFocus: { regionTitleEditing.fieldLostFocus($0, in: rid) })
+                                  onLostFocus: { regionTitleEditing.fieldLostFocus($0, in: rid) },
+                                  onFocusDeclined: { regionTitleEditing.focusDeclined(in: rid) })
                 .frame(width: field.width * camera.zoom,
                        height: field.height * camera.zoom)
                 .position(x: fieldOrigin.x + field.width * camera.zoom / 2,
@@ -1131,6 +1132,7 @@ struct CanvasView: View {
     private var keyHandler: CanvasKeyHandler {
         CanvasKeyHandler(model: model,
                          subject: subject,
+                         highlight: highlight,
                          selectTheProjectRow: selectTheProjectRow,
                          returnKeyboardToTree: returnKeyboardToTree,
                          editFocus: editFocus,

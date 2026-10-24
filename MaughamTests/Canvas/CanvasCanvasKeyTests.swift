@@ -96,6 +96,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
         var handler: CanvasKeyHandler {
             CanvasKeyHandler(model: model,
                              subject: subject,
+                             highlight: CanvasHighlight.resolve(subject: subject, in: model.scene),
                              selectTheProjectRow: {},
                              returnKeyboardToTree: treeAnswers ? { treeAsks.value += 1 } : nil,
                              editFocus: editFocus,
@@ -487,7 +488,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let model = populatedModel()
         let f = fixture(model, selecting: .region(r))
         let before = ids(model)
-        XCTAssertFalse(f.key(.tab))
+        XCTAssertTrue(f.key(.tab), "used, so it neither beeps nor travels to an inspector field")
         assertUntouched(f, before: before, selection: .region(r), "Tab on a region")
     }
 
@@ -495,7 +496,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let model = populatedModel()
         let f = fixture(model, selecting: .region(r))
         let before = ids(model)
-        XCTAssertFalse(f.key(.commandReturn))
+        XCTAssertTrue(f.key(.commandReturn), "used, so it neither beeps nor travels to an inspector field")
         assertUntouched(f, before: before, selection: .region(r), "⌘Return on a region")
     }
 
@@ -528,7 +529,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let model = populatedModel()
         let f = fixture(model, selecting: .line(l))
         let before = ids(model)
-        XCTAssertFalse(f.key(.tab))
+        XCTAssertTrue(f.key(.tab), "used, so it neither beeps nor travels to an inspector field")
         assertUntouched(f, before: before, selection: .line(l), "Tab on a line")
     }
 
@@ -536,7 +537,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let model = populatedModel()
         let f = fixture(model, selecting: .line(l))
         let before = ids(model)
-        XCTAssertFalse(f.key(.commandReturn))
+        XCTAssertTrue(f.key(.commandReturn), "used, so it neither beeps nor travels to an inspector field")
         assertUntouched(f, before: before, selection: .line(l), "⌘Return on a line")
     }
 
@@ -653,5 +654,184 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let f = fixture(model, selecting: .node(a))
         XCTAssertTrue(f.key(.arrow(.right)))
         XCTAssertEqual(model.selection, .node(item), "read-only is not frozen: arrows still select")
+    }
+
+    // MARK: - A dimmed leftover selection (whole-branch review)
+
+    private let s2 = CanvasNodeID("x2yz")
+
+    /// A board with the writer's chapter p1 selected and a leftover selection
+    /// on X, a scrap bound to p2 — dimmed under p1.
+    private func dimmedLeftover(boundTo piece: String = "p2") -> Fixture {
+        let model = populatedModel()
+        model.withScene(persist: false) {
+            $0.insert(CanvasNode(id: s2, kind: .scrap,
+                                 origin: CGPoint(x: 40, y: 500), width: 240, cachedHeight: 60))
+            $0.setBoundPiece(piece, for: s2)
+        }
+        model.setScrapText("chapter two's", for: s2)
+        var f = fixture(model, selecting: .node(s2))
+        f.subject = .piece("p1")
+        return f
+    }
+
+    /// Return with a DIMMED card selected is Return with nothing selected: a
+    /// new scrap at the view's centre, the chapter's, and X untouched.
+    func test_returnOnADimmedSelectionMakesANewScrapForTheChapter() throws {
+        let f = dimmedLeftover()
+        let model = f.model
+        XCTAssertTrue(f.handler.highlight.isDimmed(node: s2), "premise: X is dimmed under p1")
+        let before = ids(model)
+
+        XCTAssertTrue(f.key(.returnKey, viewSize: CGSize(width: 1000, height: 700)))
+
+        let made = try XCTUnwrap(ids(model).subtracting(before).first,
+                                 "Return on a dimmed card made no new scrap")
+        XCTAssertEqual(f.editingNodeID.value, made, "Return entered the dimmed card")
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(made)).boundPieceID, "p1")
+        XCTAssertEqual(model.scraps[s2], "chapter two's", "X's words changed")
+        model.endGesture()
+    }
+
+    /// Control: a LIT scrap under the same chapter is entered by Return.
+    func test_returnOnALitScrapStillEntersIt() {
+        let f = dimmedLeftover(boundTo: "p1")
+        XCTAssertFalse(f.handler.highlight.isDimmed(node: s2), "premise: X is lit under p1")
+        let before = ids(f.model)
+
+        XCTAssertTrue(f.key(.returnKey))
+
+        XCTAssertEqual(f.editingNodeID.value, s2, "Return on a lit scrap did not enter it")
+        XCTAssertEqual(ids(f.model), before)
+        f.model.endGesture()
+    }
+
+    /// Tab and ⌘Return from a dimmed card act as with nothing selected: no
+    /// scrap, and the key travels on. The arrows still move from it.
+    func test_tabAndCommandReturnIgnoreADimmedSelectionButTheArrowsMoveFromIt() {
+        let f = dimmedLeftover()
+        let before = ids(f.model)
+        XCTAssertFalse(f.key(.tab), "Tab from a dimmed card did not act as no selection")
+        XCTAssertFalse(f.key(.commandReturn))
+        assertUntouched(f, before: before, selection: .node(s2), "Tab/⌘Return from a dimmed card")
+
+        XCTAssertTrue(f.key(.arrow(.up)))
+        XCTAssertEqual(f.model.selection, .node(c), "↑ from the dimmed card did not reach C")
+    }
+
+    // MARK: - A region bound elsewhere (whole-branch review)
+
+    /// A chapter-p1 board with a region bound to p2 at `frame`.
+    private func boardWithForeignRegion(_ frame: CGRect, boundTo piece: String? = "p2")
+        -> (Fixture, CanvasRegionID) {
+        let model = emptyModel()
+        let region = CanvasRegionID("f1")
+        model.withScene(persist: false) {
+            $0.insert(CanvasNode(id: a, kind: .scrap,
+                                 origin: CGPoint(x: 40, y: 40), width: 240, cachedHeight: 60))
+            $0.setBoundPiece("p1", for: a)
+            $0.insertRegion(CanvasRegion(id: region, label: "Elsewhere", frame: frame,
+                                         boundPieceID: piece))
+        }
+        model.setScrapText(aWords, for: a)
+        var f = fixture(model, selecting: nil)
+        f.subject = .piece("p1")
+        return (f, region)
+    }
+
+    func test_tabBesideARegionBoundElsewhereKeepsOutOfIt() throws {
+        let (f, foreign) = boardWithForeignRegion(CGRect(x: 290, y: 0, width: 400, height: 300))
+        f.model.selection = .node(a)
+        let before = ids(f.model)
+
+        XCTAssertTrue(f.key(.tab))
+
+        let made = try XCTUnwrap(ids(f.model).subtracting(before).first, "Tab made no scrap")
+        let region = try XCTUnwrap(f.model.scene.region(foreign))
+        XCTAssertFalse(region.mentions(made), "the new scrap joined the other chapter's region")
+        XCTAssertFalse(try frame(made, in: f.model).intersects(region.frame))
+        XCTAssertEqual(try XCTUnwrap(f.model.scene.node(made)).boundPieceID, "p1",
+                       "the new scrap is not the selected chapter's")
+        f.model.endGesture()
+    }
+
+    func test_centreReturnKeepsOutOfARegionBoundElsewhere() throws {
+        let viewSize = CGSize(width: 1000, height: 700)
+        let centre = CanvasCamera().contentPoint(fromView: CGPoint(x: 500, y: 350))
+        let (f, foreign) = boardWithForeignRegion(
+            CGRect(x: centre.x - 300, y: centre.y - 200, width: 600, height: 400))
+        let before = ids(f.model)
+
+        XCTAssertTrue(f.key(.returnKey, viewSize: viewSize))
+
+        let made = try XCTUnwrap(ids(f.model).subtracting(before).first, "Return made no scrap")
+        let region = try XCTUnwrap(f.model.scene.region(foreign))
+        XCTAssertFalse(region.mentions(made), "the new scrap joined the other chapter's region")
+        XCTAssertFalse(try frame(made, in: f.model).intersects(region.frame))
+        XCTAssertEqual(try XCTUnwrap(f.model.scene.node(made)).boundPieceID, "p1")
+        f.model.endGesture()
+    }
+
+    /// An unbound region and the chapter's own are no obstacle: Return makes
+    /// the scrap right at the centre, inside them. Unbound, the scrap carries
+    /// the chapter itself; in the chapter's region it follows the region.
+    func test_unboundAndSameChapterRegionsStillTakeANewScrap() throws {
+        let viewSize = CGSize(width: 1000, height: 700)
+        let centre = CanvasCamera().contentPoint(fromView: CGPoint(x: 500, y: 350))
+        let size = CanvasKeyboard.newCardSize()
+        for (piece, binding) in [(nil, "p1"), ("p1", nil)] as [(String?, String?)] {
+            let (f, home) = boardWithForeignRegion(
+                CGRect(x: centre.x - 300, y: centre.y - 200, width: 600, height: 400), boundTo: piece)
+            let before = ids(f.model)
+
+            XCTAssertTrue(f.key(.returnKey, viewSize: viewSize))
+
+            let made = try XCTUnwrap(ids(f.model).subtracting(before).first)
+            XCTAssertEqual(try XCTUnwrap(f.model.scene.node(made)).origin,
+                           CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2),
+                           "a region bound to \(String(describing: piece)) pushed the scrap away")
+            XCTAssertTrue(try XCTUnwrap(f.model.scene.region(home)).livesHere(made),
+                          "the new scrap is not the region's")
+            XCTAssertEqual(try XCTUnwrap(f.model.scene.node(made)).boundPieceID, binding)
+            f.model.endGesture()
+        }
+    }
+
+    // MARK: - A wrap region's edge (whole-branch review)
+
+    /// Tab and ⌘Return from a card inside a region padded wider than the card
+    /// gap: the new scrap is wholly inside or wholly outside, never across
+    /// the edge — and inside where it fits.
+    func test_tabAndCommandReturnNeverStraddleTheSourcesHomeRegion() throws {
+        let pad = CanvasClaudePlacement.padding
+        let tight = CGRect(x: 40, y: 40, width: 240, height: 60).insetBy(dx: -pad, dy: -pad)
+        let roomy = CGRect(x: 24, y: 24, width: 800, height: 600)
+        for (regionFrame, key) in [(tight, CanvasKey.tab), (tight, .commandReturn),
+                                   (roomy, .tab), (roomy, .commandReturn)] {
+            let model = emptyModel(at: root.appendingPathComponent(UUID().uuidString))
+            let home = CanvasRegionID("w1")
+            model.withScene(persist: false) {
+                $0.insert(CanvasNode(id: a, kind: .scrap,
+                                     origin: CGPoint(x: 40, y: 40), width: 240, cachedHeight: 60))
+                $0.insertRegion(CanvasRegion(id: home, label: "", frame: regionFrame,
+                                             homeMembers: [a]))
+            }
+            model.setScrapText(aWords, for: a)
+            let f = fixture(model, selecting: .node(a))
+            let before = ids(model)
+
+            XCTAssertTrue(f.key(key))
+
+            let made = try XCTUnwrap(ids(model).subtracting(before).first)
+            let madeFrame = try frame(made, in: model)
+            let label = "\(key) in a \(regionFrame == tight ? "tight" : "roomy") region"
+            XCTAssertTrue(regionFrame.contains(madeFrame) || !regionFrame.intersects(madeFrame),
+                          "\(label): \(madeFrame) straddles \(regionFrame)")
+            if regionFrame == roomy {
+                XCTAssertTrue(regionFrame.contains(madeFrame), "\(label): it fit, and was put outside")
+                XCTAssertTrue(try XCTUnwrap(model.scene.region(home)).livesHere(made), label)
+            }
+            model.endGesture()
+        }
     }
 }

@@ -572,6 +572,8 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                                               revision: revision.binding)
             return CanvasKeyHandler(model: model,
                                     subject: subject,
+                                    highlight: CanvasHighlight.resolve(subject: subject,
+                                                                       in: model.scene),
                                     selectTheProjectRow: { asks.value += 1 },
                                     returnKeyboardToTree: {},
                                     editFocus: editFocus,

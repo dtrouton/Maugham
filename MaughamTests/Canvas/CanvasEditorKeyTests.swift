@@ -87,6 +87,7 @@ final class CanvasEditorKeyTests: XCTestCase {
         var handler: CanvasKeyHandler {
             CanvasKeyHandler(model: model,
                              subject: subject,
+                             highlight: CanvasHighlight.resolve(subject: subject, in: model.scene),
                              selectTheProjectRow: {},
                              returnKeyboardToTree: {},
                              editFocus: editFocus,
@@ -343,6 +344,60 @@ final class CanvasEditorKeyTests: XCTestCase {
                        "a scrap made by Tab while a chapter is selected does not belong to it")
         XCTAssertTrue(CanvasHighlight.resolve(subject: .piece("p1"), in: model.scene).nodes.contains(b),
                       "the new scrap is dimmed under the chapter it was made for")
+        model.endGesture()
+    }
+
+    // MARK: - Where the next scrap lands (whole-branch review)
+
+    /// Tab from inside a scrap, with a chapter selected, beside a region bound
+    /// to ANOTHER chapter: the new scrap keeps out of it, so it is the
+    /// chapter's and lit, not that region's member and dimmed.
+    func test_tabFromInsideAScrapKeepsOutOfARegionBoundElsewhere() throws {
+        let model = modelWithACard()
+        let foreign = CanvasRegionID("f1")
+        model.withScene(persist: false) {
+            $0.insertRegion(CanvasRegion(id: foreign, label: "Two",
+                                         frame: CGRect(x: 290, y: 0, width: 400, height: 300),
+                                         boundPieceID: "p2"))
+        }
+        let fixture = Fixture(model: model, subject: .piece("p1"))
+        fixture.enter(a, typed: "for chapter one")
+
+        XCTAssertTrue(fixture.handler.handleEditorCommand(.makeJoined, viewSize: viewSize))
+
+        let b = try XCTUnwrap(fixture.editingNodeID.value)
+        let region = try XCTUnwrap(model.scene.region(foreign))
+        XCTAssertFalse(region.mentions(b), "the new scrap landed in the other chapter's region")
+        XCTAssertFalse(try frame(b, in: model).intersects(region.frame),
+                       "the new scrap overlaps the other chapter's region")
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(b)).boundPieceID, "p1")
+        model.endGesture()
+    }
+
+    /// ⌘Return from a scrap at the foot of its home region (a drop wrap's
+    /// 16pt padding is wider than the 12pt card gap): the new scrap is wholly
+    /// inside the region or wholly outside it, never across its edge.
+    func test_commandReturnFromAWrappedScrapNeverStraddlesTheRegionsEdge() throws {
+        let model = modelWithACard()
+        let wrap = CanvasRegionID("w1")
+        let fixture = Fixture(model: model)
+        fixture.layoutPass.rebuildLayouts()
+        let source = try frame(a, in: model)
+        let pad = CanvasClaudePlacement.padding
+        model.withScene(persist: false) {
+            $0.insertRegion(CanvasRegion(id: wrap, label: "",
+                                         frame: source.insetBy(dx: -pad, dy: -pad),
+                                         homeMembers: [a]))
+        }
+        fixture.enter(a, typed: "")
+
+        XCTAssertTrue(fixture.handler.handleEditorCommand(.makeBelow, viewSize: viewSize))
+
+        let b = try XCTUnwrap(fixture.editingNodeID.value)
+        let made = try frame(b, in: model)
+        let edge = try XCTUnwrap(model.scene.region(wrap)).frame
+        XCTAssertTrue(edge.contains(made) || !edge.intersects(made),
+                      "the new scrap \(made) straddles its source's region \(edge)")
         model.endGesture()
     }
 }

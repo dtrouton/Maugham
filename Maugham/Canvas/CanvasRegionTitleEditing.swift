@@ -114,6 +114,15 @@ struct CanvasRegionTitleEditing {
         return true
     }
 
+    /// `id`'s field arrived to find the writer's keyboard elsewhere — a drop's
+    /// title opening after its load, while the writer types in another field.
+    /// Close it with nothing written (nothing could be typed) and the region
+    /// left selected, without asking for the keyboard back.
+    func focusDeclined(in id: CanvasRegionID) {
+        guard regionTitleEditingID == id else { return }
+        close()
+    }
+
     /// The open title names a region no longer in the scene (an undo took it):
     /// close it, so a redo bringing the region back does not remount the field
     /// and take the keyboard. Called on every structural change.

@@ -93,7 +93,9 @@ final class RegionTitleEditingTests: XCTestCase {
         }
 
         var keys: CanvasKeyHandler {
-            CanvasKeyHandler(model: model, subject: subject, selectTheProjectRow: {},
+            CanvasKeyHandler(model: model, subject: subject,
+                             highlight: CanvasHighlight.resolve(subject: subject, in: model.scene),
+                             selectTheProjectRow: {},
                              returnKeyboardToTree: nil, editFocus: editFocus,
                              layoutPass: layoutPass, scrapFlow: scrapFlow,
                              regionTitleEditing: titles,
@@ -574,5 +576,110 @@ final class RegionTitleEditingTests: XCTestCase {
         model.undo.redo()
         XCTAssertEqual(model.scene.regionCount, 1, "precondition: the redo brought it back")
         XCTAssertNil(f.titleID.value, "the redo reopened the title")
+    }
+
+    // MARK: - Whole-branch review
+
+    /// **Tab and ⇧Tab in the title commit, exactly as Return does**, and are
+    /// used — so AppKit's key-view loop never carries the keyboard off to an
+    /// inspector field. The commit is what hands the canvas the keyboard
+    /// (`test_returnCommitsAsRenameRegion` pins that half).
+    func test_tabAndBacktabInTheTitleCommitLikeReturn() {
+        for selector in [#selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:))] {
+            let container = RegionTitleEditorContainer(frame: .zero)
+            var commits: [String] = []
+            container.onCommit = { commits.append($0); return true }
+            container.bind(to: r, label: "Fog")
+            container.field.stringValue = "Falls"
+            XCTAssertTrue(container.control(container.field, textView: NSTextView(),
+                                            doCommandBy: selector),
+                          "\(selector) was handed on to the key-view loop")
+            XCTAssertEqual(commits, ["Falls"], "\(selector) did not commit what was typed")
+        }
+    }
+
+    /// A window with `content` as its content view, closed after the test.
+    private func testWindow(holding content: NSView) -> NSWindow {
+        let window = TestWindow.make(contentRect: content.frame, contentView: content,
+                                     present: .unshown)
+        addTeardownBlock { @MainActor in window.close() }
+        return window
+    }
+
+    /// **A title arriving while the writer types elsewhere does not take the
+    /// keyboard** — a drop's wrap opens its title only after an async load,
+    /// by which time the writer may be in an inspector field. The field stays
+    /// where it was and the title reports the decline.
+    func test_aTitleArrivingWhileTheWriterTypesElsewhereLeavesTheKeyboard() throws {
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let window = testWindow(holding: content)
+        let other = NSTextField(frame: CGRect(x: 0, y: 0, width: 120, height: 22))
+        content.addSubview(other)
+        XCTAssertTrue(window.makeFirstResponder(other), "premise: the other field takes the keyboard")
+        let typingThere = try XCTUnwrap(other.currentEditor(), "premise: the other field is editing")
+
+        let container = RegionTitleEditorContainer(frame: CGRect(x: 0, y: 100, width: 200, height: 18))
+        let declined = expectation(description: "the title reported the decline")
+        container.onFocusDeclined = { declined.fulfill() }
+        container.bind(to: r, label: "")
+        container.requestFocus()
+        content.addSubview(container)
+
+        XCTAssertTrue(window.firstResponder === typingThere,
+                      "the title took the keyboard from the field the writer was typing in")
+        wait(for: [declined], timeout: 2)
+    }
+
+    /// The control: the canvas, the window itself and a list (the binder,
+    /// after a click on a chapter) hold no words, so the title takes the
+    /// keyboard from each and declines nothing.
+    func test_aTitleTakesTheKeyboardFromTheCanvasTheWindowOrAList() throws {
+        for holder in ["canvas", "window", "list"] {
+            let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+            let window = testWindow(holding: content)
+            switch holder {
+            case "canvas":
+                let canvas = CanvasEventNSView(frame: content.bounds)
+                content.addSubview(canvas)
+                XCTAssertTrue(window.makeFirstResponder(canvas), "premise: \(holder)")
+            case "list":
+                let list = NSOutlineView(frame: CGRect(x: 0, y: 0, width: 120, height: 200))
+                content.addSubview(list)
+                XCTAssertTrue(window.makeFirstResponder(list), "premise: \(holder)")
+            default:
+                window.makeFirstResponder(nil)
+            }
+            let container = RegionTitleEditorContainer(frame: CGRect(x: 0, y: 250, width: 200, height: 18))
+            var declines = 0
+            container.onFocusDeclined = { declines += 1 }
+            container.bind(to: r, label: "")
+            container.requestFocus()
+            content.addSubview(container)
+
+            XCTAssertNotNil(container.field.currentEditor(), "the title did not take the keyboard from the \(holder)")
+            XCTAssertTrue(window.firstResponder === container.field.currentEditor(), holder)
+            XCTAssertEqual(declines, 0, holder)
+            container.unmount()
+        }
+    }
+
+    /// A declined title closes with nothing written and the region still
+    /// selected, and does not ask for the keyboard back. A decline from a
+    /// field naming another region closes nothing.
+    func test_aDeclinedTitleClosesAndLeavesTheRegionSelected() {
+        let model = populatedModel()
+        let f = Fixture(model: model)
+        model.selection = .region(r)
+        f.titles.begin(r)
+        f.titles.focusDeclined(in: CanvasRegionID("other"))
+        XCTAssertEqual(f.titleID.value, r, "another region's decline closed this title")
+
+        f.titles.focusDeclined(in: r)
+
+        XCTAssertNil(f.titleID.value, "a declined title stayed open")
+        XCTAssertEqual(model.selection, .region(r))
+        XCTAssertEqual(model.scene.region(r)?.label, "Fog")
+        XCTAssertEqual(f.keyboardTicket.value, 0, "a decline took the keyboard from the writer's field")
+        XCTAssertFalse(model.isInGesture)
     }
 }

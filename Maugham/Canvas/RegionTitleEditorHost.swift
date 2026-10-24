@@ -14,13 +14,18 @@ struct CanvasRegionTitleDraft: Equatable {
 /// `ScrapLayout`'s shared TextKit stack, so tripwires 26 and 28 do not apply.
 final class RegionTitleField: NSTextField {}
 
-/// Holds the one `RegionTitleField` and is its delegate: Return commits,
-/// Escape cancels, and losing the keyboard any other way commits what was
-/// typed. Each of the three reports once per opening.
+/// Holds the one `RegionTitleField` and is its delegate: Return (and Tab or
+/// ⇧Tab, which never run AppKit's key-view loop here) commits, Escape cancels,
+/// and losing the keyboard any other way commits what was typed. Each of the
+/// three reports once per opening.
 ///
 /// **Focus is requested, not taken** (tripwire 27's rule, as
 /// `ScrapEditorContainer` keeps it): `makeNSView` runs with no window, so the
-/// claim waits for `viewDidMoveToWindow`.
+/// claim waits for `viewDidMoveToWindow`. **And only from a keyboard holding
+/// no words** (`keyboardIsFree`): a drop's title opens after an async load, by
+/// when the writer may be typing in an inspector field. Then the field leaves
+/// the keyboard where it is and reports `onFocusDeclined` on the next turn
+/// (never inside SwiftUI's update), and the title closes.
 ///
 /// **Zoom is the font size**, scaled by the camera; never `.scaleEffect`
 /// (tripwire 25). The field is level over the region's ≤1° tilt, and the
@@ -46,6 +51,9 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
     var onCommit: ((String) -> Bool)?
     var onCancel: (() -> Bool)?
     var onLostFocus: ((String) -> Bool)?
+    /// The field did not take the keyboard because the writer had it
+    /// somewhere else (`keyboardIsFree`).
+    var onFocusDeclined: (() -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -100,8 +108,25 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
     private func claimFocusIfPossible() {
         guard wantsFocus, let window else { return }
         wantsFocus = false
+        guard Self.keyboardIsFree(window.firstResponder, in: window, for: field) else {
+            DispatchQueue.main.async { [weak self] in self?.onFocusDeclined?() }
+            return
+        }
         // Selects the whole name, as Finder does on a rename.
         window.makeFirstResponder(field)
+    }
+
+    /// Whether the title may take the keyboard from `responder`, the
+    /// window's first responder when the field arrives: nothing, the window,
+    /// the canvas, this field itself — or anything that is not a text view
+    /// (the binder's list after a click on a chapter, a button). A text view
+    /// that is not this field's is the writer typing somewhere else.
+    static func keyboardIsFree(_ responder: NSResponder?, in window: NSWindow,
+                               for field: NSTextField) -> Bool {
+        guard let responder, responder !== window else { return true }
+        if responder is CanvasEventNSView || responder === field { return true }
+        guard let text = responder as? NSText else { return true }
+        return text.delegate === field
     }
 
     /// Torn down: nothing reports after this.
@@ -112,6 +137,7 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
         onCommit = nil
         onCancel = nil
         onLostFocus = nil
+        onFocusDeclined = nil
     }
 
     // MARK: - NSTextFieldDelegate
@@ -123,7 +149,11 @@ final class RegionTitleEditorContainer: NSView, NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView,
                  doCommandBy selector: Selector) -> Bool {
         switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
+        case #selector(NSResponder.insertNewline(_:)),
+             #selector(NSResponder.insertTab(_:)),
+             #selector(NSResponder.insertBacktab(_:)):
+            // Tab and ⇧Tab commit as Return does; the commit hands the canvas
+            // the keyboard, so the key-view loop never takes it elsewhere.
             guard !hasReported else { return true }
             hasReported = true
             if onCommit?(field.stringValue) == false { hasReported = false }
@@ -155,6 +185,7 @@ struct RegionTitleEditorHost: NSViewRepresentable {
     let onCommit: (String) -> Bool
     let onCancel: () -> Bool
     let onLostFocus: (String) -> Bool
+    let onFocusDeclined: () -> Void
 
     func makeNSView(context: Context) -> RegionTitleEditorContainer {
         let c = RegionTitleEditorContainer(frame: .zero)
@@ -184,5 +215,6 @@ struct RegionTitleEditorHost: NSViewRepresentable {
         c.onCommit = onCommit
         c.onCancel = onCancel
         c.onLostFocus = onLostFocus
+        c.onFocusDeclined = onFocusDeclined
     }
 }
