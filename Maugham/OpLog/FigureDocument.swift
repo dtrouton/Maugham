@@ -95,8 +95,16 @@ public final class FigureDocument {
     /// the echo's reload ~300 ms later, and the next edit's `prior` and a
     /// ⌘Z's drift guard would read the regressed table (final review I-5).
     /// `reload` carries every one its read lacks; one is forgotten once a
-    /// read contains it, or when its append fails.
+    /// read has SEEN it in the stream — applied, held or refused — or when
+    /// its append fails (residual N-1).
     @ObservationIgnored private var unconfirmedLocalOpIds: Set<String> = []
+
+    /// **The unconfirmed ops whose append has returned** — each is in the
+    /// stream, so any read that BEGINS after it is added has seen it, whatever
+    /// that read made of it. A read that held or refused one does not list it
+    /// among its applied ops, so "the read contains it" alone would carry it
+    /// over the derivation until close (final re-review N-1).
+    @ObservationIgnored private var appendedLocalOpIds: Set<String> = []
 
     /// Bumped by every `reload`: a read that a later reload overtook does not
     /// land over the later one's answer.
@@ -174,15 +182,23 @@ public final class FigureDocument {
     /// contain an op appended after it began, so every op of this host's own
     /// that the read lacks (`unconfirmedLocalOpIds`) is carried after it, in
     /// the order it was committed — what the incremental fold already shows.
+    ///
+    /// **A local op the read has seen is not carried**, applied or not: one
+    /// whose append returned before the read began is in the stream the read
+    /// walked, so if the read held or refused it, `state` agrees with that
+    /// verdict rather than keeping the op until close (residual N-1).
     public func reload() async throws {
         guard !isClosed else { return }
         reloadGeneration += 1
         let generation = reloadGeneration
+        let inTheStreamBeforeTheRead = appendedLocalOpIds
         let (ops, provenance) = try await Self.readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
         if let hook = Self.afterReloadReadForTesting { await hook(self) }
         guard !isClosed, generation == reloadGeneration else { return }
-        unconfirmedLocalOpIds.subtract(ops.map(\.opId))
+        let seen = Set(ops.map(\.opId)).union(inTheStreamBeforeTheRead)
+        unconfirmedLocalOpIds.subtract(seen)
+        appendedLocalOpIds.subtract(seen)
         let carried = _ops.filter { unconfirmedLocalOpIds.contains($0.opId) }
         _ops = ops + carried
         self.provenance = provenance
@@ -574,6 +590,10 @@ public final class FigureDocument {
         case pictureNotKept
         /// The undo or redo could not be written to the figure's history.
         case notRecorded
+        /// The redo no longer fits the figure (`FigureEditInvalid`'s reason:
+        /// a row or column gone, a picture no longer kept) — said as that,
+        /// never as a failed save (residual N-4).
+        case cannotRedo(String)
 
         var sentence: String {
             switch self {
@@ -587,6 +607,8 @@ public final class FigureDocument {
                 "Couldn't put the picture back — the one it replaced is no longer kept."
             case .notRecorded:
                 "Couldn't change the figure — the change could not be saved."
+            case .cannotRedo(let reason):
+                "Couldn't redo the change to the figure — \(reason)."
             }
         }
     }
@@ -596,10 +618,14 @@ public final class FigureDocument {
         MaughamEvent.postNotice(why.sentence, projectURL: projectURL)
     }
 
-    /// A redo re-enters the forward mutator; a refusal there is said as one.
+    /// A redo re-enters the forward mutator; a refusal there is said as one,
+    /// and an edit that no longer fits as that — only a failed write is
+    /// "could not be saved".
     private func redoing(_ body: () async throws -> Void) async {
         do { try await body() } catch is FigureEditRefused {
             decline(.notPermitted)
+        } catch let invalid as FigureEditInvalid {
+            decline(.cannotRedo(invalid.reason))
         } catch {
             documentLog.error("figure redo failed on \(self.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             decline(.notRecorded)
@@ -680,6 +706,9 @@ public final class FigureDocument {
         do {
             try Self.beforeCommitAppendForTesting?(op)
             try await opStore.append(op)
+            // Only while unconfirmed: a read that already contained it has
+            // forgotten it, and must not leave this id behind.
+            if unconfirmedLocalOpIds.contains(op.opId) { appendedLocalOpIds.insert(op.opId) }
         } catch {
             unconfirmedLocalOpIds.remove(op.opId)
             _ops.removeAll { $0.opId == op.opId }

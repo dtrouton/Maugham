@@ -411,6 +411,37 @@ final class FigureDocumentTests: XCTestCase {
         await doc.close()
     }
 
+    /// **Residual N-1**: an own op the read SAW but did not apply — here a
+    /// scoped author's cell, held once its figure's record has left the
+    /// manifest (`.unregisteredFigure`) — is not carried over the read. The
+    /// window agrees with the derivation, not with what it wrote.
+    func test_aReloadThatHoldsALocalEditDoesNotKeepShowingIt() async throws {
+        let root = try makeForeignRoot()
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "a_table", piece: Self.pieceA)
+        try narrow(identities.author.fingerprint, by: root, pieces: [Self.pieceA], mark: try appliedSoFar())
+        let doc = try await load(record.id)
+        let key = try firstKey(doc)
+        try await doc.setCell(text("hers"), at: key, undoManager: nil)
+        XCTAssertEqual(doc.state.table[key], text("hers"), "precondition: her edit applied")
+
+        // The record leaves (another Mac's manifest): her line is now held.
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.figures = []
+        try ProjectManifest.encodeForDisk(manifest).write(to: manifestURL)
+
+        try await doc.reload()
+        let fresh = try await load(record.id)
+        XCTAssertGreaterThan(doc.provenance?.pendingLines ?? 0, 0, "precondition: the read held her line")
+        XCTAssertNil(fresh.state.table[key], "precondition: a fresh read does not apply it")
+        XCTAssertNil(doc.state.table[key], "the window does not keep showing a line the read held")
+        XCTAssertEqual(doc.state, fresh.state, "it agrees with the derivation")
+        await fresh.close()
+        await doc.close()
+    }
+
     // MARK: - Registry fixtures
 
     /// A foreign root that admits this device as a book author.
