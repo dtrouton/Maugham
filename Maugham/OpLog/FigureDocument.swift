@@ -106,6 +106,10 @@ public final class FigureDocument {
     /// a local commit racing the read is put. Nil in production.
     static var afterReloadReadForTesting: (@MainActor (FigureDocument) async -> Void)?
 
+    /// Test seam: thrown from just before `commit`'s append, to prove what a
+    /// failed append leaves behind. Nil in production.
+    static var beforeCommitAppendForTesting: ((Op) throws -> Void)?
+
     /// Where `setImage` keeps the pictures its ⌘Z and redo put back — the
     /// one replaced and the one that replaced it, by content hash — for this
     /// open document only: a temporary folder, never `.maugham/` (nothing
@@ -495,7 +499,21 @@ public final class FigureDocument {
         try await documentStore.replaceFigureImage(at: destination, withCopyOf: copyable.url)
 
         let next = FigureImageRef(filename: filename, contentHash: hash)
-        let op = try await commit(.figureImageSet, FigureOpPayload(image: next, priorImage: prior))
+        let op: Op
+        do {
+            op = try await commit(.figureImageSet, FigureOpPayload(image: next, priorImage: prior))
+        } catch {
+            // The op never landed, so the file goes back to the picture the
+            // op log still names: the publisher stages what the file holds.
+            // A first picture has none to go back to.
+            if let keptPrior {
+                do { try await documentStore.replaceFigureImage(at: destination, withCopyOf: keptPrior) } catch {
+                    documentLog.error(
+                        "figure \(self.figureId, privacy: .public): the picture could not be put back after a failed append: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            throw error
+        }
         if prior == nil {
             try await documentStore.projectStore?.recordFigureImagePath(
                 figureId: figureId, path: "\(ProjectStore.figuresFolder)/\(filename)")
@@ -508,6 +526,9 @@ public final class FigureDocument {
                     throw FigureEditInvalid(reason: "the replaced picture is no longer kept")
                 }
                 try await store.replaceFigureImage(at: destination, withCopyOf: keptPrior)
+            },
+            unrestoring: { d in
+                try await d.documentStore?.replaceFigureImage(at: destination, withCopyOf: keptNext)
             },
             redo: { [weak undoManager] d in
                 guard d.state.image == prior else { return d.decline(.drifted) }
@@ -551,6 +572,8 @@ public final class FigureDocument {
         case insertNotRedoable
         /// The picture an undo would put back is no longer kept.
         case pictureNotKept
+        /// The undo or redo could not be written to the figure's history.
+        case notRecorded
 
         var sentence: String {
             switch self {
@@ -562,6 +585,8 @@ public final class FigureDocument {
                 "Couldn't put the row or column back — a removed row or column can't return yet."
             case .pictureNotKept:
                 "Couldn't put the picture back — the one it replaced is no longer kept."
+            case .notRecorded:
+                "Couldn't change the figure — the change could not be saved."
             }
         }
     }
@@ -577,6 +602,7 @@ public final class FigureDocument {
             decline(.notPermitted)
         } catch {
             documentLog.error("figure redo failed on \(self.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            decline(.notRecorded)
         }
     }
 
@@ -592,11 +618,14 @@ public final class FigureDocument {
     /// 3. `restoring`, where the op's content lives outside the stream (an
     ///    image's file): put back first, and a failure there appends nothing;
     /// 4. appends the compensating op, registering nothing further (the
-    ///    registrar has already put `redo` on the redo stack).
+    ///    registrar has already put `redo` on the redo stack). A failed append
+    ///    runs `unrestoring` (the file back to what the op log names) and
+    ///    says so (`.notRecorded`).
     func registerFigureUndo(
         _ undoManager: UndoManager?, actionName: String, forward: Op,
         stillAsWritten: @escaping @MainActor (FigureDocument) -> Bool,
         restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
+        unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
         guard let payload = forward.figure,
@@ -617,6 +646,14 @@ public final class FigureDocument {
                 }
                 do { try await d.commit(kind, inverse) } catch {
                     documentLog.error("figure undo append failed on \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    // What `restoring` put back goes back to what the op
+                    // log still names, so the file and the history agree.
+                    do { try await unrestoring?(d) } catch {
+                        documentLog.error("figure undo could not re-place \(d.figureId, privacy: .public) after a failed append: \(error.localizedDescription, privacy: .public)")
+                    }
+                    // Said, not only logged: the ⌘Z was consumed and the
+                    // figure is as it was.
+                    d.decline(.notRecorded)
                 }
             },
             redo: redo)
@@ -641,6 +678,7 @@ public final class FigureDocument {
         unconfirmedLocalOpIds.insert(op.opId)
         FigureDeriver.fold(op, into: &state)
         do {
+            try Self.beforeCommitAppendForTesting?(op)
             try await opStore.append(op)
         } catch {
             unconfirmedLocalOpIds.remove(op.opId)

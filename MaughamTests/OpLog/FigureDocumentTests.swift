@@ -39,6 +39,7 @@ final class FigureDocumentTests: XCTestCase {
     override func tearDown() async throws {
         ProjectStore.beforeFigureAppendForTesting = nil
         FigureDocument.afterReloadReadForTesting = nil
+        FigureDocument.beforeCommitAppendForTesting = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -852,6 +853,62 @@ final class FigureDocumentTests: XCTestCase {
         try await doc.setImage(fromURL: second, undoManager: um)
         XCTAssertEqual(try ops(of: record.id).count, count, "the same picture again writes nothing")
         await store.closeFigure(figureId: record.id)
+    }
+
+    /// **A failed append keeps the file and the history agreeing** (final
+    /// review T9): the replaced picture goes back on disk when the replace's
+    /// op cannot be written, and an undo whose op cannot be written puts the
+    /// newer picture back and says it did not happen (T6).
+    func test_aFailedAppendPutsThePictureBackAndAFailedUndoSaysSo() async throws {
+        struct Refused: Error {}
+        let (store, projectStore) = try await openWindow()
+        let first = try png("chart.png", .red)
+        let record = try await projectStore.createImageFigure(fromURL: first, piece: Self.pieceA)
+        let doc = try await store.openFigure(figureId: record.id)
+        let file = figureFile("chart.png")
+        let oldBytes = try Data(contentsOf: file)
+        let old = try XCTUnwrap(doc.state.image)
+        let second = try png("second.png", .blue)
+        let newBytes = try Data(contentsOf: second)
+
+        FigureDocument.beforeCommitAppendForTesting = { _ in throw Refused() }
+        do {
+            try await doc.setImage(fromURL: second, undoManager: nil)
+            XCTFail("the append was refused, so the replace throws")
+        } catch is Refused {}
+        XCTAssertEqual(try Data(contentsOf: file), oldBytes, "the picture the op log names is back")
+        XCTAssertEqual(doc.state.image, old)
+
+        FigureDocument.beforeCommitAppendForTesting = nil
+        let um = UndoManager()
+        try await doc.setImage(fromURL: second, undoManager: um)
+        XCTAssertEqual(try Data(contentsOf: file), newBytes)
+        let count = try ops(of: record.id).count
+        FigureDocument.beforeCommitAppendForTesting = { _ in throw Refused() }
+        let said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, ["Couldn't change the figure — the change could not be saved."])
+        XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
+        XCTAssertEqual(try Data(contentsOf: file), newBytes, "and the file still holds what the op log names")
+        XCTAssertNotEqual(doc.state.image, old)
+        FigureDocument.beforeCommitAppendForTesting = nil
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// A failed compensating append on a table edit is said too (T6).
+    func test_aCellUndoWhoseAppendFailsSaysSo() async throws {
+        struct Refused: Error {}
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let key = try firstKey(doc)
+        let um = UndoManager()
+        try await doc.setCell(text("one"), at: key, undoManager: um)
+        FigureDocument.beforeCommitAppendForTesting = { _ in throw Refused() }
+        let said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
+        FigureDocument.beforeCommitAppendForTesting = nil
+        XCTAssertEqual(said, ["Couldn't change the figure — the change could not be saved."])
+        XCTAssertEqual(doc.state.table[key], text("one"), "the cell is as it was")
+        await doc.close()
     }
 
     /// A picture in another format would break every line pointing at the
