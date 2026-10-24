@@ -113,3 +113,24 @@ public struct FigureTable: Equatable, Codable, Sendable {
         return slots.count
     }
 }
+
+extension FigureTable {
+    /// The live rows whose slots lie between slot indices `a` and `b` inclusive (either
+    /// order), top to bottom. The one definition of a range's rows: rendering shows its
+    /// first and last (an edge on a tombstone shrinks inward), evaluation reads them all,
+    /// and an empty result is `#REF!`.
+    func liveRows(betweenSlots a: Int, _ b: Int) -> [RowID] {
+        Self.live(rowSlots, a, b)
+    }
+
+    /// The live columns between slot indices `a` and `b` inclusive; see `liveRows`.
+    func liveColumns(betweenSlots a: Int, _ b: Int) -> [ColumnID] {
+        Self.live(columnSlots, a, b)
+    }
+
+    private static func live<ID>(_ slots: [Slot<ID>], _ a: Int, _ b: Int) -> [ID] {
+        let lo = max(min(a, b), 0), hi = min(max(a, b), slots.count - 1)
+        guard lo <= hi else { return [] }
+        return slots[lo...hi].filter { !$0.isDeleted }.map(\.id)
+    }
+}

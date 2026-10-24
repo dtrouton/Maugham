@@ -164,7 +164,9 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `CellValue.swift` — a cell's value, formula error codes and cell content.
 - `CellFormat.swift` — number, date and negative formats and cell alignment.
 - `FigureTable.swift` — a table's rows and columns as ordered id slots with tombstones, its cells, header/total rows; the model the op log derives.
-- `Formula.swift` — a cell's formula (placeholder until the parser lands).
+- `Formula.swift` — a cell's formula syntax tree; refs stored by row and column id, research refs by position.
+- `CellAddress.swift` — A1 notation: column letters, `$` absolute markers.
+- `FormulaParser.swift` — parses formula text (Excel precedence), renders it as A1 by live position (a deleted range edge shrinks inward), shifts it for fill.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.

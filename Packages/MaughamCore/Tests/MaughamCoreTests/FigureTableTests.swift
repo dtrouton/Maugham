@@ -169,6 +169,8 @@ final class FigureTableTests: XCTestCase {
         }
         t.setCell(Cell(content: .value(.number(9)), format: formats[6], alignment: .center),
                   at: CellKey(row: r[2], column: c[2]))
+        let formula = try FormulaParser.parse("SUM($A$1:B3)*2%", in: t).get()
+        t.setCell(Cell(content: .formula(formula)), at: CellKey(row: r[0], column: c[0]))
         t.headerRows = 1
         t.hasTotalRow = true
         t.columnWidths[c[0]] = 120.5
