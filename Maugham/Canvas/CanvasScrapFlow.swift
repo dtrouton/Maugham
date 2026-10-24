@@ -28,8 +28,16 @@ struct CanvasScrapFlow {
     /// per `creationBinding`, and (when `joinedTo` is non-nil) insert the line.
     /// Then enter it, which opens "Edit Scrap" — one ⌘Z takes back the words,
     /// a second the card, its membership, its binding and its line together.
+    /// A `joinedTo` that is the new scrap or no longer in the scene draws no line.
+    ///
+    /// **The caller's duties:** ask `CanvasEditGate` first (a read-only canvas
+    /// makes nothing) and close the open visit with `commitActiveEdit()` first
+    /// (or "New Scrap" nests inside it). Asserted, not re-checked.
     @discardableResult
     func makeScrapAndEnter(at origin: CGPoint, joinedTo: CanvasNodeID? = nil) -> CanvasNodeID {
+        assert(!model.isReadOnly && !model.isInGesture,
+               "makeScrapAndEnter on a read-only canvas or inside an open gesture: "
+               + "callers ask CanvasEditGate and commitActiveEdit() first")
         // Creating the card is its own step, closed before the visit opens:
         // one ⌘Z takes back what the writer typed, a second takes back the
         // card. Explicit begin/end rather than `mutate` — the new id has to
@@ -69,11 +77,15 @@ struct CanvasScrapFlow {
             if let piece {
                 $0.setBoundPiece(piece, for: id)
             }
-            if let joinedTo {
+            // Tab from an item card joins too, so any node kind is a valid end;
+            // a missing one (deleted mid-flow) or the scrap itself is not.
+            var lineEnd: CanvasNodeID?
+            if let joinedTo, joinedTo != id, $0.node(joinedTo) != nil { lineEnd = joinedTo }
+            if let joinedTo = lineEnd {
                 $0.insertLine(CanvasLine(id: CanvasInteraction.newLineID(in: $0),
                                          from: joinedTo, to: id))
             }
-            if home != nil || piece != nil || joinedTo != nil {
+            if home != nil || piece != nil || lineEnd != nil {
                 // The membership, binding or line changed AFTER
                 // `rebuildLayouts()` bumped the structural counter, and that
                 // bump is the only one on this path — so without this the
@@ -104,7 +116,13 @@ struct CanvasScrapFlow {
     /// Enter an existing measured scrap at `caretIndex` (UTF-16); opens
     /// "Edit Scrap". The caller has already closed the previous visit
     /// (`CanvasEditFocus.commitActiveEdit`), so one visit never nests in another.
+    ///
+    /// **The caller's duties:** the edit gate and `commitActiveEdit()` first,
+    /// as for `makeScrapAndEnter`. Asserted, not re-checked.
     func enter(_ id: CanvasNodeID, caretIndex: Int) {
+        assert(!model.isInGesture,
+               "enter inside an open gesture: callers ask CanvasEditGate and "
+               + "commitActiveEdit() first, or \"Edit Scrap\" nests")
         self.caretIndex = caretIndex
         editingNodeID = id
         lastKeystrokeAt = nil

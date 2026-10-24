@@ -421,6 +421,28 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                        + "nested inside it and the card and the typing are one ⌘Z")
     }
 
+    /// **A read-only canvas takes a double click as a single one**: it makes
+    /// no scrap and opens no bracket (issue #44). The click handler's gate is
+    /// what stands between the click and `CanvasScrapFlow`, which asserts it.
+    func test_aDoubleClickOnAReadOnlyCanvasMakesNoScrap() throws {
+        let root = TestTemp.root.appendingPathComponent("click-read-only-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sidecar = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try "not json at all".write(to: sidecar, atomically: true, encoding: .utf8)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        defer { model.detach() }
+        XCTAssertTrue(model.isReadOnly, "precondition: the damaged layout file was refused")
+        let before = model.scene.count
+
+        ClickHandlerFixture(model: model).click(at: CGPoint(x: 900, y: 900), clickCount: 2)
+
+        XCTAssertEqual(model.scene.count, before, "a read-only canvas made a scrap")
+        XCTAssertFalse(model.isInGesture, "a read-only canvas opened an undo bracket")
+    }
+
     // MARK: - CanvasKeyHandler
 
     @MainActor

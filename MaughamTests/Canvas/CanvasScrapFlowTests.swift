@@ -178,6 +178,20 @@ final class CanvasScrapFlowTests: XCTestCase {
         XCTAssertNotNil(model.scene.node(a), "the undo took the scrap it was joined to")
     }
 
+    /// A join to a card that is no longer there (deleted between the key and
+    /// the make) makes the scrap with no line, rather than a line to nothing.
+    func test_aJoinToAMissingCardMakesNoLine() throws {
+        let model = attachedModel()
+        let gone = CanvasNodeID("g1ab")
+        let fixture = Fixture(model: model, subject: .wholeProject)
+
+        let id = fixture.flow.makeScrapAndEnter(at: CGPoint(x: 400, y: 40), joinedTo: gone)
+
+        XCTAssertNotNil(model.scene.node(id), "the scrap was not made")
+        XCTAssertEqual(model.scene.lineCount, 0, "a line was drawn to a card that is not there")
+        model.endGesture()
+    }
+
     /// The click arm's ordering, kept: "New Scrap" closes AFTER the measure, so
     /// undoing the typing restores a card WITH a height. Close it before and the
     /// restored card has no frame — invisible to hit testing and the renderer.
