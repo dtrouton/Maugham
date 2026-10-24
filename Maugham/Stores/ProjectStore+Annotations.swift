@@ -157,6 +157,18 @@ extension ProjectStore {
                 }
             }
         }
+        // The figures' own streams (report plan 6a), always from disk: a note
+        // on a figure is read off its stream whether or not a window holds it.
+        for figure in manifest.figures ?? [] {
+            count += 1
+            for opLogURL in OpLogStore.opLogFileURLs(forDocId: figure.id, in: url) {
+                if let attrs = try? FileManager.default.attributesOfItem(
+                    atPath: opLogURL.path),
+                   let mtime = attrs[.modificationDate] as? Date {
+                    sum &+= Int(mtime.timeIntervalSince1970 * 1000)
+                }
+            }
+        }
         // The document count is in the key because adding or removing a piece
         // changes what the walk covers without necessarily moving the sum (a
         // new piece has no op log yet, and so contributes nothing to it).
@@ -275,6 +287,35 @@ extension ProjectStore {
                         DocumentClass.resolve(docId: item.id, facts: facts)
                     }))
                 .map { ProjectAnnotation(docId: item.id, annotation: $0) })
+        }
+
+        // **The figures' notes** (report plan 6a): a figure is its own
+        // op-logged stream, judged like any other, so the notes on it are the
+        // project's too — the phone's Annotations tab lists them, and the
+        // queue files them under the registry's names
+        // (`AnnotationScopeSections.build`'s `figures`). Read from disk even
+        // when a window holds the figure: `FigureDocument` projects no notes.
+        // A figure has no paragraphs, so no sequence is recorded.
+        for figure in manifest.figures ?? [] {
+            let amendmentPermits = AmendmentPermits()
+            guard let ops = try? OpLogStore.loadSyncMerged(
+                forDocId: figure.id, in: url, trust: trust,
+                facts: facts,
+                amendmentPermits: amendmentPermits)
+            else {
+                unreadable.append(figure.id)
+                continue
+            }
+            annotations.append(contentsOf: AnnotationAggregation.allAnnotations(
+                ops: ops, paragraphs: [:],
+                amendments: .judged(
+                    by: trust, permits: amendmentPermits.resolved,
+                    insideTheUnsignedSnapshot:
+                        amendmentPermits.resolvedInsideTheUnsignedSnapshot,
+                    class: {
+                        DocumentClass.resolve(docId: figure.id, facts: facts)
+                    }))
+                .map { ProjectAnnotation(docId: figure.id, annotation: $0) })
         }
 
         let snapshot = ProjectAnnotationsSnapshot(

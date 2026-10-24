@@ -187,7 +187,7 @@ enum AnnotationLoading {
         // Figures last among the mapped: a note on a table is the table's,
         // named as the writer named it.
         for figure in figures where meta[figure.id] == nil {
-            meta[figure.id] = (figureTitle(figure), "Figures")
+            meta[figure.id] = (figure.listTitle, FigureRecord.listGroupTitle)
             order[figure.id] = counter; counter += 1
         }
 
@@ -214,15 +214,6 @@ enum AnnotationLoading {
             return a.docId < b.docId    // stable tie-break for two unmapped docs
         }
         return chapters
-    }
-
-    /// A figure's row title: "Table: <name>" for a table, "Figure: <name>"
-    /// for an image or a kind this build does not know.
-    static func figureTitle(_ figure: FigureRecord) -> String {
-        switch figure.kind {
-        case .table: return "Table: \(figure.name)"
-        case .image, .unknown: return "Figure: \(figure.name)"
-        }
     }
 
     /// Short, human-readable stub of an unmapped docId for the "Other" fallback.

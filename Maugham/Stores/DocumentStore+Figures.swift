@@ -31,6 +31,8 @@ extension DocumentStore {
             return raced
         }
         openFigures[figureId] = doc
+        // An open figure answers for its own held lines (`heldLines()`).
+        forgetClosedProvenance(ofDocId: figureId)
         await renderFigures(changed: [figureId])
         return doc
     }
@@ -68,6 +70,8 @@ extension DocumentStore {
     /// Close a figure this window opened: sealed, and no longer reloaded.
     func closeFigure(figureId: String) async {
         guard let doc = openFigures.removeValue(forKey: figureId) else { return }
+        // Its held lines stay counted until the next sweep, as a document's do.
+        rememberClosedProvenance(of: doc)
         await doc.close()
     }
 

@@ -187,6 +187,45 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
         }
     }
 
+    /// **A note on a figure's stream is the project's too** (report plan 6a
+    /// final review, I-3): the walk reads every figure the registry lists,
+    /// as the phone's Annotations tab does, and the queue files it under the
+    /// registry's name, after the board's rows.
+    func test_aFiguresNotesAreListedAndFiledUnderItsRegistryName() async throws {
+        let f = try await makeFixture()
+        let figureId = "fig-0000000a"
+        let manifestURL = f.url.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        let record = FigureRecord(
+            id: figureId, name: "cashflow", kind: .table, piece: nil, path: "figures/cashflow.csv")
+        manifest.figures = [record]
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        try await OpLogStore(projectURL: f.url).append(Op(
+            opId: "01FFF1", docId: figureId, at: Date(timeIntervalSince1970: 1_700_000_000),
+            device: "mac", session: "s", kind: .claudeComment, changes: [],
+            provenance: Op.Provenance(
+                sessionId: "s", annotationBody: "check this total",
+                figureRowId: "r1", figureColId: "c1")))
+
+        let store = try await ProjectStore.load(from: f.url)
+        store.documentStore = f.ds
+        let snapshot = store.listAnnotationsAcrossProject()
+        let onFigure = snapshot.annotations.filter { $0.docId == figureId }
+        XCTAssertEqual(onFigure.map(\.annotation.body), ["check this total"])
+
+        let sections = AnnotationScopeSections.build(
+            rows: ReviewBoardRows.derive(structure: store.manifest.structure),
+            annotations: snapshot.annotations, sequences: snapshot.sequences,
+            figures: store.manifest.figures ?? [])
+        XCTAssertEqual(Array(sections.suffix(2).map(\.title)), ["Figures", "Table: cashflow"],
+                       "filed last, under the registry's name")
+        XCTAssertEqual(sections.last?.id, figureId)
+        XCTAssertEqual(
+            AnnotationScopePolicy.click(rowDocId: figureId, activeDocId: "doc-c1"), .stay,
+            "a figure id is no subject to travel to")
+    }
+
     func test_aClosedDocsNotesComeFromItsOpLog() async throws {
         let f = try await makeFixture()
         let snapshot = f.store.listAnnotationsAcrossProject()

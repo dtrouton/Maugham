@@ -310,4 +310,48 @@ final class ClosedHeldLinesTests: XCTestCase {
         XCTAssertNil(store.closedProvenance[docId])
         await store.close()
     }
+
+    // MARK: - Figures (report plan 6a final review, I-3)
+
+    /// **A stranger's lines in a figure's stream are counted** — swept while
+    /// the figure is closed (the manifest's `figures` are swept streams), the
+    /// open figure's own provenance while a window holds it, and kept in the
+    /// closed map when it closes again.
+    func test_aStrangersFigureLinesAreCountedClosedOpenAndClosedAgain() async throws {
+        try await bootstrapTheBookAndCloseIt()
+        let created = try await ProjectStore.load(from: projectURL)
+        let record = try await created.createFigure(kind: .table, name: "t", piece: nil)
+        let read = try await FigureDocument.load(
+            figureId: record.id, projectURL: projectURL, actor: .author, session: "s",
+            presenter: nil, documentStore: nil)
+        let key = CellKey(row: try XCTUnwrap(read.state.table.rows.first),
+                          column: try XCTUnwrap(read.state.table.columns.first))
+        await read.close()
+
+        let theirs = OpLogStore(projectURL: projectURL, identity: stranger, state: strangerState)
+        try await theirs.append(Op(
+            opId: ULID.generate(), docId: record.id, at: Date(), device: stranger.deviceId,
+            session: "s", kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: key, next: Cell(content: .value(.text("x"))), prior: nil)))
+        let sealed = try await theirs.sealChain(docId: record.id)
+        XCTAssertTrue(sealed)
+
+        let (_, store) = try await openWindow()
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "a closed figure's held line is swept like a chapter's")
+        XCTAssertNotNil(store.closedProvenance[record.id])
+
+        let open = try await store.openFigure(figureId: record.id)
+        XCTAssertNil(store.closedProvenance[record.id], "an open figure answers for itself")
+        XCTAssertGreaterThan(open.provenance?.pendingLines ?? 0, 0)
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "counted once, from the open figure")
+
+        await store.closeFigure(figureId: record.id)
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "closed again: its provenance moved into the closed map")
+        XCTAssertTrue(DocumentStore.sweptDocIds(in: created.manifest).contains(record.id))
+        await store.close()
+    }
 }
+

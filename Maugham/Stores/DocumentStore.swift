@@ -1944,8 +1944,12 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // **A figure's stream** (report plan 6a Task 7): the cache forgets
             // it, an open figure re-reads, and it and every table whose
             // formulas name it re-render — debounced, since a device arrives
-            // as a burst. The arm below still runs: a closed stream's
-            // annotations and held lines are counted as any other's.
+            // as a burst. The arm below still runs (no `Document` holds a
+            // figure, so it is the closed arm): the project's note listing
+            // hears of it, and the stream is re-swept for held lines like any
+            // other the manifest lists (`sweptDocIds` carries the figures) —
+            // an OPEN figure answers for itself in `heldLines()` and is
+            // skipped by that pass.
             if DocumentClass.isFigureDocId(docId) {
                 figureStreamChanged(docId)
             }

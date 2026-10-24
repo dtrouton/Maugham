@@ -95,6 +95,25 @@ extension DocumentStore {
         closedProvenance[document.docId] = document.provenance
     }
 
+    /// A figure leaving the window (`closeFigure`, `closeFigures`) takes its
+    /// live provenance into the closed map, as a document does.
+    func rememberClosedProvenance(of figure: FigureDocument) {
+        closedProvenanceStamps[figure.figureId, default: 0] += 1
+        closedProvenance[figure.figureId] = figure.provenance
+    }
+
+    /// **Every stream this window holds open** — the documents and the
+    /// figures. Each answers for itself in `heldLines()`, so the closed map's
+    /// entry for it is not counted and a pass does not read it.
+    func openStreamIds() -> Set<String> {
+        Set(allOpenDocuments().map(\.docId)).union(openFigures.compactMap { $0.value.isClosed ? nil : $0.key })
+    }
+
+    /// Whether a stream is open here and so answers for itself.
+    func answersForItself(_ docId: String) -> Bool {
+        document(forDocId: docId) != nil || openFigure(forId: docId) != nil
+    }
+
     /// A document that opened answers for itself.
     func forgetClosedProvenance(ofDocId docId: String) {
         closedProvenanceStamps[docId, default: 0] += 1
@@ -169,7 +188,7 @@ extension DocumentStore {
                 // Open documents answer for themselves: skipped, never read.
                 let proceed: Bool? = {
                     guard let self else { return nil }
-                    guard self.document(forDocId: docId) == nil else { return false }
+                    guard !self.answersForItself(docId) else { return false }
                     stamps[docId] = self.closedProvenanceStamps[docId] ?? 0
                     return true
                 }()
@@ -208,7 +227,7 @@ extension DocumentStore {
         guard epoch == closedTrustEpoch else { return }
         let before = closedStrangerHolding()
         for (docId, provenance) in swept
-        where document(forDocId: docId) == nil
+        where !answersForItself(docId)
             && (closedProvenanceStamps[docId] ?? 0) == stamps[docId] {
             closedProvenance[docId] = provenance
         }
@@ -225,8 +244,7 @@ extension DocumentStore {
     private func closedStrangerHolding() -> ClosedStrangerHolding {
         var counts: [String: Int] = [:]
         var streams: [String: Set<String>] = [:]
-        let openIds = Set(allOpenDocuments().map(\.docId))
-        for (_, provenance) in countedClosedProvenance(excludingOpen: openIds) {
+        for (_, provenance) in countedClosedProvenance(excludingOpen: openStreamIds()) {
             for (holder, count) in provenance.pendingStrangersByDevice where count > 0 {
                 counts[holder, default: 0] += count
             }
@@ -245,13 +263,17 @@ extension DocumentStore {
 
     // MARK: - Which documents
 
-    /// Every manuscript document and every statement the manifest lists — the
-    /// streams a closed load could hold a line in. `__project__` is not one:
-    /// no open document counts it either.
+    /// Every manuscript document, every statement and every figure the
+    /// manifest lists — the streams a closed load could hold a line in.
+    /// Statements and figures are op-logged too (report plan 6a: a figure's
+    /// stream is judged like any other, so a not-yet-admitted collaborator's
+    /// table edit is held there). `__project__` is not one: no open document
+    /// counts it either.
     nonisolated static func sweptDocIds(in manifest: ProjectManifest) -> Set<String> {
         var ids = Set(TreeWalk.collect(in: manifest.structure) { $0.type == .document }
             .map(\.id))
         ids.formUnion(manifest.statements.map(\.id))
+        ids.formUnion((manifest.figures ?? []).map(\.id))
         return ids
     }
 

@@ -1513,7 +1513,7 @@ extension DocumentStore {
             }
         }
         let open = allOpenDocuments()
-        let openIds = Set(open.map(\.docId))
+        let openIds = openStreamIds()
         // **The closed half** (carry C4): the last sweep's answer for every
         // document nobody has open and the live manifest still lists.
         //
@@ -1540,6 +1540,13 @@ extension DocumentStore {
                 startedAPiece[holder, default: [:]][document.docId] =
                     provenance.pendingByDevice[holder] ?? 0
             }
+        }
+        // **The open figures** (report plan 6a): a figure's stream is judged
+        // like any other, and an open one answers for itself, as a document
+        // does. A figure starts no piece, so `startedAPiece` is untouched.
+        for (figureId, figure) in openFigures where !figure.isClosed {
+            guard let provenance = figure.provenance else { continue }
+            fold(provenance, docId: figureId)
         }
         for (device, count) in inboxStore.pendingByDevice {
             counts[device, default: 0] += count

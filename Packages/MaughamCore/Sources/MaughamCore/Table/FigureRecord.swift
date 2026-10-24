@@ -43,3 +43,20 @@ public struct FigureRecord: Codable, Equatable, Sendable {
         self.path = path
     }
 }
+
+extension FigureRecord {
+
+    /// **The title a note listing gives this figure's stream** — "Table:
+    /// <name>" for a table, "Figure: <name>" for an image or a kind this build
+    /// does not know. One spelling for the Mac's queue and the phone's
+    /// Annotations tab (tripwire 19), so the two name one figure alike.
+    public var listTitle: String {
+        switch kind {
+        case .table: return "Table: \(name)"
+        case .image, .unknown: return "Figure: \(name)"
+        }
+    }
+
+    /// The header a note listing files figures under.
+    public static let listGroupTitle = "Figures"
+}

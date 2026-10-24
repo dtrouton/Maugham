@@ -444,7 +444,8 @@ struct AnnotationsPane: View {
             passesRowFilters($0.annotation, authorFilter: selected, passId: passId)
         }
         return AnnotationScopeSections.build(
-            rows: boardRows, annotations: entries, sequences: snapshot.sequences)
+            rows: boardRows, annotations: entries, sequences: snapshot.sequences,
+            figures: store.manifest.figures ?? [])
     }
 
     // MARK: - Selection (document scope only)
@@ -1256,7 +1257,8 @@ struct AnnotationsPane: View {
         let snapshot = projectSnapshot
         let sections = projectSections(snapshot)
         let notice = AnnotationScopeSections.unreadableNotice(
-            unreadableDocIds: snapshot.unreadableDocIds, rows: boardRows)
+            unreadableDocIds: snapshot.unreadableDocIds, rows: boardRows,
+            figures: store.manifest.figures ?? [])
         if sections.isEmpty && notice == nil {
             ContentUnavailableView(
                 "No annotations in this project",
@@ -1310,7 +1312,7 @@ struct AnnotationsPane: View {
     ) -> some View {
         switch section.kind {
         case .group(let depth):
-            Text(section.item.title)
+            Text(section.title)
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1331,18 +1333,18 @@ struct AnnotationsPane: View {
     ) -> some View {
         // The row's own document, and the whole of the open-vs-closed question:
         // a closed piece's notes are readable here and actable in ITS window.
-        let rowDocument = documentStore.document(forDocId: section.item.id)
+        let rowDocument = documentStore.document(forDocId: section.id)
         let livePids = Set(rowDocument?.sequence
-            ?? sequences[section.item.id] ?? [])
+            ?? sequences[section.id] ?? [])
         // Ruling AJ (P3c plan 2 Task 8): the root yielding on this piece hides
         // its rows' verbs, so the header says whose piece it is and offers the
         // same Edit Anyway the standing line over the editor offers.
         let yield = AnnotationScopePolicy.yieldNotice(
-            posture: documentStore.posture(forDocId: section.item.id),
-            docId: section.item.id)
+            posture: documentStore.posture(forDocId: section.id),
+            docId: section.id)
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text(section.item.title)
+                Text(section.title)
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
                 Text("\(section.annotations.count)")
@@ -1369,7 +1371,7 @@ struct AnnotationsPane: View {
             }
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
             ForEach(section.annotations) { ann in
-                annotationRow(ann, docId: section.item.id,
+                annotationRow(ann, docId: section.id,
                               document: rowDocument, livePids: livePids,
                               ledgerText: ledgerText)
                 Divider()
@@ -1506,6 +1508,8 @@ struct AnnotationsPane: View {
             jump(annotation)
         case .travel(let piece):
             onTravel(piece)
+        case .stay:
+            break
         }
     }
 
