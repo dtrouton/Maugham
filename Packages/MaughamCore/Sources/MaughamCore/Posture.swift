@@ -106,6 +106,10 @@ public struct Posture: Equatable, Sendable {
         case task
         /// Writing a translation.
         case translate
+        /// Changing a figure's content — a cell, its structure, its settings,
+        /// its image (report plan 6a). Asked of the FIGURE's posture, whose
+        /// class carries the piece it belongs to.
+        case editFigure
         /// Leaving a note: comment, query, suggestion, craft note. The reviewer
         /// row — everybody's.
         case annotate
@@ -176,6 +180,8 @@ public struct Posture: Equatable, Sendable {
             return Probe(what: .op(.taskCreate), asAnyNewPiece: false)
         case .translate:
             return Probe(what: .translationRecord, asAnyNewPiece: false)
+        case .editFigure:
+            return Probe(what: .op(.figureCellSet), asAnyNewPiece: false)
         case .annotate:
             return Probe(what: .op(.claudeComment), asAnyNewPiece: false)
         }
@@ -220,7 +226,9 @@ public struct Posture: Equatable, Sendable {
     /// widened to match the table, not the table narrowed): write, accept or
     /// reject a suggestion (a `claudeAccept` is manuscript text — applied on
     /// her Mac, held elsewhere, exactly like her typing), set a pass state,
-    /// restructure and run a round (each probed as her words, ruling R3/R4).
+    /// restructure and run a round (each probed as her words, ruling R3/R4),
+    /// and edit a figure (probed in the piece's class; a real figure's own
+    /// class, `.figure`, takes no Option A arm).
     /// What waits for *Theirs*: `.dispose` (stet, archive, triage, reopen),
     /// ⌘S's checkpoint, tasks and translation. `.editStatement` answers yes on
     /// the PIECE's posture and is unreachable there: the statement pane asks

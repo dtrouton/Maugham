@@ -245,7 +245,7 @@ extension DocumentStore {
         if let known = book.pieceOf[docId] { return known }
         let cls: DocumentClass
         if let manifest = projectStore?.manifest {
-            cls = DocumentClass.resolve(docId: docId, statements: manifest.statements)
+            cls = DocumentClass.resolve(docId: docId, manifest: manifest)
         } else {
             cls = Document.documentClass(forDocId: docId, in: projectURL)
         }
@@ -267,6 +267,11 @@ extension DocumentStore {
         switch cls {
         case .piece(let id): return id
         case .pieceStatement(let piece): return piece
+        // A figure yields with the piece it belongs to (report plan 6a,
+        // Denver's ruling: a figure is its piece's), exactly as the piece's
+        // own statement does, and *Edit Anyway* on the piece covers it. A
+        // figure of the whole book belongs to no piece and yields to nobody.
+        case .figure(_, let piece): return piece
         case .translation, .projectStatement, .projectStream, .inbox, .unplaceable:
             return nil
         }
@@ -444,9 +449,9 @@ extension DocumentStore {
 
     /// The ONE builder (tripwire 46); only where the document's CLASS comes
     /// from is this door's choice. The window's live manifest where the store
-    /// holds one — `DocumentClass.resolve(docId:statements:)`, pure and free,
+    /// holds one — `DocumentClass.resolve(docId:facts:)`, pure and free,
     /// which is what `OpLogStore.documentClass(forDocId:in:)` asks of the
-    /// statements it decodes — else that disk read (a headless store). A
+    /// facts it decodes — else that disk read (a headless store). A
     /// manifest adoption bumps the epoch, so the live manifest is never
     /// older than an answer cached from it (Task 10, ruling AD: the disk read
     /// was 0.47 ms of every 0.84 ms miss).

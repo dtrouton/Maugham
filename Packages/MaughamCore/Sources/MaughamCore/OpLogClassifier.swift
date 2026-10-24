@@ -787,7 +787,7 @@ public enum OpLogClassifier {
     /// function called twice, and `OpLogVerifiedLoadTests` pins it anyway,
     /// because this is the reader MCP's `read_document` and the Practice walk
     /// see a closed manuscript through.
-    /// `statements` is the manifest's, for a caller LOOPING over a book: the
+    /// `facts` is the manifest's, for a caller LOOPING over a book: the
     /// permit partition resolves a `DocumentClass` per document, and a caller
     /// that already holds a manifest must not make this decode one per chapter
     /// (P3a Task 5). Nil reads it off disk, lazily, and only where some line's
@@ -797,7 +797,7 @@ public enum OpLogClassifier {
         identities: LocalIdentities? = .current,
         state: OpLogDeviceState? = .shared,
         trust: TrustTable? = nil,
-        statements: [Statement]? = nil,
+        facts: DocumentClass.Facts? = nil,
         amendmentPermits: AmendmentPermits? = nil
     ) throws -> [Op] {
         // Resolved here when the caller did not hand one over, so this reader
@@ -811,7 +811,7 @@ public enum OpLogClassifier {
         // context for the document, so its class is resolved at most once
         // however many files its history is spread over.
         let permit = OpLogStore.permitContext(
-            forDocId: docId, in: projectURL, trust: table, statements: statements,
+            forDocId: docId, in: projectURL, trust: table, facts: facts,
             amendments: amendmentPermits)
         var ops: [Op] = []
         for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {

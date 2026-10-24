@@ -190,6 +190,9 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// public for tests and for reading the format.
     public static func encodeForDisk(_ manifest: ProjectManifest) throws -> Data {
         var outgoing = manifest
+        // No figures is no key: an empty registry must not change a single
+        // byte of a book that has never had one.
+        if outgoing.figures?.isEmpty == true { outgoing.figures = nil }
         outgoing.schemaVersion = max(
             manifest.schemaVersion, min(manifest.contentSchemaFloor, currentSchemaVersion))
         return try makeEncoder().encode(outgoing)
@@ -410,6 +413,13 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// answer (schema 10).
     public var switches: ProjectSwitches?
 
+    /// **The figure registry** (report plan 6a, ruling D-e): each figure's id,
+    /// name, kind, piece and path — the truth for who a figure belongs to,
+    /// which `DocumentClass.resolve` reads. The figure's content is its own op
+    /// log. Nil when the book has none, and `encodeForDisk` writes an empty
+    /// list as nil, so a manifest with no figures keeps its bytes exactly.
+    public var figures: [FigureRecord]?
+
     /// **The recorded starter of the piece `id`** (P3c plan 2, Option A;
     /// ruling OA-1) — its `StructureItem.startedBy`, wherever in the tree the
     /// item sits. Nil for an item with none (made before this build), and for
@@ -573,7 +583,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         typography: TypographySettings? = nil,
         showElementGutter: Bool? = nil,
         profile: ProjectProfile? = nil,
-        switches: ProjectSwitches? = nil
+        switches: ProjectSwitches? = nil,
+        figures: [FigureRecord]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -594,6 +605,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.showElementGutter = showElementGutter
         self.profile = profile
         self.switches = switches
+        self.figures = figures
     }
 
     /// Hand-written because `statements` is non-optional and absent from every
@@ -630,5 +642,6 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)
         self.profile = try c.decodeIfPresent(ProjectProfile.self, forKey: .profile)
         self.switches = try c.decodeIfPresent(ProjectSwitches.self, forKey: .switches)
+        self.figures = try c.decodeIfPresent([FigureRecord].self, forKey: .figures)
     }
 }

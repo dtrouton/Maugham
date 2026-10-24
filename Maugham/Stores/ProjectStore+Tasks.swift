@@ -338,7 +338,7 @@ extension ProjectStore {
             // unreadable closed doc; opening it refuses loudly.
             guard let ops = try? OpLogStore.loadSyncMerged(
                 forDocId: item.id, in: url, trust: trust,
-                statements: manifest.statements)
+                facts: DocumentClass.Facts(manifest))
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
             // `maughamDeviceId: nil` — this projection reads and never writes,

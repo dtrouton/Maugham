@@ -1783,7 +1783,7 @@ final class PostureSurfaceTests: XCTestCase {
             permit: .author(.pieces(["doc-a"])))
         await store.postureSettled()
 
-        XCTAssertEqual(DocumentClass.resolve(docId: "doc-a", statements: []), .piece("doc-a"),
+        XCTAssertEqual(DocumentClass.resolve(docId: "doc-a", facts: .empty), .piece("doc-a"),
                        "a translation's document id resolves to its piece, never .translation")
         let hand = store.posture(forDocId: "doc-a")
         XCTAssertEqual(hand.yieldingTo, "Sam", "premise: the root yields on Sam's piece")

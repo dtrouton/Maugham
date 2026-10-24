@@ -222,7 +222,7 @@ extension ProjectStore {
 
         // Bound out of the manifest once, for the amendment rule's class
         // closure: it is `@Sendable`, so it may not reach back through `self`.
-        let statements = manifest.statements
+        let facts = DocumentClass.Facts(manifest)
         for item in Self.collectDocuments(in: manifest.structure) {
             if let doc = openDocs[item.id] {
                 sequences[item.id] = doc.sequence
@@ -248,7 +248,7 @@ extension ProjectStore {
             let amendmentPermits = AmendmentPermits()
             guard let ops = try? OpLogStore.loadSyncMerged(
                 forDocId: item.id, in: url, trust: trust,
-                statements: manifest.statements,
+                facts: facts,
                 amendmentPermits: amendmentPermits)
             else {
                 unreadable.append(item.id)
@@ -272,7 +272,7 @@ extension ProjectStore {
                     insideTheUnsignedSnapshot:
                         amendmentPermits.resolvedInsideTheUnsignedSnapshot,
                     class: {
-                        DocumentClass.resolve(docId: item.id, statements: statements)
+                        DocumentClass.resolve(docId: item.id, facts: facts)
                     }))
                 .map { ProjectAnnotation(docId: item.id, annotation: $0) })
         }

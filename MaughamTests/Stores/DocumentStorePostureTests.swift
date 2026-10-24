@@ -923,7 +923,7 @@ final class DocumentStorePostureTests: XCTestCase {
         store.presenterDidChangeSubitem(at: manifestURL)
         await store.postureSettled()
         XCTAssertEqual(DocumentClass.resolve(
-            docId: statementId, statements: projectStore.manifest.statements),
+            docId: statementId, manifest: projectStore.manifest),
             .pieceStatement(piece: Self.docId), "premise: the live manifest was adopted")
         XCTAssertTrue(statement.mayWriteThePendingFile,
                       "the open statement Document was re-stamped for its new class")
@@ -1176,6 +1176,11 @@ extension DocumentStorePostureTests {
                      "no class-level translation yield: nothing resolves to it")
         XCTAssertEqual(DocumentStore.yieldPiece(of: .piece(Self.docId)), Self.docId)
         XCTAssertEqual(DocumentStore.yieldPiece(of: .pieceStatement(piece: Self.docId)), Self.docId)
+        // A figure yields with the piece it belongs to (report plan 6a), and
+        // a figure of the whole book with nobody.
+        XCTAssertEqual(DocumentStore.yieldPiece(of: .figure(id: "fig-1", piece: Self.docId)),
+                       Self.docId)
+        XCTAssertNil(DocumentStore.yieldPiece(of: .figure(id: "fig-1", piece: nil)))
         for cls: DocumentClass in [.projectStatement, .projectStream, .inbox, .unplaceable("s")] {
             XCTAssertNil(DocumentStore.yieldPiece(of: cls), "\(cls) is about no piece")
         }
@@ -1190,7 +1195,7 @@ extension DocumentStorePostureTests {
         // The Translation pane asks `posture(forDocId: document.docId)` — the
         // piece's id — for `.translate`; the desk asks the same id as the
         // translator (`DepartmentPaneHost.postureOfTheTranslator`).
-        XCTAssertEqual(DocumentClass.resolve(docId: Self.docId, statements: []), .piece(Self.docId))
+        XCTAssertEqual(DocumentClass.resolve(docId: Self.docId, facts: .empty), .piece(Self.docId))
         XCTAssertFalse(store.posture(forDocId: Self.docId).allows(.translate),
                        "the pane's question yields with the piece, by its own id")
         XCTAssertTrue(DepartmentPaneHost.postureOfTheTranslator(

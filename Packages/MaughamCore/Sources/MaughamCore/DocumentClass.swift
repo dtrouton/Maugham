@@ -8,7 +8,7 @@ import Foundation
 /// `Permit.allows` can be a table over classes rather than a table over ids
 /// with a lookup folded into every row.
 ///
-/// **Six classes, and two of them are not `Op` streams.** A translation lives in
+/// **Two of these classes are not `Op` streams.** A translation lives in
 /// its own `TranslationStore` file and an inbox row in `InboxStore`'s; neither
 /// is reachable from a manuscript document id, which is why `resolve` never
 /// returns them. Their callers (P3a Task 6) construct `.translation(piece:)` and
@@ -70,6 +70,23 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
     /// verdict turns on the placement is held.
     case unplaceable(String)
 
+    /// **A figure — a table or an image — as its own op-logged document**
+    /// (report plan 6a, ruling D-b). `id` is the figure's own document id;
+    /// `piece` is the piece it belongs to, read from the manifest's `figures`
+    /// registry (`FigureRecord.piece`), or nil for a figure of the whole book.
+    ///
+    /// **Whose it is** (Denver's ruling, 2026-10-24): the piece it was created
+    /// in. That piece's author may edit it, and so may anybody who may write
+    /// the whole book; a reviewer and the assistant may only annotate it, the
+    /// translator may only write translation records. `piece == nil` is the
+    /// whole-book authors' alone — `.piece` below answers nil, and an author of
+    /// some pieces holds no nil.
+    ///
+    /// A class of its own rather than `.piece(figureId)`: a figure's id is in
+    /// nobody's scope list, so read as a piece it would set aside every line
+    /// an author of some pieces wrote in a figure of her own piece.
+    case figure(id: String, piece: String?)
+
     /// The synthetic document id of the project stream.
     ///
     /// Spelled here because this is the one type whose job is to say what a
@@ -78,35 +95,73 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
     /// deliberately left alone — this task does not refactor them.
     public static let projectStreamDocId = "__project__"
 
+    /// The prefix every figure's document id is minted with (`fig-<8 hex>`,
+    /// `ProjectStore.newId(prefix:)`).
+    public static let figureDocIdPrefix = "fig"
+
     // MARK: - Resolving one
+
+    /// **The manifest facts a class is resolved from** — its statements and its
+    /// figure registry, and nothing else.
+    ///
+    /// One value rather than two arguments so a reader that loops over a whole
+    /// book hands both over at once and cannot hand over one: a caller passing
+    /// statements alone would resolve every figure of a scoped author's piece
+    /// as nobody's, and set her lines in it aside. No defaults, for the same
+    /// reason.
+    public struct Facts: Equatable, Sendable {
+        public var statements: [Statement]
+        public var figures: [FigureRecord]
+
+        public init(statements: [Statement], figures: [FigureRecord]) {
+            self.statements = statements
+            self.figures = figures
+        }
+
+        /// The facts a manifest carries.
+        public init(_ manifest: ProjectManifest) {
+            self.init(statements: manifest.statements, figures: manifest.figures ?? [])
+        }
+
+        /// No manifest: no statements and no figures, which resolves every
+        /// statement-shaped id to a piece and every figure to the book's.
+        public static let empty = Facts(statements: [], figures: [])
+    }
 
     /// The class of the stream with this document id.
     ///
-    /// **Statements first, then everything else is a piece.** A manuscript
-    /// document and an id the manifest has never heard of reach the same answer
-    /// — `.piece(docId)` — so the walk of `structure` that would tell them apart
-    /// buys nothing and is not performed. The only thing this needs from a
-    /// manifest is its statements, which is what `resolve(docId:statements:)`
-    /// takes; this overload is the spec's spelling of it.
+    /// **Statements first, then figures, then everything else is a piece.** A
+    /// manuscript document and an id the manifest has never heard of reach the
+    /// same answer — `.piece(docId)` — so the walk of `structure` that would
+    /// tell them apart buys nothing and is not performed. The only things this
+    /// needs from a manifest are its statements and its figures, which is what
+    /// `resolve(docId:facts:)` takes; this overload is the spec's spelling of
+    /// it.
     public static func resolve(docId: String, manifest: ProjectManifest) -> DocumentClass {
-        resolve(docId: docId, statements: manifest.statements)
+        resolve(docId: docId, facts: Facts(manifest))
     }
 
-    /// The narrow form: the only manifest fact this decision uses.
+    /// The narrow form: the only manifest facts this decision uses.
     ///
-    /// **Only the SCOPE decides.** A statement's `kind` is not consulted: what
-    /// a statement is *about* is what a permit's `pieces` list can name, and
-    /// what it *is* — intent, lessons, a first reader, a word this build has
-    /// never seen — changes nobody's authority over it. So a statement of an
-    /// unrecognised KIND at project scope is an ordinary `.projectStatement`,
-    /// and one at document scope is an ordinary `.pieceStatement`, both fully
-    /// judged.
+    /// **For a statement, only the SCOPE decides.** A statement's `kind` is not
+    /// consulted: what a statement is *about* is what a permit's `pieces` list
+    /// can name, and what it *is* — intent, lessons, a first reader, a word
+    /// this build has never seen — changes nobody's authority over it. So a
+    /// statement of an unrecognised KIND at project scope is an ordinary
+    /// `.projectStatement`, and one at document scope is an ordinary
+    /// `.pieceStatement`, both fully judged.
     ///
     /// **An unrecognised SCOPE is `.unplaceable`** — see that case for why it
     /// is not folded into `.projectStatement`.
-    public static func resolve(docId: String, statements: [Statement]) -> DocumentClass {
+    ///
+    /// **A figure is its registry record's piece** (ruling D-b). An id with the
+    /// figure prefix that the registry does not carry — a record lost to a
+    /// stale manifest, or one that has not synced yet — is a figure of the
+    /// whole book, `.figure(id, piece: nil)`: never `.piece`, whose content the
+    /// deriver would read as prose, and never a guess at a piece.
+    public static func resolve(docId: String, facts: Facts) -> DocumentClass {
         if docId == projectStreamDocId { return .projectStream }
-        if let statement = statements.first(where: { $0.id == docId }) {
+        if let statement = facts.statements.first(where: { $0.id == docId }) {
             switch statement.scope {
             case .project:
                 return .projectStatement
@@ -116,19 +171,32 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
                 return .unplaceable(docId)
             }
         }
+        if let record = facts.figures.first(where: { $0.id == docId }) {
+            return .figure(id: docId, piece: record.piece)
+        }
+        if isFigureDocId(docId) { return .figure(id: docId, piece: nil) }
         return .piece(docId)
+    }
+
+    /// Whether `docId` has a figure's shape — the prefix and its dash.
+    public static func isFigureDocId(_ docId: String) -> Bool {
+        docId.hasPrefix(figureDocIdPrefix + "-")
     }
 
     /// The piece this class is about, when it is about one.
     ///
-    /// The three classes that carry a piece id carry it for one reason — the
-    /// scope test — so the test asks once, here, rather than three times in a
-    /// switch that could grow a fourth arm and forget.
+    /// The classes that carry a piece id carry it for one reason — the scope
+    /// test — so the test asks once, here, rather than once per class in a
+    /// switch that could grow an arm and forget.
     public var piece: String? {
         switch self {
         case .piece(let id): return id
         case .pieceStatement(let piece): return piece
         case .translation(let piece): return piece
+        // A figure answers with the piece it BELONGS to (ruling D-b), never its
+        // own id, and nil for a figure of the whole book: an author of some
+        // pieces holds no nil, so the scope test leaves those to book authors.
+        case .figure(_, let piece): return piece
         // `.unplaceable` has a docId, and it is deliberately NOT offered here:
         // a statement's own id is not a piece id, and answering the scope test
         // with one would be a coincidence rather than a permission.

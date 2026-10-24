@@ -1026,11 +1026,11 @@ public final class OpLogStore {
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL,
         identities: LocalIdentities? = .current, state: OpLogDeviceState? = .shared,
-        trust: TrustTable? = nil, statements: [Statement]? = nil,
+        trust: TrustTable? = nil, facts: DocumentClass.Facts? = nil,
         amendmentPermits: AmendmentPermits? = nil
     ) throws -> [Op] { try OpLogClassifier.loadSyncMerged(
         forDocId: docId, in: projectURL, identities: identities, state: state,
-        trust: trust, statements: statements, amendmentPermits: amendmentPermits) }
+        trust: trust, facts: facts, amendmentPermits: amendmentPermits) }
 
     nonisolated static func mergeSortedDedup(
         _ ops: [Op]

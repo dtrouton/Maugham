@@ -419,8 +419,9 @@ public enum Written: Equatable, Hashable, Sendable {
 ///
 /// Coarse on purpose. It is not a diagnosis, it is the noun in a sentence the
 /// writer reads — *Sam's Mac wrote 2 changes to the manuscript, which a
-/// reviewer can't* — so the arms are the six things §4.4 names, plus a last
-/// resort for a combination that never occurs in a book anybody wrote.
+/// reviewer can't* — so the arms are the things §4.4 names, a figure's content
+/// (report plan 6a), and a last resort for a combination that never occurs in
+/// a book anybody wrote.
 public enum RefusedWhat: String, Equatable, Hashable, Sendable, CaseIterable {
     /// Words in a manuscript document.
     case manuscriptText
@@ -441,6 +442,10 @@ public enum RefusedWhat: String, Equatable, Hashable, Sendable, CaseIterable {
     case task
     /// A translation record.
     case translation
+    /// A table's or an image's content — a figure's own stream (report plan
+    /// 6a). Its ops are the piece's content without being words, so *written
+    /// into the manuscript* would name the wrong thing.
+    case figure
     /// Anything else — a checkpoint bookmark, or a combination of kind and
     /// stream that no writer's Mac produces.
     case other
@@ -703,9 +708,11 @@ extension Permit {
     /// **Whether this permit authors this class** — the scope test, asked once.
     ///
     /// A book author authors everything. An author of some pieces authors a
-    /// piece in her list, that piece's own statement and that piece's
-    /// translations — and nothing without a piece behind it, which is what
-    /// keeps her off the project's statements. A reviewer authors nothing.
+    /// piece in her list, that piece's own statement, that piece's
+    /// translations and the figures that belong to it — and nothing without a
+    /// piece behind it, which is what keeps her off the project's statements
+    /// and off a figure of the whole book (`.figure(_, piece: nil)`, Denver's
+    /// ruling of 2026-10-24). A reviewer authors nothing.
     public func authors(_ documentClass: DocumentClass) -> Bool {
         switch self {
         case .reviewer, .unjudgeable:
@@ -929,19 +936,31 @@ extension Permit {
     /// its ops are `typingBurst`s like any other, so without this the writer
     /// would be told somebody wrote in their manuscript when what happened was
     /// an edit to the book's intent.
+    ///
+    /// A figure's stream makes one difference too: what is written there is a
+    /// table's or an image's content (`RefusedWhat.figure`), not words in the
+    /// manuscript. A note settled on a figure is still a disposition, and a
+    /// checkpoint there is still *something else*.
     static func refused(_ group: WrittenGroup, _ documentClass: DocumentClass) -> RefusedWhat {
         let onAStatement: Bool
+        let onAFigure: Bool
         switch documentClass {
         case .pieceStatement, .projectStatement, .unplaceable:
             // `.unplaceable` is a statement whose SUBJECT is unreadable, not a
             // stream of unknown kind: if it is refused at all, *a statement* is
             // the true word for what was refused.
             onAStatement = true
+            onAFigure = false
+        case .figure:
+            onAStatement = false
+            onAFigure = true
         case .piece, .projectStream, .translation, .inbox:
             onAStatement = false
+            onAFigure = false
         }
         switch group {
         case .manuscriptText:
+            if onAFigure { return .figure }
             return onAStatement ? .statement : .manuscriptText
         case .disposition:
             return onAStatement ? .statement : .disposition

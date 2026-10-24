@@ -29,9 +29,14 @@ final class PostureTests: XCTestCase {
     /// piece she started that nobody has claimed — her words, and what is
     /// probed as her words; never a disposition, a checkpoint, a task or a
     /// translation, which the read side would set aside.
+    ///
+    /// `.editFigure` is here because it is probed as a figure op in THIS
+    /// document's class, a `.piece`, where §4.5's widening covers the piece's
+    /// content; a real figure's posture is asked in `.figure(_, piece:)`,
+    /// which the widening never reaches (the row below pins that).
     private static let writingHerStartedPiece: Set<V> = [
         .writeText, .acceptOrReject, .setPassState, .restructure, .runRound,
-        .editStatement, .startAPiece, .annotate,
+        .editStatement, .startAPiece, .annotate, .editFigure,
     ]
 
     private static let rows: [Row] = [
@@ -82,6 +87,36 @@ final class PostureTests: XCTestCase {
                 documentClass: .piece("b"), startedHere: true,
                 writesAsItsStarter: true)),
             offers: [.annotate], reason: .reviewer),
+        // Report plan 6a (Denver's ruling, 2026-10-24): a figure is its
+        // piece's. Hers — every verb; somebody else's or the whole book's —
+        // the reviewer row; a reviewer — notes.
+        Row(name: "pieces author in her piece's figure",
+            posture: Posture(permit(.author(.pieces(["a"])), .figure(id: "fig-1", piece: "a"))),
+            offers: everything, reason: nil),
+        Row(name: "pieces author in somebody else's figure",
+            posture: Posture(permit(.author(.pieces(["a"])), .figure(id: "fig-1", piece: "b"))),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
+        Row(name: "pieces author in a figure of the whole book",
+            posture: Posture(permit(.author(.pieces(["a"])), .figure(id: "fig-1", piece: nil))),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
+        Row(name: "book author in a figure of the whole book",
+            posture: Posture(permit(.bookAuthor, .figure(id: "fig-1", piece: nil))),
+            offers: everything, reason: nil),
+        Row(name: "reviewer in a figure",
+            posture: Posture(permit(.reviewer, .figure(id: "fig-1", piece: "a"))),
+            offers: [.annotate], reason: .reviewer),
+        Row(name: "the assistant under the book author, in a figure",
+            posture: Posture(permit(.bookAuthor, .figure(id: "fig-1", piece: "a"),
+                                    actor: .assistant)),
+            offers: [.annotate], reason: .reviewer),
+        // §4.5's widening is her piece's WORDS: a figure of a piece she
+        // started and nobody has claimed waits for the claim like any other.
+        Row(name: "pieces author in the figure of a piece she started, unclaimed",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .author,
+                documentClass: .figure(id: "fig-1", piece: "b"), startedHere: true,
+                writesAsItsStarter: true)),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
         Row(name: "pieces author on the project stream",
             posture: Posture(permit(.author(.pieces(["a"])), .projectStream)),
             offers: [.task, .annotate, .startAPiece], reason: .notYourPiece),

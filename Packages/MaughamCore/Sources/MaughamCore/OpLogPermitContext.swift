@@ -375,29 +375,28 @@ extension OpLogStore {
     ///
     /// **A manifest that will not read must never make a load THROW that did
     /// not throw before** (constitution must #1). `try?` throughout: a nil
-    /// manifest is no statements, and no statements resolves every id to
-    /// `.piece(docId)`, which is the WIDENING direction — a piece is the class
+    /// manifest is no statements and no figures, which resolves every
+    /// manuscript id to `.piece(docId)`, which is the WIDENING direction — a piece is the class
     /// an author of some pieces can actually hold, where `.projectStatement`
     /// would refuse her. The load is not the right place to discover a broken
     /// manifest; `ProjectStore.load` is, and it says so in its own words.
     ///
     /// A caller that already HOLDS a manifest must not come here — it calls
-    /// `DocumentClass.resolve(docId:statements:)`, which is pure and free.
+    /// `DocumentClass.resolve(docId:facts:)`, which is pure and free.
     /// This door is for the readers that have a URL and nothing else.
     nonisolated public static func documentClass(
         forDocId docId: String, in projectURL: URL
     ) -> DocumentClass {
-        DocumentClass.resolve(
-            docId: docId, statements: manifestStatements(in: projectURL))
+        DocumentClass.resolve(docId: docId, facts: manifestFacts(in: projectURL))
     }
 
-    /// The manifest's statements, or none where it cannot be read — the read
-    /// half of `documentClass(forDocId:in:)`, separate so a caller looping over
-    /// a whole book decodes once rather than once per chapter.
-    nonisolated public static func manifestStatements(
+    /// The manifest's statements and figures, or none where it cannot be read
+    /// — the read half of `documentClass(forDocId:in:)`, separate so a caller
+    /// looping over a whole book decodes once rather than once per chapter.
+    nonisolated public static func manifestFacts(
         in projectURL: URL
-    ) -> [Statement] {
-        decodedManifest(in: projectURL)?.statements ?? []
+    ) -> DocumentClass.Facts {
+        decodedManifest(in: projectURL).map(DocumentClass.Facts.init) ?? .empty
     }
 
     /// **The one manifest read these doors make** — the file, decoded, or nil
@@ -506,14 +505,14 @@ extension OpLogStore {
     /// about across isolation.
     nonisolated public static func permitContext(
         forDocId docId: String, in projectURL: URL, trust: TrustTable?,
-        statements: [Statement]? = nil,
+        facts: DocumentClass.Facts? = nil,
         amendments: AmendmentPermits? = nil
     ) -> PermitContext {
         // One memo each, so a document spread over four actor files resolves
         // its class once and answers §4.5 once (fix round 1, I1 / minor (d)).
         //
         // And ONE manifest read for both disk questions (P3 plan 3 Task 6):
-        // the class, where no statements were handed in, and the starter are
+        // the class, where no facts were handed in, and the starter are
         // two answers about one file, so `ManifestPlacement` decodes it once
         // (and only if either is asked).
         let classMemo = PermitMemo<DocumentClass>()
@@ -522,8 +521,8 @@ extension OpLogStore {
         return PermitContext(
             documentClass: {
                 classMemo {
-                    if let statements {
-                        return DocumentClass.resolve(docId: docId, statements: statements)
+                    if let facts {
+                        return DocumentClass.resolve(docId: docId, facts: facts)
                     }
                     return placement.documentClass
                 }
@@ -557,7 +556,7 @@ extension OpLogStore {
 /// door, from the window's live copy — ruling AD) passes it with
 /// `init(docId:manifest:)` and the disk is never read; one holding only a
 /// project URL uses `init(docId:in:)`, and the disk is read once, with
-/// `OpLogStore.manifestStatements`' own rules: a manifest that will not read
+/// `OpLogStore.manifestFacts`' own rules: a manifest that will not read
 /// is no statements and no starter, which WIDENS (every id a piece, today's
 /// rule for the opening) and is reported, never thrown.
 ///
@@ -589,7 +588,7 @@ public final class ManifestPlacement: @unchecked Sendable {
     /// Where `docId`'s stream sits — `OpLogStore.documentClass(forDocId:in:)`'s
     /// answer, from this placement's one manifest.
     public var documentClass: DocumentClass {
-        DocumentClass.resolve(docId: docId, statements: manifest?.statements ?? [])
+        DocumentClass.resolve(docId: docId, facts: manifest.map(DocumentClass.Facts.init) ?? .empty)
     }
 
     /// Who started `piece`, from the same manifest — nil where it records
