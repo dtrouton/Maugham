@@ -159,6 +159,13 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `TranslationDeriver.swift` — source hash, fresh/stale/missing status and the translated document view.
 - `TranslationConstructSkeleton.swift` — structural fingerprint that warns when a translation drops Markdown constructs.
 
+### Tables and formulas
+- `TableIDs.swift` — row and column ids, the cell key and the 8-character id minter.
+- `CellValue.swift` — a cell's value, formula error codes and cell content.
+- `CellFormat.swift` — number, date and negative formats and cell alignment.
+- `FigureTable.swift` — a table's rows and columns as ordered id slots with tombstones, its cells, header/total rows; the model the op log derives.
+- `Formula.swift` — a cell's formula (placeholder until the parser lands).
+
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.
 - `InboxManifest.swift` — the per-device inbox manifest path builder.
