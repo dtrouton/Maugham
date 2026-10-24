@@ -37,6 +37,25 @@ final class CanvasScrapFlowTests: XCTestCase {
         let thumbnails = Box(CanvasThumbnails())
         let ticket = Box(0)
         let revision = Box(0)
+        let keyboardTicket = Box(0)
+        let regionTitleEditingID = Box<CanvasRegionID?>(nil)
+        let regionTitleDraft = Box<CanvasRegionTitleDraft?>(nil)
+
+        var titles: CanvasRegionTitleEditing {
+            CanvasRegionTitleEditing(model: model,
+                                     editFocus: CanvasEditFocus(model: model,
+                                                                editingNodeID: editingNodeID.binding,
+                                                                caretIndex: caretIndex.binding,
+                                                                straighten: straighten.binding,
+                                                                lastKeystrokeAt: lastKeystrokeAt.binding,
+                                                                layouts: layouts.binding,
+                                                                revision: revision.binding),
+                                     regionTitleEditingID: regionTitleEditingID.binding,
+                                     regionTitleDraft: regionTitleDraft.binding,
+                                     editingNodeID: editingNodeID.binding,
+                                     keyboardTicket: keyboardTicket.binding,
+                                     revision: revision.binding)
+        }
 
         var flow: CanvasScrapFlow {
             CanvasScrapFlow(model: model,
@@ -49,6 +68,7 @@ final class CanvasScrapFlowTests: XCTestCase {
                                                          itemPresentation: itemPresentation.binding,
                                                          thumbnailServiceTicket: ticket.binding,
                                                          revision: revision.binding),
+                            regionTitleEditing: titles,
                             editingNodeID: editingNodeID.binding,
                             caretIndex: caretIndex.binding,
                             lastKeystrokeAt: lastKeystrokeAt.binding,

@@ -17,8 +17,9 @@ import SwiftUI
 ///
 /// `subject` is the binder's selection as the drop arrives (the handler is
 /// built when the drop's closure runs); with a chapter selected, a drop that
-/// lands in no region is wrapped in one bound to it (`CanvasDropWrap`). It
-/// never reaches `CanvasEditFocus` or `CanvasLayoutPass` (tripwire 57).
+/// lands in no region is wrapped in one bound to it (`CanvasDropWrap`), and
+/// that region's title opens (`openTheWrapsTitle`). It never reaches
+/// `CanvasEditFocus` or `CanvasLayoutPass` (tripwire 57).
 @MainActor
 struct CanvasDropHandler {
     let model: CanvasModel
@@ -31,6 +32,10 @@ struct CanvasDropHandler {
     @Binding var camera: CanvasCamera
     @Binding var revision: Int
     @Binding var dropError: String?
+    /// The open region title, written when a wrap opens its region's name;
+    /// read with `editingNodeID` so a wrap opens it only with nothing else open.
+    @Binding var regionTitleEditingID: CanvasRegionID?
+    @Binding var editingNodeID: CanvasNodeID?
 
     // MARK: - Drops
 
@@ -110,12 +115,12 @@ struct CanvasDropHandler {
         case .create(let node):
             guard CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)
             else { return false }
-            CanvasDrop.apply(node, in: model,
-                             wrappingInPiece: CanvasDropWrap.piece(for: subject))
+            let wrapped = CanvasDrop.apply(node, in: model,
+                                           wrappingInPiece: CanvasDropWrap.piece(for: subject))
             // Selected, so the right-hand column shows the reference's own arm and
             // the writer can see what landed. Outside the bracket: a snapshot
             // carries the scene and the scrap text, never the selection.
-            model.selection = .node(node.id)
+            if let wrapped { openTheWrapsTitle(wrapped) } else { model.selection = .node(node.id) }
             return true
         }
     }
@@ -157,11 +162,17 @@ struct CanvasDropHandler {
         let piece = CanvasDropWrap.piece(for: subject)
         Task {
             do {
-                let id = try await captureDrop.send(entryID, contentPoint, piece)
+                let sent = try await captureDrop.send(entryID, contentPoint, piece)
                 // Selected so the right-hand column shows the capture's own
                 // inspector arm. Outside the bracket: a snapshot carries the scene
-                // and the scrap text, never the selection.
-                model.selection = .node(id)
+                // and the scrap text, never the selection. A wrap opens the
+                // region the send REPORTS making — never one read off where the
+                // card ended up, which for a join is a region the writer had.
+                if let wrapped = sent.wrappedIn {
+                    openTheWrapsTitle(wrapped)
+                } else {
+                    model.selection = .node(sent.node)
+                }
             } catch {
                 dropError = error.localizedDescription
             }
@@ -207,7 +218,11 @@ struct CanvasDropHandler {
             // Selected so the right-hand column shows the picture's own inspector
             // arm. Outside the bracket: a snapshot carries the scene and the
             // scrap text, never the selection.
-            if let first = made.nodes.first { model.selection = .node(first) }
+            if let wrapped = made.wrappedIn {
+                openTheWrapsTitle(wrapped)
+            } else if let first = made.nodes.first {
+                model.selection = .node(first)
+            }
             dropError = outcome.message
         }
         return true
@@ -244,6 +259,26 @@ struct CanvasDropHandler {
             }
             return true
         }
+    }
+
+    /// A drop wrapped in a new region: the region is selected, and its title
+    /// opens for typing exactly as after a sweep (spec §2) — unless a gesture,
+    /// a scrap or another title is open, when it is only selected. Asked in the
+    /// surface's order (`CanvasEditGateTests`): the gesture, the gate, then
+    /// whatever is open; a drop does not close the writer's scrap for them.
+    ///
+    /// It writes the binding rather than calling `CanvasRegionTitleEditing`:
+    /// this handler holds no sibling helper (its `Task` bodies call this). With
+    /// nothing open there is nothing for `begin` to finish.
+    private func openTheWrapsTitle(_ region: CanvasRegionID) {
+        model.selection = .region(region)
+        revision += 1
+        guard !model.isInGesture else { return }
+        guard CanvasEditGate.editsValues(isReadOnly: model.isReadOnly) else { return }
+        // A title left naming a region an undo took away is no open title.
+        guard editingNodeID == nil,
+              regionTitleEditingID.flatMap({ model.scene.region($0) }) == nil else { return }
+        regionTitleEditingID = region
     }
 
     private static func string(from provider: NSItemProvider) async -> String? {

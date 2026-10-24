@@ -132,6 +132,34 @@ final class CanvasEditGateTests: XCTestCase {
              "CanvasDrop.apply("),
             ("func handleExternalDrop(", "CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)",
              "CanvasExternalDrop.ingest("),
+            // A region's name on the canvas (spec §3). Each entry point asks in
+            // the surface's order: a gesture of the writer's hand refuses it,
+            // then the gate, then the open scrap (or title) is finished, then
+            // the act.
+            ("func begin(_ id: CanvasRegionID)", "!model.isInGesture",
+             "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)"),
+            ("func begin(_ id: CanvasRegionID)", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "editFocus.commitActiveEdit()"),
+            ("func begin(_ id: CanvasRegionID)", "editFocus.commitActiveEdit()",
+             "regionTitleEditingID = id"),
+            ("func writeTitle(", "!model.isInGesture",
+             "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)"),
+            ("func writeTitle(", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "model.mutate(\"Rename Region\")"),
+            ("func handleCanvasKey(", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "regionTitleEditing.begin("),
+            ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
+             "regionTitleEditing.begin("),
+            ("func openTheWrapsTitle(", "!model.isInGesture",
+             "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)"),
+            ("func openTheWrapsTitle(", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "regionTitleEditingID = region"),
+            // Entering a scrap commits an open title AFTER its own gesture
+            // assertion and BEFORE "Edit Scrap" opens, so the rename is a step
+            // of its own and never nests.
+            ("func enter(_ id: CanvasNodeID", "!model.isInGesture", "regionTitleEditing.commitIfOpen()"),
+            ("func enter(_ id: CanvasNodeID", "regionTitleEditing.commitIfOpen()",
+             "model.beginGesture(\"Edit Scrap\")"),
         ]
         for order in orders {
             let code = try Self.declarationCode(order.function)

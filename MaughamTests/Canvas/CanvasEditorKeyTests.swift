@@ -39,6 +39,8 @@ final class CanvasEditorKeyTests: XCTestCase {
         let revision = Box(0)
         let camera = Box(CanvasCamera())
         let keyboardTicket = Box(0)
+        let regionTitleEditingID = Box<CanvasRegionID?>(nil)
+        let regionTitleDraft = Box<CanvasRegionTitleDraft?>(nil)
 
         var layoutPass: CanvasLayoutPass {
             CanvasLayoutPass(model: model,
@@ -61,10 +63,21 @@ final class CanvasEditorKeyTests: XCTestCase {
                             revision: revision.binding)
         }
 
+        var titles: CanvasRegionTitleEditing {
+            CanvasRegionTitleEditing(model: model,
+                                     editFocus: editFocus,
+                                     regionTitleEditingID: regionTitleEditingID.binding,
+                                     regionTitleDraft: regionTitleDraft.binding,
+                                     editingNodeID: editingNodeID.binding,
+                                     keyboardTicket: keyboardTicket.binding,
+                                     revision: revision.binding)
+        }
+
         var scrapFlow: CanvasScrapFlow {
             CanvasScrapFlow(model: model,
                             subject: subject,
                             layoutPass: layoutPass,
+                            regionTitleEditing: titles,
                             editingNodeID: editingNodeID.binding,
                             caretIndex: caretIndex.binding,
                             lastKeystrokeAt: lastKeystrokeAt.binding,
@@ -79,6 +92,7 @@ final class CanvasEditorKeyTests: XCTestCase {
                              editFocus: editFocus,
                              layoutPass: layoutPass,
                              scrapFlow: scrapFlow,
+                             regionTitleEditing: titles,
                              editingNodeID: editingNodeID.binding,
                              revision: revision.binding,
                              camera: camera.binding,

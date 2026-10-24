@@ -8,8 +8,9 @@ import SwiftUI
 /// `CanvasEventNSView.keyDown` sends an unused one to `super`.
 ///
 /// Built fresh per call by `CanvasView.keyHandler` and never stored; built
-/// nowhere else (tripwire 32's surface census). It holds `scrapFlow` and
-/// `editFocus`, so it schedules nothing.
+/// nowhere else (tripwire 32's surface census). It holds `scrapFlow`,
+/// `editFocus` and `regionTitleEditing`, so it schedules nothing. Return on a
+/// selected region opens its title.
 @MainActor
 struct CanvasKeyHandler {
     let model: CanvasModel
@@ -21,6 +22,7 @@ struct CanvasKeyHandler {
     let editFocus: CanvasEditFocus
     let layoutPass: CanvasLayoutPass
     let scrapFlow: CanvasScrapFlow
+    let regionTitleEditing: CanvasRegionTitleEditing
     @Binding var editingNodeID: CanvasNodeID?
     @Binding var revision: Int
     @Binding var camera: CanvasCamera
@@ -133,9 +135,15 @@ struct CanvasKeyHandler {
             scrapFlow.enter(id, caretIndex: (model.scraps[id] ?? "").utf16.count)
             camera.reveal(frame, viewSize: viewSize)
             return true
-        case (.returnKey, .region?):
-            // Task 8: rename the region in place.
-            return false
+        case (.returnKey, .region(let id)?):
+            // Name the region where it is (spec §3). The gesture check above
+            // has run; then the gate, the fold (a no-op with no scrap open),
+            // and the title opens.
+            guard CanvasEditGate.editsValues(isReadOnly: model.isReadOnly),
+                  model.scene.region(id) != nil else { return false }
+            editFocus.commitActiveEdit()
+            regionTitleEditing.begin(id)
+            return true
         case (.returnKey, .line?):
             return true
         case (.tab, .node(let id)?), (.commandReturn, .node(let id)?):
@@ -297,7 +305,9 @@ struct CanvasKeyHandler {
     /// sweep's binding all follow from the subject, so there is exactly one
     /// thing to change.
     func escapeAsksForTheWholeBoard() -> Bool {
-        guard editingNodeID == nil, subject.dimsTheBoard else { return false }
+        // A region title open on the canvas keeps its Escape, as a scrap does.
+        guard editingNodeID == nil, !regionTitleEditing.isOpen,
+              subject.dimsTheBoard else { return false }
         selectTheProjectRow()
         return true
     }

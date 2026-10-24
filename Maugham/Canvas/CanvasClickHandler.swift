@@ -8,13 +8,16 @@ import SwiftUI
 /// what was clicked and the caret, and hands over.
 ///
 /// Built fresh per call by `CanvasView.clickHandler` and never stored; built
-/// nowhere else (tripwire 32's surface census). It holds the `scrapFlow` it was
-/// handed, so this file schedules no work.
+/// nowhere else (tripwire 32's surface census). It holds the `scrapFlow` and
+/// `regionTitleEditing` it was handed, so this file schedules no work. A
+/// double click on a region's title opens it for naming, and every click
+/// first commits an open title.
 @MainActor
 struct CanvasClickHandler {
     let model: CanvasModel
     let editFocus: CanvasEditFocus
     let scrapFlow: CanvasScrapFlow
+    let regionTitleEditing: CanvasRegionTitleEditing
     @Binding var selectionWhenPressed: CanvasSelection?
     @Binding var straighten: CanvasFocusStraighten
     @Binding var layouts: [CanvasNodeID: ScrapLayout]
@@ -41,6 +44,9 @@ struct CanvasClickHandler {
         case unenterableNode
         /// A line. Nothing to enter and nothing to make — see the switch below.
         case line
+        /// A region's title (`CanvasRegionMetrics.titleHitRect`) — name it in
+        /// place. The rest of its chrome bar is `.emptyCanvas`, and mints.
+        case regionTitle(CanvasRegionID)
     }
 
     private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
@@ -51,13 +57,25 @@ struct CanvasClickHandler {
             // whatever this resolves to, so a double click that answered a
             // different question would act on something the writer is not
             // looking at.
-            return CanvasLineHit.line(at: contentPoint, in: model.scene) != nil
-                ? .line : .emptyCanvas
+            if CanvasLineHit.line(at: contentPoint, in: model.scene) != nil { return .line }
+            if let region = regionTitle(at: contentPoint) { return .regionTitle(region) }
+            return .emptyCanvas
         }
         guard case .scrap = node.kind,
               let layout = layouts[node.id],
               let frame = node.frame else { return .unenterableNode }
         return .scrap(node: node, layout: layout, frame: frame)
+    }
+
+    /// The region whose title is under `contentPoint`: on its chrome bar (the
+    /// same `regionHit` the selection asks, so click 1 has selected it) and
+    /// inside the title's target, sized by the label as drawn.
+    private func regionTitle(at contentPoint: CGPoint) -> CanvasRegionID? {
+        guard case .chrome(let id)? = CanvasInteraction.regionHit(at: contentPoint, in: model.scene),
+              let region = model.scene.region(id) else { return nil }
+        let title = CanvasRegionMetrics.titleHitRect(
+            in: region.frame, labelWidth: CanvasRenderer.drawnLabelWidth(of: region))
+        return title.contains(contentPoint) ? id : nil
     }
 
     /// Single click: leave whatever was being edited. Double click: enter the
@@ -83,6 +101,9 @@ struct CanvasClickHandler {
         // `selectionWhenPressed`.
         selectionWhenPressed = model.selection
         editFocus.commitActiveEdit()
+        // An open region title keeps what was typed: a click anywhere on the
+        // canvas commits it (spec §3), before the click does anything else.
+        regionTitleEditing.commitIfOpen()
 
         // A read-only canvas (issue #44) takes a double click as a single one:
         // it selects, and makes, enters and mounts nothing.
@@ -129,6 +150,11 @@ struct CanvasClickHandler {
             // One "New Scrap" step, then "Edit Scrap" — `CanvasScrapFlow` is the
             // one way to make a scrap, chapter-aware.
             scrapFlow.makeScrapAndEnter(at: contentPoint)
+
+        case .regionTitle(let id):
+            // Click 1 selected the region; click 2 names it where it is. The
+            // rest of the bar falls to `.emptyCanvas`, tripwire 32's repro.
+            regionTitleEditing.begin(id)
 
         case .unenterableNode, .line:
             // Nothing to enter, so this behaves like a single click. Falling

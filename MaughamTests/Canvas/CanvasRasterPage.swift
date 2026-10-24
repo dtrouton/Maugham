@@ -121,6 +121,7 @@ func render(scene: CanvasScene,
             layouts: [CanvasNodeID: ScrapLayout] = [:],
             sweep: CGRect? = nil,
             pendingLine: (from: CGPoint, to: CGPoint)? = nil,
+            namingRegion: CanvasRegionID? = nil,
             scheme: ColorScheme = .light,
             backing: NSColor? = nil) throws -> CanvasPage {
     try renderCanvasPage(size: size, scheme: scheme, backing: backing) { cx in
@@ -131,7 +132,8 @@ func render(scene: CanvasScene,
                             visibleEditorNodeID: nil,
                             straighten: CanvasFocusStraighten(),
                             pendingRegionDraw: sweep,
-                            pendingLine: pendingLine, into: &cx)
+                            pendingLine: pendingLine,
+                            namingRegionID: namingRegion, into: &cx)
     }
 }
 

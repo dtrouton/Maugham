@@ -614,10 +614,40 @@ final class InboxToCanvasTests: XCTestCase {
         try await seed(f, [textEntry("t10", "resolved by id")])
 
         let id = try await f.inbox.sendToCanvas(
-            entryID: "t10", projectStore: f.store, placement: .dropped(at: CGPoint(x: 5, y: 6), wrappingInPiece: nil))
+            entryID: "t10", projectStore: f.store, placement: .dropped(at: CGPoint(x: 5, y: 6), wrappingInPiece: nil)).node
 
         XCTAssertEqual(model.scraps[id], "resolved by id")
         await assertResolved(f, "t10")
+    }
+
+    /// **The drop route reports the region its wrap MADE**, so the canvas opens
+    /// that region's title (spec §2/§3). A capture that joins an existing region
+    /// reports none — the canvas must never open the title of a region the
+    /// writer already had, which is what deriving it from the card's home would do.
+    func test_aDragPayloadReportsTheRegionItsWrapMade() async throws {
+        let f = try await openProject("WrapReport")
+        let model = attached(f)
+        let existing = CanvasRegionID("r1")
+        model.withScene(persist: false) {
+            $0.insertRegion(CanvasRegion(id: existing, label: "Fog",
+                                         frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        }
+        try await seed(f, [textEntry("t11", "a heron"), textEntry("t12", "the weir")])
+
+        let wrapped = try await f.inbox.sendToCanvas(
+            entryID: "t11", projectStore: f.store,
+            placement: .dropped(at: CGPoint(x: 900, y: 900), wrappingInPiece: "p1"))
+        let region = try XCTUnwrap(wrapped.wrappedIn, "a wrapped drop reported no region")
+        XCTAssertNotEqual(region, existing)
+        XCTAssertEqual(model.scene.region(region)?.homeMembers, [wrapped.node])
+        XCTAssertEqual(model.scene.region(region)?.boundPieceID, "p1")
+
+        let joined = try await f.inbox.sendToCanvas(
+            entryID: "t12", projectStore: f.store,
+            placement: .dropped(at: CGPoint(x: 100, y: 100), wrappingInPiece: "p1"))
+        XCTAssertEqual(model.scene.region(existing)?.homeMembers.contains(joined.node), true,
+                       "control: the capture joined the region it was dropped in")
+        XCTAssertNil(joined.wrappedIn, "a capture that joined an existing region reported a wrap")
     }
 
     // MARK: - Helpers

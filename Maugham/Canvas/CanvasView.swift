@@ -9,7 +9,8 @@ import UniformTypeIdentifiers
 ///   1. `CanvasGround`      — shader, hit testing off
 ///   2. `Canvas`            — drawn nodes, hit testing off
 ///   3. `CanvasEventView`   — camera + pointer
-///   4. `ScrapEditorHost`   — the one live editor, FRONTMOST
+///   4. `ScrapEditorHost`   — the one live editor, FRONTMOST (or, in the same
+///      slot, a region's title field — never both)
 ///
 /// The ground is a SIBLING BENEATH the content because a shader applied *over* a
 /// subtree holding an `NSViewRepresentable` renders a placeholder (spec §7A.4),
@@ -363,6 +364,12 @@ struct CanvasView: View {
     /// other, to hand the keyboard to `CanvasEventNSView`.
     @State private var keyboardTicket = 0
 
+    /// The region whose title is open for typing on the canvas (spec §3), and
+    /// what has been typed into it so far. `CanvasRegionTitleEditing` writes
+    /// both; the title field is `mountedEditor`'s second branch.
+    @State private var regionTitleEditingID: CanvasRegionID?
+    @State private var regionTitleDraft: CanvasRegionTitleDraft?
+
     /// The canvas's own size, the viewport a key's new scrap is revealed in.
     /// Written only on a resize (`.onGeometryChange` in `body`).
     @State private var canvasSize = CGSize.zero
@@ -400,6 +407,9 @@ struct CanvasView: View {
         let sweep = interaction.pendingRegionDraw
         // The line being pulled, read here for the same reason and beside it.
         let band = interaction.pendingLine
+        // The region whose title field is open: the renderer leaves its drawn
+        // label off so the field is the only text on that bar.
+        let namingRegionID = regionTitleEditingID
 
         // No GeometryReader: `Canvas`'s own `size` is the viewport the renderer
         // culls against, and `.position` below resolves in this ZStack's space.
@@ -431,7 +441,9 @@ struct CanvasView: View {
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
                                         pendingRegionDraw: sweep,
-                                        pendingLine: band, into: &cx)
+                                        pendingLine: band,
+                                        namingRegionID: namingRegionID,
+                                        into: &cx)
                 }
                 .allowsHitTesting(false)
                 // Spec §7A.6: drawn content has no AX tree, so this view owns
@@ -814,6 +826,23 @@ struct CanvasView: View {
                        height: textSize.height * camera.zoom)
                 .position(x: viewOrigin.x + textSize.width * camera.zoom / 2,
                           y: viewOrigin.y + textSize.height * camera.zoom / 2)
+        } else if let rid = regionTitleEditingID,
+                  let region = model.scene.region(rid) {
+            // The region's title, typed where it is drawn (spec §3) — the SAME
+            // slot as the scrap editor, so the two never both exist.
+            let field = CanvasRegionMetrics.titleFieldRect(in: region.frame)
+            let fieldOrigin = camera.viewPoint(fromContent: field.origin)
+            RegionTitleEditorHost(regionID: rid,
+                                  label: region.label,
+                                  zoom: camera.zoom,
+                                  onTextChanged: { regionTitleEditing.noteTyping($0, in: rid) },
+                                  onCommit: { regionTitleEditing.commit($0) },
+                                  onCancel: { regionTitleEditing.cancel() },
+                                  onLostFocus: { regionTitleEditing.fieldLostFocus($0, in: rid) })
+                .frame(width: field.width * camera.zoom,
+                       height: field.height * camera.zoom)
+                .position(x: fieldOrigin.x + field.width * camera.zoom / 2,
+                          y: fieldOrigin.y + field.height * camera.zoom / 2)
         }
     }
 
@@ -1048,6 +1077,7 @@ struct CanvasView: View {
         CanvasDragHandler(model: model,
                           subject: subject,
                           layoutPass: layoutPass,
+                          regionTitleEditing: regionTitleEditing,
                           interaction: $interaction,
                           momentum: $momentum,
                           revision: $revision,
@@ -1063,6 +1093,7 @@ struct CanvasView: View {
         CanvasScrapFlow(model: model,
                         subject: subject,
                         layoutPass: layoutPass,
+                        regionTitleEditing: regionTitleEditing,
                         editingNodeID: $editingNodeID,
                         caretIndex: $caretIndex,
                         lastKeystrokeAt: $lastKeystrokeAt,
@@ -1078,6 +1109,7 @@ struct CanvasView: View {
         CanvasClickHandler(model: model,
                            editFocus: editFocus,
                            scrapFlow: scrapFlow,
+                           regionTitleEditing: regionTitleEditing,
                            selectionWhenPressed: $selectionWhenPressed,
                            straighten: $straighten,
                            layouts: $layouts,
@@ -1097,6 +1129,7 @@ struct CanvasView: View {
                          editFocus: editFocus,
                          layoutPass: layoutPass,
                          scrapFlow: scrapFlow,
+                         regionTitleEditing: regionTitleEditing,
                          editingNodeID: $editingNodeID,
                          revision: $revision,
                          camera: $camera,
@@ -1120,6 +1153,22 @@ struct CanvasView: View {
                           thumbnails: $thumbnails,
                           camera: $camera,
                           revision: $revision,
-                          dropError: $dropError)
+                          dropError: $dropError,
+                          regionTitleEditingID: $regionTitleEditingID,
+                          editingNodeID: $editingNodeID)
+    }
+
+    /// A region's name on the canvas — opening, typing, committing and
+    /// cancelling — over this view's own `@State`, built per call like
+    /// `layoutPass`. It finishes an open scrap through the `editFocus` it is
+    /// handed; `scrapFlow`, the click, key and drag handlers hold it.
+    private var regionTitleEditing: CanvasRegionTitleEditing {
+        CanvasRegionTitleEditing(model: model,
+                                 editFocus: editFocus,
+                                 regionTitleEditingID: $regionTitleEditingID,
+                                 regionTitleDraft: $regionTitleDraft,
+                                 editingNodeID: $editingNodeID,
+                                 keyboardTicket: $keyboardTicket,
+                                 revision: $revision)
     }
 }

@@ -171,4 +171,30 @@ public enum CanvasRegionMetrics {
     public static func labelOrigin(in frame: CGRect) -> CGPoint {
         CGPoint(x: frame.minX + labelInset, y: frame.minY + labelInset / 2)
     }
+
+    /// The narrowest a title's double-click target gets, so a short name (or
+    /// none yet) is still easy to hit.
+    public static let minimumTitleHitWidth: CGFloat = 60
+
+    /// Where a double click renames rather than mints a scrap: the chrome bar
+    /// from `labelInset` to `labelInset + max(labelWidth, minimumTitleHitWidth)`,
+    /// never past the bar's own inset. `labelWidth` is what the renderer draws
+    /// (`CanvasRenderer.drawnLabelWidth(of:)`). The rest of the bar still mints a
+    /// scrap on a double click (tripwire 32's repro).
+    public static func titleHitRect(in frame: CGRect, labelWidth: CGFloat) -> CGRect {
+        let chrome = chromeRect(in: frame)
+        let bar = max(0, frame.width - 2 * labelInset)
+        return CGRect(x: frame.minX + labelInset, y: chrome.minY,
+                      width: min(max(labelWidth, minimumTitleHitWidth), bar),
+                      height: chrome.height)
+    }
+
+    /// Where the title field sits while a name is typed, in content space: the
+    /// bar's text run, a hair wider than the label so its caret has room.
+    public static func titleFieldRect(in frame: CGRect) -> CGRect {
+        let chrome = chromeRect(in: frame)
+        return CGRect(x: frame.minX + labelInset - 2, y: chrome.minY + 3,
+                      width: max(minimumTitleHitWidth, frame.width - 2 * labelInset + 4),
+                      height: max(0, chrome.height - 6))
+    }
 }

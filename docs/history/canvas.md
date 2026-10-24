@@ -1030,3 +1030,28 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the canvas-keys rule 
 - Regions and membership: “a collapsed region is drawn at its frame, and `begin` refuses to start a sweep inside any region” (why `caughtRegions` has no exclusions and no `minimumSide` floor).
 
 **A canvas key asks the gesture before the fold.** `CanvasEditFocus.commitActiveEdit()` calls `model.endGesture()` whether or not a scrap is open, so a key that folded first while a drag held "Move Card" would close the writer's bracket under them. `handleCanvasKey` therefore refuses mid-gesture first, then asks the gate and folds; `CanvasCanvasKeyTests.test_everyCanvasKeyIsRefusedMidGesture` goes red if the fold moves above the check (mutation, 2026-10-24).
+
+## Moved from the guide by canvas-keyboard-flow Task 8 (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the region-title rows and the one-editor-slot rule. Each is the why behind a rule still in the guide, under the section named.
+
+- The surface: “or the grain crawls under the cards” (the ground is handed the live camera).
+- Card metrics: “so its join and wrap fit it” (the drop routes birth a picture at its header's height).
+- Card metrics: “so a corner drag scales a photograph and never distorts it” (width is authoritative, height derived).
+- Focus straightens the card: “because the author decides whether it tilts” (`seededRotation` takes the node or region).
+- Focus straightens the card: “or the card stays level for the rest of the session” (`isSettled` compares each card to its own target).
+- Focus straightens the card: “or the click point moves out from under the cursor” (resolve the caret before the animation).
+- Focus straightens the card: “so a tilted corner still on screen is never culled” (`cullingBleed` carries the `r·θ` term).
+- Regions and membership: “a card that joins a collapsed region vanishes on drop” (why collapsed regions are skipped).
+- Lines: “or the defect returns” (draw order and click order move together).
+- Item nodes: “`load()`'s closures capture the view VALUE once, so any plain stored property they or their callees read is frozen” (a model-held closure reads no changing view property).
+- Item nodes: “Pixels are a cache; a shape is a fact.” (measurement reads the aspect memo).
+- Routes onto the canvas: “Each drop modifier is its own AppKit view and only the innermost gets the drag” (one drop modifier).
+- Ownership, counters and undo: “A `let` copy of `@State` goes stale within one call.” (the helpers are per-call structs over `$state`).
+- The mounted editor: “which ends any open gesture” (a canvas key is asked before the fold).
+- Persistence: “Do not read it as parity with `DocumentStore`: the canvas has no op log.” (the crash floor).
+
+**Why the title field shares the scrap editor's slot.** Two text editors over the canvas would each need their own frontmost layer, focus request and Escape story, and a writer could leave one half-typed while the other took keys. As `mountedEditor`'s `else if` arm the title cannot coexist with a scrap: `CanvasRegionTitleEditing.begin` folds and leaves an open scrap, and `CanvasScrapFlow.enter` and the click handler's head commit an open title. The typed words reach state on every keystroke (`CanvasRegionTitleDraft`, keyed by region), so the click head can commit them without waiting for the field to report a lost focus.
+
+**Why the drop opens the title by writing the binding.** `CanvasDropHandler` finishes in `Task` bodies, and a file that holds a sibling helper schedules no work (tripwire 32's construction census), so the wrap writes `regionTitleEditingID` itself and opens only with no gesture, scrap or title open — when there is nothing for `begin` to finish. The capture route opens the region its send reports (`CanvasCapture.Sent.wrappedIn`), never the card's home: a capture that joined an existing region would otherwise open that region's title.
+

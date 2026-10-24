@@ -45,6 +45,8 @@ final class CanvasCanvasKeyTests: XCTestCase {
         let revision = Box(0)
         let camera = Box(CanvasCamera())
         let keyboardTicket = Box(0)
+        let regionTitleEditingID = Box<CanvasRegionID?>(nil)
+        let regionTitleDraft = Box<CanvasRegionTitleDraft?>(nil)
         let treeAsks = Box(0)
         /// Whether a visible binder answers ⇧Tab; the window hands nil if not.
         var treeAnswers = true
@@ -70,10 +72,21 @@ final class CanvasCanvasKeyTests: XCTestCase {
                             revision: revision.binding)
         }
 
+        var titles: CanvasRegionTitleEditing {
+            CanvasRegionTitleEditing(model: model,
+                                     editFocus: editFocus,
+                                     regionTitleEditingID: regionTitleEditingID.binding,
+                                     regionTitleDraft: regionTitleDraft.binding,
+                                     editingNodeID: editingNodeID.binding,
+                                     keyboardTicket: keyboardTicket.binding,
+                                     revision: revision.binding)
+        }
+
         var scrapFlow: CanvasScrapFlow {
             CanvasScrapFlow(model: model,
                             subject: subject,
                             layoutPass: layoutPass,
+                            regionTitleEditing: titles,
                             editingNodeID: editingNodeID.binding,
                             caretIndex: caretIndex.binding,
                             lastKeystrokeAt: lastKeystrokeAt.binding,
@@ -88,6 +101,7 @@ final class CanvasCanvasKeyTests: XCTestCase {
                              editFocus: editFocus,
                              layoutPass: layoutPass,
                              scrapFlow: scrapFlow,
+                             regionTitleEditing: titles,
                              editingNodeID: editingNodeID.binding,
                              revision: revision.binding,
                              camera: camera.binding,
@@ -458,12 +472,14 @@ final class CanvasCanvasKeyTests: XCTestCase {
 
     // MARK: - A region
 
-    /// Rename in place is Task 8's; until then the key travels on.
+    /// Return opens the region's title for typing (spec §3); it makes and
+    /// enters nothing. `RegionTitleEditingTests` has what typing does.
     func test_region_return() {
         let model = populatedModel()
         let f = fixture(model, selecting: .region(r))
         let before = ids(model)
-        XCTAssertFalse(f.key(.returnKey))
+        XCTAssertTrue(f.key(.returnKey))
+        XCTAssertEqual(f.regionTitleEditingID.value, r, "Return on a region did not open its title")
         assertUntouched(f, before: before, selection: .region(r), "Return on a region")
     }
 

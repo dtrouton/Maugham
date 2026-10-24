@@ -281,9 +281,10 @@ struct CanvasAssetIngest {
 struct CanvasCaptureDrop {
     /// Land the capture `entryID` names at a **content** point, wrapped in a
     /// region bound to `wrappingInPiece` when it lands in none (`CanvasDropWrap`),
-    /// and report the node it made so the view can select it.
+    /// and report the node it made and the wrap region, if any, so the view can
+    /// select the one and open the other's title.
     var send: (_ entryID: String, _ at: CGPoint,
-               _ wrappingInPiece: String?) async throws -> CanvasNodeID
+               _ wrappingInPiece: String?) async throws -> CanvasCapture.Sent
 
     struct Unavailable: Error {}
 

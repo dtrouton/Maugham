@@ -9,6 +9,8 @@ import SwiftUI
 /// centre. Callers ask `CanvasEditGate` first: a read-only canvas makes and
 /// enters nothing, and this helper does not ask again.
 ///
+/// Entering a scrap finishes an open region title first (one editor slot).
+///
 /// Built fresh per call by `CanvasView.scrapFlow` and never stored; a sibling
 /// helper may hold the one it was handed (tripwire 32's surface census).
 /// `subject` is a `let` the view hands in, and must never reach
@@ -19,6 +21,7 @@ struct CanvasScrapFlow {
     let model: CanvasModel
     let subject: CanvasSubject
     let layoutPass: CanvasLayoutPass
+    let regionTitleEditing: CanvasRegionTitleEditing
     @Binding var editingNodeID: CanvasNodeID?
     @Binding var caretIndex: Int?
     @Binding var lastKeystrokeAt: Date?
@@ -38,6 +41,9 @@ struct CanvasScrapFlow {
         assert(!model.isReadOnly && !model.isInGesture,
                "makeScrapAndEnter on a read-only canvas or inside an open gesture: "
                + "callers ask CanvasEditGate and commitActiveEdit() first")
+        // An open region title is finished first, so its "Rename Region" comes
+        // before "New Scrap" rather than between the card and its typing.
+        regionTitleEditing.commitIfOpen()
         // Creating the card is its own step, closed before the visit opens:
         // one ⌘Z takes back what the writer typed, a second takes back the
         // card. Explicit begin/end rather than `mutate` — the new id has to
@@ -123,6 +129,9 @@ struct CanvasScrapFlow {
         assert(!model.isInGesture,
                "enter inside an open gesture: callers ask CanvasEditGate and "
                + "commitActiveEdit() first, or \"Edit Scrap\" nests")
+        // One editor slot: an open region title is committed (its own closed
+        // "Rename Region" step) before this visit opens.
+        regionTitleEditing.commitIfOpen()
         self.caretIndex = caretIndex
         editingNodeID = id
         lastKeystrokeAt = nil

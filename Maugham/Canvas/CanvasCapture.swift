@@ -84,6 +84,15 @@ enum CanvasCapture {
     /// pairs its scraps with their text: a string handed alongside would be a
     /// second chance for the card and its words to disagree about which is which,
     /// and nothing downstream could tell.
+    /// What a send made: the card, and the region a wrapped drop made around
+    /// it (`CanvasDropWrap`) — nil when it joined an existing region, landed
+    /// loose, or was already on the canvas. The drop opens THIS region's title,
+    /// never one derived from where the card ended up.
+    struct Sent: Equatable {
+        let node: CanvasNodeID
+        let wrappedIn: CanvasRegionID?
+    }
+
     struct Landing: Equatable {
         let node: CanvasNode
         /// nil for a picture. A `scraps` entry for an item node would draw an
@@ -254,7 +263,7 @@ enum CanvasCapture {
                      _ placement: Placement,
                      captureID: String,
                      store: ProjectStore,
-                     projectRoot: URL) throws -> CanvasNodeID {
+                     projectRoot: URL) throws -> Sent {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
             // Before anything else, the retry included (issue #44): a model
@@ -265,13 +274,16 @@ enum CanvasCapture {
             let landing = plan(content, placement, captureID: captureID, in: model.scene)
             // The retry: the capture's derived node is already on the scene, so
             // there is nothing to write — the caller retries only the flip.
-            if model.scene.node(landing.node.id) != nil { return landing.node.id }
+            if model.scene.node(landing.node.id) != nil {
+                return Sent(node: landing.node.id, wrappedIn: nil)
+            }
+            var wrapped: CanvasRegionID?
             model.mutateFromInspector(undoStepName, scrapTexts: landing.scrapTexts) {
-                apply(landing, to: &$0)
+                wrapped = apply(landing, to: &$0)
             }
             model.bumpSceneRevision()
             model.flush()
-            return landing.node.id
+            return Sent(node: landing.node.id, wrappedIn: wrapped)
         }
 
         // The Plan persona is closed — which is the command's whole point, since a
@@ -282,13 +294,13 @@ enum CanvasCapture {
         var scene = loaded.scene
         var scraps = loaded.scraps
         let landing = plan(content, placement, captureID: captureID, in: scene)
-        if scene.node(landing.node.id) != nil { return landing.node.id }
-        apply(landing, to: &scene)
+        if scene.node(landing.node.id) != nil { return Sent(node: landing.node.id, wrappedIn: nil) }
+        let wrapped = apply(landing, to: &scene)
         scraps.merge(landing.scrapTexts) { _, new in new }
         // `save` and not `scheduleSave`: this store is transient and nothing would
         // ever fire its debounce.
         sidecar.save(scene: scene, scraps: scraps)
-        return landing.node.id
+        return Sent(node: landing.node.id, wrappedIn: wrapped)
     }
 
     /// Asked by `InboxStore.sendToCanvas` BEFORE it copies a picture into the
