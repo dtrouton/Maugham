@@ -445,4 +445,42 @@ final class CanvasInteractionTests: XCTestCase {
                      + "with no frame is not on the canvas at all")
         XCTAssertNil(try XCTUnwrap(scene.node(CanvasNodeID("s1"))).frame)
     }
+
+    // MARK: - A region's title (spec §3)
+
+    /// **The title's double-click target follows the label the renderer draws**:
+    /// at least `minimumTitleHitWidth` wide from `labelInset`, as wide as a long
+    /// label, and never past the bar's own inset — where an elided label stops.
+    @MainActor
+    func test_theTitleHitRectFollowsTheDrawnLabelWidth() {
+        let frame = CGRect(x: 100, y: 50, width: 400, height: 300)
+        let inset = CanvasRegionMetrics.labelInset
+        let floor = CanvasRegionMetrics.minimumTitleHitWidth
+
+        let short = CanvasRegionMetrics.titleHitRect(in: frame, labelWidth: 20)
+        XCTAssertEqual(short, CGRect(x: 100 + inset, y: 50, width: floor,
+                                     height: CanvasRegionMetrics.chromeHeight),
+                       "a short label still gets the floor, on the bar")
+
+        let wide = CanvasRegionMetrics.titleHitRect(in: frame, labelWidth: 150)
+        XCTAssertEqual(wide.width, 150, "a long label's target is its drawn width")
+        XCTAssertEqual(CanvasRegionMetrics.titleHitRect(in: frame, labelWidth: 900).maxX,
+                       frame.maxX - inset, "the target ran past the bar")
+
+        // Measured as drawn: a longer label is a wider target, and one too long
+        // for the bar is elided to the bar's budget, so its target stops there.
+        func region(_ label: String) -> CanvasRegion {
+            CanvasRegion(id: CanvasRegionID("r1"), label: label, frame: frame)
+        }
+        let fog = CanvasRenderer.drawnLabelWidth(of: region("Fog"))
+        let long = CanvasRenderer.drawnLabelWidth(of: region("The falls at night, from the weir"))
+        XCTAssertGreaterThan(fog, 0)
+        XCTAssertGreaterThan(long, fog, "a longer label measured no wider")
+        XCTAssertLessThanOrEqual(
+            CanvasRenderer.drawnLabelWidth(of: region(String(repeating: "Mist ", count: 80))),
+            CanvasRenderer.regionLabelWidthBudget(in: frame, borrowedWidth: 0),
+            "an overlong label was measured unelided")
+        XCTAssertGreaterThan(CanvasRenderer.drawnLabelWidth(of: region("")), 0,
+                             "an untitled region's target is \"Untitled region\", which it draws")
+    }
 }

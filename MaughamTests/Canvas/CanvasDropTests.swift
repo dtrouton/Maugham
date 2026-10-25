@@ -91,9 +91,16 @@ final class CanvasDropTests: XCTestCase {
     /// The centre of the card a drop at `origin` makes, given the label-only
     /// floor every item node is born at. Written once so the two membership tests
     /// cannot disagree about where the centre is.
-    private func centre(ofCardDroppedAt origin: CGPoint) -> CGPoint {
+    private func centre(ofCardDroppedAt origin: CGPoint,
+                        height: CGFloat = CanvasCardMetrics.itemLabelOnlyHeight) -> CGPoint {
         CGPoint(x: origin.x + CanvasInteraction.defaultScrapWidth / 2,
-                y: origin.y + CanvasCardMetrics.itemLabelOnlyHeight / 2)
+                y: origin.y + height / 2)
+    }
+
+    /// The fixture PNGs are square, so a dropped one is born at aspect 1.
+    private var squarePhotoHeight: CGFloat {
+        CanvasCardMetrics.itemCardHeight(forCardWidth: CanvasInteraction.defaultScrapWidth,
+                                         pictureAspect: 1)
     }
 
     // MARK: - The decision, over the whole product
@@ -175,7 +182,7 @@ final class CanvasDropTests: XCTestCase {
             let point = c.insideARegion ? inside : outside
             XCTAssertEqual(
                 CanvasDrop.decide(payload: c.payload, at: point,
-                                  in: scene, index: index()),
+                                  in: scene, index: index(), pictureAspect: nil),
                 c.expected,
                 "\(c.name)")
         }
@@ -191,7 +198,7 @@ final class CanvasDropTests: XCTestCase {
     /// the index is refused, so this cannot pass by everything being accepted.
     func test_aResearchGroupIsAcceptedWhereClaudesOwnToolRefusesOne() {
         let accepted = CanvasDrop.decide(payload: groupID, at: .zero,
-                                         in: CanvasScene(), index: index())
+                                         in: CanvasScene(), index: index(), pictureAspect: nil)
         XCTAssertEqual(accepted, .create(CanvasNode(
             id: .item(groupID), kind: .item(.project(id: groupID)), origin: .zero,
             width: CanvasInteraction.defaultScrapWidth,
@@ -201,7 +208,7 @@ final class CanvasDropTests: XCTestCase {
             + "visible folder is a lie")
         XCTAssertEqual(
             CanvasDrop.decide(payload: groupID, at: .zero, in: CanvasScene(),
-                              index: CanvasItemIndex(entriesByID: [:])),
+                              index: CanvasItemIndex(entriesByID: [:]), pictureAspect: nil),
             .ignored,
             "control: the acceptance is the INDEX ENTRY's doing, not a router "
             + "that says yes to everything")
@@ -221,7 +228,7 @@ final class CanvasDropTests: XCTestCase {
         let stranger = "piece-3f2a"
         XCTAssertEqual(
             CanvasDrop.decide(payload: stranger, at: CGPoint(x: 5, y: 5),
-                              in: CanvasScene(), index: index()),
+                              in: CanvasScene(), index: index(), pictureAspect: nil),
             .ignored,
             "a payload in no manifest must not become a card that reads 'No "
             + "longer in the project.' from birth")
@@ -231,7 +238,7 @@ final class CanvasDropTests: XCTestCase {
         ])
         guard case .create(let node) = CanvasDrop.decide(
             payload: stranger, at: CGPoint(x: 5, y: 5), in: CanvasScene(),
-            index: widened) else {
+            index: widened, pictureAspect: nil) else {
             return XCTFail("control: the SAME id with an index entry must create a "
                            + "node, or the refusal above proves nothing")
         }
@@ -250,10 +257,10 @@ final class CanvasDropTests: XCTestCase {
         let model = attachedModel()
         guard case .create(let node) = CanvasDrop.decide(
             payload: noteID, at: CGPoint(x: 200, y: 150),
-            in: model.scene, index: index()) else {
+            in: model.scene, index: index(), pictureAspect: nil) else {
             return XCTFail("precondition: a known id over an empty canvas creates")
         }
-        CanvasDrop.apply(node, in: model)
+        CanvasDrop.apply(node, in: model, wrappingInPiece: nil)
 
         let landed = try XCTUnwrap(model.scene.node(node.id), "the card is on the canvas")
         XCTAssertNotNil(landed.cachedHeight,
@@ -286,10 +293,10 @@ final class CanvasDropTests: XCTestCase {
                       "precondition: this fixture's card centre really is inside")
 
         guard case .create(let node) = CanvasDrop.decide(
-            payload: noteID, at: origin, in: model.scene, index: index()) else {
+            payload: noteID, at: origin, in: model.scene, index: index(), pictureAspect: nil) else {
             return XCTFail("precondition: a known id creates")
         }
-        CanvasDrop.apply(node, in: model)
+        CanvasDrop.apply(node, in: model, wrappingInPiece: nil)
 
         XCTAssertEqual(CanvasMembership.homeRegion(of: node.id, in: model.scene), regionID,
                        "a card dropped inside a region belongs to it — creation "
@@ -312,10 +319,10 @@ final class CanvasDropTests: XCTestCase {
                        "precondition: its CENTRE is outside, by one point")
 
         guard case .create(let node) = CanvasDrop.decide(
-            payload: noteID, at: origin, in: model.scene, index: index()) else {
+            payload: noteID, at: origin, in: model.scene, index: index(), pictureAspect: nil) else {
             return XCTFail("precondition: a known id creates")
         }
-        CanvasDrop.apply(node, in: model)
+        CanvasDrop.apply(node, in: model, wrappingInPiece: nil)
 
         XCTAssertNil(CanvasMembership.homeRegion(of: node.id, in: model.scene),
                      "the centre decides, not the corner — a card poking one pixel "
@@ -364,10 +371,10 @@ final class CanvasDropTests: XCTestCase {
         let homeBefore = CanvasMembership.homeRegion(of: id, in: model.scene)
 
         let decision = CanvasDrop.decide(payload: noteID, at: CGPoint(x: 900, y: 900),
-                                         in: model.scene, index: index())
+                                         in: model.scene, index: index(), pictureAspect: nil)
         XCTAssertEqual(decision, .reveal(id),
                        "a second drop reveals the card that is already there")
-        if case .create(let node) = decision { CanvasDrop.apply(node, in: model) }
+        if case .create(let node) = decision { CanvasDrop.apply(node, in: model, wrappingInPiece: nil) }
 
         let after = try XCTUnwrap(model.scene.node(id))
         XCTAssertEqual(after.origin, before.origin, "its position is the writer's")
@@ -393,10 +400,10 @@ final class CanvasDropTests: XCTestCase {
         // the six equalities above are not "drops do nothing".
         guard case .create(let other) = CanvasDrop.decide(
             payload: secondNoteID, at: CGPoint(x: 900, y: 900),
-            in: model.scene, index: index()) else {
+            in: model.scene, index: index(), pictureAspect: nil) else {
             return XCTFail("control: a DIFFERENT id must still create a node")
         }
-        CanvasDrop.apply(other, in: model)
+        CanvasDrop.apply(other, in: model, wrappingInPiece: nil)
         XCTAssertNotNil(model.scene.node(other.id),
                         "control: a different research item does land a second card")
         XCTAssertEqual(model.scene.unorderedNodes.count, 2)
@@ -416,10 +423,10 @@ final class CanvasDropTests: XCTestCase {
         let before = model.scene
         guard case .create(let node) = CanvasDrop.decide(
             payload: noteID, at: CGPoint(x: 200, y: 150),
-            in: model.scene, index: index()) else {
+            in: model.scene, index: index(), pictureAspect: nil) else {
             return XCTFail("precondition: a known id creates")
         }
-        CanvasDrop.apply(node, in: model)
+        CanvasDrop.apply(node, in: model, wrappingInPiece: nil)
 
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains(CanvasDrop.undoStepName),
                       "the drop must be its own NAMED step — a bare \"Undo\" is a "
@@ -459,10 +466,10 @@ final class CanvasDropTests: XCTestCase {
 
         guard case .create(let node) = CanvasDrop.decide(
             payload: noteID, at: CGPoint(x: 400, y: 400),
-            in: model.scene, index: index()) else {
+            in: model.scene, index: index(), pictureAspect: nil) else {
             return XCTFail("precondition: a known id creates")
         }
-        CanvasDrop.apply(node, in: model)
+        CanvasDrop.apply(node, in: model, wrappingInPiece: nil)
 
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains(CanvasDrop.undoStepName),
                       "the drop registered no step of its own — it nested inside "
@@ -649,8 +656,8 @@ final class CanvasDropTests: XCTestCase {
             using: CanvasAssetIngest(
                 file: { try await store.ingestCanvasAsset(fileURL: $0) },
                 image: { try await store.ingestCanvasAsset(image: $0) }))
-        let made = CanvasExternalDrop.apply(paths: outcome.paths,
-                                            at: CGPoint(x: 200, y: 150), in: model)
+        let made = CanvasExternalDrop.apply(paths: outcome.paths, aspects: outcome.aspects,
+                                            at: CGPoint(x: 200, y: 150), in: model, wrappingInPiece: nil).nodes
 
         let id = try XCTUnwrap(made.first, "the drop made a card")
         let landed = try XCTUnwrap(model.scene.node(id))
@@ -703,8 +710,8 @@ final class CanvasDropTests: XCTestCase {
 
         let refused = await CanvasExternalDrop.ingest(
             providers: [fileProvider(try writeText(named: "notes.txt"))], using: seam)
-        _ = CanvasExternalDrop.apply(paths: refused.paths,
-                                     at: CGPoint(x: 10, y: 10), in: model)
+        _ = CanvasExternalDrop.apply(paths: refused.paths, aspects: refused.aspects,
+                                     at: CGPoint(x: 10, y: 10), in: model, wrappingInPiece: nil).nodes
 
         XCTAssertTrue(refused.paths.isEmpty, "a text file is not a photograph")
         XCTAssertTrue(model.scene.unorderedNodes.isEmpty,
@@ -719,8 +726,8 @@ final class CanvasDropTests: XCTestCase {
         // Control, in the same test.
         let accepted = await CanvasExternalDrop.ingest(
             providers: [fileProvider(try writePNG(named: "control.png"))], using: seam)
-        _ = CanvasExternalDrop.apply(paths: accepted.paths,
-                                     at: CGPoint(x: 10, y: 10), in: model)
+        _ = CanvasExternalDrop.apply(paths: accepted.paths, aspects: accepted.aspects,
+                                     at: CGPoint(x: 10, y: 10), in: model, wrappingInPiece: nil).nodes
         XCTAssertEqual(model.scene.unorderedNodes.count, 1,
                        "control: a PNG through the same route DOES make a card")
         XCTAssertNil(accepted.message, "control: and says nothing to the writer")
@@ -777,8 +784,8 @@ final class CanvasDropTests: XCTestCase {
 
         let outcome = await CanvasExternalDrop.ingest(providers: providers,
                                                       using: recorder.seam)
-        let made = CanvasExternalDrop.apply(paths: outcome.paths,
-                                            at: CGPoint(x: 100, y: 100), in: model)
+        let made = CanvasExternalDrop.apply(paths: outcome.paths, aspects: outcome.aspects,
+                                            at: CGPoint(x: 100, y: 100), in: model, wrappingInPiece: nil).nodes
 
         XCTAssertEqual(made.count, 3, "three files, three cards")
         XCTAssertEqual(Set(made).count, 3, "three DISTINCT minted ids")
@@ -803,19 +810,20 @@ final class CanvasDropTests: XCTestCase {
         withRegion(model)
         let recorder = RecordingIngest()
         let inside = CGPoint(x: 200, y: 150)
-        XCTAssertTrue(regionFrame.contains(centre(ofCardDroppedAt: inside)),
+        XCTAssertTrue(regionFrame.contains(centre(ofCardDroppedAt: inside,
+                                                  height: squarePhotoHeight)),
                       "precondition: this fixture's card centre really is inside")
 
         let outcome = await CanvasExternalDrop.ingest(
             providers: [fileProvider(try writePNG(named: "inside.png"))],
             using: recorder.seam)
         let id = try XCTUnwrap(
-            CanvasExternalDrop.apply(paths: outcome.paths, at: inside, in: model).first)
+            CanvasExternalDrop.apply(paths: outcome.paths, aspects: outcome.aspects, at: inside, in: model, wrappingInPiece: nil).nodes.first)
 
         let landed = try XCTUnwrap(model.scene.node(id))
-        XCTAssertEqual(landed.cachedHeight, CanvasCardMetrics.itemLabelOnlyHeight,
-                       "the label-only floor is the honest height until the "
-                       + "photograph decodes — and an unmeasured card is neither "
+        XCTAssertEqual(landed.cachedHeight, squarePhotoHeight,
+                       "born at the photograph's height, read from its header "
+                       + "(task 3 review) — and an unmeasured card is neither "
                        + "drawn nor clickable, persisted that way")
         let frame = try XCTUnwrap(landed.frame,
                                   "an unmeasured node has no frame at all")
@@ -829,12 +837,13 @@ final class CanvasDropTests: XCTestCase {
         // point past the right edge (§4.2's discriminator against Obsidian).
         let corner = CGPoint(x: 381, y: 150)
         XCTAssertTrue(regionFrame.contains(corner))
-        XCTAssertFalse(regionFrame.contains(centre(ofCardDroppedAt: corner)))
+        XCTAssertFalse(regionFrame.contains(centre(ofCardDroppedAt: corner,
+                                                   height: squarePhotoHeight)))
         let second = await CanvasExternalDrop.ingest(
             providers: [fileProvider(try writePNG(named: "corner.png"))],
             using: recorder.seam)
         let cornerID = try XCTUnwrap(
-            CanvasExternalDrop.apply(paths: second.paths, at: corner, in: model).first)
+            CanvasExternalDrop.apply(paths: second.paths, aspects: second.aspects, at: corner, in: model, wrappingInPiece: nil).nodes.first)
         XCTAssertNil(CanvasMembership.homeRegion(of: cornerID, in: model.scene),
                      "the centre decides, not the corner")
         XCTAssertNotNil(model.scene.node(cornerID)?.frame,
@@ -862,8 +871,8 @@ final class CanvasDropTests: XCTestCase {
             providers: [fileProvider(try writePNG(named: "mid-sentence.png"))],
             using: recorder.seam)
         let id = try XCTUnwrap(
-            CanvasExternalDrop.apply(paths: outcome.paths,
-                                     at: CGPoint(x: 400, y: 400), in: model).first)
+            CanvasExternalDrop.apply(paths: outcome.paths, aspects: outcome.aspects,
+                                     at: CGPoint(x: 400, y: 400), in: model, wrappingInPiece: nil).nodes.first)
 
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains(CanvasDrop.undoStepName),
                       "the drop registered no step of its own — it nested inside "
@@ -890,8 +899,8 @@ final class CanvasDropTests: XCTestCase {
         let failed = await CanvasExternalDrop.ingest(
             providers: [fileProvider(try writePNG(named: "unwritable.png"))],
             using: recorder.seam)
-        let made = CanvasExternalDrop.apply(paths: failed.paths,
-                                            at: CGPoint(x: 10, y: 10), in: model)
+        let made = CanvasExternalDrop.apply(paths: failed.paths, aspects: failed.aspects,
+                                            at: CGPoint(x: 10, y: 10), in: model, wrappingInPiece: nil).nodes
 
         XCTAssertTrue(made.isEmpty, "nothing landed")
         XCTAssertTrue(model.scene.unorderedNodes.isEmpty,
@@ -912,7 +921,7 @@ final class CanvasDropTests: XCTestCase {
             using: working.seam)
         XCTAssertNil(ok.message, "control: a working ingest says nothing")
         XCTAssertEqual(
-            CanvasExternalDrop.apply(paths: ok.paths, at: .zero, in: model).count, 1,
+            CanvasExternalDrop.apply(paths: ok.paths, aspects: ok.aspects, at: .zero, in: model, wrappingInPiece: nil).nodes.count, 1,
             "control: …and lands a card")
     }
 
@@ -997,13 +1006,13 @@ final class CanvasDropTests: XCTestCase {
         ])
         XCTAssertEqual(
             CanvasDrop.decide(payload: "inbox:01HXYZ", at: .zero,
-                              in: CanvasScene(), index: index),
+                              in: CanvasScene(), index: index, pictureAspect: nil),
             .ignored,
             "a prefixed payload must never reach the item route, even in the "
             + "unlucky case where the bare id collides with a research id")
         XCTAssertNotEqual(
             CanvasDrop.decide(payload: "01HXYZ", at: .zero,
-                              in: CanvasScene(), index: index),
+                              in: CanvasScene(), index: index, pictureAspect: nil),
             .ignored,
             "control: the same id WITHOUT the prefix is a live research drop, so "
             + "the assertion above is about the prefix rather than about an "

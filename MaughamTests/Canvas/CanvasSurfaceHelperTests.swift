@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import XCTest
 @testable import Maugham
@@ -24,6 +25,26 @@ final class CanvasSurfaceHelperTests: XCTestCase {
     }
 
     private let scrapID = CanvasNodeID("s1ab")
+
+    /// The region-title helper over a fixture's own boxes, as `CanvasView`
+    /// builds it; the title's own state is boxed here.
+    @MainActor
+    private struct TitleBoxes {
+        let id = SurfaceHelperBox<CanvasRegionID?>(nil)
+        let draft = SurfaceHelperBox<CanvasRegionTitleDraft?>(nil)
+        let keyboardTicket = SurfaceHelperBox(0)
+
+        func helper(_ model: CanvasModel, editFocus: CanvasEditFocus,
+                    editingNodeID: Binding<CanvasNodeID?>,
+                    revision: Binding<Int>) -> CanvasRegionTitleEditing {
+            CanvasRegionTitleEditing(model: model, editFocus: editFocus,
+                                     regionTitleEditingID: id.binding,
+                                     regionTitleDraft: draft.binding,
+                                     editingNodeID: editingNodeID,
+                                     keyboardTicket: keyboardTicket.binding,
+                                     revision: revision)
+        }
+    }
 
     // MARK: - CanvasLayoutPass
 
@@ -210,6 +231,10 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
         let thumbnails = SurfaceHelperBox(CanvasThumbnails())
         let ticket = SurfaceHelperBox(0)
+        let titles = TitleBoxes()
+        let caretIndex = SurfaceHelperBox<Int?>(nil)
+        let straighten = SurfaceHelperBox(CanvasFocusStraighten())
+        let lastKeystrokeAt = SurfaceHelperBox<Date?>(nil)
 
         var handler: CanvasDragHandler {
             CanvasDragHandler(model: model,
@@ -222,6 +247,15 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                                                            itemPresentation: itemPresentation.binding,
                                                            thumbnailServiceTicket: ticket.binding,
                                                            revision: revision.binding),
+                              regionTitleEditing: titles.helper(
+                                model, editFocus: CanvasEditFocus(model: model,
+                                                                  editingNodeID: editingNodeID.binding,
+                                                                  caretIndex: caretIndex.binding,
+                                                                  straighten: straighten.binding,
+                                                                  lastKeystrokeAt: lastKeystrokeAt.binding,
+                                                                  layouts: layouts.binding,
+                                                                  revision: revision.binding),
+                                editingNodeID: editingNodeID.binding, revision: revision.binding),
                               interaction: interaction.binding,
                               momentum: momentum.binding,
                               revision: revision.binding,
@@ -313,28 +347,44 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
         let thumbnails = SurfaceHelperBox(CanvasThumbnails())
         let ticket = SurfaceHelperBox(0)
+        let titleBoxes = TitleBoxes()
+
+        var editFocus: CanvasEditFocus {
+            CanvasEditFocus(model: model,
+                            editingNodeID: editingNodeID.binding,
+                            caretIndex: caretIndex.binding,
+                            straighten: straighten.binding,
+                            lastKeystrokeAt: lastKeystrokeAt.binding,
+                            layouts: layouts.binding,
+                            revision: revision.binding)
+        }
+
+        var titles: CanvasRegionTitleEditing {
+            titleBoxes.helper(model, editFocus: editFocus,
+                              editingNodeID: editingNodeID.binding, revision: revision.binding)
+        }
 
         var handler: CanvasClickHandler {
             CanvasClickHandler(model: model,
-                               editFocus: CanvasEditFocus(model: model,
-                                                          editingNodeID: editingNodeID.binding,
-                                                          caretIndex: caretIndex.binding,
-                                                          straighten: straighten.binding,
-                                                          lastKeystrokeAt: lastKeystrokeAt.binding,
-                                                          layouts: layouts.binding,
-                                                          revision: revision.binding),
-                               layoutPass: CanvasLayoutPass(model: model,
-                                                            itemIndex: model.itemIndex,
-                                                            projectRoot: URL(fileURLWithPath: "/nonexistent"),
-                                                            thumbnails: thumbnails.binding,
-                                                            layouts: layouts.binding,
-                                                            itemPresentation: itemPresentation.binding,
-                                                            thumbnailServiceTicket: ticket.binding,
-                                                            revision: revision.binding),
+                               editFocus: editFocus,
+                               scrapFlow: CanvasScrapFlow(
+                                   model: model,
+                                   subject: .wholeProject,
+                                   layoutPass: CanvasLayoutPass(model: model,
+                                                                itemIndex: model.itemIndex,
+                                                                projectRoot: URL(fileURLWithPath: "/nonexistent"),
+                                                                thumbnails: thumbnails.binding,
+                                                                layouts: layouts.binding,
+                                                                itemPresentation: itemPresentation.binding,
+                                                                thumbnailServiceTicket: ticket.binding,
+                                                                revision: revision.binding),
+                                   regionTitleEditing: titles,
+                                   editingNodeID: editingNodeID.binding,
+                                   caretIndex: caretIndex.binding,
+                                   lastKeystrokeAt: lastKeystrokeAt.binding,
+                                   straighten: straighten.binding),
+                               regionTitleEditing: titles,
                                selectionWhenPressed: selectionWhenPressed.binding,
-                               editingNodeID: editingNodeID.binding,
-                               caretIndex: caretIndex.binding,
-                               lastKeystrokeAt: lastKeystrokeAt.binding,
                                straighten: straighten.binding,
                                layouts: layouts.binding,
                                revision: revision.binding)
@@ -417,6 +467,69 @@ final class CanvasSurfaceHelperTests: XCTestCase {
                        + "nested inside it and the card and the typing are one ⌘Z")
     }
 
+    /// **A double click on a region's TITLE opens it for naming; on the rest of
+    /// the bar it still mints a scrap** (tripwire 32's repro, whose two mounted
+    /// tests double-click the bar at x 200, clear of the title). Each with
+    /// AppKit's real sequence, `clickCount` 1 then 2.
+    /// Mounted: `CanvasViewMountingRegionTests.test_typingANameAfterASweepAndPressingReturnNamesIt`
+    /// for the field; `CanvasViewMountingEditingTests.test_aRegionStaysSelectedWhileADoubleClickOpensAScrap`
+    /// for the mint.
+    func test_aDoubleClickOnTheTitleRenamesAndOnTheBarElsewhereMintsAScrap() throws {
+        let region = CanvasRegionID("r1")
+        let frame = CGRect(x: 20, y: 20, width: 400, height: 300)
+        func fixture() -> (CanvasModel, ClickHandlerFixture) {
+            let model = CanvasModel()
+            model.withScene(persist: false) {
+                $0.insertRegion(CanvasRegion(id: region, label: "Act II fog", frame: frame))
+            }
+            return (model, ClickHandlerFixture(model: model))
+        }
+        let title = CanvasRegionMetrics.titleHitRect(
+            in: frame, labelWidth: CanvasRenderer.drawnLabelWidth(
+                of: try XCTUnwrap(fixture().0.scene.region(region))))
+
+        let (named, onTitle) = fixture()
+        let onTheTitle = CGPoint(x: title.minX + 4, y: 30)
+        onTitle.click(at: onTheTitle, clickCount: 1)
+        onTitle.click(at: onTheTitle, clickCount: 2)
+        XCTAssertEqual(onTitle.titleBoxes.id.value, region, "a double click on the title did not open it")
+        XCTAssertEqual(named.scene.count, 0, "a double click on the title minted a scrap")
+        XCTAssertNil(onTitle.editingNodeID.value)
+        XCTAssertEqual(named.selection, .region(region))
+
+        let (minted, onBar) = fixture()
+        let onTheBar = CGPoint(x: 200, y: 30)
+        XCTAssertFalse(title.contains(onTheBar), "precondition: x 200 is clear of the title")
+        onBar.click(at: onTheBar, clickCount: 1)
+        onBar.click(at: onTheBar, clickCount: 2)
+        XCTAssertNil(onBar.titleBoxes.id.value, "a double click on the bar opened the title")
+        XCTAssertEqual(minted.scene.count, 1, "a double click on the bar away from the title "
+                       + "no longer mints a scrap")
+        XCTAssertNotNil(onBar.editingNodeID.value)
+    }
+
+    /// **A read-only canvas takes a double click as a single one**: it makes
+    /// no scrap and opens no bracket (issue #44). The click handler's gate is
+    /// what stands between the click and `CanvasScrapFlow`, which asserts it.
+    func test_aDoubleClickOnAReadOnlyCanvasMakesNoScrap() throws {
+        let root = TestTemp.root.appendingPathComponent("click-read-only-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sidecar = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try "not json at all".write(to: sidecar, atomically: true, encoding: .utf8)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        defer { model.detach() }
+        XCTAssertTrue(model.isReadOnly, "precondition: the damaged layout file was refused")
+        let before = model.scene.count
+
+        ClickHandlerFixture(model: model).click(at: CGPoint(x: 900, y: 900), clickCount: 2)
+
+        XCTAssertEqual(model.scene.count, before, "a read-only canvas made a scrap")
+        XCTAssertFalse(model.isInGesture, "a read-only canvas opened an undo bracket")
+    }
+
     // MARK: - CanvasKeyHandler
 
     @MainActor
@@ -433,28 +546,51 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let itemPresentation = SurfaceHelperBox(CanvasItemPresentation.empty)
         let thumbnails = SurfaceHelperBox(CanvasThumbnails())
         let ticket = SurfaceHelperBox(0)
+        let camera = SurfaceHelperBox(CanvasCamera())
+        let keyboardTicket = SurfaceHelperBox(0)
+        let titleBoxes = TitleBoxes()
 
         var handler: CanvasKeyHandler {
             let asks = projectRowAsks
+            let editFocus = CanvasEditFocus(model: model,
+                                            editingNodeID: editingNodeID.binding,
+                                            caretIndex: caretIndex.binding,
+                                            straighten: straighten.binding,
+                                            lastKeystrokeAt: lastKeystrokeAt.binding,
+                                            layouts: layouts.binding,
+                                            revision: revision.binding)
+            let titles = titleBoxes.helper(model, editFocus: editFocus,
+                                           editingNodeID: editingNodeID.binding,
+                                           revision: revision.binding)
+            let layoutPass = CanvasLayoutPass(model: model,
+                                              itemIndex: model.itemIndex,
+                                              projectRoot: URL(fileURLWithPath: "/nonexistent"),
+                                              thumbnails: thumbnails.binding,
+                                              layouts: layouts.binding,
+                                              itemPresentation: itemPresentation.binding,
+                                              thumbnailServiceTicket: ticket.binding,
+                                              revision: revision.binding)
             return CanvasKeyHandler(model: model,
                                     subject: subject,
+                                    highlight: CanvasHighlight.resolve(subject: subject,
+                                                                       in: model.scene),
                                     selectTheProjectRow: { asks.value += 1 },
-                                    editFocus: CanvasEditFocus(model: model,
+                                    returnKeyboardToTree: {},
+                                    editFocus: editFocus,
+                                    layoutPass: layoutPass,
+                                    scrapFlow: CanvasScrapFlow(model: model,
+                                                               subject: subject,
+                                                               layoutPass: layoutPass,
+                                                               regionTitleEditing: titles,
                                                                editingNodeID: editingNodeID.binding,
                                                                caretIndex: caretIndex.binding,
-                                                               straighten: straighten.binding,
                                                                lastKeystrokeAt: lastKeystrokeAt.binding,
-                                                               layouts: layouts.binding,
-                                                               revision: revision.binding),
-                                    layoutPass: CanvasLayoutPass(model: model,
-                                                                 itemIndex: model.itemIndex,
-                                                                 projectRoot: URL(fileURLWithPath: "/nonexistent"),
-                                                                 thumbnails: thumbnails.binding,
-                                                                 layouts: layouts.binding,
-                                                                 itemPresentation: itemPresentation.binding,
-                                                                 thumbnailServiceTicket: ticket.binding,
-                                                                 revision: revision.binding),
-                                    editingNodeID: editingNodeID.binding)
+                                                               straighten: straighten.binding),
+                                    regionTitleEditing: titles,
+                                    editingNodeID: editingNodeID.binding,
+                                    revision: revision.binding,
+                                    camera: camera.binding,
+                                    keyboardTicket: keyboardTicket.binding)
         }
     }
 
@@ -555,15 +691,25 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         let camera = SurfaceHelperBox(CanvasCamera())
         let revision = SurfaceHelperBox(0)
         let dropError = SurfaceHelperBox<String?>(nil)
+        let thumbnails = SurfaceHelperBox(CanvasThumbnails())
+        let regionTitleEditingID = SurfaceHelperBox<CanvasRegionID?>(nil)
+        let editingNodeID = SurfaceHelperBox<CanvasNodeID?>(nil)
+        var subject: CanvasSubject = .wholeProject
+        var projectRoot: URL = TestTemp.root
 
         var handler: CanvasDropHandler {
             CanvasDropHandler(model: model,
+                              subject: subject,
                               itemIndex: itemIndex,
+                              projectRoot: projectRoot,
                               captureDrop: .unavailable,
                               assetIngest: .unavailable,
+                              thumbnails: thumbnails.binding,
                               camera: camera.binding,
                               revision: revision.binding,
-                              dropError: dropError.binding)
+                              dropError: dropError.binding,
+                              regionTitleEditingID: regionTitleEditingID.binding,
+                              editingNodeID: editingNodeID.binding)
         }
     }
 
@@ -625,11 +771,58 @@ final class CanvasSurfaceHelperTests: XCTestCase {
         defer { model.detach() }
         XCTAssertTrue(model.isReadOnly, "precondition: the damaged layout file was refused")
 
-        let fixture = DropHandlerFixture(model: model, itemIndex: droppedNoteIndex)
+        let fixture = DropHandlerFixture(model: model, itemIndex: droppedNoteIndex,
+                                         subject: .piece("p1"))
         XCTAssertFalse(fixture.handler.handleDrop([droppedNoteID], at: point),
                        "a read-only canvas took a research drop")
         XCTAssertTrue(model.scene.nodes.isEmpty, "a read-only canvas placed a card")
+        XCTAssertEqual(model.scene.regionCount, 0,
+                       "a read-only canvas wrapped a refused drop in a region")
         XCTAssertNil(model.selection, "a refused drop selected a card that was never made")
         XCTAssertFalse(model.isInGesture)
+    }
+
+    /// The handler reads a research photo's shape from its file's header, so
+    /// the card is born at its real height (task 3 review).
+    func test_theDropHandlerBirthsAResearchPhotoAtItsHeadersHeight() throws {
+        let project = TestTemp.root.appendingPathComponent("drop-photo-\(UUID().uuidString)")
+        let assets = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 100, pixelsHigh: 200, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+            .write(to: assets.appendingPathComponent("tall.png"))
+        let index = CanvasItemIndex(entriesByID: [
+            "rp01": .init(title: "Tall", kind: .image, thumbnailPath: "research/tall.png"),
+        ])
+
+        let model = CanvasModel()
+        _ = DropHandlerFixture(model: model, itemIndex: index, projectRoot: project)
+            .handler.handleDrop(["rp01"], at: CGPoint(x: 300, y: 300))
+
+        XCTAssertEqual(model.scene.nodes.first?.cachedHeight,
+                       CanvasCardMetrics.itemCardHeight(
+                        forCardWidth: CanvasInteraction.defaultScrapWidth, pictureAspect: 0.5))
+    }
+
+    /// The handler hands its `subject` to the landing verb: with a chapter
+    /// selected the drop arrives in a region bound to it; with the book, loose.
+    func test_theDropHandlerWrapsUnderTheChapterItWasBuiltWith() throws {
+        let point = CGPoint(x: 300, y: 300)
+        let chapter = CanvasModel()
+        _ = DropHandlerFixture(model: chapter, itemIndex: droppedNoteIndex, subject: .piece("p1"))
+            .handler.handleDrop([droppedNoteID], at: point)
+        let region = try XCTUnwrap(chapter.scene.regions.first, "the drop was wrapped")
+        XCTAssertEqual(region.boundPieceID, "p1")
+        XCTAssertEqual(region.homeMembers, Set(chapter.scene.nodes.map(\.id)))
+
+        let book = CanvasModel()
+        _ = DropHandlerFixture(model: book, itemIndex: droppedNoteIndex)
+            .handler.handleDrop([droppedNoteID], at: point)
+        XCTAssertEqual(book.scene.nodes.count, 1)
+        XCTAssertEqual(book.scene.regionCount, 0, "with the book selected the drop lands loose")
     }
 }

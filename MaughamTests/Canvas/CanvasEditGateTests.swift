@@ -21,6 +21,7 @@ final class CanvasEditGateTests: XCTestCase {
         }
         XCTAssertTrue(CanvasEditGate.dragBegins(isReadOnly: false))
         XCTAssertTrue(CanvasEditGate.deletes(isReadOnly: false))
+        XCTAssertTrue(CanvasEditGate.keyCreates(isReadOnly: false))
         for drop in CanvasEditGate.Drop.allCases {
             XCTAssertTrue(CanvasEditGate.accepts(drop, isReadOnly: false), "\(drop)")
         }
@@ -41,6 +42,7 @@ final class CanvasEditGateTests: XCTestCase {
     func test_aReadOnlyCanvasBeginsNoDragAndDeletesNothing() {
         XCTAssertFalse(CanvasEditGate.dragBegins(isReadOnly: true))
         XCTAssertFalse(CanvasEditGate.deletes(isReadOnly: true))
+        XCTAssertFalse(CanvasEditGate.keyCreates(isReadOnly: true))
     }
 
     /// Every drop that would add something springs back. (Showing a card that
@@ -95,18 +97,69 @@ final class CanvasEditGateTests: XCTestCase {
         let orders: [(function: String, gate: String, act: String)] = [
             ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
              "switch clickTarget(at:"),
+            // The make moved into `CanvasScrapFlow`; the click still gates it.
+            ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
+             "scrapFlow.makeScrapAndEnter("),
+            // A key inside a scrap: the gate, then the fold (which closes
+            // "Edit Scrap"), then the gesture check, then the make.
+            ("func handleEditorCommand(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "scrapFlow.makeScrapAndEnter("),
+            ("func handleEditorCommand(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "editFocus.commitActiveEdit()"),
+            ("func handleEditorCommand(", "editFocus.commitActiveEdit()", "!model.isInGesture"),
+            ("func handleEditorCommand(", "!model.isInGesture", "scrapFlow.makeScrapAndEnter("),
+            // A key on the canvas itself: the gesture check FIRST — the fold
+            // ends whatever gesture is open, so asked mid-drag it would close
+            // "Move Card" under the writer — then the gate, the fold, the
+            // make or the enter.
+            ("func handleCanvasKey(", "!model.isInGesture", "editFocus.commitActiveEdit()"),
+            ("func handleCanvasKey(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "editFocus.commitActiveEdit()"),
+            ("func handleCanvasKey(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "scrapFlow.makeScrapAndEnter("),
+            ("func handleCanvasKey(", "CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)",
+             "scrapFlow.enter("),
+            ("func handleCanvasKey(", "!model.isInGesture", "scrapFlow.makeScrapAndEnter("),
             ("func handleDrag(", "CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly)",
              "interaction.begin("),
             ("func deleteSelection(", "CanvasEditGate.deletes(isReadOnly: model.isReadOnly)",
              // The CARD arm: its `withScene(persist: false)` is the one the
              // model does not guard, which is what this gate exists for.
              "model.beginGesture(\"Delete Card\")"),
-            ("func handleDrop(", "CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)",
+            ("func handleDrop(_ payloads:", "CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)",
              "handleCaptureDrop(entryID"),
-            ("func handleDrop(", "CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)",
+            ("func handleDrop(_ payloads:", "CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)",
              "CanvasDrop.apply("),
             ("func handleExternalDrop(", "CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)",
              "CanvasExternalDrop.ingest("),
+            // A region's name on the canvas (spec §3). Each entry point asks in
+            // the surface's order: a gesture of the writer's hand refuses it,
+            // then the gate, then the open scrap (or title) is finished, then
+            // the act.
+            ("func begin(_ id: CanvasRegionID)", "!model.isInGesture",
+             "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)"),
+            ("func begin(_ id: CanvasRegionID)", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "editFocus.commitActiveEdit()"),
+            ("func begin(_ id: CanvasRegionID)", "editFocus.commitActiveEdit()",
+             "regionTitleEditingID = id"),
+            ("func writeTitle(", "!model.isInGesture",
+             "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)"),
+            ("func writeTitle(", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "model.mutate(\"Rename Region\")"),
+            ("func handleCanvasKey(", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "regionTitleEditing.begin("),
+            ("func handleClick(", "CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly)",
+             "regionTitleEditing.begin("),
+            ("func openTheWrapsTitle(", "!model.isInGesture",
+             "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)"),
+            ("func openTheWrapsTitle(", "CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)",
+             "regionTitleEditingID = region"),
+            // Entering a scrap commits an open title AFTER its own gesture
+            // assertion and BEFORE "Edit Scrap" opens, so the rename is a step
+            // of its own and never nests.
+            ("func enter(_ id: CanvasNodeID", "!model.isInGesture", "regionTitleEditing.commitIfOpen()"),
+            ("func enter(_ id: CanvasNodeID", "regionTitleEditing.commitIfOpen()",
+             "model.beginGesture(\"Edit Scrap\")"),
         ]
         for order in orders {
             let code = try Self.declarationCode(order.function)

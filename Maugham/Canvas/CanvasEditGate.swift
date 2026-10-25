@@ -38,6 +38,10 @@ enum CanvasEditGate {
     /// so it beeps — "that key means nothing here".
     static func deletes(isReadOnly: Bool) -> Bool { !isReadOnly }
 
+    /// Whether a key may make or enter a scrap — Tab and ⌘Return inside one
+    /// today. Finishing a scrap is not asked: it makes nothing.
+    static func keyCreates(isReadOnly: Bool) -> Bool { !isReadOnly }
+
     /// The three drops onto the canvas that ADD something. (The fourth, a
     /// research row already on the canvas, only selects its card and brings it
     /// into view — it changes nothing, so it is not asked here at all.)

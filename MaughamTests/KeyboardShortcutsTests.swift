@@ -20,4 +20,23 @@ final class KeyboardShortcutsTests: XCTestCase {
                 "category \(category.category) is empty")
         }
     }
+
+    func test_theCanvasKeysAreListed() throws {
+        let canvas = try XCTUnwrap(KeyboardShortcuts.all.first { $0.category == "Canvas" })
+        let listed = Dictionary(uniqueKeysWithValues: canvas.items.map { ($0.label, $0.shortcut) })
+        let expected: [String: String] = [
+            "Finish scrap": "↩",
+            "New line in scrap": "⇧↩",
+            "Finish scrap (Escape)": "⎋",
+            "New joined scrap": "⇥",
+            "New scrap below": "⌘↩",
+            "New scrap / edit selected": "↩",
+            "Move selection": "←↑→↓",
+            "Rename region": "↩",
+            "Canvas from tree (Plan)": "⇥",
+            "Back to tree": "⇧⇥",
+        ]
+        XCTAssertEqual(canvas.items.count, expected.count)
+        XCTAssertEqual(listed, expected)
+    }
 }

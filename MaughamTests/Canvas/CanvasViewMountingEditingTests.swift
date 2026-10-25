@@ -700,7 +700,8 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
     func test_escapeInsideAMountedScrapNeverReachesTheDim() throws {
         var asked = 0
         let root = try projectRoot()
-        let window = host(CanvasView(model: makeModel(), projectRoot: root,
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
                                      paletteSwatchHexes: { [] },
                                      subject: .piece("ch1"),
                                      selectTheProjectRow: { asked += 1 }))
@@ -728,10 +729,11 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
                        "Escape inside a scrap cleared the dim: the writer pressed "
                        + "the key that cancels what they are typing and the window's "
                        + "subject changed under them instead")
-        XCTAssertTrue(window.firstResponder === editor,
-                      "the editor lost first responder to an Escape it should have "
-                      + "handled itself")
-        XCTAssertEqual(editor.string, scrapText, "the words are untouched")
+        // Since the keyboard-flow milestone the editor's Escape FINISHES the
+        // scrap (spec §1): it leaves, keeping every word.
+        XCTAssertTrue(window.firstResponder === events,
+                      "the editor's Escape did not finish the scrap")
+        XCTAssertEqual(model.scraps[scrapID], scrapText, "the words are untouched")
     }
 
     /// The same refusal at the one moment the responder chain does NOT protect
@@ -758,6 +760,13 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
         let events = try eventView(in: window)
         _ = try doubleClickTheScrap(in: window)
 
+        // Asked BEFORE the real Escape below, which now finishes the scrap
+        // (spec §1) and so would close the very state this is about.
+        XCTAssertEqual(events.onEscape?(), false,
+                       "the canvas refused the Escape and CLAIMED it anyway, so the "
+                       + "key stops here instead of travelling on to whatever the "
+                       + "writer was actually cancelling")
+
         NSApp.sendEvent(escapeKeyEvent(for: window))
         pump(0.2)
 
@@ -770,10 +779,6 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
                        + "is the writer cancelling what they are typing, and it must "
                        + "lose to the editor by a guard as well as by the responder "
                        + "chain")
-        XCTAssertEqual(events.onEscape?(), false,
-                       "the canvas refused the Escape and CLAIMED it anyway, so the "
-                       + "key stops here instead of travelling on to whatever the "
-                       + "writer was actually cancelling")
     }
 
     /// **Escape on a dimmed board asks for the project row**, which is §4.1's
@@ -1652,5 +1657,165 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
         XCTAssertNil(model.selectedRegion,
                      "so `selectedRegion` is nil, the inspector is showing \"Select "
                      + "a region\", and there is no label field to type into")
+    }
+
+
+    // MARK: - Keys inside a scrap
+
+    /// A real Return, as AppKit delivers one: `insertNewline:` through the text
+    /// view's key bindings (measured 2026-10-24, see `ScrapEditorContainer`).
+    private func returnKeyEvent(for window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: "\r", charactersIgnoringModifiers: "\r",
+                         isARepeat: false, keyCode: 36)!
+    }
+
+    /// Return finishes the scrap and the CANVAS takes the keyboard, so the next
+    /// Return, Tab or arrow means something. Sent through `NSApp.sendEvent(_:)`,
+    /// the real routing, to the editor double-clicking left first responder.
+    func test_returnInAScrapFinishesItAndTheCanvasHoldsTheKeyboard() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let container = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(container.textView)
+        XCTAssertTrue(window.firstResponder === editor, "precondition: the writer is in the scrap")
+
+        NSApp.sendEvent(returnKeyEvent(for: window))
+        pump(until: { window.firstResponder === events })
+
+        XCTAssertTrue(window.firstResponder === events,
+                      "the canvas does not hold the keyboard after Return, so the next key goes nowhere")
+        XCTAssertNil(firstDescendant(ScrapEditorContainer.self, in: try XCTUnwrap(window.contentView)),
+                     "the editor is still mounted on the finished scrap")
+        XCTAssertEqual(model.selection, .node(scrapID), "the finished scrap is not selected")
+        XCTAssertEqual(model.scraps[scrapID], scrapText, "Return changed the words")
+    }
+
+    /// Return on a SELECTED scrap — the canvas holding the keyboard — enters it
+    /// with the caret at the end, and what the writer types next lands in the
+    /// scrap's words. Real key events through `NSApp.sendEvent(_:)`.
+    func test_returnOnASelectedScrapEntersItAndTypingLands() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 60, y: 40), in: window)
+        XCTAssertEqual(model.selection, .node(scrapID), "precondition: the scrap is selected")
+        XCTAssertTrue(window.firstResponder === events, "precondition: the canvas holds the keyboard")
+
+        NSApp.sendEvent(returnKeyEvent(for: window))
+        let contentView = try XCTUnwrap(window.contentView)
+        func editor() -> NSTextView? {
+            firstDescendant(ScrapEditorContainer.self, in: contentView)?.textView
+        }
+        pump(until: { editor().map { window.firstResponder === $0 } ?? false })
+
+        let text = try XCTUnwrap(editor(), "Return on a selected scrap mounted no editor")
+        XCTAssertTrue(window.firstResponder === text, "the writer is not in the scrap after Return")
+        XCTAssertEqual(text.selectedRange().location, (scrapText as NSString).length,
+                       "the caret is not at the end of the scrap's words")
+        text.insertText(" — and more", replacementRange: text.selectedRange())
+        XCTAssertEqual(model.scraps[scrapID], scrapText + " — and more",
+                       "what the writer typed after Return did not reach the scrap")
+    }
+
+    /// The arbitration, pinned end to end: the first Escape belongs to the
+    /// scrap (it finishes it, and the dim stays); only the second, with no
+    /// editor mounted, is the canvas's, and asks for the project row.
+    func test_escapeInAScrapFinishesItAndADimmedBoardStaysDimmed() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        _ = try doubleClickTheScrap(in: window)
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(until: { window.firstResponder === events })
+
+        XCTAssertEqual(asked, 0, "the Escape that finished the scrap also lifted the dim")
+        XCTAssertTrue(window.firstResponder === events, "Escape did not finish the scrap")
+        XCTAssertEqual(model.scraps[scrapID], scrapText, "Escape discarded the words")
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump()
+
+        XCTAssertEqual(asked, 1, "control: with no scrap open, Escape is the project row")
+    }
+
+    /// The keyboard is REQUESTED by a change, never taken by mounting: a canvas
+    /// that appears beside a field the writer is typing in leaves the field alone.
+    func test_mountingTheCanvasDoesNotTakeTheKeyboard() throws {
+        let root = try projectRoot()
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let content = NSView(frame: bounds)
+        let field = NSTextField(frame: CGRect(x: 10, y: 10, width: 200, height: 24))
+        content.addSubview(field)
+        let window = TestWindow.make(CanvasHostWindow.self, contentRect: bounds,
+                                     contentView: content, present: .key)
+        windows.append(window)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let fieldEditor = try XCTUnwrap(window.firstResponder as? NSTextView,
+                                        "precondition: the field is being typed in")
+
+        let canvas = NSHostingView(rootView: CanvasView(model: makeModel(), projectRoot: root,
+                                                        paletteSwatchHexes: { [] }))
+        canvas.frame = CGRect(x: 0, y: 40, width: 800, height: 560)
+        content.addSubview(canvas)
+        pump()
+        _ = try eventView(in: window)
+
+        XCTAssertTrue(window.firstResponder === fieldEditor,
+                      "mounting the canvas took the keyboard from the field the writer was in")
+    }
+
+    /// Tab makes the joined scrap and the writer is IN it — its editor holds
+    /// the keyboard, not the canvas. The new card is on screen already, so the
+    /// camera stays: a zero canvas size would have panned it to the corner
+    /// (mutation, 2026-10-24). That the canvas is not ALSO asked for the
+    /// keyboard is `CanvasEditorKeyTests`' pin: here the editor would win that
+    /// race by mount order, so this test cannot see it.
+    func test_tabInAScrapMakesTheNextOneBesideItAndTheWriterIsInIt() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let first = try doubleClickTheScrap(in: window)
+        let before = Set(model.scene.unorderedNodes.map(\.id))
+
+        NSApp.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                         timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: window.windowNumber, context: nil,
+                                         characters: "\t", charactersIgnoringModifiers: "\t",
+                                         isARepeat: false, keyCode: 48)!)
+        pump(0.4)
+
+        let made = Set(model.scene.unorderedNodes.map(\.id)).subtracting(before)
+        let b = try XCTUnwrap(made.first, "Tab made no scrap")
+        XCTAssertEqual(made.count, 1)
+        XCTAssertEqual(model.scraps[scrapID], scrapText, "Tab changed the first scrap's words")
+        let container = try XCTUnwrap(firstDescendant(ScrapEditorContainer.self,
+                                                      in: try XCTUnwrap(window.contentView)))
+        XCTAssertFalse(container === first && container.textView?.string == scrapText,
+                       "the editor is still on the first scrap")
+        XCTAssertTrue(window.firstResponder === container.textView,
+                      "the writer is not in the new scrap — the canvas took the keyboard from it")
+        XCTAssertFalse(window.firstResponder === events)
+        let frame = try XCTUnwrap(model.scene.node(b)?.frame)
+        let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
+        let placed = container.convert(CGPoint.zero, to: events)
+        XCTAssertEqual(placed.x, textOrigin.x, accuracy: 1,
+                       "the camera moved for a card that was already on screen")
+        XCTAssertLessThan(frame.maxX, events.bounds.width, "premise: the new card fits the view")
     }
 }

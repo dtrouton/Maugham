@@ -75,6 +75,11 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// that claimed every Escape on an undimmed board would take it away from all
     /// of them and look, from in here, exactly like one that handled it.
     var onEscape: (() -> Bool)?
+    /// Return, Tab, ⇧Tab, ⌘Return and the arrows, with the canvas holding first
+    /// responder, and this view's `bounds.size` for the reveal. What they do is
+    /// `CanvasKeyHandler.handleCanvasKey`'s business. Returns whether the key
+    /// was used; an unused one travels on, as ⌫'s does.
+    var onKey: ((CanvasKey, CGSize) -> Bool)?
 
     /// Whether the tree's subject dims the board — the one condition
     /// `CanvasEscapeMonitor` is installed under.
@@ -136,6 +141,30 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         syncEscapeMonitor()
+        claimKeyboardIfPending()
+    }
+
+    // MARK: - The keyboard, requested
+
+    /// The last request this view answered. `makeNSView` sets it to the value
+    /// the view is made with, so mounting never takes the keyboard from a field
+    /// the writer is typing in; only a CHANGE claims it (tripwire 27's rule).
+    var servedKeyboardRequest = CanvasKeyboardRequest()
+    private var keyboardClaimPending = false
+
+    /// Take the keyboard if `request` is new — or, with no window yet, as soon
+    /// as there is one: `makeFirstResponder` on a nil window is a silent no-op.
+    func serveKeyboardRequest(_ request: CanvasKeyboardRequest) {
+        guard request != servedKeyboardRequest else { return }
+        servedKeyboardRequest = request
+        keyboardClaimPending = true
+        claimKeyboardIfPending()
+    }
+
+    private func claimKeyboardIfPending() {
+        guard keyboardClaimPending, let window else { return }
+        keyboardClaimPending = false
+        window.makeFirstResponder(self)
     }
 
     /// Test-only reader for the pairing above: **is this canvas watching for
@@ -418,14 +447,37 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// ⌫ keeps its arm because nothing changed for it: it is meaningful only with
     /// a canvas selection, which only a click on this view can make, so the
     /// responder chain is the right filter for it and the wrong one for Escape.
+    ///
+    /// The canvas's own keys (`CanvasKeyboard.canvasKey`) go to `onKey`, and
+    /// travel on when it did not use them. ⌘Return is not taken here: it is a
+    /// key equivalent, offered first to `performKeyEquivalent` below.
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
         case Self.backwardDelete, Self.forwardDelete:
             if onDeleteKey?() == true { return }
             super.keyDown(with: event)
         default:
+            if let key = CanvasKeyboard.canvasKey(characters: event.charactersIgnoringModifiers,
+                                                  modifiers: event.modifierFlags),
+               key != .commandReturn,
+               onKey?(key, bounds.size) == true { return }
             super.keyDown(with: event)
         }
+    }
+
+    /// ⌘Return. AppKit offers a key equivalent to EVERY view in the window,
+    /// whoever holds the keyboard, so it is the canvas's only while the canvas
+    /// is first responder — never from the binder's rename, the find bar or an
+    /// inspector field — and only when `onKey` used it. ⌘⇧Return (Promote…)
+    /// does not decode, so it always travels on.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self,
+           CanvasKeyboard.canvasKey(characters: event.charactersIgnoringModifiers,
+                                    modifiers: event.modifierFlags) == .commandReturn,
+           onKey?(.commandReturn, bounds.size) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     /// `NSDeleteCharacter` and `NSDeleteFunctionKey` as the strings
@@ -447,6 +499,15 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     static let escape = String(UnicodeScalar(UInt8(0x1B)))
 }
 
+/// Asks `CanvasEventNSView` to take the keyboard: each counter belongs to one
+/// asker (`fromCanvas`, the canvas's own helpers — a finished scrap, a closed
+/// region title; `fromWindow`, Tab in Plan's binder through
+/// `CanvasView.keyboardRequest`), and any change is served once.
+struct CanvasKeyboardRequest: Equatable {
+    var fromCanvas = 0
+    var fromWindow = 0
+}
+
 /// Bridges `CanvasEventNSView` into SwiftUI. Transparent — it contributes no
 /// drawing, only events.
 struct CanvasEventView: NSViewRepresentable {
@@ -458,6 +519,8 @@ struct CanvasEventView: NSViewRepresentable {
     var onDeleteKey: () -> Bool
     /// Returns whether the canvas used the Escape — see the same.
     var onEscape: () -> Bool
+    /// The canvas's own keys, with its size — see `CanvasEventNSView.onKey`.
+    var onKey: (CanvasKey, CGSize) -> Bool
     /// Whether the tree's subject dims the board, and so whether
     /// `CanvasEscapeMonitor` is installed — see `CanvasEventNSView.boardIsDimmed`.
     ///
@@ -469,10 +532,15 @@ struct CanvasEventView: NSViewRepresentable {
     /// census for a one-call-site view.
     var dimsTheBoard: Bool
     var undoManager: UndoManager?
+    /// A change takes the keyboard — see `CanvasEventNSView.serveKeyboardRequest`.
+    /// Not defaulted, for `dimsTheBoard`'s reason.
+    var keyboardRequest: CanvasKeyboardRequest
 
     func makeNSView(context: Context) -> CanvasEventNSView {
         let v = CanvasEventNSView(frame: .zero)
         v.camera = camera
+        // Served already: mounting requests nothing.
+        v.servedKeyboardRequest = keyboardRequest
         wire(v)
         return v
     }
@@ -482,6 +550,7 @@ struct CanvasEventView: NSViewRepresentable {
         // fights its own updates.
         if v.camera != camera { v.camera = camera }
         wire(v)
+        v.serveKeyboardRequest(keyboardRequest)
     }
 
     private func wire(_ v: CanvasEventNSView) {
@@ -490,6 +559,7 @@ struct CanvasEventView: NSViewRepresentable {
         v.onDrag = onDrag
         v.onDeleteKey = onDeleteKey
         v.onEscape = onEscape
+        v.onKey = onKey
         // Assigned AFTER `onEscape`: the flag's `didSet` installs the monitor,
         // and a monitor installed against an unwired callback would decline every
         // Escape until the next update pass.

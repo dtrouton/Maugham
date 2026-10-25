@@ -214,6 +214,49 @@ final class CanvasCompositionTests: XCTestCase {
                        + "whether the card is level; a second is a second predicate")
     }
 
+    /// **One editor slot** (spec §3, tripwire 27): the region-title field is
+    /// the `else if` arm of `mountedEditor`, after the scrap editor's branch,
+    /// so the two can never both exist and the layer order — event view, then
+    /// the one editor — is unchanged. `body` composes no other text editor, and
+    /// the renderer is handed the open title so its drawn label steps aside.
+    func test_theMountedEditorSlotHoldsAtMostOneEditor() throws {
+        let src = codeOnly(try canvasViewSource())
+        let builder = try mountedEditorBuilder(src)
+        let scrap = try XCTUnwrap(builder.range(of: "ScrapEditorHost("),
+                                  "mountedEditor no longer builds the scrap editor")
+        let arm = try XCTUnwrap(builder.range(of: "} else if let rid = regionTitleEditingID"),
+                                "the title field is not an `else if` arm of mountedEditor")
+        let title = try XCTUnwrap(builder.range(of: "RegionTitleEditorHost("),
+                                  "mountedEditor does not build the title field")
+        XCTAssertTrue(scrap.lowerBound < arm.lowerBound && arm.lowerBound < title.lowerBound,
+                      "the title field must be the arm AFTER the scrap editor's branch")
+        for host in ["ScrapEditorHost(", "RegionTitleEditorHost("] {
+            XCTAssertEqual(codeOnly(try canvasSurfaceSource())
+                            .components(separatedBy: host).count - 1, 1,
+                           "\(host) is built somewhere other than mountedEditor's one slot")
+        }
+        let body = try bodySource(src)
+        for editor in ["ScrapEditorHost(", "RegionTitleEditorHost(", "TextField(",
+                       "TextEditor(", "NSTextView", "NSTextField"] {
+            XCTAssertFalse(body.contains(editor),
+                           "body composes a text editor (\(editor)) outside mountedEditor")
+        }
+        // Leaving the canvas commits a half-typed name, before the flush; and
+        // a structural change forgets a title whose region an undo took away.
+        let disappear = try XCTUnwrap(body.range(of: ".onDisappear {"))
+        let commit = try XCTUnwrap(body.range(of: "regionTitleEditing.commitIfOpen()"),
+                                   "leaving the canvas does not commit an open title")
+        let detach = try XCTUnwrap(body.range(of: "model.detach()"))
+        XCTAssertTrue(disappear.lowerBound < commit.lowerBound && commit.lowerBound < detach.lowerBound,
+                      "the open title must be committed in .onDisappear, before the detach flushes")
+        XCTAssertTrue(body.contains(".onChange(of: model.sceneRevision) { _, _ in "
+                                    + "regionTitleEditing.forgetIfTheRegionIsGone() }"))
+        XCTAssertTrue(body.contains("let namingRegionID = regionTitleEditingID")
+                      && body.contains("namingRegionID: namingRegionID"),
+                      "the renderer is not handed the open title, so the drawn label "
+                      + "shows through the field")
+    }
+
     /// I7. The editor forwards a point in its OWN unzoomed space; anchoring the
     /// pinch on it directly zooms about a point the writer never touched.
     func test_theFocusedEditorsPinchAnchorGoesThroughTheGeometryMapper() throws {

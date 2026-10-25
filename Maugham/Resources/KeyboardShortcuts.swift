@@ -95,6 +95,20 @@ public enum KeyboardShortcuts {
             Entry(label: "Department pane", shortcut: "⌘⌥K"),
             Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
         ]),
+        // The canvas's keys (canvas-keyboard-flow); `KeyboardShortcutsTests`
+        // checks them. The first five act inside a scrap, the rest on the canvas.
+        Category(category: "Canvas", items: [
+            Entry(label: "Finish scrap",            shortcut: "↩"),
+            Entry(label: "New line in scrap",       shortcut: "⇧↩"),
+            Entry(label: "Finish scrap (Escape)",   shortcut: "⎋"),
+            Entry(label: "New joined scrap",        shortcut: "⇥"),
+            Entry(label: "New scrap below",         shortcut: "⌘↩"),
+            Entry(label: "New scrap / edit selected", shortcut: "↩"),
+            Entry(label: "Move selection",          shortcut: "←↑→↓"),
+            Entry(label: "Rename region",           shortcut: "↩"),
+            Entry(label: "Canvas from tree (Plan)", shortcut: "⇥"),
+            Entry(label: "Back to tree",            shortcut: "⇧⇥"),
+        ]),
         Category(category: "Help", items: [
             Entry(label: "Maugham Help",            shortcut: "⌘?"),
             Entry(label: "Syntax Reference",        shortcut: "⌘/"),

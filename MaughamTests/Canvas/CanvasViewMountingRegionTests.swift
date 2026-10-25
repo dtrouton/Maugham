@@ -1705,4 +1705,170 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
                        + "writer's canvas can be left with a card whose connections "
                        + "are one keystroke behind it")
     }
+
+    // MARK: - A region's name, on the canvas (spec §3)
+
+    /// A real key, as AppKit delivers one to the key window: the field editor
+    /// interprets it, so a character inserts and Return is `insertNewline:`.
+    private func key(_ characters: String, keyCode: UInt16, in window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: characters, charactersIgnoringModifiers: characters,
+                         isARepeat: false, keyCode: keyCode)!
+    }
+
+    /// The title field the sweep opened, once it holds the keyboard.
+    private func titleFieldHoldingTheKeyboard(in window: NSWindow) throws -> RegionTitleField {
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(until: {
+            guard let field = self.firstDescendant(RegionTitleField.self, in: hosted) else { return false }
+            return field.currentEditor() != nil && window.firstResponder === field.currentEditor()
+        })
+        let field = try XCTUnwrap(firstDescendant(RegionTitleField.self, in: hosted),
+                                  "the sweep opened no title field")
+        XCTAssertTrue(window.firstResponder === field.currentEditor(),
+                      "the title field never took the keyboard, so typing goes nowhere")
+        return field
+    }
+
+    /// **Sweep, type, Return: the region is named where it is** (spec §3), with
+    /// real keys through `NSApp.sendEvent(_:)`. The sweep is its own "New
+    /// Region" step, the name its own "Rename Region", the field goes, and the
+    /// canvas holds the keyboard after Return.
+    func test_typingANameAfterASweepAndPressingReturnNamesIt() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        let region = try XCTUnwrap(model.scene.regions.first, "precondition: the sweep made a region")
+        _ = try titleFieldHoldingTheKeyboard(in: window)
+        XCTAssertEqual(model.undo.undoMenuItemTitle, "Undo New Region",
+                       "precondition: the sweep is its own step, closed before the title opened")
+
+        for (character, code) in [("F", UInt16(3)), ("o", 31), ("g", 5)] {
+            NSApp.sendEvent(key(character, keyCode: code, in: window))
+        }
+        NSApp.sendEvent(key("\r", keyCode: 36, in: window))
+        pump(until: { model.scene.region(region.id)?.label == "Fog" })
+
+        XCTAssertEqual(model.scene.region(region.id)?.label, "Fog",
+                       "typing a name and pressing Return did not name the region")
+        XCTAssertEqual(model.undo.undoMenuItemTitle, "Undo Rename Region")
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(until: {
+            window.firstResponder === events
+                && self.firstDescendant(RegionTitleField.self, in: hosted) == nil
+        })
+        XCTAssertNil(firstDescendant(RegionTitleField.self, in: hosted),
+                     "the title field outlived Return")
+        XCTAssertTrue(window.firstResponder === events,
+                      "after Return the canvas does not hold the keyboard")
+        pumpUntilSaved()
+        XCTAssertEqual(sceneOnDisk(root).region(region.id)?.label, "Fog",
+                       "the name never reached disk")
+    }
+
+    /// **Tab in the title commits and hands the canvas the keyboard** — never
+    /// AppKit's key-view loop, which would carry it off to whatever field is
+    /// next. Real keys through `NSApp.sendEvent(_:)`.
+    func test_tabInTheTitleNamesTheRegionAndLeavesTheCanvasTheKeyboard() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        let region = try XCTUnwrap(model.scene.regions.first, "precondition: the sweep made a region")
+        _ = try titleFieldHoldingTheKeyboard(in: window)
+
+        for (character, code) in [("F", UInt16(3)), ("o", 31), ("g", 5)] {
+            NSApp.sendEvent(key(character, keyCode: code, in: window))
+        }
+        NSApp.sendEvent(key("\t", keyCode: 48, in: window))
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(until: {
+            model.scene.region(region.id)?.label == "Fog"
+                && window.firstResponder === events
+                && self.firstDescendant(RegionTitleField.self, in: hosted) == nil
+        })
+
+        XCTAssertEqual(model.scene.region(region.id)?.label, "Fog", "Tab did not commit the name")
+        XCTAssertNil(firstDescendant(RegionTitleField.self, in: hosted), "the title field outlived Tab")
+        XCTAssertTrue(window.firstResponder === events,
+                      "after Tab the canvas does not hold the keyboard")
+    }
+
+    /// **Escape while naming belongs to the title** — on a dimmed board, where
+    /// an Escape the canvas held would select the project row. It leaves the
+    /// swept region untitled and kept, and the dim stays.
+    func test_escapeWhileNamingOnADimmedBoardKeepsTheDim() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        let region = try XCTUnwrap(model.scene.regions.first, "precondition: the sweep made a region")
+        _ = try titleFieldHoldingTheKeyboard(in: window)
+        NSApp.sendEvent(key("F", keyCode: 3, in: window))
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(until: {
+            window.firstResponder === events
+                && self.firstDescendant(RegionTitleField.self, in: hosted) == nil
+        })
+
+        XCTAssertEqual(asked, 0, "Escape while naming selected the project row and lifted the dim")
+        XCTAssertNil(firstDescendant(RegionTitleField.self, in: hosted),
+                     "Escape did not close the title")
+        XCTAssertEqual(model.scene.region(region.id)?.label, "",
+                       "Escape wrote what was typed")
+        XCTAssertNotNil(model.scene.region(region.id), "Escape took the region away")
+        XCTAssertEqual(model.undo.undoMenuItemTitle, "Undo New Region", "Escape added a step")
+        XCTAssertTrue(window.firstResponder === events,
+                      "after Escape the canvas does not hold the keyboard")
+
+        // The control: with nothing open, the same Escape asks for the project row.
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(until: { asked == 1 })
+        XCTAssertEqual(asked, 1, "control: an Escape the canvas holds lifts the dim")
+    }
+
+    /// **A half-typed name survives leaving the canvas** (a persona switch, a
+    /// window closing): `.onDisappear` commits it as "Rename Region" before
+    /// the flush, and it reaches disk.
+    func test_aHalfTypedNameIsCommittedWhenTheCanvasGoesAway() throws {
+        let root = try projectRoot()
+        let model = makeModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        let region = try XCTUnwrap(model.scene.regions.first, "precondition: the sweep made a region")
+        _ = try titleFieldHoldingTheKeyboard(in: window)
+        for (character, code) in [("W", UInt16(13)), ("e", 14)] {
+            NSApp.sendEvent(key(character, keyCode: code, in: window))
+        }
+        pump(0.1)
+
+        let saved = savedScene(after: window, root: root)
+        XCTAssertEqual(model.scene.region(region.id)?.label, "We",
+                       "leaving the canvas lost the half-typed name")
+        XCTAssertEqual(saved.region(region.id)?.label, "We", "the name never reached disk")
+    }
 }

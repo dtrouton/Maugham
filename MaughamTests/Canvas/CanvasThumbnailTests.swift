@@ -545,10 +545,40 @@ final class CanvasThumbnailTests: XCTestCase {
         return paths
     }
 
+    // MARK: - The header's shape (canvas-keyboard-flow Task 3)
+
+    /// A dropped picture is born at `headerAspect`'s height, and the layout
+    /// pass later measures it by the decoded thumbnail's: the two must agree
+    /// within `aspectReshapeTolerance`, EXIF rotation included.
+    func test_theHeaderAspectIsTheDrawnShapeAndAgreesWithTheDecode() throws {
+        let landscape = root.appendingPathComponent("landscape.png")
+        let portrait = root.appendingPathComponent("portrait.png")
+        let rotated = root.appendingPathComponent("rotated.jpg")
+        try Self.writeFixture(width: 400, height: 200, to: landscape)
+        try Self.writeFixture(width: 200, height: 400, to: portrait)
+        // Stored 400×200 on its side, drawn 200×400: a phone's portrait shot.
+        try Self.writeFixture(width: 400, height: 200, to: rotated,
+                              type: .jpeg, orientation: 6)
+
+        let cases: [(URL, CGFloat)] = [(landscape, 2), (portrait, 0.5), (rotated, 0.5)]
+        for (url, expected) in cases {
+            let header = try XCTUnwrap(CanvasThumbnails.headerAspect(of: url), url.lastPathComponent)
+            XCTAssertEqual(header, expected, accuracy: 0.0001, url.lastPathComponent)
+            let decoded = try XCTUnwrap(CanvasThumbnails.decode(url, maxPixelSize: 256))
+            let decodedAspect = CGFloat(decoded.width) / CGFloat(decoded.height)
+            XCTAssertLessThanOrEqual(abs(decodedAspect - header),
+                                     header * CanvasThumbnails.aspectReshapeTolerance,
+                                     "the layout pass re-derives the same height: "
+                                     + url.lastPathComponent)
+        }
+        XCTAssertNil(CanvasThumbnails.headerAspect(of: root.appendingPathComponent("absent.png")))
+    }
+
     /// A gradient, not a flat fill: nothing in this suite depends on the bitmap
     /// being uniform, and a fixture whose every pixel is identical would make a
     /// future test about pixels quietly meaningless.
-    private static func writeFixture(width: Int, height: Int, to url: URL) throws {
+    private static func writeFixture(width: Int, height: Int, to url: URL,
+                                     type: UTType = .png, orientation: Int? = nil) throws {
         let context = CGContext(data: nil, width: width, height: height,
                                 bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(),
@@ -566,10 +596,11 @@ final class CanvasThumbnailTests: XCTestCase {
         }
         guard let image = context.makeImage(),
               let destination = CGImageDestinationCreateWithURL(
-                url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+                url as CFURL, type.identifier as CFString, 1, nil) else {
             throw NSError(domain: "CanvasThumbnailTests", code: 2)
         }
-        CGImageDestinationAddImage(destination, image, nil)
+        let properties = orientation.map { [kCGImagePropertyOrientation: $0] as CFDictionary }
+        CGImageDestinationAddImage(destination, image, properties)
         guard CGImageDestinationFinalize(destination) else {
             throw NSError(domain: "CanvasThumbnailTests", code: 3)
         }

@@ -975,3 +975,101 @@ Clauses cut from `Maugham/Canvas/AREA.md` to make room for the six Map rows the 
 
 - `flush()` on quit observes with `queue: nil`: with a queue the block may never run before exit.
 
+
+## Moved from the guide by canvas-keyboard-flow Task 0 (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the keyboard flow's Map rows and rules. Each is the why behind a rule that is still in the guide, under the section named; the rule and its test citation stayed. The Routes rule's second sentence ("The external `.onDrop` is applied first (innermost) and the `String.self` destination after it") was deleted outright, not moved: it was the reverse of `CanvasView.body`, and Task 1 rewrites that rule.
+
+- The dim / collapse: “`unorderedNodes` still returns hidden nodes, because `rebuildLayouts` must keep measuring them”.
+- Lines: “Keep its hairline inset: `!box.intersection(viewport).isEmpty` culls every horizontal line, and the true reason is that `CGRect.intersects` is false only for a null rect”.
+- Routes onto the canvas: “a drag that begins outside the canvas has no bracket of its own, and the delivery site is not what tripwire 32 turns on”.
+- Item nodes and thumbnails: “because ingest discards the writer's filename”.
+- Item nodes and thumbnails: “because the height changes”.
+- Promotion: “because an `inout CanvasScene` cannot cross an `await`”.
+- Promotion: “because an image well is append-only for every producer”.
+- Ownership, counters and undo: “which is why a press that truncates a coast bumps at `handleDrag(.began)`”.
+- Claude on the canvas: “because `writeNow` swallows I/O errors”.
+- Scale and tests: “which catch O(n²) and not a lost constant factor”.
+- The mounted editor and Delete: “a `where` binds only to the last pattern”.
+- Accepted costs: “which is already level; inventing a lean would undo the provenance signal”.
+- The dim: “a restore is not an arrival, and keying it on `revision` or `sceneRevision` snatches the card from under the writer's hand”.
+- The dim: “because `NSWindow.sendEvent(_:)` bypasses monitors and monitor order is not stable”.
+- The dim: “which is app-wide”.
+- Lines: “or no line is ever created”.
+- The scene model / membership: “so drawing, culling, hit testing and accessibility agree”.
+- The dim: “the dim is entered by a click, and a deletion is not one”.
+- The dim: “two handlers leave the tree one click behind”.
+- Promotion: “since deferring it puts the walk on the drag loop”.
+- Promotion: “or its stale image list overwrites the new pictures”.
+- Routes onto the canvas: “so a refusal and a failure stay separate sentences”.
+- Ownership, counters and undo: “being inside its own bracket by construction”.
+- Ownership, counters and undo: “so the editor's rebind shows the restored words”.
+- Promotion: “the sheet can be opened mid-visit”.
+- Routes onto the canvas: “since no test can post a drag session”.
+- Item nodes and thumbnails: “so the cache cannot feed itself”.
+- Membership: “seeded per process”.
+
+## One drop modifier (canvas-keyboard-flow Task 1, 2026-10-24)
+
+**What the two-modifier arrangement said, and what it did.** From 1C-d Task 11 until this task, `CanvasView.body` mounted `.dropDestination(for: String.self)` innermost and the provider `.onDrop(of: [.fileURL, .image])` after it. The comment above them said the order "is not a preference": written the other way round, `.onDrop(of:)` "claims the drag session on hover, before any payload is examined", so a research drag and an inbox drag did nothing while a Finder photograph landed. It also said this order was the one in which "both routes work", citing `ResearchRow` as precedent. A typed destination, it noted, "does not decline a session on the strength of its payload type; the outer one simply never sees it."
+
+**What the probe and the measurement found.** Denver dragged four things onto the shipped arrangement. A research row and an inbox capture landed. A PNG from the Finder and an image from a web page both slid back. The logging probe showed the browser image reaching the String closure with the *page's* URL as its payload, which `handleDrop` refused as an unknown id, and the Finder PNG reaching **neither** closure. Feeding the same two-modifier arrangement a drag through `NSDraggingDestination` in a scratch harness explained both: SwiftUI gives each drop modifier its **own** `_PlatformDraggingDestinationView`, every one registered for `public.data`/`public.item`, and AppKit offers a drag to the frontmost (the innermost modifier) only. The String view answered a Finder file "no operation" at `draggingEntered`, so AppKit refused at hover and nothing fired; it answered a browser image "copy" because its URL text loads. So "claims on hover" was the right symptom with the wrong mechanism: whichever drop modifier is innermost receives every drag, and the other is unreachable. The earlier smoke saw the same thing from the other side.
+
+**The fix is one modifier**: `.onDrop(of: CanvasDropRoute.acceptedTypes)` (`[.fileURL, .image, .utf8PlainText]`), with `CanvasDropRoute.route(typeIdentifiers:)` deciding by type: a file URL, any URL or an image wins over text, and text alone is an id. The measured provider types were `["public.png"]` (Finder PNG), `["public.png", "public.utf8-plain-text"]` (browser image) and `["public.utf8-plain-text"]` (research row). **Accepted cost (ruled):** the id string loads asynchronously, so an id this canvas has no card for is accepted and does nothing, rather than springing back.
+
+## Moved from the guide by canvas-keyboard-flow Task 6 (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the canvas-keys rule (`handleCanvasKey`) and for Tasks 7 and 8. Each is the why behind a rule still in the guide, under the section named.
+
+- The dim: “so the canvas gets the answer (`CanvasSubject`) and never the question” (Escape is the keyboard spelling of the project row).
+- The surface: “the grain peaks at 0.9575 over `lightBase` (0.930, 0.915, 0.880)” (why red is the bound channel in light mode).
+- Performance: “read `CanvasScene`'s doc comment rather than leaning on the probe budgets” (Supported: 2,000 nodes).
+- The scene model: “and `joinTarget` silently joins nothing for it” (a node with no `cachedHeight`).
+- Ownership, counters and undo: “snapshots own scrap text” (why the mounted editor has `allowsUndo = false`).
+- Regions and membership: “which fails when the list empties or grows” (`test_makingAnAppearanceHasAProductionCaller`).
+- Regions and membership: “a collapsed region is drawn at its frame, and `begin` refuses to start a sweep inside any region” (why `caughtRegions` has no exclusions and no `minimumSide` floor).
+
+**A canvas key asks the gesture before the fold.** `CanvasEditFocus.commitActiveEdit()` calls `model.endGesture()` whether or not a scrap is open, so a key that folded first while a drag held "Move Card" would close the writer's bracket under them. `handleCanvasKey` therefore refuses mid-gesture first, then asks the gate and folds; `CanvasCanvasKeyTests.test_everyCanvasKeyIsRefusedMidGesture` goes red if the fold moves above the check (mutation, 2026-10-24).
+
+## Moved from the guide by canvas-keyboard-flow Task 8 (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for the region-title rows and the one-editor-slot rule. Each is the why behind a rule still in the guide, under the section named.
+
+- The surface: “or the grain crawls under the cards” (the ground is handed the live camera).
+- Card metrics: “so its join and wrap fit it” (the drop routes birth a picture at its header's height).
+- Card metrics: “so a corner drag scales a photograph and never distorts it” (width is authoritative, height derived).
+- Focus straightens the card: “because the author decides whether it tilts” (`seededRotation` takes the node or region).
+- Focus straightens the card: “or the card stays level for the rest of the session” (`isSettled` compares each card to its own target).
+- Focus straightens the card: “or the click point moves out from under the cursor” (resolve the caret before the animation).
+- Focus straightens the card: “so a tilted corner still on screen is never culled” (`cullingBleed` carries the `r·θ` term).
+- Regions and membership: “a card that joins a collapsed region vanishes on drop” (why collapsed regions are skipped).
+- Lines: “or the defect returns” (draw order and click order move together).
+- Item nodes: “`load()`'s closures capture the view VALUE once, so any plain stored property they or their callees read is frozen” (a model-held closure reads no changing view property).
+- Item nodes: “Pixels are a cache; a shape is a fact.” (measurement reads the aspect memo).
+- Routes onto the canvas: “Each drop modifier is its own AppKit view and only the innermost gets the drag” (one drop modifier).
+- Ownership, counters and undo: “A `let` copy of `@State` goes stale within one call.” (the helpers are per-call structs over `$state`).
+- The mounted editor: “which ends any open gesture” (a canvas key is asked before the fold).
+- Persistence: “Do not read it as parity with `DocumentStore`: the canvas has no op log.” (the crash floor).
+
+**Why the title field shares the scrap editor's slot.** Two text editors over the canvas would each need their own frontmost layer, focus request and Escape story, and a writer could leave one half-typed while the other took keys. As `mountedEditor`'s `else if` arm the title cannot coexist with a scrap: `CanvasRegionTitleEditing.begin` folds and leaves an open scrap, and `CanvasScrapFlow.enter` and the click handler's head commit an open title. The typed words reach state on every keystroke (`CanvasRegionTitleDraft`, keyed by region), so the click head can commit them without waiting for the field to report a lost focus.
+
+**Why the drop opens the title by writing the binding.** `CanvasDropHandler` finishes in `Task` bodies, and a file that holds a sibling helper schedules no work (tripwire 32's construction census), so the wrap writes `regionTitleEditingID` itself and opens only with no gesture, scrap or title open — when there is nothing for `begin` to finish. The capture route opens the region its send reports (`CanvasCapture.Sent.wrappedIn`), never the card's home: a capture that joined an existing region would otherwise open that region's title.
+
+
+## Moved from the guide by the canvas-keyboard-flow whole-branch review (2026-10-24)
+
+Clauses cut from `Maugham/Canvas/AREA.md` to make room for three rules: a dimmed selected card is no selection for Return, Tab and ⌘Return under a chapter; a key-placed scrap keeps out of other chapters' regions and off its home region's edge; a region title takes the keyboard only from no other text view. Each is the why behind a rule still in the guide, under the section named.
+
+- Card metrics: "— the mark and the target are one decision" (the resize target and mark share a kind test).
+- Focus straightens the card: "(`NSView.frameRotation` rotates a real view crisply)" (the editor is level by design).
+- The mounted editor and Delete: "`NSBackspaceCharacter` is Ctrl-H" (the two delete keys ⌫ handles).
+- The mounted editor and Delete: "anything new hung off a key on this view inherits the same hazard" (a ⌫ mid-gesture deletes nothing).
+- The dim: "each with its own test" (Escape's two mechanisms against a mounted scrap editor).
+- Promotion: "a card is the node, a picture the file" (no refusal an owned node reaches calls it a card).
+- Accessibility: "One rule covers both: a signal is added to a channel that would otherwise be silent about a fact the writer needs, and withheld where it would be ambiguous with one already there." (the two drawn/spoken divergences).
+
+**Why a dimmed selection is no selection.** A card selected under one chapter stays selected when the writer picks another in the binder. Return on it would open the other chapter's scrap, so the writer's "make a scrap for this chapter" became "edit that one". Denver's ruling: under a `.piece` subject, Return, Tab and ⌘Return ignore a selected card the board dims, judged by the renderer's own lit set so the key and the eye agree. The arrows still move from it, because moving is how the writer gets off it.
+
+**Why the new scrap avoids foreign regions and its home's edge.** Membership is decided by centre at creation, so a key-placed scrap whose start fell inside a region bound to another chapter joined it, followed its binding and was born dimmed. And Tab's 12pt card gap is narrower than a drop wrap's 16pt padding, so the first candidate hung 4pt over the wrap's edge without being a member. The placement now treats foreign regions as obstacles and starts again past the home region's far edge when the card would straddle it.
+
+**Why the title checks the keyboard before claiming it.** A drop's wrap opens its title after an async load, by when the writer may be typing in an inspector field. The binder's list is allowed: after a click on a chapter it holds the keyboard, and a drop is the writer's own act on the canvas.

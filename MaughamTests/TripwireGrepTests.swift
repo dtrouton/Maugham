@@ -6079,8 +6079,14 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - The canvas's external drop takes the provider route (1C-d Task 11)
 
-    /// The only route that lands a browser's image drag.
+    /// The only route that lands a browser's image drag, on the Views surfaces
+    /// that mount it beside a String destination (`bothDropKinds`).
     private static let providerDropToken = ".onDrop(of: [.fileURL, .image]"
+
+    /// The canvas's one drop modifier (canvas-keyboard-flow Task 1): a provider
+    /// `.onDrop` over `[.fileURL, .image, .utf8PlainText]`, routed by
+    /// `CanvasDropRoute`.
+    private static let canvasDropToken = ".onDrop(of: CanvasDropRoute.acceptedTypes"
 
     /// The route that looks equivalent, compiles, reads correctly and **silently
     /// rejects every browser image drag** — CoreTransferable fails with error 0:
@@ -6124,8 +6130,8 @@ final class TripwireGrepTests: XCTestCase {
     /// **Count the set, not this comment.** A second canvas surface that grows a
     /// file-or-image drop belongs in the expected set with a line saying why.
     func test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination() throws {
-        XCTAssertEqual(try canvasFilesNaming(Self.providerDropToken), ["CanvasView.swift"],
-            "`\(Self.providerDropToken)` is the canvas's external drop target. If it "
+        XCTAssertEqual(try canvasFilesNaming(Self.canvasDropToken), ["CanvasView.swift"],
+            "`\(Self.canvasDropToken)` is the canvas's drop target. If it "
             + "vanished, a photograph dragged from the Finder or a browser now lands "
             + "nowhere; if a second file grew one, add it here with its reason.")
 
@@ -6136,12 +6142,12 @@ final class TripwireGrepTests: XCTestCase {
             + "screen. Route through [.fileURL, .image] providers and "
             + "DropClassification instead.")
 
-        // Control: the scan really is reading a live tree. Task 10's internal
-        // drag uses `String.self` and is expected to be there — if THIS finds
+        // Control: the scan really is reading a live tree. The one drop's route
+        // is asked in the handler and is expected to be there — if THIS finds
         // nothing, the two assertions above are a search over an empty directory.
-        XCTAssertEqual(try canvasFilesNaming(".dropDestination(for: String.self)"),
-                       ["CanvasView.swift"],
-            "Control: the internal research drag's modifier should still be found. "
+        XCTAssertEqual(try canvasFilesNaming("CanvasDropRoute.route("),
+                       ["CanvasDropHandler.swift"],
+            "Control: the drop handler's route call should still be found. "
             + "If it is not, this census is reading nothing.")
     }
 
@@ -6169,17 +6175,17 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(try filesNaming(Self.forbiddenDropToken, under: tmp),
                        ["PlantedCanvas.swift"],
             "Self-check: the planted URL destination should be caught.")
-        XCTAssertTrue(try filesNaming(Self.providerDropToken, under: tmp).isEmpty,
+        XCTAssertTrue(try filesNaming(Self.canvasDropToken, under: tmp).isEmpty,
             "Self-check: a tree with no provider-route drop should census as empty — "
             + "which is what the real assertion above would look like if the modifier "
             + "were deleted from CanvasView.")
 
         try """
-        // .onDrop(of: [.fileURL, .image], isTargeted: nil) named in a comment.
+        // .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) named in a comment.
         struct CommentOnly: View { var body: some View { Color.clear } }
         """.write(to: tmp.appendingPathComponent("CommentOnly.swift"),
                   atomically: true, encoding: .utf8)
-        XCTAssertTrue(try filesNaming(Self.providerDropToken, under: tmp).isEmpty,
+        XCTAssertTrue(try filesNaming(Self.canvasDropToken, under: tmp).isEmpty,
             "Self-check: a comment naming the token must not satisfy the census — "
             + "otherwise a file that only DISCUSSES the route would pass for one "
             + "that mounts it.")
@@ -6201,8 +6207,10 @@ final class TripwireGrepTests: XCTestCase {
     /// `.onDrop` must mount the string one FIRST.** Name the members; a count
     /// would be a prose count.
     ///
-    /// - `Maugham/Canvas/CanvasView.swift` — the canvas's internal research drag
-    ///   and its external photograph drop.
+    /// - `Maugham/Canvas/CanvasView.swift` was a member until
+    ///   canvas-keyboard-flow Task 1, which replaced its pair with ONE provider
+    ///   `.onDrop` (`test_theCanvasHasOneDropModifierAndItIsTheProviderRoute`):
+    ///   with the pair, a Finder PNG and a browser image both slid back.
     /// - `Maugham/Views/ResearchRow.swift` — has always had it right, and is the
     ///   only member whose order was ever validated by use.
     /// - `Maugham/Views/BinderTreeSections.swift`, `BinderRow.swift`,
@@ -6219,7 +6227,6 @@ final class TripwireGrepTests: XCTestCase {
     private static let bothDropKinds: Set<String> = [
         "BinderRow.swift",
         "BinderTreeSections.swift",
-        "CanvasView.swift",
         "PieceRow.swift",
         "ResearchRow.swift",
     ]
@@ -6472,6 +6479,96 @@ final class TripwireGrepTests: XCTestCase {
             """), [],
             "Self-check: a provider drop with no string destination after it is "
             + "not an offence — the pairing is what the rule is about.")
+    }
+
+    // MARK: - The canvas has one drop modifier (canvas-keyboard-flow Task 1)
+
+    /// `file:line` (1-based, in the source file) for every drop modifier under
+    /// `dir`, comments excluded: each `.onDrop(of:` and each `.dropDestination(for:`.
+    private func dropModifiers(under dir: URL) throws -> (onDrop: [String], destination: [String]) {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return ([], [])
+        }
+        var onDrop: [String] = [], destination: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let source = try String(contentsOf: url, encoding: .utf8)
+            for line in SourceScan.numberedCodeLines(of: source) {
+                let at = "\(url.lastPathComponent):\(line.number)"
+                if line.text.contains(".onDrop(of:") { onDrop.append(at) }
+                if line.text.contains(".dropDestination(for:") { destination.append(at) }
+            }
+        }
+        return (onDrop.sorted(), destination.sorted())
+    }
+
+    /// **The canvas mounts ONE drop modifier, a provider `.onDrop` over
+    /// `CanvasDropRoute.acceptedTypes`, and no typed destination at all.**
+    ///
+    /// SwiftUI gives each drop modifier its own AppKit view registered for every
+    /// type, and AppKit hands a drag to the frontmost one only — the innermost
+    /// modifier — with no falling through to a sibling (measured by feeding the
+    /// two-modifier arrangement a drag through `NSDraggingDestination`,
+    /// 2026-10-24). With a String destination in front, a Finder PNG was
+    /// answered "no operation" at hover and nothing fired, and a browser image
+    /// was taken by its page-URL text and refused as an unknown id: both slid
+    /// back (Denver's probe). One modifier routed by type takes all four drags.
+    /// No test can drive a drag session, so the arrangement is censused.
+    func test_theCanvasHasOneDropModifierAndItIsTheProviderRoute() throws {
+        let canvasDir = sourceDir.appendingPathComponent("Canvas", isDirectory: true)
+        let found = try dropModifiers(under: canvasDir)
+        XCTAssertEqual(found.onDrop.count, 1,
+            "Maugham/Canvas/ must mount exactly one `.onDrop(of:`: \(found.onDrop). A "
+            + "second drop modifier puts its own AppKit view in front of the first, "
+            + "and every drag goes to the front one alone.")
+        XCTAssertEqual(found.onDrop.first?.hasPrefix("CanvasView.swift:"), true,
+            "the canvas's one drop is on CanvasView.body: \(found.onDrop)")
+        XCTAssertEqual(found.destination, [],
+            "Maugham/Canvas/ mounts a typed `.dropDestination(for:`: \(found.destination). "
+            + "In front of the provider drop it takes every drag, refuses a Finder "
+            + "file at hover and a browser image by its page URL.")
+        XCTAssertEqual(try canvasFilesNaming(Self.canvasDropToken), ["CanvasView.swift"],
+            "the one `.onDrop` asks for `CanvasDropRoute.acceptedTypes`")
+
+        let route = try String(contentsOf: canvasDir.appendingPathComponent("CanvasDropRoute.swift"),
+                               encoding: .utf8)
+        let accepted = try XCTUnwrap(SourceScan.codeLines(of: route)
+            .first { $0.contains("static let acceptedTypes") })
+        for type in [".fileURL", ".image", ".utf8PlainText"] {
+            XCTAssertTrue(accepted.contains(type),
+                "CanvasDropRoute.acceptedTypes must name \(type): \(accepted)")
+        }
+    }
+
+    /// Planted control: the scan counts a second modifier and a typed
+    /// destination, and not a comment naming either.
+    func test_theOneDropModifierCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-canvas-one-drop-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct PlantedCanvas: View {
+            var body: some View {
+                Color.clear
+                    // .onDrop(of: [.fileURL], isTargeted: nil) in a comment must NOT count.
+                    .dropDestination(for: String.self) { _, _ in true }
+                    .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { _, _ in true }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedCanvas.swift"),
+                  atomically: true, encoding: .utf8)
+        let found = try dropModifiers(under: tmp)
+        XCTAssertEqual(found.onDrop.count, 2,
+            "Self-check: two planted `.onDrop`s, and the comment not counted: \(found.onDrop)")
+        XCTAssertEqual(found.destination.count, 1,
+            "Self-check: the planted String destination is caught: \(found.destination)")
+        XCTAssertEqual(found.onDrop, ["PlantedCanvas.swift:6", "PlantedCanvas.swift:7"],
+            "the census reports 1-based source lines; line numbers count comment lines")
+        XCTAssertEqual(found.destination, ["PlantedCanvas.swift:5"])
     }
 
     // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)

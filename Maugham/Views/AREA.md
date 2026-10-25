@@ -48,7 +48,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The left column: the tree
 - `BinderPaneToggle.swift` / `CollectionBinderPaneToggle.swift` — the two left-column shells (`ProjectWindow.BinderShell`): find overlay, one tree, Exports footer, the trash's foot.
-- `BinderView.swift` — the novel / short-story tree; `TreeStructureVerbs` (the tree's posture-gated structure verbs); `linkResearchVerb`.
+- `BinderView.swift` — the novel / short-story tree; `TreeStructureVerbs` (the tree's posture-gated structure verbs); `linkResearchVerb`; `TreeCanvasKeyboard` (Plan's Tab to the canvas and back).
 - `SceneNavigatorPane.swift` — a screenplay's tree: the script row and its sluglines.
 - `ScreenplayScriptSource.swift` — the parsed script the left column shows when no editor is mounted to parse it.
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
@@ -253,6 +253,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The subject and the tree
 - **The tree is the window's single subject-picker** (`BinderSubject`, no `rawValue`, no `init(String)`): a second picker beside it is two controls that can disagree.
 - **Every tree's `List` selects through `BinderTreeSelection`, never `List(selection: $selectedSubject)`**: AppKit writes `nil` when an untagged placeholder row is clicked, and the binding refuses it (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`).
+- **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`**: one-way counters both ways (tripwire 2), censused in `PromotionCommandTests`; ⇧Tab only where `ProjectWindow.binderTakesTheKeyboardBack`; a rename keeps Tab (`PlanBinderTabTests`).
 - **The subject is DERIVED from the tree's selection set**: an anchor that leaves is replaced by the first remaining row in tree order (`ordered`, never `Set.first`). There is no sweep of the set; `SubjectValidationModifier` is the one rule about dead ids.
 - **Only a homogeneous research selection batches**: a set holding the project row or a chapter degrades every research verb to the row it was aimed at.
 - **The five dead strip spellings — `BinderSegment`, `binderSegments(`, `binderHome(`, `findActive`, `selectedResearchId` — never return to production code**: `TripwireGrepTests.test_noProductionSpellingOfTheDeadStripSurvives`.
@@ -260,12 +261,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **⌘⌥O selects the project row; ⌘⌥R / ⌘⌥P reveal the tree's Research / Palette sections** — none opens a `DetailSegment`. ⌘⌥R/⌘⌥P are no-ops while find covers the tree; ⌘⌥O still acts (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
 
 ### Tree furniture
-- **Mounting the sections takes both halves**: the rows inside the host's `List`, and the presentations (sheets, alert, deferred rename) outside it via `.binderTreeSections(…)`, because a sheet on a lazy row is presented from a view the list may unmount: `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections`.
+- **Mounting the sections takes both halves**: the rows inside the host's `List`, and the presentations (sheets, alert, deferred rename) outside it via `.binderTreeSections(…)`: `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections`.
 - **Every tree sheet mounts from `BinderTreeSectionsPresentations`, never from a row**; a row only sets state.
 - **Every row acts through the one `BinderTreeVerbs` value**, including a fold's; `perform` surfaces a store failure in the shared alert, never `try?`.
 - **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`); `refuseDrop` returns `false` and logs why.
 - **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**: it answers the row the tree can now show (the shared row, or the owning piece's row for a piece-scoped note).
-- **Arrival is visible**: every tree host calls `consumingTreeScrollRequests` right after the `ScrollViewReader` wrapping its `List`, with both triggers (`.onChange` and `.task`), because find replaces the column: `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
+- **Arrival is visible**: every tree host calls `consumingTreeScrollRequests` right after the `ScrollViewReader` wrapping its `List`, with both triggers (`.onChange` and `.task`): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
 - **A piece fold's rows carry no `.id`**: a linked fold draws a tag twice in one `List`, and `scrollTo` over two identical ids is ambiguous.
 - **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`): its rows are shared items drawn twice, and two rename fields race tripwire 16's focus claim.
 - **New Group at a piece's root has no store API** (`ResearchScope` routes note / asset / link only); a `+` menu on a fold row must not offer it until one exists.
@@ -355,7 +356,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A chip click writes `selectedSubject` and `recordActivePass`, never the persona**; a count click opens the queue in project scope and moves neither subject nor persona (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona`).
 - **`ProjectWindow.recordActivePass(forPiece:passId:)` is the window's one `ActivePassMemory` writer**; the columns receive it as a closure.
 - **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would actually run.
-- **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash), because `runRequested` refuses in silence while the document is not open.
+- **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash).
 - **`refreshOpenNotes` is the one writer of the open-notes counts**, from the board's `.task` and `.maughamAnnotationsChanged`, never a body, reading the aggregation once.
 - **The per-piece pass-state writers are the files in `PersonaPaneRegistryTests.passStateWritingFiles`** (`InspectorView.swift`, `PieceInspector.swift`, `type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
 - **`StatusSwatch` is the one place a status becomes a colour.** `StructureItem.status` is a legacy read fallback, never written.
@@ -385,7 +386,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`RulingsStratum.partition` returns plain `[Ruling]`**, so a row re-derives its index in the ORIGINAL array before `revoke(_:at:)`/`edit`.
 - **A proposal slot is read in a `.task` and on `.maughamStatementProposalsChanged`**; Adopt writes into the pane's live `Document` when one is bound.
 - **The statement host is not remounted on a scope change, so every `@State` on it outlives one**: clear per-scope state in `reconcile`/`leave()`.
-- **A picture dropped into a scope with no statement leaves the empty draft showing until the pane is next opened there**; never bind the pane to close that gap, because the next keystroke would `setFullText` over the ref.
+- **A picture dropped into a scope with no statement leaves the empty draft showing until the pane is next opened there**; never bind the pane to close that gap.
 - **Visual language takes pictures; intent does not** (`StatementImageIngestTests.test_intentTakesNoPicturesAtAll`). The drop target is a well BESIDE the editor, never over it.
 - **A finished ingest names its destination** (`ProjectStore.appendToStatement` on the returned `Statement`); it never reads view state to find one.
 - **A ruling is written FIRST, then the annotation op**, so a refusal cannot settle a note whose decision was lost (`QueryRuling`, `FirstReaderRuling`, `QueueLedgerVerbs`).
