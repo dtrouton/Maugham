@@ -56,7 +56,7 @@ final class ReferenceIndexTests: XCTestCase {
         let table = "| a | b |\n|---|---|\n| 1 | 2 |"
         let texts = [
             "ch-one": "# One {#sec:one}\n\n![Map](map.png){#fig:map}\n\n\(table)\nTable: Sales {#tbl:sales}\n\n![Unlabelled](u.png)",
-            "ch-two": "## Two\n\n\(table)\n\n![Chart](c.png){#fig:chart}\n\n\(table)\nTable: Costs {#tbl:costs}\n\n![Wrong](w.png){#tbl:wrong}",
+            "ch-two": "## Two\n\n\(table)\n\n![Chart](c.png){#fig:chart}\n\n![Cash](figures/cash.csv){#tbl:cash}\n\n\(table)\nTable: Costs {#tbl:costs}\n\n![Wrong](w.png){#tbl:wrong}\n\n![Grid](figures/grid.csv){#fig:grid}",
             "ref": "![Ref](r.png){#fig:ref}\n\n\(table)\nTable: Ref {#tbl:ref}",
             "ch-three": "![Late](l.png){#fig:late}\n\n\(table)\nTable: Again {#tbl:sales}\n\n\(table)\nTable: End {#tbl:end}",
         ]
@@ -75,7 +75,7 @@ final class ReferenceIndexTests: XCTestCase {
             words: .english)
 
         let published = resolution.targets.filter { $0.key.kind != .sec }
-        XCTAssertEqual(published.count, 6, "premise: map, sales, chart, costs, late, end")
+        XCTAssertEqual(published.count, 8, "premise: map, sales, chart, cash, costs, grid, late, end")
         let indexed = index.targets.filter { $0.label.kind != .sec }
         XCTAssertEqual(Set(indexed.map(\.label)), Set(published.keys),
                        "the index registers exactly the labels publishing does")
@@ -83,11 +83,39 @@ final class ReferenceIndexTests: XCTestCase {
             XCTAssertEqual(index.target(for: label)?.text, target.text, "\(label.reference)")
             XCTAssertEqual(index.target(for: label)?.docId, target.pieceID, "\(label.reference)")
         }
-        XCTAssertEqual(index.target(for: Self.label("fig:late"))?.text, "Figure 5",
-                       "premise: four figures before it (one unlabelled, one wrongly labelled), "
-                       + "and the reference piece's is not counted")
+        XCTAssertEqual(index.target(for: Self.label("fig:late"))?.text, "Figure 6",
+                       "premise: five figures before it (one unlabelled, one wrongly labelled, "
+                       + "one table figure labelled fig:), and the reference piece's is not counted")
+        // R7a-1 (Review Focus 4): a table figure's line labelled `tbl:` is a
+        // table in both, with no wrong-element problem; an image labelled
+        // `tbl:` keeps today's answer.
+        XCTAssertEqual(index.target(for: Self.label("tbl:cash"))?.text, "Table 3",
+                       "premise: Sales, then ch-two's unlabelled pipe table, then the table figure")
+        XCTAssertEqual(index.target(for: Self.label("tbl:costs"))?.text, "Table 4")
+        XCTAssertEqual(index.target(for: Self.label("fig:grid"))?.text, "Figure 5")
+        let wrongElement = resolution.problems.compactMap { problem -> ManuscriptLabel? in
+            if case .labelOnWrongElement(let label) = problem.kind { return label }
+            return nil
+        }
+        XCTAssertEqual(wrongElement, [Self.label("tbl:wrong")])
+        XCTAssertNil(index.target(for: Self.label("tbl:wrong")))
         XCTAssertEqual(index.target(for: Self.label("tbl:sales"))?.docId, "ch-one",
                        "a label defined twice is the first definition's")
+    }
+
+    /// R7a-1: a pipe table, a table figure and an image figure number
+    /// Table 1, Table 2, Figure 1, and `@tbl:` reaches the table figure
+    /// (the same document in `PublishResolutionTests`).
+    func test_aTableFigureLineNumbersAsATable() {
+        let index = ReferenceIndex.build(pieces: [("a", ReferenceIndex.PieceSummary(text:
+            "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}\n\n"
+            + "![Programme cash flows](figures/cash.csv){#tbl:cash}\n\n"
+            + "![Sites](figures/sites.png){#fig:sites}\n\nSee @tbl:cash."))],
+            research: [], words: .english)
+        XCTAssertEqual(index.targets.map(\.label), [Self.label("tbl:sales"), Self.label("tbl:cash"),
+                                                    Self.label("fig:sites")])
+        XCTAssertEqual(index.targets.map(\.text), ["Table 1", "Table 2", "Figure 1"])
+        XCTAssertEqual(index.target(for: Self.label("tbl:cash"))?.detail, "Programme cash flows")
     }
 
     // MARK: - What the index holds

@@ -69,6 +69,17 @@ final class ManuscriptChecksTests: XCTestCase {
                        [.unresolvedCrossRef(label("fig:new"))], "the control: a heading is no figure")
     }
 
+    /// R7a-1: a table figure's line (`figures/<name>.csv`) labelled `tbl:` is a
+    /// table, so its label resolves here before the index catches up; an image
+    /// figure line labelled `tbl:` keeps today's answer (plan 7b diagnoses it).
+    func test_aTableFigureLinesTblLabelResolvesBeforeTheIndexCatchesUp() {
+        XCTAssertTrue(problems("![Cash](figures/cash.csv){#tbl:cash}\n\nSee @tbl:cash.").isEmpty)
+        XCTAssertEqual(problems("![Wrong](w.png){#tbl:wrong}\n\nSee @tbl:wrong.").map(\.kind),
+                       [.unresolvedCrossRef(label("tbl:wrong"))], "the control: an image is no table")
+        XCTAssertTrue(problems("![Cash](figures/cash.csv){#fig:cash}\n\nSee @fig:cash.").isEmpty,
+                      "a table figure labelled fig: is a figure, as today")
+    }
+
     /// The checks read each block through the reader they're handed (the
     /// coordinator's cache, fix round 1 M5), once per block.
     func test_theChecksReadBlocksThroughTheGivenReader() {

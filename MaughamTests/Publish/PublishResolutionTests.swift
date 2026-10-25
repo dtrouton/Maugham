@@ -218,6 +218,42 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.tableNumbers, ["a": [1: 1]], "the table is still numbered")
     }
 
+    /// R7a-1 (Review Focus 4): a table figure's line labelled `tbl:` numbers
+    /// as a table and is a valid `@tbl:` target, with no wrong-element
+    /// problem; a pipe table, a table figure and an image figure read Table 1,
+    /// Table 2, Figure 1 (the same document in `ReferenceIndexTests`).
+    func test_aTableFigureLine_numbersAsATable() throws {
+        let book = Book(pieces: [("a", [
+            ("a1b2", "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}"),
+            ("c3d4", "![Programme cash flows](figures/cash.csv){#tbl:cash}"),
+            ("e5f6", "![Sites](figures/sites.png){#fig:sites}"),
+            ("g7h8", "See @tbl:cash."),
+        ])], context: context())
+        let r = try resolve(book)
+        XCTAssertEqual(r.tableNumbers, ["a": [0: 1, 1: 2]])
+        XCTAssertEqual(r.figureNumbers, ["a": [2: 1]])
+        XCTAssertEqual(r.targets[label("tbl:cash")],
+                       .init(pieceID: "a", paragraphID: "c3d4", text: "Table 2"))
+        XCTAssertEqual(r.targets[label("fig:sites")]?.text, "Figure 1")
+        XCTAssertEqual(r.listOfTables.map(\.number), [1, 2])
+        XCTAssertEqual(r.problems, [])
+    }
+
+    /// The controls: an image labelled `tbl:` is still on the wrong element,
+    /// and a table figure labelled `fig:` is still a figure (plan 7b diagnoses
+    /// both kind mismatches).
+    func test_aKindMismatchedFigureLine_keepsTodaysNumbering() throws {
+        let book = Book(pieces: [("a", [
+            ("a1b2", "![Wrong](w.png){#tbl:wrong}"),
+            ("c3d4", "![Grid](figures/grid.csv){#fig:grid}"),
+        ])], context: context())
+        let r = try resolve(book)
+        XCTAssertEqual(r.figureNumbers, ["a": [0: 1, 1: 2]])
+        XCTAssertEqual(r.tableNumbers, [:])
+        XCTAssertEqual(r.targets[label("fig:grid")]?.text, "Figure 2")
+        XCTAssertEqual(r.problems.map(\.kind), [.labelOnWrongElement(label("tbl:wrong"))])
+    }
+
     func test_aMalformedLabel_onAHeadingOrATableCaption_isAWarning() throws {
         let book = Book(pieces: [("a", [
             ("a1b2", "## Heading {#eq:one}"),

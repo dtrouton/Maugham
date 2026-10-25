@@ -103,7 +103,7 @@ public struct ManuscriptIndex: Sendable {
                         report(.malformedLabel(raw), captionLine)
                     }
                 case .figure(_, let path, let label):
-                    register(label, .fig, lines.lowerBound)
+                    register(label, .ofFigureLine(path: path, label: label), lines.lowerBound)
                     if Self.isNotLocal(path) { report(.figurePathNotLocal(path), lines.lowerBound) }
                 case .footnoteDefinition(let label, _):
                     if defined.contains(label) {

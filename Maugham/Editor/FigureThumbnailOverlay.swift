@@ -313,7 +313,7 @@ final class FigureThumbnailStore {
     /// Whether `path` names a table figure's render (`figures/<name>.csv`):
     /// the store never resolves or decodes one (report plan 7a Task 6).
     nonisolated static func isTableRender(_ path: String) -> Bool {
-        (path as NSString).pathExtension.lowercased() == "csv"
+        ManuscriptLabel.Kind.isTableFigurePath(path)
     }
 
     var onUpdate: (() -> Void)?

@@ -262,6 +262,17 @@ private struct Pass {
                 tables.append((number, caption ?? [], t))
                 register(label, expected: .tbl, target: t, piece: piece, paragraph: paragraph)
                 if label == nil, let caption { checkMalformed(caption, piece: piece, paragraph: paragraph) }
+            case .figure(let caption, let path, let label)
+                where ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) == .tbl:
+                // R7a-1: a table figure's line labelled `tbl:` numbers as a
+                // table. Its emission is unchanged until plan 9 emits figure
+                // tables: the image door still judges the path.
+                let number = tables.count + 1
+                tableNumbers[piece, default: [:]][index] = number
+                let t = target("\(words.table) \(number)")
+                tables.append((number, caption, t))
+                register(label, expected: .tbl, target: t, piece: piece, paragraph: paragraph)
+                resolveImage(path, piece: piece, index: index, paragraph: paragraph)
             case .figure(let caption, let path, let label):
                 let number = figures.count + 1
                 figureNumbers[piece, default: [:]][index] = number

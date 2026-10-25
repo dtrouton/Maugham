@@ -96,6 +96,28 @@ final class ManuscriptIndexTests: XCTestCase {
                        [diag(.labelOnWrongElement(label("fig:results")), "a", 15)])
     }
 
+    /// R7a-1: a table figure's line labelled `tbl:` registers as a table; an
+    /// image line labelled `tbl:` is still on the wrong element.
+    func test_aTableFigureLineTakesATblLabel() {
+        let idx = index(healthy + ["", "![Cash](figures/cash.csv){#tbl:cash}",
+                                   "", "![Wrong](w.png){#tbl:wrong}"])
+        assertHealthyLabelsIndexed(idx)
+        XCTAssertEqual(idx.labels[label("tbl:cash")]?.line, 15)
+        XCTAssertNil(idx.labels[label("tbl:wrong")])
+        XCTAssertEqual(idx.diagnostics, [diag(.labelOnWrongElement(label("tbl:wrong")), "a", 17)])
+    }
+
+    /// The one rule (R7a-1): `tbl:` picks the table list only on a table
+    /// figure's line (its path a `.csv`, any case); otherwise the figure list.
+    func test_whichListAFigureLineNumbersIn() {
+        XCTAssertEqual(ManuscriptLabel.Kind.ofFigureLine(path: "figures/cash.csv", label: label("tbl:cash")), .tbl)
+        XCTAssertEqual(ManuscriptLabel.Kind.ofFigureLine(path: "../../figures/C.CSV", label: label("tbl:c")), .tbl)
+        XCTAssertEqual(ManuscriptLabel.Kind.ofFigureLine(path: "figures/cash.csv", label: label("fig:cash")), .fig)
+        XCTAssertEqual(ManuscriptLabel.Kind.ofFigureLine(path: "figures/cash.csv", label: nil), .fig)
+        XCTAssertEqual(ManuscriptLabel.Kind.ofFigureLine(path: "w.png", label: label("tbl:w")), .fig)
+        XCTAssertEqual(ManuscriptLabel.Kind.ofFigureLine(path: "figures/csv", label: label("tbl:w")), .fig)
+    }
+
     func test_focus1_proseBracesAreNotMalformedLabels() {
         let idx = index(["Write {#fig:x} mid-line to show the syntax.", "",
                          "A sentence that ends in {#fig:}", "",

@@ -170,8 +170,12 @@ struct ReferenceIndex: Equatable, Sendable {
                 case .table(_, _, _, let caption, let label):
                     elements.append(.table(caption: caption, label: label))
                     if let label { labels.insert(label) }
-                case .figure(let caption, _, let label):
-                    elements.append(.figure(caption: caption, label: label))
+                case .figure(let caption, let path, let label):
+                    // R7a-1: a table figure's line labelled `tbl:` is a table.
+                    switch ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) {
+                    case .tbl: elements.append(.table(caption: caption, label: label))
+                    case .fig, .sec: elements.append(.figure(caption: caption, label: label))
+                    }
                     if let label { labels.insert(label) }
                 case .footnoteDefinition, .other:
                     continue

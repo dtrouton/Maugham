@@ -317,13 +317,18 @@ enum ManuscriptChecks {
 
     /// Which kind of element the line holding `location` is, as a label
     /// must name it: a heading (`sec`), a table caption (`tbl`) or a figure
-    /// line (`fig`); nil for any other line.
+    /// line (`fig`, or `tbl` for a table figure's line labelled `tbl:`, the
+    /// shared rule `ManuscriptLabel.Kind.ofFigureLine`); nil for any other line.
     static func elementKind(ofLineAt location: Int, in text: NSString) -> ManuscriptLabel.Kind? {
         let line = text.substring(with: text.lineRange(for: NSRange(location: location, length: 0)))
-            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if line.hasPrefix("#") { return .sec }
         if line.hasPrefix("Table: ") { return .tbl }
-        if line.hasPrefix("![") { return .fig }
+        if line.hasPrefix("![") {
+            guard case .figure(_, let path, let label)? = ManuscriptBlocks.parse(line).first?.block
+            else { return .fig }
+            return .ofFigureLine(path: path, label: label)
+        }
         return nil
     }
 
