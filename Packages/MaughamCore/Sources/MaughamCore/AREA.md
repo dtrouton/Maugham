@@ -186,6 +186,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed.
 - `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed, each figure's research pins indexed for the workbook.
 - `FigureCardModel.swift` — a table figure card's rows and height.
+- `FigurePathRule.swift` — the lexical figure-path rule Publish shares.
+- `FigureLineResolution.swift` — a figure line's registered figure.
 - `PinStatus.swift` — research pins: what a figure reads through one (a Research table, a parked figure), each source's status (current, changed, missing, unpinned), Compare's old and new values, the pins a refresh or a formula's entry writes, and `FigurePinChoice`, the one rule for which pin counts and wins.
 - `FigureReturnDiff.swift` — a changed working copy's return to its parked figure: kept ids, three-way against what the parker read; `FigureReturnMatch.swift` matches its rows and columns.
 - `FigureRestoreDiff.swift` — a figure wound back to a checkpoint's op pointer, by id: revives carrying the checkpoint's slice, deletes, moves, cells, settings, pins, picture, folded through the return's shared `Simulation`; `changes` takes the book's `parks`, so a pin live now is never replaced by one inert under the current park; `wentToResearch(since:in:)` tells a restore across a park or resume.

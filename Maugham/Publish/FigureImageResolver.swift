@@ -51,11 +51,8 @@ public enum FigureImageResolver {
     public static func resolve(
         _ path: String, piecePath: String, projectURL: URL, allowed: Set<String>
     ) -> Outcome {
-        // 1. The string alone.
-        guard isRelative(path), isRelative(piecePath),
-              let piece = standardised(components(piecePath)), !piece.isEmpty,
-              let target = standardised(Array(piece.dropLast()) + components(path)),
-              let root = allowedRoot(of: target, piece: piece)
+        // 1. The string alone (the shared rule, MaughamCore `FigurePathRule`).
+        guard case .inside(let target, let root) = FigurePathRule.lexical(path, piecePath: piecePath)
         else { return .notLocal }
 
         let ext = (target.last.map { ($0 as NSString).pathExtension } ?? "").lowercased()
@@ -88,56 +85,6 @@ public enum FigureImageResolver {
             return .unreadable("\(path) is not a file")
         }
         return .file(fileURL)
-    }
-
-    // MARK: - lexical
-
-    /// No absolute path, no home-relative path, no URL scheme.
-    private static func isRelative(_ path: String) -> Bool {
-        guard !path.isEmpty, !path.hasPrefix("/"), !path.hasPrefix("~") else { return false }
-        // A scheme is letters/digits/+/./- then a colon, before any slash.
-        let head = path.prefix { $0 != "/" }
-        if let colon = head.firstIndex(of: ":") {
-            let scheme = head[head.startIndex..<colon]
-            if let first = scheme.first, first.isLetter,
-               scheme.allSatisfy({ $0.isLetter || $0.isNumber || "+.-".contains($0) }) {
-                return false
-            }
-        }
-        return true
-    }
-
-    private static func components(_ path: String) -> [String] {
-        path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-    }
-
-    /// Folds `.` and `..`; nil when a `..` climbs above the project root —
-    /// an escape is refused even if a later segment would climb back in.
-    private static func standardised(_ parts: [String]) -> [String]? {
-        var out: [String] = []
-        for part in parts {
-            switch part {
-            case ".": continue
-            case "..":
-                guard !out.isEmpty else { return nil }
-                out.removeLast()
-            default: out.append(part)
-            }
-        }
-        return out
-    }
-
-    /// The allowed folder `target` sits strictly inside, or nil: the
-    /// project's `figures/` (any piece's), the project's `research/`, or the
-    /// owning Collection piece's own research.
-    private static func allowedRoot(of target: [String], piece: [String]) -> [String]? {
-        var roots: [[String]] = [["figures"], ["research"]]
-        if piece.count == 3, piece[0] == "pieces" {
-            roots.append(["pieces", piece[1], "research"])
-        }
-        return roots.first { root in
-            target.count > root.count && Array(target.prefix(root.count)) == root
-        }
     }
 
     // MARK: - disk
