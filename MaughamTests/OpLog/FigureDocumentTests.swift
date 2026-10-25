@@ -381,6 +381,57 @@ final class FigureDocumentTests: XCTestCase {
         await doc.close()
     }
 
+    /// The brief's case literally: the deleted row holds a FORMULA another
+    /// cell reads — `#REF!` while it is gone, its value once ⌘Z brings it
+    /// back (the formula itself comes back in the slice).
+    func test_undoOfADeletedRowHoldingAFormulaAnotherCellReads_bringsTheValueBack() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let um = UndoManager()
+        let rows = doc.state.table.rows, columns = doc.state.table.columns
+        let base = CellKey(row: rows[0], column: columns[0])        // A1 = 5
+        let doubled = CellKey(row: rows[1], column: columns[0])     // A2 = A1*2
+        let reader = CellKey(row: rows[2], column: columns[1])      // B3 = A2
+        try await doc.setCell(Cell(content: .value(.number(5))), at: base, undoManager: nil)
+        let double = try FormulaParser.parse("A1*2", in: doc.state.table).get()
+        try await doc.setCell(Cell(content: .formula(double)), at: doubled, undoManager: nil)
+        let read = try FormulaParser.parse("A2", in: doc.state.table).get()
+        try await doc.setCell(Cell(content: .formula(read)), at: reader, undoManager: nil)
+        XCTAssertEqual(evaluated(doc, reader), .number(10), "control")
+
+        try await doc.deleteRow(rows[1], undoManager: um)
+        XCTAssertEqual(evaluated(doc, reader), .error(.ref))
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(doc.state.table[doubled], Cell(content: .formula(double)), "the formula is back")
+        XCTAssertEqual(evaluated(doc, reader), .number(10), "and the cell reading it shows its value again")
+        await doc.close()
+    }
+
+    /// A delete's REDO is drift-guarded too: once another device has typed
+    /// into the row the undo revived, redo declines and their cell stands.
+    func test_redoOfADeleteDeclinesOnceAnotherDeviceTypedIntoTheRevivedRow() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let um = UndoManager()
+        let row = doc.state.table.rows[1]
+        let key = CellKey(row: row, column: doc.state.table.columns[2])
+        try await doc.deleteRow(row, undoManager: um)
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertNotNil(doc.state.table.rowIndex(of: row), "precondition: the undo revived it")
+        try await theirOp(doc, .figureCellSet, FigureOpPayload(cell: key, next: text("theirs"), prior: nil))
+        let count = try ops(of: record.id).count
+        let said = await notices { um.redo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertNotNil(doc.state.table.rowIndex(of: row), "the row stands")
+        XCTAssertEqual(doc.state.table[key], text("theirs"), "and their cell with it")
+        XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
+        await doc.close()
+    }
+
     /// A delete's undo is drift-guarded: once another device has revived the
     /// row, the undo declines and appends nothing.
     func test_undoOfADeleteAnotherDeviceRevivedDeclines() async throws {
@@ -641,9 +692,9 @@ final class FigureDocumentTests: XCTestCase {
             ("insertColumn", { _ = try await doc.insertColumn(after: nil, undoManager: um) }),
             ("deleteRow", { try await doc.deleteRow(key.row) }),
             ("deleteColumn", { try await doc.deleteColumn(key.column) }),
-            ("reviveRow", { try await doc.reviveRow(key.row, removed: FigureRemovedSlice(), actionName: "x", undoManager: um) }),
+            ("reviveRow", { try await doc.reviveRow(key.row, removed: FigureRemovedSlice(), undoManager: um) }),
             ("reviveColumn", {
-                try await doc.reviveColumn(key.column, removed: FigureRemovedSlice(), actionName: "x", undoManager: um)
+                try await doc.reviveColumn(key.column, removed: FigureRemovedSlice(), undoManager: um)
             }),
             ("moveRow", { try await doc.moveRow(key.row, after: doc.state.table.rows.last, undoManager: um) }),
             ("moveColumn", { try await doc.moveColumn(key.column, after: doc.state.table.columns.last, undoManager: um) }),

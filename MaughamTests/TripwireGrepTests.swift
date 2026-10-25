@@ -12621,8 +12621,8 @@ final class TripwireGrepTests: XCTestCase {
         _ = try await self.figure?.insertColumn(after: nil)
         try await figures[i].deleteRow(row)
         try await figure.deleteColumn(column)
-        try await d.reviveRow(id, removed: slice, actionName: name, undoManager: undoManager)
-        try await d.reviveColumn(id, removed: slice, actionName: name, undoManager: undoManager)
+        try await d.reviveRow(id, removed: slice, undoManager: undoManager)
+        try await d.reviveColumn(id, removed: slice, undoManager: undoManager)
         await d.redoing { try await d.moveRow(id, after: after, undoManager: undoManager) }
         try await figure.moveColumn(column, after: nil)
         try await setHeaderRows(1)

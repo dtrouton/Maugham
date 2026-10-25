@@ -322,8 +322,7 @@ public final class FigureDocument {
             redo: { [weak undoManager] d in
                 guard d.rowIsDeleted(id) else { return d.decline(.drifted) }
                 await d.redoing {
-                    try await d.reviveRow(id, removed: FigureRemovedSlice(), actionName: "Insert Row",
-                                          undoManager: undoManager)
+                    try await d.reviveRow(id, removed: FigureRemovedSlice(), undoManager: undoManager)
                 }
             })
         return id
@@ -345,8 +344,7 @@ public final class FigureDocument {
             redo: { [weak undoManager] d in
                 guard d.columnIsDeleted(id) else { return d.decline(.drifted) }
                 await d.redoing {
-                    try await d.reviveColumn(id, removed: FigureRemovedSlice(), actionName: "Insert Column",
-                                             undoManager: undoManager)
+                    try await d.reviveColumn(id, removed: FigureRemovedSlice(), undoManager: undoManager)
                 }
             })
         return id
@@ -354,18 +352,23 @@ public final class FigureDocument {
 
     /// Delete a row. The op carries what the row held (ruling P-2), so ⌘Z
     /// revives it in its own slot with its cells and pins — declined once
-    /// another device has revived it since.
+    /// another device has revived it since; the redo declines once the
+    /// revived row holds anything the undo did not put back.
     public func deleteRow(_ id: RowID, undoManager: UndoManager? = nil) async throws {
         try await requireWritable("deleteRow")
         try requireTable()
         guard state.table.rowIndex(of: id) != nil else { throw FigureEditInvalid(reason: "that row is gone") }
-        let op = try await commit(.figureStructure, FigureOpPayload(
-            structure: .deleteRow(id), removed: state.removedSlice(row: id)))
+        let slice = state.removedSlice(row: id)
+        let op = try await commit(.figureStructure, FigureOpPayload(structure: .deleteRow(id), removed: slice))
         registerFigureUndo(
             undoManager, actionName: "Delete Row", forward: op,
             stillAsWritten: { d in d.rowIsDeleted(id) },
             redo: { [weak undoManager] d in
-                guard d.state.table.rowIndex(of: id) != nil else { return d.decline(.drifted) }
+                // Only while the row holds exactly what the undo put back: a
+                // cell another device typed into it since is not deleted again.
+                guard d.state.table.rowIndex(of: id) != nil, d.state.removedSlice(row: id) == slice else {
+                    return d.decline(.drifted)
+                }
                 await d.redoing { try await d.deleteRow(id, undoManager: undoManager) }
             })
     }
@@ -375,13 +378,15 @@ public final class FigureDocument {
         try await requireWritable("deleteColumn")
         try requireTable()
         guard state.table.columnIndex(of: id) != nil else { throw FigureEditInvalid(reason: "that column is gone") }
-        let op = try await commit(.figureStructure, FigureOpPayload(
-            structure: .deleteColumn(id), removed: state.removedSlice(column: id)))
+        let slice = state.removedSlice(column: id)
+        let op = try await commit(.figureStructure, FigureOpPayload(structure: .deleteColumn(id), removed: slice))
         registerFigureUndo(
             undoManager, actionName: "Delete Column", forward: op,
             stillAsWritten: { d in d.columnIsDeleted(id) },
             redo: { [weak undoManager] d in
-                guard d.state.table.columnIndex(of: id) != nil else { return d.decline(.drifted) }
+                guard d.state.table.columnIndex(of: id) != nil, d.state.removedSlice(column: id) == slice else {
+                    return d.decline(.drifted)
+                }
                 await d.redoing { try await d.deleteColumn(id, undoManager: undoManager) }
             })
     }
@@ -391,7 +396,7 @@ public final class FigureDocument {
     /// deletes it again, and only while the row still holds exactly what
     /// the revive put back (for an empty slice: R-6a-13's untouched row).
     func reviveRow(
-        _ id: RowID, removed: FigureRemovedSlice, actionName: String, undoManager: UndoManager?
+        _ id: RowID, removed: FigureRemovedSlice, undoManager: UndoManager?
     ) async throws {
         try await requireWritable("reviveRow")
         try requireTable()
@@ -399,19 +404,19 @@ public final class FigureDocument {
         let op = try await commit(.figureStructure, FigureOpPayload(structure: .reviveRow(id), removed: removed))
         let restored = state.removedSlice(row: id)
         registerFigureUndo(
-            undoManager, actionName: actionName, forward: op,
+            undoManager, actionName: "Insert Row", forward: op,
             stillAsWritten: { d in d.state.table.rowIndex(of: id) != nil && d.state.removedSlice(row: id) == restored },
             redo: { [weak undoManager] d in
                 guard d.rowIsDeleted(id) else { return d.decline(.drifted) }
                 await d.redoing {
-                    try await d.reviveRow(id, removed: removed, actionName: actionName, undoManager: undoManager)
+                    try await d.reviveRow(id, removed: removed, undoManager: undoManager)
                 }
             })
     }
 
     /// The column's twin of `reviveRow`; a width counts as content too.
     func reviveColumn(
-        _ id: ColumnID, removed: FigureRemovedSlice, actionName: String, undoManager: UndoManager?
+        _ id: ColumnID, removed: FigureRemovedSlice, undoManager: UndoManager?
     ) async throws {
         try await requireWritable("reviveColumn")
         try requireTable()
@@ -419,14 +424,14 @@ public final class FigureDocument {
         let op = try await commit(.figureStructure, FigureOpPayload(structure: .reviveColumn(id), removed: removed))
         let restored = state.removedSlice(column: id)
         registerFigureUndo(
-            undoManager, actionName: actionName, forward: op,
+            undoManager, actionName: "Insert Column", forward: op,
             stillAsWritten: { d in
                 d.state.table.columnIndex(of: id) != nil && d.state.removedSlice(column: id) == restored
             },
             redo: { [weak undoManager] d in
                 guard d.columnIsDeleted(id) else { return d.decline(.drifted) }
                 await d.redoing {
-                    try await d.reviveColumn(id, removed: removed, actionName: actionName, undoManager: undoManager)
+                    try await d.reviveColumn(id, removed: removed, undoManager: undoManager)
                 }
             })
     }
