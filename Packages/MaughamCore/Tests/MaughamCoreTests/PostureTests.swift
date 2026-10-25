@@ -32,8 +32,9 @@ final class PostureTests: XCTestCase {
     ///
     /// `.editFigure` is here because it is probed as a figure op in THIS
     /// document's class, a `.piece`, where §4.5's widening covers the piece's
-    /// content; a real figure's posture is asked in `.figure(_, piece:)`,
-    /// which the widening never reaches (the row below pins that).
+    /// content — and a real figure of that piece, asked in `.figure(_,
+    /// piece:)`, is offered exactly the same (Denver's ruling R-D4, closing
+    /// R-6a-10; the figure rows below pin it).
     private static let writingHerStartedPiece: Set<V> = [
         .writeText, .acceptOrReject, .setPassState, .restructure, .runRound,
         .editStatement, .startAPiece, .annotate, .editFigure,
@@ -109,12 +110,36 @@ final class PostureTests: XCTestCase {
             posture: Posture(permit(.bookAuthor, .figure(id: "fig-1", piece: "a"),
                                     actor: .assistant)),
             offers: [.annotate], reason: .reviewer),
-        // §4.5's widening is her piece's WORDS: a figure of a piece she
-        // started and nobody has claimed waits for the claim like any other.
+        // Ruling R-D4 (closes R-6a-10): a figure of a piece she started and
+        // nobody has claimed is the piece — her figure, offered exactly what
+        // the piece's text is, and waiting for the claim the same way.
         Row(name: "pieces author in the figure of a piece she started, unclaimed",
             posture: Posture(LocalWritePermit(
                 permit: .author(.pieces(["a"])), actor: .author,
-                documentClass: .figure(id: "fig-1", piece: "b"), startedHere: true,
+                documentClass: .figure(id: "fig-1", piece: "b"),
+                writesAsItsStarter: true)),
+            offers: writingHerStartedPiece, reason: .waitingToBeClaimed),
+        Row(name: "pieces author in the figure of a piece she started, now claimed",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .author,
+                documentClass: .figure(id: "fig-1", piece: "b"),
+                writesAsItsStarter: false)),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
+        // …and the book author's yield to the piece's starter reaches its
+        // figure too: notes only, until *Edit Anyway*.
+        Row(name: "book author yielding to the starter, in the piece's figure",
+            posture: Posture(LocalWritePermit(
+                permit: .bookAuthor, actor: .author,
+                documentClass: .figure(id: "fig-1", piece: "b"),
+                unsettledStarter: .init(deviceId: "author-kit", name: "Kit")),
+                yieldingTo: "Kit"),
+            offers: [.annotate], reason: .yieldingToItsStarter("Kit")),
+        // The arm never reaches a figure of the whole book: no piece, no
+        // starter.
+        Row(name: "pieces author in a figure of the whole book, arm set",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .author,
+                documentClass: .figure(id: "fig-1", piece: nil),
                 writesAsItsStarter: true)),
             offers: [.annotate, .startAPiece], reason: .notYourPiece),
         Row(name: "pieces author on the project stream",
@@ -178,6 +203,43 @@ final class PostureTests: XCTestCase {
             XCTAssertEqual(row.posture.reason, row.reason, "\(row.name): reason")
             XCTAssertEqual(row.posture.isRestricted, row.offers != Self.everything,
                 "\(row.name): isRestricted")
+        }
+    }
+
+    /// **A figure's posture is its piece's text posture, in every starter
+    /// case** (Denver's ruling R-D4, closing R-6a-10): every permit of the
+    /// grid, every actor, her Option A arm on and off, and a book author's
+    /// yield to the starter handed in or overridden — the figure of piece "b"
+    /// answers every verb and names the same reason as piece "b" itself.
+    func test_aFiguresPostureIsItsPiecesInEveryStarterCase() {
+        let permits: [Permit] = [
+            .bookAuthor, .author(.pieces(["a"])), .author(.pieces(["b"])),
+            .author(.pieces([])), .reviewer, .unjudgeable(raw: "editor"),
+        ]
+        let starter = LocalWritePermit.UnsettledStarter(deviceId: "author-kit", name: "Kit")
+        for permit in permits {
+            for actor in DeviceActor.allCases {
+                for arm in [false, true] {
+                    for unsettled in [nil, starter] as [LocalWritePermit.UnsettledStarter?] {
+                        for yieldingTo in [nil, unsettled?.yieldName] {
+                            func posture(_ cls: DocumentClass) -> Posture {
+                                Posture(LocalWritePermit(
+                                    permit: permit, actor: actor, documentClass: cls,
+                                    writesAsItsStarter: arm, unsettledStarter: unsettled),
+                                    yieldingTo: yieldingTo)
+                            }
+                            let piece = posture(.piece("b"))
+                            let figure = posture(.figure(id: "fig-1", piece: "b"))
+                            let at = "\(permit) \(actor) arm:\(arm) yield:\(yieldingTo ?? "-")"
+                            for verb in V.allCases {
+                                XCTAssertEqual(figure.allows(verb), piece.allows(verb),
+                                               "\(at) \(verb)")
+                            }
+                            XCTAssertEqual(figure.reason, piece.reason, at)
+                        }
+                    }
+                }
+            }
         }
     }
 

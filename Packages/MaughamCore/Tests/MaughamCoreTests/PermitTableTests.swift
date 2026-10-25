@@ -947,6 +947,73 @@ final class PermitTableTests: XCTestCase {
             .no(.translation))
     }
 
+    /// **Which piece's starter governs each stream of the grid** (Denver's
+    /// ruling R-D4): a piece's own, and a figure's piece — nothing else. A
+    /// statement, a translation, a figure of the whole book and a figure whose
+    /// record has not arrived take no starter arm.
+    func test_theStartersPieceIsAPiecesOrItsFiguresOnly() {
+        let expected: [String?] = [
+            Self.hers, Self.theirs,         // 0, 1  pieces
+            nil, nil,                       // 2, 3  piece statements
+            nil, nil,                       // 4, 5  project statement, stream
+            nil, nil,                       // 6, 7  translations
+            nil, nil,                       // 8, 9  inbox, unplaceable
+            Self.hers, Self.theirs,         // 10, 11 figures of a piece
+            nil, nil,                       // 12, 13 whole-book, unregistered figure
+        ]
+        XCTAssertEqual(classes.count, expected.count)
+        for (index, documentClass) in classes.enumerated() {
+            XCTAssertEqual(Permit.startersPiece(of: documentClass), expected[index],
+                           "row \(index): \(documentClass)")
+        }
+    }
+
+    /// **§4.5's shape reaches a figure exactly as it reaches its piece's text**
+    /// (ruling R-D4, closing R-6a-10): for every permit and actor, a figure
+    /// op in a figure of piece P starts a piece nobody has claimed exactly
+    /// where her words in P do — and the write side's Option A widening, which
+    /// is built on the shape, answers every figure kind as it answers her
+    /// typing. A figure of the whole book is never reached.
+    func test_section45sShapeReachesAFigureAsItReachesItsPiece() {
+        let permits: [Permit] = [
+            .author(.book), .author(.pieces([Self.hers])), .author(.pieces([])),
+            .reviewer, .unjudgeable(raw: "editor"),
+        ]
+        let actors: [DeviceActor?] = DeviceActor.allCases + [nil]
+        for permit in permits {
+            for actor in actors {
+                for piece in [Self.hers, Self.theirs] {
+                    let figure = DocumentClass.figure(id: "fig-00000001", piece: piece)
+                    let text = permit.startsAPieceNobodyHasClaimed(
+                        .op(.typingBurst), in: .piece(piece), actor: actor)
+                    let widened = LocalWritePermit(
+                        permit: permit, actor: actor ?? .author, documentClass: .piece(piece),
+                        writesAsItsStarter: true).allows(.op(.typingBurst))
+                    for kind in figureKinds {
+                        XCTAssertEqual(
+                            permit.startsAPieceNobodyHasClaimed(.op(kind), in: figure, actor: actor),
+                            text, "\(permit) \(String(describing: actor)) \(piece) \(kind)")
+                        guard let actor else { continue }
+                        let onFigure = LocalWritePermit(
+                            permit: permit, actor: actor, documentClass: figure,
+                            writesAsItsStarter: true).allows(.op(kind))
+                        XCTAssertEqual(onFigure == .yes, widened == .yes,
+                                       "\(permit) \(actor) \(piece) \(kind)")
+                    }
+                }
+                for kind in figureKinds {
+                    XCTAssertFalse(permit.startsAPieceNobodyHasClaimed(
+                        .op(kind), in: .figure(id: "fig-00000003", piece: nil), actor: actor))
+                    XCTAssertFalse(permit.startsAPieceNobodyHasClaimed(
+                        .op(kind), in: .unregisteredFigure("fig-00000004"), actor: actor))
+                }
+            }
+        }
+        XCTAssertTrue(Permit.author(.pieces([Self.hers])).startsAPieceNobodyHasClaimed(
+            .op(.figureCellSet), in: .figure(id: "fig-00000001", piece: Self.theirs),
+            actor: .author), "premise: the case the ruling is about")
+    }
+
     /// **A narrowed key's reopen is refused as the disposition it undoes**
     /// (P3 plan 3 Task 5). The table files `annotationReopen` with edit and
     /// withdraw (ruling P), so the translator and the rebalance key reach the

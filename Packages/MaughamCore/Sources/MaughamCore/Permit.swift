@@ -309,16 +309,45 @@ public enum Permit: Equatable, Hashable, Sendable {
     /// changes the manuscript on any device, and that refusal has nothing to
     /// do with whose piece it is. Manuscript TEXT only — a disposition, a
     /// checkpoint, a task in such a piece is not §4.5's question.
+    ///
+    /// **A figure of such a piece is the piece** (report plan 6b Task 10,
+    /// Denver's ruling R-D4, which closes R-6a-10): a figure's content is
+    /// signed on the manuscript-text rung (ruling D-c), so the shape reaches
+    /// it through `startersPiece(of:)` — and both askers, the partition and
+    /// `LocalWritePermit`, follow without a second spelling.
     public func startsAPieceNobodyHasClaimed(
         _ what: Written, in documentClass: DocumentClass, actor: DeviceActor?
     ) -> Bool {
         guard mayOpenAPieceOfTheirOwn(actor: actor),
               case let .author(scope) = self,
               case let .pieces(mine) = scope,
-              case let .piece(id) = documentClass, !mine.contains(id),
+              let id = Permit.startersPiece(of: documentClass), !mine.contains(id),
               Permit.group(of: what) == .manuscriptText
         else { return false }
         return true
+    }
+
+    /// **The piece whose recorded starter governs this class** (report plan
+    /// 6b Task 10, Denver's ruling R-D4: *a figure follows its piece's posture
+    /// exactly, starter yield included*) — the piece itself, or the piece a
+    /// figure belongs to; nil for every other class.
+    ///
+    /// The one spelling of *which piece the Option A facts are asked of*:
+    /// §4.5's shape above, the write side's starter arms
+    /// (`LocalWritePermitBuilder`) and the read side's starter and
+    /// `unowned` questions (`OpLogStore.permitContext`). A figure of the whole
+    /// book (`piece: nil`) has no starter and an unregistered figure has no
+    /// piece yet, so both answer nil — the older rule exactly. A piece's
+    /// statement and its translations are NOT here: their own classes take no
+    /// Option A arm (the statement pane asks its own posture).
+    public static func startersPiece(of documentClass: DocumentClass) -> String? {
+        switch documentClass {
+        case .piece(let id): return id
+        case .figure(_, let piece): return piece
+        case .pieceStatement, .translation, .projectStatement, .projectStream,
+             .inbox, .unplaceable, .unregisteredFigure:
+            return nil
+        }
     }
 
     /// **Does manuscript text written under this permit CLAIM an unclaimed

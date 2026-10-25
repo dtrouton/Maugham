@@ -83,9 +83,12 @@ public enum LocalWritePermitBuilder {
         // **A narrowed book: the starter rule binds** — the root's Mac too
         // (OA-2), which is why the class is resolved here even under a permit
         // that could otherwise skip it: the piece id is what the starter is
-        // recorded against.
+        // recorded against. A figure asks its PIECE's starter (Denver's ruling
+        // R-D4, closing R-6a-10): both arms below — hers and a book author's
+        // yield — reach it exactly as they reach the piece's text
+        // (`Permit.startersPiece(of:)`).
         let cls = documentClass()
-        guard let piece = cls.piece, case .piece = cls,
+        guard let piece = Permit.startersPiece(of: cls),
               let starterId = (startedBy ?? {
                   LocalWritePermitBuilder.startedBy(ofPiece: $0, in: projectURL)
               })(piece)
@@ -132,9 +135,17 @@ public enum LocalWritePermitBuilder {
         } else {
             unsettled = nil
         }
+        // `startedHere` is about the piece's OPENING (`mayMintOpening`), and a
+        // figure has none — its load emits nothing — so a figure keeps nil,
+        // today's rule.
+        let startedHere: Bool? = {
+            if case .piece = cls { return starter == .thisDevice }
+            return nil
+        }()
         return LocalWritePermit(
             permit: permit, actor: actor, documentClass: cls,
-            startedHere: starter == .thisDevice, writesAsItsStarter: mine,
+            startedHere: startedHere,
+            writesAsItsStarter: mine,
             unsettledStarter: unsettled)
     }
 

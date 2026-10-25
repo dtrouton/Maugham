@@ -547,6 +547,15 @@ extension DocumentStore {
         let key = PostureBook.Key(docId: document.docId, actor: after.actor)
         postureBook.permits[key] = nil
         postureBook.lastKnown[key] = after
+        // **The piece's figures follow it** (report plan 6b Task 10, ruling
+        // R-D4): a figure's permit carries the same starter arms, decided from
+        // the same piece's lines, so a claim this re-read brought in closes
+        // them too. Forgotten here, a figure's next answer is the builder's.
+        let figures = postureBook.permits.keys.filter {
+            $0.actor == after.actor && DocumentClass.isFigureDocId($0.docId)
+                && postureBook.pieceOf[$0.docId] == .some(document.docId)
+        }
+        for figure in figures { postureBook.permits[figure] = nil }
         postureBook.epoch += 1
     }
 

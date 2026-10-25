@@ -261,13 +261,20 @@ final class PostureStandingLineTests: XCTestCase {
     /// another piece (the fixture admits her as a book author) — so this also
     /// pins that a piece she starts afterwards is not "taken from her"
     /// (`wasTakenFromThem`, named pieces only).
-    private func herStartedPieceOpen() async throws -> (DocumentStore, Document) {
+    private func herStartedPieceOpen(
+        withFigure figureId: String? = nil
+    ) async throws -> (DocumentStore, Document) {
         fixture.beASigningMac()
         try fixture.makeForeignRoot()
         let manifestURL = fixture.projectURL.appendingPathComponent(ProjectManifest.fileName)
         var manifest = try ProjectManifest.makeDecoder()
             .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
         manifest.structure[0].startedBy = fixture.identities.author.deviceId
+        if let figureId {
+            manifest.figures = [FigureRecord(
+                id: figureId, name: "cashflow", kind: .table,
+                piece: PostureFixture.docId, path: "figures/cashflow.csv")]
+        }
         try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
         try await fixture.changeMyPermit(to: .author(.pieces(["doc-other"])), store: nil)
 
@@ -319,6 +326,32 @@ final class PostureStandingLineTests: XCTestCase {
         let posture = store.posture(forDocId: PostureFixture.docId)
         XCTAssertEqual(posture.reason, .notYourPiece)
         XCTAssertFalse(posture.allows(.writeText), "her editor locks")
+        await doc.close()
+    }
+
+    /// **Her figure in the piece locks with the piece at that same re-read**
+    /// (report plan 6b Task 10, ruling R-D4). Before the claim the figure's
+    /// posture is the piece's — she may edit it, waiting to be claimed; the
+    /// re-read that brings the root's text in re-stamps the piece and the
+    /// door forgets the figure's answer with it, so the figure's next answer
+    /// (drawn and acting alike) refuses, as the read side now does.
+    func test_aBookAuthorsTextArrivingLocksHerFigureInThePieceToo() async throws {
+        let figureId = "fig-0000000a"
+        let (store, doc) = try await herStartedPieceOpen(withFigure: figureId)
+        let before = store.posture(forDocId: figureId)
+        XCTAssertEqual(before.reason, .waitingToBeClaimed, "precondition: the piece's posture")
+        XCTAssertTrue(before.allows(.editFigure))
+        let acting = await store.settledPosture(forDocId: figureId)
+        XCTAssertTrue(acting.allows(.editFigure), "precondition: the acting door agrees")
+
+        try await theRootWritesTheText(after: doc)
+        try await store.reReadAfterExternalChange(doc)
+
+        let after = store.posture(forDocId: figureId)
+        XCTAssertEqual(after.reason, .notYourPiece)
+        XCTAssertFalse(after.allows(.editFigure), "her figure locks with the piece")
+        let actingAfter = await store.settledPosture(forDocId: figureId)
+        XCTAssertFalse(actingAfter.allows(.editFigure), "and its acting door refuses")
         await doc.close()
     }
 

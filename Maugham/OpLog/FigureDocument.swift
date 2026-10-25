@@ -78,7 +78,10 @@ public struct FigureEditInvalid: LocalizedError, Equatable {
 ///   the class carrying the manifest's `FigureRecord.piece`) behind its
 ///   `requireWritable("…")` guard — the window's door where a window holds
 ///   the figure, so the piece's yields and *Edit Anyway* apply (R-6a-8);
-///   never a piece's posture, which answers yes under Option A. A refusal
+///   never a piece's posture, which would answer for a figure of the whole
+///   book too. In a piece nobody has claimed the figure's own class follows
+///   the piece's text exactly, Option A and the starter's yield included
+///   (Denver's ruling R-D4, `Permit.startersPiece(of:)`). A refusal
 ///   throws `FigureEditRefused` before anything is written.
 /// - **Undo appends a compensating op** (ADR 0023) built by
 ///   `FigureInverse.inverse`, registered through `OpUndoRegistrar` with this
@@ -299,7 +302,8 @@ public final class FigureDocument {
 
     /// **May this device's own hand change this figure?** The FIGURE's
     /// posture — its class is `.figure(id:, piece:)` from the registry — never
-    /// a piece's (Option A widens a piece, not a figure). Asked fresh at every
+    /// a piece's (in a piece nobody has claimed it answers as the piece's text
+    /// does, ruling R-D4). Asked fresh at every
     /// press, so a demotion that landed since the load closes the door.
     ///
     /// **The window's door where a window holds it** (ruling R-6a-8): figure

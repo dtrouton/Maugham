@@ -227,8 +227,9 @@ public struct Posture: Equatable, Sendable {
     /// reject a suggestion (a `claudeAccept` is manuscript text — applied on
     /// her Mac, held elsewhere, exactly like her typing), set a pass state,
     /// restructure and run a round (each probed as her words, ruling R3/R4),
-    /// and edit a figure (probed in the piece's class; a real figure's own
-    /// class, `.figure`, takes no Option A arm).
+    /// and edit a figure (a figure of that piece answers exactly as the
+    /// piece's text does, starter yield included — Denver's ruling R-D4,
+    /// `Permit.startersPiece(of:)`).
     /// What waits for *Theirs*: `.dispose` (stet, archive, triage, reopen),
     /// ⌘S's checkpoint, tasks and translation. `.editStatement` answers yes on
     /// the PIECE's posture and is unreachable there: the statement pane asks

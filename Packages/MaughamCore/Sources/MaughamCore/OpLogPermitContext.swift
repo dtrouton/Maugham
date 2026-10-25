@@ -72,7 +72,7 @@ public struct PermitContext: Sendable {
     public let amendments: AmendmentPermits?
 
     /// **Who started this piece** — its manifest item's `startedBy` (P3c
-    /// plan 2, Option A), for §4.5's arm: a starter the register knows is
+    /// plan 2, Option A), or a figure's piece's (ruling R-D4), for §4.5's arm: a starter the register knows is
     /// somebody other than the line's writer refuses her line outright (P3
     /// closing smoke F1), and her own starter applies it on her own Mac.
     /// Called at most once per file, and only where a scoped author's own
@@ -519,25 +519,36 @@ extension OpLogStore {
         let classMemo = PermitMemo<DocumentClass>()
         let unownedMemo = PermitMemo<PermitPartition.UnownedPiece>()
         let placement = ManifestPlacement(docId: docId, in: projectURL)
-        return PermitContext(
-            documentClass: {
-                classMemo {
-                    if let facts {
-                        return DocumentClass.resolve(docId: docId, facts: facts)
-                    }
-                    return placement.documentClass
+        let documentClass: @Sendable () -> DocumentClass = {
+            classMemo {
+                if let facts {
+                    return DocumentClass.resolve(docId: docId, facts: facts)
                 }
-            },
+                return placement.documentClass
+            }
+        }
+        // **The piece the starter facts are asked of** (report plan 6b Task
+        // 10, ruling R-D4): a figure's lines ask its PIECE's starter and its
+        // piece's text, exactly as the write side does
+        // (`Permit.startersPiece(of:)`). Both questions are reached only past
+        // §4.5's shape, which holds only for a piece or a figure of one, so
+        // the `?? docId` is never the answer that decides anything.
+        let startersPiece: @Sendable () -> String = {
+            Permit.startersPiece(of: documentClass()) ?? docId
+        }
+        return PermitContext(
+            documentClass: documentClass,
             unowned: {
                 unownedMemo {
                     guard let trust else { return .nobodyHasWrittenItsText }
+                    let piece = startersPiece()
                     return LocalWritePermitBuilder.unownedPiece(
-                        forDocId: docId, in: projectURL, trust: trust,
-                        startedBy: placement.startedBy(ofPiece: docId))
+                        forDocId: piece, in: projectURL, trust: trust,
+                        startedBy: placement.startedBy(ofPiece: piece))
                 }
             },
             amendments: amendments,
-            startedBy: { placement.startedBy(ofPiece: docId) })
+            startedBy: { placement.startedBy(ofPiece: startersPiece()) })
     }
 }
 
