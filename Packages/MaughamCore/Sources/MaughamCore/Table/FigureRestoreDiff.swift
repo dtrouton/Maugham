@@ -22,6 +22,11 @@ import Foundation
 ///   settings; pins → pin set / clear; a different picture → one image change
 ///   (whether its bytes still exist is the caller's question). A picture set
 ///   since a checkpoint that had none stays: no op takes a picture away.
+/// - **A pin live now is never replaced by one inert now** (ruling, plan 6c
+///   Task 1 review): where the checkpoint's pin on a cell reads a figure
+///   parked now under another park cycle (`FigurePinChoice.isLive` against
+///   `parks`) and the cell's pin from that same source counts now, the
+///   current pin is left as it is — restoring it would only unpin the cell.
 ///
 /// Every change is made against the state the ones before it left, through
 /// `FigureReturnDiff.Simulation`, so `FigureReturnDiff.everyChangeApplies`
@@ -37,8 +42,12 @@ public enum FigureRestoreDiff {
     }
 
     /// The ops, in order, that bring `current` to `target`'s content; empty
-    /// when they already agree.
-    public static func changes(from current: FigureState, to target: FigureState) -> [FigureReturnDiff.Change] {
+    /// when they already agree. `parks` is the book's park cycle of each
+    /// figure parked now (figure id → `FigureParking.cycle`), what
+    /// `FigurePinChoice.isLive` reads; empty, every pin counts.
+    public static func changes(
+        from current: FigureState, to target: FigureState, parks: [String: String] = [:]
+    ) -> [FigureReturnDiff.Change] {
         var sim = FigureReturnDiff.Simulation(state: current)
         let goal = target.table
 
@@ -93,7 +102,7 @@ public enum FigureRestoreDiff {
 
         // MARK: Pins
         for key in sortedKeys(Set(sim.state.pins.keys).union(target.pins.keys)) {
-            restorePins(at: key, to: target.pins[key] ?? [], in: &sim)
+            restorePins(at: key, to: target.pins[key] ?? [], parks: parks, in: &sim)
         }
 
         // MARK: Picture
@@ -107,13 +116,22 @@ public enum FigureRestoreDiff {
     /// Brings one cell's pin list to `wanted`, in its order. A pin set
     /// replaces the pin from its source cell in place and appends a new
     /// source, so the pins that stay are kept when they already stand in
-    /// `wanted`'s order; otherwise the cell is cleared and set afresh.
+    /// `wanted`'s order; otherwise the cell is cleared and set afresh. A
+    /// wanted pin inert under `parks` whose source's current pin counts
+    /// gives way to that current pin.
     private static func restorePins(
-        at key: CellKey, to wanted: [FigureResearchPin], in sim: inout FigureReturnDiff.Simulation
+        at key: CellKey, to target: [FigureResearchPin], parks: [String: String],
+        in sim: inout FigureReturnDiff.Simulation
     ) {
         let now = sim.state.pins[key] ?? []
-        guard now != wanted else { return }
         func source(_ p: FigureResearchPin) -> PinRead { PinRead(source: p.research, row: p.row, column: p.column) }
+        let wanted = target.map { pin -> FigureResearchPin in
+            guard !FigurePinChoice.isLive(pin, parks: parks),
+                  let live = now.first(where: { source($0) == source(pin) && FigurePinChoice.isLive($0, parks: parks) })
+            else { return pin }
+            return live
+        }
+        guard now != wanted else { return }
         let wantedSources = wanted.map(source)
         let kept = now.filter { wantedSources.contains(source($0)) }
         if wanted.isEmpty || !wantedSources.starts(with: kept.map(source)) {

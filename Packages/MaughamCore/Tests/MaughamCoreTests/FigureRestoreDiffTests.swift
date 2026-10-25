@@ -67,6 +67,12 @@ final class FigureRestoreDiffTests: XCTestCase {
         mutating func setting(_ change: FigureSettingsChange) {
             emit(.figureSettings, FigureOpPayload(settings: change))
         }
+        mutating func revive(_ r: RowID, slice: FigureRemovedSlice) {
+            emit(.figureStructure, FigureOpPayload(structure: .reviveRow(r), removed: slice))
+        }
+        mutating func revive(_ c: ColumnID, slice: FigureRemovedSlice) {
+            emit(.figureStructure, FigureOpPayload(structure: .reviveColumn(c), removed: slice))
+        }
         mutating func image(_ name: String, _ hash: String) {
             emit(.figureImageSet, FigureOpPayload(image: FigureImageRef(filename: name, contentHash: hash),
                                                   priorImage: state.image))
@@ -301,7 +307,8 @@ final class FigureRestoreDiffTests: XCTestCase {
     }
 
     /// Pins: one changed in place, one cleared, one added, a list reordered,
-    /// and a pin from another park cycle.
+    /// and a pin from another park cycle — `fig-park` is not parked now, so
+    /// both its pins count and the checkpoint's comes back.
     func test_roundTrip_pins() {
         var h = starter()
         h.pin(r2, c2, research: "res-a", row: 1, value: 1)
@@ -314,6 +321,90 @@ final class FigureRestoreDiffTests: XCTestCase {
         h.pin(r2, c1, research: "fig-park", row: 0, value: 4, park: "cycle-2")
         h.pin(r1, c1, research: "res-c", row: 2, value: 9)
         roundTrip(h, to: checkpoint)
+    }
+
+    /// **A pin live now is never replaced by one inert now** (ruling): the
+    /// checkpoint's cycle-1 pin on a figure parked now under cycle-2 would
+    /// only unpin the cell, so the cycle-2 pin stays; the cell's other pin
+    /// is restored as usual.
+    func test_aLivePinIsNotReplacedByOneInertUnderTheCurrentPark() throws {
+        var h = starter()
+        h.pin(r2, c1, research: "fig-park", row: 0, value: 3, park: "cycle-1")
+        h.pin(r2, c1, research: "res-a", row: 1, value: 1)
+        let checkpoint = h.pointer
+        h.pin(r2, c1, research: "fig-park", row: 0, value: 4, park: "cycle-2")
+        h.pin(r2, c1, research: "res-a", row: 1, value: 2)
+        let key = CellKey(row: r2, column: c1)
+        let livePin = try XCTUnwrap(h.state.pins[key]?.first)
+        let target = FigureRestoreDiff.target(of: h.ops, through: checkpoint)
+        let parks = ["fig-park": "cycle-2"]
+
+        let changes = FigureRestoreDiff.changes(from: h.state, to: target, parks: parks)
+        let restored = applied(changes, to: h.state)
+        XCTAssertEqual(restored.pins[key], [livePin, target.pins[key]![1]],
+                       "the live cycle-2 pin stays; res-a goes back to the checkpoint's")
+        XCTAssertEqual(changes.count, 1, "\(changes)")
+        XCTAssertEqual(FigureRestoreDiff.changes(from: restored, to: target, parks: parks), [])
+
+        // Parked now under a third cycle, neither counts: the checkpoint's comes back.
+        let third = FigureRestoreDiff.changes(from: h.state, to: target, parks: ["fig-park": "cycle-3"])
+        XCTAssertEqual(applied(third, to: h.state).pins[key], target.pins[key])
+    }
+
+    /// An image figure whose checkpoint had no picture, one set since: no op
+    /// takes a picture away, so the diff is empty and the picture stays.
+    func test_aPictureSetSinceAPicturelessCheckpointStays() {
+        var h = History()
+        h.emit(.figureCreate, FigureOpPayload(kind: .image))
+        let checkpoint = h.pointer
+        h.image("chart.png", "aaaa")
+        let target = FigureRestoreDiff.target(of: h.ops, through: checkpoint)
+        XCTAssertNil(target.image)
+        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: target), [])
+    }
+
+    /// A row and a column deleted and revived since the checkpoint are live
+    /// in both: no revive, no delete, only their cells set back and their
+    /// width restored.
+    func test_roundTrip_deletedAndRevivedSince() {
+        var h = starter()
+        h.setting(.columnWidth(c2, 90, prior: nil))
+        let checkpoint = h.pointer
+        let rowSlice = h.state.removedSlice(row: r2)
+        h.delete(r2)
+        h.revive(r2, slice: rowSlice)
+        h.set(r2, c1, .value(.text("Lodging")))
+        let columnSlice = h.state.removedSlice(column: c2)
+        h.delete(c2)
+        h.revive(c2, slice: FigureRemovedSlice(cells: columnSlice.cells))   // its width not put back
+        h.set(r1, c2, .value(.text("Cost")))
+        let changes = roundTrip(h, to: checkpoint)
+        XCTAssertTrue(changes.allSatisfy { $0.kind != .figureStructure }, "\(changes)")
+        XCTAssertEqual(changes.filter { $0.kind == .figureCellSet }.count, 2)
+        XCTAssertEqual(changes.filter { $0.kind == .figureSettings }.count, 1)
+    }
+
+    /// A stream that lost ops (a row and a column the checkpoint holds that
+    /// the current state never saw): they are inserted in place, and their
+    /// cells set.
+    func test_roundTrip_aStreamThatLostOpsInsertsWhatTheCheckpointHolds() throws {
+        var h = starter()
+        h.insert(c3, after: c1)
+        h.insert(r3, after: r1)
+        h.set(r3, c1, .value(.text("Food"))); h.set(r3, c3, .value(.number(340))); h.set(r1, c3, .value(.text("Tag")))
+        let checkpoint = h.pointer
+        let lost: Set<String> = Set(h.ops.suffix(5).map(\.opId))
+        let current = FigureDeriver.derive(h.ops.filter { !lost.contains($0.opId) })
+        XCTAssertNil(current.table.rowSlotIndex(of: r3))
+        let target = FigureRestoreDiff.target(of: h.ops, through: checkpoint)
+
+        let changes = FigureRestoreDiff.changes(from: current, to: target)
+        let restored = applied(changes, to: current)
+        assertSameContent(restored, target)
+        XCTAssertEqual(restored.table.rows, [r1, r3, r2])
+        XCTAssertEqual(restored.table.columns, [c1, c3, c2])
+        XCTAssertTrue(changes.contains { $0.payload.structure == .insertRow(r3, after: r1) }, "\(changes)")
+        XCTAssertTrue(changes.contains { $0.payload.structure == .insertColumn(c3, after: c1) }, "\(changes)")
     }
 
     /// Formulas and formats edited by two devices, cells cleared and filled.
