@@ -188,6 +188,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `PinStatus.swift` — research pins: what a figure reads through one (a Research table, a parked figure), each source's status (current, changed, missing, unpinned), Compare's old and new values, the pins a refresh or a formula's entry writes, and `FigurePinChoice`, the one rule for which pin counts and wins.
 - `FigureReturnDiff.swift` — a changed working copy's return to its parked figure: kept ids, three-way against what the parker read; `FigureReturnMatch.swift` matches its rows and columns.
 - `FigureRestoreDiff.swift` — a figure wound back to a checkpoint's op pointer, by id: revives carrying the checkpoint's slice, deletes, moves, cells, settings, pins, picture, folded through the return's shared `Simulation`.
+- `FigureCarry.swift` — what a Collection piece's promotion carries of the figures: its own move, those its text or carried formulas name are copied; the ops re-creating each with its ids, parked again when parked; reads of Research left behind.
 - `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin), and a visit's inverses as one all-or-nothing undo.
 
 ### Inbox and capture

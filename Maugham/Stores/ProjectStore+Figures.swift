@@ -83,7 +83,7 @@ extension ProjectStore {
         let op = figureOpMinter(figureId: figureId)
         var ops = [op(.figureCreate, FigureOpPayload(kind: kind, source: source))]
         if kind == .table, let table {
-            ops += Self.openingPayloads(of: table).map { op($0.kind, $0.payload) }
+            ops += FigureCarry.openingPayloads(of: table).map { op($0.kind, $0.payload) }
             // A formula reading a Research table pins what it reads, as one
             // typed in would (final review I-1).
             ops += await openingPins(of: table).map {
@@ -126,43 +126,6 @@ extension ProjectStore {
                 "a new table's Research sources did not read, so its formulas take no pins: \(error.localizedDescription, privacy: .public)")
             return []
         }
-    }
-
-    /// The ops that build `table` on an empty stream, after its
-    /// `figureCreate`: its rows, then its columns, each after the one before
-    /// with the table's own id; a cell set per cell, row by row; then its
-    /// header rows, total row and column widths where they are not the
-    /// defaults. A fresh table starts with no header row.
-    static func openingPayloads(of table: FigureTable) -> [(kind: OpKind, payload: FigureOpPayload)] {
-        var out: [(kind: OpKind, payload: FigureOpPayload)] = []
-        var lastRow: RowID?
-        for row in table.rows {
-            out.append((.figureStructure, FigureOpPayload(structure: .insertRow(row, after: lastRow))))
-            lastRow = row
-        }
-        var lastColumn: ColumnID?
-        for column in table.columns {
-            out.append((.figureStructure, FigureOpPayload(structure: .insertColumn(column, after: lastColumn))))
-            lastColumn = column
-        }
-        for row in table.rows {
-            for column in table.columns {
-                let key = CellKey(row: row, column: column)
-                guard let cell = table[key] else { continue }
-                out.append((.figureCellSet, FigureOpPayload(cell: key, next: cell, prior: nil)))
-            }
-        }
-        if table.headerRows != 0 {
-            out.append((.figureSettings, FigureOpPayload(settings: .headerRows(table.headerRows, prior: 0))))
-        }
-        if table.hasTotalRow {
-            out.append((.figureSettings, FigureOpPayload(settings: .totalRow(true, prior: false))))
-        }
-        for column in table.columns {
-            guard let width = table.columnWidths[column] else { continue }
-            out.append((.figureSettings, FigureOpPayload(settings: .columnWidth(column, width, prior: nil))))
-        }
-        return out
     }
 
     /// **Create an image figure from a picture on disk** (report plan 6a
@@ -734,13 +697,16 @@ extension ProjectStore {
     /// (`.figure(id:, piece:)`), for `.editFigure`. The window's door where a
     /// window holds this book (ruling R-6a-8) — the piece's yields and *Edit
     /// Anyway* apply as they do to its text; windowless, Core's door directly
-    /// (RulingPerformer's precedent). A refusal, or a `.settling` answer,
-    /// throws `FigureEditRefused`.
+    /// (RulingPerformer's precedent), and always for a figure made in
+    /// another book (`inThisBook: false` — a promotion's staged root, whose
+    /// `opStore` is that book's). A refusal, or a `.settling` answer, throws
+    /// `FigureEditRefused`.
     func requireNewFigurePermitted(
-        figureId: String, piece: String?, opStore: OpLogStore, site: StaticString
+        figureId: String, piece: String?, opStore: OpLogStore, site: StaticString,
+        inThisBook: Bool = true
     ) async throws {
         let posture: Posture
-        if let documentStore {
+        if inThisBook, let documentStore {
             posture = await documentStore.settledPosture(forNewFigure: figureId, piece: piece)
         } else {
             posture = PostureDoor.posture(as: .author, using: opStore) {
@@ -754,7 +720,8 @@ extension ProjectStore {
     }
 
     /// The one place a new figure's ops are minted: this device's author, the
-    /// project's op session, the figure's own stream. Asked only after
+    /// project's op session, the figure's own stream — a promotion's carried
+    /// streams too (`writeCarriedFigureStreams`). Asked only after
     /// `requireNewFigurePermitted`.
     private func figureOpMinter(figureId: String) -> (OpKind, FigureOpPayload) -> Op {
         let device = Document.loadIdentities[.author].deviceId
@@ -773,6 +740,127 @@ extension ProjectStore {
             try await opStore.append(each)
         }
         _ = try await opStore.sealChain(docId: figureId, actor: .author)
+    }
+
+    // MARK: - Carried into a promoted piece's project (report plan 6c Task 4)
+
+    /// **What promoting piece `pieceId` carries of the book's figures**, read
+    /// now (rulings Q-4, Q-5): `FigureCarry.figures` over the registry, the
+    /// piece's text — its open `Document`, else derived from its op log, never
+    /// its `.md` (tripwire 20) — and each figure's state (its open host's,
+    /// else the cache's read); then `FigureCarry.leftBehindReads` against
+    /// `carriedResearch`, the Research item ids the promotion carries. Read
+    /// before the promotion closes the window.
+    ///
+    /// Throws when the piece's text will not derive, or when a figure it
+    /// carries will not read: a promotion never re-creates a figure it could
+    /// not see. A figure it does not carry may be unreadable.
+    func figureCarryPlan(forPiece pieceId: String, carriedResearch: Set<String>) async throws -> FigureCarryPlan {
+        let records = manifest.figures ?? []
+        guard !records.isEmpty else { return FigureCarryPlan() }
+        guard let path = Self.collectDocuments(in: manifest.structure).first(where: { $0.id == pieceId })?.path else {
+            throw ProjectStoreError.fileSystemError("Piece not found: \(pieceId)")
+        }
+        let text = try documentStore?.document(for: path)?.displayText
+            ?? derivedCache.displayText(forDocId: pieceId, in: url)
+        let refs = FigureCarry.references(inText: text)
+
+        let trust = try TrustResolution.resolve(
+            projectURL: url, identities: Document.loadIdentities, cache: Document.loadRegistryCache)
+        let cache = documentStore?.figureCache ?? FigureCache()
+        let facts = DocumentClass.Facts(manifest)
+        var states: [String: FigureState] = [:]
+        var unreadable: [String: String] = [:]
+        for record in records {
+            if let open = documentStore?.openFigure(forId: record.id) {
+                states[record.id] = open.state
+                continue
+            }
+            do {
+                states[record.id] = try cache.state(forFigureId: record.id, in: url, trust: trust, facts: facts)
+            } catch {
+                unreadable[record.id] = error.localizedDescription
+            }
+        }
+
+        let carry = FigureCarry.figures(
+            forPiece: pieceId, records: records,
+            referencedLabels: refs.labels, referencedPaths: refs.paths, states: states)
+        let carried = carry.moved + carry.copied
+        let unseen = carried.filter { unreadable[$0.id] != nil }
+        guard unseen.isEmpty else {
+            throw FigureEditInvalid(reason: "These figures could not be read, so the piece was not promoted: "
+                + unseen.map { "\($0.name) (\(unreadable[$0.id] ?? ""))" }.joined(separator: ", "))
+        }
+        let carriedIds = Set(carried.map(\.id))
+        let parks = FigureCarry.parks(of: states)
+        let carriedStates = states.filter { carriedIds.contains($0.key) }
+        return FigureCarryPlan(
+            moved: carry.moved, copied: carry.copied, states: carriedStates, parks: parks,
+            problems: FigureCarry.leftBehindReads(
+                carried: carried, states: carriedStates, carriedResearch: carriedResearch, parks: parks))
+    }
+
+    /// **Write `records`' re-created streams into the staged project at
+    /// `staging`** (Denver 2026-10-25: promotion re-creates; history stays in
+    /// the Collection). Each record keeps its id (Q-5) and, as its `piece`
+    /// says it will stand in the new book, asks that book's door for
+    /// `.editFigure` (`requireNewFigurePermitted(inThisBook: false)`). Its
+    /// stream is `FigureCarry.openingOps` over `states[id]` under `parks`,
+    /// minted by `figureOpMinter` — this device's author — and appended and
+    /// sealed through the staged root's own `OpLogStore`
+    /// (`appendNewFigureStream`, so `beforeFigureAppendForTesting` reaches
+    /// it). A parked figure ends parked again (Q-6).
+    ///
+    /// A picture is copied from `figures/` into the staged `figures/` under
+    /// its own file name, each side through `SafeRelativePath` (tripwire 58):
+    /// the read form here, the change form there. One whose bytes are not in
+    /// `figures/` is logged and left: its stream still names it, as the
+    /// Collection's did. Nothing in the Collection changes.
+    ///
+    /// Throws for a record with no state, a kind this build cannot create, a
+    /// refused door or a failed append; what it wrote before is in `staging`,
+    /// which the promotion's rollback removes.
+    func writeCarriedFigureStreams(
+        _ records: [FigureRecord], states: [String: FigureState], parks: [String: String],
+        into staging: URL
+    ) async throws {
+        let opStore = Document.makeLoadOpStore(projectURL: staging, presenter: nil)
+        for record in records {
+            guard let state = states[record.id] else {
+                throw FigureEditInvalid(reason: "\(record.name) could not be read, so it was not carried")
+            }
+            let opening = FigureCarry.openingOps(for: record, state: state, parks: parks)
+            guard !opening.isEmpty else {
+                throw FigureEditInvalid(
+                    reason: "this build cannot re-create \(record.name), a figure of kind \(record.kind.rawValue)")
+            }
+            try await requireNewFigurePermitted(
+                figureId: record.id, piece: record.piece, opStore: opStore,
+                site: "writeCarriedFigureStreams", inThisBook: false)
+            let ops = FigureCarry.minted(opening, by: figureOpMinter(figureId: record.id))
+            try await appendNewFigureStream(ops, figureId: record.id, opStore: opStore)
+            if let image = state.image {
+                try copyCarriedPicture(image.filename, into: staging)
+            }
+        }
+    }
+
+    /// `figures/<filename>` copied into `staging`'s `figures/`, unless it is
+    /// not on disk here (logged) or is there already.
+    private func copyCarriedPicture(_ filename: String, into staging: URL) throws {
+        let relative = "\(Self.figuresFolder)/\(filename)"
+        let source = try resolvedProjectPath(relative)
+        guard FileManager.default.fileExists(atPath: source.path) else {
+            projectStoreLog.error(
+                "a carried picture is not in figures/, so it was not copied: \(filename, privacy: .public)")
+            return
+        }
+        let destination = try Self.resolvedProjectPathToChange(relative, under: staging)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source, to: destination)
     }
 
     /// `base`, trimmed, or `base_2`, `base_3`… — the first that neither a
@@ -884,4 +972,20 @@ public struct FigureRestoreRefused: LocalizedError, Equatable {
     public var errorDescription: String? {
         "A figure called \(name) already exists; rename it first."
     }
+}
+
+/// **What a promotion carries of the book's figures** (report plan 6c Task
+/// 4): `ProjectStore.figureCarryPlan`'s answer. `moved` are the piece's own,
+/// `copied` the others it names or reads (both in registry order); `states`
+/// holds each carried figure's state by id; `parks` every parked figure's
+/// cycle (`FigureCarry.parks`); `problems` what they read that stays behind.
+struct FigureCarryPlan: Sendable {
+    var moved: [FigureRecord] = []
+    var copied: [FigureRecord] = []
+    var states: [String: FigureState] = [:]
+    var parks: [String: String] = [:]
+    var problems: [FigureCarryProblem] = []
+
+    /// Every carried figure: the moved, then the copied.
+    var carried: [FigureRecord] { moved + copied }
 }

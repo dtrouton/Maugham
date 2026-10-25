@@ -12429,8 +12429,10 @@ final class TripwireGrepTests: XCTestCase {
     /// - `ProjectStore+Figures.swift` × 1 — `figureOpMinter`, which mints
     ///   `createFigure`'s `figureCreate` and row and column inserts (and, for
     ///   a Research table's `useInDocument`, its cells and settings) and
-    ///   `createImageFigure`'s `figureCreate` and `figureImageSet`: each asks
-    ///   posture (`.editFigure` of the class the new figure will have,
+    ///   `createImageFigure`'s `figureCreate` and `figureImageSet`, and a
+    ///   promotion's re-created streams (`writeCarriedFigureStreams`, report
+    ///   plan 6c Task 4, asking the staged book's door): each asks posture
+    ///   (`.editFigure` of the class the new figure will have,
     ///   `requireNewFigurePermitted`) before it mints a line, and throws
     ///   `FigureEditRefused`.
     /// - `FigureIngest.swift` × 1 — `importImage`'s `createImageFigure(`, the
