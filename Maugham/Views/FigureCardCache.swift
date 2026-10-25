@@ -59,6 +59,8 @@ final class FigureCardCache {
     /// The registry as of the last fill: line lookups resolve against it, so
     /// what a line shows moves only with `version`.
     private var records: [FigureRecord] = []
+    /// `records` keyed for line lookups, built once per fill.
+    private var index = FigureLineResolution.Index([])
     private var hasFilled = false
     private var dirty = false
     private var filling: Task<Void, Never>?
@@ -81,6 +83,7 @@ final class FigureCardCache {
         dirty = false
         models.removeAll()
         records.removeAll()
+        index = FigureLineResolution.Index([])
         hasFilled = false
         guard source != nil else { return }
         invalidate()
@@ -112,7 +115,7 @@ final class FigureCardCache {
     ///   - documentPath: the document's project-relative path.
     func model(forLinePath linePath: String, documentPath: String) -> FigureCardModel? {
         guard hasFilled else { return nil }
-        switch FigureLineResolution.record(forLinePath: linePath, documentPath: documentPath, records: records) {
+        switch index.record(forLinePath: linePath, documentPath: documentPath) {
         case .figure(let record): return models[record.id]
         case .ambiguous: return .placeholder(.ambiguous)
         case .none:
@@ -160,6 +163,7 @@ final class FigureCardCache {
         let first = !hasFilled
         models = next
         records = inputs.records
+        index = FigureLineResolution.Index(inputs.records)
         hasFilled = true
         guard first || moved else { return }
         version += 1

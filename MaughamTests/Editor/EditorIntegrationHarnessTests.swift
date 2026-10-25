@@ -6,6 +6,11 @@ import MaughamCore
 @MainActor
 final class EditorIntegrationHarnessTests: XCTestCase {
 
+    override class func setUp() {
+        super.setUp()
+        FontWarmup.ensure()   // the figure-card cases style through ProseMode
+    }
+
     func test_singleCharacterTyped_textViewMatchesUserInput() {
         let rig = EditorIntegrationHarness(initialText: "")
         rig.typeCharacter("a")
@@ -254,5 +259,160 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         let burstsAfter = opsAfter.filter { $0.kind == .typingBurst }.count
         XCTAssertEqual(burstsAfter, burstsBefore + 1,
             "exactly one typing_burst op should fire at idle threshold")
+    }
+
+    // MARK: - Figure cards end to end (report plan 7a Task 7)
+    //
+    // The whole chain a window wires: a real `FigureCardCache` filled from a
+    // counting source (`FigureCardBook`), its version written into a real
+    // `EditorControl` by EditorHost's own closure, the control plane carrying
+    // it to the coordinator, the coordinator reading each line's card from the
+    // cache. A remote figure change is `cache.invalidate()`, which is what
+    // `DocumentStore`'s figure triggers call when another device's ops land.
+
+    private static func room(_ model: FigureCardModel?) -> CGFloat {
+        FigureCardMetrics.room(for: model, typography: .defaults)
+    }
+
+    /// Review Focus 1: typing a burst in a long document with 30 table
+    /// cards while a remote figure change lands mid-burst. No
+    /// `applyExternalText`, no caret or scroll move; the keystrokes never
+    /// fill the cache or restyle a figure line; the changed figure's line
+    /// re-lays out once, after the burst settles.
+    func test_figureCards_aRemoteChangeMidBurstReLaysOutItsLineOnceAfterTheSettle() async {
+        let rig = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true),
+            initialText: FigureCardBook.manuscript(tables: 30), cursorLocation: 0)
+        let book = FigureCardBook(tables: 30, rows: 3)
+        let coordinator = rig.coordinator
+        await book.wire(coordinator, documentPath: rig.docPath, textView: rig.textView)
+        let target = FigureCardBook.line(17), figure17 = FigureCardBook.id(17)
+        let body = rig.spacing(at: "Opening")
+        let small = Self.room(book.cache.model(forFigureId: figure17))
+        XCTAssertEqual(book.reads, 1, "precondition: one fill on open")
+        XCTAssertEqual(rig.spacing(at: target), body + small, "precondition: the first fill's room is painted")
+        XCTAssertNotEqual(small, FigureThumbnailLayout.reservedHeight, "precondition: a card, not the placeholder")
+
+        let layout = EditRecordingLayoutManager.install(on: rig.textView)
+        func figureLines() -> [NSRange] { (0..<30).map { rig.nsText.range(of: FigureCardBook.line($0)) } }
+        let clip = rig.scrollView.contentView
+        clip.scroll(to: NSPoint(x: 0, y: rig.lineTop(of: "Paragraph 2 of prose")))
+        rig.scrollView.reflectScrolledClipView(clip)
+        let origin = clip.bounds.origin
+        XCTAssertGreaterThan(origin.y, 0, "precondition: scrolled down")
+        let refreshes = coordinator.figureRoomRefreshCount
+        let typeAt = NSMaxRange(rig.nsText.range(of: "Paragraph 3 of prose under its table"))
+        rig.setCursor(to: typeAt)
+        coordinator.restyleSettleDelayMs = 3_600_000   // the burst stays in flight until the test settles it
+
+        rig.assertNoApplyExternalText { rig.type(" and") }
+        XCTAssertTrue(coordinator.isInTypingBurst, "precondition: the burst is in flight")
+        book.setRows(40, table: 17)
+        book.cache.invalidate()                      // the remote change lands mid-burst
+        await book.landFill(on: coordinator)
+        XCTAssertEqual(book.reads, 2, "the remote change is one fill")
+        XCTAssertTrue(coordinator.figureRoomsWaitForTheSettle, "the version waits for the settle")
+        rig.assertNoApplyExternalText { rig.type(" more") }
+
+        XCTAssertEqual(rig.spacing(at: target), body + small, "mid-burst the line keeps its painted room")
+        XCTAssertEqual(coordinator.figureRoomRefreshCount, refreshes, "no figure line re-laid out mid-burst")
+        XCTAssertEqual(layout.styleEdits(touching: figureLines()), [], "no keystroke restyled a figure line")
+        XCTAssertEqual(book.reads, 2, "no keystroke filled the cache")
+        let caret = typeAt + (" and more" as NSString).length
+        XCTAssertEqual(rig.cursorLocation, caret)
+
+        // The settle: one last key with no delay, then its deferred paint.
+        coordinator.restyleSettleDelayMs = 0
+        rig.assertNoApplyExternalText { rig.type(".") }
+        await coordinator.deferredRestyleTask?.value
+        let grown = Self.room(book.cache.model(forFigureId: figure17))
+        XCTAssertGreaterThan(grown, small, "precondition: forty rows need more room than three")
+        XCTAssertEqual(rig.spacing(at: target), body + grown, "the line takes its new room at the settle")
+        XCTAssertEqual(coordinator.figureRoomRefreshCount, refreshes + 1, "once, after the burst")
+        XCTAssertFalse(coordinator.figureRoomsWaitForTheSettle)
+        XCTAssertEqual(layout.styleEdits(touching: figureLines()).map(\.range), [rig.lineRange(of: target)],
+                       "one attribute-only edit, over the changed figure's line alone")
+        XCTAssertEqual(book.reads, 2, "the settle fills nothing")
+        XCTAssertEqual(rig.cursorLocation, caret + 1, "the settle leaves the caret where the typing put it")
+        rig.textView.layoutManager!.ensureLayout(for: rig.textView.textContainer!)
+        XCTAssertEqual(clip.bounds.origin, origin, "no scroll snap")
+        for i in [0, 3, 16, 18, 29] {
+            XCTAssertEqual(rig.spacing(at: FigureCardBook.line(i)), body + small, "table \(i) untouched")
+        }
+        // The settle's window began at the newline ending table 3's line; the
+        // line keeps its room to the last character.
+        let three = rig.lineRange(of: FigureCardBook.line(3))
+        XCTAssertEqual((rig.storage.attribute(.paragraphStyle, at: NSMaxRange(three) - 1, effectiveRange: nil)
+                        as? NSParagraphStyle)?.paragraphSpacing, body + small)
+        // And the refreshed, settled text equals a whole-document paint.
+        let whole = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true), initialText: rig.currentText, cursorLocation: 0)
+        book.paintWhole(whole.coordinator, documentPath: whole.docPath, textView: whole.textView)
+        let settled = rig.paragraphStyles(), painted = whole.paragraphStyles()
+        XCTAssertEqual(settled.map(\.0), painted.map(\.0))
+        for (a, b) in zip(settled, painted) {
+            XCTAssertTrue(a.1?.isEqual(b.1) ?? (b.1 == nil), "paragraph style at \(a.0)")
+        }
+    }
+
+    /// Review Focus 2: a table grows from 3 to 40 rows on another device.
+    /// Its card shows 12 rows and "+ 28 more rows", its room grows, the text
+    /// below moves down once, and a windowed paint of the line agrees with a
+    /// whole-document paint.
+    func test_figureCards_aTableGrowingTo40RowsShows12AndMovesTheTextBelowOnce() async {
+        let rig = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true),
+            initialText: FigureCardBook.manuscript(tables: 8), cursorLocation: 0)
+        let book = FigureCardBook(tables: 8, rows: 3)
+        let coordinator = rig.coordinator
+        await book.wire(coordinator, documentPath: rig.docPath, textView: rig.textView)
+        let target = FigureCardBook.line(4), id = FigureCardBook.id(4)
+        let three = book.cache.model(forFigureId: id)
+        XCTAssertEqual(three.map { $0.headerRows.count + $0.bodyRows.count }, 3, "precondition")
+        let body = rig.spacing(at: "Opening")
+        let layout = EditRecordingLayoutManager.install(on: rig.textView)
+        let above = rig.lineTop(of: "Paragraph 3 of prose")
+        let below = rig.lineTop(of: "Paragraph 4 of prose")
+        let farBelow = rig.lineTop(of: "Closing paragraph")
+        let selection = NSRange(location: 3, length: 0)
+        rig.textView.setSelectedRange(selection)
+
+        book.setRows(40, table: 4)
+        book.cache.invalidate()
+        await book.landFill(on: coordinator)   // no burst: the version re-lays out at once
+
+        let forty = book.cache.model(forFigureId: id)
+        XCTAssertEqual(forty.map { $0.headerRows.count + $0.bodyRows.count }, FigureCardModel.maxShownRows,
+                       "the card shows 12 rows")
+        XCTAssertEqual(forty?.moreRows, 28, "and \"+ 28 more rows\"")
+        let delta = Self.room(forty) - Self.room(three)
+        XCTAssertGreaterThan(delta, 0, "its room grows")
+        XCTAssertEqual(rig.spacing(at: target), body + Self.room(forty))
+        XCTAssertEqual(layout.edits, [EditRecordingLayoutManager.Edit(
+            charactersChanged: false, range: rig.lineRange(of: target))],
+            "one attribute-only edit over the line: the text below moves once")
+        XCTAssertEqual(rig.lineTop(of: "Paragraph 3 of prose"), above, "text above stays put")
+        XCTAssertEqual(rig.lineTop(of: "Paragraph 4 of prose"), below + delta, accuracy: 0.5)
+        XCTAssertEqual(rig.lineTop(of: "Closing paragraph"), farBelow + delta, accuracy: 0.5)
+        XCTAssertEqual(rig.textView.selectedRange(), selection, "the caret never moves")
+
+        // A windowed paint covering the line (an edit to its caption, settled)
+        // reads the same grown card.
+        coordinator.restyleSettleDelayMs = 0
+        rig.setCursor(to: NSMaxRange(rig.nsText.range(of: "![Table 4")))
+        rig.type("b")
+        await coordinator.deferredRestyleTask?.value
+        let edited = "![Table 4b](../figures/t4.csv)"
+        XCTAssertEqual(rig.spacing(at: edited), body + Self.room(forty), "the windowed paint keeps the grown room")
+        XCTAssertEqual(book.reads, 2, "an edit to a figure line fills nothing")
+
+        let whole = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true), initialText: rig.currentText, cursorLocation: 0)
+        book.paintWhole(whole.coordinator, documentPath: whole.docPath, textView: whole.textView)
+        let windowed = rig.paragraphStyles(), painted = whole.paragraphStyles()
+        XCTAssertEqual(windowed.map(\.0), painted.map(\.0), "windowed and whole-document paints agree")
+        for (a, b) in zip(windowed, painted) {
+            XCTAssertTrue(a.1?.isEqual(b.1) ?? (b.1 == nil), "paragraph style at \(a.0)")
+        }
     }
 }
