@@ -364,14 +364,13 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - Research pins, refresh and compare.
    - Checkpoint restore of figures (contents only; parked figures skipped; renames, removals, figures created since and replaced pictures are out of reach of a checkpoint pointer).
    - Promotion re-creates the piece's figures in the new project from their current state (ids kept, history stays in the Collection, as the manuscript's does).
-7. **Editor: card and in-place grid.**
+7. **Editor: card and in-place grid.** Split into 7a (card + reserved space, built first), 7b (caption bar, diagnostics, Insert Table / Convert, grid-sheet retirement), 7c (the in-place grid), 7d (clipboard, undo hand-off, pop-out). Denver, 2026-10-25: ⌘Z after Convert or Insert Table removes the figure it made (to the Trash) with the text; the expanded grid is a fixed-height scrolling viewport (about 15 rows); a pop-out figure window closes with its project window; cell suggestions move whole to plan 9.
    - Reserved space first.
    - Caption-bar styling.
    - The grid: keys, formula bar, toolbar, menus, paste.
    - The pop-out window.
    - Undo hand-off.
    - Insert Table / Convert, grid-sheet retirement.
-   - Cell suggestions.
    - The card shows a body's text-cell translations once plan 9 stores them.
 8. **The Figures area.**
    - Tree section and folds.
@@ -382,6 +381,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
 9. **Out to the world.**
    - Publishing (PDF, EPUB, Word) from figures, with localised formats and problems.
    - MCP tools and figure anchors.
+   - Cell suggestions (§6.5) end to end: the cell-anchor annotation model, MCP creation, dots on card and grid, the strip with Accept/Reject (Denver, 2026-10-25).
    - Text-cell translations (§8): the store and derivation keyed by (figure, row id, column id, language), a figure-aware translation permit class carrying the figure's piece, who writes them (translator and `write_translation`), coverage-gate membership, a body's emission, and the orphaned translations a removed figure leaves.
    - Research version history (§10.1) with the AI Research-table tools — needs Denver's ruling against RULING-24 (research is recoverable but not versioned) and replaces the canvas Rewrite's Trash `.priorVersion` route.
    - Phone rendering.
