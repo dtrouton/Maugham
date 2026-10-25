@@ -96,6 +96,10 @@ struct CanvasKeyHandler {
     /// chapter's. The arrows still move from it. "Dimmed" is `highlight`, the
     /// renderer's own lit set.
     ///
+    /// **Return with nothing selected makes nothing under a research item or a
+    /// group** (`CanvasKeyboard.returnMakesAScrap`, #118): the board is dimmed
+    /// and nothing binds the scrap, so it would be born a dimmed orphan.
+    ///
     /// **A scrap placed by key keeps out of regions bound to another chapter**
     /// (`CanvasKeyboard.foreignRegions`): landing in one, it would follow that
     /// region and be born dimmed.
@@ -135,6 +139,9 @@ struct CanvasKeyHandler {
             returnKeyboardToTree()
             return true
         case (.returnKey, nil):
+            // Under a research item or a group the scrap would be born
+            // dimmed: make nothing, but the key is meant (#118).
+            guard CanvasKeyboard.returnMakesAScrap(for: subject) else { return true }
             let size = CanvasKeyboard.newCardSize()
             let centre = camera.contentPoint(fromView: CGPoint(x: viewSize.width / 2,
                                                                y: viewSize.height / 2))
