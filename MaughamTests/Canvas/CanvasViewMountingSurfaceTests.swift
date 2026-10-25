@@ -1618,11 +1618,11 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         // be about the drop rather than about the index that arrived after it.
         guard case .create(let chartNode) = CanvasDrop.decide(
             payload: chartID, at: CGPoint(x: 40, y: 40),
-            in: model.scene, index: atMount) else {
+            in: model.scene, index: atMount, pictureAspect: nil) else {
             return XCTFail("precondition: the index the canvas mounted with does not "
                            + "accept the chart, so nothing below is a drop at all")
         }
-        CanvasDrop.apply(chartNode, in: model)
+        CanvasDrop.apply(chartNode, in: model, wrappingInPiece: nil)
         pump()
         XCTAssertTrue(try cardValues(in: window).contains(chartTitle),
                       "the control card — an item in the index the canvas mounted "
@@ -1642,7 +1642,7 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         // the drop runs, which is where the stale closure is reached.
         guard case .create(let harbourNode) = CanvasDrop.decide(
             payload: harbourID, at: CGPoint(x: 300, y: 200),
-            in: model.scene, index: afterAdding) else {
+            in: model.scene, index: afterAdding, pictureAspect: nil) else {
             return XCTFail("precondition: the index handed down after the item was "
                            + "added does not accept the photograph, so this test "
                            + "never reaches the callback it is about")
@@ -1650,7 +1650,7 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         XCTAssertEqual(harbourNode.id, CanvasNodeID.item(harbourID),
                        "precondition: the dropped node is not the derived item node, "
                        + "so nothing about it resolves against the manifest")
-        CanvasDrop.apply(harbourNode, in: model)
+        CanvasDrop.apply(harbourNode, in: model, wrappingInPiece: nil)
         pump()
 
         let values = try cardValues(in: window)

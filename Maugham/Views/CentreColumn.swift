@@ -56,6 +56,11 @@ struct CentreColumn: View {
     let runRoundWhenPieceOpens: (_ pieceId: String) -> Void
     /// The drawing door's posture for one document.
     let posture: (_ docId: String) -> Posture
+    /// Plan's Tab from the binder (`CanvasView.keyboardRequest`) and the
+    /// canvas's ⇧Tab back (`CanvasView.returnKeyboardToTree`; nil where no
+    /// visible binder answers it).
+    let canvasKeyboardRequest: Int
+    let returnKeyboardToTree: (() -> Void)?
 
     /// **The board's open-notes column, computed OFF the body path** — piece id
     /// → how many notes it still has open, and the pieces whose op logs could
@@ -456,11 +461,15 @@ struct CentreColumn: View {
                    // An inbox row dragged onto the canvas (spec §8A.4) — the store's
                    // third promote sibling. The only production site that hands the
                    // canvas a way to reach it; without it the drag springs back silently.
-                   captureDrop: CanvasCaptureDrop(send: { entryID, point in
+                   captureDrop: CanvasCaptureDrop(send: { entryID, point, piece in
                        try await documentStore.inboxStore.sendToCanvas(
                            entryID: entryID, projectStore: store,
-                           placement: .dropped(at: point))
-                   }))
+                           placement: .dropped(at: point, wrappingInPiece: piece))
+                   }),
+                   // Spec §1: Tab in Plan's binder gives the canvas the keyboard,
+                   // and ⇧Tab gives it back.
+                   keyboardRequest: canvasKeyboardRequest,
+                   returnKeyboardToTree: returnKeyboardToTree)
         // Issue #44: a layout file this build refused says why, over the canvas
         // and outside its layer stack; not chrome, so ⌘\ keeps it.
         .safeAreaInset(edge: .top) {

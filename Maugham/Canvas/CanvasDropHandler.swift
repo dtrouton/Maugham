@@ -1,10 +1,12 @@
+import MaughamCore
 import SwiftUI
 
-/// `CanvasView`'s drops: a research row or an inbox capture (`handleDrop`) and
-/// a photograph from the Finder or a browser (`handleExternalDrop`) — over
-/// bindings to the view's own `camera`, `revision` and `dropError`. Each
-/// returns whether the drop was taken; the two modifiers that deliver them,
-/// and their order, stay on `CanvasView.body`.
+/// `CanvasView`'s drops: one entry point, `handleDrop(providers:at:)`, which
+/// `CanvasDropRoute` sends either to a research row or an inbox capture
+/// (`handleDrop`) or to a photograph from the Finder or a browser
+/// (`handleExternalDrop`) — over bindings to the view's own `camera`,
+/// `revision` and `dropError`. Each returns whether the drop was taken; the
+/// one modifier that delivers them stays on `CanvasView.body`.
 ///
 /// Built fresh per call by `CanvasView.dropHandler` and never stored; built
 /// nowhere else (tripwire 32's surface census). **It holds no sibling
@@ -12,15 +14,28 @@ import SwiftUI
 /// would be frozen at build time for that later work (tripwire 57). What the
 /// `Task` bodies write after the await, `dropError` and `model.selection`,
 /// goes through the binding and the model, so the write lands in live state.
+///
+/// `subject` is the binder's selection as the drop arrives (the handler is
+/// built when the drop's closure runs); with a chapter selected, a drop that
+/// lands in no region is wrapped in one bound to it (`CanvasDropWrap`), and
+/// that region's title opens (`openTheWrapsTitle`). It never reaches
+/// `CanvasEditFocus` or `CanvasLayoutPass` (tripwire 57).
 @MainActor
 struct CanvasDropHandler {
     let model: CanvasModel
+    let subject: CanvasSubject
     let itemIndex: CanvasItemIndex
+    let projectRoot: URL
     let captureDrop: CanvasCaptureDrop
     let assetIngest: CanvasAssetIngest
+    @Binding var thumbnails: CanvasThumbnails
     @Binding var camera: CanvasCamera
     @Binding var revision: Int
     @Binding var dropError: String?
+    /// The open region title, written when a wrap opens its region's name;
+    /// read with `editingNodeID` so a wrap opens it only with nothing else open.
+    @Binding var regionTitleEditingID: CanvasRegionID?
+    @Binding var editingNodeID: CanvasNodeID?
 
     // MARK: - Drops
 
@@ -45,8 +60,11 @@ struct CanvasDropHandler {
     /// arrive as several payloads is the external file drop, which is its own
     /// modifier with its own arrangement rule.
     ///
-    /// Returns whether anything happened, so a payload this canvas has no card for
-    /// is declined and the drag springs back rather than reporting success.
+    /// Returns whether anything happened. Since canvas-keyboard-flow Task 1 the
+    /// drag itself has already been accepted (`handleDrop(providers:at:)` loads
+    /// the string after answering), so an id this canvas has no card for, or a
+    /// drop a read-only canvas refuses, does nothing rather than springing back
+    /// (ruled).
     ///
     /// **Two id spaces arrive here as of 1C-d Task 12, and `CanvasDrop.payload`
     /// tells them apart before anything else runs** (spec §8A.4). An inbox
@@ -58,15 +76,17 @@ struct CanvasDropHandler {
     func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
         guard let payload = payloads.first else { return false }
         if case .capture(let entryID) = CanvasDrop.payload(payload) {
-            // Read-only (issue #44): springs back before the send, so no asset is
-            // copied and the entry stays new; the canvas's notice says why.
+            // Read-only (issue #44): refused before the send, so no asset is
+            // copied and the entry stays new; the drag was already accepted, so
+            // nothing happens and the canvas's notice says why.
             guard CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)
             else { return false }
             return handleCaptureDrop(entryID, at: viewPoint)
         }
         switch CanvasDrop.decide(payload: payload,
                                  at: camera.contentPoint(fromView: viewPoint),
-                                 in: model.scene, index: itemIndex) {
+                                 in: model.scene, index: itemIndex,
+                                 pictureAspect: pictureAspect(ofItem: payload)) {
         case .ignored:
             return false
 
@@ -95,13 +115,29 @@ struct CanvasDropHandler {
         case .create(let node):
             guard CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)
             else { return false }
-            CanvasDrop.apply(node, in: model)
+            let wrapped = CanvasDrop.apply(node, in: model,
+                                           wrappingInPiece: CanvasDropWrap.piece(for: subject))
             // Selected, so the right-hand column shows the reference's own arm and
             // the writer can see what landed. Outside the bracket: a snapshot
             // carries the scene and the scrap text, never the selection.
-            model.selection = .node(node.id)
+            if let wrapped {
+                openTheWrapsTitle(wrapped, orSelect: node.id)
+            } else {
+                model.selection = .node(node.id)
+            }
             return true
         }
+    }
+
+    /// A research item's picture shape, so its card is born at its real height:
+    /// the memoised thumbnail's when this session has decoded it, else the
+    /// file's header (`CanvasThumbnails.headerAspect`, contained by
+    /// `SafeRelativePath` as the decode is). Nil for an item with no pixels.
+    private func pictureAspect(ofItem id: String) -> CGFloat? {
+        guard let path = itemIndex.entry(of: id)?.thumbnailPath else { return nil }
+        if let memo = thumbnails.aspect(path, in: projectRoot) { return memo }
+        guard let url = try? SafeRelativePath.resolve(path, under: projectRoot) else { return nil }
+        return CanvasThumbnails.headerAspect(of: url)
     }
 
     /// An inbox capture dropped on the canvas (spec §8A.4) — the **third** caller
@@ -127,13 +163,20 @@ struct CanvasDropHandler {
     /// finishing, a rewind), and the capture belongs where the writer let go of it.
     private func handleCaptureDrop(_ entryID: String, at viewPoint: CGPoint) -> Bool {
         let contentPoint = camera.contentPoint(fromView: viewPoint)
+        let piece = CanvasDropWrap.piece(for: subject)
         Task {
             do {
-                let id = try await captureDrop.send(entryID, contentPoint)
+                let sent = try await captureDrop.send(entryID, contentPoint, piece)
                 // Selected so the right-hand column shows the capture's own
                 // inspector arm. Outside the bracket: a snapshot carries the scene
-                // and the scrap text, never the selection.
-                model.selection = .node(id)
+                // and the scrap text, never the selection. A wrap opens the
+                // region the send REPORTS making — never one read off where the
+                // card ended up, which for a join is a region the writer had.
+                if let wrapped = sent.wrappedIn {
+                    openTheWrapsTitle(wrapped, orSelect: sent.node)
+                } else {
+                    model.selection = .node(sent.node)
+                }
             } catch {
                 dropError = error.localizedDescription
             }
@@ -167,17 +210,91 @@ struct CanvasDropHandler {
         let accepted = providers.filter { CanvasExternalDrop.accepts($0) }
         guard !accepted.isEmpty else { return false }
         let contentPoint = camera.contentPoint(fromView: viewPoint)
+        // Read at drop time, before the ingest's await.
+        let piece = CanvasDropWrap.piece(for: subject)
         Task {
             let outcome = await CanvasExternalDrop.ingest(providers: accepted,
                                                           using: assetIngest)
             let made = CanvasExternalDrop.apply(paths: outcome.paths,
-                                                at: contentPoint, in: model)
+                                                aspects: outcome.aspects,
+                                                at: contentPoint, in: model,
+                                                wrappingInPiece: piece)
             // Selected so the right-hand column shows the picture's own inspector
             // arm. Outside the bracket: a snapshot carries the scene and the
             // scrap text, never the selection.
-            if let first = made.first { model.selection = .node(first) }
+            if let wrapped = made.wrappedIn {
+                openTheWrapsTitle(wrapped, orSelect: made.nodes.first)
+            } else if let first = made.nodes.first {
+                model.selection = .node(first)
+            }
             dropError = outcome.message
         }
         return true
+    }
+
+    /// Every drag dropped on the canvas arrives here, from the canvas's one
+    /// `.onDrop` (spec §4). `CanvasDropRoute` decides by type, over every
+    /// provider's types, and a file or an image always wins over text.
+    ///
+    /// **An internal payload is taken before its string is read**, because
+    /// the modifier wants its answer now and the string loads asynchronously.
+    /// So a payload with an id this canvas has no card for is accepted and
+    /// then does nothing, rather than springing back: a cost accepted by
+    /// ruling (canvas-keyboard-flow Task 1). The read-only refusal is still
+    /// `handleDrop`'s, run when the string arrives.
+    ///
+    /// The content point is resolved **before** the await and mapped back
+    /// through the live camera after it, so the card lands where the writer
+    /// let go even if the camera moved meanwhile.
+    func handleDrop(providers: [NSItemProvider], at viewPoint: CGPoint) -> Bool {
+        let types = providers.flatMap(\.registeredTypeIdentifiers)
+        switch CanvasDropRoute.route(typeIdentifiers: types) {
+        case .external:
+            return handleExternalDrop(providers, at: viewPoint)
+        case .refuse:
+            return false
+        case .internalPayload:
+            guard let provider = providers.first else { return false }
+            let contentPoint = camera.contentPoint(fromView: viewPoint)
+            Task {
+                guard let payload = await Self.string(from: provider) else { return }
+                _ = handleDrop([payload],
+                               at: camera.viewPoint(fromContent: contentPoint))
+            }
+            return true
+        }
+    }
+
+    /// A drop wrapped in a new region: its title opens for typing exactly as
+    /// after a sweep (spec §2), with the region selected — unless a gesture, a
+    /// scrap or another title is open, when the dropped `node` is selected as
+    /// before, so the inspector shows what landed. Asked in the
+    /// surface's order (`CanvasEditGateTests`): the gesture, the gate, then
+    /// whatever is open; a drop does not close the writer's scrap for them.
+    ///
+    /// It writes the binding rather than calling `CanvasRegionTitleEditing`:
+    /// this handler holds no sibling helper (its `Task` bodies call this). With
+    /// nothing open there is nothing for `begin` to finish.
+    private func openTheWrapsTitle(_ region: CanvasRegionID, orSelect node: CanvasNodeID?) {
+        revision += 1
+        // A title left naming a region an undo took away is no open title.
+        let opens = !model.isInGesture
+            && CanvasEditGate.editsValues(isReadOnly: model.isReadOnly)
+            && editingNodeID == nil
+            && regionTitleEditingID.flatMap({ model.scene.region($0) }) == nil
+        guard opens else {
+            if let node { model.selection = .node(node) }
+            return
+        }
+        model.selection = .region(region)
+        regionTitleEditingID = region
+    }
+
+    private static func string(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadTransferable(type: String.self) { result in
+                continuation.resume(returning: try? result.get())
+            }
+        }
     }
 }

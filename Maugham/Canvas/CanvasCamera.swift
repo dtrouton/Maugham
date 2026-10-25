@@ -61,6 +61,20 @@ struct CanvasCamera: Equatable {
         pan = CGPoint(x: view.x - content.x * zoom, y: view.y - content.y * zoom)
     }
 
+    /// Pan the least distance that brings `rect` (content space) fully on screen;
+    /// a no-op when it is already visible. A rect larger than the view aligns its
+    /// top-left. Zoom is untouched.
+    mutating func reveal(_ rect: CGRect, viewSize: CGSize) {
+        let a = viewPoint(fromContent: rect.origin)
+        let b = viewPoint(fromContent: CGPoint(x: rect.maxX, y: rect.maxY))
+        func shift(_ lo: CGFloat, _ hi: CGFloat, _ limit: CGFloat) -> CGFloat {
+            if hi - lo >= limit || lo < 0 { return -lo }
+            return hi > limit ? limit - hi : 0
+        }
+        panBy(CGSize(width: shift(a.x, b.x, viewSize.width),
+                     height: shift(a.y, b.y, viewSize.height)))
+    }
+
     /// Translate the content by `delta`, in VIEW points. Sign is the caller's
     /// decision; this only applies it.
     mutating func panBy(_ delta: CGSize) {

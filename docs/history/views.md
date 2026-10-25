@@ -164,3 +164,16 @@ Cut from `Maugham/Views/AREA.md` to make room for the New Project and Settings r
 - The admission bullet's "A typed label is never replaced by a re-seed."
 - The `RulingDestination` bullet's eligibility detail: a translator ruling needs an open, language-tagged `.query`/`.craftNote`; a first-reader ruling an open, unstamped, untagged note bylined `firstReaderName`; a suggested change never offers.
 - `AskField`'s "(keystrokes go to the store's pending buffer)".
+
+## Moved from the guide by canvas-keyboard-flow Task 7 (2026-10-24)
+
+Cut from `Maugham/Views/AREA.md` to make room for `TreeCanvasKeyboard` on the Map and its rule; the rule each qualified is still in the guide.
+
+- Mounting the sections: "because a sheet on a lazy row is presented from a view the list may unmount" (why the presentations sit outside the `List`).
+- Arrival is visible: "because find replaces the column" (why `consumingTreeScrollRequests` has both triggers).
+- A chip's round waits for the piece to open: "because `runRequested` refuses in silence while the document is not open."
+- A picture dropped into a scope with no statement: "because the next keystroke would `setFullText` over the ref" (why the pane is not bound to close the gap).
+
+**Plan's Tab hand-off is explicit, measured 2026-10-24.** On the real `ProjectWindow` in Plan, the binder's outline view had no `nextValidKeyView` and a real Tab left it first responder, so macOS's key-view loop could not carry the keyboard to the canvas. `TreeCanvasKeyboard` does it: the List's `.onKeyPress(.tab)` bumps the window's `canvasKeyboardRequest` (served as `CanvasKeyboardRequest.fromWindow`), and the canvas's ⇧Tab bumps `treeKeyboardRequest`, which the binder answers by setting its own `@FocusState`. The rename gate is load-bearing: Tab inside a rename field does reach the List's `onKeyPress`, and `PlanBinderTabTests.test_tabDuringABinderRenameStaysInTheRename` goes red without it (mutation, 2026-10-24).
+
+**⇧Tab is claimed only where a visible binder answers it** (Task 7 review). `CanvasView.returnKeyboardToTree` is nil unless `ProjectWindow.binderTakesTheKeyboardBack` holds (the binder's project kinds, no find overlay, no ⌘\ collapse, not `.detailOnly`); otherwise the key travels on as an unused canvas key does. The collapse is read from `inspectorWasVisibleBeforeCanvasCollapse`, not `columnVisibility`: `.automatic == .doubleColumn` under `==` (measured 2026-10-24), and the window launches at `.automatic`. A sidebar the writer drags shut is not distinguishable from `.automatic` either, and is not covered.

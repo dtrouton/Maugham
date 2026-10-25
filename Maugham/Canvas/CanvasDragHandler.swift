@@ -5,6 +5,9 @@ import SwiftUI
 /// drawing a line, and the throw — with the undo bracket each one opens and
 /// closes (tripwire 32), over bindings to the view's own `@State`.
 ///
+/// A sweep that makes a region opens its title for typing once its "New
+/// Region" step has closed, through the `regionTitleEditing` it holds.
+///
 /// Built fresh per call by `CanvasView.dragHandler` and never stored; built
 /// nowhere else (tripwire 32's surface census).
 @MainActor
@@ -12,6 +15,7 @@ struct CanvasDragHandler {
     let model: CanvasModel
     let subject: CanvasSubject
     let layoutPass: CanvasLayoutPass
+    let regionTitleEditing: CanvasRegionTitleEditing
     @Binding var interaction: CanvasInteraction
     @Binding var momentum: CanvasMomentum
     @Binding var revision: Int
@@ -183,6 +187,11 @@ struct CanvasDragHandler {
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
+            // Nor under an open region title: the only press that reaches here
+            // with one open is the double click's second press, which has just
+            // opened it — the bar is the field's now, as a focused scrap's card
+            // is its editor's.
+            guard !regionTitleEditing.isOpen else { return }
             // A read-only canvas (issue #44) begins no interaction, so
             // `.changed`/`.ended` bail on `isActive` and no coast launches. Pan
             // and zoom are scroll and magnify, and never reach this.
@@ -261,6 +270,8 @@ struct CanvasDragHandler {
             // branch, where BOTH shapes have to be counted or the area the writer
             // just claimed stays dim.
             var sweepChangedTheScene = false
+            // The region a sweep MADE, whose title opens once its step closes.
+            var mintedRegion: CanvasRegionID?
 
             if let drawnRegion {
                 model.withScene(persist: false) { scene in
@@ -329,6 +340,7 @@ struct CanvasDragHandler {
                         guard let id = CanvasInteraction.createRegion(drawnRegion,
                                                                       in: &scene) else { break }
                         model.selection = .region(id)
+                        mintedRegion = id
                         if let piece { RegionBinding.bind(id, toPiece: piece, in: &scene) }
                         sweepChangedTheScene = true
                     case .doNothing:
@@ -480,6 +492,10 @@ struct CanvasDragHandler {
             }
             model.scheduleSave()
             revision += 1
+            // Spec §3: a swept region's title opens for typing, like a new
+            // Finder folder — AFTER `endGesture` above, so "New Region" is its
+            // own closed step and naming never nests inside it.
+            if let mintedRegion { regionTitleEditing.begin(mintedRegion) }
         }
     }
 }

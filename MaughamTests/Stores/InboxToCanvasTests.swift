@@ -149,7 +149,7 @@ final class InboxToCanvasTests: XCTestCase {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t1" })
 
         let id = try await f.inbox.sendToCanvas(
-            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 300, y: 220)))
+            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 300, y: 220), wrappingInPiece: nil))
 
         let node = try addedNode(id, in: model.scene)
         XCTAssertEqual(node.kind, .scrap, "a text capture becomes a scrap, not an item")
@@ -173,7 +173,7 @@ final class InboxToCanvasTests: XCTestCase {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "v1" })
 
         let id = try await f.inbox.sendToCanvas(
-            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 40, y: 90)))
+            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 40, y: 90), wrappingInPiece: nil))
 
         let node = try addedNode(id, in: model.scene)
         XCTAssertEqual(node.kind, .scrap)
@@ -199,7 +199,7 @@ final class InboxToCanvasTests: XCTestCase {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "p1" })
 
         let id = try await f.inbox.sendToCanvas(
-            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 12, y: 34)))
+            entry, projectStore: f.store, placement: .dropped(at: CGPoint(x: 12, y: 34), wrappingInPiece: nil))
 
         let node = try addedNode(id, in: model.scene)
         guard case .item(.owned(let path)) = node.kind else {
@@ -338,7 +338,7 @@ final class InboxToCanvasTests: XCTestCase {
 
         let dragged = try XCTUnwrap(f.inbox.entries.first { $0.id == "t3" })
         let droppedID = try await f.inbox.sendToCanvas(
-            dragged, projectStore: f.store, placement: .dropped(at: CGPoint(x: 100, y: 100)))
+            dragged, projectStore: f.store, placement: .dropped(at: CGPoint(x: 100, y: 100), wrappingInPiece: nil))
         XCTAssertEqual(CanvasMembership.homeRegion(of: droppedID, in: model.scene),
                        region.id,
                        "creation absorbs: a card dropped inside a region joins it, by "
@@ -603,7 +603,7 @@ final class InboxToCanvasTests: XCTestCase {
         _ = attached(f)
         do {
             _ = try await f.inbox.sendToCanvas(
-                entryID: "nope", projectStore: f.store, placement: .dropped(at: .zero))
+                entryID: "nope", projectStore: f.store, placement: .dropped(at: .zero, wrappingInPiece: nil))
             XCTFail("an id no live capture answers to must fail loudly")
         } catch {}
     }
@@ -614,10 +614,40 @@ final class InboxToCanvasTests: XCTestCase {
         try await seed(f, [textEntry("t10", "resolved by id")])
 
         let id = try await f.inbox.sendToCanvas(
-            entryID: "t10", projectStore: f.store, placement: .dropped(at: CGPoint(x: 5, y: 6)))
+            entryID: "t10", projectStore: f.store, placement: .dropped(at: CGPoint(x: 5, y: 6), wrappingInPiece: nil)).node
 
         XCTAssertEqual(model.scraps[id], "resolved by id")
         await assertResolved(f, "t10")
+    }
+
+    /// **The drop route reports the region its wrap MADE**, so the canvas opens
+    /// that region's title (spec §2/§3). A capture that joins an existing region
+    /// reports none — the canvas must never open the title of a region the
+    /// writer already had, which is what deriving it from the card's home would do.
+    func test_aDragPayloadReportsTheRegionItsWrapMade() async throws {
+        let f = try await openProject("WrapReport")
+        let model = attached(f)
+        let existing = CanvasRegionID("r1")
+        model.withScene(persist: false) {
+            $0.insertRegion(CanvasRegion(id: existing, label: "Fog",
+                                         frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        }
+        try await seed(f, [textEntry("t11", "a heron"), textEntry("t12", "the weir")])
+
+        let wrapped = try await f.inbox.sendToCanvas(
+            entryID: "t11", projectStore: f.store,
+            placement: .dropped(at: CGPoint(x: 900, y: 900), wrappingInPiece: "p1"))
+        let region = try XCTUnwrap(wrapped.wrappedIn, "a wrapped drop reported no region")
+        XCTAssertNotEqual(region, existing)
+        XCTAssertEqual(model.scene.region(region)?.homeMembers, [wrapped.node])
+        XCTAssertEqual(model.scene.region(region)?.boundPieceID, "p1")
+
+        let joined = try await f.inbox.sendToCanvas(
+            entryID: "t12", projectStore: f.store,
+            placement: .dropped(at: CGPoint(x: 100, y: 100), wrappingInPiece: "p1"))
+        XCTAssertEqual(model.scene.region(existing)?.homeMembers.contains(joined.node), true,
+                       "control: the capture joined the region it was dropped in")
+        XCTAssertNil(joined.wrappedIn, "a capture that joined an existing region reported a wrap")
     }
 
     // MARK: - Helpers

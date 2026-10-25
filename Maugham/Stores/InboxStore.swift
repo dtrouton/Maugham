@@ -853,6 +853,15 @@ final class InboxStore {
         _ entry: InboxEntry, projectStore: ProjectStore,
         placement: CanvasCapture.Placement
     ) async throws -> CanvasNodeID {
+        try await landOnCanvas(entry, projectStore: projectStore, placement: placement).node
+    }
+
+    /// `sendToCanvas`, reporting the region a wrapped drop made as well as the
+    /// card (`CanvasCapture.Sent`), so the canvas opens that region's title.
+    private func landOnCanvas(
+        _ entry: InboxEntry, projectStore: ProjectStore,
+        placement: CanvasCapture.Placement
+    ) async throws -> CanvasCapture.Sent {
         // **Before every mutating step, including the copy** (issues #33, #44 —
         // with the canvas open or not). A layout file this build cannot read
         // holds somebody's whole arrangement, and `CanvasCapture.send` would
@@ -898,14 +907,17 @@ final class InboxStore {
                 forCapture: entry.id, store: projectStore, projectRoot: projectStore.url) {
                 try await updateStatusThrowing(id: entry.id, to: .promoted)
                 await trashPromotedAsset(asset, entry: entry, projectStore: projectStore)
-                return existing
+                return CanvasCapture.Sent(node: existing, wrappedIn: nil)
             }
             // A COPY into the canvas's own well; the inbox original goes below,
             // after the flip commits.
-            content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset))
+            // The shape from the original's header, so the card is born at its
+            // real height (the well holds a byte copy).
+            content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset),
+                               aspect: CanvasThumbnails.headerAspect(of: asset))
             originalToRemove = asset
         }
-        let node = try CanvasCapture.send(content, placement, captureID: entry.id,
+        let sent = try CanvasCapture.send(content, placement, captureID: entry.id,
                                           store: projectStore, projectRoot: projectStore.url)
         // Throwing flip (S8's lesson, one sibling over): the card is already on the
         // canvas, so a swallowed status-write failure would leave the entry `.new`
@@ -914,7 +926,7 @@ final class InboxStore {
         if let originalToRemove {
             await trashPromotedAsset(originalToRemove, entry: entry, projectStore: projectStore)
         }
-        return node
+        return sent
     }
 
     /// Retire a promoted capture's original: to the project trash, never off
@@ -942,7 +954,8 @@ final class InboxStore {
     }
 
     /// Id-taking twin, for the caller that has only an id: the canvas drop, whose
-    /// payload is `inbox:<id>` (`CanvasDrop`) and never a whole entry.
+    /// payload is `inbox:<id>` (`CanvasDrop`) and never a whole entry. It reports
+    /// the wrap region too (`CanvasCapture.Sent`): the drop opens its title.
     ///
     /// Throws `entryNotFound` rather than silently doing nothing, so a drag of a
     /// row that has been resolved on another device since the pane last refreshed
@@ -951,11 +964,11 @@ final class InboxStore {
     func sendToCanvas(
         entryID: String, projectStore: ProjectStore,
         placement: CanvasCapture.Placement
-    ) async throws -> CanvasNodeID {
+    ) async throws -> CanvasCapture.Sent {
         guard let entry = entries.first(where: { $0.id == entryID }) else {
             throw InboxError.entryNotFound(entryID)
         }
-        return try await sendToCanvas(entry, projectStore: projectStore, placement: placement)
+        return try await landOnCanvas(entry, projectStore: projectStore, placement: placement)
     }
 
     /// Load the card, append `note`, and persist via the palette seam. Throws

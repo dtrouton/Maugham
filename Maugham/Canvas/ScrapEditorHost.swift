@@ -87,6 +87,20 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// its model on the spot; without this the words live only in the shared
     /// `NSTextStorage` and are lost on quit (C5).
     var onTextChanged: (() -> Void)?
+    /// A key that finishes the scrap or makes the next one. Returns whether
+    /// the key was used; `false` leaves it to the text view. It carries no
+    /// size: this view's superview is SwiftUI's wrapper around it, the editor's
+    /// own box (measured 220×18), so the canvas supplies its own.
+    var onCommand: ((ScrapEditorCommand) -> Bool)?
+    /// The modifiers of the key being interpreted. Production reads the event
+    /// AppKit is dispatching; a test that calls `doCommand(by:)` directly has
+    /// none, so it sets this. A programmatic `insertNewline:` with no keyDown
+    /// current reads as no modifiers, so it finishes the scrap; nothing is
+    /// lost, because the finish folds first.
+    var currentModifiers: () -> NSEvent.ModifierFlags = {
+        guard let event = NSApp.currentEvent, event.type == .keyDown else { return [] }
+        return event.modifierFlags
+    }
 
     override var isFlipped: Bool { true }
 
@@ -181,6 +195,42 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
 
     func textDidChange(_ notification: Notification) {
         onTextChanged?()
+    }
+
+    // MARK: - Keys inside a scrap
+
+    /// **The routes, measured 2026-10-24 (macOS 27.0.1) with real `NSEvent`s
+    /// sent to a focused text view:** Return and ⇧Return both arrive here as
+    /// `insertNewline:` (so the modifiers decide), Tab as `insertTab:`, ⇧Tab as
+    /// `insertBacktab:`, and Escape as `cancelOperation:` — before the window
+    /// turns it into a `cancel:` key equivalent. ⌘Return and ⌘⇧Return do not:
+    /// `window.performKeyEquivalent` reaches the container's override below with
+    /// the text view first responder, and the main menu claims neither. That
+    /// the key window's walk runs BEFORE the menu is AppKit's documented order,
+    /// not measured: the test host is never active, so `NSApp.sendEvent` drops a
+    /// ⌘ key with no key window. Unclaimed, the text view sends `noop:`.
+    ///
+    /// Escape needs no monitor of its own: `CanvasEscapeMonitor.disposition`
+    /// passes it while a text view holds the keyboard, so it arrives here.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard let command = CanvasKeyboard.editorCommand(selector: selector,
+                                                         modifiers: currentModifiers(),
+                                                         hasMarkedText: textView.hasMarkedText())
+        else { return false }
+        return onCommand?(command) ?? false
+    }
+
+    /// ⌘Return makes the scrap below — but only while the writer is in this
+    /// scrap: a key equivalent walks every view in the window, whoever holds
+    /// the keyboard. ⌘⇧Return is the app's menu shortcut and is never claimed.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let tv = textView, window?.firstResponder === tv, !tv.hasMarkedText(),
+           let command = CanvasKeyboard.editorKeyEquivalent(
+               characters: event.charactersIgnoringModifiers, modifiers: event.modifierFlags),
+           onCommand?(command) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     /// Returns `true` when the editor was built or rebuilt.
@@ -393,6 +443,8 @@ struct ScrapEditorHost: NSViewRepresentable {
     /// Every change the writer makes, so the canvas can fold it into the model
     /// immediately (C5). Not debounced here — the store already debounces.
     let onTextChanged: () -> Void
+    /// Return, Escape, Tab and ⌘Return — see `ScrapEditorContainer.onCommand`.
+    let onCommand: (ScrapEditorCommand) -> Bool
 
     func makeNSView(context: Context) -> ScrapEditorContainer {
         let c = ScrapEditorContainer(frame: .zero)
@@ -422,5 +474,6 @@ struct ScrapEditorHost: NSViewRepresentable {
         c.onScroll = onScroll
         c.onMagnify = onMagnify
         c.onTextChanged = onTextChanged
+        c.onCommand = onCommand
     }
 }

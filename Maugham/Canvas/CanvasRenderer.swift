@@ -874,6 +874,22 @@ enum CanvasRenderer {
         return max(0, bar - borrowedWidth - CanvasRegionMetrics.labelInset)
     }
 
+    /// A region label's point size; the title field types at this times the zoom.
+    static let regionLabelPointSize: CGFloat = 11
+
+    /// How wide `region`'s own label is drawn on a bar with nothing borrowed
+    /// beside it — the same font, budget and `elide` as `drawRegion`, measured
+    /// through AppKit so a click can ask it with no `GraphicsContext`. The
+    /// title's double-click target (`CanvasRegionMetrics.titleHitRect`) follows it.
+    static func drawnLabelWidth(of region: CanvasRegion) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: regionLabelPointSize, weight: .medium)
+        func width(_ string: String) -> CGFloat {
+            ceil(NSAttributedString(string: string, attributes: [.font: font]).size().width)
+        }
+        let budget = regionLabelWidthBudget(in: region.frame, borrowedWidth: 0)
+        return width(elide(region.displayLabel, to: budget, measuring: width))
+    }
+
     /// What a collapsed region says it is holding. §7/§10 answer crowding by
     /// collapsing rather than by minting more canvases — so a collapsed region
     /// that showed an empty interior would read as an empty region.
@@ -979,6 +995,7 @@ enum CanvasRenderer {
                      straighten: CanvasFocusStraighten,
                      pendingRegionDraw: CGRect?,
                      pendingLine: (from: CGPoint, to: CGPoint)?,
+                     namingRegionID: CanvasRegionID? = nil,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
@@ -995,6 +1012,7 @@ enum CanvasRenderer {
                        // label also calls, so the drawn region and the announced
                        // region cannot disagree about whose it is.
                        boundElsewhere: pieceTitles.boundElsewhere(region, isDimmed: isDimmed),
+                       drawsLabel: region.id != namingRegionID,
                        on: cx)
         }
 
@@ -1187,6 +1205,7 @@ enum CanvasRenderer {
                                    isSelected: Bool,
                                    isDimmed: Bool,
                                    boundElsewhere: String?,
+                                   drawsLabel: Bool,
                                    on context: GraphicsContext) {
         var cx = context
         // ONE definition of the rotation, shared with the card — about the rect's
@@ -1235,8 +1254,16 @@ enum CanvasRenderer {
                                      : regionStroke(dimmed: isDimmed))),
                   lineWidth: isSelected ? 2 : 1)
 
-        let labelFont = Font.system(size: 11, weight: .medium)
-        let runFont = Font.system(size: 11)
+        cx.fill(regionResizeHandle(in: region.frame),
+                with: .color(Color(nsColor: regionStroke(dimmed: isDimmed))))
+
+        // While its title is open on the canvas (spec §3) the field is the
+        // bar's only text: the label, the borrowed name and the count beneath
+        // it would show through a half-typed name.
+        guard drawsLabel else { return }
+
+        let labelFont = Font.system(size: regionLabelPointSize, weight: .medium)
+        let runFont = Font.system(size: regionLabelPointSize)
         var label = cx.resolve(Text(region.displayLabel).font(labelFont))
         label.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
         let labelOrigin = CanvasRegionMetrics.labelOrigin(in: region.frame)
@@ -1301,9 +1328,6 @@ enum CanvasRenderer {
                         anchor: .topLeading)
             }
         }
-
-        cx.fill(regionResizeHandle(in: region.frame),
-                with: .color(Color(nsColor: regionStroke(dimmed: isDimmed))))
     }
 
     /// The region's resize mark — the triangle below the hypotenuse of

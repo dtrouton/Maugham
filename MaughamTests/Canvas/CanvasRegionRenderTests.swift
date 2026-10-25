@@ -644,6 +644,35 @@ final class CanvasRegionRenderTests: XCTestCase {
                              + "appearance, so one material is being drawn on both")
     }
 
+    /// **While its title is open on the canvas, a region's own label is not
+    /// drawn** — the field is the only text on that bar, and the label beneath
+    /// it would show through a half-typed name. Two regions with different
+    /// labels render identically while each is being named; the control is
+    /// that they differ when neither is.
+    @MainActor
+    func test_theRegionBeingNamedDrawsNoLabel() throws {
+        let size = CGSize(width: 700, height: 450)
+        func named(_ label: String) -> CanvasScene {
+            var s = CanvasScene()
+            s.insertRegion(CanvasRegion(id: r1, label: label,
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+            return s
+        }
+        let bar = CGRect(x: 0, y: 0, width: 600, height: CanvasRegionMetrics.chromeHeight)
+        let fog = try render(scene: named("Act II fog"), size: size)
+        let weir = try render(scene: named("The weir at dawn"), size: size)
+        XCTAssertGreaterThan(fog.differingPixels(from: weir, in: bar), 0,
+                             "control: two labels draw differently on the bar")
+
+        let fogNaming = try render(scene: named("Act II fog"), size: size, namingRegion: r1)
+        let weirNaming = try render(scene: named("The weir at dawn"), size: size, namingRegion: r1)
+        XCTAssertEqual(fogNaming.differingPixels(from: weirNaming, in: bar), 0,
+                       "the label of the region being named is still drawn under its field")
+        XCTAssertGreaterThan(fogNaming.differingPixels(from: try render(scene: CanvasScene(), size: size),
+                                                       in: bar), 0,
+                             "the region itself (its bar) stopped drawing too")
+    }
+
     // The rasterisation harness — `CanvasPage` and `render(scene:size:…)`
     // — lives in `CanvasRasterPage.swift`, shared with the line fixtures.
     // It was a byte-identical copy in both files, and the copy had already

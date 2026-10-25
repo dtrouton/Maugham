@@ -132,6 +132,16 @@ final class CanvasBindingOfferTests: XCTestCase {
                       "standing chrome is a sentence, not a label")
     }
 
+    /// The offer is read just after a click in the binder, which still holds
+    /// the keyboard, so a bare "press Return" does nothing there: the canvas
+    /// needs Tab first. Pinned whole, because the order of the keys is the
+    /// instruction.
+    func test_theOfferSaysTabBeforeReturn() {
+        XCTAssertEqual(CanvasBindingOffer.nothingBound.instruction,
+                       "Double-click, or press Tab then Return, to add a scrap to it, "
+                       + "or drag out a region.")
+    }
+
     // MARK: - Stage 3b: the research item whose card is not here
 
     /// **The piece arm's message, pinned by identity rather than by presence.**

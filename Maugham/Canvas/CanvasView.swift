@@ -9,7 +9,8 @@ import UniformTypeIdentifiers
 ///   1. `CanvasGround`      — shader, hit testing off
 ///   2. `Canvas`            — drawn nodes, hit testing off
 ///   3. `CanvasEventView`   — camera + pointer
-///   4. `ScrapEditorHost`   — the one live editor, FRONTMOST
+///   4. `ScrapEditorHost`   — the one live editor, FRONTMOST (or, in the same
+///      slot, a region's title field — never both)
 ///
 /// The ground is a SIBLING BENEATH the content because a shader applied *over* a
 /// subtree holding an `NSViewRepresentable` renders a placeholder (spec §7A.4),
@@ -171,6 +172,20 @@ struct CanvasView: View {
     /// throws for the same one: a wiring omission must reach the writer as a
     /// refusal rather than as a drag that springs back saying nothing.
     var captureDrop: CanvasCaptureDrop = .unavailable
+
+    /// The window's ask for the keyboard: Plan's Tab in the binder bumps it,
+    /// and each change is served once as `CanvasKeyboardRequest.fromWindow`.
+    /// A counter, never a flag the canvas writes back (tripwire 2).
+    ///
+    /// Defaulted and censused for `selectTheProjectRow`'s reasons: `0` is a
+    /// real state, so a dropped argument would leave Tab in the binder with
+    /// nothing red. The census is in `PromotionCommandTests`.
+    var keyboardRequest: Int = 0
+
+    /// ⇧Tab on the canvas: a one-way ask the window answers by focusing the
+    /// binder's `List`. Nil where no visible binder would answer, and then ⇧Tab
+    /// travels on. Defaulted and censused for `keyboardRequest`'s reasons.
+    var returnKeyboardToTree: (() -> Void)? = nil
 
     @State private var camera = CanvasCamera()
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
@@ -345,6 +360,20 @@ struct CanvasView: View {
     /// to be the one under the pointer.
     @State private var selectionWhenPressed: CanvasSelection?
 
+    /// Bumped by `CanvasKeyHandler` when a key finishes a scrap and enters no
+    /// other, to hand the keyboard to `CanvasEventNSView`.
+    @State private var keyboardTicket = 0
+
+    /// The region whose title is open for typing on the canvas (spec §3), and
+    /// what has been typed into it so far. `CanvasRegionTitleEditing` writes
+    /// both; the title field is `mountedEditor`'s second branch.
+    @State private var regionTitleEditingID: CanvasRegionID?
+    @State private var regionTitleDraft: CanvasRegionTitleDraft?
+
+    /// The canvas's own size, the viewport a key's new scrap is revealed in.
+    /// Written only on a resize (`.onGeometryChange` in `body`).
+    @State private var canvasSize = CGSize.zero
+
     /// The most any single tick of the timeline may advance an animation.
     ///
     /// **Without this the ~120 ms straighten completes on its FIRST frame, every
@@ -378,6 +407,9 @@ struct CanvasView: View {
         let sweep = interaction.pendingRegionDraw
         // The line being pulled, read here for the same reason and beside it.
         let band = interaction.pendingLine
+        // The region whose title field is open: the renderer leaves its drawn
+        // label off so the field is the only text on that bar.
+        let namingRegionID = regionTitleEditingID
 
         // No GeometryReader: `Canvas`'s own `size` is the viewport the renderer
         // culls against, and `.position` below resolves in this ZStack's space.
@@ -409,7 +441,9 @@ struct CanvasView: View {
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
                                         pendingRegionDraw: sweep,
-                                        pendingLine: band, into: &cx)
+                                        pendingLine: band,
+                                        namingRegionID: namingRegionID,
+                                        into: &cx)
                 }
                 .allowsHitTesting(false)
                 // Spec §7A.6: drawn content has no AX tree, so this view owns
@@ -497,6 +531,7 @@ struct CanvasView: View {
                 },
                 onDeleteKey: { keyHandler.deleteSelection() },
                 onEscape: { keyHandler.escapeAsksForTheWholeBoard() },
+                onKey: { key, viewSize in keyHandler.handleCanvasKey(key, viewSize: viewSize) },
                 // The one condition `CanvasEscapeMonitor` is installed under —
                 // and it is the SUBJECT's dim rather than
                 // `escapeAsksForTheWholeBoard`'s full answer, because the monitor
@@ -523,7 +558,9 @@ struct CanvasView: View {
                 // `isInGesture` guard at the head of `CanvasKeyHandler.deleteSelection()`. Anything
                 // new hung off a key here inherits the same problem and needs the
                 // same answer.
-                undoManager: model.undoManager)
+                undoManager: model.undoManager,
+                keyboardRequest: CanvasKeyboardRequest(fromCanvas: keyboardTicket,
+                                                       fromWindow: keyboardRequest))
 
             mountedEditor
         }
@@ -541,52 +578,22 @@ struct CanvasView: View {
         // to before filling, which is not a rect anything else on this surface
         // measures against.
         //
-        // `for: String.self` is the app's established internal-drag pattern, the
-        // other end of `ResearchRow`'s `.draggable(item.id)`. **Not**
-        // `.dropDestination(for: URL.self)`, which silently rejects a browser's
-        // rendered-bitmap drag; external drops are their own route through
-        // `DropClassification` and are not this modifier's business.
-        //
-        // *** THE ORDER OF THE NEXT TWO MODIFIERS IS NOT A PREFERENCE. It is the
-        // only order in which both routes work, and it was settled by a smoke
-        // rather than by reasoning — the reasoning was written down here first
-        // and was WRONG. ***
-        //
-        // `.dropDestination(for: String.self)` FIRST (innermost), the provider
-        // `.onDrop` after it. Written the other way round, `.onDrop(of:)` claims
-        // the drag session **on hover, before any payload is examined**, so the
-        // string destination behind it is never offered the drop at all: a
-        // photograph from the Finder landed correctly while a research drag and
-        // an inbox drag both did nothing whatever, and the Inbox's "Send to
-        // Canvas" *command* — which touches no drop target — went on working,
-        // which is what identified the modifiers rather than the routers.
-        //
-        // The comment that used to sit here claimed a research row's
-        // `.draggable(item.id)` "carries neither a file URL nor an image, so it
-        // never matches this one and falls through to the router below". **It
-        // does not fall through.** A typed destination does not decline a session
-        // on the strength of its payload type; the outer one simply never sees it.
-        //
-        // `ResearchRow.swift:69`/`:79` is the shipped precedent and ships THIS
-        // order — an id drag and a browser image drag both land on that row
-        // today. **No general depth rule should be read off the tree**:
-        // `ResearchView` and `PaletteCardEditor` mount the provider `.onDrop`
-        // with no typed destination beside it at all, so what matters is the
-        // PAIRING rather than which kind goes outermost. (`CollectionResearchPane`
-        // has the same pairing on its sections in the OTHER order — recorded in
-        // this task's report, not fixed here: its inner per-row and per-header
-        // destinations narrow the exposure to the blank space between rows, and
-        // that fix wants its own smoke rather than the reasoning that failed
-        // here.) `TripwireGrepTests
-        // .test_theCanvasStringDropDestinationIsMountedBeforeTheProviderDrop`
-        // pins this one, because no test in this repo can drive a drag session —
-        // which is why it reached a smoke in the first place.
-        .dropDestination(for: String.self) { payloads, location in
-            dropHandler.handleDrop(payloads, at: location)
+        // **ONE drop modifier, deliberately, and never two.** SwiftUI gives each
+        // drop modifier its own AppKit view registered for every type, and
+        // AppKit hands a drag to the frontmost one only — there is no falling
+        // through to a sibling. With a String destination in front of a
+        // provider `.onDrop`, a Finder PNG was answered "no operation" at hover
+        // (nothing fired) and a browser image was taken by its page-URL text
+        // and refused as an unknown id; both slid back. So one provider
+        // `.onDrop` takes every drag, and `CanvasDropRoute` sends it by type:
+        // a file or an image to the external route, text alone to the id
+        // route. The two-modifier history is in docs/history/canvas.md.
+        // `TripwireGrepTests.test_theCanvasHasOneDropModifierAndItIsTheProviderRoute`
+        // pins it, because no test can drive a drag session.
+        .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { providers, viewPoint in
+            dropHandler.handleDrop(providers: providers, at: viewPoint)
         }
-        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, viewPoint in
-            dropHandler.handleExternalDrop(providers, at: viewPoint)
-        }
+        .onGeometryChange(for: CGSize.self, of: { $0.size }) { canvasSize = $0 }
         .alert(dropError ?? "",
                isPresented: Binding(get: { dropError != nil },
                                     set: { if !$0 { dropError = nil } })) {
@@ -705,10 +712,17 @@ struct CanvasView: View {
         // from the other column; the view's is what the grep-pinned rebuild above
         // watches, and it must keep both its name and its home here.
         .onChange(of: model.sceneRevision) { _, _ in sceneRevision += 1 }
+        // An undo can take away the region whose title is open; forget it, so
+        // a redo cannot remount the field and take the keyboard. Here and not
+        // in `load()`'s undo hook (tripwire 57).
+        .onChange(of: model.sceneRevision) { _, _ in regionTitleEditing.forgetIfTheRegionIsGone() }
         .onDisappear {
             // Fold the live editor's text in BEFORE the write, or a persona
             // switch mid-sentence loses the sentence.
             editFocus.syncActiveEdit()
+            // …and a half-typed region name, for the same reason (spec §3: a
+            // click elsewhere commits; leaving the canvas is one).
+            regionTitleEditing.commitIfOpen()
             // Flush, drop `beforeFlush` and release the recorder — the three
             // edges of the cycle, all one layer out now. `beforeFlush` holds a
             // copy of this view, which holds the model, which holds the store, so
@@ -813,11 +827,30 @@ struct CanvasView: View {
                             },
                             // The ONE caller that is a real keystroke, and so
                             // the only one allowed to move an undo boundary.
-                            onTextChanged: { editFocus.syncActiveEdit(fromKeystroke: true) })
+                            onTextChanged: { editFocus.syncActiveEdit(fromKeystroke: true) },
+                            onCommand: { keyHandler.handleEditorCommand($0, viewSize: canvasSize) })
                 .frame(width: textSize.width * camera.zoom,
                        height: textSize.height * camera.zoom)
                 .position(x: viewOrigin.x + textSize.width * camera.zoom / 2,
                           y: viewOrigin.y + textSize.height * camera.zoom / 2)
+        } else if let rid = regionTitleEditingID,
+                  let region = model.scene.region(rid) {
+            // The region's title, typed where it is drawn (spec §3) — the SAME
+            // slot as the scrap editor, so the two never both exist.
+            let field = CanvasRegionMetrics.titleFieldRect(in: region.frame)
+            let fieldOrigin = camera.viewPoint(fromContent: field.origin)
+            RegionTitleEditorHost(regionID: rid,
+                                  label: region.label,
+                                  zoom: camera.zoom,
+                                  onTextChanged: { regionTitleEditing.noteTyping($0, in: rid) },
+                                  onCommit: { regionTitleEditing.commit($0) },
+                                  onCancel: { regionTitleEditing.cancel() },
+                                  onLostFocus: { regionTitleEditing.fieldLostFocus($0, in: rid) },
+                                  onFocusDeclined: { regionTitleEditing.focusDeclined(in: rid) })
+                .frame(width: field.width * camera.zoom,
+                       height: field.height * camera.zoom)
+                .position(x: fieldOrigin.x + field.width * camera.zoom / 2,
+                          y: fieldOrigin.y + field.height * camera.zoom / 2)
         }
     }
 
@@ -1052,6 +1085,7 @@ struct CanvasView: View {
         CanvasDragHandler(model: model,
                           subject: subject,
                           layoutPass: layoutPass,
+                          regionTitleEditing: regionTitleEditing,
                           interaction: $interaction,
                           momentum: $momentum,
                           revision: $revision,
@@ -1059,48 +1093,91 @@ struct CanvasView: View {
                           selectionWhenPressed: $selectionWhenPressed)
     }
 
+    /// Making and entering a scrap — the one way, chapter-aware — over this
+    /// view's own `@State`, built per call like `layoutPass`. `subject` goes
+    /// here and to the other input handlers only, never to `editFocus` or
+    /// `layoutPass`, which `load()`'s closures reach (tripwire 57).
+    private var scrapFlow: CanvasScrapFlow {
+        CanvasScrapFlow(model: model,
+                        subject: subject,
+                        layoutPass: layoutPass,
+                        regionTitleEditing: regionTitleEditing,
+                        editingNodeID: $editingNodeID,
+                        caretIndex: $caretIndex,
+                        lastKeystrokeAt: $lastKeystrokeAt,
+                        straighten: $straighten)
+    }
+
     /// The clicks — select, enter a scrap or make one — over this view's own
     /// `@State`, built per call like `layoutPass`. It writes
     /// `selectionWhenPressed` at the head of `handleClick`, before anything moves
-    /// the selection; `dragHandler` reads it at `.began`.
+    /// the selection; `dragHandler` reads it at `.began`. It enters and makes
+    /// through the `scrapFlow` it is handed.
     private var clickHandler: CanvasClickHandler {
         CanvasClickHandler(model: model,
                            editFocus: editFocus,
-                           layoutPass: layoutPass,
+                           scrapFlow: scrapFlow,
+                           regionTitleEditing: regionTitleEditing,
                            selectionWhenPressed: $selectionWhenPressed,
-                           editingNodeID: $editingNodeID,
-                           caretIndex: $caretIndex,
-                           lastKeystrokeAt: $lastKeystrokeAt,
                            straighten: $straighten,
                            layouts: $layouts,
                            revision: $revision)
     }
 
-    /// The keys — ⌫ and Escape — over this view's own `editingNodeID`, built
-    /// per call like `layoutPass`. `deleteSelection` refuses mid-gesture
-    /// (tripwire 32), and `selectTheProjectRow` is the closure this view was
-    /// handed, read when the key arrives.
+    /// The keys — ⌫, Escape, those inside a scrap and those on the canvas —
+    /// over this view's own `@State`, built per call like `layoutPass`.
+    /// `deleteSelection` refuses mid-gesture (tripwire 32), and
+    /// `selectTheProjectRow` and `returnKeyboardToTree` are the closures this
+    /// view was handed, read when the key arrives. It makes through the `scrapFlow` it is handed.
     private var keyHandler: CanvasKeyHandler {
         CanvasKeyHandler(model: model,
                          subject: subject,
+                         highlight: highlight,
                          selectTheProjectRow: selectTheProjectRow,
+                         returnKeyboardToTree: returnKeyboardToTree,
                          editFocus: editFocus,
                          layoutPass: layoutPass,
-                         editingNodeID: $editingNodeID)
+                         scrapFlow: scrapFlow,
+                         regionTitleEditing: regionTitleEditing,
+                         editingNodeID: $editingNodeID,
+                         revision: $revision,
+                         camera: $camera,
+                         keyboardTicket: $keyboardTicket)
     }
 
     /// The drops — a research row, an inbox capture and a photograph — over
     /// this view's own `camera`, `revision` and `dropError`, built per call like
     /// `layoutPass`. `itemIndex` is this view's own, as `handleDrop` has always
-    /// read it. The handler holds no sibling helper: its `Task` bodies write
-    /// only through the `dropError` binding and the model.
+    /// read it; `subject` is read when the drop arrives (`CanvasDropWrap`), and
+    /// `thumbnails` gives a dropped picture its shape. The handler holds no
+    /// sibling helper: its `Task` bodies write only through the `dropError`
+    /// binding and the model.
     private var dropHandler: CanvasDropHandler {
         CanvasDropHandler(model: model,
+                          subject: subject,
                           itemIndex: itemIndex,
+                          projectRoot: projectRoot,
                           captureDrop: captureDrop,
                           assetIngest: assetIngest,
+                          thumbnails: $thumbnails,
                           camera: $camera,
                           revision: $revision,
-                          dropError: $dropError)
+                          dropError: $dropError,
+                          regionTitleEditingID: $regionTitleEditingID,
+                          editingNodeID: $editingNodeID)
+    }
+
+    /// A region's name on the canvas — opening, typing, committing and
+    /// cancelling — over this view's own `@State`, built per call like
+    /// `layoutPass`. It finishes an open scrap through the `editFocus` it is
+    /// handed; `scrapFlow`, the click, key and drag handlers hold it.
+    private var regionTitleEditing: CanvasRegionTitleEditing {
+        CanvasRegionTitleEditing(model: model,
+                                 editFocus: editFocus,
+                                 regionTitleEditingID: $regionTitleEditingID,
+                                 regionTitleDraft: $regionTitleDraft,
+                                 editingNodeID: $editingNodeID,
+                                 keyboardTicket: $keyboardTicket,
+                                 revision: $revision)
     }
 }

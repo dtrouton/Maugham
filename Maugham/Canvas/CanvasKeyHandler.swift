@@ -1,20 +1,206 @@
 import SwiftUI
 
 /// `CanvasView`'s keys: ⌫ deletes the selection, refusing mid-gesture
-/// (tripwire 32), and Escape asks the window for the whole board — over a
-/// binding to the view's own `editingNodeID`. Each returns whether the canvas
-/// used the key; `CanvasEventNSView.keyDown` sends an unused one to `super`.
+/// (tripwire 32), Escape asks the window for the whole board, the keys inside
+/// a scrap finish it or make the next one, and Return, Tab, ⌘Return and the
+/// arrows on the canvas make, enter and select — over bindings to the view's
+/// own `@State`. Each returns whether the canvas used the key;
+/// `CanvasEventNSView.keyDown` sends an unused one to `super`.
 ///
 /// Built fresh per call by `CanvasView.keyHandler` and never stored; built
-/// nowhere else (tripwire 32's surface census).
+/// nowhere else (tripwire 32's surface census). It holds `scrapFlow`,
+/// `editFocus` and `regionTitleEditing`, so it schedules nothing. Return on a
+/// selected region opens its title.
 @MainActor
 struct CanvasKeyHandler {
     let model: CanvasModel
     let subject: CanvasSubject
+    /// What the board lights under `subject` — the renderer's own cached set
+    /// (`CanvasView.highlight`), so a key treats as dimmed exactly what the
+    /// writer sees dimmed.
+    let highlight: CanvasHighlight
     let selectTheProjectRow: () -> Void
+    /// ⇧Tab's one-way ask: the window focuses the binder (`CanvasView`'s
+    /// input). Nil where no visible binder answers it.
+    let returnKeyboardToTree: (() -> Void)?
     let editFocus: CanvasEditFocus
     let layoutPass: CanvasLayoutPass
+    let scrapFlow: CanvasScrapFlow
+    let regionTitleEditing: CanvasRegionTitleEditing
     @Binding var editingNodeID: CanvasNodeID?
+    @Binding var revision: Int
+    @Binding var camera: CanvasCamera
+    /// Bumped to ask `CanvasEventNSView` to take the keyboard (its
+    /// `serveKeyboardRequest`).
+    @Binding var keyboardTicket: Int
+
+    // MARK: - Keys inside a scrap
+
+    /// Return, Escape (`.finish`), Tab (`.makeJoined`) and ⌘Return
+    /// (`.makeBelow`) from the mounted editor; `viewSize` is the canvas's, for
+    /// the reveal. Every command FINISHES first — fold, leave, select — so no
+    /// typed word is ever lost, whatever follows.
+    ///
+    /// A make then asks, in the order `CanvasEditGateTests` pins: the gate
+    /// (before the fold), the fold (which closes "Edit Scrap"), and whether a
+    /// gesture is still open. A refused make has still finished, so it returns
+    /// `true`: handing the key back would let the text view insert a tab or
+    /// newline into the scrap just left, words the model never sees.
+    ///
+    /// The canvas is asked for the keyboard only when nothing new was entered;
+    /// a new scrap's editor requests focus itself. Asking both wins for the
+    /// editor today only because it mounts after the event view updates
+    /// (measured by mutation, 2026-10-24), so the ask is withheld rather than
+    /// left to that order.
+    func handleEditorCommand(_ command: ScrapEditorCommand, viewSize: CGSize) -> Bool {
+        guard let id = editingNodeID else { return false }
+        let mayCreate = CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)
+        editFocus.commitActiveEdit()
+        editFocus.leaveTheOpenScrap()
+        if model.scene.node(id) != nil { model.selection = .node(id) }
+        revision += 1
+        let origin: CGPoint?
+        switch command {
+        case .finish:
+            origin = nil
+        case .makeJoined, .makeBelow:
+            origin = CanvasKeyboard.nextScrapOrigin(
+                beside: id, joined: command == .makeJoined, in: model.scene,
+                avoiding: CanvasKeyboard.foreignRegions(for: subject, in: model.scene))
+        }
+        guard let origin, mayCreate, !model.isInGesture else {
+            keyboardTicket += 1
+            return true
+        }
+        let made = scrapFlow.makeScrapAndEnter(at: origin,
+                                               joinedTo: command == .makeJoined ? id : nil)
+        if let frame = model.scene.node(made)?.frame {
+            camera.reveal(frame, viewSize: viewSize)
+        }
+        return true
+    }
+
+    // MARK: - Keys on the canvas
+
+    /// Return, Tab, ⌘Return and the arrows with the canvas holding the
+    /// keyboard (`CanvasEventNSView.onKey`); spec §1's table. Returns whether
+    /// the key was used, and an unused one travels on — Tab with nothing
+    /// selected moves along the key-view loop. Tab and ⌘Return on a region or
+    /// a line do nothing and are used, so they never carry the keyboard off
+    /// to an inspector field.
+    ///
+    /// **A dimmed card is no selection under a chapter** (Denver's ruling):
+    /// with a `.piece` subject, a selected card the board dims — a leftover
+    /// from another chapter — is ignored by Return, Tab and ⌘Return, so
+    /// Return makes the chapter a new scrap rather than opening the other
+    /// chapter's. The arrows still move from it. "Dimmed" is `highlight`, the
+    /// renderer's own lit set.
+    ///
+    /// **A scrap placed by key keeps out of regions bound to another chapter**
+    /// (`CanvasKeyboard.foreignRegions`): landing in one, it would follow that
+    /// region and be born dimmed.
+    ///
+    /// Nothing while a scrap is open (its keys are the editor's) or a gesture
+    /// is (tripwire 32). The gesture is asked FIRST, before the gate and the
+    /// fold: `commitActiveEdit` ends whatever gesture is open, so asked
+    /// mid-drag it would close "Move Card" under the writer's hand. Then a
+    /// creating or entering key asks the gate, folds (a no-op with no scrap
+    /// open, kept so every make reads the same), and makes or enters — the
+    /// order `CanvasEditGateTests` pins. The arrows ask no gate: selecting is
+    /// not editing.
+    func handleCanvasKey(_ key: CanvasKey, viewSize: CGSize) -> Bool {
+        guard editingNodeID == nil, !model.isInGesture else { return false }
+        let mayCreate = CanvasEditGate.keyCreates(isReadOnly: model.isReadOnly)
+        // A selection that no longer resolves, or hides in a collapsed
+        // region, is no selection: the writer sees nothing selected.
+        var selection = model.selection
+        if case .node(let id)? = selection, model.scene.node(id) == nil || model.scene.isHidden(id) {
+            selection = nil
+        }
+        // What the arrows move from: a dimmed card is still somewhere to be.
+        let arrowsFrom = selection
+        if case .piece = subject, case .node(let id)? = selection, highlight.isDimmed(node: id) {
+            selection = nil
+        }
+        let obstacles = CanvasKeyboard.foreignRegions(for: subject, in: model.scene)
+        let origin: CGPoint
+        var joinedTo: CanvasNodeID?
+        switch (key, selection) {
+        case (.arrow(let arrow), _):
+            return selectNearest(arrow, from: arrowsFrom, viewSize: viewSize)
+        case (.backtab, _):
+            // Back to the binder; it creates nothing, so no gate. With no
+            // binder to answer, the key is not used and travels on.
+            guard let returnKeyboardToTree else { return false }
+            returnKeyboardToTree()
+            return true
+        case (.returnKey, nil):
+            let size = CanvasKeyboard.newCardSize()
+            let centre = camera.contentPoint(fromView: CGPoint(x: viewSize.width / 2,
+                                                               y: viewSize.height / 2))
+            origin = CanvasKeyboard.clearOrigin(
+                startingAt: CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2),
+                stepping: .down, size: size, in: model.scene, avoiding: obstacles)
+        case (.returnKey, .node(let id)?):
+            guard let node = model.scene.node(id), case .scrap = node.kind else {
+                // An item card: nothing to enter, but the key is meant.
+                return true
+            }
+            guard mayCreate, let frame = node.frame else { return false }
+            editFocus.commitActiveEdit()
+            scrapFlow.enter(id, caretIndex: (model.scraps[id] ?? "").utf16.count)
+            camera.reveal(frame, viewSize: viewSize)
+            return true
+        case (.returnKey, .region(let id)?):
+            // Name the region where it is (spec §3). The gesture check above
+            // has run; then the gate, the fold (a no-op with no scrap open),
+            // and the title opens.
+            guard CanvasEditGate.editsValues(isReadOnly: model.isReadOnly),
+                  model.scene.region(id) != nil else { return false }
+            editFocus.commitActiveEdit()
+            regionTitleEditing.begin(id)
+            return true
+        case (.returnKey, .line?):
+            return true
+        case (.tab, .node(let id)?), (.commandReturn, .node(let id)?):
+            guard let next = CanvasKeyboard.nextScrapOrigin(beside: id, joined: key == .tab,
+                                                            in: model.scene, avoiding: obstacles)
+            else { return false }
+            origin = next
+            if key == .tab { joinedTo = id }
+        case (.tab, .region?), (.tab, .line?), (.commandReturn, .region?), (.commandReturn, .line?):
+            return true
+        case (.tab, nil), (.commandReturn, nil):
+            return false
+        }
+        guard mayCreate else { return false }
+        editFocus.commitActiveEdit()
+        let made = scrapFlow.makeScrapAndEnter(at: origin, joinedTo: joinedTo)
+        if let frame = model.scene.node(made)?.frame {
+            camera.reveal(frame, viewSize: viewSize)
+        }
+        return true
+    }
+
+    /// An arrow: the nearest card that way from the selection's centre. With
+    /// nothing selected it travels on; with no card that way it is swallowed,
+    /// because the writer pressed a key the canvas understood.
+    private func selectNearest(_ arrow: CanvasArrow, from selection: CanvasSelection?,
+                               viewSize: CGSize) -> Bool {
+        guard let selection,
+              let from = CanvasKeyboard.centre(of: selection, in: model.scene) else { return false }
+        var excluding: CanvasNodeID?
+        if case .node(let id) = selection { excluding = id }
+        guard let target = CanvasKeyboard.nearest(from: from, toward: arrow, in: model.scene,
+                                                  excluding: excluding),
+              let frame = model.scene.node(target)?.frame else { return true }
+        model.selection = .node(target)
+        // `revision`, never `sceneRevision`: a selection is not structural.
+        revision += 1
+        camera.reveal(frame, viewSize: viewSize)
+        model.scheduleSave()
+        return true
+    }
 
     // MARK: - Delete
 
@@ -137,7 +323,9 @@ struct CanvasKeyHandler {
     /// sweep's binding all follow from the subject, so there is exactly one
     /// thing to change.
     func escapeAsksForTheWholeBoard() -> Bool {
-        guard editingNodeID == nil, subject.dimsTheBoard else { return false }
+        // A region title open on the canvas keeps its Escape, as a scrap does.
+        guard editingNodeID == nil, !regionTitleEditing.isOpen,
+              subject.dimsTheBoard else { return false }
         selectTheProjectRow()
         return true
     }

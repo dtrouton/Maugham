@@ -109,6 +109,11 @@ struct ProjectWindow: View {
     /// lives in, and the tree survives the find overlay replacing the column.
     @State private var treeState = BinderTreeSectionsState()
     @State private var pendingPieceRenameId: String?
+    /// Plan's keyboard hand-off (spec §1): the binder's Tab bumps the first,
+    /// which the canvas serves; the canvas's ⇧Tab bumps the second, which the
+    /// binder serves. One-way counters, never flags written back (tripwire 2).
+    @State private var canvasKeyboardRequest = 0
+    @State private var treeKeyboardRequest = 0
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
@@ -1203,7 +1208,12 @@ struct ProjectWindow: View {
                 // (RULING-40's refusal, RULING-42's shortfall), and only this
                 // alert is mounted unconditionally, so only it can be shown by
                 // a restore that empties the trash and takes the rows with it.
-                onRestoreOutcome: { restoreOutcome = $0 })
+                onRestoreOutcome: { restoreOutcome = $0 },
+                // Spec §1: Plan's Tab to the canvas and ⇧Tab back.
+                canvasKeyboard: TreeCanvasKeyboard(
+                    tabReachesTheCanvas: persona.centresTheCanvas,
+                    giveTheCanvasTheKeyboard: { canvasKeyboardRequest += 1 },
+                    treeKeyboardRequest: treeKeyboardRequest))
         }
     }
 
@@ -1249,7 +1259,13 @@ struct ProjectWindow: View {
             currentElement: $currentElement,
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             runRoundWhenPieceOpens: { runRoundWhenPieceOpens(pieceId: $0) },
-            posture: { postureDrawn(forDocId: $0) })
+            posture: { postureDrawn(forDocId: $0) },
+            canvasKeyboardRequest: canvasKeyboardRequest,
+            // Only a visible binder answers ⇧Tab; otherwise the key travels on.
+            returnKeyboardToTree: Self.binderTakesTheKeyboardBack(
+                projectType: store.manifest.type, treeFindActive: treeFindActive,
+                canvasCollapsed: inspectorWasVisibleBeforeCanvasCollapse != nil,
+                columnVisibility: columnVisibility) ? { treeKeyboardRequest += 1 } : nil)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
@@ -1903,6 +1919,27 @@ struct ProjectWindow: View {
             return .release(columnVisibility: .all, showInspector: prior)
         default:
             return .unchanged
+        }
+    }
+
+    /// Whether a visible `BinderView` can answer the canvas's ⇧Tab (spec §1):
+    /// the project's tree is the binder, find does not cover it, ⌘\ has not
+    /// collapsed the sidebar, and the columns are not `.detailOnly`. Anywhere
+    /// else ⇧Tab travels on rather than being claimed by a tree that is not
+    /// there to take it.
+    ///
+    /// The collapse is read from its stash, not from `columnVisibility`:
+    /// `.automatic == .doubleColumn` (measured 2026-10-24), and the window
+    /// starts at `.automatic`, so `==` cannot tell the collapse from launch.
+    static func binderTakesTheKeyboardBack(projectType: ProjectType,
+                                           treeFindActive: Bool,
+                                           canvasCollapsed: Bool,
+                                           columnVisibility: NavigationSplitViewVisibility) -> Bool {
+        guard !treeFindActive, !canvasCollapsed,
+              columnVisibility != .detailOnly else { return false }
+        switch TreePane(for: projectType) {
+        case .binder: return true
+        case .sceneNavigator, .collectionPieces: return false
         }
     }
 
