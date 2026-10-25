@@ -66,18 +66,17 @@ public final class FigureCache {
 }
 
 /// **Every figure's research pins, as the workbook reads them** (spec §4.3,
-/// report plan 6b Task 9): per reading figure ("home"), the pin for each
-/// source cell — a Research item's or a parked figure's, by id and 0-based
-/// position. Pins live per cell (`FigureState.pins`); two cells of one figure
-/// holding a pin on the same source cell read the later-taken one.
+/// report plan 6b Task 9): per reading figure ("home"), the winning live pin
+/// on each source cell — a Research item's or a parked figure's, by id and
+/// 0-based position. Pins live per cell (`FigureState.pins`); which counts
+/// and which wins is `FigurePinChoice`, the rule `FigurePins` uses too: a pin
+/// from an earlier park of a figure is inert, and among the rest the later
+/// `at`, then the earlier cell, then the greater hash wins.
 public struct FigurePinIndex: ResearchPinSource {
-    private struct Key: Hashable {
-        let source: String
-        let row: Int
-        let column: Int
-    }
-
-    private var byHome: [String: [Key: FigureResearchPin]] = [:]
+    private var pinsByHome: [String: [CellKey: [FigureResearchPin]]] = [:]
+    /// Each parked figure's current park cycle (`FigureParking.cycle`).
+    private var parks: [String: String] = [:]
+    private var winners: [String: [PinRead: FigureResearchPin]] = [:]
 
     public init() {}
 
@@ -85,24 +84,36 @@ public struct FigurePinIndex: ResearchPinSource {
     /// values moved, for `Workbook.pinsChanged`.
     @discardableResult
     public mutating func set(_ pins: [CellKey: [FigureResearchPin]], home: String) -> Set<String> {
-        var next: [Key: FigureResearchPin] = [:]
-        for list in pins.values {
-            for pin in list {
-                let key = Key(source: pin.research, row: pin.row, column: pin.column)
-                if let held = next[key], held.at >= pin.at { continue }
-                next[key] = pin
-            }
+        pinsByHome[home] = pins.isEmpty ? nil : pins
+        return rechoose(home)
+    }
+
+    /// Figure `id` parked under `cycle`, or (nil) not parked. Answers the homes
+    /// whose winning pins on it moved, for `Workbook.pinsChanged`.
+    @discardableResult
+    public mutating func setPark(_ cycle: String?, figure id: String) -> Set<String> {
+        guard parks[id] != cycle else { return [] }
+        parks[id] = cycle
+        var homes = Set<String>()
+        for (home, pins) in pinsByHome where pins.values.contains(where: { $0.contains { $0.research == id } }) {
+            if rechoose(home).contains(id) { homes.insert(home) }
         }
-        let old = byHome[home] ?? [:]
-        byHome[home] = next.isEmpty ? nil : next
+        return homes
+    }
+
+    public func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? {
+        winners[home]?[PinRead(source: research, row: row, column: column)]?.value
+    }
+
+    /// Recomputes `home`'s winners; answers the sources whose values moved.
+    private mutating func rechoose(_ home: String) -> Set<String> {
+        let old = winners[home] ?? [:]
+        let next = FigurePinChoice.winners(pinsByHome[home] ?? [:], parks: parks).mapValues(\.pin)
+        winners[home] = next.isEmpty ? nil : next
         var moved = Set<String>()
         for (key, pin) in next where old[key]?.value != pin.value { moved.insert(key.source) }
         for key in old.keys where next[key] == nil { moved.insert(key.source) }
         return moved
-    }
-
-    public func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? {
-        byHome[home]?[Key(source: research, row: row, column: column)]?.value
     }
 }
 
@@ -138,10 +149,13 @@ public struct FigureWorkbook: Sendable {
                 let state = try cache.state(
                     forFigureId: record.id, in: projectURL, trust: trust, facts: facts)
                 states.append((record.id, state))
-                pins.set(state.pins, home: record.id)
             } catch {
                 unreadable.append((record.name, String(describing: error)))
             }
+        }
+        for (id, state) in states {
+            pins.setPark(state.parked?.cycle, figure: id)
+            pins.set(state.pins, home: id)
         }
         var book = Workbook(pins: pins)
         for (id, state) in states where state.parked != nil { book.setParked(true, id: id) }
@@ -153,10 +167,13 @@ public struct FigureWorkbook: Sendable {
     /// Its table and pins replace the read ones and its parked status wins, so `parked` stays
     /// the one answer to "which figures are in Research" for whoever reads this book.
     public mutating func overlay(_ state: FigureState, id: String) {
+        let readers = pins.setPark(state.parked?.cycle, figure: id)
         let moved = pins.set(state.pins, home: id)
         workbook.setPins(pins)
         workbook.setParked(state.parked != nil, id: id)
         workbook.setTable(state.table, id: id)
         for source in moved { workbook.pinsChanged(home: id, research: source) }
+        // A new park cycle: the readers' pins from the last one went inert.
+        for home in readers { workbook.pinsChanged(home: home, research: id) }
     }
 }

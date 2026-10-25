@@ -187,7 +187,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// read) and the synthesis source `brought_back_from_research` (ruling
     /// P-7), which the ops a return appends carry. And, under the same 10,
     /// the `figurePinSet` payload field `prior_pin` (the pin a set replaced,
-    /// so a pin refresh undoes from its payload, ruling P-8).
+    /// so a pin refresh undoes from its payload, ruling P-8) and the pin
+    /// field `park` (the park cycle a pin on a parked figure was taken in).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

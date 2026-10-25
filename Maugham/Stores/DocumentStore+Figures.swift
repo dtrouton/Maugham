@@ -291,8 +291,10 @@ extension DocumentStore {
     /// read through `ProjectStore.pinSourceRead` (absent when the item or its
     /// file is gone), and each figure they read that is parked in Research,
     /// with its park, its parked table and values, and its working copy read
-    /// the same way (nil when the copy is gone). Throws when the registry or
-    /// a parked figure's stream will not read.
+    /// the same way (nil when the copy is gone), and every table for a range's
+    /// shape. Throws when the registry or a parked figure's stream will not read.
+    /// Costly (an assembly, trust, every source file): never from a view body
+    /// or per frame — a surface caches what it derives on the host.
     func pinSources(for state: FigureState) async throws -> PinSources {
         guard let manifest = projectStore?.manifest, let projectStore else { return PinSources() }
         let trust = try await figureTrust()
@@ -301,10 +303,11 @@ extension DocumentStore {
         let parkedTables = assembled.parked.reduce(into: [String: FigureTable]()) { out, id in
             if let table = book.tables[id] { out[id] = table }
         }
-        let read = Set(FigurePins.reads(of: state.table, parked: parkedTables).values.flatMap { $0.map(\.source) })
+        let read = Set(FigurePins.reads(of: state.table, parked: parkedTables, tables: book.tables)
+            .values.flatMap { $0.map(\.source) })
         let names = FormulaNames(records: manifest.figures ?? [], tables: book.tables, research: manifest.research)
         let facts = DocumentClass.Facts(manifest)
-        var sources = PinSources()
+        var sources = PinSources(tables: book.tables)
         for source in read.sorted() {
             if let table = parkedTables[source] {
                 let parkedState = try openFigure(forId: source)?.state

@@ -182,6 +182,59 @@ final class FigurePinTests: XCTestCase {
         await store.closeFigure(figureId: summary.id)
     }
 
+    /// **A formula's entry pins ride its edit's ⌘Z** (review rule 4): undo
+    /// clears the cell and its pin together; redo takes the pin again.
+    func test_undoOfAResearchFormulaRemovesItsEntryPin_andRedoTakesItAgain() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        guard case .success(let f) = FormulaParser.parse(
+            "research:model!B2*2", in: host.state.table, names: FormulaNames(research: [(item.id, item.title)]))
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        let um = UndoManager()
+        try await host.setCell(Cell(content: .formula(f)), at: a1, undoManager: um)
+        XCTAssertEqual(host.state.pins[a1]?.map(\.value), [.number(10)], "precondition: the entry pin")
+
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertNil(host.state.table[a1], "the cell is cleared")
+        XCTAssertNil(host.state.pins[a1], "and its entry pin with it")
+        XCTAssertEqual(try ops(of: summary.id).suffix(2).map(\.kind), [.figurePinClear, .figureCellSet],
+                       "one visit: the pin's inverse first, then the cell's")
+
+        um.redo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.pins[a1]?.map(\.value), [.number(10)], "redo takes the pin again")
+        await store.closeFigure(figureId: summary.id)
+    }
+
+    /// **A failed entry-pin append is thrown** (review rule 7), as a
+    /// refresh's is: the cell landed and stays undoable; no pin did.
+    func test_aFailedEntryPinAppendThrows_andTheEditStaysUndoable() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        guard case .success(let f) = FormulaParser.parse(
+            "research:model!B2*2", in: host.state.table, names: FormulaNames(research: [(item.id, item.title)]))
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        struct DiskFull: Error {}
+        FigureDocument.beforeCommitAppendForTesting = { op in if op.kind == .figurePinSet { throw DiskFull() } }
+        defer { FigureDocument.beforeCommitAppendForTesting = nil }
+        let um = UndoManager()
+        do {
+            try await host.setCell(Cell(content: .formula(f)), at: a1, undoManager: um)
+            XCTFail("a failed pin append was swallowed")
+        } catch is DiskFull {}
+        XCTAssertEqual(host.state.table[a1], Cell(content: .formula(f)), "the cell landed")
+        XCTAssertNil(host.state.pins[a1], "the pin did not")
+        XCTAssertTrue(um.canUndo, "the edit is still undoable")
+        await store.closeFigure(figureId: summary.id)
+    }
+
     /// **A reader whose figure this Mac may not edit refuses the refresh**:
     /// the figure belongs to piece B, which this Mac yields to Sam. Nothing
     /// is appended to it (R-D2: refresh needs the reading figure's door).
@@ -251,6 +304,7 @@ final class FigurePinTests: XCTestCase {
         XCTAssertEqual([pin.research, "\(pin.row)", "\(pin.column)"], [cash.id, "1", "0"])
         XCTAssertEqual(pin.value, .number(7))
         XCTAssertEqual(pin.sourceHash, edited)
+        XCTAssertEqual(pin.park, copy.id, "bound to this park cycle (review rule 1)")
         XCTAssertEqual(try rendered(total).first?.first, "14", "the reader reads the copy's value")
         let parked = try await FigureDocument.load(
             figureId: cash.id, projectURL: projectURL, actor: .author, session: "r",

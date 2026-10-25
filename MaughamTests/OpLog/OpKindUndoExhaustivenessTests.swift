@@ -208,18 +208,18 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         case .figurePinSet:
             // Ruling P-8 (report plan 6b Task 9): a pin set carries the pin
             // it replaced (`priorPin`), so its inverse is payload-only — a
-            // swap back, or a clear of a cell's first pin. A refresh is one
-            // visit: FigureDocument.refreshPins registers every pin's inverse,
-            // last first, as one ⌘Z, declined when another device has since
-            // changed a pin it wrote; redo refreshes again. A formula's entry
-            // pins ride the cell edit's ⌘Z unregistered (a pin no formula
-            // reads counts for nothing).
-            return .inverseCovered(mechanism: "FigureInverse.inverse (a pin set swaps to priorPin; a first pin clears), registered as one visit by FigureDocument.refreshPins, drift-guarded")
+            // swap back, or a clear of a cell's first pin. Each pin set is
+            // part of a visit registered by FigureDocument.registerFigureUndo
+            // (`alongside:`): a refresh's sets as one ⌘Z (redo refreshes
+            // again), or a formula's entry pins with its cell edit (redo
+            // re-enters setCell, which takes them again); declined when
+            // another device has since changed a pin it wrote.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (a pin set swaps to priorPin; a first pin clears), in a visit registered by FigureDocument.registerFigureUndo (refreshPins, or setCell's entry pins), drift-guarded")
 
         case .figurePinClear:
             // Written only as a first pin's undo; that undo is reversed by
-            // the refresh's redo, which refreshes again.
-            return .nonUndoable(reason: "written only as the undo of a cell's first pin; FigureDocument.refreshPins's redo reverses it")
+            // the visit's redo (a refresh again, or setCell again).
+            return .nonUndoable(reason: "written only as the undo of a cell's first pin; the visit's redo (refreshPins or setCell) reverses it")
 
         case .unknown:
             // Forward-tolerance decode fallback for an op kind written by a

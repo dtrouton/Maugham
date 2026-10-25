@@ -470,19 +470,27 @@ public struct FigureResearchPin: Codable, Equatable, Sendable {
     public var value: CellValue
     public var sourceHash: String
     public var at: Date
+    /// **The park cycle a pin on a parked figure was taken in** (report plan
+    /// 6b Task 9 review, schema 10): that park's `FigureParking.cycle` — its
+    /// working copy's item id, else its hash. A pin from an earlier park of
+    /// the same figure is inert (`FigurePinChoice.isLive`): the reader keeps
+    /// the new parked state, and no op clears it. Nil on a Research pin.
+    public var park: String?
 
     enum CodingKeys: String, CodingKey {
         case research, row, column, value
         case sourceHash = "source_hash"
-        case at
+        case at, park
     }
 
-    public init(research: String, row: Int, column: Int, value: CellValue, sourceHash: String, at: Date) {
+    public init(research: String, row: Int, column: Int, value: CellValue, sourceHash: String, at: Date,
+                park: String? = nil) {
         self.research = research
         self.row = row
         self.column = column
         self.value = value
         self.sourceHash = sourceHash
         self.at = at
+        self.park = park
     }
 }

@@ -360,9 +360,11 @@ public final class FigureDocument {
     /// **A formula reading a Research table takes its pins** (spec §4.3):
     /// each source cell it reads that this cell holds no pin on is pinned
     /// here — the figure's own pin on it where another cell holds one, else
-    /// the value read now (`FigurePins.entry`). Not part of the edit's ⌘Z: a
-    /// pin no formula reads counts for nothing. A source that will not read
-    /// takes none; the ref shows `#REF!` until a refresh.
+    /// the value read now (`FigurePins.entry`). They join the edit's ⌘Z: its
+    /// undo clears them with the cell, its redo takes them again. A source
+    /// that will not read takes none; the ref shows `#REF!` until a refresh.
+    /// A pin whose append fails throws after the render, the edit and the
+    /// pins that landed still undoable.
     public func setCell(_ cell: Cell?, at key: CellKey, undoManager: UndoManager? = nil) async throws {
         try await requireWritable("setCell")
         try requireTable()
@@ -376,7 +378,7 @@ public final class FigureDocument {
             probe.table.setCell(cell, at: key)
             do {
                 let sources = try await documentStore.pinSources(for: probe)
-                entryPins = FigurePins.entry(of: f, in: key, state: state, research: sources.research, at: Date())
+                entryPins = FigurePins.entry(of: f, in: key, state: state, sources: sources, at: Date())
             } catch {
                 documentLog.error(
                     "figure \(self.figureId, privacy: .public): a formula's Research sources did not read, so it takes no pins: \(error.localizedDescription, privacy: .public)")
@@ -389,24 +391,32 @@ public final class FigureDocument {
         }
         let op = try await commit(
             .figureCellSet, FigureOpPayload(cell: key, next: cell, prior: prior), render: entryPins.isEmpty)
+        var pinOps: [Op] = []
+        var pinFailure: Error?
         if !entryPins.isEmpty {
             do {
                 for w in entryPins {
-                    try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin), render: false)
+                    pinOps.append(try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin), render: false))
                 }
             } catch {
                 documentLog.error(
                     "figure \(self.figureId, privacy: .public): a formula's pins were not all written: \(error.localizedDescription, privacy: .public)")
+                pinFailure = error
             }
             await documentStore?.figureHostAppended(figureId)
         }
+        let pinned = pinOps.compactMap { op in op.figure.flatMap { p in p.cell.flatMap { c in p.pin.map { (c, $0) } } } }
         registerFigureUndo(
-            undoManager, actionName: "Edit Cell", forward: op,
-            stillAsWritten: { d in d.isLive(key) && d.state.table[key] == cell },
+            undoManager, actionName: "Edit Cell", forward: op, alongside: pinOps,
+            stillAsWritten: { d in
+                d.isLive(key) && d.state.table[key] == cell
+                    && pinned.allSatisfy { d.state.pins[$0.0]?.contains($0.1) == true }
+            },
             redo: { [weak undoManager] d in
                 guard d.isLive(key), d.state.table[key] == prior else { return d.decline(.drifted) }
                 await d.redoing { try await d.setCell(cell, at: key, undoManager: undoManager) }
             })
+        if let pinFailure { throw pinFailure }
     }
 
     /// Insert a row after `after` (nil = first). Answers its minted id.
@@ -830,6 +840,10 @@ public final class FigureDocument {
     /// table its formulas name, and every figure they read that is parked in
     /// Research (`FigurePins.status`). For plans 7–9's markers and publish
     /// notes. Empty with no window, or when the sources will not read (logged).
+    ///
+    /// **Never from a view body or per frame**: it assembles the book, resolves
+    /// trust and reads every source file. A surface caches the answer on the
+    /// host and asks again after `figureHostAppended` or a presenter change.
     public func pinStatus() async -> [String: PinStatus] {
         guard let sources = await readPinSources() else { return [:] }
         return FigurePins.status(of: state, sources: sources)
@@ -862,9 +876,9 @@ public final class FigureDocument {
     ///   asked before the read and again after it; nothing is read for a Mac
     ///   that may not write it. Needs the window's store to read the sources.
     /// - A source that is gone keeps its values; nothing is written for it.
-    /// - **One ⌘Z** (ruling P-8) for the whole refresh: the inverses, last
-    ///   first (`FigureInverse.compensating`), declined when another device
-    ///   has since changed a pin it wrote. Redo refreshes again.
+    /// - **One ⌘Z** (ruling P-8) for the whole refresh, through
+    ///   `registerFigureUndo`'s visit: the inverses, last first, declined when
+    ///   another device has since changed a pin it wrote. Redo refreshes again.
     public func refreshPins(undoManager: UndoManager? = nil) async throws {
         try await requireWritable("refreshPins")
         try requireTable()
@@ -876,48 +890,29 @@ public final class FigureDocument {
         try await requireWritable("refreshPins")
         let writes = FigurePins.refresh(state: state, sources: sources, at: Date())
         guard !writes.isEmpty else { return }
-        var written: [PinWrite] = []
+        var written: [Op] = []
+        var failure: Error?
         do {
             for w in writes {
-                try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin, priorPin: w.prior), render: false)
-                written.append(w)
+                written.append(try await commit(
+                    .figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin, priorPin: w.prior), render: false))
             }
         } catch {
-            await documentStore.figureHostAppended(figureId)
-            registerPinRefreshUndo(undoManager, written)
-            throw error
+            failure = error
         }
         await documentStore.figureHostAppended(figureId)
-        registerPinRefreshUndo(undoManager, written)
-    }
-
-    /// The refresh's one ⌘Z: the door, the parked check and the drift guard
-    /// (every pin it wrote still on its cell), then each pin's inverse.
-    private func registerPinRefreshUndo(_ undoManager: UndoManager?, _ written: [PinWrite]) {
-        let visit = written.map { (OpKind.figurePinSet, FigureOpPayload(cell: $0.cell, pin: $0.pin, priorPin: $0.prior)) }
-        let inverses = FigureInverse.compensating(visit: visit)
-        guard !inverses.isEmpty else { return }
-        OpUndoRegistrar.register(
-            undoManager, actionName: "Refresh from Research", target: self,
-            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { d in
-                guard !d.isClosed else { return }
-                guard await d.mayEditHere() else { return d.decline(.notPermitted) }
-                guard d.state.parked == nil else { return d.decline(.parked(d.state.kind)) }
-                guard written.allSatisfy({ d.state.pins[$0.cell]?.contains($0.pin) == true }) else {
-                    return d.decline(.drifted)
-                }
-                do {
-                    for (kind, payload) in inverses { try await d.commit(kind, payload, render: false) }
-                } catch {
-                    documentLog.error("figure pin undo append failed on \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    d.decline(.notRecorded)
-                }
-                await d.documentStore?.figureHostAppended(d.figureId)
-            },
-            redo: { [weak undoManager] d in
-                await d.redoing { try await d.refreshPins(undoManager: undoManager) }
-            })
+        // One ⌘Z for what landed: the drift guard asks every pin it wrote is
+        // still on its cell; redo refreshes again.
+        if let first = written.first {
+            let pins = writes.prefix(written.count).map { ($0.cell, $0.pin) }
+            registerFigureUndo(
+                undoManager, actionName: "Refresh from Research", forward: first, alongside: Array(written.dropFirst()),
+                stillAsWritten: { d in pins.allSatisfy { d.state.pins[$0.0]?.contains($0.1) == true } },
+                redo: { [weak undoManager] d in
+                    await d.redoing { try await d.refreshPins(undoManager: undoManager) }
+                })
+        }
+        if let failure { throw failure }
     }
 
     /// **Bring this figure back from Research** (spec §4.2 "Coming back",
@@ -1128,7 +1123,10 @@ public final class FigureDocument {
     /// `OpKindUndoExhaustivenessTests` names. The inverse is
     /// `FigureInverse.inverse` of the forward op's payload — a delete's is a
     /// revive carrying the slice it took; where it answers nil (a first
-    /// image, a delete that recorded no slice) nothing is registered. The undo:
+    /// image, a delete that recorded no slice) nothing is registered.
+    /// `alongside` makes it one visit (`FigureInverse.compensating`, all or
+    /// nothing): a formula's entry pins with its cell edit, a pin refresh's
+    /// sets. The undo:
     /// 1. **the door** — this Mac must still be allowed to change the figure
     ///    (the window's posture, yields included);
     /// 2. **drift guard** — `stillAsWritten` must hold (the cell still holds
@@ -1141,15 +1139,15 @@ public final class FigureDocument {
     ///    runs `unrestoring` (the file back to what the op log names) and
     ///    says so (`.notRecorded`).
     func registerFigureUndo(
-        _ undoManager: UndoManager?, actionName: String, forward: Op,
+        _ undoManager: UndoManager?, actionName: String, forward: Op, alongside: [Op] = [],
         stillAsWritten: @escaping @MainActor (FigureDocument) -> Bool,
         restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
-        guard let payload = forward.figure,
-              let (kind, inverse) = FigureInverse.inverse(of: payload, kind: forward.kind)
-        else { return }
+        let visit = ([forward] + alongside).compactMap { op in op.figure.map { (op.kind, $0) } }
+        let inverses = FigureInverse.compensating(visit: visit)
+        guard visit.count == alongside.count + 1, !inverses.isEmpty else { return }
         OpUndoRegistrar.register(
             undoManager, actionName: actionName, target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
@@ -1164,7 +1162,13 @@ public final class FigureDocument {
                     documentLog.error("figure undo could not restore \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     return d.decline(.pictureNotKept)
                 }
-                do { try await d.commit(kind, inverse) } catch {
+                do {
+                    // A visit renders once, after its last inverse.
+                    for (i, (kind, inverse)) in inverses.enumerated() {
+                        try await d.commit(kind, inverse, render: i == inverses.count - 1)
+                    }
+                } catch {
+                    if inverses.count > 1 { await d.documentStore?.figureHostAppended(d.figureId) }
                     documentLog.error("figure undo append failed on \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     // What `restoring` put back goes back to what the op
                     // log still names, so the file and the history agree.
