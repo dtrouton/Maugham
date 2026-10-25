@@ -29,10 +29,11 @@ import MaughamCore
 /// `version` once (`onVersionChange` fires) and adds to the set
 /// `takeChanged()` hands back and clears — the ids whose card or whose
 /// registry record differ from the last fill, including a figure that
-/// appeared or left. A figure line to re-lay out is one whose figure is in
-/// that set, or was when the line was last painted. The first fill always
-/// bumps, even with nothing in it: lines that named no figure stop being
-/// cache misses then.
+/// appeared or left. The editor does not need it to re-lay out: on a new
+/// version it asks each figure line its room again and restyles only the
+/// lines whose room moved (`EditorCoordinator.refreshFigureRooms`). The
+/// first fill always bumps, even with nothing in it: lines that named no
+/// figure stop being cache misses then.
 ///
 /// **Closing.** `attach(nil)` (the host's teardown) drops every card and
 /// bumps the generation, so a fill still in flight lands nowhere.

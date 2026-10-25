@@ -351,6 +351,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// The card version last applied from `EditorControl.figureCardVersion`.
     private(set) var figureCardVersion = 0
+    /// A card version landed mid-burst: the settle paint re-lays out the
+    /// figure lines whose room changed (`setFigureCardVersion`).
+    var figureRoomsWaitForTheSettle = false
+    /// How many figure lines `refreshFigureRooms` has re-laid out (tests read it).
+    var figureRoomRefreshCount = 0
 
     // MARK: Labels and problem marks (plan 3b Task 6, `ReferenceLabelOverlay.swift`, `ManuscriptChecks.swift`)
 
@@ -1287,12 +1292,24 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `EditorControl`). Self-guarded (D2). The cards themselves are re-read
     /// through `figureCardModel`, never pushed.
     ///
-    /// Report plan 7a Task 5 hangs the re-layout here: the changed figures'
-    /// lines only (`FigureCardCache.takeChanged()`), deferred past a typing
-    /// burst. Until then the next paint of a line picks up its new room.
+    /// The figure lines whose room changed re-lay out here
+    /// (`refreshFigureRooms`, report plan 7a Task 5) — but never inside a
+    /// typing burst: while one is in flight the work waits for the burst's
+    /// settle paint (`performDeferredRestyle`), which runs it once.
     func setFigureCardVersion(_ version: Int) {
         guard version != figureCardVersion else { return }
         figureCardVersion = version
+        if isInTypingBurst {
+            figureRoomsWaitForTheSettle = true
+        } else {
+            refreshFigureRooms()
+        }
+    }
+
+    /// A typing burst is in flight: its settle paint is pending, its baseline
+    /// is held, or a character edit has not yet been retokenized.
+    var isInTypingBurst: Bool {
+        deferredRestyleTask != nil || burstBaselineText != nil || tokensDescribeAnEarlierText
     }
 
     // MARK: - NSTextViewDelegate

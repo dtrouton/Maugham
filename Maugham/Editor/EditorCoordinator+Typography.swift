@@ -187,6 +187,8 @@ extension EditorCoordinator {
             // Whole-doc paint: every non-typing caller (attach, applyExternalText,
             // theme/typography/focus changes) repaints the entire document.
             burstBaselineText = nil
+            // Every figure line takes its current room from this paint.
+            figureRoomsWaitForTheSettle = false
             applyModeTypography(in: storage, tokens: tokens, restyleWindow: nil)
             applyFocusDim(in: textView)
             // Re-baseline the live (screenplay) windowed path against the freshly
@@ -289,8 +291,13 @@ extension EditorCoordinator {
     private func performDeferredRestyle() {
         guard let textView, let storage = textView.textStorage else { return }
         // The settle edge is where the problem marks are checked (plan 3b
-        // Task 6, R-3b-4): once per burst, never per keystroke.
-        defer { refreshProblemMarks() }
+        // Task 6, R-3b-4): once per burst, never per keystroke. A figure card
+        // version that landed mid-burst re-lays out its lines here, after the
+        // paint (report plan 7a Task 5).
+        defer {
+            refreshProblemMarks()
+            if figureRoomsWaitForTheSettle { refreshFigureRooms() }
+        }
         let baseline = burstBaselineText
         burstBaselineText = nil
         let selection = textView.selectedRange()

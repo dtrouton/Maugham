@@ -382,14 +382,57 @@ public struct ProseMode: WritingMode {
             if let shared = styles[room] {
                 figureStyle = shared
             } else {
-                let style = (body?.mutableCopy() as? NSMutableParagraphStyle)
-                    ?? NSMutableParagraphStyle()
-                style.paragraphSpacing += room
-                styles[room] = style
-                figureStyle = style
+                figureStyle = Self.figureLineStyle(body: body, room: room)
+                styles[room] = figureStyle
             }
             storage.addAttribute(.paragraphStyle, value: figureStyle, range: line)
         }
+    }
+
+    /// A figure line's paragraph style: the body's, with `room` added to its
+    /// `paragraphSpacing`. The one spelling both paints and
+    /// `refreshFigureRooms` use, so they cannot disagree.
+    private static func figureLineStyle(body: NSParagraphStyle?, room: CGFloat) -> NSParagraphStyle {
+        let style = (body?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        style.paragraphSpacing += room
+        return style
+    }
+
+    /// **Re-lays out the figure lines whose room has changed** (report plan
+    /// 7a Task 5), and no other: for each of `lines`, the style a paint would
+    /// put there now (`figureRoom` of its path) is compared with the style it
+    /// carries, and only a line that differs gets an `addAttribute` of
+    /// `.paragraphStyle` over the whole line, all in one
+    /// `beginEditing`/`endEditing`. Never `setAttributes`, so nothing else
+    /// on the line (focus dim, emphasis) is touched, and an attribute-only
+    /// edit invalidates layout from that line alone — no scroll snap.
+    /// Returns the lines it touched, in order.
+    /// - Parameter lines: the figure lines (`FigureThumbnailLayout.Mark`s),
+    ///   each with the path as written; the whole line, terminator included,
+    ///   is restyled.
+    @discardableResult
+    func refreshFigureRooms(
+        in storage: NSTextStorage, theme: Theme, typography: TypographySettings,
+        lines: [FigureThumbnailLayout.Mark], figureRoom: (String) -> CGFloat
+    ) -> [NSRange] {
+        guard reservesFigureThumbnails else { return [] }
+        let body = bodyTypingAttributes(theme: theme, typography: typography)[.paragraphStyle]
+            as? NSParagraphStyle
+        let text = storage.string as NSString
+        var touched: [NSRange] = []
+        for mark in lines where mark.lineRange.length > 0 && NSMaxRange(mark.lineRange) <= text.length {
+            // The line with its terminator, as `reserveFigureThumbnailSpace` styles it.
+            let line = text.lineRange(for: NSRange(location: mark.lineRange.location, length: 0))
+            let wanted = Self.figureLineStyle(body: body, room: figureRoom(mark.path))
+            let current = storage.attribute(.paragraphStyle, at: line.location,
+                                            effectiveRange: nil) as? NSParagraphStyle
+            if current?.isEqual(wanted) == true { continue }
+            if touched.isEmpty { storage.beginEditing() }
+            storage.addAttribute(.paragraphStyle, value: wanted, range: line)
+            touched.append(line)
+        }
+        if !touched.isEmpty { storage.endEditing() }
+        return touched
     }
 
     /// The tint for citations, cross-references and footnote references: the

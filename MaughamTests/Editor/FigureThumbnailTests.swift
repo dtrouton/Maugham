@@ -576,19 +576,19 @@ final class FigureThumbnailTests: XCTestCase {
     }
 
     /// The question is the text's, whatever the tokens say (I1).
-    func test_endsOnFigureLine_readsTheTextItself() {
-        let cases: [(String, Bool)] = [
-            ("Prose.\n\n![A](a.png)", true),
-            ("![A](a.png){#fig:a}", true),
-            ("Prose.\n\n![A](a.png)\n", false),          // a newline after: its spacing lays out
-            ("Prose.\n![A](a.png)", false),                // two lines, one paragraph: not a figure
-            ("Prose.\n\n![A](a.png", false),              // unfinished
-            ("Prose with ![A](a.png) inside.", false),
-            ("Prose.\n\n  \n![A](a.png)", true),          // a whitespace line is blank
-            ("", false),
+    func test_trailingFigurePath_readsTheTextItself() {
+        let cases: [(String, String?)] = [
+            ("Prose.\n\n![A](a.png)", "a.png"),
+            ("![A](figures/cash.csv){#tbl:cash}", "figures/cash.csv"),
+            ("Prose.\n\n![A](a.png)\n", nil),          // a newline after: its spacing lays out
+            ("Prose.\n![A](a.png)", nil),                // two lines, one paragraph: not a figure
+            ("Prose.\n\n![A](a.png", nil),              // unfinished
+            ("Prose with ![A](a.png) inside.", nil),
+            ("Prose.\n\n  \n![A](a.png)", "a.png"),     // a whitespace line is blank
+            ("", nil),
         ]
         for (text, expected) in cases {
-            XCTAssertEqual(FigureThumbnailLayout.endsOnFigureLine(text as NSString), expected, text)
+            XCTAssertEqual(FigureThumbnailLayout.trailingFigurePath(text as NSString), expected, text)
         }
     }
 

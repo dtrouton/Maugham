@@ -75,25 +75,26 @@ enum FigureThumbnailLayout {
         return out.sorted { $0.lineRange.location < $1.lineRange.location }
     }
 
-    /// Whether `text` ends on a figure line with no newline after it — the
-    /// case TextKit 1 lays out no paragraph spacing for (whole-branch review
-    /// I1). Read from the TEXT, never from tokens or marks: AppKit re-sizes
-    /// the text view while an edit is landing, before the retokenize, when
-    /// anything token-derived still describes the text before the edit.
+    /// The path written on `text`'s last line when it is a figure line with
+    /// no newline after it — the case TextKit 1 lays out no paragraph spacing
+    /// for (whole-branch review I1) — else nil. Read from the TEXT, never
+    /// from tokens or marks: AppKit re-sizes the text view while an edit is
+    /// landing, before the retokenize, when anything token-derived still
+    /// describes the text before the edit.
     ///
     /// The last line's blank-line block (the unit the tokenizer reads,
     /// `BlankLineBlocks`) goes through `ManuscriptBlocks.parse`, the rule the
     /// tokenizer's figure tokens come from. O(the last paragraph), behind a
     /// cheap `![` gate on the last line.
-    static func endsOnFigureLine(_ text: NSString) -> Bool {
+    static func trailingFigurePath(_ text: NSString) -> String? {
         let length = text.length
-        guard length > 0 else { return false }
+        guard length > 0 else { return nil }
         let lastCharacter = text.character(at: length - 1)
-        guard lastCharacter != 0x0A, lastCharacter != 0x0D else { return false }
+        guard lastCharacter != 0x0A, lastCharacter != 0x0D else { return nil }
         let lastLineStart = text.lineRange(for: NSRange(location: length - 1, length: 0)).location
         guard text.range(of: "![", options: .literal,
                          range: NSRange(location: lastLineStart, length: length - lastLineStart)
-        ).location != NSNotFound else { return false }
+        ).location != NSNotFound else { return nil }
         var blockStart = lastLineStart
         while blockStart > 0 {
             let previous = text.lineRange(for: NSRange(location: blockStart - 1, length: 0))
@@ -103,10 +104,9 @@ enum FigureThumbnailLayout {
             blockStart = previous.location
         }
         let block = text.substring(with: NSRange(location: blockStart, length: length - blockStart))
-        guard let last = ManuscriptBlocks.parse(block).last, case .figure = last.block else {
-            return false
-        }
-        return true
+        guard let last = ManuscriptBlocks.parse(block).last,
+              case .figure(_, let path, _) = last.block else { return nil }
+        return path
     }
 
     /// The marks whose line intersects `window`, found by binary search over
@@ -696,13 +696,55 @@ extension EditorCoordinator {
     /// newline, so `MaughamTextView` adds this to its height instead
     /// (`heightHoldingATrailingFigure`). Zero otherwise. Text-derived.
     ///
-    /// Asked of the text itself (`FigureThumbnailLayout.endsOnFigureLine`),
+    /// Asked of the text itself (`FigureThumbnailLayout.trailingFigurePath`),
     /// never of the marks: `setFrameSize` asks it mid-edit, before the
     /// retokenize (whole-branch review I1).
+    ///
+    /// The room is the line's own (`figureRoom(forLinePath:)`), so a table
+    /// card on the last line keeps room for every row it grows to.
     var figureTrailingRoom: CGFloat {
         guard showsFigureThumbnails, let textView,
-              FigureThumbnailLayout.endsOnFigureLine(textView.string as NSString) else { return 0 }
-        return FigureThumbnailLayout.reservedHeight
+              let path = FigureThumbnailLayout.trailingFigurePath(textView.string as NSString)
+        else { return 0 }
+        return figureRoom(forLinePath: path)
+    }
+
+    /// **The figure cards changed: re-lay out the lines whose room moved**
+    /// (report plan 7a Task 5). Asks every figure line its room again
+    /// (`figureThumbnailMarks`, the cache's own line resolution through
+    /// `figureCardModel`) and restyles only the lines whose room differs from
+    /// the one painted — one `addAttribute` per such line, never a
+    /// `setAttributes`, so the caret and the scroll stay where they are.
+    /// A card whose content changed but whose height did not re-lays out
+    /// nothing; the overlay repaints for it. Then the trailing figure's room
+    /// is re-held, since it is asked of the same cards.
+    ///
+    /// Callers: `setFigureCardVersion` outside a burst, the settle paint
+    /// after one. Never on the keystroke.
+    func refreshFigureRooms() {
+        figureRoomsWaitForTheSettle = false
+        guard !isDetached, showsFigureThumbnails, !tokensDescribeAnEarlierText,
+              let prose = mode as? ProseMode,
+              let textView, let storage = textView.textStorage else { return }
+        let touched = prose.refreshFigureRooms(
+            in: storage, theme: theme, typography: typography,
+            lines: figureThumbnailMarks, figureRoom: figureRoom(forLinePath:))
+        figureRoomRefreshCount += touched.count
+        holdTrailingFigureRoom(in: textView)
+        figureThumbnailOverlay?.needsDisplay = true
+    }
+
+    /// Size the text view for the trailing figure's room: a room that shrank
+    /// (gone, or a trailing card that lost rows) re-fits first, since the
+    /// hold only ever grows the frame; any room is then held.
+    private func holdTrailingFigureRoom(in textView: NSTextView) {
+        let room = figureTrailingRoom
+        let shrank = room < lastFigureTrailingRoom
+        lastFigureTrailingRoom = room
+        if shrank { textView.sizeToFit() }
+        if room > 0, let maugham = textView as? MaughamTextView {
+            maugham.holdTrailingFigureRoom()
+        }
     }
 
     /// After a retokenize: hold the room for a trailing figure, and repaint
@@ -717,14 +759,7 @@ extension EditorCoordinator {
     /// through `sizeToFit`, as before.
     func figureThumbnailTokensDidChange() {
         guard showsFigureThumbnails, let textView else { return }
-        let room = figureTrailingRoom
-        let flipped = room != lastFigureTrailingRoom
-        lastFigureTrailingRoom = room
-        if room > 0, let maugham = textView as? MaughamTextView {
-            maugham.holdTrailingFigureRoom()
-        } else if flipped {
-            textView.sizeToFit()
-        }
+        holdTrailingFigureRoom(in: textView)
         if let overlay = figureThumbnailOverlay,
            overlay.lastVisibleFigureCount > 0 || hasFigureLines {
             overlay.needsDisplay = true
