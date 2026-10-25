@@ -564,6 +564,26 @@ final class XHTMLReportElementEmitterTests: XCTestCase {
         try XCTUnwrap(ManuscriptLabel(reference: reference))
     }
 
+    // MARK: table figures
+
+    /// A table figure's line numbered as a table prints "Table 2." and its
+    /// literal source under the id the list of tables and `@tbl:cash` link to
+    /// (its cells are not emitted yet).
+    func test_aTableFigureLine_carriesTheTableIdAndNumber() throws {
+        let (resolved, _) = try bodies(book([
+            "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}",
+            "![Programme cash flows](figures/cash.csv){#tbl:cash}",
+            "See @tbl:cash.",
+        ], lists: true), labelHrefs: [try label("tbl:cash"): "s.xhtml#lbl-tbl-cash"])
+        XCTAssertTrue(resolved.contains(
+            "<span id=\"lbl-tbl-cash\">![Programme cash flows](figures/cash.csv) {#tbl:cash}</span></p>"), resolved)
+        XCTAssertTrue(resolved.contains(
+            "<p class=\"caption\"><span class=\"caption-number\">Table 2.</span> Programme cash flows</p>"),
+            resolved)
+        XCTAssertTrue(resolved.contains("href=\"s.xhtml#lbl-tbl-cash\">Table 2</a>"), resolved)
+        XCTAssertFalse(resolved.contains("<figure"), "no figure for a table: \(resolved)")
+    }
+
     // MARK: tables
 
     func test_table_rendersWithItsNumberedCaptionHeadAndAlignedCells() throws {

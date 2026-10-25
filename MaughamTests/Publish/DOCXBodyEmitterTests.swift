@@ -390,6 +390,26 @@ final class DOCXBodyEmitterTests: XCTestCase {
         XCTAssertEqual(headed.map(\.1), ["1 Top", "1.1 Mid", "1.1.1 Low", "Lower"])
     }
 
+    // MARK: - table figures
+
+    /// A table figure's line numbered as a table: a "Table 2." caption whose
+    /// number carries the label's bookmark, so `@tbl:cash`'s REF lands, then
+    /// its literal source (its cells are not emitted yet).
+    func test_aTableFigureLine_isCaptionedAsATable_andItsLabelIsBookmarked() throws {
+        let e = try emit(Book(pieces: [("a", [
+            ("a1b2", "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}"),
+            ("c3d4", "![Programme cash flows](figures/cash.csv){#tbl:cash}"),
+            ("e5f6", "See @tbl:cash."),
+        ])], context: Self.context()))
+        let name = DOCXNames.labelBookmark(label("tbl:cash"))
+        XCTAssertEqual(try bookmarked(name, in: e.document), "Table 2")
+        let paragraphs = try nodes(e.document, "//*[name()='w:p']").map { try text($0) }
+        XCTAssertTrue(paragraphs.contains("Table 2. Programme cash flows"), "\(paragraphs)")
+        XCTAssertTrue(paragraphs.contains("![Programme cash flows](figures/cash.csv) {#tbl:cash}"), "\(paragraphs)")
+        let instr = try nodes(e.document, "//*[name()='w:instrText']").compactMap(\.stringValue)
+        XCTAssertEqual(instr, [" SEQ Table \\* ARABIC ", " SEQ Table \\* ARABIC ", " REF \(name) \\h "])
+    }
+
     // MARK: - bookmarks
 
     func test_everyNodeWithAParagraphId_hasABookmark_balancedUniqueAndLegal() throws {

@@ -583,6 +583,8 @@ Every table is a `MaughamTable` environment with four arguments: the column spec
 
 Every table prints "Table n", captioned or not, so a reference to it always lands on a visible number; an uncaptioned table's list entry is `\relax`. A row opening with `[` or `*` starts with `\relax`, so `\\` never reads it as an argument.
 
+A table figure's line (`![caption](figures/<name>.csv){#tbl:name}`) numbers as a table, but its cells are not emitted yet: it prints as a kernel `table` float holding its anchor, its caption ("Table n", listed in the list of tables) and its literal source line.
+
 ### Old templates degrade, they don't fail
 
 An existing project never receives starter updates, so its preamble may load neither graphicx nor longtable. Each element asks at the point of use:

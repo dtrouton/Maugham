@@ -294,6 +294,10 @@ enum DOCXBodyEmitter {
                 guard let n = resolution.tableNumbers[piece]?[index] else { return nil }
                 return owns(label, .tbl, text: "\(resolution.words.table) \(n)")
             case .figure(_, _, let label):
+                if let n = resolution.tableNumbers[piece]?[index] {
+                    // A table figure numbered as a table (R7a-1).
+                    return owns(label, .tbl, text: "\(resolution.words.table) \(n)")
+                }
                 guard let n = resolution.figureNumbers[piece]?[index] else { return nil }
                 return owns(label, .fig, text: "\(resolution.words.figure) \(n)")
             case .paragraph, .blockquote, .sceneBreak, .list, .verbatim:
@@ -360,6 +364,16 @@ enum DOCXBodyEmitter {
             out.append(table(header: header, alignments: alignments, rows: rows, scope: scope))
         case .figure(let caption, let path, let label):
             let source = InterimReportLiteral.figure(caption: caption, path: path, label: label)
+            if let index, let n = resolution.tableNumbers[piece]?[index] {
+                // A table figure numbered as a table (R7a-1): "Table n." with
+                // the label's bookmark, so the REF lands, then its literal
+                // source. Its body is plan 9's.
+                out.append(scope.paragraph(Para(style: "Caption", keepNext: true),
+                                           scope.caption("Table", word: resolution.words.table, number: n,
+                                                         label: scope.owned(label, kind: .tbl, index: index),
+                                                         caption)))
+                return literal(source)
+            }
             guard let index, let n = resolution.figureNumbers[piece]?[index] else { return literal(source) }
             let owned = scope.owned(label, kind: .fig, index: index)
             guard let url = scope.figureFiles[piece]?[index], let image = scope.place(url) else {

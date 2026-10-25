@@ -361,6 +361,19 @@ public enum XHTMLBodyEmitter {
                       anchor: anchor, scope: scope, into: &out)
         case .figure(let caption, let path, let label):
             let literal = InterimReportLiteral.figure(caption: caption, path: path, label: label)
+            if let index, let resolution = scope.resolution,
+               let n = resolution.tableNumbers[scope.pieceID]?[index] {
+                // A table figure numbered as a table (R7a-1): its literal
+                // source under the table's id, so the list of tables and a
+                // `@tbl:` link land on it, then "Table n." and its caption.
+                // Its body is plan 9's.
+                let address = scope.address(.tbl, number: n, index: index, resolution: resolution)
+                out.append("<p\(idAttribute(anchor))><span id=\"\(XHTMLEscape.attribute(address))\">"
+                           + emitInline(literal, scope) + "</span></p>")
+                out.append("<p class=\"caption\">"
+                           + captionHTML(resolution.words.table, number: n, caption, scope) + "</p>")
+                return
+            }
             guard let index, let resolution = scope.resolution,
                   let n = resolution.figureNumbers[scope.pieceID]?[index] else {
                 emit(prose: .paragraph(literal), index: nil, anchor: anchor, scope: scope, into: &out)

@@ -785,6 +785,31 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
                                             sourceTitle: "Annual Report", year: 2026))
     }
 
+    // MARK: table figures
+
+    /// A table figure's line numbered as a table is a kernel `table` float:
+    /// its counter, the label's anchor, a `\caption` (so "Table 2" prints and
+    /// the list of tables lists it), then its literal source (its cells are
+    /// not emitted yet).
+    func test_aTableFigureLine_isATableFloatWithItsAnchorCaptionAndLiteral() throws {
+        let (resolved, _) = try bodies(book([
+            "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}",
+            "![Programme cash flows](figures/cash.csv){#tbl:cash}",
+            "See @tbl:cash.",
+        ], lists: true))
+        XCTAssertTrue(resolved.contains("""
+            \\setcounter{table}{1}
+            \\begin{table}[htbp]
+            \\centering
+            \\hypertarget{lbl-tbl-cash}{}
+            \\caption[{Programme cash flows}]{Programme cash flows}
+            ![Programme cash flows](figures/cash.csv) \\{\\#tbl:cash\\}
+            \\end{table}
+            """), resolved)
+        XCTAssertTrue(resolved.contains("\\MaughamCrossLink{lbl-tbl-cash}{Table 2}"), resolved)
+        XCTAssertFalse(resolved.contains("\\begin{figure}"), resolved)
+    }
+
     // MARK: tables
 
     func test_table_rendersAsAMaughamTableWithItsNumberAnchorAndEscapedCells() throws {

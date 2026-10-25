@@ -473,6 +473,11 @@ public enum LaTeXBodyEmitter {
             emitTable(number: n, index: index, header: header, alignments: alignments,
                       rows: rows, caption: caption, label: label, scope: scope, into: &out)
         case .figure(let caption, let path, let label):
+            if let index, let n = scope.resolution?.tableNumbers[scope.pieceID]?[index] {
+                emitTableFigure(number: n, index: index, caption: caption, path: path, label: label,
+                                scope: scope, into: &out)
+                return
+            }
             guard let index, let n = scope.resolution?.figureNumbers[scope.pieceID]?[index],
                   let file = scope.figureFiles[index], isSafeGraphicsPath(file) else {
                 // No resolution, an image that was refused or never staged:
@@ -545,6 +550,30 @@ public enum LaTeXBodyEmitter {
                    + "\\else\\fbox{\\parbox{0.9\\linewidth}{\\centering \(short)}}\\fi")
         out.append("\\caption[{\(listEntry(short))}]{\(emitInline(caption, scope, deferred: true))}")
         out.append("\\end{figure}")
+        closeUnlisted(scope, into: &out)
+        scope.flush(into: &out)
+    }
+
+    /// A table figure numbered as a table (R7a-1): a `table` float (kernel
+    /// only) holding its label's anchor, its literal source and `\caption`,
+    /// so it prints "Table n", is listed in the list of tables and a `@tbl:`
+    /// link lands on it. Its body is plan 9's. The counter is set first, as
+    /// `emitTable` does.
+    private static func emitTableFigure(number: Int, index: Int, caption: [ProjectAST.Inline],
+                                        path: String, label: ManuscriptLabel?,
+                                        scope: Scope, into out: inout [String]) {
+        let literal = InterimReportLiteral.figure(caption: caption, path: path, label: label)
+        openUnlisted(scope, into: &out)
+        out.append("\\setcounter{table}{\(number - 1)}")
+        out.append("\\begin{table}[htbp]")
+        out.append("\\centering")
+        if let a = scope.anchor(label, kind: .tbl, index: index,
+                                text: scope.resolution.map { "\($0.words.table) \(number)" }) {
+            out.append(a)
+        }
+        out.append("\\caption[{\(listEntry(plainText(caption, scope)))}]{\(emitInline(caption, scope, deferred: true))}")
+        out.append(emitInline(literal, scope, deferred: true))
+        out.append("\\end{table}")
         closeUnlisted(scope, into: &out)
         scope.flush(into: &out)
     }
