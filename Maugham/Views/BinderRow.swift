@@ -104,8 +104,8 @@ struct BinderRow: View {
             }
             // **After the string destination, always.** AppKit offers a drag to
             // the innermost drop modifier only; a List row's drops are dispatched
-            // by the table, where this order takes every drag kind (#109's
-            // measurement). `TripwireGrepTests` censuses the order.
+            // by the table, where this order works, as measured on the binder's
+            // rows (#109). `TripwireGrepTests` censuses the order.
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
                 guard !providers.isEmpty else { return false }
                 let rowHeight: CGFloat = 22

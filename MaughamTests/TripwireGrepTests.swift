@@ -6223,7 +6223,8 @@ final class TripwireGrepTests: XCTestCase {
     /// row, sprang a Finder PNG back. So a pair belongs on a row only; anywhere
     /// else, mount ONE provider `.onDrop` routed by `ProviderDropRoute`.
     ///
-    /// The reversed order on a row was found by two smokes. On the canvas: a
+    /// The reversed order was found by two smokes, one on the canvas and one
+    /// in a Collection. On the canvas: a
     /// Finder photograph landed while a research drag and an inbox drag did
     /// nothing whatever, with the Inbox's "Send to Canvas" *command* working
     /// throughout, which is what identified the modifiers rather than the
@@ -6571,7 +6572,7 @@ final class TripwireGrepTests: XCTestCase {
         let codeLines = SourceScan.codeLines(of: sections)
         XCTAssertEqual(codeLines.filter { $0.contains(".onDrop(of: ProviderDropRoute.acceptedTypes") }.count,
                        1, "BinderTreeSections mounts the provider route once: the Research header")
-        XCTAssertEqual(codeLines.filter { $0.contains(".dropDestination(for: String") }.count, 1,
+        XCTAssertEqual(stringDestinationCount(in: sections), 1,
             "BinderTreeSections keeps ONE String destination, the empty-section "
             + "placeholder row's. A second one is the Research header's coming back "
             + "in front of its provider drop, which refuses every Finder file (#109).")
@@ -6582,8 +6583,14 @@ final class TripwireGrepTests: XCTestCase {
             "Control: the header's drop closure should call sharedSectionHeaderDrop")
     }
 
+    /// How many `.dropDestination(for: String` a file mounts, comments excluded.
+    private func stringDestinationCount(in text: String) -> Int {
+        SourceScan.codeLines(of: text).filter { $0.contains(".dropDestination(for: String") }.count
+    }
+
     /// Planted control: the provider-route census sees a planted header that
-    /// pairs a String destination with the route, and not a comment.
+    /// pairs a String destination with the route, and not a comment; and the
+    /// count-of-one check fires when the header's destination comes back.
     func test_theProviderRouteCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
@@ -6608,6 +6615,18 @@ final class TripwireGrepTests: XCTestCase {
         let found = try dropModifiers(under: tmp)
         XCTAssertEqual(found.destination, ["PlantedHeader.swift:5"],
             "Self-check: the planted String destination is counted, the comment is not")
+
+        let twoDestinations = """
+            placeholder
+                .dropDestination(for: String.self) { ids, _ -> Bool in true }
+            header
+                // .dropDestination(for: String.self) in a comment must NOT count.
+                .dropDestination(for: String.self) { ids, _ -> Bool in true }
+                .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { _ in true }
+            """
+        XCTAssertEqual(stringDestinationCount(in: twoDestinations), 2,
+            "Self-check: a header destination beside the placeholder's makes two, "
+            + "which the live count-of-one assertion reports")
     }
 
     // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)

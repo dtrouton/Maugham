@@ -74,7 +74,7 @@ Every file in `Maugham/Canvas/` appears once.
 - `PromotionSheet.swift` — `PromotionSheetModel` and the sheet.
 
 ### Routes onto the canvas
-- `Maugham/Views/ProviderDropRoute.swift` — pure, shared: where a drop goes by type (`route(typeIdentifiers:)`; file, URL or image before text) and `acceptedTypes`.
+- `Maugham/Views/ProviderDropRoute.swift` — pure (lives in Views): routes drops by type (`route(typeIdentifiers:)`; file, URL or image before text) and `acceptedTypes`.
 - `CanvasDropWrap.swift` — pure: a drop landing in no region, with a chapter selected, is wrapped in one new region bound to it (`wrap`, `frame(around:)`, `piece(for:)`).
 - `CanvasDrop.swift` — `CanvasDrop` (internal drag: `payload`, `decide`, `apply`, `inboxPayload`), `CanvasExternalDrop` (Finder/browser images), `CanvasAssetIngest`, `CanvasCaptureDrop` (tripwire 32 census).
 - `CanvasCapture.swift` — an Inbox capture onto the canvas, by drag or by command; `liveModel` is shared (tripwire 32 census).
