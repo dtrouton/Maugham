@@ -81,6 +81,26 @@ final class TableCSVTests: XCTestCase {
         XCTAssertEqual(t[key(t, "B3")]?.content, .value(.number(2250.75)))
     }
 
+    /// Report plan 6b Task 6 review M-4: a tab file reads decimals as the book's language
+    /// does — a European Excel's "Unicode text" export is tab-separated with decimal commas —
+    /// while an English book's tab file still reads a decimal point.
+    func test_read_tabFileReadsDecimalsAsTheBooksLanguage() {
+        let de = TableLocale(languageTag: "de-DE")
+        let (t, problems) = TableCSV.read("Posten\tBetrag\nTee\t1,5\nKuchen\t2.250,75\n", locale: de, names: .empty)
+        XCTAssertTrue(problems.isEmpty)
+        XCTAssertEqual(t[key(t, "B2")]?.content, .value(.number(1.5)))
+        XCTAssertEqual(t[key(t, "B3")]?.content, .value(.number(2250.75)))
+        let (e, _) = TableCSV.read("Item\tCost\nTea\t1.5\n", locale: gb, names: .empty)
+        XCTAssertEqual(e[key(e, "B2")]?.content, .value(.number(1.5)))
+    }
+
+    /// The Use-in-document ceiling counts fields holding anything but whitespace.
+    func test_nonEmptyCellCount_countsOnlyFieldsWithContent() {
+        XCTAssertEqual(TableCSV.nonEmptyCellCount("a,,b\n , c\n\n"), 3)
+        XCTAssertEqual(TableCSV.nonEmptyCellCount(""), 0)
+        XCTAssertEqual(TableCSV.figureCellLimit, 10_000)
+    }
+
     func test_read_unknownFunctionStaysAFormulaAndIsNameError() {
         let (t, problems) = TableCSV.read("1,2\n3,4\n\"=VLOOKUP(A1,B1:C3,2)\",\n", locale: gb, names: .empty)
         XCTAssertTrue(problems.isEmpty)
@@ -216,14 +236,18 @@ final class TableCSVTests: XCTestCase {
         }
     }
 
-    func test_commaAndTabFilesReadDecimalPoint_whateverTheLocale() {
+    /// A "," file reads a decimal point whatever the locale. A tab file used to as well; since
+    /// report plan 6b Task 6 review M-4 (controller's ruling) it reads as the locale does —
+    /// see `test_read_tabFileReadsDecimalsAsTheBooksLanguage`.
+    func test_commaFilesReadDecimalPoint_whateverTheLocale() {
         for tag in ["de-DE", "es-ES"] {
             let l = TableLocale(languageTag: tag)
-            for sep in [",", "\t"] {
-                let (t, _) = TableCSV.read("1.234\(sep)1.5\n", locale: l, names: .empty)
-                XCTAssertEqual(t[key(t, "A1")]?.content, .value(.number(1.234)), tag)
-                XCTAssertEqual(t[key(t, "B1")]?.content, .value(.number(1.5)), tag)
-            }
+            let (comma, _) = TableCSV.read("1.234,1.5\n", locale: l, names: .empty)
+            XCTAssertEqual(comma[key(comma, "A1")]?.content, .value(.number(1.234)), tag)
+            XCTAssertEqual(comma[key(comma, "B1")]?.content, .value(.number(1.5)), tag)
+            let (tab, _) = TableCSV.read("1.234\t1,5\t2\n", locale: l, names: .empty)
+            XCTAssertEqual(tab[key(tab, "A1")]?.content, .value(.number(1234)), tag)
+            XCTAssertEqual(tab[key(tab, "B1")]?.content, .value(.number(1.5)), tag)
             let (semi, _) = TableCSV.read("1,5;1.234,5;2;3\n", locale: l, names: .empty)
             XCTAssertEqual(semi[key(semi, "A1")]?.content, .value(.number(1.5)), tag)
             XCTAssertEqual(semi[key(semi, "B1")]?.content, .value(.number(1234.5)), tag)

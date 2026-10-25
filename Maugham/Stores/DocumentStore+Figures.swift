@@ -246,6 +246,7 @@ extension DocumentStore {
 
     /// The trust table figure reads judge lines by, resolved off the main actor.
     private func figureTrust() async throws -> TrustTable {
+        figureTrustResolutions += 1
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let registryCache = Document.loadRegistryCache
@@ -255,18 +256,12 @@ extension DocumentStore {
         }.value
     }
 
-    /// **The book as a figure made from Research reads it** (report plan 6b
-    /// Task 6): the name directory a Research CSV's formulas resolve through
-    /// (`FormulaNames(records:tables:research:)` — every figure with its table,
-    /// an open host's fold laid over its read, and the Research tables), and
-    /// whether figure `candidate`, when given, is parked in Research — asked of
-    /// its open host, else its stream, whatever its kind. Throws when the
-    /// registry will not read: a parked figure can't be told apart, so nothing
-    /// should be made.
-    func figureBookForUse(
-        checkingParked candidate: String?
-    ) async throws -> (names: FormulaNames, candidateIsParked: Bool) {
-        guard let manifest = projectStore?.manifest else { return (.empty, false) }
+    /// **The names a Research CSV's formulas resolve through** (report plan 6b
+    /// Task 6): `FormulaNames(records:tables:research:)` over every figure with
+    /// its table — an open host's fold laid over its read — and the Research
+    /// tables. Throws when the registry will not read.
+    func formulaNamesForUse() async throws -> FormulaNames {
+        guard let manifest = projectStore?.manifest else { return .empty }
         let trust = try await figureTrust()
         var assembled = FigureWorkbook.assemble(
             for: manifest, cache: figureCache, projectURL: projectURL,
@@ -276,15 +271,22 @@ extension DocumentStore {
         for (id, doc) in openFigures where !doc.isClosed && tableIds.contains(id) {
             assembled.overlay(doc.state, id: id)
         }
-        let names = FormulaNames(
+        return FormulaNames(
             records: records, tables: assembled.workbook.tables, research: manifest.research)
-        guard let candidate, records.contains(where: { $0.id == candidate }) else {
-            return (names, false)
-        }
-        if let open = openFigure(forId: candidate) { return (names, open.state.parked != nil) }
+    }
+
+    /// **Is figure `figureId` parked in Research?** Asked of its open host,
+    /// else its stream (the registry resolved only then), whatever its kind.
+    /// False for an id the registry does not list. Throws when the stream or
+    /// the registry will not read: a parked figure can't be told apart.
+    func figureIsParked(_ figureId: String) async throws -> Bool {
+        guard let manifest = projectStore?.manifest,
+              manifest.figures?.contains(where: { $0.id == figureId }) == true else { return false }
+        if let open = openFigure(forId: figureId) { return open.state.parked != nil }
+        let trust = try await figureTrust()
         let state = try figureCache.state(
-            forFigureId: candidate, in: projectURL, trust: trust, facts: DocumentClass.Facts(manifest))
-        return (names, state.parked != nil)
+            forFigureId: figureId, in: projectURL, trust: trust, facts: DocumentClass.Facts(manifest))
+        return state.parked != nil
     }
 
     // MARK: - Rendering

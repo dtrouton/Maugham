@@ -12371,12 +12371,12 @@ final class TripwireGrepTests: XCTestCase {
             "deleteRow(": 1, "deleteColumn(": 1, "reviveRow(": 2, "reviveColumn(": 2,
         ],
         // A rename's picture: `renameImageFile` through the figure's host,
-        // after `renameFigure` asked every door (report plan 6b Task 5). A
-        // Research picture's *Use in document*: `createImageFigure`, which asks
-        // the new figure's door before it copies or mints (report plan 6b Task 6).
-        "ProjectStore+Figures.swift": [
-            figureOpMintSpelling: 1, "renameImageFile(": 1, "createImageFigure(": 1,
-        ],
+        // after `renameFigure` asked every door (report plan 6b Task 5).
+        "ProjectStore+Figures.swift": [figureOpMintSpelling: 1, "renameImageFile(": 1],
+        // A Research picture's *Use in document*: `createImageFigure`, which
+        // asks the new figure's door before it copies or mints (report plan
+        // 6b Task 6).
+        "ProjectStore+FigureResearch.swift": ["createImageFigure(": 1],
         "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
     ]

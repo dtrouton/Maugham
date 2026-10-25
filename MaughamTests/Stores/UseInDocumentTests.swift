@@ -110,7 +110,8 @@ final class UseInDocumentTests: XCTestCase {
         XCTAssertEqual(item.kind, .table, "a CSV added to Research is a Research table")
         let researchFile = file(try XCTUnwrap(item.path))
 
-        let record = try await projectStore.useInDocument(researchItemId: item.id, piece: "doc-a")
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: "doc-a")
+        let record = result.record
 
         XCTAssertEqual(record.kind, .table)
         XCTAssertEqual(record.name, "budget", "named from the item's title")
@@ -125,7 +126,7 @@ final class UseInDocumentTests: XCTestCase {
         guard case .formula? = at(3, 1) else { return XCTFail("=SUM(B2:B3) is a formula") }
         guard case .formula? = at(4, 1) else { return XCTFail("=NOPE(1) stays a formula") }
         XCTAssertEqual(at(5, 1), .value(.text("=1+")), "an unparseable formula is text holding its =…")
-        XCTAssertEqual(projectStore.lastUseInDocumentProblems.map { [$0.row, $0.column] }, [[5, 1]],
+        XCTAssertEqual(result.problems.map { [$0.row, $0.column] }, [[5, 1]],
                        "and it comes back as a problem")
         XCTAssertEqual(s.source, FigureSource(
             researchItemId: item.id, path: try XCTUnwrap(item.path),
@@ -147,9 +148,10 @@ final class UseInDocumentTests: XCTestCase {
         let item = try await projectStore.addResearchAsset(
             parentId: nil, fromURL: try external("budget.tsv", Data("a\tb\n1\t2\n".utf8)))
         XCTAssertEqual(item.kind, .table, "a TSV is a Research table too")
-        let record = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        let record = result.record
         XCTAssertEqual(record.name, "budget_2")
-        XCTAssertEqual(projectStore.lastUseInDocumentProblems, [])
+        XCTAssertEqual(result.problems, [])
         let s = try await state(record.id)
         XCTAssertEqual(s.table[CellKey(row: s.table.rows[1], column: s.table.columns[1])]?.content,
                        .value(.number(2)))
@@ -160,14 +162,18 @@ final class UseInDocumentTests: XCTestCase {
     /// A picture in Research becomes an image figure through the image path,
     /// with its source's hash recorded on the create.
     func test_aPictureItemBecomesAnImageFigureWithItsSourceHash() async throws {
-        let (_, projectStore) = try await openBook()
+        let (store, projectStore) = try await openBook()
         let item = try await projectStore.addResearchAsset(
             parentId: nil, fromURL: try external("Harbour Map.png", try TestImageBytes.png(seed: 3)))
+        let resolutionsBefore = store.figureTrustResolutions
         XCTAssertEqual(item.kind, .image)
         let researchFile = file(try XCTUnwrap(item.path))
         let hash = try ContentHash.ofFile(researchFile)
 
-        let record = try await projectStore.useInDocument(researchItemId: item.id, piece: "doc-a")
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: "doc-a")
+        let record = result.record
+        XCTAssertEqual(store.figureTrustResolutions, resolutionsBefore,
+                       "a picture builds no workbook and resolves no trust (review M-2)")
 
         XCTAssertEqual(record.kind, .image)
         XCTAssertEqual(record.name, "harbour-map")
@@ -176,7 +182,7 @@ final class UseInDocumentTests: XCTestCase {
         XCTAssertEqual(s.source, FigureSource(
             researchItemId: item.id, path: try XCTUnwrap(item.path), contentHash: hash))
         XCTAssertEqual(s.image?.contentHash, hash, "a PNG is copied as it is")
-        XCTAssertEqual(projectStore.lastUseInDocumentProblems, [])
+        XCTAssertEqual(result.problems, [])
     }
 
     /// A note can't be a figure: refused, nothing made.
@@ -229,12 +235,93 @@ final class UseInDocumentTests: XCTestCase {
             parentId: nil, fromURL: try external("other.csv", Data("3,4\n".utf8)))
         try ResearchTableSidecar.write(ResearchTableSidecar(figureId: live.id), forItem: other.id, in: projectURL)
         let fresh = try await projectStore.useInDocument(researchItemId: other.id, piece: nil)
-        XCTAssertEqual(fresh.name, "other")
+        XCTAssertEqual(fresh.record.name, "other")
         let stray = try await projectStore.addResearchAsset(
             parentId: nil, fromURL: try external("stray.csv", Data("5\n".utf8)))
         try ResearchTableSidecar.write(
             ResearchTableSidecar(figureId: "fig-gone0001"), forItem: stray.id, in: projectURL)
         let fresh2 = try await projectStore.useInDocument(researchItemId: stray.id, piece: nil)
-        XCTAssertEqual(fresh2.name, "stray")
+        XCTAssertEqual(fresh2.record.name, "stray")
+    }
+
+    // MARK: - Review fixes (report plan 6b Task 6 review)
+
+    private func setBookLanguage(_ tag: String) async throws {
+        try await PublishConfigStore(projectURL: projectURL).save(
+            PublishConfig(metadata: .init(title: "T", author: "A", language: tag)))
+    }
+
+    /// I-2: cells are read by the book's language — an en-GB book reads
+    /// 03/04/2026 as 3 April, whatever the Mac's region.
+    func test_datesAreReadByTheBooksLanguage() async throws {
+        let (_, projectStore) = try await openBook()
+        try await setBookLanguage("en-GB")
+        let item = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("dates.csv", Data("When\n03/04/2026\n".utf8)))
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        let s = try await state(result.record.id)
+        XCTAssertEqual(s.table[CellKey(row: s.table.rows[1], column: s.table.columns[0])]?.content,
+                       .value(.date(try XCTUnwrap(DateSerial.serial(year: 2026, month: 4, day: 3)))))
+    }
+
+    /// M-4: a European book's TSV reads decimal commas.
+    func test_aEuropeanTSVReadsDecimalCommas() async throws {
+        let (_, projectStore) = try await openBook()
+        try await setBookLanguage("de-DE")
+        let item = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("kosten.tsv", Data("Posten\tBetrag\nTee\t1,5\n".utf8)))
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        let s = try await state(result.record.id)
+        XCTAssertEqual(s.table[CellKey(row: s.table.rows[1], column: s.table.columns[1])]?.content,
+                       .value(.number(1.5)))
+    }
+
+    /// M-1: a sidecar written for exactly this CSV lays its settings on; one
+    /// written for other bytes (the file edited elsewhere since) does not.
+    func test_aSidecarsSettingsApplyOnlyToTheBytesTheyDescribe() async throws {
+        let (_, projectStore) = try await openBook()
+        let csv = Data("1,2\n3,4\n".utf8)
+        let sidecar = { (hash: String) in ResearchTableSidecar(
+            contentHash: hash, headerRows: 1, totalRow: true,
+            formats: [.init(row: 1, column: 1, format: CellFormat(number: .percent(decimals: 1)))],
+            columnWidths: [nil, 90]) }
+
+        let matching = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("same.csv", csv))
+        try ResearchTableSidecar.write(sidecar(ContentHash.of(csv)), forItem: matching.id, in: projectURL)
+        let applied = try await state(
+            try await projectStore.useInDocument(researchItemId: matching.id, piece: nil).record.id)
+        XCTAssertEqual(applied.table.headerRows, 1)
+        XCTAssertTrue(applied.table.hasTotalRow)
+        XCTAssertEqual(applied.table[CellKey(row: applied.table.rows[1], column: applied.table.columns[1])]?.format,
+                       CellFormat(number: .percent(decimals: 1)))
+        XCTAssertEqual(applied.table.columnWidths, [applied.table.columns[1]: 90])
+
+        let edited = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("edited.csv", csv))
+        try ResearchTableSidecar.write(sidecar("ffffffffffffffff"), forItem: edited.id, in: projectURL)
+        let plain = try await state(
+            try await projectStore.useInDocument(researchItemId: edited.id, piece: nil).record.id)
+        XCTAssertEqual(plain.table.headerRows, 0)
+        XCTAssertFalse(plain.table.hasTotalRow)
+        XCTAssertEqual(plain.table[CellKey(row: plain.table.rows[1], column: plain.table.columns[1])]?.format,
+                       CellFormat())
+        XCTAssertEqual(plain.table.columnWidths, [:])
+    }
+
+    /// M-3: a CSV above the ceiling is refused with the cell count, and nothing is made.
+    func test_aTableAboveTheCeilingIsRefused() async throws {
+        let (_, projectStore) = try await openBook()
+        let row = Array(repeating: "1", count: 101).joined(separator: ",")
+        let text = Array(repeating: row, count: 100).joined(separator: "\n") + "\n"   // 10,100 cells
+        let item = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("huge.csv", Data(text.utf8)))
+        do {
+            _ = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+            XCTFail("a table above the ceiling is refused")
+        } catch let refused as UseInDocumentRefused {
+            XCTAssertEqual(refused.reason, .tooLarge(cells: 10_100))
+            XCTAssertEqual(refused.localizedDescription,
+                           "This table is too large to use as a figure (10100 cells; the limit is 10,000).")
+        }
+        XCTAssertEqual(projectStore.manifest.figures ?? [], [])
     }
 }

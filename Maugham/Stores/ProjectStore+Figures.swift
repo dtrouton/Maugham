@@ -67,7 +67,8 @@ extension ProjectStore {
     /// Research), then for a table one insert per row and column in `table`'s
     /// order with its own ids, a cell set per cell, and its header and total
     /// rows and column widths — sealed, then the record, then the render.
-    private func createFigureStream(
+    /// Internal for `ProjectStore+FigureResearch` (*Use in document*).
+    func createFigureStream(
         kind: FigureKind, table: FigureTable?, name: String, piece: String?,
         source: FigureSource?, site: StaticString
     ) async throws -> FigureRecord {
@@ -262,116 +263,6 @@ extension ProjectStore {
         manifest.figures = figures
         manifest.modified = Date()
         try await saveManifest()
-    }
-
-    // MARK: - Use in document (report plan 6b Task 6, spec §4.1)
-
-    /// **Make a figure from a Research item** and answer its record. No line
-    /// is placed in the text: the surface that calls this asks where (plans
-    /// 7–8).
-    ///
-    /// 1. **A working copy of a parked figure goes back to its own log**: an
-    ///    item whose sidecar (`ResearchTableSidecar`) names a figure the
-    ///    registry lists, parked in Research, is handed to `bringBack` (Task 8)
-    ///    and nothing is made here.
-    /// 2. **A Research table** (`AssetKind.table`) is read through
-    ///    `TableCSV.read` with the book's name directory
-    ///    (`DocumentStore.figureBookForUse`): a cell beginning `=` becomes a
-    ///    formula — an unknown function stays a formula and shows `#NAME?` —
-    ///    and one that cannot be parsed stays text holding its `=…` and is
-    ///    reported on `lastUseInDocumentProblems`. The new table's stream
-    ///    carries every row, column, cell and setting it read.
-    /// 3. **A picture or PDF** takes `createImageFigure`'s path.
-    /// 4. Either way the figure is named from the item's title, de-duplicated
-    ///    (`vacantFigureName`), behind the door a new figure asks of `piece`,
-    ///    and its `figureCreate` records the source: the item's id, path and
-    ///    the content hash of the bytes copied (`FigureSource`).
-    ///
-    /// Throws `UseInDocumentRefused` for an item that is not a Research table,
-    /// picture or PDF, or has no file. Needs the window's `DocumentStore`.
-    @discardableResult
-    public func useInDocument(researchItemId: String, piece: String?) async throws -> FigureRecord {
-        lastUseInDocumentProblems = []
-        guard let documentStore else {
-            throw ProjectStoreError.fileSystemError("DocumentStore not available")
-        }
-        guard let item = findResearchItem(id: researchItemId, in: manifest.research),
-              item.type == .asset else {
-            throw UseInDocumentRefused(reason: .notInResearch)
-        }
-        let sidecar = researchTableSidecar(of: item)
-        let book = try await documentStore.figureBookForUse(checkingParked: sidecar?.figureId)
-        if book.candidateIsParked {
-            return try await bringBack(researchItemId: item.id, piece: piece)
-        }
-        switch item.kind {
-        case .table?:
-            let (path, file) = try researchFile(of: item)
-            let (text, hash) = try await Task.detached { try Self.readResearchTable(file) }.value
-            let read = TableCSV.read(text, locale: TableLocale(languageTag: nil), names: book.names)
-            let record = try await createFigureStream(
-                kind: .table, table: read.table, name: item.title, piece: piece,
-                source: FigureSource(researchItemId: item.id, path: path, contentHash: hash),
-                site: "useInDocument")
-            lastUseInDocumentProblems = read.problems
-            for problem in read.problems {
-                projectStoreLog.info(
-                    "useInDocument: \(item.title, privacy: .public) row \(problem.row + 1, privacy: .public), column \(problem.column + 1, privacy: .public) kept as text: \(problem.message, privacy: .public)")
-            }
-            return record
-        case .image?, .pdf?:
-            let (path, file) = try researchFile(of: item)
-            let hash = try await Task.detached { try ContentHash.ofFile(file) }.value
-            return try await createImageFigure(
-                fromURL: file, name: item.title, piece: piece,
-                from: FigureSource(researchItemId: item.id, path: path, contentHash: hash))
-        case .document?, .audio?, .link?, nil:
-            throw UseInDocumentRefused(reason: .notAFigure(item.title))
-        }
-    }
-
-    /// **Report plan 6b Task 8's seam: bring a parked figure back** from its
-    /// working copy in Research. `useInDocument` routes here when the item's
-    /// sidecar names a parked figure. Until Task 8 replaces this body with
-    /// the return (resume, or the diff, then `figureResumed`), it refuses
-    /// with `FigureReturnPending` and changes nothing.
-    @discardableResult
-    public func bringBack(researchItemId: String, piece: String?) async throws -> FigureRecord {
-        throw FigureReturnPending(researchItemId: researchItemId)
-    }
-
-    /// Item's sidecar, or nil when it has none, or one that will not read
-    /// (logged): a copy whose sidecar can't be read never attaches to a parked
-    /// log, so it is used as a fresh table.
-    private func researchTableSidecar(of item: ResearchItem) -> ResearchTableSidecar? {
-        do {
-            return try ResearchTableSidecar.read(forItem: item.id, in: url)
-        } catch {
-            projectStoreLog.error(
-                "useInDocument: \(item.title, privacy: .public)'s Research table sidecar did not read, so it is used as a fresh table: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    /// A Research item's path and the file it names (the read form: a copy
-    /// reads it, and a writer's own linked research folder still works).
-    private func researchFile(of item: ResearchItem) throws -> (path: String, url: URL) {
-        guard let path = item.path else { throw UseInDocumentRefused(reason: .noFile(item.title)) }
-        return (path, try resolvedProjectPath(path))
-    }
-
-    /// A Research table's text and the content hash of exactly the bytes
-    /// read. UTF-16 when it opens with a byte-order mark (Excel's "Unicode
-    /// text"), else UTF-8, else Windows Latin-1 (an older Excel's CSV).
-    nonisolated private static func readResearchTable(_ file: URL) throws -> (text: String, hash: String) {
-        let data = try Data(contentsOf: file) // adr-0018-ok: a Research table's CSV, read once to make a figure; not manuscript
-        let hash = ContentHash.of(data)
-        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]),
-           let text = String(data: data, encoding: .utf16) {
-            return (text, hash)
-        }
-        if let text = String(data: data, encoding: .utf8) { return (text, hash) }
-        return (String(data: data, encoding: .windowsCP1252) ?? "", hash)
     }
 
     // MARK: - Rename and remove (report plan 6b Task 5, ruling P-3)
@@ -862,42 +753,6 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
             return "Not renamed — this Mac may not change the text of "
                 + titles.joined(separator: ", ") + ", which refers to this figure."
         }
-    }
-}
-
-/// **A Research item *Use in document* cannot make a figure from** (report
-/// plan 6b Task 6): nothing was changed.
-public struct UseInDocumentRefused: LocalizedError, Equatable {
-    public enum Reason: Equatable {
-        /// No Research item has this id, or it is a group.
-        case notInResearch
-        /// The item is a note, audio or a link: not a table, picture or PDF.
-        case notAFigure(String)
-        /// The item names no file.
-        case noFile(String)
-    }
-
-    public let reason: Reason
-
-    public var errorDescription: String? {
-        switch reason {
-        case .notInResearch:
-            return "That item is no longer in Research."
-        case .notAFigure(let title):
-            return "\(title) can't be a figure: only a table, a picture or a PDF can."
-        case .noFile(let title):
-            return "\(title) has no file to copy."
-        }
-    }
-}
-
-/// **Report plan 6b Task 8's seam**: `bringBack` until Task 8 builds it. The
-/// item is the working copy of a parked figure, which comes back to its own
-/// log rather than as a new figure. Task 8 deletes this type.
-public struct FigureReturnPending: LocalizedError, Equatable {
-    public let researchItemId: String
-    public var errorDescription: String? {
-        "This table is a parked figure's copy; bringing it back is not built yet."
     }
 }
 

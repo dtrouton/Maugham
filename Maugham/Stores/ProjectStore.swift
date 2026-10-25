@@ -317,13 +317,6 @@ public final class ProjectStore {
     public let trashStore: TrashStore
     public internal(set) var trashEntries: [TrashEntry] = []
 
-    /// **The cells the last *Use in document* of a Research table could not
-    /// read as the writer meant** (report plan 6b Task 6, spec §4.1): each a
-    /// formula that would not parse, kept as text holding its `=…`. Set by
-    /// every `useInDocument` (empty for a picture or a clean table), for the
-    /// surface that made the call to say (plans 7–8). On the class body
-    /// because `@Observable` extensions can't synthesize storage.
-    public internal(set) var lastUseInDocumentProblems: [CSVReadProblem] = []
 
     /// The trash entries ONE delete gesture made — a batch of fifty or a single
     /// row — in the order they were made. "Restore Last Deletion" (⌘⌥Z) is

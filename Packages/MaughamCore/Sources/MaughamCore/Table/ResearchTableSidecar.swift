@@ -11,7 +11,9 @@ import Foundation
 ///   is how *Use in document* recognises a copy coming back (Task 8). Nil for a
 ///   table that was never a figure.
 /// - Formats and widths are by POSITION (0-based row and column, as in the
-///   CSV): the file has no row or column ids.
+///   CSV): the file has no row or column ids. `contentHash` is the
+///   `ContentHash` of the CSV they describe, so a reader can tell a CSV still
+///   as written from one edited elsewhere, whose positions no longer hold.
 ///
 /// **Tolerant** (ADR 0015): every field may be missing, and one that cannot be
 /// read takes its default, so a sidecar written by a later build, or damaged,
@@ -46,6 +48,8 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
     }
 
     public var figureId: String?
+    /// The `ContentHash` of the CSV this sidecar describes, when written.
+    public var contentHash: String?
     public var name: String?
     public var caption: String?
     public var headerRows: Int
@@ -54,12 +58,35 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
     /// Each column's width by position; nil is the automatic width.
     public var columnWidths: [Double?]
 
+    /// **`table` with this sidecar's settings laid on**: header rows, total row,
+    /// and each style and width at its position (one off the grid is skipped).
+    /// For a CSV whose `ContentHash` is `contentHash` — the positions hold only
+    /// for the bytes they were written against; the caller checks.
+    public func applied(to table: FigureTable) -> FigureTable {
+        var out = table
+        out.headerRows = headerRows
+        out.hasTotalRow = totalRow
+        let rows = table.rows, columns = table.columns
+        for style in formats where rows.indices.contains(style.row) && columns.indices.contains(style.column) {
+            let key = CellKey(row: rows[style.row], column: columns[style.column])
+            guard var cell = out[key] else { continue }
+            cell.format = style.format
+            cell.alignment = style.alignment
+            out.setCell(cell, at: key)
+        }
+        for (i, width) in columnWidths.enumerated() where columns.indices.contains(i) {
+            out.columnWidths[columns[i]] = width
+        }
+        return out
+    }
+
     public init(
-        figureId: String? = nil, name: String? = nil, caption: String? = nil,
+        figureId: String? = nil, contentHash: String? = nil, name: String? = nil, caption: String? = nil,
         headerRows: Int = 0, totalRow: Bool = false,
         formats: [CellStyle] = [], columnWidths: [Double?] = []
     ) {
         self.figureId = figureId
+        self.contentHash = contentHash
         self.name = name
         self.caption = caption
         self.headerRows = headerRows
@@ -70,6 +97,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case figureId = "figure_id"
+        case contentHash = "content_hash"
         case name, caption
         case headerRows = "header_rows"
         case totalRow = "total_row"
@@ -80,6 +108,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         figureId = (try? c.decodeIfPresent(String.self, forKey: .figureId)) ?? nil
+        contentHash = (try? c.decodeIfPresent(String.self, forKey: .contentHash)) ?? nil
         name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
         caption = (try? c.decodeIfPresent(String.self, forKey: .caption)) ?? nil
         headerRows = (try? c.decodeIfPresent(Int.self, forKey: .headerRows)) ?? 0
@@ -93,6 +122,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(figureId, forKey: .figureId)
+        try c.encodeIfPresent(contentHash, forKey: .contentHash)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(caption, forKey: .caption)
         try c.encode(headerRows, forKey: .headerRows)

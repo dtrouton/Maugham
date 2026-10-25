@@ -141,7 +141,7 @@ public enum TableCSV {
     // MARK: Reading a table
 
     /// Reads a CSV into a new table. Cells go through `CellInput` with `locale` (a ";" file reads
-    /// decimals with ","); "=" cells go through `FormulaParser.parsePositional`, which turns each
+    /// decimals with ",", a "," file with ".", a tab file as `locale` does); "=" cells go through `FormulaParser.parsePositional`, which turns each
     /// figure and research name into its id through `names` (R-D1); then refs inside the new table,
     /// and `name!B2` refs inside a figure with a table in `names` (by its live positions), become id
     /// refs, so later inserts and deletes never re-point them. A ref off a grid stays positional
@@ -153,7 +153,15 @@ public enum TableCSV {
         let width = parsed.map(\.count).max() ?? 0
         var table = FigureTable(rows: parsed.count, columns: width)
         let ids = (rows: table.rows, columns: table.columns)
-        let cellLocale = separator == ";" ? locale.readingDecimalComma() : locale.readingDecimalPoint()
+        // A ";" file is a decimal-comma file and a "," file a decimal-point one,
+        // whatever the language; a tab file says nothing, so it reads as the book's
+        // language does (a European Excel's "Unicode text" export is tab and comma).
+        let cellLocale: TableLocale
+        switch separator {
+        case ";": cellLocale = locale.readingDecimalComma()
+        case "\t": cellLocale = locale
+        default: cellLocale = locale.readingDecimalPoint()
+        }
         var problems: [CSVReadProblem] = []
         var entries: [[CellEntry]] = []
 
@@ -196,6 +204,18 @@ public enum TableCSV {
             table.headerRows = 1
         }
         return (table, problems)
+    }
+
+    /// **The most non-empty cells a CSV may hold to become a figure** (report plan 6b
+    /// Task 6, ruling: a ceiling): each cell is one signed op line, so a bigger file is
+    /// refused rather than written as a stream nobody can edit.
+    public static let figureCellLimit = 10_000
+
+    /// The fields in `text` holding anything but whitespace — what `figureCellLimit` counts.
+    public static func nonEmptyCellCount(_ text: String) -> Int {
+        rows(text).rows.reduce(0) { total, row in
+            total + row.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        }
     }
 
     private static func isText(_ e: CellEntry) -> Bool {

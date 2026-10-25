@@ -191,6 +191,11 @@ public final class DocumentStore {
     /// flagging the figures that read them (plan 6b Task 9).
     var lastParkedFigures: Set<String> = []
 
+    /// How many times a figure read resolved the registry's trust table
+    /// (`figureTrust()`); a test counts it to prove a picture's *Use in
+    /// document* resolves none (report plan 6b Task 6 review M-2).
+    var figureTrustResolutions = 0
+
     var _figureChangeScheduler: DebounceScheduler<Int>?
 
     /// The deferred render of every table figure at window open (R-6a-11);

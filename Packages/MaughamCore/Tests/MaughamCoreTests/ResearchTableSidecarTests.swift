@@ -6,7 +6,7 @@ import XCTest
 final class ResearchTableSidecarTests: XCTestCase {
 
     private let full = ResearchTableSidecar(
-        figureId: "fig-cash0001", name: "cash", caption: "Cash, 2026",
+        figureId: "fig-cash0001", contentHash: "0123456789abcdef", name: "cash", caption: "Cash, 2026",
         headerRows: 1, totalRow: true,
         formats: [.init(row: 1, column: 2, format: CellFormat(number: .percent(decimals: 1)),
                         alignment: .right)],
@@ -24,7 +24,7 @@ final class ResearchTableSidecarTests: XCTestCase {
 
     func test_theWireWords() throws {
         let json = try XCTUnwrap(String(data: try JSONEncoder().encode(full), encoding: .utf8))
-        for key in ["\"figure_id\"", "\"header_rows\"", "\"total_row\"", "\"column_widths\"",
+        for key in ["\"figure_id\"", "\"content_hash\"", "\"header_rows\"", "\"total_row\"", "\"column_widths\"",
                     "\"formats\"", "\"caption\"", "\"name\""] {
             XCTAssertTrue(json.contains(key), "\(key) in \(json)")
         }
@@ -75,5 +75,26 @@ final class ResearchTableSidecarTests: XCTestCase {
             at: root.appendingPathComponent(".maugham/research-tables"), withDestinationURL: outside)
         XCTAssertThrowsError(try ResearchTableSidecar.write(full, forItem: "res-1a2b3c4d", in: root))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outside.path), [])
+    }
+
+    /// Review M-1: the settings land on the table at their positions; a style or
+    /// width off the grid, or on an empty cell, is skipped.
+    func test_appliedLaysTheSettingsOnByPosition() {
+        var table = FigureTable(rows: 2, columns: 2)
+        let b2 = CellKey(row: table.rows[1], column: table.columns[1])
+        table.setCell(Cell(content: .value(.number(0.25))), at: b2)
+        let sidecar = ResearchTableSidecar(
+            headerRows: 1, totalRow: true,
+            formats: [.init(row: 1, column: 1, format: CellFormat(number: .percent(decimals: 1)), alignment: .right),
+                      .init(row: 0, column: 0, alignment: .center),
+                      .init(row: 9, column: 9, alignment: .left)],
+            columnWidths: [nil, 120, 50])
+        let out = sidecar.applied(to: table)
+        XCTAssertEqual(out.headerRows, 1)
+        XCTAssertTrue(out.hasTotalRow)
+        XCTAssertEqual(out[b2]?.format, CellFormat(number: .percent(decimals: 1)))
+        XCTAssertEqual(out[b2]?.alignment, .right)
+        XCTAssertNil(out[CellKey(row: table.rows[0], column: table.columns[0])])
+        XCTAssertEqual(out.columnWidths, [table.columns[1]: 120])
     }
 }
