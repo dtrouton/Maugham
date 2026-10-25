@@ -1024,9 +1024,19 @@ struct ProjectWindow: View {
         let window: NSWindow?
         @Binding var selectedSubject: BinderSubject?
         @Binding var pendingPieceRenameId: String?
+        /// What a promotion has to say: what of the book's figures did not
+        /// carry whole, or why it failed. Nil when there is nothing to say.
+        @State private var promotionOutcome: String?
 
         func body(content: Content) -> some View {
             content
+                .alert("Promote to Project",
+                       isPresented: Binding(get: { promotionOutcome != nil },
+                                            set: { if !$0 { promotionOutcome = nil } })) {
+                    Button("OK", role: .cancel) { promotionOutcome = nil }
+                } message: {
+                    Text(promotionOutcome ?? "")
+                }
                 // The File menu's enabled state (ruling X), published by the modifier
                 // that receives the three items — and only where the project shows the
                 // pieces pane.
@@ -1087,13 +1097,17 @@ struct ProjectWindow: View {
                         guard response == .OK, let destination = panel.url else { return }
                         Task {
                             do {
-                                let newProjectURL = try await store.promotePieceToProject(
+                                let promotion = try await store.promotePieceToProject(
                                     pieceId: pieceId, destination: destination)
                                 MaughamEvent.post(
                                     .maughamOpenProject, to: .allWindows,
-                                    payload: ["url": newProjectURL])
+                                    payload: ["url": promotion.url])
+                                // What of the figures did not carry whole
+                                // (report plan 6c Task 5): said, not only logged.
+                                promotionOutcome = promotion.figureNotice
                             } catch {
                                 _projectWindowLog.error("Promote failed: \(error, privacy: .public)")
+                                promotionOutcome = error.localizedDescription
                             }
                         }
                     }

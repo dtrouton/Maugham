@@ -305,7 +305,8 @@ public enum FigureCarry {
 /// (Q-5), or a figure the promotion could not carry whole: which figure,
 /// which cell (nil for anything but a formula or a pin), the source (a
 /// Research item's id, a parked copy's path when the park named no item, a
-/// kind's word or a picture's file name) and which problem it is.
+/// kind's word, a picture's file name or why a removal failed) and which
+/// problem it is.
 public struct FigureCarryProblem: Hashable, Sendable {
     public enum Read: String, Sendable {
         /// A formula names the Research item.
@@ -323,6 +324,10 @@ public struct FigureCarryProblem: Hashable, Sendable {
         /// The picture's file (`source`) is not the bytes its stream names
         /// (a newer picture not yet synced): copied as it is, and listed.
         case pictureChanged
+        /// The piece's own figure arrived in the new book, but the
+        /// Collection could not take its record out (`source` is why): it
+        /// stands in both until the writer removes it there.
+        case notRemoved
     }
 
     public let figureId: String
