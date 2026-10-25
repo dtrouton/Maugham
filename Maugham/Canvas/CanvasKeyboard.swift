@@ -66,6 +66,20 @@ enum CanvasKeyboard {
         characters == "\r" && stripped(modifiers) == .command ? .makeBelow : nil
     }
 
+    // MARK: - What Return makes
+
+    /// Whether Return with nothing selected makes a scrap under `subject`:
+    /// only where that scrap would not be born dimmed (#118). The project row
+    /// dims nothing and a chapter binds its new scrap; a research item and a
+    /// group dim the board and bind nothing, so Return there makes nothing.
+    /// An exhaustive `switch`, so a new subject has to answer.
+    static func returnMakesAScrap(for subject: CanvasSubject) -> Bool {
+        switch subject {
+        case .wholeProject, .piece: return true
+        case .group, .research: return false
+        }
+    }
+
     // MARK: - Placement
 
     static func newCardSize() -> CGSize {

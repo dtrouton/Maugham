@@ -1,7 +1,7 @@
 import XCTest
 
-/// **The person key's doors, each counted** (your devices are you, plan 1
-/// Task 8). Tasks 2–7 built one key per PERSON, a claim a device makes with it,
+/// **The person key's doors, each counted** (ADR 0032, your devices are
+/// you). The person key is one key per PERSON, a claim a device makes with it,
 /// the verbs that link and forget it, and the recognition that admits a device
 /// silently because of it. Every one of those is a door a device walks through
 /// WITHOUT the root being asked, so a second door is a second, unreviewed way
@@ -20,7 +20,7 @@ import XCTest
 /// second spelling of the door inside the very file that owns the first moves
 /// its count. Count the arrays, never a number written in prose.
 ///
-/// **A key may name a TYPE** (`type:DocumentStore`, foundations plan 2 Task 3):
+/// **A key may name a TYPE** (`type:DocumentStore`, the type-keyed census):
 /// every Mac or Core file declaring it, its count the SUM over those files —
 /// so splitting a monolith into extension files moves no census, while a site
 /// moved into an unrelated file still fails. A phone file is never claimed by
@@ -192,17 +192,17 @@ final class PersonKeyCensusTests: XCTestCase {
         Site(pattern: #"PersonKey\.findOrCreate\("#,
              sample: "PersonKey.findOrCreate(in: s, seedName: n)",
              expected: ["type:DocumentStore": 1]),
-        // …and the phone only FINDS it (plan 2 Task 1, controller ruling 5:
+        // …and the phone only FINDS it (controller ruling 5:
         // a phone that minted would fork the person) — once, in
         // `PhoneDeviceRecord.findPersonKey`, which the claim AND Settings'
-        // *This Device* line both ask (plan 2 Task 2: the line routes through
+        // *This Device* line both ask (the This Device line routes through
         // this reader rather than being a second one). `finding` is `find`
         // saying why there is no key; either spelling is the same door.
         Site(pattern: #"PersonKey\.find(?:ing)?\("#,
              sample: "PersonKey.find(in: s)",
              expected: ["MaughamPhone/PhoneDeviceRecord.swift": 1]),
         // The claim is signed in ONE place for both surfaces — Core's
-        // `RegistryPresence.claimIntent` (plan 2 Task 1 fix round, tripwire 19).
+        // `RegistryPresence.claimIntent` (tripwire 19).
         Site(pattern: #"RegistryWriter\.personClaim\("#,
              sample: "RegistryWriter.personClaim(forDevice: d, signedBy: k)",
              expected: ["RegistryPresence.swift": 1]),
@@ -377,7 +377,7 @@ final class PersonKeyCensusTests: XCTestCase {
             let rootDepth = root.resolvingSymlinksInPath().pathComponents.count
             for case let url as URL in walker where url.pathExtension == "swift" {
                 // Under the phone's root, or under a `MaughamPhone` folder
-                // beneath a planted root (the controls' phone sites, plan 2).
+                // beneath a planted root (the controls' phone sites).
                 let between = url.resolvingSymlinksInPath().pathComponents
                     .dropLast().dropFirst(rootDepth)
                 let isPhone = rootIsPhone || between.contains(phoneRootName)
@@ -522,7 +522,7 @@ final class PersonKeyCensusTests: XCTestCase {
 
             // 3a′. For a type key: the same file, but OUTSIDE the type's
             // declaration (a child type sharing the file) is the file's own
-            // site, not the key's (plan 2 final review, I1).
+            // site, not the key's (from the registry review).
             if let typeKey = site.expected.keys.sorted()
                 .first(where: { SourceTree.typeName(ofKey: $0) != nil }) {
                 let typeURL = dir.appendingPathComponent(Self.plantedName(forKey: typeKey))

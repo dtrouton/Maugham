@@ -238,6 +238,21 @@ final class CanvasKeyboardTests: XCTestCase {
         XCTAssertEqual(CanvasKeyboard.centre(of: .line(CanvasLineID("l")), in: s), CGPoint(x: 150, y: 75))
     }
 
+    // MARK: - What Return makes (#118)
+
+    func test_returnMakesAScrapOnlyWhereItWouldNotBeBornDimmed() {
+        let cases: [(CanvasSubject, Bool)] = [
+            (.wholeProject, true),
+            (.piece("p1"), true),
+            (.group(["p1", "p2"]), false),
+            (.group([]), false),
+            (.research("r-9"), false),
+        ]
+        for (subject, expected) in cases {
+            XCTAssertEqual(CanvasKeyboard.returnMakesAScrap(for: subject), expected, "\(subject)")
+        }
+    }
+
     // MARK: - Reveal
 
     func test_revealIsANoOpForAVisibleRectAndPansTheLeastOtherwise() {
