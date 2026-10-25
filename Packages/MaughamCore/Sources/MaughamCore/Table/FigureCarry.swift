@@ -263,10 +263,75 @@ public enum FigureCarry {
                     figureId: record.id, cell: nil, source: parked.itemId ?? parked.path, read: .parkedCopy))
             }
         }
-        return out.sorted {
+        return sorted(out)
+    }
+
+    /// Problems by figure, then cell, then source, then kind.
+    private static func sorted(_ problems: Set<FigureCarryProblem>) -> [FigureCarryProblem] {
+        problems.sorted {
             ($0.figureId, $0.cell?.row.raw ?? "", $0.cell?.column.raw ?? "", $0.source, $0.read.rawValue)
                 < ($1.figureId, $1.cell?.row.raw ?? "", $1.cell?.column.raw ?? "", $1.source, $1.read.rawValue)
         }
+    }
+
+    /// **The piece's own figures that something staying in the Collection
+    /// reads** (controller ruling, plan 6c final review I1): these are
+    /// copied, not moved — carried, and left standing in the Collection too —
+    /// so nothing there loses them. A figure is read by another piece's text
+    /// (`otherText`: a label or a figure line's path, by the reader's name),
+    /// or by a figure that stays — any record not in `moved`, and each one
+    /// this answer keeps, transitively — through a formula or a live pin
+    /// (under `parks`). Answers each kept figure's id → its first reader: a
+    /// figure id, or the name `otherText` gave the text.
+    public static func readByWhatStays(
+        moved: [FigureRecord], records: [FigureRecord], states: [String: FigureState],
+        otherText: [(reader: String, references: TextReferences)], parks: [String: String] = [:]
+    ) -> [String: String] {
+        let movedIds = Set(moved.map(\.id))
+        var kept: [String: String] = [:]
+        for (reader, references) in otherText {
+            for record in moved where kept[record.id] == nil {
+                let named = label(of: record).map(references.labels.contains) ?? false
+                if named || references.paths.contains(record.path) { kept[record.id] = reader }
+            }
+        }
+        var queue = records.map(\.id).filter { !movedIds.contains($0) } + kept.keys.sorted()
+        while let id = queue.popLast() {
+            let reads = figuresRead(by: states[id]).union(pinSources(of: states[id], parks: parks))
+            for read in reads.sorted() where movedIds.contains(read) && kept[read] == nil {
+                kept[read] = id
+                queue.append(read)
+            }
+        }
+        return kept
+    }
+
+    /// **What stays in the Collection and reads the piece's Research**
+    /// (controller ruling, plan 6c final review I1): each formula cell of a
+    /// figure in `staying` reading an item in `carriedResearch`
+    /// (`.collectionFormula` — it shows `#REF!` in the Collection once the
+    /// item has gone), and each live pin from one (`.collectionPin` — it keeps
+    /// its value with no source behind it). Sorted as `leftBehindReads`.
+    public static func stayingReadsOfCarriedResearch(
+        staying: [FigureRecord], states: [String: FigureState],
+        carriedResearch: Set<String>, parks: [String: String] = [:]
+    ) -> [FigureCarryProblem] {
+        var out = Set<FigureCarryProblem>()
+        for record in staying {
+            guard let state = states[record.id] else { continue }
+            for (key, cell) in state.table.cells {
+                guard case .formula(let formula) = cell.content else { continue }
+                for item in researchRead(by: formula) where carriedResearch.contains(item) {
+                    out.insert(FigureCarryProblem(figureId: record.id, cell: key, source: item, read: .collectionFormula))
+                }
+            }
+            for (_, winner) in FigurePinChoice.winners(state.pins, parks: parks)
+            where carriedResearch.contains(winner.pin.research) {
+                out.insert(FigureCarryProblem(
+                    figureId: record.id, cell: winner.cell, source: winner.pin.research, read: .collectionPin))
+            }
+        }
+        return sorted(out)
     }
 
     // MARK: - Reading formulas
@@ -280,6 +345,13 @@ public enum FigureCarry {
             visitTargets(formula.expr) { if case .figure(let id) = $0 { out.insert(id) } }
         }
         return out
+    }
+
+    /// The sources of `state`'s live pins (under `parks`): a figure id or
+    /// a Research item's.
+    private static func pinSources(of state: FigureState?, parks: [String: String]) -> Set<String> {
+        guard let state else { return [] }
+        return Set(FigurePinChoice.winners(state.pins, parks: parks).values.map(\.pin.research))
     }
 
     /// The Research item ids `formula` reads.
@@ -324,6 +396,17 @@ public struct FigureCarryProblem: Hashable, Sendable {
         /// The picture's file (`source`) is not the bytes its stream names
         /// (a newer picture not yet synced): copied as it is, and listed.
         case pictureChanged
+        /// A figure that stays in the Collection has a formula reading
+        /// the Research item (`source`) that goes with the piece: it shows
+        /// `#REF!` in the Collection.
+        case collectionFormula
+        /// A figure that stays in the Collection keeps a value it pinned from
+        /// the Research item (`source`) that goes with the piece.
+        case collectionPin
+        /// The piece's own figure is read by something that stays in the
+        /// Collection (`source`: the reading figure's id, or a piece's
+        /// title), so it was copied rather than moved: it stands in both.
+        case readInTheCollection
         /// The piece's own figure arrived in the new book, but the
         /// Collection could not take its record out (`source` is why): it
         /// stands in both until the writer removes it there.

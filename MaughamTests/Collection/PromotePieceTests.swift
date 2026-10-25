@@ -1080,4 +1080,214 @@ final class PromotePieceFigureTests: XCTestCase {
             }
         }
     }
+    // MARK: - What stays reads (plan 6c final review I1, I2, I3, I4, M1)
+
+    /// Piece B's text, as the writer typed it.
+    private func write(_ text: String, into piece: StructureItem, of projectStore: ProjectStore) async throws {
+        let doc = try await Document.load(
+            url: projectStore.url.appendingPathComponent(try XCTUnwrap(piece.path)),
+            actor: .author, session: "boot", presenter: nil)
+        doc.setFullText(text)
+        await doc.close()
+    }
+
+    /// **A cross-reference from piece B keeps the figure working in the
+    /// Collection** (controller ruling I1): piece A's own table, cited by B,
+    /// is copied, not moved — it arrives as the new document's, stays in the
+    /// Collection (not in its Trash), still renders there, and the notice
+    /// says why.
+    func test_aFigureAnotherPieceCitesIsCopied_andKeepsWorkingInTheCollection() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "As @tbl:adata shows.\n")
+        defer { withExtendedLifetime(store) {} }
+        let storyB = try await projectStore.addLoosePiece(title: "Story B", format: .markdown)
+        try await write("See @tbl:adata.\n", into: storyB, of: projectStore)
+        var t = FigureTable(rows: 1, columns: 1)
+        t.setCell(Cell(content: .value(.number(21))), at: try key(t, 0, 0))
+        let adata = try await projectStore.createFigureStream(
+            kind: .table, table: t, name: "adata", piece: piece.id, source: nil, site: "test")
+
+        let promotion = try await projectStore.promotePieceToProject(
+            pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+
+        XCTAssertEqual(promotion.figureProblems, [
+            FigureCarryProblem(figureId: adata.id, cell: nil, source: "Story B", read: .readInTheCollection),
+        ])
+        XCTAssertEqual(promotion.figureNotice,
+                       "adata came along and stays in the Collection too, because Story B there reads it.")
+        let kept = try XCTUnwrap(projectStore.manifest.figures?.first { $0.id == adata.id },
+                                 "it stays in the Collection")
+        let trashed = try await projectStore.trashStore.list().filter { $0.subject == .figure }
+        XCTAssertEqual(trashed.map(\.displayTitle), [], "nothing went to the Trash")
+        let rendered = await store.figureRenderText(for: kept)
+        let render = try XCTUnwrap(rendered)
+        XCTAssertTrue(render.hasPrefix("21"), render)
+        let promoted = try await ProjectStore.load(from: promotion.url)
+        let newDoc = try XCTUnwrap(promoted.manifest.structure.first).id
+        XCTAssertEqual(promoted.manifest.figures?.map(\.id), [adata.id])
+        XCTAssertEqual(promoted.manifest.figures?.first?.piece, newDoc, "still the piece's own there")
+    }
+
+    /// **A staying formula reading the piece's figure keeps its value**
+    /// (controller ruling I1): a whole-book table doubling A's cell computes
+    /// 42 in the Collection after the promotion, not #REF!.
+    func test_aStayingFormulaReadingThePiecesFigureKeepsItsValue() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        var t = FigureTable(rows: 1, columns: 1)
+        let a1 = try key(t, 0, 0)
+        t.setCell(Cell(content: .value(.number(21))), at: a1)
+        let adata = try await projectStore.createFigureStream(
+            kind: .table, table: t, name: "adata", piece: piece.id, source: nil, site: "test")
+        var w = FigureTable(rows: 1, columns: 1)
+        w.setCell(Cell(content: .formula(Formula(.binary(.multiply,
+            .ref(FormulaRef(target: .figure(id: adata.id), anchor: .id(row: a1.row, column: a1.column))),
+            .number(2))))), at: try key(w, 0, 0))
+        let totals = try await projectStore.createFigureStream(
+            kind: .table, table: w, name: "totals", piece: nil, source: nil, site: "test")
+
+        let promotion = try await projectStore.promotePieceToProject(
+            pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+
+        XCTAssertEqual(promotion.figureProblems, [
+            FigureCarryProblem(figureId: adata.id, cell: nil, source: totals.id, read: .readInTheCollection),
+        ])
+        XCTAssertEqual(promotion.figureNotice,
+                       "adata came along and stays in the Collection too, because totals there reads it.")
+        XCTAssertEqual(projectStore.manifest.figures?.map(\.id), [adata.id, totals.id])
+        let totalsHere = try XCTUnwrap(projectStore.manifest.figures?.first { $0.id == totals.id })
+        let rendered = await store.figureRenderText(for: totalsHere)
+        let render = try XCTUnwrap(rendered)
+        XCTAssertTrue(render.hasPrefix("42"), render)
+    }
+
+    /// **A staying reader of the piece's Research is listed** (controller
+    /// ruling I1): a whole-book table whose formula reads a note in the
+    /// piece's Research, which goes with the piece, is named in the notice.
+    func test_aStayingReaderOfCarriedResearchIsListed() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        let note = try await projectStore.addPieceResearchNote(pieceId: piece.id, title: "Rates")
+        var w = FigureTable(rows: 1, columns: 1)
+        let cell = try key(w, 0, 0)
+        w.setCell(Cell(content: .formula(Formula(
+            .ref(FormulaRef(target: .research(id: note.id), anchor: .position(row: 0, column: 0)))))), at: cell)
+        let rates = try await projectStore.createFigureStream(
+            kind: .table, table: w, name: "rates", piece: nil, source: nil, site: "test")
+
+        let promotion = try await projectStore.promotePieceToProject(
+            pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+
+        XCTAssertEqual(promotion.figureProblems, [
+            FigureCarryProblem(figureId: rates.id, cell: cell, source: note.id, read: .collectionFormula),
+        ])
+        XCTAssertEqual(promotion.figureNotice,
+                       "rates in the Collection reads Rates, which goes with the piece, so it will show #REF! there.")
+    }
+
+    /// **A moved figure parked on a working copy outside the piece refuses
+    /// the promotion** (controller ruling I2): it would arrive parked on an
+    /// item the new book does not hold, for good. Nothing moves.
+    func test_aMovedFigureParkedOutsideThePieceRefusesThePromotion() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        let own = try await projectStore.createFigure(kind: .table, name: "own", piece: piece.id)
+        _ = try await projectStore.sendToResearch(figureId: own.id, scope: .shared)
+        let figuresBefore = projectStore.manifest.figures
+        let researchBefore = projectStore.manifest.research
+        let destination = root.appendingPathComponent("Promoted Story A")
+
+        do {
+            _ = try await projectStore.promotePieceToProject(pieceId: piece.id, destination: destination)
+            XCTFail("the promotion was not refused")
+        } catch let refused as FigureEditInvalid {
+            XCTAssertEqual(refused.reason, "own is in Research outside this piece; bring it back before promoting.")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertEqual(stagingTrees(in: root), [])
+        XCTAssertEqual(projectStore.manifest.figures, figuresBefore)
+        XCTAssertEqual(projectStore.manifest.research, researchBefore)
+    }
+
+    /// **Research inside a group goes with the piece whole** (final review
+    /// I3, M1): a group in the piece's Research holding a note a moved
+    /// formula reads and a moved parked figure's working copy. Nothing is
+    /// listed; the group's children have `research/…` paths in the new book;
+    /// the copy's sidecar came along; the re-created park names the copy's
+    /// new path; and bringing it back there works.
+    func test_researchInsideAGroupGoesWithThePiece() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        let group = try await projectStore.addResearchItem(parentId: nil, title: "Data", kind: nil)
+        let note = try await projectStore.addResearchTextNote(parentId: group.id, title: "Rates")
+        try await projectStore.moveResearchItems(ids: [group.id], to: .piece(piece.id))
+        var w = FigureTable(rows: 1, columns: 1)
+        w.setCell(Cell(content: .formula(Formula(
+            .ref(FormulaRef(target: .research(id: note.id), anchor: .position(row: 0, column: 0)))))),
+            at: try key(w, 0, 0))
+        _ = try await projectStore.createFigureStream(
+            kind: .table, table: w, name: "reads", piece: piece.id, source: nil, site: "test")
+        let parked = try await projectStore.createFigure(kind: .table, name: "parked", piece: piece.id)
+        let copy = try await projectStore.sendToResearch(figureId: parked.id, scope: .document(piece.id))
+        try await projectStore.moveResearchItems(ids: [copy.id], to: .group(group.id))
+        let researchPrefix = ((try XCTUnwrap(piece.path)) as NSString).deletingLastPathComponent + "/research/"
+        XCTAssertTrue(TreeWalk.find(id: copy.id, in: projectStore.manifest.research)?.path?
+            .hasPrefix(researchPrefix + "data/") == true, "precondition: the copy is in the piece's group")
+
+        let promotion = try await projectStore.promotePieceToProject(
+            pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+
+        XCTAssertEqual(promotion.figureProblems, [], "nothing read stays behind")
+        let (promoted, newStore) = try await openProject(promotion.url)
+        defer { withExtendedLifetime(newStore) {} }
+        let paths = TreeWalk.collect(in: promoted.manifest.research) { _ in true }.compactMap(\.path)
+        XCTAssertFalse(paths.isEmpty)
+        for path in paths {
+            XCTAssertTrue(path.hasPrefix("research/"), path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: promotion.url.appendingPathComponent(path).path), path)
+        }
+        let item = try XCTUnwrap(TreeWalk.find(id: copy.id, in: promoted.manifest.research))
+        XCTAssertEqual(try ResearchTableSidecar.read(forItem: copy.id, in: promotion.url)?.figureId, parked.id)
+        XCTAssertNil(try? ResearchTableSidecar.read(forItem: copy.id, in: projectStore.url),
+                     "the sidecar left the Collection")
+        let park = try await newStore.withFigureHost(parked.id) { $0.state.parked }
+        XCTAssertEqual(park?.path, item.path, "the park names the copy where it is now")
+        let newDoc = try XCTUnwrap(promoted.manifest.structure.first).id
+        _ = try await promoted.bringBack(researchItemId: copy.id, piece: newDoc)
+        let back = try await newStore.withFigureHost(parked.id) { $0.state.parked }
+        XCTAssertNil(back, "brought back in the new project")
+    }
+
+    /// **A sidecar staged before a failure part way comes back** (final
+    /// review I4): two parked figures' working-copy sidecars; staging the
+    /// second fails; the first is back in the Collection.
+    func test_aFailureStagingTheSecondSidecarPutsTheFirstBack() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        var sidecars: [URL: Data] = [:]
+        for name in ["one", "two"] {
+            let record = try await projectStore.createFigure(kind: .table, name: name, piece: piece.id)
+            let copy = try await projectStore.sendToResearch(figureId: record.id, scope: .document(piece.id))
+            let url = try ResearchTableSidecar.fileURL(forItem: copy.id, in: projectStore.url)
+            sidecars[url] = try Data(contentsOf: url)
+        }
+        struct Planted: Error {}
+        var staged = 0
+        ProjectStore.beforeSidecarStagingForTesting = { _ in
+            staged += 1
+            if staged == 2 { throw Planted() }
+        }
+        defer { ProjectStore.beforeSidecarStagingForTesting = nil }
+
+        do {
+            _ = try await projectStore.promotePieceToProject(
+                pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+            XCTFail("the planted failure did not fail the promotion")
+        } catch is Planted {}
+
+        XCTAssertEqual(staged, 2, "precondition: the first sidecar was staged")
+        XCTAssertEqual(stagingTrees(in: root), [])
+        for (url, bytes) in sidecars {
+            XCTAssertEqual(try? Data(contentsOf: url), bytes, url.lastPathComponent)
+        }
+    }
 }

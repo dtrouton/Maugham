@@ -159,7 +159,7 @@ final class PromoteFigureCarryTests: XCTestCase {
         let newPiece = "doc-promoted"
         let records = plan.moved.map { var r = $0; r.piece = newPiece; return r } + plan.copied
         try await projectStore.writeCarriedFigureStreams(
-            records, states: plan.states, parks: plan.parks, into: staging)
+            records, states: plan.states, parks: plan.parks, researchPaths: [:], into: staging)
         let manifest = ProjectManifest(
             type: .shortStory, title: "Story A", author: "A", created: Date(), modified: Date(),
             structure: [], research: [], figures: records)
@@ -271,7 +271,7 @@ final class PromoteFigureCarryTests: XCTestCase {
         let staging = root.appendingPathComponent(".maugham-staging-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         let problems = try await projectStore.writeCarriedFigureStreams(
-            plan.carried, states: plan.states, parks: plan.parks, into: staging)
+            plan.carried, states: plan.states, parks: plan.parks, researchPaths: [:], into: staging)
 
         let changedName = try XCTUnwrap(plan.states[changed.id]?.image?.filename)
         let missingName = try XCTUnwrap(plan.states[missing.id]?.image?.filename)

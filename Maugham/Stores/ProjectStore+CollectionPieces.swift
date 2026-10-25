@@ -57,6 +57,12 @@ public struct PiecePromotion: Sendable {
                 lines.append("\(figure)\u{2019}s picture \(source) isn\u{2019}t the one its history names; it was copied as it is.")
             case .notRemoved:
                 lines.append("\(figure) came along, but it couldn\u{2019}t be taken out of the Collection (\(source)).")
+            case .collectionFormula:
+                lines.append("\(figure) in the Collection reads \(source), which goes with the piece, so it will show #REF! there.")
+            case .collectionPin:
+                lines.append("\(figure) in the Collection keeps the value it pinned from \(source), which goes with the piece.")
+            case .readInTheCollection:
+                lines.append("\(figure) came along and stays in the Collection too, because \(source) there reads it.")
             }
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
@@ -302,14 +308,20 @@ extension ProjectStore {
         // piece's text and the figures' open hosts — `figureCarryPlan` reads
         // both, and the close below drops them. It throws before anything
         // moves when the piece's own figure cannot be re-created here.
-        let carriedResearchIds = Set(manifest.research.compactMap { item in
-            item.path?.hasPrefix(researchPrefix) == true ? item.id : nil
-        })
+        // Every item the piece's Research carries, groups' children too
+        // (final review I3), at its path in the new book.
+        let carriedResearch = Self.promotedResearch(manifest.research, researchPrefix: researchPrefix)
+        let carriedResearchPaths = Dictionary(
+            TreeWalk.collect(in: carriedResearch) { _ in true }.map { ($0.id, $0.path) },
+            uniquingKeysWith: { first, _ in first })
+        let carriedResearchIds = Set(carriedResearchPaths.keys)
         let figurePlan = try await figureCarryPlan(
             forPiece: pieceId, carriedResearch: carriedResearchIds)
         let carriedFigures = Self.repointedForPromotion(figurePlan, newDocId: newDocId)
         let figureNames = Dictionary(
             (manifest.figures ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        // Read now: step 8 takes the carried items out of this manifest.
+        let figureResearchTitles = researchTitles(of: figurePlan.problems)
         var figureProblems = figurePlan.problems
 
         // 1. Flush + close any open document for this piece.
@@ -403,15 +415,15 @@ extension ProjectStore {
 
             // 4c. The carried Research items' table sidecars, under the same
             // ids — a parked figure's working copy finds its figure by one.
-            stagedMoves += try stagePromotedResearchTableSidecars(
-                staging: stagingURL, itemIds: carriedResearchIds)
+            try stagePromotedResearchTableSidecars(
+                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
 
             // 4d. The carried figures, re-created as this Mac's author in the
             // staged root, and their pictures copied. Written into the staging
             // tree only, so the rollback's removal of it takes them back.
             figureProblems += try await writeCarriedFigureStreams(
                 carriedFigures, states: figurePlan.states, parks: figurePlan.parks,
-                into: stagingURL)
+                researchPaths: carriedResearchPaths.compactMapValues { $0 }, into: stagingURL)
 
             afterStaging?()
 
@@ -422,7 +434,7 @@ extension ProjectStore {
                 newDocId: newDocId,
                 newType: newType,
                 docName: mainDocName,
-                researchPrefix: researchPrefix,
+                carriedResearch: carriedResearch,
                 carriedIntent: stagedIntent?.statement,
                 carriedFigures: carriedFigures,
                 now: now)
@@ -460,7 +472,7 @@ extension ProjectStore {
                 url: destination, figureProblems: figureProblems,
                 figureNotice: PiecePromotion.notice(
                     for: figureProblems, figureNames: figureNames,
-                    researchTitles: researchTitles(of: figureProblems)))
+                    researchTitles: figureResearchTitles))
         } catch {
             rollbackPromotionStaging(stagedMoves, staging: stagingURL,
                                      destination: destination, cause: error)
@@ -655,13 +667,14 @@ extension ProjectStore {
     /// sidecar still names its item there, and a parked figure's working copy
     /// still names its figure (what `bringBack` reads). An item with no
     /// sidecar moves nothing. Each side is asked of `ResearchTableSidecar`'s
-    /// one spelling, a change form (tripwire 58). Returns the moves, for the
-    /// failure path to undo.
+    /// one spelling, a change form (tripwire 58). Each move is recorded into
+    /// `moves` as it lands, so a throw part way leaves every landed one for
+    /// the failure path to undo (final review I4).
     private func stagePromotedResearchTableSidecars(
-        staging: URL, itemIds: Set<String>
-    ) throws -> [PromotionStagedMove] {
-        var moves: [PromotionStagedMove] = []
+        staging: URL, itemIds: Set<String>, recordingInto moves: inout [PromotionStagedMove]
+    ) throws {
         for itemId in itemIds.sorted() {
+            try Self.beforeSidecarStagingForTesting?(itemId)
             let source = try ResearchTableSidecar.fileURL(forItem: itemId, in: url)
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
             let destination = try ResearchTableSidecar.fileURL(forItem: itemId, in: staging)
@@ -673,18 +686,40 @@ extension ProjectStore {
             try FileManager.default.moveItem(at: source, to: destination) // internal-move: staging
             moves.append(PromotionStagedMove(original: source, staged: destination))
         }
-        return moves
+    }
+
+    /// Test seam: runs before each sidecar is staged, with its item id —
+    /// where a failure part way is planted. Nil in production.
+    static var beforeSidecarStagingForTesting: ((String) throws -> Void)?
+
+    /// **The piece's Research as the new book holds it**: each top-level item
+    /// under `researchPrefix`, with its whole subtree — every descendant's
+    /// path rewritten from `pieces/<NN>-<slug>/research/…` to `research/…`
+    /// (final review I3; a group's children kept their old paths before).
+    nonisolated static func promotedResearch(
+        _ research: [ResearchItem], researchPrefix: String
+    ) -> [ResearchItem] {
+        let top = research.filter { $0.path?.hasPrefix(researchPrefix) == true }
+        return TreeWalk.rewritePaths(
+            in: top, replacingPrefix: String(researchPrefix.dropLast()), with: "research",
+            path: \.path, setPath: { $0.path = $1 })
     }
 
     /// **The carried records as the new book holds them**: the piece's own
-    /// figures name the new document as their piece; every copied figure is
-    /// whole-book there (`piece: nil`) — another piece's id names nothing in
-    /// a one-piece project, and a whole-book figure stays whole-book.
+    /// figures — moved, or copied because something staying reads them
+    /// (`ownCopied`) — name the new document as their piece; every other
+    /// copied figure is whole-book there (`piece: nil`) — another piece's id
+    /// names nothing in a one-piece project, and a whole-book figure stays
+    /// whole-book.
     nonisolated static func repointedForPromotion(
         _ plan: FigureCarryPlan, newDocId: String
     ) -> [FigureRecord] {
         plan.moved.map { var record = $0; record.piece = newDocId; return record }
-            + plan.copied.map { var record = $0; record.piece = nil; return record }
+            + plan.copied.map { record in
+                var record = record
+                record.piece = plan.ownCopied.contains(record.id) ? newDocId : nil
+                return record
+            }
     }
 
     /// Step 7b: each of the piece's own figures, now in the promoted project,
@@ -716,7 +751,8 @@ extension ProjectStore {
     /// the Collection's manifest (where an item left behind still is).
     private func researchTitles(of problems: [FigureCarryProblem]) -> [String: String] {
         var titles: [String: String] = [:]
-        for problem in problems where [.formula, .pin, .parkedCopy].contains(problem.read) {
+        for problem in problems
+        where [.formula, .pin, .parkedCopy, .collectionFormula, .collectionPin].contains(problem.read) {
             if let item = findResearchItem(id: problem.source, in: manifest.research) {
                 titles[problem.source] = item.title
             }
@@ -732,7 +768,7 @@ extension ProjectStore {
         newDocId: String,
         newType: ProjectType,
         docName: String,
-        researchPrefix: String,
+        carriedResearch: [ResearchItem],
         carriedIntent: Statement?,
         carriedFigures: [FigureRecord],
         now: Date
@@ -756,14 +792,9 @@ extension ProjectStore {
             // MOVES the piece into a book of its own, and a move never
             // rewrites its starter.
             startedBy: piece.startedBy)
-        // Carry over per-piece research as the new project's research items;
-        // rewrite their paths from pieces/<NN>-<slug>/research/X to research/X.
-        let carriedResearch: [ResearchItem] = manifest.research.compactMap { item in
-            guard let p = item.path, p.hasPrefix(researchPrefix) else { return nil }
-            var copy = item
-            copy.path = "research/" + String(p.dropFirst(researchPrefix.count))
-            return copy
-        }
+        // The piece's research is the new project's, its paths rewritten
+        // from pieces/<NN>-<slug>/research/X to research/X, groups' children
+        // too (`promotedResearch`).
         // The carried intent is re-pointed at the new document and given a fresh
         // id, exactly as the document itself is: the promoted project is a new
         // project and shares no identifier space with the Collection. Its PATH is

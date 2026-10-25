@@ -339,4 +339,48 @@ final class FigureCarryTests: XCTestCase {
             carried: [w2], states: states, carriedResearch: ["res-w2copy"], parks: parks)
         XCTAssertEqual(carriedCopy, [], "a carried working copy is no problem")
     }
+    // MARK: - What stays reads (plan 6c final review I1)
+
+    /// The piece's own figure another piece's text cites, or a staying
+    /// figure's formula reads — and what that kept figure reads in turn —
+    /// is kept (copied, not moved), named by its first reader; one nothing
+    /// staying reads still moves.
+    func test_whatStaysReadsIsKept_transitively() {
+        let own = record("fig-own1", "own", piece: "doc-a")
+        let cited = record("fig-cite", "cited", piece: "doc-a")
+        let deep = record("fig-deep", "deep", piece: "doc-a")
+        let read = record("fig-read", "read", piece: "doc-a")
+        let totals = record("fig-tot1", "totals", piece: "doc-b")
+        let states = [
+            totals.id: reading([.figure(id: read.id)]),
+            read.id: reading([.figure(id: deep.id)]),
+            own.id: reading([]), cited.id: reading([]), deep.id: reading([]),
+        ]
+        let kept = FigureCarry.readByWhatStays(
+            moved: [own, cited, deep, read], records: [own, cited, deep, read, totals], states: states,
+            otherText: [("Story B", FigureCarry.references(inText: "See @tbl:cited.\n"))])
+        XCTAssertEqual(kept, [cited.id: "Story B", read.id: totals.id, deep.id: read.id])
+    }
+
+    /// A staying figure's formula and live pin reading Research that goes
+    /// with the piece are listed; a read of Research that stays is not.
+    func test_stayingReadsOfCarriedResearchAreListed() throws {
+        var h = History()
+        h.emit(.figureCreate, FigureOpPayload(kind: .table))
+        h.insert(r1, after: nil); h.insert(c1, after: nil); h.insert(c2, after: c1)
+        h.set(r1, c1, .formula(Formula(.ref(FormulaRef(target: .research(id: "res-gone"),
+                                                         anchor: .position(row: 0, column: 0))))))
+        h.set(r1, c2, .formula(Formula(.ref(FormulaRef(target: .research(id: "res-stay"),
+                                                         anchor: .position(row: 0, column: 0))))))
+        h.pin(r1, c2, research: "res-gone", value: 3, at: 1)
+        let totals = record("fig-tot1", "totals", piece: nil)
+        let problems = FigureCarry.stayingReadsOfCarriedResearch(
+            staying: [totals], states: [totals.id: h.state], carriedResearch: ["res-gone"])
+        XCTAssertEqual(problems, [
+            FigureCarryProblem(figureId: totals.id, cell: CellKey(row: r1, column: c1), source: "res-gone",
+                               read: .collectionFormula),
+            FigureCarryProblem(figureId: totals.id, cell: CellKey(row: r1, column: c2), source: "res-gone",
+                               read: .collectionPin),
+        ])
+    }
 }

@@ -752,22 +752,25 @@ extension ProjectStore {
     /// `carriedResearch`, the Research item ids the promotion carries. Read
     /// before the promotion closes the window.
     ///
-    /// Throws when the piece's text will not derive, when a figure it
-    /// carries will not read — a promotion never re-creates a figure it could
-    /// not see; one it does not carry may be unreadable — or when one of the
-    /// piece's own figures is of a kind this build cannot create, or when a
-    /// figure that stays in the Collection is parked on a working copy in
-    /// `carriedResearch`. Another figure of an unknown kind is left out and
-    /// listed (`.unknownKind`).
+    /// **What stays reads** (controller ruling, final review I1): the
+    /// piece's own figure that another piece's text or a staying figure's
+    /// formula or pin reads (`FigureCarry.readByWhatStays`) is copied, not
+    /// moved, and listed (`.readInTheCollection`); a staying figure reading
+    /// `carriedResearch` is listed (`.collectionFormula`, `.collectionPin`).
+    ///
+    /// Throws when a piece's text will not derive, when a carried figure will
+    /// not read, when one of the piece's own figures is of a kind this build
+    /// cannot create, when a figure that stays is parked on a working copy in
+    /// `carriedResearch`, or when a moved one is parked on a copy outside it
+    /// (final review I2: it would arrive parked for good). Another figure of
+    /// an unknown kind is left out and listed (`.unknownKind`).
     func figureCarryPlan(forPiece pieceId: String, carriedResearch: Set<String>) async throws -> FigureCarryPlan {
         let records = manifest.figures ?? []
         guard !records.isEmpty else { return FigureCarryPlan() }
         guard let path = Self.collectDocuments(in: manifest.structure).first(where: { $0.id == pieceId })?.path else {
             throw ProjectStoreError.fileSystemError("Piece not found: \(pieceId)")
         }
-        let text = try documentStore?.document(for: path)?.displayText
-            ?? derivedCache.displayText(forDocId: pieceId, in: url)
-        let refs = FigureCarry.references(inText: text)
+        let refs = FigureCarry.references(inText: try figureReadingText(docId: pieceId, path: path))
 
         let trust = try TrustResolution.resolve(
             projectURL: url, identities: Document.loadIdentities, cache: Document.loadRegistryCache)
@@ -787,9 +790,25 @@ extension ProjectStore {
             }
         }
 
-        let carry = FigureCarry.figures(
+        let found = FigureCarry.figures(
             forPiece: pieceId, records: records,
             referencedLabels: refs.labels, referencedPaths: refs.paths, states: states)
+        let parks = FigureCarry.parks(of: states)
+        // What stays reads is copied, not moved (final review I1).
+        var otherText: [(reader: String, references: FigureCarry.TextReferences)] = []
+        for doc in Self.collectDocuments(in: manifest.structure)
+        where doc.id != pieceId && doc.pieceKind != .reference {
+            guard let docPath = doc.path else { continue }
+            otherText.append((doc.title, FigureCarry.references(
+                inText: try figureReadingText(docId: doc.id, path: docPath))))
+        }
+        let readers = FigureCarry.readByWhatStays(
+            moved: found.moved, records: records, states: states, otherText: otherText, parks: parks)
+        let carry = (
+            moved: found.moved.filter { readers[$0.id] == nil },
+            copied: records.filter { record in
+                readers[record.id] != nil || found.copied.contains { $0.id == record.id }
+            })
         let carried = carry.moved + carry.copied
         let unseen = carried.filter { unreadable[$0.id] != nil }
         guard unseen.isEmpty else {
@@ -800,7 +819,7 @@ extension ProjectStore {
         // the piece's own refuses the promotion before anything is written —
         // moving it would trash it in the Collection with no copy here — and
         // another's is left out, listed, and stays in the Collection.
-        let newer = carry.moved.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
+        let newer = found.moved.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
         guard newer.isEmpty else {
             throw FigureEditInvalid(reason: "A newer Maugham made "
                 + newer.map(\.name).joined(separator: ", ")
@@ -819,19 +838,44 @@ extension ProjectStore {
             throw FigureEditInvalid(
                 reason: "\(first.name) is parked in this piece\u{2019}s Research; bring it back before promoting.")
         }
+        // A moved figure parked on a working copy that does not go with the
+        // piece would arrive parked on an item the new book lacks, for good
+        // (controller ruling, final review I2).
+        if let first = carry.moved.first(where: { record in
+            states[record.id]?.parked.map { !carriedResearch.contains($0.itemId ?? "") } == true
+        }) {
+            throw FigureEditInvalid(
+                reason: "\(first.name) is in Research outside this piece; bring it back before promoting.")
+        }
         let skipped = carry.copied.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
         let copied = carry.copied.filter { FigureCarry.canRecreate($0, state: states[$0.id]) }
         let kept = carry.moved + copied
         let keptIds = Set(kept.map(\.id))
-        let parks = FigureCarry.parks(of: states)
         let carriedStates = states.filter { keptIds.contains($0.key) }
+        let staying = records.filter { !movedIds.contains($0.id) }
         return FigureCarryPlan(
             moved: carry.moved, copied: copied, states: carriedStates, parks: parks,
+            ownCopied: Set(readers.keys),
             problems: FigureCarry.leftBehindReads(
                 carried: kept, states: carriedStates, carriedResearch: carriedResearch, parks: parks)
                 + skipped.map {
                     FigureCarryProblem(figureId: $0.id, cell: nil, source: $0.kind.rawValue, read: .unknownKind)
-                })
+                }
+                + records.compactMap { record in
+                    readers[record.id].map {
+                        FigureCarryProblem(figureId: record.id, cell: nil, source: $0, read: .readInTheCollection)
+                    }
+                }
+                + FigureCarry.stayingReadsOfCarriedResearch(
+                    staying: staying, states: states, carriedResearch: carriedResearch, parks: parks))
+    }
+
+    /// A document's text for reading which figures it names: its open
+    /// `Document`'s, else derived from its op log, never its `.md` (tripwire
+    /// 20).
+    private func figureReadingText(docId: String, path: String) throws -> String {
+        try documentStore?.document(for: path)?.displayText
+            ?? derivedCache.displayText(forDocId: docId, in: url)
     }
 
     /// **Write `records`' re-created streams into the staged project at
@@ -843,7 +887,8 @@ extension ProjectStore {
     /// minted by `figureOpMinter` — this device's author — and appended and
     /// sealed through the staged root's own `OpLogStore`
     /// (`appendNewFigureStream`, so `beforeFigureAppendForTesting` reaches
-    /// it). A parked figure ends parked again (Q-6).
+    /// it). A parked figure ends parked again (Q-6), naming its working
+    /// copy's path in the new book, `researchPaths[itemId]` (final review M1).
     ///
     /// A picture is copied from `figures/` into the staged `figures/` under
     /// its own file name, each side through `SafeRelativePath` (tripwire 58):
@@ -860,13 +905,16 @@ extension ProjectStore {
     @discardableResult
     func writeCarriedFigureStreams(
         _ records: [FigureRecord], states: [String: FigureState], parks: [String: String],
-        into staging: URL
+        researchPaths: [String: String], into staging: URL
     ) async throws -> [FigureCarryProblem] {
         var problems: [FigureCarryProblem] = []
         let opStore = Document.makeLoadOpStore(projectURL: staging, presenter: nil)
         for record in records {
-            guard let state = states[record.id] else {
+            guard var state = states[record.id] else {
                 throw FigureEditInvalid(reason: "\(record.name) could not be read, so it was not carried")
+            }
+            if let itemId = state.parked?.itemId, let path = researchPaths[itemId] {
+                state.parked?.path = path
             }
             let opening = FigureCarry.openingOps(for: record, state: state, parks: parks)
             guard !opening.isEmpty else {
@@ -1027,12 +1075,16 @@ public struct FigureRestoreRefused: LocalizedError, Equatable {
 /// `copied` the others it names or reads (both in registry order); `states`
 /// holds each carried figure's state by id; `parks` every parked figure's
 /// cycle (`FigureCarry.parks`); `problems` what they read that stays behind,
-/// and each copied figure left out for its kind.
+/// what stays reads of them or of the piece's Research, and each copied
+/// figure left out for its kind.
 struct FigureCarryPlan: Sendable {
     var moved: [FigureRecord] = []
     var copied: [FigureRecord] = []
     var states: [String: FigureState] = [:]
     var parks: [String: String] = [:]
+    /// The piece's own figures among `copied`: read by something that stays
+    /// in the Collection, so copied rather than moved (final review I1).
+    var ownCopied: Set<String> = []
     var problems: [FigureCarryProblem] = []
 
     /// Every carried figure: the moved, then the copied.
