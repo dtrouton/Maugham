@@ -152,8 +152,11 @@ public enum ImagePasteHandler {
     /// (issue #35) and `StatementImageIngestTests` both call it; a second
     /// spelling of `_assets` anywhere is a well that moves out from under the
     /// guard the moment this rule changes.
-    static func wellURL(forNoteAt notePath: String, in projectURL: URL) -> URL {
-        let noteURL = projectURL.appendingPathComponent(notePath)
+    ///
+    /// Throws `ProjectStoreError.unsafeProjectPath` for a note path that
+    /// leaves the project (tripwire 58): the path is a synced manifest field.
+    static func wellURL(forNoteAt notePath: String, in projectURL: URL) throws -> URL {
+        let noteURL = try ProjectStore.resolvedProjectPath(notePath, under: projectURL)
         let noteSlug = noteURL.deletingPathExtension().lastPathComponent
         return noteURL
             .deletingLastPathComponent()
@@ -166,7 +169,7 @@ public enum ImagePasteHandler {
     private static func destination(
         forNoteAt notePath: String, in projectURL: URL, ext: String
     ) throws -> (assetsDir: URL, assetsDirName: String, fileURL: URL, filename: String) {
-        let assetsDir = wellURL(forNoteAt: notePath, in: projectURL)
+        let assetsDir = try wellURL(forNoteAt: notePath, in: projectURL)
         let assetsDirName = assetsDir.lastPathComponent
 
         try FileManager.default.createDirectory(
@@ -181,11 +184,11 @@ public enum ImagePasteHandler {
         var filename = "image-\(timestamp).\(ext)"
         var counter = 2
         while FileManager.default.fileExists(
-            atPath: assetsDir.appendingPathComponent(filename).path) {
+            atPath: assetsDir.appendingPathComponent(filename).path) { // local-path: a timestamp name minted here
             filename = "image-\(timestamp)-\(counter).\(ext)"
             counter += 1
         }
-        return (assetsDir, assetsDirName, assetsDir.appendingPathComponent(filename), filename)
+        return (assetsDir, assetsDirName, assetsDir.appendingPathComponent(filename), filename) // local-path: a timestamp name minted here
     }
 
     /// **Two failures with different owners, and the surfaces tell them apart.**

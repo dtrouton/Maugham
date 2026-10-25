@@ -229,8 +229,8 @@ public struct EPUBCompiler {
 
         var cover: EPUBPackage.Cover? = nil
         if let coverPath = config.cover.path {
-            let coverURL = publish.appendingPathComponent(coverPath)
-            if FileManager.default.fileExists(atPath: coverURL.path),
+            if let coverURL = try? SafeRelativePath.resolve(coverPath, under: publish),
+               FileManager.default.fileExists(atPath: coverURL.path),
                let data = try? Data(contentsOf: coverURL) {  // adr-0018-ok: cover-image bytes read, not manuscript
                 let mediaType: String
                 let ext = coverURL.pathExtension.lowercased()
@@ -274,11 +274,13 @@ public struct EPUBCompiler {
         }
 
         let filename = makeOutputFilename(config: context.reportTitled(config), format: .epub, label: label)
-        let exports = projectURL.appendingPathComponent(config.outputs.directory,
-                                                       isDirectory: true)
+        // The folder and the name both come from the synced publish config:
+        // one plain file name inside a folder inside the project, on disk
+        // (tripwire 58).
+        let dest = try SafeRelativePath.resolveFile(
+            named: filename, in: config.outputs.directory, under: projectURL)
         try FileManager.default.createDirectory(
-            at: exports, withIntermediateDirectories: true)
-        let dest = exports.appendingPathComponent(filename)
+            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: dest.path) {
             guard replacesExistingOutput else {
                 let diag = OutputFilenameBuilder.occupiedDestinationRefusal(

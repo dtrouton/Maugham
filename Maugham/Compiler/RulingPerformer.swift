@@ -443,7 +443,7 @@ enum RulingPerformer {
     ) throws {
         guard OpLogStore.opLogFileURLs(forDocId: statement.id, in: store.url).isEmpty
         else { return }
-        let url = store.url.appendingPathComponent(statement.path)
+        let url = try store.resolvedProjectPath(statement.path)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         guard (try? String(contentsOf: url, encoding: .utf8)) != nil else {  // adr-0018-ok: a reachability probe on a statement's BOOTSTRAP bytes, guarded above on there being no op log — the exact read `Document.load` makes in that case, asked here so an undecodable file is a refusal rather than a silent empty
             throw RulingFailure.unreadableDestination(statement.path)

@@ -979,8 +979,8 @@ struct PromotionPerformer {
     private func preservePriorVersion(ofItem id: String) async throws {
         guard let item = TreeWalk.find(id: id, in: store.manifest.research),
               let path = item.path,
-              FileManager.default.fileExists(
-                atPath: store.url.appendingPathComponent(path).path) else { return }
+              let noteURL = try? store.resolvedProjectPath(path),
+              FileManager.default.fileExists(atPath: noteURL.path) else { return }
         // `ProjectStore.trashPriorVersion` routes through the typed mover, which
         // flushes the research-note debounce before the move — a queued save
         // landing after it would re-create the pre-rewrite text at the path the
@@ -997,7 +997,7 @@ struct PromotionPerformer {
             try await ds.performFileSave(path: path, text: text)
             return
         }
-        try text.write(to: store.url.appendingPathComponent(path),
+        try text.write(to: try store.resolvedProjectPath(path),
                        atomically: true, encoding: .utf8)
     }
 
@@ -1019,7 +1019,7 @@ struct PromotionPerformer {
     /// The `// adr-0018-ok:` annotation sits on the line the read STARTS on,
     /// which is what the whole-tree ADR 0018 guard scans for.
     private func readBody(atPath path: String) throws -> String {
-        let url = store.url.appendingPathComponent(path)
+        let url = try store.resolvedProjectPath(path)
         guard FileManager.default.fileExists(atPath: url.path) else { return "" }
         do {
             return try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: a research note is not manuscript — no op log, no second representation to drift from

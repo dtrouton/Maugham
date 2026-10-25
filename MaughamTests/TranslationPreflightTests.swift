@@ -102,7 +102,7 @@ final class TranslationPreflightTests: XCTestCase {
         let fixture = try await makeProject()
         defer { Task { await fixture.documentStore.close() } }
 
-        let squat = TranslationStore.fileURL(
+        let squat = try TranslationStore.fileURL(
             forDocId: fixture.document.docId, language: "es",
             deviceSlug: DeviceSlug.make(from: "bad"), in: fixture.projectURL)
         try FileManager.default.createDirectory(
@@ -136,7 +136,7 @@ final class TranslationPreflightTests: XCTestCase {
         let fixture = try await makeProject()
         defer { Task { await fixture.documentStore.close() } }
 
-        let squat = TranslationStore.fileURL(
+        let squat = try TranslationStore.fileURL(
             forDocId: fixture.document.docId, language: "es",
             deviceSlug: DeviceSlug.make(from: "bad"), in: fixture.projectURL)
         try FileManager.default.createDirectory(

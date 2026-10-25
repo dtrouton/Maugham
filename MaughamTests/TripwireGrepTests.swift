@@ -14005,4 +14005,254 @@ extension TripwireGrepTests {
         """.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
         XCTAssertEqual(try processLaunchHits(in: tmp), ["Rogue.swift": 2])
     }
+
+    // MARK: - A synced path reaches the disk only through SafeRelativePath (tripwire 58)
+
+    /// The checkers themselves: a type whose job is to decide whether a path
+    /// stays inside its folder joins the path to look at it. `PublishPath`
+    /// keeps its own rule for MCP input (report plan 6b Task 1 ruling), and
+    /// `PublishConfigValidator` checks the publish config's paths on disk.
+    static let syncedPathCheckers: Set<String> = [
+        "type:SafeRelativePath", "type:PublishPath", "type:PublishConfigValidator",
+    ]
+
+    /// The identifiers in a join's argument, with string-literal text dropped
+    /// and interpolations kept.
+    static func identifiers(inJoinArgument argument: String) -> [String] {
+        var code = ""
+        var index = argument.startIndex
+        var inString = false
+        while index < argument.endIndex {
+            let ch = argument[index]
+            if inString {
+                if ch == "\\" {
+                    let next = argument.index(after: index)
+                    if next < argument.endIndex, argument[next] == "(" {
+                        // An interpolation: its code is kept.
+                        var depth = 1
+                        var cursor = argument.index(after: next)
+                        code.append(" ")
+                        while cursor < argument.endIndex, depth > 0 {
+                            let c = argument[cursor]
+                            if c == "(" { depth += 1 } else if c == ")" { depth -= 1 }
+                            if depth > 0 { code.append(c) }
+                            cursor = argument.index(after: cursor)
+                        }
+                        code.append(" ")
+                        index = cursor
+                        continue
+                    }
+                    index = next < argument.endIndex ? argument.index(after: next) : next
+                    continue
+                }
+                if ch == "\"" { inString = false; code.append(" ") }
+                index = argument.index(after: index)
+                continue
+            }
+            if ch == "\"" { inString = true } else { code.append(ch) }
+            index = argument.index(after: index)
+        }
+        var names: [String] = []
+        var current = ""
+        func flush() {
+            if let first = current.first, first.isLetter || first == "_" { names.append(current) }
+            current = ""
+        }
+        for ch in code {
+            if ch.isLetter || ch.isNumber || ch == "_" { current.append(ch) } else { flush() }
+        }
+        flush()
+        return names
+    }
+
+    /// **The names a synced path goes by**: an identifier ending in
+    /// `path`/`Path`, `rel`/`Rel`, `filename`/`Filename` or `docId`/`DocId`,
+    /// or `relative`. That covers the synced fields — `.path`, `.filename`,
+    /// `.relativePath`, `docId`, `sourceFilename`, `originalRelativePath`,
+    /// `parkedPath` — and the locals that carry them (`oldPath`,
+    /// `parentPath`, `noteRelPath`, …).
+    static func syncedPathNames(inJoinArgument argument: String) -> [String] {
+        let suffixes = ["path", "Path", "rel", "Rel", "filename", "Filename", "docId", "DocId"]
+        return identifiers(inJoinArgument: argument).filter { name in
+            name == "relative" || suffixes.contains(where: { name.hasSuffix($0) })
+        }
+    }
+
+    /// A line that names one of these has gone through the checker (or says
+    /// why it need not): `SafeRelativePath` itself, the store's helper built
+    /// on it, or a `// local-path: <why>` reason.
+    static let syncedPathCheckedSpellings = ["SafeRelativePath", "resolvedProjectPath", "local-path:"]
+
+    /// The synced path names an argument reaches: its own, or — up to `hops`
+    /// definitions back — those of a local it reads (`let base = "\(stem)-\(docId)"`
+    /// then `appendingPathComponent(base)`), looking at most 60 lines up for
+    /// the nearest `let`/`var` of that name. A definition whose line goes
+    /// through the checker (`syncedPathCheckedSpellings`) is a checked value
+    /// and ends the walk.
+    static func syncedPathNames(
+        inJoinArgument argument: String, lines: [String], before index: Int,
+        hops: Int, seen: inout Set<String>
+    ) -> [String] {
+        let direct = syncedPathNames(inJoinArgument: argument)
+        guard direct.isEmpty, hops > 0 else { return direct }
+        for name in identifiers(inJoinArgument: argument) where seen.insert(name).inserted {
+            guard let definition = try? NSRegularExpression(
+                pattern: #"\b(?:let|var)\s+"# + NSRegularExpression.escapedPattern(for: name)
+                    + #"\b\s*(?::[^=]*)?=\s*(.*)$"#) else { continue }
+            for j in stride(from: index - 1, through: max(0, index - 60), by: -1) {
+                let line = lines[j]
+                let range = NSRange(line.startIndex..., in: line)
+                guard let match = definition.firstMatch(in: line, range: range),
+                      let rhs = Range(match.range(at: 1), in: line) else { continue }
+                if syncedPathCheckedSpellings.contains(where: line.contains) { break }
+                let found = syncedPathNames(
+                    inJoinArgument: String(line[rhs]), lines: lines, before: j,
+                    hops: hops - 1, seen: &seen)
+                if !found.isEmpty { return found }
+                break
+            }
+        }
+        return []
+    }
+
+    /// The text of the call's argument list from `start` (just past the open
+    /// parenthesis) to its matching close, or to the end of the line.
+    static func joinArgument(in line: String, from start: String.Index) -> String {
+        var depth = 1
+        var cursor = start
+        while cursor < line.endIndex {
+            let c = line[cursor]
+            if c == "(" { depth += 1 } else if c == ")" {
+                depth -= 1
+                if depth == 0 { return String(line[start..<cursor]) }
+            }
+            cursor = line.index(after: cursor)
+        }
+        return String(line[start...])
+    }
+
+    /// Every `appendingPathComponent(` / `appending(path:` in `text` whose
+    /// argument reaches a synced path name (`syncedPathNames`, following
+    /// locals) and whose line neither goes through the checker nor carries a
+    /// `// local-path:` reason (`syncedPathCheckedSpellings`). A call whose
+    /// argument starts on the next line is read from there, and either line
+    /// may carry the checker or the reason. Comment lines are prose. Returns
+    /// `(1-based line, trimmed text)`.
+    static func syncedPathJoins(in text: String) -> [(line: Int, text: String)] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var hits: [(line: Int, text: String)] = []
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") { continue }
+            var searchFrom = line.startIndex
+            var offends = false
+            while let range = ["appendingPathComponent(", "appending(path:"]
+                .compactMap({ line.range(of: $0, range: searchFrom..<line.endIndex) })
+                .min(by: { $0.lowerBound < $1.lowerBound }) {
+                searchFrom = range.upperBound
+                var argument = joinArgument(in: line, from: range.upperBound)
+                var context = line
+                if argument.trimmingCharacters(in: .whitespaces).isEmpty, i + 1 < lines.count {
+                    let next = lines[i + 1]
+                    argument = joinArgument(in: next, from: next.startIndex)
+                    context += "\n" + next
+                }
+                var seen: Set<String> = []
+                if !Self.syncedPathCheckedSpellings.contains(where: context.contains),
+                   !syncedPathNames(inJoinArgument: argument, lines: lines, before: i,
+                                    hops: 3, seen: &seen).isEmpty {
+                    offends = true
+                }
+            }
+            if offends { hits.append((i + 1, trimmed)) }
+        }
+        return hits
+    }
+
+    /// `syncedPathJoins` over every Swift file under `roots`, as
+    /// `"<basename>:<line>: <text>"`, less the lines inside a checker's own
+    /// declaration (`allowed`, type keys resolved across all the roots).
+    private func syncedPathJoinOffenders(
+        in roots: [URL], allowed: Set<String> = TripwireGrepTests.syncedPathCheckers
+    ) throws -> [String] {
+        let (allowance, unresolved) = SourceTree.expandingTypeKeys(allowed, in: roots)
+        var offenders = unresolved
+        let fm = FileManager.default
+        for root in roots {
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for hit in Self.syncedPathJoins(in: text)
+                where !allowance.allows(file: url.lastPathComponent, line: hit.line) {
+                    offenders.append("\(url.lastPathComponent):\(hit.line): \(hit.text)")
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Recurrence-tripper (report plan 6b Task 2; R-D3): a path or file name
+    /// that came from synced data — a manifest row, an op payload, a registry
+    /// or trash record, a sidecar, an inbox entry — is joined onto a folder
+    /// only through `SafeRelativePath` (`resolve`, `resolveFile`,
+    /// `requireDocId`, `isPlainFileName`, or a helper built on one such as
+    /// `ProjectStore.resolvedProjectPath`). A raw join let `../outside.md`
+    /// in a manifest, or a picture name in an op, write outside the project
+    /// (570d724a). The population is derived (`syncedPathJoins`); a name that
+    /// is minted locally says so on its line with `// local-path: <why>`.
+    func test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath() throws {
+        let offenders = try syncedPathJoinOffenders(in: admissionRoots)
+        XCTAssertTrue(offenders.isEmpty,
+            "A synced path is joined onto a folder without SafeRelativePath (tripwire 58). "
+            + "Resolve it through SafeRelativePath (or ProjectStore.resolvedProjectPath) "
+            + "before any read, write, move or delete; if the name is minted locally, say "
+            + "so on the line with `// local-path: <why>`. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: a planted file's raw joins of a synced path fire — a field,
+    /// an interpolated doc id, a local, a call whose argument is on the next
+    /// line, and a local built from a doc id — while a checked line, a marked
+    /// local name, a constant, a `.path` read after the call, a comment, a
+    /// value the checker returned and a checker's own declaration do not.
+    func test_syncedPathCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-synced-path-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try #"""
+        extension Rogue {
+            func f() throws {
+                let a = url.appendingPathComponent(item.path)
+                let b = dir.appendingPathComponent("\(docId).json")
+                let c = url.appendingPathComponent(
+                    oldRelPath)
+                let d = try SafeRelativePath.resolve(item.path, under: url)
+                let e = folder.appendingPathComponent(filename) // local-path: minted from the title
+                let g = url.appendingPathComponent("research", isDirectory: true)
+                let h = FileManager.default.fileExists(atPath: url.appendingPathComponent(name).path)
+                // url.appendingPathComponent(item.path) in prose
+                let i = dir.appendingPathComponent("\(try SafeRelativePath.requireDocId(docId)).json")
+                let base = "\(stem)-\(docId)-x"
+                let j = dir.appendingPathComponent(base)
+                let checked = try SafeRelativePath.requireDocId(docId)
+                let k = dir.appendingPathComponent("\(checked).json")
+            }
+        }
+        enum PublishPath {
+            static func check(_ relativePath: String) { _ = root.appendingPathComponent(relativePath) }
+        }
+        """#.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
+
+        let offenders = Self.dropping(
+            unplanted: ["type:SafeRelativePath", "type:PublishConfigValidator"],
+            from: try syncedPathJoinOffenders(in: [tmp]))
+        XCTAssertEqual(offenders, [
+            "Rogue.swift:3: let a = url.appendingPathComponent(item.path)",
+            #"Rogue.swift:4: let b = dir.appendingPathComponent("\(docId).json")"#,
+            "Rogue.swift:5: let c = url.appendingPathComponent(",
+            "Rogue.swift:14: let j = dir.appendingPathComponent(base)",
+        ])
+    }
 }

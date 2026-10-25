@@ -47,35 +47,28 @@ public enum SafeRelativePath {
     /// `root` may itself be reached through a symlink (e.g. macOS temp dirs,
     /// `/var` → `/private/var`) — it is resolved once up front via
     /// `resolvingSymlinksInPath()` so containment is checked against the
-    /// canonical root, not the symlinked spelling. The relative portion is
-    /// then only lexically standardized (`standardizedFileURL`, which
-    /// collapses `.`/`..` without touching the filesystem) so this also
-    /// works for destinations that don't exist yet (e.g. a trash-restore
-    /// target). The containment comparison guards the root-path prefix with
-    /// a trailing separator so a sibling directory that merely shares a
-    /// string prefix (`/project-evil` vs `/project`) can't pass as contained.
+    /// canonical root, not the symlinked spelling. The containment comparison
+    /// guards the root-path prefix with a trailing separator so a sibling
+    /// directory that merely shares a string prefix (`/project-evil` vs
+    /// `/project`) can't pass as contained.
+    ///
+    /// The check is lexical AND on disk. Lexically, `.`/`..` are collapsed
+    /// without touching the filesystem, so a destination that does not exist
+    /// yet (a trash-restore target, a new note) still resolves. On disk, the
+    /// deepest part of the path that exists — the whole path when it is there,
+    /// even a symlink whose target is missing — is resolved through any
+    /// symlinks and the rest appended; a result outside `root` throws
+    /// `.escapesRoot`. So a cleanly spelled path whose folder, or whose own
+    /// leaf, is a symlink pointing out of the project is refused: what the
+    /// caller then reads, writes, moves or deletes is inside `root`. (A
+    /// symlink that points somewhere else INSIDE the root is fine.) Between
+    /// this check and the caller's file call a link could still be planted;
+    /// that needs the local write access this check withholds from a synced
+    /// value.
     ///
     /// The returned URL is built from the ORIGINAL (unresolved) `root`, so
     /// callers see exactly the URL a bare `appendingPathComponent` would
     /// have produced — this only adds a containment gate on top.
-    ///
-    /// This is a LEXICAL check: `standardizedFileURL` collapses `.`/`..`
-    /// segments in the path string without touching the filesystem, so it
-    /// cannot see a symlink planted somewhere inside the relative subtree
-    /// itself (as opposed to `root`, which IS resolved). A legitimately-
-    /// spelled relative path whose leaf — or an intermediate component — is,
-    /// on disk, a symlink pointing outside `root` will pass this check, and
-    /// a caller that then opens the returned URL for I/O can still be
-    /// redirected outside `root` at open time. A caller for whom that
-    /// distinction matters should re-verify after resolving: call
-    /// `resolvingSymlinksInPath()` on the returned URL and re-check
-    /// containment immediately before the actual read/write/move. None of
-    /// its call sites need that (count them with a grep rather than trusting
-    /// a number here) — they
-    /// all operate within a project tree the user already has local write
-    /// access to, so planting such a symlink requires the same access this
-    /// check exists to withhold from an untrusted sidecar value. The A5
-    /// audit (2026-07-11) scored this gap Low and deferred it.
     public static func resolve(_ relative: String, under root: URL) throws -> URL {
         guard !relative.isEmpty else { throw PathError.emptyPath }
         guard !relative.hasPrefix("/"), !relative.contains("\0") else {
@@ -93,7 +86,8 @@ public enum SafeRelativePath {
         var rootPrefix = canonicalRoot.path
         if !rootPrefix.hasSuffix("/") { rootPrefix += "/" }
 
-        guard candidate.path.hasPrefix(rootPrefix) else {
+        guard candidate.path.hasPrefix(rootPrefix),
+              (canonicalPath(of: candidate) + "/").hasPrefix(rootPrefix) else {
             throw PathError.escapesRoot(relative)
         }
 
@@ -114,24 +108,15 @@ public enum SafeRelativePath {
     /// **One plain file name inside one project-relative folder**:
     /// `<root>/<folder>/<name>`. Throws `.notAPlainFileName` unless
     /// `isPlainFileName(name)`, and whatever `resolve(_:under:)` throws for
-    /// `folder`. Unlike `resolve`, the folder is also checked on disk: its
-    /// deepest existing ancestor is resolved through any symlinks and the
-    /// rest of the folder appended, and a result outside `root` throws
-    /// `.escapesRoot` — so `figures` linked outside the root is refused even
-    /// when `figures/sub` does not exist yet, and a file written to the
-    /// returned URL lands inside the root. The returned URL is built from the
-    /// original `root`.
+    /// `folder` — whose on-disk check refuses `figures` linked outside the
+    /// root even when `figures/sub` does not exist yet, so a file written to
+    /// the returned URL lands inside the root. The returned URL is built from
+    /// the original `root`.
     public static func resolveFile(
         named name: String, in folder: String, under root: URL
     ) throws -> URL {
         guard isPlainFileName(name) else { throw PathError.notAPlainFileName(name) }
-        let folderURL = try resolve(folder, under: root)
-        var rootPrefix = root.resolvingSymlinksInPath().standardizedFileURL.path
-        if !rootPrefix.hasSuffix("/") { rootPrefix += "/" }
-        guard (canonicalPath(of: folderURL) + "/").hasPrefix(rootPrefix) else {
-            throw PathError.escapesRoot(folder)
-        }
-        return folderURL.appendingPathComponent(name)
+        return try resolve(folder, under: root).appendingPathComponent(name)
     }
 
     /// `url` with its deepest existing ancestor resolved through symlinks and

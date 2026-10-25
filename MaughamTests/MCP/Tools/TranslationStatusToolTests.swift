@@ -541,7 +541,7 @@ final class TranslationStatusToolTests: XCTestCase {
         // directory so it is present and unreadable. Chapter 2 stays OPEN on
         // purpose: this is about the translation sidecar, not the op log, and an
         // open document does not protect it.
-        let squat = TranslationStore.fileURL(
+        let squat = try TranslationStore.fileURL(
             forDocId: h.doc2.docId, language: "es",
             deviceSlug: DeviceSlug.make(from: "bad"), in: h.projectURL)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)

@@ -208,7 +208,7 @@ extension ProjectStore {
             // everyday version) must fail its scope, or it would be adopted as
             // nothing and then trashed.
             return try String(
-                contentsOf: url.appendingPathComponent(path), encoding: .utf8)
+                contentsOf: try resolvedProjectPath(path), encoding: .utf8)
         }
         let joined = Self.concatenated(bodies: bodies)
         // Nothing written is nothing to adopt. Minting an empty statement for an
@@ -216,7 +216,7 @@ extension ProjectStore {
         guard !joined.isEmpty else { return }
 
         let statement = try await createStatement(kind: .intent, scope: scope)
-        let fileURL = url.appendingPathComponent(statement.path)
+        let fileURL = try resolvedProjectPath(statement.path)
         try Data((joined + "\n").utf8).write(to: fileURL, options: .atomic)
 
         // **The third opener takes the gate too** (whole-branch review, I2).

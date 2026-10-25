@@ -485,7 +485,7 @@ extension DOCXPackage {
         /// can't be used is a warning, and the built-ins stand.
         static func forCompile(publishDir: URL, language: String)
             -> (styles: Styles, warning: TectonicLogParser.Diagnostic?) {
-            let reference = publishDir.appendingPathComponent(referenceFilename)
+            let reference = publishDir.appendingPathComponent(referenceFilename) // local-path: a fixed constant
             guard FileManager.default.fileExists(atPath: reference.path) else {
                 return (builtIn(language: language), nil)
             }

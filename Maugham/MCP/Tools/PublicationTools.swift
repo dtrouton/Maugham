@@ -200,7 +200,7 @@ public enum ReadPublicationPageTool: MCPTool {
         // Resolve to absolute path; outputPath is stored relative to the project root.
         let path = pub.outputPath.hasPrefix("/")
             ? URL(fileURLWithPath: pub.outputPath)
-            : projectURL.appendingPathComponent(pub.outputPath)
+            : try ProjectStore.resolvedProjectPath(pub.outputPath, under: projectURL)
 
         guard let pdf = PDFDocument(url: path) else {
             throw MCPError.internalError("could not open PDF at \(path.path)")

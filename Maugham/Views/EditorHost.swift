@@ -558,7 +558,7 @@ struct EditorHost: View {
         let generation = loads.claim()
         do {
             let doc = try await Document.load(
-                url: store.url.appendingPathComponent(path),
+                url: try store.resolvedProjectPath(path),
                 actor: .author, session: Self.sessionId,
                 presenter: documentStore.presenter,
                 recovery: .readOnlyPartial)
@@ -623,7 +623,10 @@ struct EditorHost: View {
             MaughamEvent.postNotice(Self.setAsideNoDocumentNotice, projectURL: store.url)
             return
         }
-        let docURL = store.url.appendingPathComponent(path)
+        guard let docURL = try? store.resolvedProjectPath(path) else {
+            MaughamEvent.postNotice(Self.setAsideNoDocumentNotice, projectURL: store.url)
+            return
+        }
         let opsDir = store.url.appendingPathComponent(".maugham/ops", isDirectory: true)
 
         // What to move, and the reason each move records. The BANNER is looking
@@ -1262,7 +1265,7 @@ struct EditorHost: View {
         }
         do {
             let doc = try await Document.load(
-                url: store.url.appendingPathComponent(path),
+                url: try store.resolvedProjectPath(path),
                 actor: .author,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)

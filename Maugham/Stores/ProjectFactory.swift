@@ -93,7 +93,7 @@ public enum ProjectFactory {
                                    withIntermediateDirectories: true)
 
             let storyPath = rootBasename(for: profile) + "." + DocumentFormat.markdown.fileExtension
-            let storyURL = projectURL.appendingPathComponent(storyPath)
+            let storyURL = projectURL.appendingPathComponent(storyPath) // local-path: minted here for the new project
             try Data().write(to: storyURL)
 
             let now = Date()
@@ -119,7 +119,7 @@ public enum ProjectFactory {
             )
 
             let manifestData = try ProjectManifest.encodeForDisk(manifest)
-            try manifestData.write(to: projectURL.appendingPathComponent(manifestFilename))
+            try manifestData.write(to: projectURL.appendingPathComponent(manifestFilename)) // local-path: the manifest's own fixed name
 
             // Publishing: copy barebones starter so new projects can publish immediately.
             await PublishStarter.installIfMissing(into: projectURL)
@@ -264,7 +264,7 @@ public enum ProjectFactory {
                 title: initialDocumentTitle,
                 extension: type.primaryFormat.fileExtension,
                 siblingFilenames: [])
-            let docURL = projectURL.appendingPathComponent("manuscript/\(filename)")
+            let docURL = projectURL.appendingPathComponent("manuscript/\(filename)") // local-path: FileNaming mints it for the new project
             try Data().write(to: docURL)
 
             let now = Date()

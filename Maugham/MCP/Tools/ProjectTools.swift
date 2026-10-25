@@ -363,8 +363,8 @@ public enum GetOutlineTool: MCPTool {
     }
 
     private static func modifiedDate(for item: StructureItem, store: ProjectStore) -> Date? {
-        guard let path = item.path else { return nil }
-        let url = store.url.appendingPathComponent(path)
+        guard let path = item.path,
+              let url = try? store.resolvedProjectPath(path) else { return nil }
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.modificationDate] as? Date
     }

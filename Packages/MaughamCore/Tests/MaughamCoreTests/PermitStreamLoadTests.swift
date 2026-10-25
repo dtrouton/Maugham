@@ -225,7 +225,7 @@ final class PermitStreamLoadTests: XCTestCase {
     ) throws -> URL {
         let identity = identity ?? sam.author
         return try writeChained(
-            at: TranslationStore.fileURL(
+            at: try TranslationStore.fileURL(
                 forDocId: id ?? docId, language: language,
                 deviceSlug: identity.slug, in: projectURL),
             by: identity, elements: try records.map { try encoded($0) })
@@ -520,7 +520,7 @@ final class PermitStreamLoadTests: XCTestCase {
         try writeRootRecord()
         try samsDeviceRecordOnly()
         try writeChainedUnsealed(
-            at: TranslationStore.fileURL(
+            at: try TranslationStore.fileURL(
                 forDocId: docId, language: language,
                 deviceSlug: sam.author.slug, in: projectURL),
             elements: [try encoded(record("t1")),
@@ -553,7 +553,7 @@ final class PermitStreamLoadTests: XCTestCase {
         try writeRootRecord()
         try admitSam()
         try writeChainedUnsealed(
-            at: TranslationStore.fileURL(
+            at: try TranslationStore.fileURL(
                 forDocId: docId, language: language,
                 deviceSlug: sam.author.slug, in: projectURL),
             elements: [try encoded(record("t1"))])
@@ -862,7 +862,7 @@ final class PermitStreamLoadTests: XCTestCase {
         try samsTranslation([record("before")])
 
         let mark = try seenMark()
-        let key = try XCTUnwrap(PermitMark.streamKey(of: TranslationStore.fileURL(
+        let key = try XCTUnwrap(PermitMark.streamKey(of: try TranslationStore.fileURL(
             forDocId: docId, language: language,
             deviceSlug: sam.author.slug, in: projectURL)))
         XCTAssertNotNil(mark[key], "the mark names her translation stream")

@@ -43,8 +43,22 @@ extension DocumentStore {
     /// destination's volume and swapped in with `replaceItemAt`, so a reader
     /// sees the old picture or the new one, never half of either. A
     /// destination not there yet (a figure's first picture) is a plain
-    /// coordinated copy (`executeCopy`).
+    /// coordinated copy (`executeCopy`). A `destination` that is not one plain
+    /// file in this book's `figures/` throws `.unsafeProjectPath` (tripwire 58).
     func replaceFigureImage(at destination: URL, withCopyOf source: URL) async throws {
+        // Only ever one plain file inside this book's `figures/` (tripwire
+        // 58): a caller's URL that is anywhere else is refused, not written.
+        do {
+            let inside = try SafeRelativePath.resolveFile(
+                named: destination.lastPathComponent,
+                in: ProjectStore.figuresFolder, under: projectURL)
+            guard inside.standardizedFileURL.path == destination.standardizedFileURL.path else {
+                throw SafeRelativePath.PathError.escapesRoot(destination.path)
+            }
+        } catch let error as SafeRelativePath.PathError {
+            throw ProjectStoreError.unsafeProjectPath(
+                relativePath: destination.path, reason: error.localizedDescription)
+        }
         let fm = FileManager.default
         guard fm.fileExists(atPath: destination.path) else {
             try fm.createDirectory(at: destination.deletingLastPathComponent(),

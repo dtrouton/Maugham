@@ -150,7 +150,7 @@ enum LetterKeep {
         // reported as a successful promotion on this store's other callers
         // (`InboxStore.promote`, M8-IN-001/002). Falsified by
         // `LetterKeepTests.test_aRefusedBodyWriteRefusesTheWholeKeep`.
-        try write(rendered.body, store.url.appendingPathComponent(path))
+        try write(rendered.body, try store.resolvedProjectPath(path))
         return created
     }
 

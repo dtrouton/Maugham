@@ -252,7 +252,7 @@ public struct DeviceIdentity: Sendable {
     public static func load(from directory: URL, actor: DeviceActor) throws -> DeviceIdentity {
         try DeviceState.ensureDirectory(directory)
         let fm = FileManager.default
-        let blobURL = directory.appendingPathComponent(blobFilename(for: actor))
+        let blobURL = directory.appendingPathComponent(blobFilename(for: actor)) // local-path: a fixed per-actor name
 
         if fm.fileExists(atPath: blobURL.path) {
             if let identity = enclaveIdentity(actor: actor, fromBlobAt: blobURL) { return identity }
@@ -325,9 +325,9 @@ public struct DeviceIdentity: Sendable {
     static func hasPersistedIdentity(for actor: DeviceActor, in directory: URL) -> Bool {
         let fm = FileManager.default
         return fm.fileExists(
-            atPath: directory.appendingPathComponent(blobFilename(for: actor)).path)
+            atPath: directory.appendingPathComponent(blobFilename(for: actor)).path) // local-path: a fixed per-actor name
             || fm.fileExists(
-                atPath: directory.appendingPathComponent(tokenFilename(for: actor)).path)
+                atPath: directory.appendingPathComponent(tokenFilename(for: actor)).path) // local-path: a fixed per-actor name
     }
 
     /// The writer's own identity — this device's default, and the phone's only
@@ -426,7 +426,7 @@ public struct DeviceIdentity: Sendable {
     private static func tokenIdentity(
         actor: DeviceActor, in directory: URL
     ) throws -> DeviceIdentity {
-        let url = directory.appendingPathComponent(tokenFilename(for: actor))
+        let url = directory.appendingPathComponent(tokenFilename(for: actor)) // local-path: a fixed per-actor name
         let stored = try? Data(contentsOf: url)  // adr-0018-ok: this device's own random token
         if let stored, stored.count == tokenByteCount {
             return unsigned(actor: actor, token: stored)

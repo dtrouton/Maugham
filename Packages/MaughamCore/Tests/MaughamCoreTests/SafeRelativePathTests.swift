@@ -253,6 +253,57 @@ final class SafeRelativePathTests: XCTestCase {
         XCTAssertEqual(url, link.appendingPathComponent("figures/map.png"))
     }
 
+    // MARK: - resolve checks the disk (report plan 6b Task 2)
+
+    /// A cleanly spelled path whose folder is, on disk, a symlink out of the
+    /// root: refused, whether the file under it exists or not.
+    func test_resolve_refusesAPathThroughASymlinkedFolderThatEscapes() throws {
+        let base = tempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("project")
+        let outside = base.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("research"), withDestinationURL: outside)
+
+        for relative in ["research/note.md", "research/new/deeper.md"] {
+            XCTAssertThrowsError(try SafeRelativePath.resolve(relative, under: root), relative) { error in
+                guard case SafeRelativePath.PathError.escapesRoot = error else {
+                    return XCTFail("expected .escapesRoot, got \(error)")
+                }
+            }
+        }
+    }
+
+    /// The leaf itself a symlink out of the root: refused (a read, or a
+    /// non-atomic write, would follow it).
+    func test_resolve_refusesALeafSymlinkThatEscapes() throws {
+        let base = tempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let outsideFile = base.appendingPathComponent("outside.md")
+        try "x".write(to: outsideFile, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("note.md"), withDestinationURL: outsideFile)
+
+        XCTAssertThrowsError(try SafeRelativePath.resolve("note.md", under: root))
+    }
+
+    /// A symlink that stays inside the root is not an escape.
+    func test_resolve_acceptsASymlinkInsideTheRoot() throws {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("research"), withDestinationURL: real)
+
+        XCTAssertEqual(try SafeRelativePath.resolve("research/note.md", under: root),
+                       root.appendingPathComponent("research/note.md"))
+    }
+
     // MARK: - requireDocId
 
     /// Every doc-id shape the apps mint passes: the legacy `d_` ids,

@@ -79,7 +79,7 @@ final class RoundHistoryTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docPreP3"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -110,7 +110,7 @@ final class RoundHistoryTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docFullP3"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -159,7 +159,7 @@ final class RoundHistoryTests: XCTestCase {
     func test_aSidecarWithoutTheCrossLaneCountDecodesAsNil_andOneWithItRoundTrips() throws {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
-        let url = DiagnosticsStore.sidecarURL(
+        let url = try DiagnosticsStore.sidecarURL(
             projectRoot: project, docId: "docNoLanes", device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -195,7 +195,7 @@ final class RoundHistoryTests: XCTestCase {
     func test_aSidecarWithOnlyTheCrossLaneCountDecodesWithoutIds_andRendersTheOldSentence() throws {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
-        let url = DiagnosticsStore.sidecarURL(
+        let url = try DiagnosticsStore.sidecarURL(
             projectRoot: project, docId: "docCountOnly", device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -251,7 +251,7 @@ final class RoundHistoryTests: XCTestCase {
         store.replace(run: makeRun(id: "run-2", passId: "pass-line", round: 2),
                       diagnostics: [], docId: docId)
 
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         // adr-0018-ok: the sidecar is derived state and its own source of truth
         let raw = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(raw.contains("\"fingerprints\":[]"),

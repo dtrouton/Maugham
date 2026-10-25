@@ -151,9 +151,8 @@ struct PublishPreviewCentre: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if let shown {
-                PDFPreview(fileURL: PublishPreviewResolver.fileURL(
-                    of: shown, in: projectURL))
+            if let shown, let url = PublishPreviewResolver.fileURL(of: shown, in: projectURL) {
+                PDFPreview(fileURL: url)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

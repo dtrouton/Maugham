@@ -228,7 +228,7 @@ extension ProjectStore {
         }
         let piece = manifest.structure[pieceIdx]
         let pieceFolderRel = (piecePath as NSString).deletingLastPathComponent
-        let pieceFolderURL = url.appendingPathComponent(pieceFolderRel)
+        let pieceFolderURL = try resolvedProjectPath(pieceFolderRel)
         let mainDocName = (piecePath as NSString).lastPathComponent
         let newType = ProjectType.forPromotedPiece(
             format: DocumentFormat.ofManuscript(path: mainDocName))
@@ -526,9 +526,9 @@ extension ProjectStore {
         staging: URL, statement: Statement?
     ) throws -> (statement: Statement, move: PromotionStagedMove)? {
         guard let statement else { return nil }
-        let source = url.appendingPathComponent(statement.path)
+        let source = try resolvedProjectPath(statement.path)
         guard FileManager.default.fileExists(atPath: source.path) else { return nil }
-        let destination = staging.appendingPathComponent(statement.path)
+        let destination = try Self.resolvedProjectPath(statement.path, under: staging)
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         // internal-move: into the promote-to-project `staging/` temp tree, on the
@@ -712,7 +712,7 @@ extension ProjectStore {
         pieceId: String, title: String
     ) async throws -> ResearchItem {
         let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
-        let researchFolderURL = url.appendingPathComponent(researchFolder)
+        let researchFolderURL = try resolvedProjectPath(researchFolder)
         try FileManager.default.createDirectory(
             at: researchFolderURL, withIntermediateDirectories: true)
 
@@ -722,11 +722,11 @@ extension ProjectStore {
         var filename = "\(slug).md"
         var counter = 2
         while FileManager.default.fileExists(
-            atPath: researchFolderURL.appendingPathComponent(filename).path) {
+            atPath: researchFolderURL.appendingPathComponent(filename).path) { // local-path: a slug minted from the title
             filename = "\(slug)-\(counter).md"
             counter += 1
         }
-        try Data().write(to: researchFolderURL.appendingPathComponent(filename))
+        try Data().write(to: researchFolderURL.appendingPathComponent(filename)) // local-path: a slug minted from the title
 
         let relativePath = "\(researchFolder)/\(filename)"
         let item = ResearchItem(
@@ -750,7 +750,7 @@ extension ProjectStore {
         pieceId: String, fromURL sourceURL: URL
     ) async throws -> ResearchItem {
         let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
-        let researchFolderURL = url.appendingPathComponent(researchFolder)
+        let researchFolderURL = try resolvedProjectPath(researchFolder)
         try FileManager.default.createDirectory(
             at: researchFolderURL, withIntermediateDirectories: true)
 
@@ -763,7 +763,7 @@ extension ProjectStore {
             .contentsOfDirectory(atPath: researchFolderURL.path)) ?? []
         let baseFilename = ext.isEmpty ? slug : "\(slug).\(ext)"
         let targetFilename = Self.researchDedupedFilename(baseFilename, existing: existing)
-        let destURL = researchFolderURL.appendingPathComponent(targetFilename)
+        let destURL = researchFolderURL.appendingPathComponent(targetFilename) // local-path: a slug minted from the picked file's name, deduped here
         try FileManager.default.copyItem(at: sourceURL, to: destURL)
 
         let relativePath = "\(researchFolder)/\(targetFilename)"
@@ -910,20 +910,18 @@ extension ProjectStore {
                 try fm.moveItem(at: from, to: to) // internal-move: no DocumentStore (no registry to race)
             }
         }
-        let projectURL = url
+        // Every folder the swap touches resolved inside the project before
+        // anything closes or moves (tripwire 58).
+        let swaps = try folderRewrites.map { rewrite in
+            (old: try resolvedProjectPath(rewrite.oldRel),
+             tmp: try resolvedProjectPath(rewrite.oldRel + tmpSuffix),
+             new: try resolvedProjectPath(rewrite.newRel))
+        }
         let swapFolders: () async throws -> Void = {
             // Phase A: oldRel -> oldRel + tmpSuffix
-            for rewrite in folderRewrites {
-                let oldURL = projectURL.appendingPathComponent(rewrite.oldRel)
-                let tmpURL = projectURL.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
-                try await move(oldURL, tmpURL)
-            }
+            for swap in swaps { try await move(swap.old, swap.tmp) }
             // Phase B: oldRel + tmpSuffix -> newRel
-            for rewrite in folderRewrites {
-                let tmpURL = projectURL.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
-                let newURL = projectURL.appendingPathComponent(rewrite.newRel)
-                try await move(tmpURL, newURL)
-            }
+            for swap in swaps { try await move(swap.tmp, swap.new) }
         }
         if let ds = documentStore {
             try await ds.relocateUserContent(
@@ -979,7 +977,11 @@ extension ProjectStore {
 
         let baseSlug = Slugifier.slug(from: resolvedTitle)
         let piecesDirRel = (oldFolderRel as NSString).deletingLastPathComponent  // "pieces"
-        let piecesDirURL = url.appendingPathComponent(piecesDirRel)
+        // The manifest's path is synced: resolved before any file call
+        // (tripwire 58); the pieces folder follows from it.
+        let oldFolderURL = try resolvedProjectPath(oldFolderRel)
+        let oldDocURL = try resolvedProjectPath(oldPath)
+        let piecesDirURL = oldFolderURL.deletingLastPathComponent()
         let fm = FileManager.default
         let siblingFolders = ((try? fm.contentsOfDirectory(atPath: piecesDirURL.path)) ?? [])
             .filter { $0 != oldFolderName }
@@ -994,8 +996,7 @@ extension ProjectStore {
 
         let newFolderName = "\(nnPrefix)\(slug)"
         let newFolderRel = piecesDirRel.isEmpty ? newFolderName : "\(piecesDirRel)/\(newFolderName)"
-        let oldFolderURL = url.appendingPathComponent(oldFolderRel)
-        let newFolderURL = url.appendingPathComponent(newFolderRel)
+        let newFolderURL = try resolvedProjectPath(newFolderRel)
 
         // Move the piece folder (and rename the loose doc inside) through the
         // typed user-content mover. `relocateUserContent` closes+unregisters
@@ -1033,7 +1034,7 @@ extension ProjectStore {
             }
             // 2. For loose pieces, rename the main doc inside the new folder.
             if piece.pieceKind == .loose {
-                let oldDocName = (oldPath as NSString).lastPathComponent
+                let oldDocName = oldDocURL.lastPathComponent
                 if oldDocName != finalDocBaseName {
                     try await move(
                         newFolderURL.appendingPathComponent(oldDocName),

@@ -153,7 +153,7 @@ extension ProjectStore {
             // The file takes the name's filesystem-safe form (`figurePath`).
             let filename = (Self.figurePath(name: candidate, kind: .image) as NSString)
                 .lastPathComponent + ".\(ext)"
-            let destination = folder.appendingPathComponent(filename)
+            let destination = folder.appendingPathComponent(filename) // local-path: figurePath mints it from the vacant name
             do {
                 try await documentStore.executeCopy(from: copyable.url, to: destination)
                 claimed = (candidate, filename)
@@ -165,7 +165,7 @@ extension ProjectStore {
         guard let claimed else {
             throw ProjectStoreError.fileSystemError("No free name for the picture in figures/")
         }
-        let copied = folder.appendingPathComponent(claimed.filename)
+        let copied = folder.appendingPathComponent(claimed.filename) // local-path: the name this loop minted and claimed
         let hash = try await Task.detached { try FigureImageResolver.contentHash(of: copied) }.value
 
         let op = figureOpMinter(figureId: figureId)

@@ -477,8 +477,10 @@ extension ProjectStore {
                 surviving.append(child)
                 continue
             }
-            guard FileManager.default.fileExists(
-                atPath: url.appendingPathComponent(path).path) else {
+            // A synced path that leaves the project is not this project's
+            // file: it counts as missing (tripwire 58).
+            guard let childURL = try? resolvedProjectPath(path),
+                  FileManager.default.fileExists(atPath: childURL.path) else {
                 dropped.append(child.title)
                 continue
             }
@@ -503,8 +505,10 @@ extension ProjectStore {
                 surviving.append(child)
                 continue
             }
-            guard FileManager.default.fileExists(
-                atPath: url.appendingPathComponent(path).path) else {
+            // A synced path that leaves the project is not this project's
+            // file: it counts as missing (tripwire 58).
+            guard let childURL = try? resolvedProjectPath(path),
+                  FileManager.default.fileExists(atPath: childURL.path) else {
                 dropped.append(child.title)
                 continue
             }

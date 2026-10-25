@@ -193,7 +193,7 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
             ["zzzz", "yyyy"], docId: "doc1", language: "es",
             identities: identities, projectURL: dir)
 
-        let url = TranslationStore.fileURL(
+        let url = try TranslationStore.fileURL(
             forDocId: "doc1", language: "es",
             deviceSlug: identities.author.slug, in: dir)
         let records = try Data(contentsOf: url)

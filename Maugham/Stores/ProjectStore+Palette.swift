@@ -85,8 +85,9 @@ extension ProjectStore {
     public func loadPaletteCards() -> [PaletteCard] {
         paletteCardItems().compactMap { item in
             guard let rel = item.path,
+                  let cardURL = try? resolvedProjectPath(rel),
                   let md = try? String(
-                      contentsOf: url.appendingPathComponent(rel),
+                      contentsOf: cardURL,
                       encoding: .utf8) // adr-0018-ok: palette card read, not manuscript
             else { return nil }
             return PaletteCardParser.parse(
@@ -178,7 +179,7 @@ extension ProjectStore {
             return
         }
         try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts (documentStore == nil)
-            to: url.appendingPathComponent(path), atomically: true, encoding: .utf8)
+            to: try resolvedProjectPath(path), atomically: true, encoding: .utf8)
     }
 
     /// Locate a palette card item and its parsed model, or throw `structureMissing`.

@@ -144,7 +144,7 @@ public enum ListTasksTool: MCPTool {
               let path = item.path else {
             return []
         }
-        let docURL = projectEntry.url.appendingPathComponent(path)
+        let docURL = try ProjectStore.resolvedProjectPath(path, under: projectEntry.url)
         // Anything arriving through MCP is the assistant's (constraint 6).
         let doc = try await Document.load(
             url: docURL, actor: .assistant,

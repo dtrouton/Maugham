@@ -172,8 +172,13 @@ struct ResearchNoteEditor: View {
         guard loadedPath != path else { return }
         // Flush any pending file save before switching research notes.
         try? await documentStore.flushPendingSave()
-        let url = store.url.appendingPathComponent(path)
-        switch ResearchNoteLoad.read(url) {
+        // A synced path that leaves the project is shown as unreadable, the
+        // state that keeps a blank from being saved over it (tripwire 58).
+        let load: ResearchNoteLoad
+        do { load = ResearchNoteLoad.read(try store.resolvedProjectPath(path)) } catch {
+            load = .unreadable(error.localizedDescription)
+        }
+        switch load {
         case .text(let text):
             documentText = text
             loadFailure = nil

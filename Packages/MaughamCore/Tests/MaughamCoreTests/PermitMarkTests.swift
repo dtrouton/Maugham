@@ -399,7 +399,7 @@ final class PermitMarkTests: XCTestCase {
                 forDocId: "__project__", deviceSlug: mac, in: projectURL)),
             "__project__.mac-a")
         XCTAssertEqual(
-            PermitMark.streamKey(of: TranslationStore.fileURL(
+            PermitMark.streamKey(of: try TranslationStore.fileURL(
                 forDocId: "d-one", language: "es", deviceSlug: mac, in: projectURL)),
             "translation:d-one.es.mac-a")
         XCTAssertEqual(
@@ -410,7 +410,7 @@ final class PermitMarkTests: XCTestCase {
         // The prefixes are what keep the three families apart: a doc called
         // `d-one` on a device slugged `es` is not a translation of `d-one`.
         XCTAssertNotEqual(
-            PermitMark.streamKey(of: TranslationStore.fileURL(
+            PermitMark.streamKey(of: try TranslationStore.fileURL(
                 forDocId: "d-one", language: "es", deviceSlug: mac, in: projectURL)),
             PermitMark.streamKey(of: try OpLogStore.opLogFileURL(
                 forDocId: "d-one", deviceSlug: DeviceSlug.unsafeForTesting("es.mac-a"),

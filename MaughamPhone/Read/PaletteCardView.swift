@@ -65,7 +65,7 @@ struct PaletteCardView: View {
             }
             Button("Cancel", role: .cancel) {
                 Task {
-                    await downloads.cancel(cardURL)
+                    if let cardURL { await downloads.cancel(cardURL) }
                     state = .failed("Download cancelled.")
                 }
             }
@@ -241,8 +241,10 @@ struct PaletteCardView: View {
 
     // MARK: - Load pipeline
 
-    private var cardURL: URL {
-        project.url.appendingPathComponent(item.path ?? "")
+    /// The card's file, when its synced path stays inside the project
+    /// (tripwire 58).
+    private var cardURL: URL? {
+        item.path.flatMap { try? SafeRelativePath.resolve($0, under: project.url) }
     }
 
     /// Directory of the card file, project-relative — the base for resolving the
@@ -259,6 +261,10 @@ struct PaletteCardView: View {
 
         guard let path = item.path, !path.isEmpty else {
             state = .failed("This card has no file.")
+            return
+        }
+        guard let cardURL else {
+            state = .failed("This card's file is not inside the project: \(path)")
             return
         }
 
@@ -305,7 +311,10 @@ struct PaletteCardView: View {
     /// record a nil entry so the cell shows a placeholder — never an error screen.
     private func loadImages(_ card: PaletteCard) async {
         for path in card.imagePaths {
-            let url = project.url.appendingPathComponent(path)
+            guard let url = try? SafeRelativePath.resolve(path, under: project.url) else {
+                await MainActor.run { images[path] = .some(nil) }
+                continue
+            }
             let image = try? await PhoneImageLoader.load(url, downloads: downloads, io: io)
             await MainActor.run { images[path] = .some(image) }
         }

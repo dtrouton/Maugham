@@ -428,7 +428,7 @@ public struct TrashStore {
     ) async throws -> TrashEntry {
         let now = Date()
         let (entryId, entryFolder) = try mintEntryFolder(itemMetadata: itemMetadata, now: now)
-        try text.write(to: entryFolder.appendingPathComponent(filename),
+        try text.write(to: entryFolder.appendingPathComponent(filename), // local-path: the caller mints it from a slug (`trashPriorVersionText`)
                        atomically: true, encoding: .utf8)
         try writeMeta(
             TrashMeta(

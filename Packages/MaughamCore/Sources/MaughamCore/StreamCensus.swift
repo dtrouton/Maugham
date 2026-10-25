@@ -248,7 +248,7 @@ public enum StreamCensus {
         var present: Set<String> = []
         for filename in filenames {
             if let stream = PermitMark.stream(
-                of: opsDir.appendingPathComponent(filename)) {
+                of: opsDir.appendingPathComponent(filename)) { // local-path: a name the folder listing returned
                 present.insert(stream.key)
             }
         }

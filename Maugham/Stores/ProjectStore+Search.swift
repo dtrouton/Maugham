@@ -137,7 +137,7 @@ extension ProjectStore {
                 replacement: replacement, occurrenceIndices: [ordinal])
 
         case .research:
-            let url = self.url.appendingPathComponent(match.documentPath)
+            let url = try resolvedProjectPath(match.documentPath)
             let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
             let ns = original as NSString
             guard match.charRangeInDocument.location
@@ -182,7 +182,7 @@ extension ProjectStore {
                 }
 
             case .research:
-                let url = self.url.appendingPathComponent(path)
+                let url = try resolvedProjectPath(path)
                 let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
                 var ns = original as NSString
                 // Right-to-left so earlier offsets aren't shifted by later edits.
@@ -228,7 +228,7 @@ extension ProjectStore {
             throw refused
         }
         // Obtain the Document — open one from the registry, else transient-load.
-        let docURL = self.url.appendingPathComponent(path)
+        let docURL = try resolvedProjectPath(path)
         let openDoc = documentStore?.document(for: path)
         let doc: Document
         let isTransient: Bool

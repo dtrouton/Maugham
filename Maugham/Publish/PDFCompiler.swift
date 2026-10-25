@@ -278,11 +278,13 @@ public struct PDFCompiler {
                 .deletingPathExtension + ".pdf"
         let generated = build.appendingPathComponent(generatedName)
         let filename = makeOutputFilename(format: .pdf, label: label, context: context)
-        let exports = projectURL.appendingPathComponent(config.outputs.directory,
-                                                       isDirectory: true)
+        // The folder and the name both come from the synced publish config:
+        // one plain file name inside a folder inside the project, on disk
+        // (tripwire 58).
+        let dest = try SafeRelativePath.resolveFile(
+            named: filename, in: config.outputs.directory, under: projectURL)
         try FileManager.default.createDirectory(
-            at: exports, withIntermediateDirectories: true)
-        let dest = exports.appendingPathComponent(filename)
+            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: dest.path) {
             guard replacesExistingOutput else {
                 let diag = OutputFilenameBuilder.occupiedDestinationRefusal(

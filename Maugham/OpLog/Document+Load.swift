@@ -323,6 +323,15 @@ extension Document {
         // resolve to a non-existent location, silently dropping ops.
         let projectURL = resolveProjectURL(for: url)
 
+        // A file outside its own book is neither read as an import nor written
+        // as a render: a synced manifest path such as `../outside.md` that
+        // reached a load is refused here, before `Bootstrap.run` could write
+        // its anchored `.md` there (tripwire 58).
+        guard Document.isInsideProject(url, root: projectURL) else {
+            throw ProjectStoreError.unsafeProjectPath(
+                relativePath: url.path, reason: "the file is not inside its project")
+        }
+
         // Bootstrap detection. Per-device partitioning (ADR 0012) means a doc's
         // log may exist only as `<docId>.<slug>.jsonl` with no legacy
         // `<docId>.jsonl`; check the whole globbed set, or a doc whose only

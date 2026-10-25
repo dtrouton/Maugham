@@ -775,8 +775,8 @@ extension DocumentStore {
             return known.docId
         }
         book.unknownPathResolves += 1
-        guard let resolved = try? resolveDocIdTellingIfNamed(
-            for: projectURL.appendingPathComponent(path))
+        guard let fileURL = try? resolvedProjectPath(path),
+              let resolved = try? resolveDocIdTellingIfNamed(for: fileURL)
         else {
             // A resolve that threw: answered with the path, and never kept.
             book.docIdOfUnknownPath[path] = nil

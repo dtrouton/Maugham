@@ -31,7 +31,7 @@ enum LanguageSuffixedFile {
         let base = ns.deletingPathExtension
         let suffixed = ext.isEmpty ? "\(base).\(language)" : "\(base).\(language).\(ext)"
 
-        let candidate = dir.appendingPathComponent(suffixed)
+        guard let candidate = try? SafeRelativePath.resolve(suffixed, under: dir) else { return filename }
         return FileManager.default.fileExists(atPath: candidate.path) ? suffixed : filename
     }
 

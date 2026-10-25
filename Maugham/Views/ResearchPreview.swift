@@ -5,29 +5,35 @@ struct ResearchPreview: View {
     let projectURL: URL
     let item: ResearchItem
 
+    /// The item's file, when its synced path stays inside the project
+    /// (tripwire 58); otherwise the empty state shows.
+    private var fileURL: URL? {
+        item.path.flatMap { try? SafeRelativePath.resolve($0, under: projectURL) }
+    }
+
     var body: some View {
         switch item.kind {
         case .image:
-            if let path = item.path {
-                ImagePreview(fileURL: projectURL.appendingPathComponent(path))
+            if let fileURL {
+                ImagePreview(fileURL: fileURL)
             } else {
                 emptyState
             }
         case .pdf:
-            if let path = item.path {
-                PDFPreview(fileURL: projectURL.appendingPathComponent(path))
+            if let fileURL {
+                PDFPreview(fileURL: fileURL)
             } else {
                 emptyState
             }
         case .document:
-            if let path = item.path {
+            if let path = item.path, fileURL != nil {
                 TextPreview(notePath: path, projectURL: projectURL)
             } else {
                 emptyState
             }
         case .audio:
-            if let path = item.path {
-                AudioPreview(fileURL: projectURL.appendingPathComponent(path))
+            if let fileURL {
+                AudioPreview(fileURL: fileURL)
             } else {
                 emptyState
             }

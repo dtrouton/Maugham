@@ -16,10 +16,21 @@ public enum TranslationStore {
         projectURL.appendingPathComponent(".maugham/translations")
     }
 
+    /// Throws for a doc id that is not one plain file name
+    /// (`SafeRelativePath.isPlainFileName` — a dot inside is allowed here,
+    /// since `parse` reads from the right), or a language that is not one
+    /// dot-free plain file name: both come from synced data and are spelled
+    /// into a file name (tripwire 58).
     public static func fileURL(forDocId docId: String, language: String,
-                               deviceSlug: DeviceSlug, in projectURL: URL) -> URL {
-        directoryURL(in: projectURL)
-            .appendingPathComponent("\(docId).\(language).\(deviceSlug.raw).jsonl")
+                               deviceSlug: DeviceSlug, in projectURL: URL) throws -> URL {
+        guard SafeRelativePath.isPlainFileName(docId) else {
+            throw SafeRelativePath.PathError.notADocId(docId)
+        }
+        guard SafeRelativePath.isPlainFileName(language), !language.contains(".") else {
+            throw SafeRelativePath.PathError.notAPlainFileName(language)
+        }
+        return directoryURL(in: projectURL)
+            .appendingPathComponent("\(docId).\(language).\(deviceSlug.raw).jsonl") // both names passed SafeRelativePath.isPlainFileName above
     }
 
     /// One sidecar filename, parsed back into the three things that built it:
@@ -131,8 +142,8 @@ public enum TranslationStore {
                                    state: OpLogDeviceState = .shared,
                                    in projectURL: URL) async throws {
         guard !records.isEmpty else { return }
-        let url = fileURL(forDocId: docId, language: language,
-                          deviceSlug: identity.slug, in: projectURL)
+        let url = try fileURL(forDocId: docId, language: language,
+                              deviceSlug: identity.slug, in: projectURL)
         if records.allSatisfy({ $0.text == nil }),
            !FileManager.default.fileExists(atPath: url.path),
            !languages(forDocId: docId, in: projectURL).contains(language) {

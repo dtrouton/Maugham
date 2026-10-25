@@ -101,8 +101,9 @@ public actor PublicationSnapshotStore {
             {
                 throw Error.pathTraversal(relativePath: rel)
             }
-            let dst = destination.appendingPathComponent(rel).standardizedFileURL
-            guard dst.path.hasPrefix(destPrefix) else {
+            guard let dst = try? SafeRelativePath.resolve(rel, under: destination)
+                    .standardizedFileURL,
+                  dst.path.hasPrefix(destPrefix) else {
                 throw Error.pathTraversal(relativePath: rel)
             }
             try FileManager.default.createDirectory(

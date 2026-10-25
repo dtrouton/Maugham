@@ -19,10 +19,10 @@ public enum OpLogFiles {
     public nonisolated static func opLogFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, in projectURL: URL
     ) throws -> URL {
-        let docId = try SafeRelativePath.requireDocId(docId)
+        let fileId = try SafeRelativePath.requireDocId(docId)
         return projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent("\(docId).\(deviceSlug.raw).jsonl")
+            .appendingPathComponent("\(fileId).\(deviceSlug.raw).jsonl")
     }
 
     /// The doc id encoded in an op-log filename, or nil if `name` is not a
@@ -104,11 +104,11 @@ public enum OpLogFiles {
     public nonisolated static func segmentFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, index: Int, in projectURL: URL
     ) throws -> URL {
-        let docId = try SafeRelativePath.requireDocId(docId)
+        let fileId = try SafeRelativePath.requireDocId(docId)
         return projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
             .appendingPathComponent(
-                "\(docId).\(deviceSlug.raw).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
+                "\(fileId).\(deviceSlug.raw).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
     }
 
     /// The signature beside a sealed segment: the segment's own name with

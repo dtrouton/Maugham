@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// The gate's three verbs: `approve` puts a staged design round onto the live
 /// publish tree, `revert` takes it back, and `finalize` accepts it for good.
@@ -125,7 +126,7 @@ enum ProposalPromotion {
                 backup.created.append(promotion.relativePath)
                 continue
             }
-            let held = backupFiles.appendingPathComponent(promotion.relativePath)
+            let held = try inside(backupFiles, promotion.relativePath)
             try fm.createDirectory(
                 at: held.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fm.copyItem(at: promotion.destination, to: held)
@@ -176,11 +177,11 @@ enum ProposalPromotion {
         let backupFiles = backupRoot.appendingPathComponent("files", isDirectory: true)
 
         for relativePath in backup.replaced {
-            let held = backupFiles.appendingPathComponent(relativePath)
+            let held = try inside(backupFiles, relativePath)
             guard fm.fileExists(atPath: held.path) else {
                 throw Error.backupFileMissing(relativePath)
             }
-            let live = livePublish.appendingPathComponent(relativePath)
+            let live = try inside(livePublish, relativePath)
             try fm.createDirectory(
                 at: live.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: live.path) { try fm.removeItem(at: live) }
@@ -188,7 +189,7 @@ enum ProposalPromotion {
         }
 
         for relativePath in backup.created {
-            let live = livePublish.appendingPathComponent(relativePath)
+            let live = try inside(livePublish, relativePath)
             // Absent is the expected case for a promotion that died before
             // reaching this file — there is nothing to undo about a write that
             // never happened.
@@ -314,6 +315,16 @@ enum ProposalPromotion {
     /// one place a path that got past that guard would write outside the
     /// publish tree. `SampleCompiler.assembleScratch` keeps the same check for
     /// the same reason.
+    /// `relativePath` under `folder`, on disk (`SafeRelativePath.resolve`;
+    /// tripwire 58): a proposal's file list and a backup's manifest are synced
+    /// files, so each path is resolved inside its tree before any copy, write
+    /// or delete.
+    private static func inside(_ folder: URL, _ relativePath: String) throws -> URL {
+        do { return try SafeRelativePath.resolve(relativePath, under: folder) } catch {
+            throw Error.stagedPathEscapesThePublishTree(relativePath)
+        }
+    }
+
     private static func resolve(
         proposal: DesignProposalStore.Proposal, projectURL: URL, livePublish: URL
     ) throws -> [Promotion] {
@@ -324,12 +335,11 @@ enum ProposalPromotion {
         let root = livePublish.standardizedFileURL.path
 
         return try proposal.filePaths.map { relativePath in
-            let destination = livePublish
-                .appendingPathComponent(relativePath).standardizedFileURL
+            let destination = try inside(livePublish, relativePath).standardizedFileURL
             guard destination.path.hasPrefix(root + "/") else {
                 throw Error.stagedPathEscapesThePublishTree(relativePath)
             }
-            let source = stagedDirectory.appendingPathComponent(relativePath)
+            let source = try inside(stagedDirectory, relativePath)
             guard fm.fileExists(atPath: source.path) else {
                 throw Error.stagedFileMissing(relativePath)
             }

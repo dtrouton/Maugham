@@ -214,9 +214,12 @@ extension ProjectStore {
             let oldStem = (leaf as NSString).deletingPathExtension
             let oldAssetsRel = oldFolder.isEmpty
                 ? "\(oldStem)_assets" : "\(oldFolder)/\(oldStem)_assets"
+            // The manifest's path is synced: refused here, in validation,
+            // before any file call (tripwire 58). `relocate(plan:)` checks
+            // every step again.
+            let assetsURL = try resolvedProjectPath(oldAssetsRel)
             let travelsWithAssets = item.type == .asset && item.kind == .document
-                && FileManager.default.fileExists(
-                    atPath: url.appendingPathComponent(oldAssetsRel).path)
+                && FileManager.default.fileExists(atPath: assetsURL.path)
 
             // W2: a note that travels with `<stem>_assets` dedups the PAIR
             // jointly — the plain per-leaf dedup misses an orphaned assets
@@ -255,10 +258,11 @@ extension ProjectStore {
             // Dedup changed a note's stem → its assets folder was renamed to
             // match; rewrite the note's ./<stem>_assets/ image refs.
             for pending in pendings {
-                guard let (oldStem, newStem, noteRelPath) = pending.refRewrite else { continue }
+                guard let (oldStem, newStem, noteRelPath) = pending.refRewrite,
+                      let noteURL = try? resolvedProjectPath(noteRelPath) else { continue }
                 await Self.rewriteAssetRefsBestEffort(
                     oldStem: oldStem, newStem: newStem,
-                    noteURL: url.appendingPathComponent(noteRelPath),
+                    noteURL: noteURL,
                     write: { try await documentStore.coordinatedWrite(text: $0, to: $1) })
             }
         }

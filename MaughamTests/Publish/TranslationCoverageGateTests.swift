@@ -258,7 +258,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         // DIRECTORY squatting the path. It is a second ACTOR's file for the same
         // (document, language) — exactly the P1b shape — so the readable
         // translator file is still there behind it.
-        let squat = TranslationStore.fileURL(
+        let squat = try TranslationStore.fileURL(
             forDocId: fx.docID, language: "es",
             deviceSlug: DeviceSlug.make(from: "bad"), in: fx.projectURL)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)

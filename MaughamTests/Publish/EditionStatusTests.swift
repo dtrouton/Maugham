@@ -67,7 +67,7 @@ final class EditionStatusTests: XCTestCase {
     /// composing the writer's line correctly, with no window in it.
     func test_anUnreadableTranslationFileDegradesTheChapterByFileName() async throws {
         let h = try await makeProject()
-        let squat = TranslationStore.fileURL(
+        let squat = try TranslationStore.fileURL(
             forDocId: h.doc2Id, language: "es",
             deviceSlug: DeviceSlug.make(from: "bad"), in: h.projectURL)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)

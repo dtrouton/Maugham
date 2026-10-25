@@ -78,8 +78,8 @@ public struct ProjectSearchEngine {
         for (item, fullPath) in researchDocs {
             await Task.yield()
             if Task.isCancelled { break }
-            let url = store.url.appendingPathComponent(fullPath)
-            guard let stored = try? String(contentsOf: url, encoding: .utf8) else { continue } // adr-0018-ok: research-note read, not manuscript
+            guard let url = try? ProjectStore.resolvedProjectPath(fullPath, under: store.url),
+                  let stored = try? String(contentsOf: url, encoding: .utf8) else { continue } // adr-0018-ok: research-note read, not manuscript
             // Research notes carry no ¶ anchors, so stripAnchors is a no-op on
             // their content (it only removes own-line `<!-- ¶id -->` and inline
             // task anchors). Route through it anyway for uniformity, so both

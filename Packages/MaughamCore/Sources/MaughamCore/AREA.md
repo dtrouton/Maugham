@@ -202,7 +202,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ULID.swift` — monotonic sortable 26-character ids.
 - `StableHash.swift` — launch-stable FNV-1a hashing for on-disk ids; never `hashValue`.
 - `ISO8601Fast.swift` — hand parser for the two ISO 8601 shapes Maugham writes.
-- `SafeRelativePath.swift` — the one path checker for synced paths: resolves an untrusted project-relative path, refusing escapes from the root; also a plain file name, one file in a folder, a doc id in a file name.
+- `SafeRelativePath.swift` — the one path checker for synced paths: resolves an untrusted project-relative path, refusing escapes from the root, on disk too (a folder or leaf linked outside); also a plain file name, one file in a folder, a doc id in a file name. Tripwire 58.
 - `ContentHash.swift` — a file's SHA-256 prefix, the name a figure image carries.
 - `DotfileScan.swift` — name-based dotfile test for scans that must ignore the BSD hidden flag.
 - `TestWorkspace.swift` — dev-only throwaway root that fences mutating test MCP tools.

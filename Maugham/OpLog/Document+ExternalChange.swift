@@ -346,6 +346,9 @@ extension Document {
         forFileAt url: URL, docId: String, text: String, kind: String,
         at date: Date = Date()
     ) throws -> URL {
+        // The doc id is synced and spelled into the name: one that could climb
+        // out of `.maugham/conflicts/` writes nothing (tripwire 58).
+        let fileId = try SafeRelativePath.requireDocId(docId)
         let conflictsDir = conflictsDir(for: url)
         try FileManager.default.createDirectory(
             at: conflictsDir, withIntermediateDirectories: true)
@@ -353,9 +356,10 @@ extension Document {
         let stem = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension
         let stamp = ISO8601DateFormatter.quarantineStamp(from: date)
-        let base = "\(stem)-\(docId)-\(kind)-\(stamp)"
+        let base = "\(stem)-\(fileId)-\(kind)-\(stamp)"
         let backupName = ext.isEmpty ? base : "\(base).\(ext)"
-        let backupURL = conflictsDir.appendingPathComponent(backupName)
+        let backupURL = try SafeRelativePath.resolveFile(
+            named: backupName, in: ".maugham/conflicts", under: resolveProjectURL(for: url))
         try text.data(using: .utf8)?.write(to: backupURL, options: [.atomic])
         // Stamp the backup's mtime with the logical snapshot time so retention
         // and dedup order by *when the divergence happened*, not by the atomic

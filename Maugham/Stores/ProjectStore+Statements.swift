@@ -304,7 +304,10 @@ extension ProjectStore {
     /// Sub-directories do not count either — the saver makes none, so anything
     /// that is not a regular file is not something this ingest put there.
     func statementWellHoldsAnything(_ statement: Statement) -> Bool {
-        let well = ImagePasteHandler.wellURL(forNoteAt: statement.path, in: url)
+        // A path that leaves the project is a well this verb cannot see into:
+        // answered as holding something, so nothing is rolled back over it.
+        guard let well = try? ImagePasteHandler.wellURL(forNoteAt: statement.path, in: url)
+        else { return true }
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: well, includingPropertiesForKeys: [.isRegularFileKey], options: []
         ) else { return false }
@@ -402,7 +405,14 @@ extension ProjectStore {
         else { return false }
 
         // Kept for `removeItem` below; the size question is the shared helper's.
-        let fileURL = url.appendingPathComponent(statement.path)
+        // A synced path that leaves the project is refused here, before the
+        // row goes: nothing outside is deleted (tripwire 58).
+        let fileURL: URL
+        do { fileURL = try resolvedProjectPath(statement.path) } catch {
+            projectStoreLog.error(
+                "Statement rollback refused: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
         // `propagateWikiLinkRename`'s own `stat`, inverted: the same question
         // about the same path, so the two cannot come to different conclusions
         // about whether this file holds anything (RULING-8).
@@ -634,7 +644,7 @@ extension ProjectStore {
             return
         }
         let document = try await Document.load(
-            url: url.appendingPathComponent(statement.path),
+            url: try resolvedProjectPath(statement.path),
             actor: .author,
             session: session,
             presenter: documentStore?.presenter)
@@ -702,7 +712,7 @@ extension ProjectStore {
             let relative = stem + suffix
             return claimed.contains(relative)
                 || FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(relative).path)
+                    atPath: root.appendingPathComponent(relative).path) // local-path: StatementConvention mints the candidate; createStatement resolves the one chosen
         }
         return free + suffix
     }

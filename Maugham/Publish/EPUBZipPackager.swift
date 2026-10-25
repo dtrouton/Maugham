@@ -44,11 +44,11 @@ public enum EPUBZipPackager {
                    atomically: true, encoding: .utf8)
         for s in pkg.sections {
             try EPUBOPFWriter.sectionXHTML(for: s)
-                .write(to: oebps.appendingPathComponent(s.filename),
+                .write(to: oebps.appendingPathComponent(s.filename), // local-path: EPUBCompiler.sectionFilename mints it (index + a LaTeXSafeFilename tag)
                        atomically: true, encoding: .utf8)
         }
         if let cover = pkg.cover {
-            try cover.data.write(to: oebps.appendingPathComponent(cover.filename),
+            try cover.data.write(to: oebps.appendingPathComponent(cover.filename), // local-path: EPUBCompiler mints "cover.<ext>"
                                  options: .atomic)
         }
         // Figure images (R-P2-7), copied file to file, never through memory.
@@ -61,7 +61,7 @@ public enum EPUBZipPackager {
             for image in pkg.images {
                 // adr-0018-ok: research image packaged into the EPUB
                 try FileManager.default.copyItem(at: image.source,
-                                                 to: images.appendingPathComponent(image.filename))
+                                                 to: images.appendingPathComponent(image.filename)) // local-path: EPUBCompiler mints "<content hash>.<ext>"
             }
         }
 

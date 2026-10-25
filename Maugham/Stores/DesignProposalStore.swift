@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Where a design round's proposed templates stage for the writer's review,
 /// under `.maugham/design/proposals/<proposalId>/`.
@@ -276,7 +277,9 @@ struct DesignProposalStore {
             to: dir.appendingPathComponent("spec.md"), atomically: true, encoding: .utf8)
 
         for file in report.files {
-            let dest = filesDir.appendingPathComponent(file.path)
+            // Gated at parse (`DesignerReport.isSafePath`) and again here, on
+            // disk, so a staged file lands inside `files/` (tripwire 58).
+            let dest = try SafeRelativePath.resolve(file.path, under: filesDir)
             try fm.createDirectory(
                 at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.content.write(to: dest, atomically: true, encoding: .utf8)

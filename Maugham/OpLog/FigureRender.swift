@@ -68,8 +68,13 @@ enum FigureRender {
         let folder = documentStore.projectURL.appendingPathComponent(
             ProjectStore.figuresFolder, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try await documentStore.coordinatedWrite(
-            text: text, to: documentStore.projectURL.appendingPathComponent(path))
+        // `renderPath` spelled it; the disk is asked too, so a `figures/`
+        // linked out of the book is refused (tripwire 58).
+        guard let destination = try? SafeRelativePath.resolve(
+            path, under: documentStore.projectURL) else {
+            throw FigureRenderPathRefused(name: record.name, path: record.path)
+        }
+        try await documentStore.coordinatedWrite(text: text, to: destination)
         return true
     }
 }

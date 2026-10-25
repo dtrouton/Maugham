@@ -31,7 +31,7 @@ public enum IntegrityQuarantine {
         guard !skipped.isEmpty else { return nil }
         // The id becomes part of the file name: one that could climb out of
         // the quarantine folder is refused (the caller logs it).
-        try SafeRelativePath.requireDocId(docId)
+        let fileId = try SafeRelativePath.requireDocId(docId)
         let dir = projectURL.appendingPathComponent(".maugham/conflicts/quarantine", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let body = skipped.map { line in
@@ -41,7 +41,7 @@ public enum IntegrityQuarantine {
         // Content-addressed prefix so repeated loads of the same persistent tear
         // collapse onto one file instead of accumulating.
         let contentHash = StableHash.fnv1a64Hex(body)
-        let prefix = "\(docId).\(contentHash)."
+        let prefix = "\(fileId).\(contentHash)."
         let fm = FileManager.default
         if let existing = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
            existing.contains(where: { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "jsonl" }) {

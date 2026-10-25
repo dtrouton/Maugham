@@ -115,7 +115,7 @@ public final class PendingBuffer {
     }
 
     public func flushToDisk() async throws {
-        let url = file()
+        let url = try file()
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true)
@@ -153,15 +153,14 @@ public final class PendingBuffer {
     /// bytes stay exactly where the crashed session left them, for a later load
     /// under a permit that allows the fold.
     public func fileNameIfOnDisk() -> String? {
-        let url = file()
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let url = try? file(), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url.lastPathComponent
     }
 
     @discardableResult
     public func loadFromDisk() async -> LoadOutcome {
-        let url = file()
-        guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
+        // A doc id that cannot name a file has no pending file to find.
+        guard let url = try? file(), FileManager.default.fileExists(atPath: url.path) else { return .absent }
         let data: Data
         do { data = try Data(contentsOf: url) }  // adr-0018-ok: PendingBuffer's own pending file, not a manuscript
         catch {
@@ -185,7 +184,7 @@ public final class PendingBuffer {
 
     public func clear() async throws {
         clearInMemoryOnly()
-        let url = file()
+        let url = try file()
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
@@ -218,9 +217,12 @@ public final class PendingBuffer {
     /// crash-recovery folds back only the keystrokes the crashed (= recovering)
     /// device hadn't bursted yet — never a glob-merge of every device's pending
     /// buffer (another device's un-bursted edits are not this device's to commit).
-    private func file() -> URL {
-        projectURL
+    /// Throws for a doc id that could climb out of `.maugham/pending/`
+    /// (`SafeRelativePath.requireDocId`; tripwire 58).
+    private func file() throws -> URL {
+        let fileId = try SafeRelativePath.requireDocId(docId)
+        return projectURL
             .appendingPathComponent(".maugham/pending")
-            .appendingPathComponent("\(docId).\(deviceSlug.raw).pending.jsonl")
+            .appendingPathComponent("\(fileId).\(deviceSlug.raw).pending.jsonl")
     }
 }

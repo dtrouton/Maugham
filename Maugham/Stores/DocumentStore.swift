@@ -227,6 +227,11 @@ public final class DocumentStore {
     /// run their own autosave internally (see `Document.performAutosave`).
     private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
 
+    /// The synced paths a debounced save has already refused and logged
+    /// (tripwire 58): a note whose manifest path leaves the project is
+    /// refused on every save, and said once, not once per typing pause.
+    @ObservationIgnored private(set) var refusedSavePathsLogged: Set<String> = []
+
     private struct FileSavePayload: Sendable {
         let path: String
         let text: String
@@ -383,6 +388,9 @@ public final class DocumentStore {
         ) { [weak store] payload in
             do {
                 try await store?.performFileSave(path: payload.path, text: payload.text)
+            } catch ProjectStoreError.unsafeProjectPath(let path, let reason) {
+                guard let store, store.refusedSavePathsLogged.insert(path).inserted else { return }
+                documentStoreLog.error("Research-note autosave refused for \(path, privacy: .public): \(reason, privacy: .public)")
             } catch {
                 documentStoreLog.error("Research-note autosave failed for \(payload.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
@@ -772,12 +780,19 @@ public final class DocumentStore {
         await fileSaveScheduler.flush()
     }
 
+    /// A synced project-relative path as a URL inside this project, or
+    /// `ProjectStoreError.unsafeProjectPath` (tripwire 58;
+    /// `ProjectStore.resolvedProjectPath(_:under:)`).
+    nonisolated func resolvedProjectPath(_ relative: String) throws -> URL {
+        try ProjectStore.resolvedProjectPath(relative, under: projectURL)
+    }
+
     /// `internal` (not `private`) so `ProjectStore+Palette.swift`'s
     /// `paletteCoordinatedWrite(_:to:)` funnel can call it directly for
     /// immediate (non-debounced) coordinated writes — palette card saves
     /// are await-and-done, unlike `scheduleFileSave`'s 750ms debounce.
     func performFileSave(path: String, text: String) async throws {
-        let url = projectURL.appendingPathComponent(path)
+        let url = try resolvedProjectPath(path)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var saveError: Error?
@@ -1224,6 +1239,15 @@ public final class DocumentStore {
     /// (tripwire 14). The caller saves the manifest afterward (Phase 3).
     public func relocate(plan: RenamePlan) async throws {
         guard !plan.steps.isEmpty else { return }
+        // Every step's two paths came from the manifest (or were derived from
+        // it): all resolved inside the project before anything closes or
+        // moves, so one unsafe step refuses the whole plan (tripwire 58).
+        var resolved: [String: URL] = [:]
+        for step in plan.steps {
+            for relative in [step.oldRelativePath, step.newRelativePath] {
+                resolved[relative] = try resolvedProjectPath(relative)
+            }
+        }
 
         // Close+unregister+flush every affected user-editable path before the
         // coordinated moves. The 750ms autosave on an open Document (or a
@@ -1257,7 +1281,7 @@ public final class DocumentStore {
             // Phase 1: move colliding items to scratch with unique names.
             var scratchMap: [(scratchURL: URL, finalRelativePath: String)] = []
             for step in plan.scratchSteps {
-                let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
+                let oldURL = resolved[step.oldRelativePath]!
                 let scratchURL = scratchDir.appendingPathComponent(UUID().uuidString)
                 try await coordinatedMove(from: oldURL, to: scratchURL)
                 completed.append((oldURL, scratchURL))
@@ -1266,15 +1290,15 @@ public final class DocumentStore {
 
             // Phase 2a: direct (non-colliding) renames.
             for step in plan.directSteps {
-                let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
-                let newURL = projectURL.appendingPathComponent(step.newRelativePath)
+                let oldURL = resolved[step.oldRelativePath]!
+                let newURL = resolved[step.newRelativePath]!
                 try await coordinatedMove(from: oldURL, to: newURL)
                 completed.append((oldURL, newURL))
             }
 
             // Phase 2b: scratch items to final destinations.
             for entry in scratchMap {
-                let finalURL = projectURL.appendingPathComponent(entry.finalRelativePath)
+                let finalURL = resolved[entry.finalRelativePath]!
                 try await coordinatedMove(from: entry.scratchURL, to: finalURL)
                 completed.append((entry.scratchURL, finalURL))
             }
@@ -2016,7 +2040,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             guard let doc = document(for: relativePath) else { return }
             let projectRoot = projectURL
             Task { @MainActor in
-                let mdURL = projectRoot.appendingPathComponent(relativePath)
+                let mdURL = projectRoot.appendingPathComponent(relativePath) // local-path: the presenter's own sub-item, relative to this project — a file event, not a synced field
                 guard let data = try? Data(contentsOf: mdURL),  // adr-0018-ok: sanctioned external-change detector — .md bytes handed to handleExternalDiskChange; op log stays authoritative
                       let diskText = String(data: data, encoding: .utf8)
                 else { return }

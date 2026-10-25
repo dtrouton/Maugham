@@ -17,6 +17,8 @@ enum BinderRouting {
     /// relative; we resolve it against the root.
     static func documentURL(for item: StructureItem, projectRoot: URL) -> URL? {
         guard isReadableDocument(item), let path = item.path else { return nil }
-        return projectRoot.appendingPathComponent(path)
+        // The path is a synced manifest field: nil when it leaves the project
+        // (tripwire 58).
+        return try? SafeRelativePath.resolve(path, under: projectRoot)
     }
 }

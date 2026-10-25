@@ -503,16 +503,18 @@ public final class FigureDocument {
             filename = (record.path as NSString).lastPathComponent + "." + ext
         }
         // The name came from the op log or a synced record: written to only
-        // when it is one file inside `figures/` (`isAPlainFileName`).
-        guard FigureImageRef(filename: filename, contentHash: "").isAPlainFileName else {
+        // when it is one plain file inside `figures/`, and `figures/` itself
+        // is inside the book on disk (`SafeRelativePath.resolveFile`).
+        let destination: URL
+        do {
+            destination = try SafeRelativePath.resolveFile(
+                named: filename, in: ProjectStore.figuresFolder, under: projectURL)
+        } catch {
             throw FigureEditInvalid(reason: "this figure's file name is not a file in figures/")
         }
         let hash = try await Task.detached { try FigureImageResolver.contentHash(of: copyable.url) }.value
         guard hash != prior?.contentHash else { return }
 
-        let destination = projectURL
-            .appendingPathComponent(ProjectStore.figuresFolder, isDirectory: true)
-            .appendingPathComponent(filename)
         // Both pictures kept before anything changes, so ⌘Z and redo can put
         // either back; the prior one only if it is still on disk.
         let keptPrior = prior.flatMap { try? keepForUndo(destination, hash: $0.contentHash) }

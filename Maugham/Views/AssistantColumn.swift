@@ -215,7 +215,9 @@ struct AssistantColumn: View {
         case .palette(let card):
             PaletteCardReadView(card: card, images: paletteImages(of: card))
         case .photo(let path):
-            ImagePreview(fileURL: projectRoot.appendingPathComponent(path))
+            if let url = try? SafeRelativePath.resolve(path, under: projectRoot) {
+                ImagePreview(fileURL: url)
+            }
         case .scrap(let text):
             ScrollView {
                 Text(text)
