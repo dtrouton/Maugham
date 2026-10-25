@@ -64,6 +64,22 @@ public struct FigureEditInvalid: LocalizedError, Equatable {
     public var errorDescription: String? { reason }
 }
 
+/// **What a checkpoint restore did to one figure** (report plan 6c Task 2,
+/// ruling Q-1) — `FigureDocument.restoreToCheckpoint`'s answer, which the
+/// restore names to the writer.
+public enum FigureRestoreOutcome: Equatable, Sendable {
+    /// `opCount` ops were appended and the figure stands as it did then.
+    case restored(opCount: Int)
+    /// The figure already stood as it did then: nothing was appended.
+    case unchanged
+    /// The figure is parked in Research: nothing was appended ("in Research —
+    /// bring it back first").
+    case skippedParked
+    /// The checkpoint's picture (`hash`) is no longer on disk: the rest was
+    /// restored, the picture left as it is.
+    case skippedPicture(hash: String)
+}
+
 /// **The open figure on the Mac** (report plan 6a, ruling D-d): a table's or
 /// an image's own op-logged document, a sibling of `Document` and never one.
 ///
@@ -1007,6 +1023,112 @@ public final class FigureDocument {
                 applied: applied, of: changes.count + (newImage == nil ? 0 : 1), parkedAgain: parkedAgain)
         }
         await documentStore?.figureHostAppended(figureId)
+    }
+
+    // MARK: - Checkpoint restore (report plan 6c Task 2, rulings Q-1, Q-2)
+
+    /// **Wind this figure back to a checkpoint** — `target` is the figure at
+    /// the checkpoint's op pointer (`FigureRestoreDiff.target`). The changes
+    /// that bring the figure as it stands now to it (`FigureRestoreDiff.changes`)
+    /// are appended as ordinary figure ops, each carrying
+    /// `provenance.sourceCheckpoint = checkpointId` and signed by this host's
+    /// actor; the render follows once, after the last.
+    ///
+    /// - **This figure's door** (`.editFigure`, through `requireWritable`),
+    ///   asked again after the pin sources' read; a refusal throws
+    ///   `FigureEditRefused` before any op. A figure parked in Research is
+    ///   skipped (`.skippedParked`) with nothing appended: its content lives in
+    ///   the working copy until it comes back.
+    /// - **A pin live now is never replaced by one inert now**: the book's
+    ///   current park cycles (`PinSources.parks`, for what this figure's
+    ///   formulas read now and at the checkpoint) go to the diff. With no
+    ///   window there are none to read, and every pin counts.
+    /// - **Every change is checked to apply before anything is appended**
+    ///   (`FigureReturnDiff.everyChangeApplies`).
+    /// - **A picture comes back only when its bytes still exist** — a file in
+    ///   `figures/` or in this open host's undo folder with the checkpoint's
+    ///   content hash, of the figure's own format — written under the
+    ///   figure's current file name through the window's door. Otherwise the
+    ///   rest is restored and the outcome names the picture
+    ///   (`.skippedPicture`). A checkpoint with no picture takes none away.
+    /// - Not registered for ⌘Z (ruling Q-2), like the text's partial restore.
+    ///   An append that fails part way leaves what landed and throws.
+    func restoreToCheckpoint(_ checkpointId: String, target: FigureState) async throws -> FigureRestoreOutcome {
+        do { try await requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
+        let parks = try await currentParks(reading: target)
+        let wanted = target.image.flatMap { $0.contentHash == state.image?.contentHash ? nil : $0 }
+        let picture = await keptPicture(wanted)
+        // The reads awaited: the door is asked again before anything is written.
+        do { try await requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
+
+        let changes = FigureRestoreDiff.changes(from: state, to: target, parks: parks)
+        let tableChanges = changes.filter { $0.kind != .figureImageSet }
+        guard FigureReturnDiff.everyChangeApplies(tableChanges, onto: state) else {
+            throw FigureEditInvalid(reason: "the checkpoint's changes don't fit the figure")
+        }
+        let pictureChange = changes.first { $0.kind == .figureImageSet }?.payload.image
+        let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
+        let reason = Op.Provenance(sourceCheckpoint: checkpointId)
+        var appended = 0
+        do {
+            for change in tableChanges {
+                try await commit(change.kind, change.payload, provenance: reason, render: false)
+                appended += 1
+            }
+            if restoresPicture, let picture {
+                let (payload, putBack) = try await placeReturningPicture(picture)
+                do {
+                    try await commit(.figureImageSet, payload, provenance: reason, render: false)
+                } catch {
+                    await putBack()
+                    throw error
+                }
+                appended += 1
+            }
+        } catch {
+            if appended > 0 { await documentStore?.figureHostAppended(figureId) }
+            throw error
+        }
+        if appended > 0 { await documentStore?.figureHostAppended(figureId) }
+        if let pictureChange, !restoresPicture { return .skippedPicture(hash: pictureChange.contentHash) }
+        return appended == 0 ? .unchanged : .restored(opCount: appended)
+    }
+
+    /// The book's park cycle of each figure parked now that this figure's
+    /// pins read, now or in `target` (`PinSources.parks`). Empty with no
+    /// window, or when neither holds a pin. Throws when the sources will not
+    /// read: nothing has been written yet.
+    private func currentParks(reading target: FigureState) async throws -> [String: String] {
+        guard let documentStore, !(state.pins.isEmpty && target.pins.isEmpty) else { return [:] }
+        let now = try await documentStore.pinSources(for: state).parks
+        let then = try await documentStore.pinSources(for: target).parks
+        return now.merging(then) { current, _ in current }
+    }
+
+    /// A file holding picture `wanted`'s bytes that may go in place of this
+    /// figure's file: one in this host's undo folder (kept by content hash) or
+    /// in `figures/`, of the figure's own format. Nil when there is none, no
+    /// picture is wanted, the figure has no file to write over, or no window
+    /// holds it to write through.
+    private func keptPicture(_ wanted: FigureImageRef?) async -> (url: URL, hash: String)? {
+        guard let wanted, state.kind == .image, let current = state.image, documentStore != nil else { return nil }
+        let ext = (current.filename as NSString).pathExtension.lowercased()
+        let fm = FileManager.default
+        if let imageUndoFolder,
+           let kept = try? fm.contentsOfDirectory(at: imageUndoFolder, includingPropertiesForKeys: nil)
+            .first(where: { $0.deletingPathExtension().lastPathComponent == wanted.contentHash
+                && Self.sameImageFormat($0.pathExtension.lowercased(), ext) }) {
+            return (kept, wanted.contentHash)
+        }
+        let folder = projectURL.appendingPathComponent(ProjectStore.figuresFolder, isDirectory: true) // local-path: the app's own folder name
+        let candidates = ((try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { !DotfileScan.isDotfile($0) && Self.sameImageFormat($0.pathExtension.lowercased(), ext) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let hash = wanted.contentHash
+        let found = await Task.detached {
+            candidates.first { (try? FigureImageResolver.contentHash(of: $0)) == hash }
+        }.value
+        return found.map { ($0, hash) }
     }
 
     /// A returning picture's copy in place of this figure's file, kept name

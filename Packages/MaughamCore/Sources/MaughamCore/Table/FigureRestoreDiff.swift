@@ -20,8 +20,10 @@ import Foundation
 /// - Order → moves (`FigureReturnDiff.place`, shared); cells (content, format,
 ///   alignment) → cell sets with `prior`; header rows, total row, widths →
 ///   settings; pins → pin set / clear; a different picture → one image change
-///   (whether its bytes still exist is the caller's question). A picture set
-///   since a checkpoint that had none stays: no op takes a picture away.
+///   (whether its bytes still exist is the caller's question), compared by
+///   content hash and kept under the file name it has now — a rename is a
+///   registry act the restore leaves alone. A picture set since a checkpoint
+///   that had none stays: no op takes a picture away.
 /// - **A pin live now is never replaced by one inert now** (ruling, plan 6c
 ///   Task 1 review): where the checkpoint's pin on a cell reads a figure
 ///   parked now under another park cycle (`FigurePinChoice.isLive` against
@@ -44,9 +46,10 @@ public enum FigureRestoreDiff {
     /// The ops, in order, that bring `current` to `target`'s content; empty
     /// when they already agree. `parks` is the book's park cycle of each
     /// figure parked now (figure id → `FigureParking.cycle`), what
-    /// `FigurePinChoice.isLive` reads; empty, every pin counts.
+    /// `FigurePinChoice.isLive` reads (`PinSources.parks`); required, so a
+    /// caller cannot drop the ruling by leaving it out — empty, every pin counts.
     public static func changes(
-        from current: FigureState, to target: FigureState, parks: [String: String] = [:]
+        from current: FigureState, to target: FigureState, parks: [String: String]
     ) -> [FigureReturnDiff.Change] {
         var sim = FigureReturnDiff.Simulation(state: current)
         let goal = target.table
@@ -105,9 +108,11 @@ public enum FigureRestoreDiff {
             restorePins(at: key, to: target.pins[key] ?? [], parks: parks, in: &sim)
         }
 
-        // MARK: Picture
-        if let picture = target.image, sim.state.image != picture {
-            sim.emit(.figureImageSet, FigureOpPayload(image: picture, priorImage: sim.state.image))
+        // MARK: Picture — by content; the file keeps the name it has now
+        if let picture = target.image, sim.state.image?.contentHash != picture.contentHash {
+            let named = FigureImageRef(
+                filename: sim.state.image?.filename ?? picture.filename, contentHash: picture.contentHash)
+            sim.emit(.figureImageSet, FigureOpPayload(image: named, priorImage: sim.state.image))
         }
 
         return sim.ops

@@ -12029,7 +12029,8 @@ final class TripwireGrepTests: XCTestCase {
     /// its own posture question), `sendToResearch(` (a park, behind the
     /// figure's door and its line's manuscript door), `bringBack(` (a return,
     /// behind the figure's door), `refreshPins(` (a figure's research pins
-    /// re-read, behind its door, R-D2), and `figureOpMintSpelling` — every `Op(`
+    /// re-read, behind its door, R-D2), `restoreToCheckpoint(` (a checkpoint
+    /// restore's figure ops, behind its door, report plan 6c), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
     /// copied off another op) is still a named site.
@@ -12042,7 +12043,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
-        "resumeFromResearch(", "bringBack(", "refreshPins(",
+        "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
         figureOpMintSpelling,
     ]
 
@@ -12066,7 +12067,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
-        "refreshPins(",
+        "refreshPins(", "restoreToCheckpoint(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12583,6 +12584,9 @@ final class TripwireGrepTests: XCTestCase {
         "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
         "parkInResearch": "figure", "resumeFromResearch": "figure",
         "refreshPins": "figure",
+        // A checkpoint restore's figure ops (report plan 6c Task 2), behind
+        // the same guard; a parked figure is skipped, not written.
+        "restoreToCheckpoint": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12783,6 +12787,7 @@ final class TripwireGrepTests: XCTestCase {
         try await host.resumeFromResearch(changes: c, picture: nil, expecting: s)
         let back = try await store.bringBack(researchItemId: i, piece: p)
         try await reader.refreshPins(undoManager: um)
+        let outcome = try await host.restoreToCheckpoint(checkpoint.id, target: then)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

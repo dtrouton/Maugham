@@ -129,11 +129,11 @@ final class FigureRestoreDiffTests: XCTestCase {
     private func roundTrip(_ history: History, to pointer: String,
                            file: StaticString = #filePath, line: UInt = #line) -> [FigureReturnDiff.Change] {
         let target = FigureRestoreDiff.target(of: history.ops, through: pointer)
-        let changes = FigureRestoreDiff.changes(from: history.state, to: target)
+        let changes = FigureRestoreDiff.changes(from: history.state, to: target, parks: [:])
         assertSameContent(applied(changes, to: history.state, file: file, line: line), target,
                           file: file, line: line)
         // A second restore from there has nothing left to do.
-        let again = FigureRestoreDiff.changes(from: applied(changes, to: history.state), to: target)
+        let again = FigureRestoreDiff.changes(from: applied(changes, to: history.state), to: target, parks: [:])
         XCTAssertEqual(again, [], "a restored figure needs no second restore", file: file, line: line)
         return changes
     }
@@ -194,9 +194,9 @@ final class FigureRestoreDiffTests: XCTestCase {
     /// Nothing changed since the checkpoint: no ops.
     func test_nothingChangedIsAnEmptyDiff() {
         let h = starter()
-        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: h.state), [])
+        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: h.state, parks: [:]), [])
         XCTAssertEqual(FigureRestoreDiff.changes(
-            from: h.state, to: FigureRestoreDiff.target(of: h.ops, through: h.pointer)), [])
+            from: h.state, to: FigureRestoreDiff.target(of: h.ops, through: h.pointer), parks: [:]), [])
     }
 
     /// A row live at the checkpoint and deleted now is revived with the
@@ -360,7 +360,26 @@ final class FigureRestoreDiffTests: XCTestCase {
         h.image("chart.png", "aaaa")
         let target = FigureRestoreDiff.target(of: h.ops, through: checkpoint)
         XCTAssertNil(target.image)
-        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: target), [])
+        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: target, parks: [:]), [])
+    }
+
+    /// A picture is restored by content and keeps the file name it has now
+    /// (a rename is a registry act, ruling Q-1): renamed since with the same
+    /// bytes, nothing; renamed and changed, one change under the new name.
+    func test_aPictureRenamedSinceKeepsItsNameAndComesBackByContent() {
+        var h = History()
+        h.emit(.figureCreate, FigureOpPayload(kind: .image))
+        h.image("chart.png", "aaaa")
+        let checkpoint = h.pointer
+        h.image("map.png", "aaaa")
+        let target = FigureRestoreDiff.target(of: h.ops, through: checkpoint)
+        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: target, parks: [:]), [])
+
+        h.image("map.png", "bbbb")
+        XCTAssertEqual(FigureRestoreDiff.changes(from: h.state, to: target, parks: [:]), [
+            FigureReturnDiff.Change(kind: .figureImageSet, payload: FigureOpPayload(
+                image: FigureImageRef(filename: "map.png", contentHash: "aaaa"),
+                priorImage: FigureImageRef(filename: "map.png", contentHash: "bbbb")))])
     }
 
     /// A row and a column deleted and revived since the checkpoint are live
@@ -398,7 +417,7 @@ final class FigureRestoreDiffTests: XCTestCase {
         XCTAssertNil(current.table.rowSlotIndex(of: r3))
         let target = FigureRestoreDiff.target(of: h.ops, through: checkpoint)
 
-        let changes = FigureRestoreDiff.changes(from: current, to: target)
+        let changes = FigureRestoreDiff.changes(from: current, to: target, parks: [:])
         let restored = applied(changes, to: current)
         assertSameContent(restored, target)
         XCTAssertEqual(restored.table.rows, [r1, r3, r2])
