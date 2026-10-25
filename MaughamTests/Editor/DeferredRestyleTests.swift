@@ -12,6 +12,23 @@ import MaughamCore
 @MainActor
 final class DeferredRestyleTests: XCTestCase {
 
+    override class func setUp() { FontWarmup.ensure() }
+
+    /// Waits for a settle paint on the main actor, up to `timeout`. A fixed
+    /// sleep raced the 40 ms settle timer on a loaded CI runner (PR #110 went
+    /// red twice on the "painted once it settles" assertion while passing
+    /// locally); the assertion is "it eventually paints", so it waits for that.
+    private func waitUntil(timeout: Duration = .seconds(2),
+                           _ condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            if clock.now >= deadline { return false }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return true
+    }
+
     private func isItalic(_ tv: NSTextView, at index: Int) -> Bool {
         guard let storage = tv.textStorage, index < storage.length else { return false }
         let attrs = storage.attributes(at: index, effectiveRange: nil)
@@ -84,8 +101,8 @@ final class DeferredRestyleTests: XCTestCase {
         XCTAssertFalse(isItalic(h.textView, at: 2),
             "emphasis must not be painted on the keystroke — it is deferred to settle")
 
-        try? await Task.sleep(for: .milliseconds(120))
-        XCTAssertTrue(isItalic(h.textView, at: 2),
+        let painted = await waitUntil { isItalic(h.textView, at: 2) }
+        XCTAssertTrue(painted,
             "emphasis must be painted once the typing burst settles")
     }
 
