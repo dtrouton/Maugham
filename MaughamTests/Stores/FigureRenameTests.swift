@@ -442,6 +442,28 @@ final class FigureRenameTests: XCTestCase {
         XCTAssertFalse(exists("figures/costs.csv"))
     }
 
+    /// **A piece whose text cannot be read refuses the rename, named** (N1):
+    /// whether it refers to the figure cannot be checked, so nothing changes.
+    func test_aPieceWhoseTextCannotBeReadRefusesTheRenameNamingIt() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        let (cash, total, t1) = try await cashAndTotal(store, projectStore)
+        let before = try await snapshot(store, projectStore, total: total, cell: t1)
+        ProjectStore.figureRelabelReadFailsForTesting = ["doc-c"]
+        defer { ProjectStore.figureRelabelReadFailsForTesting = [] }
+
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+            XCTFail("the rename was not refused")
+        } catch let refused as FigureRenameRefused {
+            XCTAssertEqual(refused.reason, .unreadable(["C"]))
+            XCTAssertEqual(refused.localizedDescription, "C can't be read, so its references can't be checked.")
+        }
+        ProjectStore.figureRelabelReadFailsForTesting = []
+        let after = try await snapshot(store, projectStore, total: total, cell: t1)
+        XCTAssertEqual(after, before, "registry, files, text and formulas are all as they were")
+    }
+
     // MARK: - Images
 
     /// **An image's rename moves its picture** and appends a `figureImageSet`
@@ -574,6 +596,37 @@ final class FigureRenameTests: XCTestCase {
         XCTAssertTrue(exists("figures/cash.csv"), "the CSV came back from the Trash")
         let entries = try await projectStore.trashStore.list()
         XCTAssertFalse(entries.contains { $0.subject == .figure })
+    }
+
+    /// **A file that lands anywhere but the record's path refuses the
+    /// restore** (N2): the file goes back to the Trash with its record, the
+    /// registry gains nothing, and nothing is left beside the occupant.
+    func test_aRestoreWhoseFileLandsElsewhereIsRefusedAndGoesBackToTheTrash() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try await projectStore.removeFigure(id: cash.id)
+        let listed = try await projectStore.trashStore.list()
+        let entry = try XCTUnwrap(listed.first { $0.subject == .figure })
+        let occupant = file(cash.path)
+        ProjectStore.beforeFigureRestoreLandsForTesting = { _ in
+            try "arrived meanwhile\n".write(to: occupant, atomically: true, encoding: .utf8)
+        }
+        defer { ProjectStore.beforeFigureRestoreLandsForTesting = nil }
+
+        do {
+            try await projectStore.restoreTrashEntry(id: entry.id)
+            XCTFail("the restore was not refused")
+        } catch let error as ProjectStoreError {
+            guard case .trashEntryNotRewirable = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(projectStore.manifest.figures ?? [], [])
+        XCTAssertEqual(try csv(cash.path), "arrived meanwhile\n", "the occupant is untouched")
+        let names = try FileManager.default.contentsOfDirectory(atPath: file("figures").path)
+        XCTAssertEqual(names.filter { !$0.hasPrefix(".") }, ["cash.csv"], "nothing was left beside it")
+        let after = try await projectStore.trashStore.list()
+        XCTAssertTrue(after.contains { $0.subject == .figure && $0.displayTitle == "Table: cash" },
+                      "the figure is still in the Trash, with its record")
     }
 
     // MARK: - renderFigures' early exits

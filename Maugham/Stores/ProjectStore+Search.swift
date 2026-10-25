@@ -383,8 +383,9 @@ extension ProjectStore {
     /// **Phase one of a figure rename's relabel**: every manuscript whose
     /// text holds the figure's line or a cross-reference to its label is
     /// found (its live text where a window has it open, else derived from
-    /// its op log — never the `.md`; one whose text cannot be derived is
-    /// logged and passed over), and each is held through the door-checked
+    /// its op log — never the `.md`; one whose text cannot be derived
+    /// refuses the rename, named, since its references cannot be checked),
+    /// and each is held through the door-checked
     /// route. **Any refusal releases them all and throws**
     /// `FigureRenameRefused` naming every piece that refused, so nothing is
     /// written anywhere. Only when the text holds the figure is a new name
@@ -394,13 +395,16 @@ extension ProjectStore {
         let newLabel = ManuscriptLabel(reference: "\(change.old.kind.rawValue):\(change.newName)")
         var candidates: [(title: String, path: String)] = []
         var labelTaken = false
+        var unreadable: [String] = []
         for item in Self.collectDocuments(in: manifest.structure) {
             guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay else { continue }
-            let text = documentStore?.document(for: path)?.displayText
-                ?? (try? derivedCache.displayText(forDocId: item.id, in: url))
+            let text = Self.figureRelabelReadFailsForTesting.contains(item.id) ? nil
+                : documentStore?.document(for: path)?.displayText
+                    ?? (try? derivedCache.displayText(forDocId: item.id, in: url))
             guard let text else {
-                projectStoreLog.error(
-                    "renameFigure: \(item.title, privacy: .public)'s text could not be derived, so it is not relabelled")
+                // All or nothing: a piece whose references cannot be checked
+                // refuses the rename rather than be left unrelabelled.
+                unreadable.append(item.title)
                 continue
             }
             if let newLabel, change.old != newLabel, Self.definesLabel(text, newLabel) { labelTaken = true }
@@ -408,6 +412,7 @@ extension ProjectStore {
                 candidates.append((item.title, path))
             }
         }
+        guard unreadable.isEmpty else { throw FigureRenameRefused(reason: .unreadable(unreadable)) }
         guard !candidates.isEmpty else { return HeldFigureRelabel(change: change, manuscripts: []) }
         guard let newLabel else {
             throw FigureRenameRefused(reason: .notALabelName(change.newName))
@@ -432,6 +437,11 @@ extension ProjectStore {
         }
         return HeldFigureRelabel(change: change, manuscripts: held)
     }
+
+    /// Test seam: documents whose text `holdManuscriptsForFigureRelabel`
+    /// reads as underivable (an op log that will not read). Empty in
+    /// production.
+    static var figureRelabelReadFailsForTesting: Set<String> = []
 
     /// `text` with `change` made, or nil when it holds nothing to change.
     nonisolated static func relabelled(_ text: String, _ change: FigureLabelChange) -> String? {

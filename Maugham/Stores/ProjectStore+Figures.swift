@@ -22,6 +22,11 @@ extension ProjectStore {
     /// is put. Nil in production.
     static var beforeFigureRelabelWriteForTesting: (@MainActor (HeldFigureRelabel) async -> Void)?
 
+    /// Test seam: runs in `restoreRemovedFigure` after its path was found
+    /// free and before the Trash restores the file there — where a file
+    /// arriving meanwhile is put. Nil in production.
+    static var beforeFigureRestoreLandsForTesting: ((String) throws -> Void)?
+
     /// **Create a figure** and answer its registry record.
     ///
     /// 1. **The door first**: the figure's posture, asked of the class the new
@@ -349,12 +354,7 @@ extension ProjectStore {
         var trashed: TrashEntry?
         if !shared, let file = try? resolvedProjectPathToChange(record.path),
            FileManager.default.fileExists(atPath: file.path) {
-            let metadata = try JSONEncoder().encode(record)
-            trashed = try await documentStore.trash(
-                relativePath: record.path, using: trashStore,
-                itemMetadata: metadata,
-                originalParentId: nil, originalIndex: 0,
-                displayTitle: record.listTitle, subject: .figure)
+            trashed = try await trashFigureFile(of: record, at: record.path, documentStore: documentStore)
         }
         manifest.figures = (manifest.figures ?? []).filter { $0.id != id }
         manifest.modified = Date()
@@ -404,13 +404,45 @@ extension ProjectStore {
             throw FigureRestoreRefused(name: clash.name)
         }
         await trashStrayFigureFile(at: restored.path)
+        // The file lands at the record's path or the restore is refused: a
+        // record never names a file that is not the restored one.
+        let notLanded = ProjectStoreError.trashEntryNotRewirable(
+            title: removed.listTitle,
+            reason: "its file could not be put back at \(restored.path), so it was left in the Trash.")
+        if let file = try? resolvedProjectPathToChange(restored.path),
+           FileManager.default.fileExists(atPath: file.path) {
+            throw notLanded
+        }
+        try Self.beforeFigureRestoreLandsForTesting?(restored.path)
         let entry = try await trashStore.restore(trashId: entryId, to: restored.path)
         if let landed = entry.restoredRelativePath, landed != restored.path {
-            projectStoreLog.error(
-                "restoreRemovedFigure: \(removed.name, privacy: .public)'s file landed at \(landed, privacy: .public), not \(restored.path, privacy: .public)")
+            // Undone: the file goes back to the Trash with its record, so the
+            // figure can still come back once its path is free.
+            if let documentStore {
+                do {
+                    _ = try await trashFigureFile(of: removed, at: landed, documentStore: documentStore)
+                } catch {
+                    projectStoreLog.error(
+                        "restoreRemovedFigure: \(removed.name, privacy: .public)'s file landed at \(landed, privacy: .public) and could not go back to the Trash: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            throw notLanded
         }
         manifest.figures = (manifest.figures ?? []) + [restored]
         await documentStore?.renderFigures(changed: [restored.id])
+    }
+
+    /// A figure's file sent to the project Trash through the typed mover,
+    /// carrying `record` so a restore brings the figure back.
+    private func trashFigureFile(
+        of record: FigureRecord, at relativePath: String, documentStore: DocumentStore
+    ) async throws -> TrashEntry {
+        let metadata = try JSONEncoder().encode(record)
+        return try await documentStore.trash(
+            relativePath: relativePath, using: trashStore,
+            itemMetadata: metadata,
+            originalParentId: nil, originalIndex: 0,
+            displayTitle: record.listTitle, subject: .figure)
     }
 
     /// The file name an image figure's stream says its picture has, read
@@ -652,6 +684,9 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
         case notALabelName(String)
         /// The text already defines this label for something else.
         case labelTaken(String)
+        /// These pieces' text cannot be read, so whether they refer to the
+        /// figure cannot be checked.
+        case unreadable([String])
         /// These pieces hold the figure's line or a reference to it, and
         /// this Mac may not change their text.
         case piecesNotWritable([String])
@@ -671,6 +706,9 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
             return "\(name) can't be a label in the text: use letters, digits, - and _."
         case .labelTaken(let label):
             return "The text already uses the label \(label)."
+        case .unreadable(let titles):
+            return titles.joined(separator: ", ")
+                + " can't be read, so its references can't be checked."
         case .piecesNotWritable(let titles):
             return "Not renamed — this Mac may not change the text of "
                 + titles.joined(separator: ", ") + ", which refers to this figure."
