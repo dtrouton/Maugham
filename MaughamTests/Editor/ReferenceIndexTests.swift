@@ -470,7 +470,9 @@ final class ReferenceIndexTests: XCTestCase {
             "referenceIndex.labelsDefined(excluding: doc.docId)",
             // One listing of the ops directory per rebuild, off main (I2).
             "DerivedManuscriptCache.tokens(forDocIds: docIds, in: url)",
-            ".onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }",
+            // (The same watch also refills the figure cards, report plan 7a Task 3.)
+            ".onChange(of: store.manifest.research) { _, _ in\n"
+                + "            referenceIndex.invalidate(.research)\n",
             // The piece just left is read again from its flushed op log at the
             // switch itself, not only from the new mount's `.onAppear` (I1).
             "documentStore.unregister(path: priorPath)\n"

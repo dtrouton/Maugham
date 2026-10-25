@@ -278,20 +278,63 @@ final class FigureCardCacheTests: XCTestCase {
         withExtendedLifetime(projectStore) {}
     }
 
-    /// **Closing the window mid-fill**: the fill lands nowhere and leaves no
-    /// figure host open.
-    func test_closingTheWindowMidFillLandsNothingAndLeavesNoHost() async throws {
+    /// **The window closing before a scheduled fill runs**: the cache stays
+    /// attached, the store answers no inputs once its presenter is gone, so
+    /// the fill lands nothing — and it leaves no figure host open.
+    func test_aFillAfterTheWindowClosedLandsNothingAndLeavesNoHost() async throws {
         let (store, projectStore) = try await openWindow()
         _ = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
         let cache = FigureCardCache()
         attach(cache, to: store)   // the fill is scheduled, not yet run
         await store.close()
-        cache.attach(nil)
-        await cache.idle()
+        await cache.idle()          // still attached: only the nil inputs stop it
         XCTAssertEqual(cache.version, 0, "nothing landed")
+        XCTAssertNil(cache.model(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"),
+                     "not even a first fill")
         XCTAssertTrue(store.openFigures.isEmpty, "and no host was left open")
         let late = await store.figureCardInputs()
         XCTAssertNil(late, "a closed window answers no inputs")
         withExtendedLifetime(projectStore) {}
+    }
+
+    // MARK: - EditorHost's watches
+
+    /// The manifest watches in `EditorHost` whose closure must refill the
+    /// cards: the registry (a local create/rename/remove) and Research (a
+    /// pin's source moving its card's flag). Each answer names a fault.
+    static func watchFaults(in source: String) -> [String] {
+        ["store.manifest.figures", "store.manifest.research"].compactMap { key in
+            guard let start = source.range(of: ".onChange(of: \(key))") else {
+                return "no .onChange(of: \(key))"
+            }
+            let rest = source[start.upperBound...]
+            let body = rest.range(of: "\n        .").map { rest[..<$0.lowerBound] } ?? rest
+            return body.contains("figureCards.invalidate()")
+                ? nil : ".onChange(of: \(key)) does not refill the figure cards"
+        }
+    }
+
+    func test_editorHostRefillsTheCardsWhenTheRegistryOrResearchChanges() throws {
+        let source = try SourceTree.read("Maugham/Views/EditorHost.swift")
+        XCTAssertEqual(Self.watchFaults(in: source), [])
+    }
+
+    func test_theWatchCensusFiresOnAPlantedOffender() {
+        let planted = """
+                .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
+                .onChange(of: store.manifest.figures) { _, _ in figureCards.invalidate() }
+                .onAppear { }
+        """
+        XCTAssertEqual(Self.watchFaults(in: planted),
+                       [".onChange(of: store.manifest.research) does not refill the figure cards"])
+        let control = """
+                .onChange(of: store.manifest.research) { _, _ in
+                    referenceIndex.invalidate(.research)
+                    figureCards.invalidate()
+                }
+                .onChange(of: store.manifest.figures) { _, _ in figureCards.invalidate() }
+                .onAppear { }
+        """
+        XCTAssertEqual(Self.watchFaults(in: control), [])
     }
 }

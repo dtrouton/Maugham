@@ -353,7 +353,11 @@ struct EditorHost: View {
         // The reference index's two manifest inputs (plan 3b Task 1). Research
         // is not text; the binder decides publishing order. Neither reads the
         // text binding (tripwires 2, 6).
-        .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
+        // Research changing can move a figure's pin status (its card's flag).
+        .onChange(of: store.manifest.research) { _, _ in
+            referenceIndex.invalidate(.research)
+            figureCards.invalidate()
+        }
         .onChange(of: store.manifest.structure) { _, _ in referenceIndex.invalidate(.all) }
         // A figure made, renamed or removed here changes the registry
         // without a presenter pass.

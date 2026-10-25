@@ -337,9 +337,21 @@ extension DocumentStore {
     /// Costly (an assembly, trust, every source file): never from a view body
     /// or per frame — a surface caches what it derives on the host.
     func pinSources(for state: FigureState) async throws -> PinSources {
-        guard let manifest = projectStore?.manifest, let projectStore else { return PinSources() }
+        guard let manifest = projectStore?.manifest, projectStore != nil else { return PinSources() }
         let trust = try await figureTrust()
-        let assembled = assembledFigures(manifest: manifest, trust: trust)
+        return try await pinSources(
+            for: state, manifest: manifest, trust: trust,
+            assembled: assembledFigures(manifest: manifest, trust: trust))
+    }
+
+    /// `pinSources(for:)` over a caller's own trust table and assembly — one
+    /// fill of the window's figure cards asks every pinned figure's sources
+    /// over ONE resolution and ONE assembly (`figureCardInputs`).
+    private func pinSources(
+        for state: FigureState, manifest: ProjectManifest, trust: TrustTable,
+        assembled: FigureWorkbook
+    ) async throws -> PinSources {
+        guard let projectStore else { return PinSources() }
         let book = assembled.workbook
         let parkedTables = assembled.parked.reduce(into: [String: FigureTable]()) { out, id in
             if let table = book.tables[id] { out[id] = table }
@@ -473,7 +485,16 @@ extension DocumentStore {
         }
         var pinChanged = Set<String>()
         for (id, state) in states where !state.pins.isEmpty {
-            guard let sources = try? await pinSources(for: state) else { continue }
+            let sources: PinSources
+            do {
+                sources = try await pinSources(
+                    for: state, manifest: manifest, trust: trust, assembled: assembled)
+            } catch {
+                // Its card shows no changed-source flag until a fill reads them.
+                documentLog.error(
+                    "figure \(id, privacy: .public): its card's Research sources did not read: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let statuses = FigurePins.status(of: state, sources: sources).values
             if statuses.contains(where: { if case .sourceChanged = $0 { true } else { false } }) {
                 pinChanged.insert(id)

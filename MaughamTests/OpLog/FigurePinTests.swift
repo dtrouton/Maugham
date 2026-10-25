@@ -182,6 +182,37 @@ final class FigurePinTests: XCTestCase {
         await store.closeFigure(figureId: summary.id)
     }
 
+    /// **The window's figure cards flag a changed source, over ONE trust
+    /// resolution per fill** (report plan 7a Task 3 review): two figures pin
+    /// the same Research table; after it changes on disk both cards say so,
+    /// and the fill resolved trust once, not once per pinned figure.
+    func test_aCardFillFlagsEveryPinnedFigureOverOneTrustResolution() async throws {
+        let (store, projectStore) = try await openBook()
+        let (item, summary, host, _) = try await summaryReadingModel(store, projectStore)
+        let other = try await projectStore.createFigure(kind: .table, name: "other", piece: nil)
+        let otherHost = try await store.openFigure(figureId: other.id)
+        let names = FormulaNames(research: [(item.id, item.title)])
+        guard case .success(let f) = FormulaParser.parse("research:model!B3", in: otherHost.state.table, names: names)
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        try await otherHost.setCell(
+            Cell(content: .formula(f)),
+            at: CellKey(row: otherHost.state.table.rows[0], column: otherHost.state.table.columns[0]))
+        XCTAssertFalse(otherHost.state.pins.isEmpty, "precondition: the second figure pinned too")
+
+        let calm = await store.figureCardInputs()
+        XCTAssertEqual(calm?.pinChanged, [], "control: nothing changed yet")
+
+        try rewrite(try XCTUnwrap(item.path), "Year,Revenue\n2025,15\n2026,25\n")
+        let before = store.figureTrustResolutions
+        let read = await store.figureCardInputs()
+        let inputs = try XCTUnwrap(read)
+        XCTAssertEqual(inputs.pinChanged, [summary.id, other.id])
+        XCTAssertEqual(store.figureTrustResolutions - before, 1, "one trust resolution for the whole fill")
+        _ = host
+        await store.closeFigure(figureId: summary.id)
+        await store.closeFigure(figureId: other.id)
+    }
+
     /// **A formula's entry pins ride its edit's ⌘Z** (review rule 4): undo
     /// clears the cell and its pin together; redo takes the pin again.
     func test_undoOfAResearchFormulaRemovesItsEntryPin_andRedoTakesItAgain() async throws {
