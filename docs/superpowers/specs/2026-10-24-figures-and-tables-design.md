@@ -357,13 +357,13 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - The function set with Excel fixtures.
    - Number and date formats with localisation.
    - CSV render and import, with research CSVs' `=` cells.
-6. **Storage: figures in the op log.** Split by its surveys into 6a (the figure document: payload, class, deriver, cache, host, render, censuses, image figures), 6b (the whole-app synced-path checker and census, references by id, revive, rename/remove, Use in document, Send to Research and back, pins) and 6c (translations, research versions, checkpoint restore, promotion). Denver, 2026-10-24: every path from synced data reaches the disk through one checker; a figure in an unclaimed piece follows its piece's text posture exactly. Denver, 2026-10-24: a figure belongs to the piece it was created in — that piece's author and whole-book authors may edit it.
+6. **Storage: figures in the op log.** Split by its surveys into 6a (the figure document: payload, class, deriver, cache, host, render, censuses, image figures), 6b (the whole-app synced-path checker and census, references by id, revive, rename/remove, Use in document, Send to Research and back, pins) and 6c (checkpoint restore of figures; promotion re-creating figures). Denver, 2026-10-25: text-cell translations and Research version history move to plan 9, beside the publishing bodies, MCP tools and AI Research writes that use them; plan 7's card shows a body's label translations once they exist. Denver, 2026-10-24: every path from synced data reaches the disk through one checker; a figure in an unclaimed piece follows its piece's text posture exactly. Denver, 2026-10-24: a figure belongs to the piece it was created in — that piece's author and whole-book authors may edit it.
    - Figure document class, op kinds, schema 10, permits and censuses.
    - The `figures/` render.
    - Use in document / Send to Research through the typed mover.
    - Research pins, refresh and compare.
-   - Text-cell translations.
-   - Research version history for AI writes.
+   - Checkpoint restore of figures (contents only; parked figures skipped; renames, removals, figures created since and replaced pictures are out of reach of a checkpoint pointer).
+   - Promotion re-creates the piece's figures in the new project from their current state (ids kept, history stays in the Collection, as the manuscript's does).
 7. **Editor: card and in-place grid.**
    - Reserved space first.
    - Caption-bar styling.
@@ -372,6 +372,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - Undo hand-off.
    - Insert Table / Convert, grid-sheet retirement.
    - Cell suggestions.
+   - The card shows a body's text-cell translations once plan 9 stores them.
 8. **The Figures area.**
    - Tree section and folds.
    - Centre editor and inspector.
@@ -381,6 +382,8 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
 9. **Out to the world.**
    - Publishing (PDF, EPUB, Word) from figures, with localised formats and problems.
    - MCP tools and figure anchors.
+   - Text-cell translations (§8): the store and derivation keyed by (figure, row id, column id, language), a figure-aware translation permit class carrying the figure's piece, who writes them (translator and `write_translation`), coverage-gate membership, a body's emission, and the orphaned translations a removed figure leaves.
+   - Research version history (§10.1) with the AI Research-table tools — needs Denver's ruling against RULING-24 (research is recoverable but not versioned) and replaces the canvas Rewrite's Trash `.priorVersion` route.
    - Phone rendering.
    - Help and docs.
 
