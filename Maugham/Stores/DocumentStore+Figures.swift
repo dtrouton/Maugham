@@ -146,7 +146,6 @@ extension DocumentStore {
         await doc.close()
     }
 
-    /// The open figure for `figureId`, if this window holds one.
     /// A window's figure cards start hearing this store's figure triggers.
     func attachFigureCardCache(_ cache: FigureCardCache) {
         figureCardCaches.add(cache)
@@ -162,6 +161,7 @@ extension DocumentStore {
         for cache in figureCardCaches.allObjects { cache.invalidate() }
     }
 
+    /// The open figure for `figureId`, if this window holds one.
     func openFigure(forId figureId: String) -> FigureDocument? {
         openFigures[figureId].flatMap { $0.isClosed ? nil : $0 }
     }
