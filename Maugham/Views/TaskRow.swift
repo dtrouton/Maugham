@@ -53,9 +53,9 @@ struct TaskRow: View {
         // as a double-click, eating drag initiation throughout the row
         // interior — the writer could only drag from the row padding
         // (above/below the body), not from the body text. Jump-to-source
-        // moved to the source-badge icon (single click); double-click on
-        // the body text also jumps as a redundant affordance via
-        // `body_`'s own gesture.
+        // moved to the source-badge icon (single click). The body text
+        // carries no tap gesture either (tripwire 9): a double-tap there
+        // ate the single click that selects the row.
     }
 
     @ViewBuilder
@@ -66,8 +66,7 @@ struct TaskRow: View {
         switch task.kind {
         case .inlineMarkdown, .fountainBoneyard:
             text
-                .help("Edit the document text to change this task. Double-click to jump to source.")
-                .onTapGesture(count: 2) { onJump() }
+                .help("Edit the document text to change this task.")
         case .paneCreated:
             text
         }

@@ -12,31 +12,47 @@ extension TripwireGrepTests {
     /// comments and string contents blanked (`SourceTree.checkedMask`), index
     /// for index.
     struct MaskedFile {
+        /// `<root>/<relative path>`, as `SourceTree` spells it.
+        let path: String
         let name: String
         let raw: [String]
         let code: [String]
     }
 
-    /// Every `.swift` file under `roots`, masked. Dot-directories are skipped
-    /// by name.
+    /// Every `.swift` file under `roots`, masked, through
+    /// `SourceTree.maskedSources` — which THROWS on a root that is missing or
+    /// holds no Swift file, so a census can never pass over nothing.
     static func maskedFiles(in roots: [URL]) throws -> [MaskedFile] {
-        var files: [MaskedFile] = []
-        for root in roots {
-            guard let walker = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil) else { continue }
-            for case let url as URL in walker {
-                if url.lastPathComponent.hasPrefix(".") { walker.skipDescendants(); continue }
-                guard url.pathExtension == "swift" else { continue }
-                let text = try String(contentsOf: url, encoding: .utf8)
-                let masked = String(decoding: try SourceTree.checkedMask(text, path: url.path),
-                                    as: UTF8.self)
-                files.append(MaskedFile(
-                    name: url.lastPathComponent,
-                    raw: text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init),
-                    code: masked.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)))
+        try roots.flatMap { root in
+            try SourceTree.maskedSources(under: root.lastPathComponent,
+                                         base: root.deletingLastPathComponent())
+                .map { source in
+                    MaskedFile(
+                        path: source.path,
+                        name: (source.path as NSString).lastPathComponent,
+                        raw: source.text.split(separator: "\n", omittingEmptySubsequences: false)
+                            .map(String.init),
+                        code: String(decoding: source.masked, as: UTF8.self)
+                            .split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
+                }
+        }
+    }
+
+    /// Every `.swift` file under `roots`, raw: a census that reads string
+    /// literals has no use for a mask. Throws on an empty root, as above.
+    static func rawFiles(in roots: [URL]) throws -> [(name: String, raw: [String])] {
+        try roots.flatMap { root in
+            let base = root.deletingLastPathComponent()
+            let files = try SourceTree.swiftFiles(under: root.lastPathComponent, base: base)
+            guard !files.isEmpty else {
+                throw SourceTree.LookupError(description: "root '\(root.path)' holds no .swift file")
+            }
+            return try files.map { file in
+                ((file as NSString).lastPathComponent,
+                 try SourceTree.read(file, base: base)
+                    .split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
             }
         }
-        return files
     }
 
     /// `"<basename>:<line>: <raw text>"` for every CODE line of `files` that
@@ -96,6 +112,8 @@ extension TripwireGrepTests {
     /// declares**: a file declaring a type whose name contains `Completion` or
     /// `Autocomplet`, or a type conforming to `CompletionSource`. Every other
     /// file — an editor pop-out, a grid, an inspector — is outside this rule.
+    /// Narrow on purpose: the rule is about autocomplete, and an editor
+    /// pop-out (the report grid's, say) may legitimately be a popover.
     static func autocompleteFiles(_ files: [MaskedFile]) -> [MaskedFile] {
         files.filter { file in
             file.code.contains {
@@ -160,27 +178,67 @@ extension TripwireGrepTests {
         XCTAssertEqual(offenders.count, 2, offenders.joined(separator: "\n"))
     }
 
-    // MARK: - Tripwire 9: no .onTapGesture in a sidebar list
+    // MARK: - Tripwire 9: no tap gesture in a sidebar list
 
-    /// **The proxy**: a file that styles a list `.sidebar` declares no
-    /// `.onTapGesture` anywhere. A row view in a file of its own is NOT seen —
-    /// the census reads the file that holds the `List`, not every view the
-    /// list hosts.
-    static func sidebarTapGestureOffenders(in roots: [URL]) throws -> [String] {
-        let sidebarFiles = try maskedFiles(in: roots).filter { file in
+    /// The tap-gesture spellings `TreeTravelGestureAttachmentTests.tapGestureSpellings` measured
+    /// eating a sidebar row's click: `.onTapGesture` and a `TapGesture(` handed
+    /// to `.gesture`/`.simultaneousGesture`.
+    static let sidebarTapSpellings = [".onTapGesture", "TapGesture("]
+
+    /// **The proxy**: a file that styles a list `.sidebar` declares no tap
+    /// gesture, and neither does any `*Row` view type that file instantiates
+    /// — read by TYPE (`SourceTree.declarationRanges`), wherever it is
+    /// declared, so a row in a file of its own is seen. A row built by some
+    /// other name, or two hops away, is not.
+    static func sidebarTapGestureScope(in roots: [URL]) throws
+        -> (sidebarFiles: [MaskedFile], rowTypes: Set<String>, offenders: [String]) {
+        let files = try maskedFiles(in: roots)
+        let sidebarFiles = files.filter { file in
             file.code.contains { $0.contains(".listStyle(.sidebar)") || $0.contains("SidebarListStyle(") }
         }
-        return codeLineOffenders(sidebarFiles) { $0.contains(".onTapGesture") }
+        let rowPattern = try NSRegularExpression(pattern: #"\b([A-Z]\w*Row)\("#)
+        var rowTypes: Set<String> = []
+        for line in sidebarFiles.flatMap(\.code) {
+            for match in rowPattern.matches(in: line, range: NSRange(line.startIndex..., in: line)) {
+                if let range = Range(match.range(at: 1), in: line) { rowTypes.insert(String(line[range])) }
+            }
+        }
+        let isTap: (String) -> Bool = { line in sidebarTapSpellings.contains { line.contains($0) } }
+        var offenders = Set(codeLineOffenders(sidebarFiles, matches: isTap))
+        let byPath = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        for type in rowTypes.sorted() {
+            for root in roots {
+                let ranges = try SourceTree.declarationRanges(
+                    of: type, under: [root.lastPathComponent], base: root.deletingLastPathComponent())
+                for (path, lines) in ranges {
+                    guard let file = byPath[path] else { continue }
+                    for range in lines {
+                        for n in range where n - 1 < file.code.count && isTap(file.code[n - 1]) {
+                            offenders.insert(
+                                "\(file.name):\(n): \(file.raw[n - 1].trimmingCharacters(in: .whitespaces))")
+                        }
+                    }
+                }
+            }
+        }
+        return (sidebarFiles, rowTypes, offenders.sorted())
     }
 
-    /// **No `.onTapGesture` for clickable rows inside `List(.sidebar)`**
-    /// (tripwire 9): hit-testing is unreliable there and it costs the row its
-    /// single-click selection; use `Button(.plain)` or `List(selection:)`.
+    /// **No tap gesture for clickable rows inside `List(.sidebar)`**
+    /// (tripwire 9): hit-testing is unreliable there and a double-tap costs
+    /// the row its single-click selection; use `Button(.plain)` or
+    /// `List(selection:)`. The tree's own rows are censused file by file in
+    /// `TreeTravelGestureAttachmentTests.test_noTreeRowCarriesASwiftUITapGesture`.
     func test_noTapGestureInASidebarListFile() throws {
-        let offenders = try Self.sidebarTapGestureOffenders(in: SourceTree.productionRootURLs)
-        XCTAssertEqual(offenders, [],
-            "an `.onTapGesture` in a file holding a sidebar list (tripwire 9):\n"
-            + offenders.joined(separator: "\n"))
+        let scope = try Self.sidebarTapGestureScope(in: SourceTree.productionRootURLs)
+        let names = Set(scope.sidebarFiles.map(\.name))
+        XCTAssertTrue(names.isSuperset(of: ["BinderView.swift", "TasksPane.swift"]),
+            "the sidebar-list scope lost the panes it guards: \(names.sorted())")
+        XCTAssertTrue(scope.rowTypes.isSuperset(of: ["BinderRow", "TaskRow"]),
+            "the row types the sidebar lists build were not found: \(scope.rowTypes.sorted())")
+        XCTAssertEqual(scope.offenders, [],
+            "a tap gesture in a sidebar list or one of its row types (tripwire 9):\n"
+            + scope.offenders.joined(separator: "\n"))
     }
 
     func test_theSidebarTapGestureCensusFiresOnPlantedOffenders() throws {
@@ -188,19 +246,35 @@ extension TripwireGrepTests {
         try """
         struct Side: View {
             var body: some View {
-                List { Text("a").onTapGesture { open() } }
+                List { Text("a").onTapGesture { open() }; FancyRow(item: a) }
                     .listStyle(.sidebar)
                 // .onTapGesture in a comment
             }
         }
         """.write(to: dir.appendingPathComponent("Side.swift"), atomically: true, encoding: .utf8)
         try """
-        struct Plain: View {
-            var body: some View { Text("a").onTapGesture { open() } }
+        struct FancyRow: View {
+            var body: some View {
+                Text("b").simultaneousGesture(TapGesture(count: 2).onEnded { jump() })
+            }
         }
-        """.write(to: dir.appendingPathComponent("Plain.swift"), atomically: true, encoding: .utf8)
-        XCTAssertEqual(try Self.sidebarTapGestureOffenders(in: [dir]),
-                       [#"Side.swift:3: List { Text("a").onTapGesture { open() } }"#])
+        struct Plain: View {
+            var body: some View { Text("c").onTapGesture { open() } }
+        }
+        """.write(to: dir.appendingPathComponent("Rows.swift"), atomically: true, encoding: .utf8)
+        let scope = try Self.sidebarTapGestureScope(in: [dir])
+        XCTAssertEqual(scope.rowTypes, ["FancyRow"])
+        XCTAssertEqual(scope.offenders, [
+            #"Rows.swift:3: Text("b").simultaneousGesture(TapGesture(count: 2).onEnded { jump() })"#,
+            #"Side.swift:3: List { Text("a").onTapGesture { open() }; FancyRow(item: a) }"#,
+        ], "the sidebar file and its row type fire; a view the list does not build does not")
+    }
+
+    func test_aCensusOverAnEmptyRootThrows() throws {
+        let dir = try Self.plantedDir("empty-root")
+        XCTAssertThrowsError(try Self.maskedFiles(in: [dir]))
+        XCTAssertThrowsError(try Self.rawFiles(in: [dir]))
+        XCTAssertThrowsError(try Self.maskedFiles(in: [dir.appendingPathComponent("missing")]))
     }
 
     // MARK: - Tripwire 18: no d_ docId prefix
@@ -209,8 +283,7 @@ extension TripwireGrepTests {
     /// (`hasPrefix("d_")`). A docId carries its own prefix (`doc-`/`scene-`,
     /// ADR 0008) and no production code spells `d_` at all.
     static func docIdPrefixOffenders(in roots: [URL]) throws -> [String] {
-        let files = try maskedFiles(in: roots)
-        return files.flatMap { file in
+        try rawFiles(in: roots).flatMap { file in
             file.raw.indices.filter {
                 !file.raw[$0].trimmingCharacters(in: .whitespaces).hasPrefix("//")
                     && file.raw[$0].contains(#""d_"#)

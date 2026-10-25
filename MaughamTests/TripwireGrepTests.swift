@@ -3903,7 +3903,8 @@ final class TripwireGrepTests: XCTestCase {
     /// that is a `var`, `func` or `init` — the declaration's own brace — so a
     /// VStack in the caller of a factored helper is never mistaken for this
     /// one's. Returns its 1-based line, its text, and whether its own modifier
-    /// chain (closing brace to chain end) carries `.frame(… alignment: .top)`.
+    /// chain (closing brace to chain end) carries `.frame(… alignment: .top)`
+    /// (or `.topLeading`/`.topTrailing`: any top-anchored alignment).
     static func outermostEnclosingVStack(
         of index: Int, in lines: [String]
     ) -> (line: Int, text: String, topAligned: Bool)? {
@@ -3954,7 +3955,7 @@ final class TripwireGrepTests: XCTestCase {
         }
         let chain = lines[close...chainEnd].map(codeOnly).joined(separator: " ")
         let topAligned = chain.range(
-            of: #"\.frame\([^()]*alignment:\s*\.top\s*\)"#, options: .regularExpression) != nil
+            of: #"\.frame\([^()]*alignment:\s*\.top(Leading|Trailing)?\s*\)"#, options: .regularExpression) != nil
         return (start + 1, lines[start].trimmingCharacters(in: .whitespaces), topAligned)
     }
 
