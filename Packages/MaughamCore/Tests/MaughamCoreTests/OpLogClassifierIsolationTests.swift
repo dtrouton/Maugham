@@ -17,9 +17,10 @@ import XCTest
 ///
 /// Two pins: a MEASUREMENT taken inside the function (the mirror of
 /// `UnsignedDoorTests.test_theHeldLineWalkDoesNotRunOnTheMainThread`), and a
-/// census over the files the split created, so the next async function moved
-/// into one of them has to say where it runs. `OpLogClassifier` answers once,
-/// at type level, and is pinned by its own census below.
+/// census over the six files the split created, so the next async function
+/// moved into one of them has to say where it runs. `OpLogClassifier` is also
+/// `@MainActor` at type level, pinned by its own census below; its file stays
+/// in the list because a type nested in it does not inherit that attribute.
 @MainActor
 final class OpLogClassifierIsolationTests: XCTestCase {
     private var tmp: URL!
@@ -68,13 +69,13 @@ final class OpLogClassifierIsolationTests: XCTestCase {
 
     // MARK: - The census
 
-    /// The files plan 6 split out of `OpLogStore.swift` whose types are not
-    /// `@MainActor` themselves. Each began life on a `@MainActor` class.
-    /// `OpLogClassifier`, the sixth, is `@MainActor` at type level instead:
-    /// `test_theClassifierIsMainActorAtTypeLevel`.
+    /// The files plan 6 split out of `OpLogStore.swift`. Each began life on a
+    /// `@MainActor` class. `OpLogClassifier` is `@MainActor` at type level as
+    /// well (`test_theClassifierIsMainActorAtTypeLevel`), and stays here: a
+    /// type nested in it, or declared beside it, inherits nothing.
     private static let splitFiles = [
         "OpLogFiles", "StreamCensus", "StreamPositions",
-        "LocalWritePermitBuilder", "SegmentSealer",
+        "OpLogClassifier", "LocalWritePermitBuilder", "SegmentSealer",
     ]
 
     /// Async functions in those files allowed to run off the main actor, by

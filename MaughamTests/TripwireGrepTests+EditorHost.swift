@@ -42,7 +42,9 @@ extension TripwireGrepTests {
     /// routes the project-level side effects (and is itself what
     /// `EditorBindingSideEffectsTests` pins), and `WritingModeFactory.mode` picks
     /// a mode from the path's extension. Heavy work belongs behind a debounce.
-    static let editorBindingSetterCalls: Set<String> = ["setFullText", "recordEditorTextWrite", "mode"]
+    /// A multiset, sorted: each is called exactly once, so a second
+    /// `setFullText` — a second write of `displayText` — fails.
+    static let editorBindingSetterCalls = ["mode", "recordEditorTextWrite", "setFullText"]
 
     /// Attributes that are not property wrappers: a `@ViewBuilder var` is a
     /// computed view, not state.
@@ -58,11 +60,13 @@ extension TripwireGrepTests {
     /// What `EditorHost` declares, read from every declaration of it under
     /// `roots`: `bindings` is each place a `Binding` is made or named (a
     /// `Binding` token or a `$name` projection), `wrapped` each property-wrapped
-    /// member as `@<Wrapper> <name>`, and `setterCalls` every callee in the
+    /// member as `@<Wrapper> <name>`, `setterAssignments` every assignment
+    /// target in the setter (a `let`/`var` binding is not one), and
+    /// `setterCalls` every callee in the
     /// `set:` closure of the `Binding(get:set:)`. Throws when nothing declares
     /// `EditorHost`, so the census cannot pass over nothing.
     static func editorHostCensus(roots: [String], base: URL) throws
-        -> (bindings: [String], wrapped: [String], setterCalls: [String]) {
+        -> (bindings: [String], wrapped: [String], setterCalls: [String], setterAssignments: [String]) {
         let ranges = try SourceTree.declarationRanges(of: "EditorHost", under: roots, base: base)
         guard !ranges.isEmpty else {
             throw SourceTree.LookupError(description: "no declaration of EditorHost under \(roots)")
@@ -93,6 +97,7 @@ extension TripwireGrepTests {
 
         // The setter: the `{` after `set:` in a `Binding(`, to its matching `}`.
         var setterCalls: [String] = []
+        var setterAssignments: [String] = []
         let chars = Array(joined)
         for bindingOpen in try NSRegularExpression(pattern: #"\bBinding\s*\("#)
             .matches(in: joined, range: NSRange(joined.startIndex..., in: joined))
@@ -110,8 +115,14 @@ extension TripwireGrepTests {
             // A call is a name followed by `(` or by a trailing closure's `{`.
             setterCalls += try matches(#"\b([A-Za-z_]\w*)\s*[({]"#, in: body, group: 1)
                 .filter { !swiftKeywordsBeforeABrace.contains($0) }
+            // An assignment is `name =` or `name op=`, never `==`/`!=`/`<=`/`>=`;
+            // a `let`/`var` binding is dropped first.
+            let unbound = body.replacingOccurrences(
+                of: #"\b(?:let|var)\s+[A-Za-z_]\w*(?:\s*:\s*[^=]+)?\s*="#, with: " ",
+                options: .regularExpression)
+            setterAssignments += try matches(#"\b([A-Za-z_][\w.]*)\s*[-+*/]?=(?!=)"#, in: unbound, group: 1)
         }
-        return (bindings, wrapped, setterCalls)
+        return (bindings, wrapped, setterCalls, setterAssignments)
     }
 
     /// **`EditorHost` makes exactly one `Binding`, and every observable it
@@ -132,19 +143,24 @@ extension TripwireGrepTests {
             + "A new one is a parallel observable until its reason is written there; a removed one leaves its entry.")
     }
 
-    /// **The text binding's setter calls only `editorBindingSetterCalls`**
-    /// (tripwire 3): heavy work in a synchronous binding setter caused the
-    /// trailing-space autosave, the async restore and the stale-text loop.
-    /// Equality, not a subset, so a census that stopped finding the setter fails.
+    /// **The text binding's setter calls only `editorBindingSetterCalls`, each
+    /// once, and assigns nothing** (tripwires 3 and 6): heavy work in a
+    /// synchronous binding setter caused the trailing-space autosave, the async
+    /// restore and the stale-text loop, and a setter writing a member
+    /// (`lastWrittenText = newText`) was the triad's own shape. Equality, not a
+    /// subset, so a census that stopped finding the setter fails.
     func test_theEditorBindingSetterCallsOnlyTheAllowListedFunctions() throws {
         let census = try Self.editorHostCensus(roots: SourceTree.productionRoots, base: SourceTree.repoRoot)
-        XCTAssertEqual(Set(census.setterCalls), Self.editorBindingSetterCalls,
+        XCTAssertEqual(census.setterCalls.sorted(), Self.editorBindingSetterCalls,
             "EditorHost's Binding setter calls \(census.setterCalls) (tripwire 3) — read docs/tripwires.md row 3")
+        XCTAssertEqual(census.setterAssignments, [],
+            "EditorHost's Binding setter assigns \(census.setterAssignments) (tripwire 6) — read docs/tripwires.md row 6")
     }
 
     /// The census against a planted tree: a second `Binding`, a `$` projection,
     /// an unlisted `@State` in an extension in another file, and a setter that
-    /// calls more than the list are each seen; a comment, a string, a
+    /// calls more than the list, writes `displayText` twice or assigns a
+    /// member are each seen; a comment, a string, a
     /// `StatementEditorHost` and an `EditorHostLoadGeneration` are not.
     func test_theEditorHostCensusFiresOnPlantedOffenders() throws {
         let base = try SourceTree.plantedTree([
@@ -162,6 +178,9 @@ extension TripwireGrepTests {
                             set: { newText in
                                 guard let doc = document else { return }
                                 doc.setFullText(newText)
+                                doc.setFullText(newText)
+                                lastWrittenText = newText
+                                if newText != "" && count >= 1 { let n: Int = 1; var m = n; m += 1 }
                                 Task { await autosave(newText) }
                                 restyle(newText)
                             }),
@@ -190,9 +209,13 @@ extension TripwireGrepTests {
         XCTAssertEqual(census.wrapped.sorted(),
                        ["@Bindable store", "@State document", "@State lastWrittenText"],
             "Self-check: wrapped members from the struct and its extension, never a comment or another type")
-        XCTAssertEqual(Set(census.setterCalls).subtracting(Self.editorBindingSetterCalls),
-                       ["Task", "autosave", "restyle"],
-            "Self-check: a trailing-closure call, a call inside it and a plain call are seen; `guard … else {` is not")
+        XCTAssertEqual(census.setterCalls.sorted(),
+                       ["Task", "autosave", "restyle", "setFullText", "setFullText"],
+            "Self-check: a trailing-closure call, a call inside it, a plain call and a doubled "
+            + "setFullText are seen; `guard … else {` and `if … {` are not")
+        XCTAssertEqual(census.setterAssignments, ["lastWrittenText", "m"],
+            "Self-check: a member write and a compound assignment are seen; `!=`, `>=`, `==` "
+            + "and `let`/`var` bindings are not")
         XCTAssertThrowsError(try Self.editorHostCensus(
             roots: ["Maugham"], base: try SourceTree.plantedTree(["Maugham/Other.swift": "struct Other {}"])),
             "Self-check: no EditorHost must throw, not pass")
