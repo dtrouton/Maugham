@@ -52,7 +52,7 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `MaughamCore.TreeWalk` | 61 | 0% | — | `07-summary.md` |
 | `MaughamCore.PaletteCardParser` | 47 | 34% | 16 reached | `07-summary.md` |
 | `MaughamCore.PaletteCardModel` | 40 | 40% | 16 reached | `07-summary.md` |
-| `Stores/TrashStore` + `ProjectStore+Trash` | 64 | 66% | 42 / 0 | `22-trash-reconciliation.md` |
+| `Stores/TrashStore` + `ProjectStore+Trash` | 65 | 65% | 42 / 0 | `22-trash-reconciliation.md` |
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 35 | 60% | 21 / 0 | `24-rewind-reconciliation.md` |
 | `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 61 | 41% | 25 / 0 | `28-annotations-reconciliation.md` |
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
@@ -60,7 +60,7 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
 | `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 17 | 100% | 17 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 278 further claims in their own files. **447 claims in the experiment, 426 reconciled.** The app layer stands at **176 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 279 further claims in their own files. **448 claims in the experiment, 427 reconciled.** The app layer stands at **176 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests (`core-tests`/`behavioural-claims`) — not under `Claims/`.
 

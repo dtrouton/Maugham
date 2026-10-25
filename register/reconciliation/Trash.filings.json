@@ -734,13 +734,18 @@
   }
  },
  {
+  "claim_id": "M3-TR-065",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A figure's removal and restore (report plan 6b Task 5) rest on the plan's ruling P-3 and Denver's review ruling that a taken name refuses the restore, neither of which is a register ruling yet. RULING-4 is the nearest (recovery where the writer would look) and is not contradicted: the record comes back under its own name, or the entry stays in the Trash."
+ },
+ {
   "_summary": {
    "reached": 42,
    "complies": 42,
    "violates": 0,
-   "no_ruling": 22,
-   "total": 64,
-   "coverage": "66%",
+   "no_ruling": 23,
+   "total": 65,
+   "coverage": "65%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",

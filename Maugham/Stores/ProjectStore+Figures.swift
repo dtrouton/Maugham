@@ -17,6 +17,11 @@ extension ProjectStore {
     /// prove a failed append leaves no registry record. Nil in production.
     static var beforeFigureAppendForTesting: ((Op) throws -> Void)?
 
+    /// Test seam: runs in `renameFigure` after the record is saved and before
+    /// the held manuscripts are relabelled — where a door closing meanwhile
+    /// is put. Nil in production.
+    static var beforeFigureRelabelWriteForTesting: (@MainActor (HeldFigureRelabel) async -> Void)?
+
     /// **Create a figure** and answer its registry record.
     ///
     /// 1. **The door first**: the figure's posture, asked of the class the new
@@ -276,7 +281,7 @@ extension ProjectStore {
                 try await renameImageFileThroughHost(figureId: id, to: (newPath as NSString).lastPathComponent)
             }
         } catch {
-            await relabel?.abandon()
+            await relabel?.release()
             throw error
         }
         var renamed = record
@@ -285,11 +290,28 @@ extension ProjectStore {
         do {
             try await replaceFigureRecord(renamed)
         } catch {
-            if record.kind == .image {
-                try? await renameImageFileThroughHost(figureId: id, to: (record.path as NSString).lastPathComponent)
-            }
-            await relabel?.abandon()
+            await putBackImageFile(of: record, figureId: id)
+            await relabel?.release()
             throw error
+        }
+        // The text straight after the record, with nothing awaited between
+        // the documents: all of them or none (`HeldFigureRelabel.write`). A
+        // document that stopped being writable since it was held refuses the
+        // whole rename, and the record and the picture go back too.
+        if let relabel {
+            if let hook = Self.beforeFigureRelabelWriteForTesting { await hook(relabel) }
+            do {
+                _ = try relabel.write()
+            } catch {
+                do { try await replaceFigureRecord(record) } catch {
+                    projectStoreLog.error(
+                        "renameFigure: the record could not be put back after a refused relabel: \(error.localizedDescription, privacy: .public)")
+                }
+                await putBackImageFile(of: record, figureId: id)
+                await relabel.release()
+                throw error
+            }
+            await relabel.release()
         }
         let sharers = (manifest.figures ?? []).filter {
             $0.id != id && $0.path.lowercased() == record.path.lowercased()
@@ -298,7 +320,6 @@ extension ProjectStore {
             await moveTableRender(from: record.path, to: newPath, documentStore: documentStore)
         }
         await documentStore.renderFigures(changed: Set([id] + sharers.map(\.id)))
-        await relabel?.apply()
         return renamed
     }
 
@@ -349,32 +370,89 @@ extension ProjectStore {
     }
 
     /// **A removed figure, back from the Trash** (`restoreTrashEntry`'s
-    /// `.figure` route): its record returns under the name it had — or the
-    /// next vacant one, when another figure took it meanwhile — behind the
-    /// door a new figure asks of its piece. A table's render lands at its
-    /// record's path and is rendered; an image's picture lands at its old
-    /// path, beside anything there since. The caller saves the manifest.
+    /// `.figure` route): its record returns under the name it had, behind the
+    /// door a new figure asks of its piece — so the text's label for it reads
+    /// again. **A name another figure now has refuses the restore**
+    /// (`FigureRestoreRefused`): it is never brought back under another name,
+    /// which would leave its label broken. Its file lands where the record and
+    /// the op log say — an image keeps its stream's file name — and anything
+    /// standing there since goes to the Trash first (`trashStrayFigureFile`),
+    /// so the stream and the file agree. The caller saves the manifest.
     func restoreRemovedFigure(_ removed: FigureRecord, entryId: String) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard manifest.figures?.contains(where: { $0.id == removed.id }) != true else {
             throw ProjectStoreError.trashEntryNotRewirable(
                 title: removed.listTitle, reason: "the figure is already in the book.")
         }
+        if let clash = (manifest.figures ?? []).first(where: {
+            $0.name.lowercased() == removed.name.lowercased()
+                || $0.path.lowercased() == removed.path.lowercased()
+        }) {
+            throw FigureRestoreRefused(name: clash.name)
+        }
         let opStore = Document.makeLoadOpStore(projectURL: url, presenter: documentStore?.presenter)
         try await requireNewFigurePermitted(
             figureId: removed.id, piece: removed.piece, opStore: opStore, site: "restoreRemovedFigure")
-        let name = vacantFigureName(basedOn: removed.name, kind: removed.kind)
         var restored = removed
-        restored.name = name
-        if removed.kind == .table {
-            restored.path = Self.figurePath(name: name, kind: .table)
+        if removed.kind == .image, let filename = await imageFilename(ofFigure: removed.id),
+           SafeRelativePath.isPlainFileName(filename) {
+            restored.path = "\(Self.figuresFolder)/\(filename)"
         }
+        if let clash = (manifest.figures ?? []).first(where: {
+            $0.path.lowercased() == restored.path.lowercased()
+        }) {
+            throw FigureRestoreRefused(name: clash.name)
+        }
+        await trashStrayFigureFile(at: restored.path)
         let entry = try await trashStore.restore(trashId: entryId, to: restored.path)
-        if removed.kind != .table, let landed = entry.restoredRelativePath {
-            restored.path = landed
+        if let landed = entry.restoredRelativePath, landed != restored.path {
+            projectStoreLog.error(
+                "restoreRemovedFigure: \(removed.name, privacy: .public)'s file landed at \(landed, privacy: .public), not \(restored.path, privacy: .public)")
         }
         manifest.figures = (manifest.figures ?? []) + [restored]
         await documentStore?.renderFigures(changed: [restored.id])
+    }
+
+    /// The file name an image figure's stream says its picture has, read
+    /// windowless (nothing renders); nil when it has none or will not read.
+    private func imageFilename(ofFigure figureId: String) async -> String? {
+        guard let doc = try? await FigureDocument.load(
+            figureId: figureId, projectURL: url, actor: .author,
+            session: "restore", presenter: nil, documentStore: nil) else { return nil }
+        let name = doc.state.image?.filename
+        await doc.close()
+        return name
+    }
+
+    /// **A file standing where a figure's file is about to be written goes to
+    /// the project Trash first**, through the typed mover — a hand-placed or
+    /// stray file is never overwritten or set beside unlisted. It is
+    /// Maugham's safety copy of a file it is about to write over
+    /// (`.internalArtifact`). Best-effort: a failure is logged.
+    private func trashStrayFigureFile(at relativePath: String) async {
+        guard let documentStore, let file = try? resolvedProjectPathToChange(relativePath),
+              FileManager.default.fileExists(atPath: file.path) else { return }
+        do {
+            _ = try await documentStore.trash(
+                relativePath: relativePath, using: trashStore,
+                itemMetadata: Data("{}".utf8), originalParentId: nil, originalIndex: 0,
+                displayTitle: (relativePath as NSString).lastPathComponent, subject: .internalArtifact)
+        } catch {
+            projectStoreLog.error(
+                "a stray file at \(relativePath, privacy: .public) could not go to the Trash: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// A refused rename's picture, put back under the name the record keeps.
+    private func putBackImageFile(of record: FigureRecord, figureId: String) async {
+        guard record.kind == .image else { return }
+        do {
+            try await renameImageFileThroughHost(
+                figureId: figureId, to: (record.path as NSString).lastPathComponent)
+        } catch {
+            projectStoreLog.error(
+                "renameFigure: the picture could not be put back: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// The path `record` takes under `name`, or a refusal: the name another
@@ -445,26 +523,20 @@ extension ProjectStore {
     }
 
     /// A renamed table's render, moved to its new file through the typed
-    /// mover; the render pass that follows writes it fresh. Best-effort: the
-    /// render is derived, so a failure is logged, never a refusal. An old
-    /// file already gone is nothing to move; a new file already there takes
-    /// the render, and the old one goes to the Trash.
+    /// mover; the render pass that follows writes it fresh. A file already
+    /// standing at the new path goes to the Trash first
+    /// (`trashStrayFigureFile`), never overwritten. Best-effort: the render is
+    /// derived, so a failure is logged, never a refusal. An old file already
+    /// gone is nothing to move.
     private func moveTableRender(from oldPath: String, to newPath: String, documentStore: DocumentStore) async {
-        guard let oldFile = FigureRender.renderPath(of: FigureRecord(
-                  id: "", name: "", kind: .table, piece: nil, path: oldPath)),
-              let from = try? resolvedProjectPathToChange(oldFile),
-              let to = try? resolvedProjectPathToChange(newPath),
-              FileManager.default.fileExists(atPath: from.path) else { return }
+        guard let from = try? resolvedProjectPathToChange(oldPath),
+              let to = try? resolvedProjectPathToChange(newPath) else { return }
+        if from.path.lowercased() != to.path.lowercased() {
+            await trashStrayFigureFile(at: newPath)
+        }
+        guard FileManager.default.fileExists(atPath: from.path) else { return }
         do {
-            if from.path.lowercased() != to.path.lowercased(),
-               FileManager.default.fileExists(atPath: to.path) {
-                _ = try await documentStore.trash(
-                    relativePath: oldFile, using: trashStore,
-                    itemMetadata: Data("{}".utf8), originalParentId: nil, originalIndex: 0,
-                    displayTitle: (oldFile as NSString).lastPathComponent, subject: .internalArtifact)
-            } else {
-                try await documentStore.moveFigureFile(from: from, to: to)
-            }
+            try await documentStore.moveFigureFile(from: from, to: to)
         } catch {
             projectStoreLog.error(
                 "renameFigure: the old render \(oldPath, privacy: .public) was not moved: \(error.localizedDescription, privacy: .public)")
@@ -603,5 +675,16 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
             return "Not renamed — this Mac may not change the text of "
                 + titles.joined(separator: ", ") + ", which refers to this figure."
         }
+    }
+}
+
+/// **A removed figure that cannot come back under its own name** (report plan
+/// 6b Task 5 review, Denver's ruling): another figure took the name, or its
+/// file, meanwhile. The restore is refused rather than given another name,
+/// which would leave the text's label for it broken.
+public struct FigureRestoreRefused: LocalizedError, Equatable {
+    public let name: String
+    public var errorDescription: String? {
+        "A figure called \(name) already exists; rename it first."
     }
 }

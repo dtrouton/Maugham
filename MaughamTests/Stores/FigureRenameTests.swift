@@ -136,6 +136,17 @@ final class FigureRenameTests: XCTestCase {
         return FormulaParser.render(f, in: table, names: names)
     }
 
+    /// Runs `body` with the project folder read-only, so `saveManifest`'s
+    /// temporary file cannot be made — the disk's own failure, not a seam.
+    /// Its subfolders stay writable.
+    private func withUnwritableProjectFolder(_ body: () async throws -> Void) async throws {
+        let fm = FileManager.default
+        let original = try XCTUnwrap(fm.attributesOfItem(atPath: projectURL.path)[.posixPermissions] as? NSNumber)
+        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: projectURL.path)
+        defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: projectURL.path) }
+        try await body()
+    }
+
     /// A real PNG outside the project, of one colour.
     private func png(_ name: String, _ color: NSColor) throws -> URL {
         let dir = TestTemp.root.appendingPathComponent("figrename-png-\(UUID().uuidString)")
@@ -241,6 +252,76 @@ final class FigureRenameTests: XCTestCase {
         XCTAssertEqual(renamed.path, "figures/Cash.csv")
         let names = try FileManager.default.contentsOfDirectory(atPath: file("figures").path)
         XCTAssertEqual(names.filter { !$0.hasPrefix(".") }, ["Cash.csv"])
+    }
+
+    /// **A file standing at the renamed table's new render path goes to the
+    /// Trash first**, never overwritten unlisted.
+    func test_aStrayFileAtTheNewRenderPathGoesToTheTrashFirst() async throws {
+        let (store, projectStore) = try await openBook()
+        let (cash, _, _) = try await cashAndTotal(store, projectStore)
+        try "my own notes\n".write(to: file("figures/costs.csv"), atomically: true, encoding: .utf8)
+
+        _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+
+        XCTAssertEqual(try csv("figures/costs.csv"), "5,,\n,,\n,,\n")
+        let kept = try await projectStore.trashStore.entriesIncludingInternal()
+        let stray = try XCTUnwrap(kept.first { $0.subject == .internalArtifact && $0.displayTitle == "costs.csv" })
+        let trashed = try XCTUnwrap(projectStore.trashStore.entryFileURL(trashId: stray.id))
+        XCTAssertEqual(try String(contentsOf: trashed, encoding: .utf8), "my own notes\n")  // adr-0018-ok: test reads the trashed stray file
+    }
+
+    /// **A failed save puts a rename back**: the picture is moved back and
+    /// the stream names its old file again; the record, the text and the
+    /// files are as they were.
+    func test_aRenameWhoseSaveFailsPutsThePictureBackAndWritesNoText() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { withExtendedLifetime(store) {} }
+        let image = try await projectStore.createImageFigure(
+            fromURL: try png("map.png", .red), name: "map", piece: nil)
+        let a = try await Document.load(url: chapter("a"), actor: .author, session: "t", presenter: nil)
+        a.setFullText("![Map](../figures/map.png){#fig:map}")
+        await a.close()
+
+        try await withUnwritableProjectFolder {
+            do {
+                _ = try await projectStore.renameFigure(id: image.id, to: "chart")
+                XCTFail("the save did not fail")
+            } catch let error as ProjectStoreError {
+                guard case .manifestUnwritable = error else { return XCTFail("\(error)") }
+            }
+        }
+        XCTAssertEqual(projectStore.manifest.figures, [image])
+        XCTAssertTrue(exists("figures/map.png"))
+        XCTAssertFalse(exists("figures/chart.png"))
+        let last = try OpLogStore.loadSyncMerged(forDocId: image.id, in: projectURL, facts: .empty)
+            .compactMap { $0.figure?.image }.last
+        XCTAssertEqual(last?.filename, "map.png", "the stream names the old file again")
+        let text = try await text("a")
+        XCTAssertEqual(text, "![Map](../figures/map.png){#fig:map}")
+    }
+
+    /// **A manuscript whose door closed after it was held refuses the whole
+    /// rename** (M1): A is written first, B refuses at the write, so A is put
+    /// back and the record goes back too — nothing changed.
+    func test_aDoorClosingAfterTheHoldRefusesTheWholeRenameAndPutsEverythingBack() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        let (cash, total, t1) = try await cashAndTotal(store, projectStore)
+        let before = try await snapshot(store, projectStore, total: total, cell: t1)
+        ProjectStore.beforeFigureRelabelWriteForTesting = { held in
+            if let b = held.manuscripts.first(where: { $0.title == "B" }) { await b.manuscript.doc.close() }
+        }
+        defer { ProjectStore.beforeFigureRelabelWriteForTesting = nil }
+
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+            XCTFail("the rename was not refused")
+        } catch let refused as FigureRenameRefused {
+            XCTAssertEqual(refused.reason, .piecesNotWritable(["B"]))
+        }
+        ProjectStore.beforeFigureRelabelWriteForTesting = nil
+        let after = try await snapshot(store, projectStore, total: total, cell: t1)
+        XCTAssertEqual(after, before, "registry, files, text and formulas are all as they were")
     }
 
     // MARK: - Review Focus 4: refused, nothing changed
@@ -399,7 +480,9 @@ final class FigureRenameTests: XCTestCase {
 
     /// **Removing a figure sends its CSV to the Trash** carrying its record;
     /// the record leaves the registry, the stream stays, and restoring the
-    /// entry brings the figure back, rendered.
+    /// entry brings the figure back, rendered. Pins claim M3-TR-065
+    /// (`register/reconciliation/Trash.claims.json`); its refusal half is
+    /// `test_aRestoreWhoseNameIsNowTakenIsRefusedAndTheEntryStays`.
     func test_removeSendsTheCSVToTrash_andARestoreBringsTheFigureBack() async throws {
         let (store, projectStore) = try await openBook()
         let (cash, total, _) = try await cashAndTotal(store, projectStore)
@@ -420,6 +503,79 @@ final class FigureRenameTests: XCTestCase {
         XCTAssertEqual(try csv("figures/cash.csv"), "5,,\n,,\n,,\n", "back, and rendered from its stream")
     }
 
+    /// **A restore whose name another figure now has is refused**, naming
+    /// it — never brought back as `cash_2`, which would leave the text's
+    /// `tbl:cash` broken — and the entry stays in the Trash.
+    func test_aRestoreWhoseNameIsNowTakenIsRefusedAndTheEntryStays() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try await projectStore.removeFigure(id: cash.id)
+        let listed = try await projectStore.trashStore.list()
+        let entry = try XCTUnwrap(listed.first { $0.subject == .figure })
+        let newcomer = try await projectStore.createFigure(kind: .table, name: "Cash", piece: nil)
+
+        do {
+            try await projectStore.restoreTrashEntry(id: entry.id)
+            XCTFail("the restore was not refused")
+        } catch let refused as FigureRestoreRefused {
+            XCTAssertEqual(refused.name, "Cash")
+            XCTAssertEqual(refused.localizedDescription, "A figure called Cash already exists; rename it first.")
+        }
+        XCTAssertEqual(projectStore.manifest.figures, [newcomer])
+        let still = try await projectStore.trashStore.list()
+        XCTAssertTrue(still.contains { $0.id == entry.id }, "the entry is still in the Trash")
+    }
+
+    /// **A restored image keeps its stream's file name, and a stray file at
+    /// that path goes to the Trash first**: the op log and the file agree, so
+    /// the restored figure's next Replace Picture writes its own file.
+    func test_anImageRestoreTrashesAStrayFileAndKeepsItsStreamsFileName() async throws {
+        let (store, projectStore) = try await openBook()
+        let image = try await projectStore.createImageFigure(
+            fromURL: try png("map.png", .red), name: "map", piece: nil)
+        let original = try Data(contentsOf: file("figures/map.png"))
+        try await projectStore.removeFigure(id: image.id)
+        let listed = try await projectStore.trashStore.list()
+        let entry = try XCTUnwrap(listed.first { $0.subject == .figure })
+        try Data("not a picture".utf8).write(to: file("figures/map.png"))
+
+        try await projectStore.restoreTrashEntry(id: entry.id)
+
+        XCTAssertEqual(projectStore.manifest.figures?.first { $0.id == image.id }?.path, "figures/map.png")
+        XCTAssertEqual(try Data(contentsOf: file("figures/map.png")), original, "its own picture is back at its own name")
+        let kept = try await projectStore.trashStore.entriesIncludingInternal()
+        XCTAssertTrue(kept.contains { $0.subject == .internalArtifact && $0.displayTitle == "map.png" },
+                      "the stray file went to the Trash, not overwritten")
+        let names = try FileManager.default.contentsOfDirectory(atPath: file("figures").path)
+        XCTAssertEqual(names.filter { !$0.hasPrefix(".") }, ["map.png"], "nothing landed beside it")
+        let doc = try await store.openFigure(figureId: image.id)
+        XCTAssertEqual(doc.state.image?.filename, "map.png")
+        await store.closeFigure(figureId: image.id)
+    }
+
+    /// **A failed save puts a remove back**: the record stays, the CSV comes
+    /// back from the Trash, and no figure entry is left there.
+    func test_aRemoveWhoseSaveFailsPutsTheFileAndRecordBack() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try FileManager.default.createDirectory(at: file(".trash"), withIntermediateDirectories: true)
+
+        try await withUnwritableProjectFolder {
+            do {
+                try await projectStore.removeFigure(id: cash.id)
+                XCTFail("the save did not fail")
+            } catch let error as ProjectStoreError {
+                guard case .manifestUnwritable = error else { return XCTFail("\(error)") }
+            }
+        }
+        XCTAssertEqual(projectStore.manifest.figures, [cash])
+        XCTAssertTrue(exists("figures/cash.csv"), "the CSV came back from the Trash")
+        let entries = try await projectStore.trashStore.list()
+        XCTAssertFalse(entries.contains { $0.subject == .figure })
+    }
+
     // MARK: - renderFigures' early exits
 
     /// **A pass that renders nothing leaves no stale lists**: with no figures
@@ -432,6 +588,30 @@ final class FigureRenameTests: XCTestCase {
 
         await store.renderFigures(changed: [])
 
+        XCTAssertEqual(store.lastParkedFigures, [])
+        XCTAssertTrue(store.lastUnreadableFigures.isEmpty)
+    }
+
+    /// **A pass whose registry will not read leaves no stale lists** either:
+    /// the registry's people folder is unreadable, the trust resolution
+    /// throws, and the last pass's lists are cleared.
+    func test_aPassWhoseRegistryWillNotReadClearsTheParkedAndUnreadableLists() async throws {
+        let (store, projectStore) = try await openBook()
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try "edited,in,Excel\n".write(to: file(cash.path), atomically: true, encoding: .utf8)
+        let people = file(".maugham/people")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: people.path), "precondition: the book has a registry")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: people.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: people.path) }
+        Document.registryCacheForTesting = RegistryCache(
+            fileURL: file("registry-cache-2.json"),
+            identity: Document.loadIdentities.author.fingerprint)
+        store.lastParkedFigures = ["fig-0a1b2c3d"]
+        store.lastUnreadableFigures = [("cash", "unreadable")]
+
+        await store.renderFigures(changed: [cash.id])
+
+        XCTAssertEqual(try csv(cash.path), "edited,in,Excel\n", "precondition: the pass stopped at the registry")
         XCTAssertEqual(store.lastParkedFigures, [])
         XCTAssertTrue(store.lastUnreadableFigures.isEmpty)
     }

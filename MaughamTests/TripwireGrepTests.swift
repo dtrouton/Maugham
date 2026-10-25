@@ -12259,9 +12259,10 @@ final class TripwireGrepTests: XCTestCase {
     ///   pieces and statements: `sweepMayWrite` (the settled posture) before any
     ///   load and the Document's stamp before the write; skipped and NAMED
     ///   (ruling AH).
-    /// - `ProjectStore+Search.swift` × 4 — `replaceMatch`/`replaceAll` →
+    /// - `ProjectStore+Search.swift` × 5 — `replaceMatch`/`replaceAll` →
     ///   `replaceInManuscript` → `setFullText`, and a figure rename's relabel
-    ///   (`HeldFigureRelabel.apply`'s `setFullText`): each document is held
+    ///   (`HeldFigureRelabel.write`'s `setFullText`, and `unwrite`'s, which
+    ///   puts back what `write` wrote when one document refuses): each document is held
     ///   through `openManuscriptForWriting` — the settled posture before any
     ///   load and the Document's stamp before the write; Replace All skips and
     ///   names (ruling AI); a rename refuses whole, naming every piece, before
@@ -12345,7 +12346,7 @@ final class TripwireGrepTests: XCTestCase {
         "StatementEditorHost.swift": ["setFullText(": 2],
         "ProjectStore+Statements.swift": ["setFullText(": 1],
         "ProjectStore+Structure.swift": ["setFullText(": 2],
-        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 2],
+        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 3],
         "ProjectSearchView.swift": ["replaceMatch(": 1, "replaceAll(": 1],
         "Document+Rewind.swift": ["applyRestore(": 1, "buildRestoreOp(": 1],
         "Document+RewindUndo.swift": ["restoreToOp(": 3, "restoreToOpUndoable(": 1],

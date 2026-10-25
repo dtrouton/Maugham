@@ -327,76 +327,107 @@ extension ProjectStore {
 
     /// **The manuscripts a figure rename relabels, each held for writing**
     /// through `openManuscriptForWriting` — phase one of ruling P-3's all or
-    /// nothing. `apply()` writes every one and releases it; `abandon()`
-    /// releases them unwritten.
+    /// nothing. `write()` relabels every one or none; `release()` lets them go.
     struct HeldFigureRelabel {
         let change: FigureLabelChange
-        let manuscripts: [WritableManuscript]
+        let manuscripts: [(title: String, manuscript: WritableManuscript)]
 
-        /// Relabel each held manuscript through `setFullText`, re-finding the
-        /// sites in its CURRENT text, then release it.
-        @MainActor func apply() async {
-            for held in manuscripts {
-                if let text = ProjectStore.relabelled(held.doc.displayText, change) {
-                    held.doc.setFullText(text)
+        /// What a written manuscript said before, so `unwrite` can put it back.
+        typealias Written = [(doc: Document, before: String)]
+
+        /// **Relabel every held manuscript, or none**, re-finding the sites in
+        /// each one's CURRENT text. `setFullText` writes nothing where the
+        /// document stopped being writable since it was held (a yield or a
+        /// permit that landed meanwhile): then every manuscript already written
+        /// is put back and `FigureRenameRefused(.piecesNotWritable)` names the
+        /// ones that refused. Synchronous: nothing can land between the
+        /// documents.
+        @MainActor func write() throws -> Written {
+            var written: Written = []
+            var refused: [String] = []
+            for (title, held) in manuscripts {
+                // Closed or no longer writable since it was held: refused
+                // before its text is read (a closed document's text is gone).
+                guard !held.doc.isClosed, held.doc.mayWriteItsText else {
+                    refused.append(title)
+                    continue
                 }
-                await held.release()
+                let before = held.doc.displayText
+                guard let text = ProjectStore.relabelled(before, change) else { continue }
+                held.doc.setFullText(text)
+                if held.doc.displayText != before {
+                    written.append((held.doc, before))
+                } else {
+                    refused.append(title)
+                }
             }
+            guard refused.isEmpty else {
+                Self.unwrite(written)
+                throw FigureRenameRefused(reason: .piecesNotWritable(refused))
+            }
+            return written
         }
 
-        /// Release every held manuscript without writing it.
-        @MainActor func abandon() async {
-            for held in manuscripts { await held.release() }
+        /// Put each written manuscript back as it was, last first.
+        @MainActor static func unwrite(_ written: Written) {
+            for each in written.reversed() { each.doc.setFullText(each.before) }
+        }
+
+        /// Release every held manuscript (closing one loaded for this rename,
+        /// which persists whatever it holds).
+        @MainActor func release() async {
+            for each in manuscripts { await each.manuscript.release() }
         }
     }
 
     /// **Phase one of a figure rename's relabel**: every manuscript whose
     /// text holds the figure's line or a cross-reference to its label is
     /// found (its live text where a window has it open, else derived from
-    /// its op log — never the `.md`), and each is held through the door-checked
+    /// its op log — never the `.md`; one whose text cannot be derived is
+    /// logged and passed over), and each is held through the door-checked
     /// route. **Any refusal releases them all and throws**
     /// `FigureRenameRefused` naming every piece that refused, so nothing is
-    /// written anywhere. When the text holds the figure, a new name that is
-    /// not a valid label name, or a label the text already defines, is
+    /// written anywhere. Only when the text holds the figure is a new name
+    /// that is not a valid label name, or a label the text already defines,
     /// refused too.
     func holdManuscriptsForFigureRelabel(_ change: FigureLabelChange) async throws -> HeldFigureRelabel {
         let newLabel = ManuscriptLabel(reference: "\(change.old.kind.rawValue):\(change.newName)")
         var candidates: [(title: String, path: String)] = []
+        var labelTaken = false
         for item in Self.collectDocuments(in: manifest.structure) {
             guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay else { continue }
             let text = documentStore?.document(for: path)?.displayText
                 ?? (try? derivedCache.displayText(forDocId: item.id, in: url))
             guard let text else {
-                // Unreadable here: it may hold the figure, so it is asked.
-                candidates.append((item.title, path))
+                projectStoreLog.error(
+                    "renameFigure: \(item.title, privacy: .public)'s text could not be derived, so it is not relabelled")
                 continue
             }
-            if let newLabel, change.old != newLabel, Self.definesLabel(text, newLabel) {
-                throw FigureRenameRefused(reason: .labelTaken(newLabel.reference))
-            }
+            if let newLabel, change.old != newLabel, Self.definesLabel(text, newLabel) { labelTaken = true }
             if !Self.figureRelabelEdits(in: text, change).isEmpty {
                 candidates.append((item.title, path))
             }
         }
         guard !candidates.isEmpty else { return HeldFigureRelabel(change: change, manuscripts: []) }
-        guard newLabel != nil else {
+        guard let newLabel else {
             throw FigureRenameRefused(reason: .notALabelName(change.newName))
         }
-        var held: [WritableManuscript] = []
+        guard !labelTaken else { throw FigureRenameRefused(reason: .labelTaken(newLabel.reference)) }
+        var held: [(title: String, manuscript: WritableManuscript)] = []
         var refused: [String] = []
         for candidate in candidates {
             do {
-                held.append(try await openManuscriptForWriting(
-                    path: candidate.path, title: candidate.title, session: "figure-rename"))
+                held.append((candidate.title, try await openManuscriptForWriting(
+                    path: candidate.path, title: candidate.title, session: "figure-rename")))
             } catch is ManuscriptReplaceRefused {
                 refused.append(candidate.title)
             } catch {
-                await HeldFigureRelabel(change: change, manuscripts: held).abandon()
+                await HeldFigureRelabel(change: change, manuscripts: held).release()
                 throw error
             }
         }
         guard refused.isEmpty else {
-            await HeldFigureRelabel(change: change, manuscripts: held).abandon()
+            await HeldFigureRelabel(change: change, manuscripts: held).release()
             throw FigureRenameRefused(reason: .piecesNotWritable(refused))
         }
         return HeldFigureRelabel(change: change, manuscripts: held)
