@@ -75,7 +75,7 @@ public final class FigureCache {
 public struct FigurePinIndex: ResearchPinSource {
     private var pinsByHome: [String: [CellKey: [FigureResearchPin]]] = [:]
     /// Each parked figure's current park cycle (`FigureParking.cycle`).
-    private var parks: [String: String] = [:]
+    private(set) var parks: [String: String] = [:]
     private var winners: [String: [PinRead: FigureResearchPin]] = [:]
 
     public init() {}
@@ -133,6 +133,12 @@ public struct FigureWorkbook: Sendable {
 
     /// The ids of the figures assembled from a parked state.
     public var parked: Set<String> { workbook.parked }
+
+    /// **Each figure in `parked`, by its current park cycle**
+    /// (`FigureParking.cycle`) — what `FigurePinChoice.isLive` reads. The
+    /// one answer to "which park does a pin on this figure have to be from
+    /// to count", an open host's overlay included.
+    public var parkCycles: [String: String] { pins.parks }
 
     @MainActor
     public static func assemble(

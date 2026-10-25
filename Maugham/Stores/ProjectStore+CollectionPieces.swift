@@ -18,6 +18,57 @@ private struct PromotionStagedMove {
     let staged: URL
 }
 
+/// **What a piece's promotion answers** (report plan 6c Task 5): the new
+/// project's URL, and what of the book's figures did not carry whole —
+/// `figureProblems` as data, `figureNotice` as the one sentence the window
+/// shows (nil when there is nothing to say).
+public struct PiecePromotion: Sendable {
+    public let url: URL
+    public let figureProblems: [FigureCarryProblem]
+    public let figureNotice: String?
+
+    /// One line per figure and problem, in the order the problems came,
+    /// each naming the figure by `figureNames` (its id when the name is not
+    /// known) and a Research source by `researchTitles`. Several cells
+    /// reading the same source say it once.
+    static func notice(
+        for problems: [FigureCarryProblem], figureNames: [String: String],
+        researchTitles: [String: String]
+    ) -> String? {
+        var seen = Set<String>()
+        var lines: [String] = []
+        for problem in problems {
+            let key = "\(problem.figureId)|\(problem.read.rawValue)|\(problem.source)"
+            guard seen.insert(key).inserted else { continue }
+            let figure = figureNames[problem.figureId] ?? problem.figureId
+            let source = researchTitles[problem.source] ?? figureNames[problem.source] ?? problem.source
+            switch problem.read {
+            case .formula:
+                lines.append("\(figure) reads \(source), which stays in the Collection, so it shows #REF! here.")
+            case .pin:
+                lines.append("\(figure) keeps the value it pinned from \(source), which stays in the Collection.")
+            case .parkedCopy:
+                lines.append("\(figure) is in Research, but its working copy \(source) stays in the Collection.")
+            case .unknownKind:
+                lines.append("\(figure) was made by a newer Maugham, so it stays in the Collection.")
+            case .pictureMissing:
+                lines.append("\(figure)\u{2019}s picture \(source) isn\u{2019}t in the figures folder, so it didn\u{2019}t come along.")
+            case .pictureChanged:
+                lines.append("\(figure)\u{2019}s picture \(source) isn\u{2019}t the one its history names; it was copied as it is.")
+            case .notRemoved:
+                lines.append("\(figure) came along, but it couldn\u{2019}t be taken out of the Collection (\(source)).")
+            case .collectionFormula:
+                lines.append("\(figure) in the Collection reads \(source), which goes with the piece, so it will show #REF! there.")
+            case .collectionPin:
+                lines.append("\(figure) in the Collection keeps the value it pinned from \(source), which goes with the piece.")
+            case .readInTheCollection:
+                lines.append("\(figure) came along and stays in the Collection too, because \(source) there reads it.")
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+}
+
 extension ProjectStore {
 
     /// Add a loose piece to a Collection. Creates `pieces/<NN>-<slug>/`
@@ -184,10 +235,18 @@ extension ProjectStore {
     /// Promote a loose Collection piece into a standalone Maugham project.
     /// Moves the piece's main doc, its research/ subfolder and its intent
     /// statement to a fresh project at `destination`. Converts the Collection's manifest entry into a
-    /// reference. Returns the new project's URL.
+    /// reference. Returns the new project's URL, and what of the book's
+    /// figures did not carry whole (`PiecePromotion`).
+    ///
+    /// **The figures** (report plan 6c, rulings Q-4 to Q-6): the piece's own
+    /// figures and every figure its text or their formulas name are
+    /// re-created in the new project with their ids (`figureCarryPlan`,
+    /// `writeCarriedFigureStreams`); the piece's own then leave the
+    /// Collection through `removeFigure` (a restorable Trash entry), and the
+    /// others stay where they are.
     public func promotePieceToProject(
         pieceId: String, destination: URL
-    ) async throws -> URL {
+    ) async throws -> PiecePromotion {
         try await promotePieceToProject(
             pieceId: pieceId, destination: destination, afterStaging: nil)
     }
@@ -215,7 +274,7 @@ extension ProjectStore {
     /// runs in Release, so the tested path is the shipped path.
     func promotePieceToProject(
         pieceId: String, destination: URL, afterStaging: (() -> Void)?
-    ) async throws -> URL {
+    ) async throws -> PiecePromotion {
         guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "promotePieceToProject only valid for Collection projects")
@@ -240,6 +299,30 @@ extension ProjectStore {
         // project whose piece has just become a reference. Read before anything
         // moves, because `manifest.statements` is pruned on the way out.
         let carriedIntent = statement(kind: .intent, scope: .document(pieceId))
+        let researchPrefix = "\(pieceFolderRel)/research/"
+        // The new document's id, minted now: the carried figures that were
+        // the piece's own name it as their piece.
+        let newDocId = Self.newId(prefix: "doc")
+
+        // 0. What the figures carry, read while the window still holds the
+        // piece's text and the figures' open hosts — `figureCarryPlan` reads
+        // both, and the close below drops them. It throws before anything
+        // moves when the piece's own figure cannot be re-created here.
+        // Every item the piece's Research carries, groups' children too
+        // (final review I3), at its path in the new book.
+        let carriedResearch = Self.promotedResearch(manifest.research, researchPrefix: researchPrefix)
+        let carriedResearchPaths = Dictionary(
+            TreeWalk.collect(in: carriedResearch) { _ in true }.map { ($0.id, $0.path) },
+            uniquingKeysWith: { first, _ in first })
+        let carriedResearchIds = Set(carriedResearchPaths.keys)
+        let figurePlan = try await figureCarryPlan(
+            forPiece: pieceId, carriedResearch: carriedResearchIds)
+        let carriedFigures = Self.repointedForPromotion(figurePlan, newDocId: newDocId)
+        let figureNames = Dictionary(
+            (manifest.figures ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        // Read now: step 8 takes the carried items out of this manifest.
+        let figureResearchTitles = researchTitles(of: figurePlan.problems)
+        var figureProblems = figurePlan.problems
 
         // 1. Flush + close any open document for this piece.
         if let docStore = documentStore {
@@ -288,7 +371,6 @@ extension ProjectStore {
             ".maugham-staging-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
 
-        let researchPrefix = "\(pieceFolderRel)/research/"
         let now = Date()
         // For the piece's `.maugham-link.json` only; the promoted project's
         // manifest goes through `ProjectManifest.encodeForDisk`, the one door.
@@ -300,6 +382,9 @@ extension ProjectStore {
         // as each move lands, never before — a move that threw is not a move to
         // undo.
         var stagedMoves: [PromotionStagedMove] = []
+        // The piece's own figures 7b has sent to the Collection's Trash, by
+        // name — for the failure path's log, should step 8 fail after them.
+        var trashedFigures: [String] = []
         #if DEBUG
         // Per-promotion, not cumulative: left to accumulate, a store that had
         // stranded something earlier would make every later promotion look like
@@ -328,16 +413,30 @@ extension ProjectStore {
                 staging: stagingURL, statement: carriedIntent)
             if let stagedIntent { stagedMoves.append(stagedIntent.move) }
 
+            // 4c. The carried Research items' table sidecars, under the same
+            // ids — a parked figure's working copy finds its figure by one.
+            try stagePromotedResearchTableSidecars(
+                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
+
+            // 4d. The carried figures, re-created as this Mac's author in the
+            // staged root, and their pictures copied. Written into the staging
+            // tree only, so the rollback's removal of it takes them back.
+            figureProblems += try await writeCarriedFigureStreams(
+                carriedFigures, states: figurePlan.states, parks: figurePlan.parks,
+                researchPaths: carriedResearchPaths.compactMapValues { $0 }, into: stagingURL)
+
             afterStaging?()
 
             // 5. Build + write new project manifest
             try writePromotedManifest(
                 staging: stagingURL,
                 piece: piece,
+                newDocId: newDocId,
                 newType: newType,
                 docName: mainDocName,
-                researchPrefix: researchPrefix,
+                carriedResearch: carriedResearch,
                 carriedIntent: stagedIntent?.statement,
+                carriedFigures: carriedFigures,
                 now: now)
 
             // 6. Validate by loading
@@ -345,6 +444,17 @@ extension ProjectStore {
 
             // 7. Atomic replace to final destination
             try atomicReplacePromotedProject(staging: stagingURL, destination: destination)
+
+            // 7b. The piece's own figures leave the Collection, each through
+            // the removal route (a restorable Trash entry); the copied ones
+            // stay. The promotion has happened by now, so a figure that will
+            // not go is listed rather than thrown — a throw here would roll
+            // back nothing and report a promotion that is already on disk as
+            // a failure.
+            figureProblems += await removePromotedFigures(figurePlan.moved)
+            trashedFigures = figurePlan.moved.filter { record in
+                manifest.figures?.contains(where: { $0.id == record.id }) != true
+            }.map(\.name)
 
             // 8. Convert Collection piece to a reference + prune carried research.
             try await convertPromotedPieceToReference(
@@ -358,10 +468,21 @@ extension ProjectStore {
                 now: now,
                 encoder: encoder)
 
-            return destination
+            return PiecePromotion(
+                url: destination, figureProblems: figureProblems,
+                figureNotice: PiecePromotion.notice(
+                    for: figureProblems, figureNames: figureNames,
+                    researchTitles: figureResearchTitles))
         } catch {
             rollbackPromotionStaging(stagedMoves, staging: stagingURL,
                                      destination: destination, cause: error)
+            if !trashedFigures.isEmpty {
+                // Step 8 failed after 7b: the piece is still loose, and these
+                // figures, now in the promoted project, are in the
+                // Collection's Trash, restorable from there.
+                projectStoreLog.error(
+                    "Promotion failed after the piece's figures left the Collection; these are in its Trash and in \(destination.path, privacy: .public): \(trashedFigures.joined(separator: ", "), privacy: .public)")
+            }
             throw error
         }
     }
@@ -540,19 +661,120 @@ extension ProjectStore {
                 PromotionStagedMove(original: source, staged: destination))
     }
 
+    /// Step 4c: move each carried Research item's table sidecar
+    /// (`ResearchTableSidecar`, `.maugham/research-tables/<id>.json`) into the
+    /// staging tree under the same name — the items keep their ids, so the
+    /// sidecar still names its item there, and a parked figure's working copy
+    /// still names its figure (what `bringBack` reads). An item with no
+    /// sidecar moves nothing. Each side is asked of `ResearchTableSidecar`'s
+    /// one spelling, a change form (tripwire 58). Each move is recorded into
+    /// `moves` as it lands, so a throw part way leaves every landed one for
+    /// the failure path to undo (final review I4).
+    private func stagePromotedResearchTableSidecars(
+        staging: URL, itemIds: Set<String>, recordingInto moves: inout [PromotionStagedMove]
+    ) throws {
+        for itemId in itemIds.sorted() {
+            try Self.beforeSidecarStagingForTesting?(itemId)
+            let source = try ResearchTableSidecar.fileURL(forItem: itemId, in: url)
+            guard FileManager.default.fileExists(atPath: source.path) else { continue }
+            let destination = try ResearchTableSidecar.fileURL(forItem: itemId, in: staging)
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // internal-move: into the promote-to-project `staging/` temp tree,
+            // on the same terms as the piece's research folder whose items
+            // these describe. (TripwireGrepTests exclusion)
+            try FileManager.default.moveItem(at: source, to: destination) // internal-move: staging
+            moves.append(PromotionStagedMove(original: source, staged: destination))
+        }
+    }
+
+    /// Test seam: runs before each sidecar is staged, with its item id —
+    /// where a failure part way is planted. Nil in production.
+    static var beforeSidecarStagingForTesting: ((String) throws -> Void)?
+
+    /// **The piece's Research as the new book holds it**: each top-level item
+    /// under `researchPrefix`, with its whole subtree — every descendant's
+    /// path rewritten from `pieces/<NN>-<slug>/research/…` to `research/…`
+    /// (final review I3; a group's children kept their old paths before).
+    nonisolated static func promotedResearch(
+        _ research: [ResearchItem], researchPrefix: String
+    ) -> [ResearchItem] {
+        let top = research.filter { $0.path?.hasPrefix(researchPrefix) == true }
+        return TreeWalk.rewritePaths(
+            in: top, replacingPrefix: String(researchPrefix.dropLast()), with: "research",
+            path: \.path, setPath: { $0.path = $1 })
+    }
+
+    /// **The carried records as the new book holds them**: the piece's own
+    /// figures — moved, or copied because something staying reads them
+    /// (`ownCopied`) — name the new document as their piece; every other
+    /// copied figure is whole-book there (`piece: nil`) — another piece's id
+    /// names nothing in a one-piece project, and a whole-book figure stays
+    /// whole-book.
+    nonisolated static func repointedForPromotion(
+        _ plan: FigureCarryPlan, newDocId: String
+    ) -> [FigureRecord] {
+        plan.moved.map { var record = $0; record.piece = newDocId; return record }
+            + plan.copied.map { record in
+                var record = record
+                record.piece = plan.ownCopied.contains(record.id) ? newDocId : nil
+                return record
+            }
+    }
+
+    /// Step 7b: each of the piece's own figures, now in the promoted project,
+    /// leaves the Collection through `removeFigure` — its door, its Trash
+    /// entry, its file. One that will not go is listed (`.notRemoved`, the
+    /// reason as the source) and stays; the rest still go.
+    ///
+    /// **A moved parked figure's entry restores parked, with its working copy
+    /// gone** (controller ruling, accepted behaviour): the copy travelled to
+    /// the promoted project with the piece's Research, so a bring-back in the
+    /// Collection refuses and its pins read their source as missing. The
+    /// figure itself, history and all, is back.
+    private func removePromotedFigures(_ moved: [FigureRecord]) async -> [FigureCarryProblem] {
+        var problems: [FigureCarryProblem] = []
+        for record in moved where manifest.figures?.contains(where: { $0.id == record.id }) == true {
+            do {
+                try await removeFigure(id: record.id)
+            } catch {
+                projectStoreLog.error(
+                    "Promotion carried \(record.name, privacy: .public) but could not remove it from the Collection: \(error.localizedDescription, privacy: .public)")
+                problems.append(FigureCarryProblem(
+                    figureId: record.id, cell: nil, source: error.localizedDescription, read: .notRemoved))
+            }
+        }
+        return problems
+    }
+
+    /// The titles of the Research items `problems` name, by id, read from
+    /// the Collection's manifest (where an item left behind still is).
+    private func researchTitles(of problems: [FigureCarryProblem]) -> [String: String] {
+        var titles: [String: String] = [:]
+        for problem in problems
+        where [.formula, .pin, .parkedCopy, .collectionFormula, .collectionPin].contains(problem.read) {
+            if let item = findResearchItem(id: problem.source, in: manifest.research) {
+                titles[problem.source] = item.title
+            }
+        }
+        return titles
+    }
+
     /// Step 5: build the new project's manifest (carrying over the piece's metadata
     /// and rewriting per-piece research paths) and write it into the staging folder.
     private func writePromotedManifest(
         staging: URL,
         piece: StructureItem,
+        newDocId: String,
         newType: ProjectType,
         docName: String,
-        researchPrefix: String,
+        carriedResearch: [ResearchItem],
         carriedIntent: Statement?,
+        carriedFigures: [FigureRecord],
         now: Date
     ) throws {
         let docStructItem = StructureItem(
-            id: Self.newId(prefix: "doc"),
+            id: newDocId,
             title: piece.title,
             type: .document,
             path: "manuscript/\(docName)",
@@ -570,14 +792,9 @@ extension ProjectStore {
             // MOVES the piece into a book of its own, and a move never
             // rewrites its starter.
             startedBy: piece.startedBy)
-        // Carry over per-piece research as the new project's research items;
-        // rewrite their paths from pieces/<NN>-<slug>/research/X to research/X.
-        let carriedResearch: [ResearchItem] = manifest.research.compactMap { item in
-            guard let p = item.path, p.hasPrefix(researchPrefix) else { return nil }
-            var copy = item
-            copy.path = "research/" + String(p.dropFirst(researchPrefix.count))
-            return copy
-        }
+        // The piece's research is the new project's, its paths rewritten
+        // from pieces/<NN>-<slug>/research/X to research/X, groups' children
+        // too (`promotedResearch`).
         // The carried intent is re-pointed at the new document and given a fresh
         // id, exactly as the document itself is: the promoted project is a new
         // project and shares no identifier space with the Collection. Its PATH is
@@ -601,7 +818,10 @@ extension ProjectStore {
             structure: [docStructItem],
             research: carriedResearch,
             statements: carriedStatements,
-            targets: newTargets)
+            targets: newTargets,
+            // Re-pointed already (`repointedForPromotion`); nil when none, so
+            // a promotion with no figures writes the manifest it always did.
+            figures: carriedFigures.isEmpty ? nil : carriedFigures)
         try ProjectManifest.encodeForDisk(newManifest).write(
             to: staging.appendingPathComponent(ProjectManifest.fileName),
             options: .atomic)

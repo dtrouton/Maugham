@@ -178,6 +178,13 @@ public final class DocumentStore {
     /// presenter's figure arm reloads. Written by `openFigure`/`closeFigure`.
     var openFigures: [String: FigureDocument] = [:]
 
+    /// The open figures someone asked to keep (`openFigure(figureId:)`), as
+    /// against those only lent for one act (`withFigureHost`); a lent host
+    /// closes when its last loan ends unless someone asked to keep it.
+    @ObservationIgnored var keptFigureOpens: Set<String> = []
+    /// How many `withFigureHost` loans each figure's host is under now.
+    @ObservationIgnored var figureHostLoans: [String: Int] = [:]
+
     /// Figure streams the presenter reported changed, drained by the
     /// debounced figure pass (`figureChangeScheduler`).
     var pendingFigureChanges: Set<String> = []

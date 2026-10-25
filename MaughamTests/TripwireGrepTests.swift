@@ -12133,7 +12133,8 @@ final class TripwireGrepTests: XCTestCase {
     /// its own posture question), `sendToResearch(` (a park, behind the
     /// figure's door and its line's manuscript door), `bringBack(` (a return,
     /// behind the figure's door), `refreshPins(` (a figure's research pins
-    /// re-read, behind its door, R-D2), and `figureOpMintSpelling` — every `Op(`
+    /// re-read, behind its door, R-D2), `restoreToCheckpoint(` (a checkpoint
+    /// restore's figure ops, behind its door, report plan 6c), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
     /// copied off another op) is still a named site.
@@ -12146,7 +12147,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
-        "resumeFromResearch(", "bringBack(", "refreshPins(",
+        "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
         figureOpMintSpelling,
     ]
 
@@ -12170,7 +12171,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
-        "refreshPins(",
+        "refreshPins(", "restoreToCheckpoint(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12513,7 +12514,10 @@ final class TripwireGrepTests: XCTestCase {
     ///   restore, which appends through its own store: the settled posture per
     ///   document before the build; the rows and the History button are drawn
     ///   only for documents this Mac may write, and what the door left alone is
-    ///   named in the sheet.
+    ///   named in the sheet. Its `restoreToCheckpoint(` winds back each figure
+    ///   in scope (report plan 6c Task 3) after asking that figure's settled
+    ///   `.editFigure` posture, through its host (which asks again); a refused,
+    ///   parked or part-restored figure is named in the same sentence.
     /// - `TestEditTool.swift` × 1 — `test_apply_edit`, compiled only into the
     ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
     ///   deliberately NOT gated, because it stands in for a keystroke and is
@@ -12529,8 +12533,10 @@ final class TripwireGrepTests: XCTestCase {
     /// - `ProjectStore+Figures.swift` × 1 — `figureOpMinter`, which mints
     ///   `createFigure`'s `figureCreate` and row and column inserts (and, for
     ///   a Research table's `useInDocument`, its cells and settings) and
-    ///   `createImageFigure`'s `figureCreate` and `figureImageSet`: each asks
-    ///   posture (`.editFigure` of the class the new figure will have,
+    ///   `createImageFigure`'s `figureCreate` and `figureImageSet`, and a
+    ///   promotion's re-created streams (`writeCarriedFigureStreams`, report
+    ///   plan 6c Task 4, asking the staged book's door): each asks posture
+    ///   (`.editFigure` of the class the new figure will have,
     ///   `requireNewFigurePermitted`) before it mints a line, and throws
     ///   `FigureEditRefused`.
     /// - `FigureIngest.swift` × 1 — `importImage`'s `createImageFigure(`, the
@@ -12542,7 +12548,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   built (and judged) by one of the above, never a new figure write.
     /// - `FigureReturnDiff.swift` × 1 — Core's simulated fold: each change the
     ///   return makes folded onto a copy of the state, never appended. The
-    ///   changes are appended by `resumeFromResearch`, behind the door.
+    ///   changes are appended by `resumeFromResearch`, behind the door. Its
+    ///   `Simulation` also folds `FigureRestoreDiff`'s changes (report plan
+    ///   6c Task 1), which mints no op of its own.
     ///
     /// `createFigure(`, `useInDocument(` (report plan 6b Task 6, a figure
     /// made from a Research item behind the same door) and `sendToResearch(`
@@ -12568,7 +12576,7 @@ final class TripwireGrepTests: XCTestCase {
         "RecoveredHistorySheet.swift": ["insertParagraph(": 1],
         // History's undoable Rewind, inside the window's `RewindModifier`.
         "type:RewindModifier": ["restoreToOpUndoable(": 1],
-        "PartialRestorePicker.swift": ["buildRestoreOp(": 1],
+        "PartialRestorePicker.swift": ["buildRestoreOp(": 1, "restoreToCheckpoint(": 1],
         "TestEditTool.swift": ["setFullText(": 1],
         // Figures (report plan 6a): each asks posture before it writes.
         "FigureDocument.swift": [
@@ -12685,6 +12693,9 @@ final class TripwireGrepTests: XCTestCase {
         "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
         "parkInResearch": "figure", "resumeFromResearch": "figure",
         "refreshPins": "figure",
+        // A checkpoint restore's figure ops (report plan 6c Task 2), behind
+        // the same guard; a parked figure is skipped, not written.
+        "restoreToCheckpoint": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12885,6 +12896,7 @@ final class TripwireGrepTests: XCTestCase {
         try await host.resumeFromResearch(changes: c, picture: nil, expecting: s)
         let back = try await store.bringBack(researchItemId: i, piece: p)
         try await reader.refreshPins(undoManager: um)
+        let outcome = try await host.restoreToCheckpoint(checkpoint.id, target: then)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

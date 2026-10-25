@@ -223,6 +223,17 @@ final class CheckpointSubjectRecordTests: XCTestCase {
             "a commented call shape must not count")
     }
 
+    /// **A longer name ending in the shape is not a construction**: a
+    /// figure's `restoreToCheckpoint(` restores to one and builds none.
+    func test_theCheckpointConstructionCensusDoesNotCountALongerName() throws {
+        XCTAssertEqual(
+            try Self.filesConstructingACheckpoint(
+                Self.checkpointSourceDirs,
+                plus: ["LongerName.swift": "let outcome = try await host.restoreToCheckpoint(id, target: then)"]),
+            ["Bootstrap.swift", "CheckpointCapture.swift", "RewindWindow.swift"],
+            "a name that merely ends in the call shape must not count")
+    }
+
     // MARK: - Census helpers
 
     /// The app target and the shared package — the two trees a `Checkpoint` can
@@ -265,8 +276,15 @@ final class CheckpointSubjectRecordTests: XCTestCase {
         }
         sources.append(contentsOf: injected.map { ($0.key, $0.value) })
 
+        // `Checkpoint(` as its own name, not the tail of a longer one: a
+        // figure's `restoreToCheckpoint(` (report plan 6c Task 2) builds none.
+        let construction = try NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])Checkpoint\("#)
         return sources
-            .filter { SourceScan.namesInCode("Checkpoint(", in: $0.text) }
+            .filter { source in
+                SourceScan.codeLines(of: source.text).contains { line in
+                    construction.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+                }
+            }
             .map(\.name)
             .sorted()
     }

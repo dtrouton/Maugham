@@ -258,8 +258,8 @@ public enum FigureReturnDiff {
     /// Puts `order` (result ids, the copy's order) in place on `sim`: a fresh
     /// id is inserted after the one before it; a kept id moves there unless it
     /// is among the longest run already in order. An id `sim` no longer holds
-    /// live (deleted late) is passed over.
-    private static func place<ID: AxisID>(_ order: [ID], fresh: Set<ID>, in sim: inout Simulation) {
+    /// live (deleted late) is passed over. Shared with `FigureRestoreDiff`.
+    static func place<ID: AxisID>(_ order: [ID], fresh: Set<ID>, in sim: inout Simulation) {
         let kept = order.filter { !fresh.contains($0) && sim.isLive($0) }
         let stable = Set(longestIncreasing(kept.map { sim.slot(of: $0) ?? 0 }).map { kept[$0] })
         var previous: ID?
@@ -350,43 +350,46 @@ public enum FigureReturnDiff {
 
 // MARK: - The simulated fold
 
-/// The state the ops land on, folded op by op as they are made, so each op is
-/// made against what the ones before it left (a move's `priorAfter`, a delete's
-/// slice, a cell's `prior`).
-private struct Simulation {
-    var state: FigureState
-    var ops: [FigureReturnDiff.Change] = []
+extension FigureReturnDiff {
+    /// The state the ops land on, folded op by op as they are made, so each op is
+    /// made against what the ones before it left (a move's `priorAfter`, a delete's
+    /// slice, a cell's `prior`). Shared with `FigureRestoreDiff`, whose changes
+    /// fold here too: never appended.
+    struct Simulation {
+        var state: FigureState
+        var ops: [FigureReturnDiff.Change] = []
 
-    init(state: FigureState) {
-        self.state = state
-        self.state.parked = nil
-    }
+        init(state: FigureState) {
+            self.state = state
+            self.state.parked = nil
+        }
 
-    mutating func emit(_ kind: OpKind, _ payload: FigureOpPayload) {
-        ops.append(FigureReturnDiff.Change(kind: kind, payload: payload))
-        let op = Op(opId: "return-\(ops.count)", docId: "", at: Date(timeIntervalSince1970: 0),
-                    device: "", session: "", kind: kind, changes: [], figure: payload)
-        FigureDeriver.fold(op, into: &state)
-    }
+        mutating func emit(_ kind: OpKind, _ payload: FigureOpPayload) {
+            ops.append(FigureReturnDiff.Change(kind: kind, payload: payload))
+            let op = Op(opId: "return-\(ops.count)", docId: "", at: Date(timeIntervalSince1970: 0),
+                        device: "", session: "", kind: kind, changes: [], figure: payload)
+            FigureDeriver.fold(op, into: &state)
+        }
 
-    func isLive<ID: AxisID>(_ id: ID) -> Bool { id.isLive(in: state.table) }
-    func slot<ID: AxisID>(of id: ID) -> Int? { id.slot(in: state.table) }
-    func predecessor<ID: AxisID>(of id: ID) -> ID? { id.predecessor(in: state.table) }
-    func livePredecessor<ID: AxisID>(of id: ID) -> ID? { id.livePredecessor(in: state.table) }
+        func isLive<ID: AxisID>(_ id: ID) -> Bool { id.isLive(in: state.table) }
+        func slot<ID: AxisID>(of id: ID) -> Int? { id.slot(in: state.table) }
+        func predecessor<ID: AxisID>(of id: ID) -> ID? { id.predecessor(in: state.table) }
+        func livePredecessor<ID: AxisID>(of id: ID) -> ID? { id.livePredecessor(in: state.table) }
 
-    /// Cells of a row about to be deleted that differ from the base: late edits
-    /// the copy's delete takes.
-    func lateEdits(inRow id: RowID, base: FigureState) -> [CellKey] {
-        state.table.columns.map { CellKey(row: id, column: $0) }.filter { state.table[$0] != base.table[$0] }
-    }
+        /// Cells of a row about to be deleted that differ from the base: late edits
+        /// the copy's delete takes.
+        func lateEdits(inRow id: RowID, base: FigureState) -> [CellKey] {
+            state.table.columns.map { CellKey(row: id, column: $0) }.filter { state.table[$0] != base.table[$0] }
+        }
 
-    func lateEdits(inColumn id: ColumnID, base: FigureState) -> [CellKey] {
-        state.table.rows.map { CellKey(row: $0, column: id) }.filter { state.table[$0] != base.table[$0] }
+        func lateEdits(inColumn id: ColumnID, base: FigureState) -> [CellKey] {
+            state.table.rows.map { CellKey(row: $0, column: id) }.filter { state.table[$0] != base.table[$0] }
+        }
     }
 }
 
 /// A row or a column id, for the one placing walk both axes share.
-private protocol AxisID: Hashable {
+protocol AxisID: Hashable {
     static func insert(_ id: Self, after: Self?) -> FigureStructureChange
     static func move(_ id: Self, after: Self?, priorAfter: Self?) -> FigureStructureChange
     func isLive(in table: FigureTable) -> Bool

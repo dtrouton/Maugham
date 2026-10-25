@@ -177,3 +177,12 @@ Cut from `Maugham/Views/AREA.md` to make room for `TreeCanvasKeyboard` on the Ma
 **Plan's Tab hand-off is explicit, measured 2026-10-24.** On the real `ProjectWindow` in Plan, the binder's outline view had no `nextValidKeyView` and a real Tab left it first responder, so macOS's key-view loop could not carry the keyboard to the canvas. `TreeCanvasKeyboard` does it: the List's `.onKeyPress(.tab)` bumps the window's `canvasKeyboardRequest` (served as `CanvasKeyboardRequest.fromWindow`), and the canvas's ⇧Tab bumps `treeKeyboardRequest`, which the binder answers by setting its own `@FocusState`. The rename gate is load-bearing: Tab inside a rename field does reach the List's `onKeyPress`, and `PlanBinderTabTests.test_tabDuringABinderRenameStaysInTheRename` goes red without it (mutation, 2026-10-24).
 
 **⇧Tab is claimed only where a visible binder answers it** (Task 7 review). `CanvasView.returnKeyboardToTree` is nil unless `ProjectWindow.binderTakesTheKeyboardBack` holds (the binder's project kinds, no find overlay, no ⌘\ collapse, not `.detailOnly`); otherwise the key travels on as an unused canvas key does. The collapse is read from `inspectorWasVisibleBeforeCanvasCollapse`, not `columnVisibility`: `.automatic == .doubleColumn` under `==` (measured 2026-10-24), and the window launches at `.automatic`. A sidebar the writer drags shut is not distinguishable from `.automatic` either, and is not covered.
+
+## Moved from the guide by report plan 6c Task 6 (2026-10-25)
+
+To make room for plan 6c's figure restore, `withFigureHost` and the promotion's figure carry under the 8,000-word cap:
+
+- In Plan the Open Wall door: swap the order of `pressPaletteWallDoor`'s consumers and the wall opens and shuts in one pass.
+- `AdmissionDecisionTests.test_theProposedLabelNeverMerges` pins that a proposed label never merges into an existing person.
+- A top `safeAreaInset` around the `NavigationSplitView` is not propagated into the columns and occludes their tops.
+- `openResearchItem` and `handleShowLatestMCPNote` call `revealResearchColumn` explicitly because re-selecting the current subject fires no `onChange`.

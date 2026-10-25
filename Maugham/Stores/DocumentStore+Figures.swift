@@ -20,6 +20,41 @@ extension DocumentStore {
     /// yields and *Edit Anyway* apply (R-6a-8). Opening an open figure answers
     /// the one already open. The load renders the figure's CSV.
     func openFigure(figureId: String) async throws -> FigureDocument {
+        let host = try await hostForFigure(figureId)
+        keptFigureOpens.insert(figureId)
+        return host
+    }
+
+    /// **One act on a figure through its host** — the one this window holds
+    /// open, or one opened for the act and closed after it. The host is
+    /// closed only when the last loan ends and nobody asked to keep it open
+    /// (`openFigure(figureId:)`) meanwhile: who opened it is held across the
+    /// awaits, never sampled before them.
+    func withFigureHost<T>(
+        _ figureId: String, _ act: (FigureDocument) async throws -> T
+    ) async throws -> T {
+        figureHostLoans[figureId, default: 0] += 1
+        let result: T
+        do {
+            result = try await act(try await hostForFigure(figureId))
+        } catch {
+            await endFigureHostLoan(figureId)
+            throw error
+        }
+        await endFigureHostLoan(figureId)
+        return result
+    }
+
+    private func endFigureHostLoan(_ figureId: String) async {
+        let left = (figureHostLoans[figureId] ?? 1) - 1
+        figureHostLoans[figureId] = left > 0 ? left : nil
+        if left <= 0, !keptFigureOpens.contains(figureId) {
+            await closeFigure(figureId: figureId)
+        }
+    }
+
+    /// The open host for `figureId`, or a newly loaded one.
+    private func hostForFigure(_ figureId: String) async throws -> FigureDocument {
         if let open = openFigures[figureId], !open.isClosed { return open }
         let doc = try await FigureDocument.load(
             figureId: figureId, projectURL: projectURL, actor: .author,
@@ -104,6 +139,7 @@ extension DocumentStore {
 
     /// Close a figure this window opened: sealed, and no longer reloaded.
     func closeFigure(figureId: String) async {
+        keptFigureOpens.remove(figureId)
         guard let doc = openFigures.removeValue(forKey: figureId) else { return }
         // Its held lines stay counted until the next sweep, as a document's do.
         rememberClosedProvenance(of: doc)
@@ -152,6 +188,8 @@ extension DocumentStore {
         pendingFigureChanges = []
         let open = Array(openFigures.values)
         openFigures.removeAll()
+        keptFigureOpens.removeAll()
+        figureHostLoans.removeAll()
         for doc in open { await doc.close() }
     }
 
@@ -322,6 +360,16 @@ extension DocumentStore {
             }
         }
         return sources
+    }
+
+    /// **The current park cycle of each of `sources` parked now** (report
+    /// plan 6c Task 2): one assembly's `FigureWorkbook.parkCycles`, an open
+    /// host's park laid over its read — what a figure restore's pins are
+    /// judged by (`FigurePinChoice.isLive`), whether or not a formula reads
+    /// the source. Empty for no sources. Throws when the registry will not read.
+    func parkCycles(of sources: Set<String>) async throws -> [String: String] {
+        guard !sources.isEmpty, let assembled = try await assembledFigures() else { return [:] }
+        return assembled.parkCycles.filter { sources.contains($0.key) }
     }
 
     /// **The entry pins `state`'s formula cells take** (spec §4.3; report plan

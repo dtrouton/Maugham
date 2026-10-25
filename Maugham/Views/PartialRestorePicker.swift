@@ -14,6 +14,10 @@ struct PartialRestorePicker: View {
     let projectURL: URL
     let activeDocId: String
     let allDocIds: [String]
+    /// The book's registered figures (report plan 6c Task 3, rulings Q-1–Q-3):
+    /// a revert winds back each one in scope that has a pointer in the
+    /// checkpoint.
+    let figures: [FigureRecord]
     let device: String
     let session: String
     /// docId → relative file path, for post-restore materialization.
@@ -91,6 +95,7 @@ struct PartialRestorePicker: View {
         projectURL: URL,
         activeDocId: String,
         allDocIds: [String],
+        figures: [FigureRecord],
         device: String,
         session: String,
         docPaths: [String: String],
@@ -102,6 +107,7 @@ struct PartialRestorePicker: View {
         self.projectURL = projectURL
         self.activeDocId = activeDocId
         self.allDocIds = allDocIds
+        self.figures = figures
         self.device = device
         self.session = session
         self.docPaths = docPaths
@@ -220,6 +226,20 @@ struct PartialRestorePicker: View {
         // belt-and-braces refusal rather than a reachable path.
         guard let scope else { return }
         isRestoring = true
+        let sentence = await restore(scope)
+        isRestoring = false
+        if let sentence {
+            leftAloneSentence = sentence
+            return
+        }
+        onComplete()
+    }
+
+    /// **The revert itself**: the text of every document in `scope` this Mac
+    /// may write, then its figures (`restoreFigures`). Answers what the sheet
+    /// says when something was left as it was or only partly restored, or
+    /// `nil` when everything asked for was done.
+    func restore(_ scope: ScopeChoice) async -> String? {
         let opStore = OpLogStore(projectURL: projectURL)
         let docs: [String]
         switch scope {
@@ -267,13 +287,136 @@ struct PartialRestorePicker: View {
                 )
             }
         }
-        isRestoring = false
-        if let sentence = Self.leftAloneSentence(
-            for: leftAlone, in: documentStore?.projectStore?.manifest.structure) {
-            leftAloneSentence = sentence
-            return
+        // The sheet's list, each re-checked against the live registry.
+        let figureResults = await Self.restoreFigures(
+            figures, in: scope, to: checkpoint, documentStore: documentStore)
+        let sentences = [
+            Self.leftAloneSentence(
+                for: leftAlone, in: documentStore?.projectStore?.manifest.structure),
+            Self.figureSentence(for: figureResults),
+        ].compactMap { $0 }
+        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
+
+    // MARK: - Figures (report plan 6c Task 3, rulings Q-1, Q-2, Q-3)
+
+    /// What reverting one figure came to.
+    enum FigureResult: Equatable {
+        /// Its host's answer (`FigureRestoreOutcome`).
+        case outcome(FigureRestoreOutcome)
+        /// The figure's door refused `.editFigure`: nothing was appended.
+        case refused
+        /// The restore threw before any op landed (the error's description).
+        case failed(String)
+    }
+
+    /// **The figures a revert reaches** (Q-1, Q-3): whole project, every
+    /// registered figure; a document, the figures whose piece it is. Only
+    /// those with a pointer in the checkpoint — one created since has none
+    /// and is left alone, as is a pointer whose figure is no longer
+    /// registered (it is not in `figures`).
+    static func figuresInScope(
+        _ figures: [FigureRecord], _ scope: ScopeChoice, of checkpoint: Checkpoint
+    ) -> [FigureRecord] {
+        figures.filter { record in
+            guard checkpoint.docPointers[record.id] != nil else { return false }
+            switch scope {
+            case .wholeProject: return true
+            case .document(let docId): return record.piece == docId
+            }
         }
-        onComplete()
+    }
+
+    /// **Each figure wound back through its host** — the open one, or one
+    /// opened for this and closed after (`DocumentStore.withFigureHost`).
+    /// Each is first checked against the LIVE registry: one removed or
+    /// promoted since the sheet was built is left alone (Q-1), and document
+    /// scope reads its piece from there. Then it asks its own door
+    /// (`settledPosture(forDocId:)`, `.editFigure`, Q-2) before any host
+    /// opens; no `DocumentStore` behind the sheet fails closed. The figure at
+    /// the checkpoint is the fold of the host's own ops through the pointer;
+    /// one memo hashes `figures/` once for the whole restore. Not registered
+    /// for ⌘Z, like the text.
+    static func restoreFigures(
+        _ figures: [FigureRecord], in scope: ScopeChoice, to checkpoint: Checkpoint,
+        documentStore: DocumentStore?
+    ) async -> [(record: FigureRecord, result: FigureResult)] {
+        var results: [(record: FigureRecord, result: FigureResult)] = []
+        // One memo for the whole restore: `figures/` is hashed once (M6).
+        let pictureHashes = FigurePictureHashes()
+        for listed in figures {
+            guard let documentStore else {
+                results.append((listed, .refused))
+                continue
+            }
+            guard let record = documentStore.projectStore?.manifest.figures?
+                    .first(where: { $0.id == listed.id }),
+                  let pointer = checkpoint.docPointers[record.id],
+                  !figuresInScope([record], scope, of: checkpoint).isEmpty else { continue }
+            guard await documentStore.settledPosture(forDocId: record.id).allows(.editFigure) else {
+                results.append((record, .refused))
+                continue
+            }
+            let result: FigureResult
+            do {
+                result = .outcome(try await documentStore.withFigureHost(record.id) { host in
+                    try await host.restoreToCheckpoint(
+                        checkpoint.checkpointId, through: pointer, pictureHashes: pictureHashes)
+                })
+            } catch is FigureEditRefused {
+                result = .refused
+            } catch {
+                partialRestoreLog.error(
+                    "partial-restore failed for figure \(record.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                result = .failed(error.localizedDescription)
+            }
+            results.append((record, result))
+        }
+        return results
+    }
+
+    /// What the sheet says about the figures a revert did not fully restore,
+    /// by name, beside the documents it left alone; `nil` when every figure
+    /// in scope was restored or already stood as it did then.
+    static func figureSentence(
+        for results: [(record: FigureRecord, result: FigureResult)]
+    ) -> String? {
+        var refused: [String] = [], parked: [String] = [], wentToResearch: [String] = []
+        var pictures: [String] = []
+        var partly: [String] = [], failed: [String] = []
+        for (record, result) in results {
+            switch result {
+            case .refused: refused.append(record.name)
+            case .failed(let why): failed.append("\(record.name) (\(why))")
+            case .outcome(.skippedParked): parked.append(record.name)
+            case .outcome(.skippedWentToResearch): wentToResearch.append(record.name)
+            case .outcome(.skippedPicture): pictures.append(record.name)
+            case .outcome(.partlyRestored): partly.append(record.name)
+            case .outcome(.restored), .outcome(.unchanged): break
+            }
+        }
+        func list(_ names: [String]) -> String { names.joined(separator: ", ") }
+        var sentences: [String] = []
+        if !refused.isEmpty {
+            sentences.append("Left as it was — this Mac may not change the "
+                + (refused.count == 1 ? "figure " : "figures ") + list(refused) + ".")
+        }
+        if !parked.isEmpty {
+            sentences.append("Not restored, in Research — bring it back first: \(list(parked)).")
+        }
+        if !wentToResearch.isEmpty {
+            sentences.append("Left as it is — went to Research since this checkpoint: \(list(wentToResearch)).")
+        }
+        if !pictures.isEmpty {
+            sentences.append("The rest restored, but the picture from then is no longer on disk: \(list(pictures)).")
+        }
+        if !partly.isEmpty {
+            sentences.append("Partly restored — revert again to finish: \(list(partly)).")
+        }
+        if !failed.isEmpty {
+            sentences.append("Not restored: \(list(failed)).")
+        }
+        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 
     /// Derive the post-restore state and push it to disk via DocumentStore.scheduleFileSave.
