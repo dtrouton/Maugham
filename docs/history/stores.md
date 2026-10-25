@@ -512,3 +512,16 @@ To make room for the `ProjectStore+FigureResearch.swift` Map row under the 8,000
 To make room for `sendToResearch` in the `ProjectStore+FigureResearch.swift` Map row under the 8,000-word cap:
 
 - `ProjectStore+Annotations.swift` returns an unreadable closed doc's id in `unreadableDocIds` so a count says unknown rather than a short number.
+
+## Moved from the guide by report plan 6b Task 10 (2026-10-25)
+
+To make room for the figure rows (pins, the return, restore), the figure posture and the figure text-hold rule under the 8,000-word cap:
+
+- Tripwire 14's why: a raw move or trash loses to the 750 ms autosave, which recreates the file at the old path.
+- Tripwire 17's why: iCloud cannot line-merge one shared JSONL.
+- Tripwire 19's why: two copies drift.
+- Statements stay out of `DocumentStore`'s registry because it would put them in `allOpenDocuments()`, which task aggregation iterates.
+- `appendToStatement` appends to the essay, not the file's end, because below a `## Rulings` section the text would be invisible to the Intent pane.
+- Routing one canvas-ingest case through the other twin would leave half the pair with no caller.
+- `InboxTranscriptionWorker` is poked on every inbox change because an `.m4a` and its manifest row arrive in either order.
+- `ProjectStore` is large only because the project is the central aggregate.

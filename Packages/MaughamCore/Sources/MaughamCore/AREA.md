@@ -62,7 +62,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The register an
 
 ### Permits and posture
 Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The permit", "The load seam", "The unsigned door, scope and a piece of her own"); read them before editing here.
-- `Permit.swift` — the rungs, `Permit.allows` (the one table over `OpKind`), load-emission and judging-actor rules (tripwires 44, 48).
+- `Permit.swift` — the rungs, `Permit.allows` (the one table over `OpKind`), load-emission and judging-actor rules, and `startersPiece(of:)`, the piece whose starter a piece's or figure's class asks (tripwires 44, 48).
 - `PermitEvent.swift` — the signed registry record of a permit change, with its mark and snapshot.
 - `PermitMark.swift` — where a permit changed, as chain positions every device can check.
 - `PermitTimeline.swift` — one person's permits in order; the check reads this, never the record's fields (tripwire 43).
@@ -139,7 +139,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ProjectTargets.swift` — optional word, deadline and page targets.
 - `StructureItem.swift` — a binder node (group or document), including `startedBy` and pass states.
 - `TreeNode.swift` — the id-keyed tree protocol and the generic `TreeWalk` walkers.
-- `ResearchItem.swift` — a research tree node and its identity-bearing `ResearchRole`.
+- `ResearchItem.swift` — a research tree node, its identity-bearing `ResearchRole` and its `AssetKind` (a CSV or TSV is `.table`).
 - `CitationInfo.swift` — a research item's citation details and `CitationKey`, which validates and suggests `[@key]` keys.
 - `CitationStyle.swift` — `CitationLibrary` (a research tree's citable sources) and `CitationStyle`, the author–date in-text label and References entry.
 - `PieceKind.swift` — a Collection piece: loose document or reference to another project.
@@ -248,6 +248,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - The unsigned door's decisions each have one home (tripwire 49, `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly` and its siblings); a `Posture` is built only in `PostureDoor` (tripwire 51, `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`).
 - The held-line and schema call sites in `OpLogDeviceState.swift` (`acknowledgedLosses`, `expectedStreams(`) and `StreamCensus` are counted per file (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`): a new call site updates `countedLists`.
 - The person key's doors are counted in `PersonKeyCensusTests` (tripwire 53).
+- A path or file name from synced data reaches a file call only through `SafeRelativePath`, or a line marked `// local-path:` with its reason (tripwire 58, `TripwireGrepTests.test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath`).
 - Run `./scripts/test.sh core` after any change here, then both app schemes; tests build under `TestTemp`.
 - Every manifest written to disk goes through `ProjectManifest.encodeForDisk`, which stamps the content floor so an older build refuses rather than strips v10 content; narrowing raises only to `narrowingSchemaVersion` (`TripwireGrepTests.test_manifestBytesForDiskComeFromOneFunction`).
 
@@ -297,7 +298,7 @@ Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the
 - `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files (see the first Rules bullet), and the op log's behaviour.
 - ADR 0032 (signed op log), ADR 0015 (schema evolution), ADR 0019 (clean derived .md), ADR 0022 (grammar ledger)
 - `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share and why it lives here.
-- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51 and 53–56: the tripwires the Rules above cite.
+- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51, 53–56 and 58: the tripwires the Rules above cite.
 - Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). Worth knowing: `DocBudgetTests` (this map's census), `SchemaEvolutionToleranceTests`, `FountainTokenizerDifferentialTests` (the parser against its frozen reference), `MarkdownBlockParserTests`, `OpLogChainTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; the app-side censuses are in `MaughamTests/TripwireGrepTests.swift` and `MaughamTests/PersonKeyCensusTests.swift`.
 - Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md` (the phone's consumers).
 - No history file: this guide was written in the template and nothing has been moved out of it.
