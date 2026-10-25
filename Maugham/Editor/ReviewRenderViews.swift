@@ -280,7 +280,7 @@ final class ReviewMarginRailView: NSView {
     /// coords), used for click hit-testing and to position the actions row.
     private var cardRects: [(id: String, rect: NSRect)] = []
     /// The inline actions row (a plain NSStackView of NSButtons) shown on the
-    /// selected card. NOT an NSPopover (tripwire 7). Rebuilt when the selection
+    /// selected card. NOT an NSPopover (tripwire 5). Rebuilt when the selection
     /// changes; repositioned on scroll/redraw.
     private var actionsRow: NSStackView?
 
@@ -558,7 +558,7 @@ final class ReviewMarginRailView: NSView {
     // MARK: - Inline actions row
 
     /// Tear down + rebuild the actions row for the current selection. The row is
-    /// a plain NSStackView of small NSButtons (NOT an NSPopover — tripwire 7),
+    /// a plain NSStackView of small NSButtons (NOT an NSPopover — tripwire 5),
     /// one per `EditorCoordinator.reviewCardActions(for:)`, gated by kind,
     /// ownership and the posture (P3c Task 5).
     private func rebuildActionsRow() {

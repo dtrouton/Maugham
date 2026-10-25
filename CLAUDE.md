@@ -76,7 +76,7 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 4 | No uncached per-row computation in SwiftUI list rows | prose only |
 | 5 | No `NSPopover` for editor autocomplete | `TripwireGrepTests.test_noPopoverInEditorAutocomplete` +1 |
 | 6 | No parallel observable state on `EditorHost`; one `Binding` writes `displayText` exactly once | `EditorIntegrationHarnessTests`; `TripwireGrepTests.test_editorHostDeclaresOneBindingAndNoUnlistedObservable` +1 |
-| 7 | No 4th caller of `EditorSurface.applyExternalText` | `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite` |
+| 7 | No second caller of `EditorSurface.applyExternalText` | `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite` |
 | 8 | Tests crossing the `.md` ↔ op log boundary use 4-char paragraph ids from the valid alphabet | `TripwireGrepTests.test_paragraphIdLiteralsInTestsUseValidAlphabet` |
 | 9 | No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)` | `TripwireGrepTests.test_noTapGestureInASidebarListFile` +3 |
 | 10 | No MCP tool response over 1 MB; images crop on demand | `MCPResponseLineBudgetTests.test_encodeLineIsTheOnlyPlaceAResponseLineIsSerialized` +8 |

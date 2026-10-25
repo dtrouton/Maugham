@@ -593,9 +593,11 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// The forbidden raw-FS-mutation call shapes for user-content paths.
+    /// `removeItem` is here because the rule says "move OR DELETE" (#114 F28).
     private let userContentMoverPatterns = [
         ".moveItem(",
         ".moveToTrash(",
+        ".removeItem(",
     ]
 
     /// Lines that legitimately use a raw move because they touch INTERNAL,
@@ -605,9 +607,13 @@ final class TripwireGrepTests: XCTestCase {
     ///     close+flush before staging), so those moves don't race a live
     ///     autosave. The marker is deliberately explicit (not a fragile
     ///     variable-name match) so each exclusion is auditable in the diff.
+    ///   - a `// raw-delete:` marker on a `removeItem` line, saying why the
+    ///     path is derived, staging, or provably not open (each marker only
+    ///     excuses its own verb, so neither can launder the other).
     ///   - comment lines — doc-comments that mention the hazard are fine.
     private func isInternalMoveLine(_ line: String) -> Bool {
-        if line.contains("internal-move:") { return true }
+        let isDelete = line.contains(".removeItem(")
+        if isDelete ? line.contains("raw-delete:") : line.contains("internal-move:") { return true }
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*") {
             return true
@@ -634,8 +640,9 @@ final class TripwireGrepTests: XCTestCase {
             + "ProjectStore+* seam. Route it through the typed DocumentStore mover "
             + "(relocate(plan:) / relocateUserContent(perform:) / trash(...)) so the "
             + "close+unregister+flush discipline runs before the move (tripwire 14). "
-            + "If this move is genuinely on an internal staging/scratch path, add "
-            + "the token to isInternalMoveLine. Offenders:\n"
+            + "If this move is genuinely on an internal staging/scratch path, mark it "
+            + "`// internal-move: <why>`; a removeItem of a derived, staging or provably "
+            + "unopened path is marked `// raw-delete: <why>`. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
 
@@ -694,7 +701,7 @@ final class TripwireGrepTests: XCTestCase {
     /// both `.write(to: x)` on one line and a split `.write(\n    to: x)` —
     /// review finding A1-High caught two raw `rendered.write(to:atomically:)`
     /// calls that bypass NSFileCoordinator, which can conflict-twin a palette
-    /// card under iCloud (tripwire 7). The one allowed spelling is the funnel
+    /// card under iCloud (tripwire 17). The one allowed spelling is the funnel
     /// `paletteCoordinatedWrite(_:to:)`.
     private let paletteWritePatterns = [".write("]
 
@@ -707,7 +714,7 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Recurrence-tripper: a raw `.write(to:)` on a palette card's rendered
     /// markdown in `ProjectStore+Palette.swift` skips NSFileCoordinator on a
-    /// cloud-synced project file (tripwire 7 / A1-High). Route it through
+    /// cloud-synced project file (tripwire 17 / A1-High). Route it through
     /// `paletteCoordinatedWrite(_:to:)`, which coordinates via
     /// `DocumentStore.performFileSave` when a `documentStore` back-ref is
     /// wired, matching the research-note save path.
@@ -2077,6 +2084,9 @@ final class TripwireGrepTests: XCTestCase {
         func bad() throws {
             try FileManager.default.moveItem(at: oldURL, to: newURL)
             try FileManager.default.moveItem(at: staging, to: dest) // internal-move: staging
+            try? fm.removeItem(at: pieceURL)
+            try? fm.removeItem(at: sidecar) // raw-delete: derived sidecar under .maugham/
+            try? fm.removeItem(at: noteURL) // internal-move: the wrong marker for a delete
         }
         """.write(to: planted, atomically: true, encoding: .utf8)
 
@@ -2088,12 +2098,16 @@ final class TripwireGrepTests: XCTestCase {
             patterns: userContentMoverPatterns,
             excludeLine: { [self] in isInternalMoveLine($0) }
         ).filter { !$0.hasPrefix("MISSING SCOPE:") }
-        // The bare oldURL→newURL move fires; the marked internal move is excluded.
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check expected exactly the non-staging move to fire. Got:\n"
+        // The bare move, the bare delete and the delete wearing the move's
+        // marker fire; the marked internal move and the marked delete do not.
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check expected the bare move, the bare delete and the mis-marked delete. Got:\n"
             + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders.first?.contains("oldURL") == true,
-            "Self-check: the planted oldURL→newURL offender should be the one caught.")
+        for caught in ["oldURL", "pieceURL", "noteURL"] {
+            XCTAssertTrue(offenders.contains { $0.contains(caught) },
+                "Self-check: the planted \(caught) offender should be caught. Got:\n"
+                + offenders.joined(separator: "\n"))
+        }
     }
 
     /// Self-check: prove the palette-write tripwire FIRES on a planted raw

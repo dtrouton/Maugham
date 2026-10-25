@@ -2,8 +2,9 @@ import SwiftUI
 
 /// A single row in `TasksPane`. Renders the checkbox toggle, body text,
 /// source-kind badge, and a kebab menu (Archive + Delete for pane-created).
-/// Click anywhere on the row dispatches `onJump` for navigation (a NOP for
-/// pane-created project tasks that have no paragraph anchor).
+/// A single click on the source badge dispatches `onJump` for navigation; the
+/// rest of the row carries no tap gesture. Pane-created project tasks have no
+/// paragraph anchor, so their badge is not a button.
 ///
 /// Inline tasks (markdown `- [ ]` and Fountain `[[todo:]]`) deliberately
 /// expose no body-edit affordance — their source of truth is the document

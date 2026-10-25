@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Generation tests (audit §3.3 "generated-or-tested" — the same principle
@@ -870,5 +871,245 @@ final class DocSyncTests: XCTestCase {
             "Self-check: a doc with no ring sentence at all must fire as missing.")
         XCTAssertNil(Self.roundRingMismatch(in: offenders[3].text, path: "x", remembered: remembered, stale: stale),
             "Self-check: 'last SIX finished checks' (case-insensitive) must NOT fire.")
+    }
+
+    // MARK: - Test 6: the tripwire tables' Enforced-by cells resolve (#114 F25)
+
+    /// One row of a tripwire table: its number, how many cells it split into,
+    /// and its last ("Enforced by") cell.
+    struct TripwireRow: Equatable {
+        let number: Int
+        let cellCount: Int
+        let enforced: String
+    }
+
+    /// Every `| N | … |` row. Cells split on ` | `, the separator both tables
+    /// use; a row that merges or splits a cell shows up as a wrong count.
+    static func tripwireRows(_ text: String) -> [TripwireRow] {
+        text.components(separatedBy: "\n").compactMap { line in
+            guard line.hasPrefix("| "), line.hasSuffix(" |") else { return nil }
+            let inner = String(line.dropFirst(2).dropLast(2))
+            let cells = inner.components(separatedBy: " | ")
+            guard let number = Int(cells[0]) else { return nil }
+            return TripwireRow(number: number, cellCount: cells.count, enforced: cells.last ?? "")
+        }
+    }
+
+    /// What the test sources declare: each class (or extension) name mapped to
+    /// the text of every file that declares it, plus all the files' text.
+    struct TestIndex {
+        var filesByType: [String: [String]] = [:]
+        var classes: Set<String> = []
+        var allFiles: [String] = []
+    }
+
+    static let testSourceRoots = ["MaughamTests", "MaughamPhoneTests", "Packages/MaughamCore/Tests"]
+
+    private func testIndex() throws -> TestIndex {
+        var index = TestIndex()
+        let typeDecl = try NSRegularExpression(pattern: #"\b(class|struct|extension)\s+(\w+)"#)
+        for root in Self.testSourceRoots {
+            let dir = repoRoot.appendingPathComponent(root)
+            guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+                XCTFail("Could not walk \(root)"); continue
+            }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                index.allFiles.append(text)
+                let ns = text as NSString
+                for m in typeDecl.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                    let kind = ns.substring(with: m.range(at: 1))
+                    let name = ns.substring(with: m.range(at: 2))
+                    index.filesByType[name, default: []].append(text)
+                    if kind != "extension" { index.classes.insert(name) }
+                }
+            }
+        }
+        return index
+    }
+
+    /// The backticked test names in an Enforced-by cell: `test_x`,
+    /// `XTests.test_x`, `XTests`, or a member `XTests.name` (an allow-list the
+    /// row points at). Anything else in backticks (a type, a path) is prose.
+    static func enforcerTokens(in cell: String) -> [String] {
+        let ns = cell as NSString
+        let backticked = try! NSRegularExpression(pattern: "`([^`]+)`")
+        return backticked.matches(in: cell, range: NSRange(location: 0, length: ns.length))
+            .map { ns.substring(with: $0.range(at: 1)) }
+            .filter { $0.range(of: #"^((\w+\.)?test_\w+|\w+Tests?(\.\w+)?)$"#, options: .regularExpression) != nil }
+    }
+
+    /// Nil when `token` names something the test sources declare; otherwise why not.
+    static func unresolved(_ token: String, in index: TestIndex) -> String? {
+        let parts = token.split(separator: ".").map(String.init)
+        let owner: String? = parts.count == 2 ? parts[0] : (parts[0].hasPrefix("test_") ? nil : parts[0])
+        let member: String? = parts.count == 2 ? parts[1] : (parts[0].hasPrefix("test_") ? parts[0] : nil)
+        if let owner, !index.classes.contains(owner) { return "no test class `\(owner)`" }
+        guard let member else { return nil }
+        let pool = owner.map { index.filesByType[$0] ?? [] } ?? index.allFiles
+        let decl = #"\b(func|let|var)\s+"# + NSRegularExpression.escapedPattern(for: member) + #"\b"#
+        guard pool.contains(where: { $0.range(of: decl, options: .regularExpression) != nil }) else {
+            return owner.map { "`\($0)` declares no `\(member)`" } ?? "no `func \(member)` in any test target"
+        }
+        return nil
+    }
+
+    /// Every problem with one doc's table: a row with the wrong cell count, and
+    /// each Enforced-by token that resolves to nothing.
+    static func tripwireTableProblems(_ text: String, doc: String, cells: Int, index: TestIndex) -> [String] {
+        tripwireRows(text).flatMap { row -> [String] in
+            var problems: [String] = []
+            if row.cellCount != cells {
+                problems.append("\(doc) row \(row.number) has \(row.cellCount) cells, not \(cells) (a merged or split cell)")
+            }
+            for token in enforcerTokens(in: row.enforced) {
+                if let why = unresolved(token, in: index) {
+                    problems.append("\(doc) row \(row.number): `\(token)`: \(why)")
+                }
+            }
+            return problems
+        }
+    }
+
+    /// Every test the two tripwire tables name exists, each row has its cells,
+    /// and both tables carry the same rows, 1…N with no gap. The "+N" counts
+    /// are not checked: what a "+1" counts (a control, a twin, a sibling
+    /// census) is not written down anywhere a test could read it.
+    func test_everyTripwireEnforcedByCellResolves() throws {
+        let index = try testIndex()
+        let claude = try readFile("CLAUDE.md")
+        let tripwires = try readFile("docs/tripwires.md")
+
+        let problems = Self.tripwireTableProblems(claude, doc: "CLAUDE.md", cells: 3, index: index)
+            + Self.tripwireTableProblems(tripwires, doc: "docs/tripwires.md", cells: 4, index: index)
+        XCTAssertTrue(problems.isEmpty,
+            "A tripwire row names a test that does not exist, or its cells drifted. "
+            + "Fix the cell to name the real test:\n" + problems.joined(separator: "\n"))
+
+        let tokenCount = (Self.tripwireRows(claude) + Self.tripwireRows(tripwires))
+            .reduce(0) { $0 + Self.enforcerTokens(in: $1.enforced).count }
+        XCTAssertGreaterThan(tokenCount, 100,
+            "Only \(tokenCount) test names found across both tripwire tables — has the table format changed under the parser?")
+
+        let claudeNumbers = Self.tripwireRows(claude).map(\.number)
+        let tripwireNumbers = Self.tripwireRows(tripwires).map(\.number)
+        XCTAssertEqual(claudeNumbers, Array(1...max(claudeNumbers.count, 1)),
+            "CLAUDE.md's tripwire rows are not 1…N in order: \(claudeNumbers)")
+        XCTAssertEqual(claudeNumbers, tripwireNumbers,
+            "CLAUDE.md and docs/tripwires.md list different tripwire rows.")
+    }
+
+    /// Control: a doctored table with a missing method, a missing class, a
+    /// member the class does not declare and a merged cell fires on each, and
+    /// lets the real names through.
+    func test_tripwireCellCheckFiresOnPlantedOffenders() throws {
+        let index = try testIndex()
+        let planted = """
+        | 1 | Rule | `TripwireGrepTests.test_noBareParagraphIDMintInProduction` +1 |
+        | 2 | Rule | `TripwireGrepTests.test_thisTestWasNeverWritten` |
+        | 3 | Rule | `NoSuchSuiteTests` |
+        | 4 | Rule | `TripwireGrepTests.noSuchAllowList`; `TripwirePhoneGrepTest` |
+        | 5 | Rule and why merged `DocSyncTests` |
+        """
+        let problems = Self.tripwireTableProblems(planted, doc: "planted", cells: 3, index: index)
+        XCTAssertEqual(problems.count, 4, "Self-check expected rows 2–5 to fire. Got:\n" + problems.joined(separator: "\n"))
+        for row in 2...5 {
+            XCTAssertTrue(problems.contains { $0.hasPrefix("planted row \(row)") },
+                "Self-check: row \(row) should fire. Got:\n" + problems.joined(separator: "\n"))
+        }
+        XCTAssertFalse(problems.contains { $0.hasPrefix("planted row 1") },
+            "Self-check: a real test name must resolve.")
+    }
+
+    // MARK: - Test 7: counted prose pinned to the code (#114 F27)
+
+    /// `numberWords` (Test 5's table) read the other way: "four" → 4.
+    static func number(spelled word: String) -> Int? {
+        numberWords.first { $0.value == word.lowercased() }?.key
+    }
+
+    /// CLAUDE.md's "sealed by one of N actor keys …: `a`, `b`, …" against
+    /// `DeviceActor`'s cases: nil when the count word and the names agree.
+    static func actorKeysMismatch(in text: String, cases: [String]) -> String? {
+        let pattern = #"one of (\w+) actor keys[^:]*: ((?:`\w+`(?:, )?)+)"#
+        guard let m = try! NSRegularExpression(pattern: pattern)
+            .firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length))
+        else { return "no \"one of N actor keys …: `a`, `b`\" sentence found" }
+        let ns = text as NSString
+        let word = ns.substring(with: m.range(at: 1)).lowercased()
+        let names = ns.substring(with: m.range(at: 2))
+            .components(separatedBy: ", ").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "`")) }
+        if number(spelled: word) != cases.count { return "says \"\(word)\" actor keys; DeviceActor has \(cases.count)" }
+        if names != cases { return "lists \(names); DeviceActor's cases are \(cases)" }
+        return nil
+    }
+
+    func test_claudeMdActorKeysAreDeviceActorsCases() throws {
+        let cases = DeviceActor.allCases.map(\.rawValue)
+        if let problem = Self.actorKeysMismatch(in: try readFile("CLAUDE.md"), cases: cases) {
+            XCTFail("CLAUDE.md's actor-key sentence \(problem). Rewrite it from DeviceActor.allCases.")
+        }
+    }
+
+    func test_actorKeysCheckFiresOnPlantedOffenders() {
+        let cases = ["author", "assistant", "translator", "maugham"]
+        XCTAssertNil(Self.actorKeysMismatch(in: "sealed by one of four actor keys where it has one: `author`, `assistant`, `translator`, `maugham` (ADR)", cases: cases))
+        XCTAssertNotNil(Self.actorKeysMismatch(in: "sealed by one of five actor keys: `author`, `assistant`, `translator`, `maugham`", cases: cases),
+            "Self-check: a wrong count word must fire.")
+        XCTAssertNotNil(Self.actorKeysMismatch(in: "sealed by one of four actor keys: `author`, `assistant`, `reviewer`, `maugham`", cases: cases),
+            "Self-check: a wrong name must fire.")
+        XCTAssertNotNil(Self.actorKeysMismatch(in: "sealed by an actor key", cases: cases),
+            "Self-check: a missing sentence must fire, not pass.")
+    }
+
+    /// The concrete `CanvasViewMountingCase` subclasses, the fast loop's
+    /// `-skip-testing:` list and CLAUDE.md's count word must all agree: a
+    /// fourth subclass otherwise runs silently in every fast loop.
+    static func mountingSkipMismatches(sources: [String], script: String, claude: String) -> [String] {
+        func names(_ pattern: String, in texts: [String]) -> Set<String> {
+            let regex = try! NSRegularExpression(pattern: pattern)
+            return Set(texts.flatMap { text -> [String] in
+                let ns = text as NSString
+                return regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+                    .map { ns.substring(with: $0.range(at: 1)) }
+            })
+        }
+        let subclasses = names(#"class\s+(\w+)\s*:\s*CanvasViewMountingCase\b"#, in: sources)
+        let skipped = names(#"-skip-testing:MaughamTests/(CanvasViewMounting\w+)"#, in: [script])
+        var problems: [String] = []
+        if subclasses.isEmpty { problems.append("no CanvasViewMountingCase subclass found") }
+        if subclasses != skipped {
+            problems.append("scripts/test.sh skips \(skipped.sorted()); the subclasses are \(subclasses.sorted())")
+        }
+        let word = names(#"Skip the (\w+) `CanvasViewMounting\*` classes"#, in: [claude]).first
+        if word.flatMap(number(spelled:)) != subclasses.count {
+            problems.append("CLAUDE.md says \"\(word ?? "<no sentence>")\" CanvasViewMounting* classes; there are \(subclasses.count)")
+        }
+        return problems
+    }
+
+    func test_canvasMountingSkipListIsEveryMountingSubclass() throws {
+        let canvasTests = repoRoot.appendingPathComponent("MaughamTests/Canvas")
+        let sources = try FileManager.default.contentsOfDirectory(at: canvasTests, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+            .map { try String(contentsOf: $0, encoding: .utf8) }
+        let problems = Self.mountingSkipMismatches(
+            sources: sources, script: try readFile("scripts/test.sh"), claude: try readFile("CLAUDE.md"))
+        XCTAssertTrue(problems.isEmpty, problems.joined(separator: "\n"))
+    }
+
+    func test_canvasMountingSkipCheckFiresOnPlantedFourthSubclass() {
+        let script = """
+          -skip-testing:MaughamTests/CanvasViewMountingSurfaceTests \\
+          -skip-testing:MaughamTests/CanvasViewMountingEditingTests
+        """
+        let claude = "- **Skip the two `CanvasViewMounting*` classes while iterating**"
+        let agreeing = ["final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {}",
+                        "final class CanvasViewMountingEditingTests : CanvasViewMountingCase {}"]
+        XCTAssertEqual(Self.mountingSkipMismatches(sources: agreeing, script: script, claude: claude), [])
+        let withFourth = agreeing + ["final class CanvasViewMountingLinesTests: CanvasViewMountingCase {}"]
+        let problems = Self.mountingSkipMismatches(sources: withFourth, script: script, claude: claude)
+        XCTAssertEqual(problems.count, 2,
+            "Self-check: an unskipped subclass must fire on both the skip list and the count word. Got: \(problems)")
     }
 }
