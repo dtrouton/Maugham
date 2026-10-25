@@ -59,7 +59,8 @@ public enum FigureKind: Codable, Equatable, Hashable, Sendable {
 ///   went in Research, and that file's content hash); `parkedItemId`, the
 ///   Research item holding that file, when known (report plan 6b Task 7);
 ///   `parkedFrontier`, what the parker had read (Task 8).
-/// - `figureResumed` — nothing.
+/// - `figureResumed` — nothing; `parkedItemId`, when present, names the
+///   park it resumes (a resume of an earlier park is dropped).
 /// - `figureCellSet` — `cell`; `next` is the new cell (nil = cleared) and
 ///   `prior` the cell it replaced (nil = was empty).
 /// - `figureStructure` — `structure`. A delete may carry `removed`, what it

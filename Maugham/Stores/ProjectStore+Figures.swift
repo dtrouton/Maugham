@@ -395,11 +395,13 @@ extension ProjectStore {
                 HeldFigureTextEdit.unwrite(written)
                 var error = error
                 if let incomplete = error as? TranslationRelabelIncomplete, let translations {
-                    // The source is back, so what landed is put back against it.
-                    await putBackTranslationRelabel(
+                    // The source is back, so what landed is put back against
+                    // it; what could not be is said, not only logged.
+                    let unrestored = await putBackTranslationRelabel(
                         translations, landed: incomplete.landed,
                         after: relabel.manuscripts.map(\.manuscript.doc))
-                    error = incomplete.underlying
+                    error = unrestored.isEmpty
+                        ? incomplete.underlying : FigureRenameTranslationsNotRestored(languages: unrestored)
                 }
                 do { try await replaceFigureRecord(record) } catch {
                     projectStoreLog.error(
@@ -836,6 +838,9 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
         /// it can't be read or this Mac may not change them (final review
         /// I-2), so they would keep the old label.
         case translationsNotWritable([String])
+        /// A translation in these languages changed between the check and
+        /// the write (a translation landing meanwhile): never overwritten.
+        case translationChangedMeanwhile([String])
     }
 
     public let reason: Reason
@@ -866,6 +871,10 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
             return "Not renamed — the "
                 + languages.joined(separator: ", ")
                 + " translation can't be changed here, and it refers to this figure."
+        case .translationChangedMeanwhile(let languages):
+            return "Not renamed — the "
+                + languages.joined(separator: ", ")
+                + " translation changed while the figure was being renamed. Try again."
         }
     }
 }

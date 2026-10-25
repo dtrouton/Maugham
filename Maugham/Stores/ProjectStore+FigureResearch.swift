@@ -195,7 +195,10 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
         guard let parked = host.state.parked else { throw FigureReturnRefused(reason: .notParked) }
-        guard parked.itemId == item.id else { throw FigureReturnRefused(reason: .notThisCopy) }
+        guard parked.itemId == item.id else {
+            throw FigureReturnRefused(reason: Self.wasParkedBefore(item.id, current: parked, in: host._ops)
+                ? .sentAgainSince(record.kind) : .notThisCopy)
+        }
         let (_, file) = try researchFile(of: item)
         let none = FigureReturnDiff.Changes.none
 
@@ -242,6 +245,18 @@ extension ProjectStore {
         case .unknown:
             throw FigureEditInvalid(reason: "this build cannot bring back a figure of this kind")
         }
+    }
+
+    /// **Is `itemId` the copy of an EARLIER park than the current one?** — a
+    /// park that named it sorts before the park that names the current copy:
+    /// the figure came back and was sent again since. (A copy whose park
+    /// never took — a second send while parked — sorts after.)
+    nonisolated static func wasParkedBefore(_ itemId: String, current: FigureParking, in ops: [Op]) -> Bool {
+        let parks = ops.filter { $0.kind == .figureParked }
+        guard let mine = parks.filter({ $0.figure?.parkedItemId == itemId }).map(\.opId).min(),
+              let now = parks.filter({ $0.figure?.parkedItemId == current.itemId }).map(\.opId).max()
+        else { return false }
+        return mine < now
     }
 
     /// **The entry pins the cells a return sets take** (final review I-1):
@@ -658,6 +673,9 @@ public struct FigureReturnRefused: LocalizedError, Equatable {
         /// The figure is in Research, but its park names another item: this
         /// one is a copy whose park never took (a second send while parked).
         case notThisCopy
+        /// This copy is from an earlier park: the figure came back and was
+        /// sent to Research again since (final re-review).
+        case sentAgainSince(FigureKind)
     }
 
     public let reason: Reason
@@ -670,6 +688,9 @@ public struct FigureReturnRefused: LocalizedError, Equatable {
             return "That figure is not in Research."
         case .notThisCopy:
             return "This is not the copy that figure was sent to Research as, so it can't bring it back."
+        case .sentAgainSince(let kind):
+            return (kind == .image ? "This picture" : "This table")
+                + " was sent to Research again since this copy was made; bring it back from its newer copy."
         }
     }
 }

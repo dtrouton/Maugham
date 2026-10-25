@@ -192,7 +192,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// And, under the same 10, the payload field `return_of` (the resume a
     /// return's content op belongs to): a return whose resume is dropped —
     /// two Macs bringing one figure back at once — folds none of its ops
-    /// (final review M-2; `FigureReturnDiffTests` pins it).
+    /// (final review M-2; `FigureReturnDiffTests` pins it). And, under the
+    /// same 10, `parked_item_id` on a `figureResumed`: the park it resumes; a
+    /// resume naming an earlier park than the current one folds nothing, nor
+    /// do its ops (final re-review; `FigureDeriverTests` pins it).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

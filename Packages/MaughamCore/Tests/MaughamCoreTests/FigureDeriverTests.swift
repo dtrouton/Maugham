@@ -537,4 +537,38 @@ final class FigureDeriverTests: XCTestCase {
         XCTAssertEqual(s.table.columnWidths, [:])
         XCTAssertEqual(s.diagnostics.count, 4)
     }
+
+    // MARK: - A stale return across two parks (final re-review ruling)
+
+    /// **A resume names the park it resumes**: Mac A brings the figure back
+    /// and sends it again; Mac B, offline with a later clock, brings back the
+    /// FIRST copy. B's resume names the first park's item, not the current
+    /// one, so it resumes nothing and its ops (`returnOf`) fold nothing — the
+    /// second park stands.
+    func test_aResumeOfAnEarlierParkFoldsNothingAndTheSecondParkStands() {
+        var ops = base()
+        ops.append(op(.figureParked, FigureOpPayload(parkedPath: "r/one.csv", parkedHash: "h1", parkedItemId: "res-one")))
+        ops.append(op(.figureResumed, FigureOpPayload(parkedItemId: "res-one")))
+        ops.append(op(.figureParked, FigureOpPayload(parkedPath: "r/two.csv", parkedHash: "h2", parkedItemId: "res-two")))
+        let stale = op(.figureResumed, FigureOpPayload(parkedItemId: "res-one"), device: "macB")
+        ops.append(stale)
+        var insert = FigureOpPayload(structure: .insertRow(r3, after: r2))
+        insert.returnOf = stale.opId
+        ops.append(op(.figureStructure, insert, device: "macB"))
+        var cell = FigureOpPayload(cell: key(r1, c1), next: num(9))
+        cell.returnOf = stale.opId
+        ops.append(op(.figureCellSet, cell, device: "macB"))
+
+        let s = FigureDeriver.derive(ops)
+        XCTAssertEqual(s.parked?.itemId, "res-two", "the second park stands")
+        XCTAssertEqual(s.abandonedReturns, [stale.opId])
+        XCTAssertEqual(s.table.rows, [r1, r2], "B's row is not added")
+        XCTAssertNil(s.table[key(r1, c1)], "nor its cell")
+
+        // A resume of the CURRENT park (or naming none) resumes it.
+        let current = FigureDeriver.derive(ops.prefix(base().count + 3) + [op(.figureResumed, FigureOpPayload(parkedItemId: "res-two"))])
+        XCTAssertNil(current.parked)
+        let unnamed = FigureDeriver.derive(ops.prefix(base().count + 3) + [op(.figureResumed, FigureOpPayload())])
+        XCTAssertNil(unnamed.parked)
+    }
 }

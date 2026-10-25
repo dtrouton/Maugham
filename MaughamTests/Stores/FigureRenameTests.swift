@@ -855,7 +855,7 @@ final class FigureRenameTests: XCTestCase {
         // A batch that fails after the text and A's batch were written puts
         // the text back, then A's translation, fresh against it.
         var batches = 0
-        ProjectStore.beforeTranslationRelabelAppendForTesting = { _ in
+        ProjectStore.beforeTranslationRelabelAppendForTesting = { _, _ in
             batches += 1
             if batches == 2 { throw CocoaError(.fileWriteUnknown) }
         }
@@ -873,5 +873,120 @@ final class FigureRenameTests: XCTestCase {
         XCTAssertEqual(spanishA.map(\.text), spanishABefore.map(\.text), "A's landed batch was put back")
         XCTAssertEqual(spanishA.map(\.status), [.fresh], "and is fresh against the restored source")
         XCTAssertEqual(projectStore.manifest.figures, [cash])
+    }
+
+    // MARK: - Final re-review residuals
+
+    /// The latest es record of `slug`'s first paragraph.
+    private func latestSpanish(_ slug: String) throws -> TranslationRecord? {
+        TranslationStore.latestByParagraph(
+            try TranslationStore.loadMerged(forDocId: "doc-\(slug)", language: "es", in: projectURL)).values.first
+    }
+
+    /// **A translation landing between the check and the write is never
+    /// overwritten** (final re-review residual 1): the translator writes B's
+    /// paragraph while the rename writes A's batch; B's batch re-reads,
+    /// finds a newer record, and refuses the whole rename, naming the
+    /// language — A's landed batch and the text go back, and B's new
+    /// translation stands.
+    func test_aTranslationLandingMeanwhileRefusesTheRenameAndIsNotOverwritten() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try await translateToSpanish("a")
+        try await translateToSpanish("b")
+        let aBefore = try await spanish("a")
+        let bParagraph = try XCTUnwrap(try latestSpanish("b")?.paragraphId)
+        let identities = Document.loadIdentities
+        let deviceState = try XCTUnwrap(Document.deviceStateForTesting)
+        let url = projectURL!
+        var landedOnce = false
+        ProjectStore.beforeTranslationRelabelAppendForTesting = { _, puttingBack in
+            guard !puttingBack, !landedOnce else { return }
+            landedOnce = true
+            // The translator's word on B, landing in the rename's window.
+            let newer = TranslationRecord(paragraphId: bParagraph, language: "es",
+                                          text: "Véase @tbl:cash, de nuevo.", sourceHash: TranslationHash.hash("See @tbl:cash."))
+            try await TranslationStore.appendBatch(
+                [newer], forDocId: "doc-b", language: "es",
+                identity: identities.translator, identities: identities, state: deviceState, in: url)
+        }
+        defer { ProjectStore.beforeTranslationRelabelAppendForTesting = nil }
+
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+            XCTFail("the rename was not refused")
+        } catch let refused as FigureRenameRefused {
+            XCTAssertEqual(refused.reason, .translationChangedMeanwhile(["es"]))
+        }
+        let a = try await text("a")
+        XCTAssertEqual(a, "![Cash](../figures/cash.csv){#tbl:cash}", "the source text went back")
+        XCTAssertEqual(try latestSpanish("b")?.text, "Véase @tbl:cash, de nuevo.", "the newer translation stands")
+        let aAfter = try await spanish("a")
+        XCTAssertEqual(aAfter.map(\.text), aBefore.map(\.text), "A's landed batch went back")
+        XCTAssertEqual(aAfter.map(\.status), [.fresh])
+        XCTAssertEqual(projectStore.manifest.figures, [cash])
+    }
+
+    /// **A put-back that fails is said, not only logged** (final re-review
+    /// residual 2): B's batch fails, then A's put-back fails too — the rename
+    /// throws `FigureRenameTranslationsNotRestored` naming es, the source text
+    /// is back, and A's translation now reads stale against it.
+    func test_aTranslationThatCannotBePutBackIsSaid() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try await translateToSpanish("a")
+        try await translateToSpanish("b")
+        var forward = 0
+        ProjectStore.beforeTranslationRelabelAppendForTesting = { _, puttingBack in
+            if puttingBack { throw CocoaError(.fileWriteNoPermission) }
+            forward += 1
+            if forward == 2 { throw CocoaError(.fileWriteUnknown) }
+        }
+        defer { ProjectStore.beforeTranslationRelabelAppendForTesting = nil }
+
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+            XCTFail("the failed rename was not said")
+        } catch let unrestored as FigureRenameTranslationsNotRestored {
+            XCTAssertEqual(unrestored.languages, ["es"])
+            XCTAssertEqual(unrestored.localizedDescription,
+                           "The rename was undone, but the es translation could not be put back and now reads stale.")
+        }
+        ProjectStore.beforeTranslationRelabelAppendForTesting = nil
+        let a = try await text("a")
+        XCTAssertEqual(a, "![Cash](../figures/cash.csv){#tbl:cash}", "the source text went back")
+        let spanishA = try await spanish("a")
+        XCTAssertEqual(spanishA.map(\.status), [.stale], "as the error says")
+        XCTAssertEqual(projectStore.manifest.figures, [cash])
+    }
+
+    /// **A translation that will not read refuses the rename, naming its
+    /// language** (final re-review residual 3): nothing changes.
+    func test_anUnreadableTranslationRefusesTheRename() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        try await translateToSpanish("b")
+        let fileURL = try XCTUnwrap(TranslationStore.fileURLs(forDocId: "doc-b", language: "es", in: projectURL).first)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: fileURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: fileURL.path) }
+
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+            XCTFail("the rename was not refused")
+        } catch let refused as FigureRenameRefused {
+            XCTAssertEqual(refused.reason, .translationsNotWritable(["es"]))
+        }
+        let a = try await text("a")
+        let b = try await text("b")
+        XCTAssertEqual(a, "![Cash](../figures/cash.csv){#tbl:cash}")
+        XCTAssertEqual(b, "See @tbl:cash.")
+        XCTAssertEqual(projectStore.manifest.figures, [cash])
+        XCTAssertTrue(exists("figures/cash.csv"))
     }
 }

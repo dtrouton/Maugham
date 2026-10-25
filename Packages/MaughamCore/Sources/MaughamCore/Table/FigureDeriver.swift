@@ -49,7 +49,8 @@ public struct FigureState: Equatable, Sendable {
     public internal(set) var held: [Op]
     /// **Returns this stream drops whole** (report plan 6b final review M-2):
     /// the op ids of `figureResumed` ops that came while the figure was not
-    /// parked — a second Mac bringing the same figure back at once. Every
+    /// parked — a second Mac bringing the same figure back at once — or that
+    /// name an earlier park than the current one. Every
     /// content op naming one of them (`FigureOpPayload.returnOf`) is dropped
     /// and diagnosed, so the second return's rows are not added twice.
     public internal(set) var abandonedReturns: Set<String> = []
@@ -100,7 +101,9 @@ public struct FigureState: Equatable, Sendable {
 ///   park while parked is dropped the same way: the first one's working copy
 ///   is the one the stream points at. A resume while not parked is dropped,
 ///   and so is every content op of that return (its `returnOf`): two Macs
-///   bringing one figure back at once add its rows once.
+///   bringing one figure back at once add its rows once. So is a resume
+///   naming an earlier park than the current one (its `parkedItemId`): a
+///   stale copy brought back after the figure was sent again folds nothing.
 ///
 /// This is not the manuscript deriver, and never asks `Deriver.appliesToManuscript`
 /// (tripwire 44+1): a figure op is never manuscript text.
@@ -159,9 +162,18 @@ public enum FigureDeriver {
             }
 
         case .figureResumed:
-            guard state.parked != nil else {
+            guard let parked = state.parked else {
                 state.abandonedReturns.insert(op.opId)
                 return drop("figure_resumed while not parked, ignored")
+            }
+            // A resume names the park it resumes (its `parkedItemId`, final
+            // re-review ruling): one taken from an earlier park's copy — the
+            // figure sent again since — resumes nothing, and its ops fold
+            // nothing (`returnOf`). A resume naming no item (none recorded)
+            // resumes whatever is parked, as before.
+            if let resumes = p.parkedItemId, let current = parked.itemId, resumes != current {
+                state.abandonedReturns.insert(op.opId)
+                return drop("figure_resumed of an earlier park (\(resumes)), ignored")
             }
             state.parked = nil
 

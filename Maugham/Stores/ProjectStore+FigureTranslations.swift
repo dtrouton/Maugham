@@ -19,6 +19,9 @@ extension ProjectStore {
         let docId: String
         let language: String
         let paragraphId: String
+        /// The record read at the hold: the one the relabel replaces. A
+        /// different latest record at the write means it changed meanwhile.
+        let opId: String
         /// The record's text before the rename, and after it.
         let oldText: String
         let newText: String
@@ -55,9 +58,10 @@ extension ProjectStore {
     /// answers as refused. Empty in production.
     static var translationRelabelDoorRefusesForTesting: Set<String> = []
 
-    /// Test seam: thrown from before each of a rename's translation batches,
-    /// handed its language — where a failed append is put. Nil in production.
-    static var beforeTranslationRelabelAppendForTesting: ((String) throws -> Void)?
+    /// Test seam: runs before each of a rename's translation batches, handed
+    /// its language and whether it is a put-back — where a failed append, or a
+    /// translation landing meanwhile, is put. Nil in production.
+    static var beforeTranslationRelabelAppendForTesting: (@MainActor (String, _ puttingBack: Bool) async throws -> Void)?
 
     /// **Every translated paragraph a rename must relabel, held** — before
     /// anything changes. For each manuscript with translations, each
@@ -107,7 +111,7 @@ extension ProjectStore {
                           let relabelled = Self.relabelled(text, change) else { continue }
                     found.append(TranslationRelabel(
                         docId: item.id, language: language, paragraphId: paragraphId,
-                        oldText: text, newText: relabelled, verbatim: record.verbatim))
+                        opId: record.opId, oldText: text, newText: relabelled, verbatim: record.verbatim))
                 }
             }
             guard !found.isEmpty else { continue }
@@ -136,58 +140,108 @@ extension ProjectStore {
     /// (`TranslationWritePipeline.perform`, as this Mac's author), which
     /// stamps each against its source paragraph as it now reads
     /// (`documents`, the written manuscripts; a document the rename did not
-    /// write keeps its source) — so each stays fresh. A batch that fails
-    /// throws `TranslationRelabelIncomplete`, naming those that landed.
+    /// write keeps its source) — so each stays fresh. **A translation that
+    /// changed since the hold is never overwritten**: each batch first
+    /// re-reads its records, and a paragraph whose latest record is no longer
+    /// the one held (a `write_translation` or the translator landing
+    /// meanwhile) refuses the whole rename
+    /// (`FigureRenameRefused.translationChangedMeanwhile`, naming the
+    /// language). A batch that fails or is refused throws
+    /// `TranslationRelabelIncomplete`, naming those that landed.
     func writeTranslationRelabel(_ held: HeldTranslationRelabel, after documents: [Document]) async throws {
-        try await writeTranslations(held, batches: held.batches, documents: documents, text: \.newText)
-    }
-
-    /// **A failed rename's translations put back**, after its source text
-    /// was: each batch that landed, written again with its old text and
-    /// stamped against the source as it reads now. Best-effort, logged.
-    func putBackTranslationRelabel(
-        _ held: HeldTranslationRelabel, landed: [(docId: String, language: String)], after documents: [Document]
-    ) async {
-        do {
-            try await writeTranslations(held, batches: landed, documents: documents, text: \.oldText)
-        } catch {
-            projectStoreLog.error(
-                "renameFigure: a translation could not be put back after a failed relabel: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func writeTranslations(
-        _ held: HeldTranslationRelabel, batches: [(docId: String, language: String)],
-        documents: [Document], text: KeyPath<TranslationRelabel, String>
-    ) async throws {
-        let identities = Document.loadIdentities
-        let deviceState = Document.loadDeviceState
-        let byId = Dictionary(documents.map { ($0.docId, $0) }, uniquingKeysWith: { first, _ in first })
         var landed: [(docId: String, language: String)] = []
-        for batch in batches {
-            let entries = held.relabels.filter { $0.docId == batch.docId && $0.language == batch.language }.map {
-                $0.verbatim
-                    ? TranslationWritePipeline.Entry(paragraphId: $0.paragraphId, verbatim: true)
-                    : TranslationWritePipeline.Entry(paragraphId: $0.paragraphId, text: $0[keyPath: text])
-            }
-            let source: TranslationWritePipeline.SourceState
-            if let written = byId[batch.docId] {
-                source = (written.sequence, written.paragraphs, url)
-            } else {
-                let before = held.sources[batch.docId]
-                source = (before?.sequence ?? [], before?.paragraphs ?? [:], url)
-            }
+        for batch in held.batches {
             do {
-                try Self.beforeTranslationRelabelAppendForTesting?(batch.language)
-                _ = try await TranslationWritePipeline.perform(
-                    entries: entries, language: batch.language, documentId: batch.docId,
-                    state: source, actor: .author, identities: identities, deviceState: deviceState)
+                try await Self.beforeTranslationRelabelAppendForTesting?(batch.language, false)
+                try requireTranslationsUnchanged(held, batch)
+                try await writeTranslations(held, batch: batch, documents: documents, text: \.newText)
             } catch {
                 throw TranslationRelabelIncomplete(landed: landed, underlying: error)
             }
             landed.append(batch)
         }
     }
+
+    /// **A failed rename's translations put back**, after its source text
+    /// was: each batch that landed, written again with its old text and
+    /// stamped against the source as it reads now. Answers the languages that
+    /// could not be put back — they keep the new label against the restored
+    /// source, so they now read stale, and the rename says so
+    /// (`FigureRenameTranslationsNotRestored`).
+    func putBackTranslationRelabel(
+        _ held: HeldTranslationRelabel, landed: [(docId: String, language: String)], after documents: [Document]
+    ) async -> [String] {
+        var failed = Set<String>()
+        for batch in landed {
+            do {
+                try await Self.beforeTranslationRelabelAppendForTesting?(batch.language, true)
+                try await writeTranslations(held, batch: batch, documents: documents, text: \.oldText)
+            } catch {
+                projectStoreLog.error(
+                    "renameFigure: the \(batch.language, privacy: .public) translation could not be put back after a failed relabel: \(error.localizedDescription, privacy: .public)")
+                failed.insert(batch.language)
+            }
+        }
+        return failed.sorted()
+    }
+
+    /// Each paragraph of `batch` still has the latest record the hold read,
+    /// or the rename is refused naming the language.
+    private func requireTranslationsUnchanged(
+        _ held: HeldTranslationRelabel, _ batch: (docId: String, language: String)
+    ) throws {
+        let records: [TranslationRecord]
+        do {
+            records = try TranslationStore.loadMerged(
+                forDocId: batch.docId, language: batch.language, in: url,
+                identities: Document.loadIdentities, state: Document.loadDeviceState)
+        } catch {
+            throw FigureRenameRefused(reason: .translationsNotWritable([batch.language]))
+        }
+        let latest = TranslationStore.latestByParagraph(records)
+        let changed = held.relabels.contains {
+            $0.docId == batch.docId && $0.language == batch.language && latest[$0.paragraphId]?.opId != $0.opId
+        }
+        if changed { throw FigureRenameRefused(reason: .translationChangedMeanwhile([batch.language])) }
+    }
+
+    private func writeTranslations(
+        _ held: HeldTranslationRelabel, batch: (docId: String, language: String),
+        documents: [Document], text: KeyPath<TranslationRelabel, String>
+    ) async throws {
+        let byId = Dictionary(documents.map { ($0.docId, $0) }, uniquingKeysWith: { first, _ in first })
+        let entries = held.relabels.filter { $0.docId == batch.docId && $0.language == batch.language }.map {
+            $0.verbatim
+                ? TranslationWritePipeline.Entry(paragraphId: $0.paragraphId, verbatim: true)
+                : TranslationWritePipeline.Entry(paragraphId: $0.paragraphId, text: $0[keyPath: text])
+        }
+        let source: TranslationWritePipeline.SourceState
+        if let written = byId[batch.docId] {
+            source = (written.sequence, written.paragraphs, url)
+        } else {
+            let before = held.sources[batch.docId]
+            source = (before?.sequence ?? [], before?.paragraphs ?? [:], url)
+        }
+        _ = try await TranslationWritePipeline.perform(
+            entries: entries, language: batch.language, documentId: batch.docId,
+            state: source, actor: .author, identities: Document.loadIdentities,
+            deviceState: Document.loadDeviceState)
+    }
+}
+
+/// **A rename undone whose translations could not all be put back** (final
+/// re-review): the source text, the record and the picture are as they
+/// were, but these languages' translations keep the new label against it and
+/// now read stale.
+public struct FigureRenameTranslationsNotRestored: LocalizedError, Equatable {
+    public let languages: [String]
+    public var errorDescription: String? {
+        "The rename was undone, but the " + languages.joined(separator: ", ")
+            + " translation could not be put back and now reads stale."
+    }
+}
+
+extension ProjectStore {
 
     /// A manuscript's sequence and paragraphs: the open document's where a
     /// window has it, else derived from its op log (never the `.md`).

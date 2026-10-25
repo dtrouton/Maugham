@@ -965,7 +965,10 @@ public final class FigureDocument {
         var applied = 0
         var resumed = false
         do {
-            let resume = try await commit(.figureResumed, FigureOpPayload(), provenance: reason, render: false)
+            // It names the park it resumes: a copy of an earlier park,
+            // brought back after the figure was sent again, folds nothing.
+            let resume = try await commit(
+                .figureResumed, FigureOpPayload(parkedItemId: parking.itemId), provenance: reason, render: false)
             resumed = true
             // Each names its resume (`returnOf`, final review M-2): a return
             // whose resume another Mac's beat folds none of its ops.
