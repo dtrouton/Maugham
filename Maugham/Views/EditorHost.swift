@@ -113,6 +113,10 @@ struct EditorHost: View {
     /// `control.referenceIndexVersion`, and the coordinator reads the value
     /// through the `referenceIndex` provider.
     @State private var referenceIndex = ReferenceIndexHost()
+    /// **The window's figure cards** (report plan 7a Task 3): each figure's
+    /// card, filled off the typing path, read synchronously by the editor. A
+    /// plain reference like `referenceIndex`, never observed by this body.
+    @State private var figureCards = FigureCardCache()
     /// **The table grid editor's presenter** (plan 3b Task 5): the coordinator
     /// awaits it through `tableEditor`, and `TableGridSheetModifier` shows the
     /// sheet. A plain reference like `referenceIndex`: this body never reads
@@ -351,7 +355,13 @@ struct EditorHost: View {
         // text binding (tripwires 2, 6).
         .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
         .onChange(of: store.manifest.structure) { _, _ in referenceIndex.invalidate(.all) }
-        .onAppear { attachReferenceIndex() }
+        // A figure made, renamed or removed here changes the registry
+        // without a presenter pass.
+        .onChange(of: store.manifest.figures) { _, _ in figureCards.invalidate() }
+        .onAppear {
+            attachReferenceIndex()
+            attachFigureCards()
+        }
         .modifier(TableGridSheetModifier(presenter: tableGrid))
         .onDisappear {
             // EditorHost's `.onDisappear` fires only on document-abandonment
@@ -390,6 +400,7 @@ struct EditorHost: View {
             recoveryPaneModel?.stopWatching()
             recoveryPaneModel = nil
             referenceIndex.attach(nil)
+            detachFigureCards()
             // A grid still open saves nowhere: it closes as cancelled.
             tableGrid.finish(nil)
             loadedItemId = nil
@@ -752,6 +763,22 @@ struct EditorHost: View {
                 let config = (try? PublishConfigStore.read(in: url)) ?? nil
                 return ElementWords.forBody(config?.metadata ?? PublishConfig.Metadata())
             }))
+    }
+
+    /// Point the window's figure cards at this project (report plan 7a Task
+    /// 3): the store tells the cache when a figure changes, and a fill reads
+    /// through the store (`figureCardInputs`), which opens no figure host.
+    private func attachFigureCards() {
+        documentStore.figureCardCache = figureCards
+        figureCards.attach(FigureCardCache.Source(
+            read: { [weak documentStore] in await documentStore?.figureCardInputs() }))
+    }
+
+    /// The host is going: no fill lands, and the store stops telling this
+    /// cache (unless a newer host has already taken its place).
+    private func detachFigureCards() {
+        figureCards.attach(nil)
+        if documentStore.figureCardCache === figureCards { documentStore.figureCardCache = nil }
     }
 
     /// Build the EditorSurface configuration wall in a dedicated function so the

@@ -186,3 +186,10 @@ To make room for plan 6c's figure restore, `withFigureHost` and the promotion's 
 - `AdmissionDecisionTests.test_theProposedLabelNeverMerges` pins that a proposed label never merges into an existing person.
 - A top `safeAreaInset` around the `NavigationSplitView` is not propagated into the columns and occludes their tops.
 - `openResearchItem` and `handleShowLatestMCPNote` call `revealResearchColumn` explicitly because re-selecting the current subject fires no `onChange`.
+
+## Moved from the guide by report plan 7a Task 3 (2026-10-25)
+
+To make room for the `FigureCardCache.swift` Map row under the 8,000-word cap:
+
+- `showsStatusFooter` needs no Publish clause of its own because Publish's cover only covers altitude (`PublishPreviewCentreTests.test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`).
+- At altitude, clicking a card or table row writes `selectedSubject`, which lands on the same `EditorHost`.

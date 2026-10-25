@@ -155,6 +155,7 @@ extension DocumentStore {
     /// and every table whose formulas name it follow.
     func figureHostAppended(_ figureId: String) async {
         figureCache.invalidate(figureId: figureId)
+        figureCardCache?.invalidate()
         await renderFigures(changed: [figureId])
     }
 
@@ -232,6 +233,7 @@ extension DocumentStore {
                     "figure \(id, privacy: .public) did not re-read after a change on disk: \(error.localizedDescription, privacy: .public)")
             }
         }
+        figureCardCache?.invalidate()
         await renderFigures(changed: changed)
     }
 
@@ -271,6 +273,7 @@ extension DocumentStore {
     /// re-read and re-render through the figure pass.
     func figureTrustChanged() {
         figureCache.invalidateAll()
+        figureCardCache?.invalidate()
         let open = openFigures.values.filter { !$0.isClosed }
         guard !open.isEmpty else { return }
         for doc in open {
@@ -430,6 +433,57 @@ extension DocumentStore {
         return state.parked != nil
     }
 
+    // MARK: - The window's figure cards
+
+    /// **What one fill of the window's figure cards reads** (report plan 7a
+    /// Task 3, `FigureCardCache`): every registered figure's state — an open
+    /// host's fold, else the figure cache's read — the book assembled as one
+    /// workbook for their values, which of them hold a pin whose source has
+    /// changed, and the book's locale. Opens no host and reads no
+    /// `figures/<name>.csv` (tripwire 20). Nil once the window has closed, or when
+    /// the registry will not read (logged); a figure whose stream will not
+    /// read is left out. Costly (trust, an assembly, each pinned figure's
+    /// sources): never per keystroke.
+    func figureCardInputs() async -> FigureCardInputs? {
+        guard presenter != nil, let projectStore else { return nil }
+        guard !(projectStore.manifest.figures ?? []).isEmpty else {
+            return FigureCardInputs(records: [], states: [:], workbook: nil, pinChanged: [],
+                                    locale: TableLocale(languageTag: nil))
+        }
+        let locale = TableLocale(languageTag: await projectStore.bookLanguageTag())
+        let trust: TrustTable
+        do { trust = try await figureTrust() } catch {
+            documentLog.error(
+                "figure cards were not filled: the registry would not read: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        // The window may have closed, or the registry moved, across the awaits.
+        guard presenter != nil, let manifest = self.projectStore?.manifest else { return nil }
+        let records = manifest.figures ?? []
+        let assembled = assembledFigures(manifest: manifest, trust: trust)
+        let facts = DocumentClass.Facts(manifest)
+        var states: [String: FigureState] = [:]
+        for record in records where states[record.id] == nil {
+            if let open = openFigure(forId: record.id) {
+                states[record.id] = open.state
+            } else if let read = try? figureCache.state(
+                forFigureId: record.id, in: projectURL, trust: trust, facts: facts) {
+                states[record.id] = read
+            }
+        }
+        var pinChanged = Set<String>()
+        for (id, state) in states where !state.pins.isEmpty {
+            guard let sources = try? await pinSources(for: state) else { continue }
+            let statuses = FigurePins.status(of: state, sources: sources).values
+            if statuses.contains(where: { if case .sourceChanged = $0 { true } else { false } }) {
+                pinChanged.insert(id)
+            }
+        }
+        guard presenter != nil else { return nil }
+        return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
+                                pinChanged: pinChanged, locale: locale)
+    }
+
     // MARK: - Rendering
 
     /// **Render `changed` and every table whose formulas name one of them.**
@@ -516,4 +570,18 @@ extension DocumentStore {
             }
         }
     }
+}
+
+/// **One fill's worth of the book's figures** (`DocumentStore.figureCardInputs()`),
+/// plain values for `FigureCardCache` to build its cards from.
+struct FigureCardInputs {
+    /// The registry as read (`manifest.figures`).
+    var records: [FigureRecord]
+    /// Each readable figure's state, by id; an unreadable one is absent.
+    var states: [String: FigureState]
+    /// The book's tables evaluated together, keyed by figure id; nil with no figures.
+    var workbook: Workbook?
+    /// The figures holding a pin whose source has changed (`PinStatus.sourceChanged`).
+    var pinChanged: Set<String>
+    var locale: TableLocale
 }

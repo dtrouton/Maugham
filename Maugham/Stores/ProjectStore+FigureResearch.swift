@@ -543,7 +543,7 @@ extension ProjectStore {
     /// the book's day/month order): the publish config's `metadata.language`,
     /// or nil — English and the Mac's region — when there is no config, it
     /// will not read, or the tag is empty.
-    private func bookLanguageTag() async -> String? {
+    func bookLanguageTag() async -> String? {
         guard let config = try? await PublishConfigStore(projectURL: url).load() else { return nil }
         let tag = config.metadata.language.trimmingCharacters(in: .whitespaces)
         return tag.isEmpty ? nil : tag

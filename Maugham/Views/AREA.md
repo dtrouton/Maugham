@@ -94,6 +94,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ReferencePlaceholderCard.swift` — the centre's placeholder for a Collection's reference piece.
 - `EditorStatusFooter.swift` — the status row under the editor.
 - `ReferenceIndexHost.swift` — the window's cached `ReferenceIndex`, its token listing and parse off the main thread; `EditorHost` owns it.
+- `FigureCardCache.swift` — the window's figure cards, filled off the typing path and read from memory only; `EditorHost` owns it.
 - `TableGridEditor.swift` — Edit Table…'s grid sheet over a pure `TableGridModel`, and the presenter `EditorHost` awaits.
 - `StatusSwatch.swift` — the one place a `ReviewStatus` becomes a `Color`.
 
@@ -234,10 +235,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the third branch, its one mount (tripwires 27, 30; `RegionBindingTests` counts it).
 - **Every altitude or cover change happens inside `.editor(altitude:cover:)`, never as a new branch**: a branch is a view identity, and a second one would run `EditorHost`'s `.onDisappear` on every project ↔ chapter hop (tripwire 6). `ProjectAltitudeCentreTests` counts the host's lifetimes.
 - **In `CentreColumn.manuscriptEditor`'s `ZStack`, `EditorHost` is first and always present, altitude second whenever the subject names no document, then at most ONE cover chosen by `centreRoute`.** Count the layers in the arm scans of `ProjectAltitudeCentreTests` and `PublishPreviewCentreTests`, never a number in prose.
-- **Altitude shows where `ProjectWindow.subjectShowsAltitude(persona:subject:structure:)` is true**: no subject resolving to one document, in a persona whose centre is the editor. Clicking a card or table row writes `selectedSubject`, which lands on the same `EditorHost`.
+- **Altitude shows where `ProjectWindow.subjectShowsAltitude(persona:subject:structure:)` is true**: no subject resolving to one document, in a persona whose centre is the editor.
 - **Publish's surfaces and Review's board compose `subjectShowsAltitude`, never a second document-resolution rule**: a chapter subject in Publish or Review shows the editor. The one exception is a translation round, which draws over its chapter too.
 - **Problems outrank a round, which outranks a proposal, which outranks the book** (`publishCentre`); the desk's Shows clear each other, so the centre holds one.
-- **`showsStatusFooter` refuses under altitude, the palette wall and a research subject in the centre**; Publish needs no clause of its own because its cover only covers altitude (`PublishPreviewCentreTests.test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`).
+- **`showsStatusFooter` refuses under altitude, the palette wall and a research subject in the centre** (`PublishPreviewCentreTests`).
 - **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed, so the mounted editor always wins. It derives from the op log, never the `.fountain` (tripwire 20) (`ScreenplayScriptSourceTests`).
 
 ### Personas
