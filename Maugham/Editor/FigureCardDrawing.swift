@@ -25,6 +25,8 @@ enum FigureCardDrawing {
     static let cellInset: CGFloat = 6
     /// The side of the tinted Research corner.
     static let cornerSize: CGFloat = 10
+    /// The space left and right of a labelled card's words.
+    static let labelInset: CGFloat = 8
 
     /// "+ N more rows" (one row: "+ 1 more row").
     static func moreText(_ n: Int) -> String { n == 1 ? "+ 1 more row" : "+ \(n) more rows" }
@@ -44,7 +46,8 @@ enum FigureCardDrawing {
         /// Horizontal rules across the card: under the header, over the total row.
         var rules: [CGFloat] = []
         var more: Text?
-        /// The amber "changed" banner, over the card's top-right corner.
+        /// The amber "changed" banner: the card's last line, its own room
+        /// (`FigureCardLayout.height`), so it covers no row and not the corner.
         var banner: Text?
         /// The tinted Research corner (top-right triangle's bounding square).
         var corner: CGRect?
@@ -64,11 +67,11 @@ enum FigureCardDrawing {
         let columnWidth = max(0, columnWidth)
         func labelled(_ words: String) -> Plan {
             let width = min(columnWidth, max(FigureThumbnailLayout.placeholderWidth,
-                                             (measure(words, false) + 2 * 8).rounded(.up)))
+                                             (measure(words, false) + 2 * labelInset).rounded(.up)))
             let card = CGRect(x: columnX, y: top, width: width,
                               height: FigureThumbnailLayout.placeholderHeight)
             return Plan(card: card, label: Text(string: words,
-                                                 rect: card.insetBy(dx: 8, dy: 0)))
+                                                 rect: card.insetBy(dx: labelInset, dy: 0)))
         }
         switch model.kind {
         case .image: return nil
@@ -99,7 +102,7 @@ enum FigureCardDrawing {
         }
         var floor: CGFloat = 0
         if model.moreRows > 0 { floor = max(floor, measure(moreText(model.moreRows), false) + 2 * cellInset) }
-        if model.pinChanged { floor = max(floor, measure(pinChangedBanner, false) + 4 * cellInset) }
+        if model.pinChanged { floor = max(floor, measure(pinChangedBanner, false) + 2 * cellInset) }
         let natural = widths.reduce(0, +)
         let cardWidth = min(columnWidth, max(natural, floor.rounded(.up)))
         if natural > cardWidth, natural > 0 {
@@ -109,7 +112,7 @@ enum FigureCardDrawing {
             widths[widths.count - 1] += cardWidth - natural
         }
 
-        let shownLines = model.shownRowCount + (model.moreRows > 0 ? 1 : 0)
+        let shownLines = model.shownRowCount + (model.moreRows > 0 ? 1 : 0) + (model.pinChanged ? 1 : 0)
         let card = CGRect(x: columnX, y: top, width: cardWidth,
                           height: CGFloat(shownLines) * rowHeight)
         var plan = Plan(card: card)
@@ -146,13 +149,27 @@ enum FigureCardDrawing {
                                  width: cornerSize, height: cornerSize)
         }
         if model.pinChanged {
-            let width = min(cardWidth, (measure(pinChangedBanner, false) + 2 * cellInset).rounded(.up))
             plan.banner = Text(string: pinChangedBanner,
-                               rect: CGRect(x: card.maxX - width, y: card.minY,
-                                            width: width, height: rowHeight),
-                               alignment: .center)
+                               rect: CGRect(x: columnX, y: y, width: cardWidth, height: rowHeight))
         }
         return plan
+    }
+
+    /// **The room the layout holds under a figure line now**, which bounds the
+    /// card's painting: the last fragment's paragraph spacing (its rect's
+    /// bottom less its used rect's), or, for a figure on the last line with
+    /// no newline (TextKit 1 lays out no spacing there), the text view's own
+    /// bottom. A card that grew mid-burst is clipped to this until its line
+    /// re-lays out at the settle.
+    static func heldRoom(lineBottom: CGFloat, fragmentBottom: CGFloat,
+                         isTrailing: Bool, viewBottom: CGFloat) -> CGFloat {
+        max(0, (isTrailing ? viewBottom : fragmentBottom) - lineBottom)
+    }
+
+    /// The clip a card is painted in: the card's width (a point either side
+    /// for its outline), from the line's bottom down the held room.
+    static func clip(for card: CGRect, lineBottom: CGFloat, heldRoom: CGFloat) -> CGRect {
+        CGRect(x: card.minX - 1, y: lineBottom, width: card.width + 2, height: max(0, heldRoom))
     }
 
     // MARK: - Painting a plan
@@ -197,7 +214,8 @@ enum FigureCardDrawing {
             NSColor.systemOrange.blended(withFraction: 0.75, of: .textBackgroundColor)?
                 .withAlphaComponent(alpha).setFill()
             banner.rect.fill()
-            drawText(banner, font: font, color: .labelColor, alpha: alpha)
+            drawText(Text(string: banner.string, rect: banner.rect.insetBy(dx: cellInset, dy: 0)),
+                     font: font, color: .labelColor, alpha: alpha)
         }
         NSGraphicsContext.restoreGraphicsState()
     }

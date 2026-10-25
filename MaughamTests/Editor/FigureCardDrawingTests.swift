@@ -100,12 +100,37 @@ final class FigureCardDrawingTests: XCTestCase {
         model = table(rows: 1); model.fromResearchSource = true
         XCTAssertNotNil(try XCTUnwrap(plan(model)).corner, "made from a Research item")
 
-        model = table(rows: 1); model.pinChanged = true
+        // A changed pin implies a pin, so the corner is drawn beside the banner.
+        model = table(rows: 1, more: 3); model.readsResearch = true; model.pinChanged = true
         p = try XCTUnwrap(plan(model))
         let banner = try XCTUnwrap(p.banner)
         XCTAssertEqual(banner.string, "Research has changed")
-        XCTAssertEqual(banner.rect.maxX, p.card.maxX); XCTAssertEqual(banner.rect.minY, p.card.minY)
-        XCTAssertGreaterThanOrEqual(p.card.width, banner.rect.width, "the card holds its banner")
+        XCTAssertEqual(banner.rect.maxY, p.card.maxY, "the card's last line, its own room")
+        XCTAssertEqual(banner.rect.width, p.card.width)
+        XCTAssertEqual(p.card.height, 4 * row, "header, one row, the more line and the banner")
+        for cell in p.cells { XCTAssertFalse(banner.rect.intersects(cell.rect), "covers no cell") }
+        XCTAssertFalse(banner.rect.intersects(try XCTUnwrap(p.more).rect), "nor the more line")
+        XCTAssertFalse(banner.rect.intersects(try XCTUnwrap(p.corner)), "nor the corner")
+        XCTAssertGreaterThanOrEqual(p.card.width, 200, "the card holds its banner's words")
+    }
+
+    /// The card is painted inside the room the layout holds now: a card taller
+    /// than that room (grown mid-burst) is clipped to it, and a trailing
+    /// figure's room runs to the text view's bottom.
+    func test_theHeldRoomBoundsThePainting() {
+        let card = CGRect(x: 40, y: 106, width: 200, height: 260)
+        let held = FigureCardDrawing.heldRoom(lineBottom: 100, fragmentBottom: 240,
+                                              isTrailing: false, viewBottom: 900)
+        XCTAssertEqual(held, 140)
+        let clip = FigureCardDrawing.clip(for: card, lineBottom: 100, heldRoom: held)
+        XCTAssertEqual(clip.maxY, 240, "clipped to the old room, not the card's 366")
+        XCTAssertLessThan(clip.maxY, card.maxY)
+        XCTAssertEqual(clip.minX, 39); XCTAssertEqual(clip.width, 202)
+        XCTAssertEqual(FigureCardDrawing.heldRoom(lineBottom: 100, fragmentBottom: 120,
+                                                  isTrailing: true, viewBottom: 500), 400,
+                       "a trailing figure's room is the view's own height")
+        XCTAssertEqual(FigureCardDrawing.heldRoom(lineBottom: 100, fragmentBottom: 90,
+                                                  isTrailing: false, viewBottom: 500), 0)
     }
 
     func test_labelledCards() throws {
@@ -127,7 +152,10 @@ final class FigureCardDrawingTests: XCTestCase {
         let typography = TypographySettings.defaults
         let rowHeight = FigureCardMetrics.rowHeight(for: typography)
         for model in [table(rows: 0), table(rows: 3), table(rows: 11, more: 28, total: true),
-                      FigureCardModel(kind: .table, bodyRows: [["a"]], moreRows: 4)] {
+                      FigureCardModel(kind: .table, bodyRows: [["a"]], moreRows: 4),
+                      FigureCardModel(kind: .table, bodyRows: [["a"]], moreRows: 4,
+                                      readsResearch: true, pinChanged: true),
+                      FigureCardModel(kind: .table, bodyRows: [["a"]], pinChanged: true)] {
             let p = try XCTUnwrap(FigureCardDrawing.plan(
                 for: model, lineBottom: 0, columnX: 0, columnWidth: 500, rowHeight: rowHeight,
                 measure: measure))

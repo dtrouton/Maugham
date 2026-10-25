@@ -27,6 +27,22 @@ final class FigureCardModelTests: XCTestCase {
         FigureCardLayout.height(for: m, columnWidth: 400, rowHeight: 20, moreLineHeight: 16, verticalPadding: 4, placeholderHeight: 90)
     }
 
+    /// The pin-changed banner takes a line of its own (report plan 7a Task 6 review I1), beside the
+    /// "more" line, never over a row; a labelled card keeps the placeholder whatever its flags.
+    func test_aChangedPinAddsTheBannersLine() {
+        var m = build(state(rows: 3))
+        let plain = height(m)
+        m.pinChanged = true
+        XCTAssertEqual(height(m), plain + 16)
+        var cut = build(state(rows: 40))
+        let cutPlain = height(cut)
+        cut.pinChanged = true
+        XCTAssertEqual(height(cut), cutPlain + 16, "the banner and the more line both count")
+        var parked = FigureCardModel.placeholder(.parked)
+        parked.pinChanged = true
+        XCTAssertEqual(height(parked), 90)
+    }
+
     func test_threeRowTable() {
         let m = build(state(rows: 3))
         XCTAssertEqual(m.kind, .table)

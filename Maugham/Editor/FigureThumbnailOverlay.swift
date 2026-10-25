@@ -214,13 +214,13 @@ enum FigureCardMetrics {
             placeholderHeight: FigureThumbnailLayout.reservedHeight)
     }
 
-    /// The tallest room any figure line reserves: a capped card and its
-    /// "more" line, or the thumbnail's. How far above the view the overlay
+    /// The tallest room any figure line reserves: a capped card, its "more"
+    /// line and its pin-changed banner line, or the thumbnail's. How far above the view the overlay
     /// looks for a line whose card hangs into it.
     static func maxRoom(typography: TypographySettings) -> CGFloat {
         let row = rowHeight(for: typography)
         return max(FigureThumbnailLayout.reservedHeight,
-                   CGFloat(FigureCardModel.maxShownRows + 1) * row + 2 * verticalPadding)
+                   CGFloat(FigureCardModel.maxShownRows + 2) * row + 2 * verticalPadding)
     }
 }
 
@@ -527,14 +527,18 @@ final class FigureThumbnailOverlay: NSView {
     /// reading; nothing is drawn for none).
     private(set) var lastVisibleFigureCount = 0
 
-    /// What the last draw put under each figure line in view, in document
-    /// order (the mounted tests' reading).
+    /// What the last draw found to put under each figure line in view, in
+    /// document order, painted or outside the dirty rect (the mounted tests'
+    /// reading).
     enum Drawn: Equatable {
         case card(FigureCardModel.Kind)
         case thumbnail
         case box(String)
     }
     private(set) var lastDrawn: [Drawn] = []
+    /// The cell strings of each card the last draw found, row-major (the
+    /// mounted tests' reading of a content-only change).
+    private(set) var lastCardStrings: [[String]] = []
 
     /// Each card's plan at the origin, kept while its model, the column and
     /// the font are unchanged, so a scroll measures no text (tripwire 4).
@@ -595,10 +599,23 @@ final class FigureThumbnailOverlay: NSView {
     /// How many observed changes asked for a repaint (the M5 test's reading).
     private(set) var repaintRequests = 0
 
+    /// How many times anything asked this overlay to repaint (a card
+    /// version's repaint is read here: `needsDisplay` itself reads false in
+    /// a window that is never shown).
+    private(set) var displayRequests = 0
+    override var needsDisplay: Bool {
+        get { super.needsDisplay }
+        set {
+            if newValue { displayRequests += 1 }
+            super.needsDisplay = newValue
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         lastVisibleFigureCount = 0
         lastDrawn = []
+        lastCardStrings = []
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
@@ -643,19 +660,18 @@ final class FigureThumbnailOverlay: NSView {
                let plan = cardPlan(for: mark.path, model: model, columnWidth: columnWidth,
                                    font: cardFont, rowHeight: rowHeight) {
                 lastDrawn.append(.card(model.kind))
-                // The room the layout holds now: the fragment's paragraph
-                // spacing, or the text view's own height for a trailing
-                // figure. A card that grew mid-burst is clipped to its old
-                // room until its line re-lays out at the settle.
-                let room: CGFloat = NSMaxRange(mark.lineRange) == storage.length
-                    ? bounds.maxY - lineBottom
-                    : layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil).maxY
-                        + origin.y - lineBottom
+                lastCardStrings.append(plan.cells.map(\.string))
+                let room = FigureCardDrawing.heldRoom(
+                    lineBottom: lineBottom,
+                    fragmentBottom: layoutManager.lineFragmentRect(forGlyphAt: lastGlyph,
+                                                                   effectiveRange: nil).maxY + origin.y,
+                    isTrailing: NSMaxRange(mark.lineRange) == storage.length,
+                    viewBottom: bounds.maxY)
                 let frame = plan.card.offsetBy(dx: columnX, dy: lineBottom)
                 if frame.intersects(dirtyRect) {
                     drawCard(plan, at: CGPoint(x: columnX, y: lineBottom),
-                             clip: CGRect(x: frame.minX - 1, y: lineBottom,
-                                          width: frame.width + 2, height: max(0, room)),
+                             clip: FigureCardDrawing.clip(for: frame, lineBottom: lineBottom,
+                                                          heldRoom: room),
                              font: cardFont, alpha: alpha)
                 }
                 continue

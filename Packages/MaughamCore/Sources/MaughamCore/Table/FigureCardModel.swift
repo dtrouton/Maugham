@@ -110,6 +110,8 @@ public struct FigureCardModel: Equatable, Sendable {
 /// `FigureThumbnailLayout.reservedHeight` as `placeholderHeight`.
 public enum FigureCardLayout {
     /// Rows are one line each (long cells truncate), so `columnWidth` does not change the height today.
+    /// The "+ N more rows" line and the pin-changed banner each take one `moreLineHeight` line of
+    /// their own, so neither covers a row.
     public static func height(
         for model: FigureCardModel, columnWidth: CGFloat,
         rowHeight: CGFloat, moreLineHeight: CGFloat, verticalPadding: CGFloat,
@@ -117,6 +119,7 @@ public enum FigureCardLayout {
     ) -> CGFloat {
         guard model.kind == .table, model.shownRowCount > 0 else { return placeholderHeight }
         let more = model.moreRows > 0 ? moreLineHeight : 0
-        return CGFloat(model.shownRowCount) * rowHeight + more + 2 * verticalPadding
+        let banner = model.pinChanged ? moreLineHeight : 0
+        return CGFloat(model.shownRowCount) * rowHeight + more + banner + 2 * verticalPadding
     }
 }

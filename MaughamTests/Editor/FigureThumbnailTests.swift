@@ -456,6 +456,23 @@ final class FigureThumbnailTests: XCTestCase {
         XCTAssertEqual(overlay.lastDrawn, [.card(.table), .box(FigureThumbnailStore.notFoundMessage)])
     }
 
+    /// A card whose content changed but not its height redraws on the card
+    /// version: the room stays, the overlay repaints, the plan is rebuilt.
+    func test_mounted_aContentOnlyChangeRedrawsTheCard() throws {
+        final class Box { var model: FigureCardModel; init(_ m: FigureCardModel) { model = m } }
+        let box = Box(FigureCardModel(kind: .table, bodyRows: [["old"]]))
+        let harness = mountedCards("![Cash](figures/cash.csv)\n\nAfter.") { _ in box.model }
+        let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
+        overlay.display()
+        XCTAssertEqual(overlay.lastCardStrings, [["old"]])
+        box.model = FigureCardModel(kind: .table, bodyRows: [["new"]])
+        let before = overlay.displayRequests
+        harness.coordinator.setFigureCardVersion(harness.coordinator.figureCardVersion + 1)
+        XCTAssertGreaterThan(overlay.displayRequests, before, "the version repaints the overlay")
+        overlay.display()
+        XCTAssertEqual(overlay.lastCardStrings, [["new"]])
+    }
+
     /// The labelled cards (R7a-3) draw as cards, not as a missing image.
     func test_mounted_aRemovedFigureDrawsItsLabelledCard() throws {
         let harness = mountedCards("![Gone](figures/gone.csv)\n\nAfter.") { _ in .placeholder(.removed) }
