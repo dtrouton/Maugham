@@ -171,8 +171,8 @@ extension ProjectStore {
             if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
             throw error
         }
+        // The return rendered once, as it ended (`resumeFromResearch`).
         if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
-        await documentStore.renderFigures(changed: [figureId])
         return result
     }
 
@@ -205,19 +205,21 @@ extension ProjectStore {
             // The state the copy was written from: the parked state while it
             // still renders to the park's bytes (two-way is exact), else the
             // stream as far as the parker had read.
+            let sidecar = researchTableSidecar(of: item)
+            let namesAtPark = sidecar.map { names.renaming($0.formulaNames) }
             let base: FigureState
-            let rendered = TableCSV.renderResearch(current.table, locale: locale, names: names)
-            if ContentHash.of(Data(rendered.utf8)) != parked.hash, let frontier = parked.frontier {
-                base = FigureReturnDiff.base(of: host._ops, frontier: frontier)
+            let rendered = Self.researchHash(of: current.table, locale: locale, names: namesAtPark ?? names)
+            if rendered != parked.hash, let frontier = parked.frontier {
+                base = FigureReturnDiff.base(of: host._ops, streams: host.streams, frontier: frontier)
             } else {
                 base = current
             }
-            let sidecar = researchTableSidecar(of: item)
             var used = Set(current.table.rowSlots.map(\.id.raw)).union(current.table.columnSlots.map(\.id.raw))
             let changes = FigureReturnDiff.changes(
                 from: base, onto: current, to: read.table,
                 sidecar: sidecar?.contentHash == parked.hash ? sidecar : nil,
-                names: names, problems: read.problems,
+                names: names, namesAtPark: sidecar?.contentHash == parked.hash ? namesAtPark : nil,
+                problems: read.problems,
                 mintRow: { let id = TableID.mint(excluding: used); used.insert(id); return RowID(id) },
                 mintColumn: { let id = TableID.mint(excluding: used); used.insert(id); return ColumnID(id) })
             return (changes, nil, current)
@@ -347,9 +349,11 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
         let item: ResearchItem
+        var cited: [String: String] = [:]
         switch record.kind {
         case .table:
             let names = try await documentStore.formulaNamesForUse()
+            cited = names.cited(by: state.table)
             let locale = TableLocale(languageTag: await bookLanguageTag())
             let csv = TableCSV.renderResearch(state.table, locale: locale, names: names)
             let folder = try FigureIngest.makeTemporaryFolder()
@@ -384,7 +388,7 @@ extension ProjectStore {
             let sidecar = record.kind == .table
                 ? ResearchTableSidecar(
                     figureId: record.id, contentHash: hash, name: record.name,
-                    caption: caption, table: state.table)
+                    caption: caption, table: state.table, formulaNames: cited)
                 : ResearchTableSidecar(figureId: record.id, contentHash: hash, name: record.name, caption: caption)
             try ResearchTableSidecar.write(sidecar, forItem: item.id, in: url)
             return (item, path, hash)
@@ -431,6 +435,14 @@ extension ProjectStore {
             projectStoreLog.error(
                 "sendToResearch: a failed send's working copy at \(relativePath, privacy: .public) could not go to the Trash: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// **The content hash a park's working copy of `table` has** — the bytes
+    /// `writeWorkingCopy` writes (`TableCSV.renderResearch`). A parked state
+    /// that still hashes to its `parkedHash` is what the copy was written
+    /// from, so a return needs no frontier (its fast path).
+    nonisolated static func researchHash(of table: FigureTable, locale: TableLocale, names: FormulaNames) -> String {
+        ContentHash.of(Data(TableCSV.renderResearch(table, locale: locale, names: names).utf8))
     }
 
     /// The caption of the figure line labelled `label` in `text`, or nil.

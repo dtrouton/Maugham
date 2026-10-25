@@ -95,7 +95,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent: export.docx and sent.json; the id is `draft<N>-yyyyMMdd-HHmmss-<slug>`, chosen before packaging and carried in the file; backed up (R-S9) |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
-| `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold |
+| `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold; a parked picture's copy gets one too, naming its figure |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |

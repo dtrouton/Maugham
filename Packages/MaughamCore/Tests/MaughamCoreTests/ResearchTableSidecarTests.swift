@@ -135,4 +135,15 @@ final class ResearchTableSidecarTests: XCTestCase {
         XCTAssertEqual(ResearchTableSidecar(
             figureId: "f", contentHash: "h", name: "n", caption: nil, table: plain).columnWidths, [])
     }
+
+    /// Report plan 6b Task 8: the names a copy's formulas were written with,
+    /// written only when there are any, and read back.
+    func test_theFormulaNamesRoundTrip() throws {
+        let sidecar = ResearchTableSidecar(figureId: "fig-a", formulaNames: ["fig-b": "cash"])
+        let data = try JSONEncoder().encode(sidecar)
+        XCTAssertTrue(String(data: data, encoding: .utf8)!.contains("\"formula_names\""))
+        XCTAssertEqual(try JSONDecoder().decode(ResearchTableSidecar.self, from: data).formulaNames, ["fig-b": "cash"])
+        let none = String(data: try JSONEncoder().encode(ResearchTableSidecar(figureId: "fig-a")), encoding: .utf8)!
+        XCTAssertFalse(none.contains("formula_names"))
+    }
 }

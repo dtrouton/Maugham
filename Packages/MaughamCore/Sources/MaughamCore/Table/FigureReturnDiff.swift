@@ -11,15 +11,9 @@ import Foundation
 /// in `current` and not in `base`). The changes are `base → copy`, applied onto
 /// `current`; a cell the copy did not change keeps whatever `current` holds.
 ///
-/// - **Columns** match by header text when `base` has a header row — a
-///   longest common subsequence of the headers, then an equal header found out
-///   of order (a moved column) — else by position.
-/// - **Rows** match by their values over the matched columns: a longest common
-///   subsequence, then an equal row found out of order (a moved row), then,
-///   between two matched rows, a row whose cells are at least half the same (an
-///   edited row). A formula is compared by its shape relative to its own cell,
-///   so a row whose formulas Excel re-pointed when a row was inserted above it
-///   still matches.
+/// - **Matching** (`FigureReturnMatch.swift`): columns by header text, then
+///   a retitled column by its unchanged position; rows by their values —
+///   equal, moved, or edited (`FigureReturnDiff.likeness`).
 /// - A matched row or column keeps its id and moves if the copy moved it; an
 ///   unmatched old one is deleted, carrying what it held (ruling P-2; anchors
 ///   on it are orphaned, §11.5); a new one is inserted with a fresh id from
@@ -27,8 +21,8 @@ import Foundation
 /// - **Cells**: a cell the copy changed is set; one it did not is left alone. A
 ///   copy's formula is compared with the old one by id, then by its text at the
 ///   copy's positions; a formula the copy could not read only because a figure
-///   it names was renamed while parked (`TableCSV.read` kept it as `=…` text)
-///   keeps the old formula.
+///   it names was renamed while parked (`TableCSV.read` kept it as `=…` text,
+///   exactly the old formula under the park-time names) keeps the old formula.
 /// - **Formats** come from the sidecar, whose positions are the parked CSV's
 ///   (pass it only when it was written for those bytes); without one, a matched
 ///   cell keeps its format and a new cell takes the one its text suggested.
@@ -57,17 +51,43 @@ public enum FigureReturnDiff {
         public static let none = Changes(ops: [], overwritten: [], problems: [])
     }
 
-    /// **The state the working copy was written from**: the stream folded only
-    /// as far as the parker had read (`FigureParking.frontier`) — for each
-    /// device, its ops at or before the last id the parker had folded; a
-    /// device the parker had not read contributes none. Never parked.
-    public static func base(of ops: [Op], frontier: [String: String]) -> FigureState {
+    /// **The state the working copy was written from**: for each device, the
+    /// prefix of its own stream, in append order (`streams`, from
+    /// `OpLogStore.loadDiagnosedStreams`), up to and including the last op the
+    /// parker had folded from it (`FigureParking.frontier`). A device the
+    /// parker had not read, or whose recorded op is no longer in its stream,
+    /// contributes none: its ops surface as late edits rather than vanish.
+    /// Ops a return already appended (`broughtBackFromResearch` — a return
+    /// that stopped part way and was parked again) count as written from: a
+    /// retry brings back only what is left. Never parked.
+    public static func base(
+        of ops: [Op], streams: [String: [String]], frontier: [String: String]
+    ) -> FigureState {
+        var read: Set<String> = []
+        for (device, last) in frontier {
+            guard let stream = streams[device], let end = stream.firstIndex(of: last) else { continue }
+            read.formUnion(stream[...end])
+        }
         var state = FigureDeriver.derive(ops.filter { op in
-            guard FigureOpPayload.kinds.contains(op.kind), let last = frontier[op.device] else { return false }
-            return op.opId <= last
+            FigureOpPayload.kinds.contains(op.kind)
+                && (read.contains(op.opId) || op.provenance?.synthesisSource == .broughtBackFromResearch)
         })
         state.parked = nil
         return state
+    }
+
+    /// **Does every change apply, in turn, onto `state` resumed?** Each payload
+    /// carries what its kind needs, and none is dropped or left waiting — what
+    /// a host checks before it appends the first op of a return.
+    public static func everyChangeApplies(_ changes: [Change], onto state: FigureState) -> Bool {
+        var sim = Simulation(state: state)
+        for change in changes {
+            let before = sim.state.diagnostics.count
+            guard FigureOpPayload.validate(kind: change.kind, payload: change.payload) else { return false }
+            sim.emit(change.kind, change.payload)
+            guard sim.state.diagnostics.count == before, sim.state.held.isEmpty else { return false }
+        }
+        return true
     }
 
     /// The two-way return (the brief's shape): `parked` is both the base and
@@ -81,11 +101,13 @@ public enum FigureReturnDiff {
     }
 
     /// The three-way return. `copy` is `TableCSV.read`'s table (its own ids),
-    /// `problems` that read's problems, and `names` the book's name directory
-    /// the read used.
+    /// `problems` that read's problems, `names` the book's name directory the
+    /// read used, and `namesAtPark` the names the working copy was written
+    /// with (the sidecar's `formulaNames` laid over `names`), when known.
     public static func changes(
         from base: FigureState, onto current: FigureState, to copy: FigureTable,
-        sidecar: ResearchTableSidecar?, names: FormulaNames = .empty, problems: [CSVReadProblem] = [],
+        sidecar: ResearchTableSidecar?, names: FormulaNames = .empty, namesAtPark: FormulaNames? = nil,
+        problems: [CSVReadProblem] = [],
         mintRow: () -> RowID, mintColumn: () -> ColumnID
     ) -> Changes {
         var base = base
@@ -158,7 +180,7 @@ public enum FigureReturnDiff {
                 if let ours {
                     var cell = ours
                     if let old, sameContent(ours.content, old.content, toResult: toResult, toCopy: toCopy,
-                                            copy: copy, names: names) {
+                                            copy: copy, names: names, namesAtPark: namesAtPark) {
                         cell.content = old.content
                         if case .value(.text) = ours.content, case .formula = old.content {
                             kept.insert(Position(row: r, column: c))
@@ -223,11 +245,11 @@ public enum FigureReturnDiff {
             if fresh.contains(id) {
                 sim.emit(.figureStructure, FigureOpPayload(structure: ID.insert(id, after: previous)))
             } else if sim.isLive(id) {
-                if !stable.contains(id) {
-                    let prior = sim.predecessor(of: id)
-                    if prior != previous {
-                        sim.emit(.figureStructure, FigureOpPayload(structure: ID.move(id, after: previous, priorAfter: prior)))
-                    }
+                // Already just after `previous` among the live (a tombstone
+                // between them is no reason to move): no op.
+                if !stable.contains(id), sim.livePredecessor(of: id) != previous {
+                    sim.emit(.figureStructure, FigureOpPayload(
+                        structure: ID.move(id, after: previous, priorAfter: sim.predecessor(of: id))))
                 }
             } else {
                 continue
@@ -236,247 +258,15 @@ public enum FigureReturnDiff {
         }
     }
 
-    // MARK: - Matching
-
-    /// (base live column index, copy live column index) pairs.
-    static func matchColumns(base: FigureTable, copy: FigureTable) -> [(Int, Int)] {
-        let b = base.columns, c = copy.columns
-        guard base.headerRows == 1, let baseHeader = base.rows.first, let copyHeader = copy.rows.first else {
-            return (0..<min(b.count, c.count)).map { ($0, $0) }
-        }
-        let bk = b.enumerated().map { i, id in matchKey(base[CellKey(row: baseHeader, column: id)], at: (0, i), in: base) }
-        let ck = c.enumerated().map { i, id in matchKey(copy[CellKey(row: copyHeader, column: id)], at: (0, i), in: copy) }
-        var pairs = lcs(bk, ck)
-        pairs += movedPairs(bk, ck, already: pairs, blank: { $0.isEmpty })
-        // No header in common (every one retitled): by position after all.
-        guard !pairs.isEmpty else { return (0..<min(b.count, c.count)).map { ($0, $0) } }
-        return pairs.sorted { $0.1 < $1.1 }
-    }
-
-    /// (base live row index, copy live row index) pairs, over the matched columns.
-    static func matchRows(base: FigureTable, copy: FigureTable, columns: [(Int, Int)]) -> [(Int, Int)] {
-        let bc = base.columns, cc = copy.columns
-        func keys(_ t: FigureTable, _ cols: [ColumnID], copySide: Bool) -> [[String]] {
-            t.rows.enumerated().map { r, row in
-                columns.map { pair in
-                    let i = copySide ? pair.1 : pair.0
-                    return matchKey(t[CellKey(row: row, column: cols[i])], at: (r, i), in: t)
-                }
-            }
-        }
-        let bk = keys(base, bc, copySide: false), ck = keys(copy, cc, copySide: true)
-        let anchors = lcs(bk, ck)
-        var pairs = anchors + movedPairs(bk, ck, already: anchors, blank: { $0.allSatisfy(\.isEmpty) })
-        // Between two anchors, an edited row: at least half its cells the same.
-        var baseTaken = Set(pairs.map(\.0)), copyTaken = Set(pairs.map(\.1))
-        let fences = [(-1, -1)] + anchors + [(bk.count, ck.count)]
-        for k in 1..<fences.count {
-            let (b0, c0) = fences[k - 1], (b1, c1) = fences[k]
-            var next = b0 + 1
-            for j in (c0 + 1)..<max(c1, c0 + 1) where !copyTaken.contains(j) {
-                var i = next
-                while i < b1 {
-                    if !baseTaken.contains(i), similar(bk[i], ck[j]) { break }
-                    i += 1
-                }
-                guard i < b1 else { continue }
-                pairs.append((i, j))
-                baseTaken.insert(i); copyTaken.insert(j)
-                next = i + 1
-            }
-        }
-        // Anywhere else, an edited row that also moved: more than half its
-        // cells the same, or half with its first cell (its label) the same —
-        // the most alike first, the nearest on a tie. Skipped when what is
-        // left unmatched is too large to compare all against all.
-        let leftover = (bk.count - baseTaken.count) * (ck.count - copyTaken.count)
-        for j in 0..<ck.count where leftover <= 1_000_000 && !copyTaken.contains(j) {
-            var best: (i: Int, score: Double)?
-            for i in 0..<bk.count where !baseTaken.contains(i) {
-                guard let score = likeness(bk[i], ck[j]) else { continue }
-                if best == nil || score > best!.score || (score == best!.score && abs(i - j) < abs(best!.i - j)) {
-                    best = (i, score)
-                }
-            }
-            guard let best else { continue }
-            pairs.append((best.i, j))
-            baseTaken.insert(best.i); copyTaken.insert(j)
-        }
-        return pairs.sorted { $0.1 < $1.1 }
-    }
-
-    /// How alike two rows are, when alike enough to be one row edited and
-    /// moved: the share of held cells that are the same, over half, or half
-    /// exactly with the same non-empty first cell. Nil otherwise.
-    private static func likeness(_ a: [String], _ b: [String]) -> Double? {
-        var same = 0, held = 0
-        for (x, y) in zip(a, b) where !x.isEmpty || !y.isEmpty {
-            held += 1
-            if x == y { same += 1 }
-        }
-        guard held > 0 else { return nil }
-        if same * 2 > held { return Double(same) / Double(held) }
-        if same * 2 == held, let x = a.first, !x.isEmpty, x == b.first { return 0.5 }
-        return nil
-    }
-
-    /// At least half the cells either row holds are the same in both.
-    private static func similar(_ a: [String], _ b: [String]) -> Bool {
-        var same = 0, held = 0
-        for (x, y) in zip(a, b) where !x.isEmpty || !y.isEmpty {
-            held += 1
-            if x == y { same += 1 }
-        }
-        return held == 0 || same * 2 >= held
-    }
-
-    /// Pairs of equal, non-empty keys left unpaired by `already`, each copy key
-    /// taking the first such base key: a row or column the copy moved.
-    private static func movedPairs<K: Hashable>(
-        _ a: [K], _ b: [K], already: [(Int, Int)], blank: (K) -> Bool
-    ) -> [(Int, Int)] {
-        let takenA = Set(already.map(\.0)), takenB = Set(already.map(\.1))
-        var waiting: [K: [Int]] = [:]
-        for (i, key) in a.enumerated() where !takenA.contains(i) && !blank(key) {
-            waiting[key, default: []].append(i)
-        }
-        var out: [(Int, Int)] = []
-        for (j, key) in b.enumerated() where !takenB.contains(j) {
-            guard var list = waiting[key], !list.isEmpty else { continue }
-            out.append((list.removeFirst(), j))
-            waiting[key] = list
-        }
-        return out
-    }
-
-    /// The pairs of a longest common subsequence of `a` and `b`, in order. Common
-    /// ends are matched first; a middle too large for the table (over 4 million
-    /// cells) is matched greedily in order instead.
-    static func lcs<K: Hashable>(_ a: [K], _ b: [K]) -> [(Int, Int)] {
-        var lo = 0
-        while lo < a.count, lo < b.count, a[lo] == b[lo] { lo += 1 }
-        var ha = a.count, hb = b.count
-        while ha > lo, hb > lo, a[ha - 1] == b[hb - 1] { ha -= 1; hb -= 1 }
-        var out = (0..<lo).map { ($0, $0) }
-        let n = ha - lo, m = hb - lo
-        if n > 0, m > 0 {
-            if n * m <= 4_000_000 {
-                // dp[i][j] = LCS length of a[lo+i..<ha] and b[lo+j..<hb].
-                var dp = [Int32](repeating: 0, count: (n + 1) * (m + 1))
-                func at(_ i: Int, _ j: Int) -> Int { i * (m + 1) + j }
-                for i in stride(from: n - 1, through: 0, by: -1) {
-                    for j in stride(from: m - 1, through: 0, by: -1) {
-                        dp[at(i, j)] = a[lo + i] == b[lo + j]
-                            ? dp[at(i + 1, j + 1)] + 1 : max(dp[at(i + 1, j)], dp[at(i, j + 1)])
-                    }
-                }
-                var i = 0, j = 0
-                while i < n, j < m {
-                    if a[lo + i] == b[lo + j] { out.append((lo + i, lo + j)); i += 1; j += 1 }
-                    else if dp[at(i + 1, j)] >= dp[at(i, j + 1)] { i += 1 }
-                    else { j += 1 }
-                }
-            } else {
-                var next: [K: [Int]] = [:]
-                for i in lo..<ha { next[a[i], default: []].append(i) }
-                var floor = lo
-                for j in lo..<hb {
-                    guard let i = next[b[j]]?.first(where: { $0 >= floor }) else { continue }
-                    out.append((i, j))
-                    floor = i + 1
-                }
-            }
-        }
-        out += (0..<(a.count - ha)).map { (ha + $0, hb + $0) }
-        return out
-    }
-
-    /// Indices into `values` of one longest strictly increasing subsequence.
-    static func longestIncreasing(_ values: [Int]) -> [Int] {
-        var tails: [Int] = []          // index into values of the smallest tail per length
-        var previous = [Int](repeating: -1, count: values.count)
-        for (i, v) in values.enumerated() {
-            var lo = 0, hi = tails.count
-            while lo < hi {
-                let mid = (lo + hi) / 2
-                if values[tails[mid]] < v { lo = mid + 1 } else { hi = mid }
-            }
-            if lo > 0 { previous[i] = tails[lo - 1] }
-            if lo == tails.count { tails.append(i) } else { tails[lo] = i }
-        }
-        var out: [Int] = []
-        var k = tails.last ?? -1
-        while k >= 0 { out.append(k); k = previous[k] }
-        return out.reversed()
-    }
-
-    // MARK: - Comparing cells
-
-    /// What a cell is for matching: its value, or its formula's shape relative
-    /// to the cell (`(row, column)` its live position in `table`).
-    static func matchKey(_ cell: Cell?, at position: (Int, Int), in table: FigureTable) -> String {
-        guard let cell else { return "" }
-        switch cell.content {
-        case .value(let v): return valueKey(v)
-        case .formula(let f): return "=" + shape(f.expr, at: position, in: table)
-        }
-    }
-
-    private static func valueKey(_ v: CellValue) -> String {
-        switch v {
-        case .empty: return ""
-        case .number(let x): return "n" + FormulaParser.numberText(x)
-        case .date(let s): return "d\(s)"
-        case .text(let s): return s.isEmpty ? "" : "t" + s
-        case .bool(let b): return b ? "bT" : "bF"
-        case .error(let e): return "e" + e.rawValue
-        }
-    }
-
-    private static func shape(_ e: FormulaExpr, at here: (Int, Int), in table: FigureTable) -> String {
-        func ref(_ r: FormulaRef) -> String {
-            var out: String
-            switch r.target {
-            case .this: out = ""
-            case .figure(let id): out = "f" + id
-            case .research(let id): out = "r" + id
-            }
-            switch (r.target, r.anchor) {
-            case let (.this, .id(row, column)):
-                let rr = table.rowIndex(of: row).map { r.rowAbsolute ? "R\($0)" : "r\($0 - here.0)" } ?? "#"
-                let cc = table.columnIndex(of: column).map { r.columnAbsolute ? "C\($0)" : "c\($0 - here.1)" } ?? "#"
-                out += rr + cc
-            case let (_, .id(row, column)):
-                out += "@" + row.raw + "," + column.raw
-            case let (_, .position(row, column)):
-                out += "p\(row),\(column)"
-            }
-            return out
-        }
-        switch e {
-        case .number(let x): return FormulaParser.numberText(x)
-        case .text(let s): return "\"" + s + "\""
-        case .bool(let b): return b ? "T" : "F"
-        case .missing: return "_"
-        case .error(let err): return err.rawValue
-        case .ref(let r): return ref(r)
-        case .range(let g): return ref(g.start) + ":" + ref(g.end)
-        case .unary(let op, let x): return op.rawValue + "(" + shape(x, at: here, in: table) + ")"
-        case .binary(let op, let l, let r):
-            return op.rawValue + "(" + shape(l, at: here, in: table) + "," + shape(r, at: here, in: table) + ")"
-        case .call(let name, let args):
-            return name + "(" + args.map { shape($0, at: here, in: table) }.joined(separator: ",") + ")"
-        }
-    }
-
     /// Did the copy leave this content as the base had it? By value; a formula
-    /// by id, then by its text at the copy's positions; a formula the copy
-    /// read as `=…` text (`TableCSV.read`'s unreadable formula) equal to the
-    /// base's text but for the names it cites is unchanged too — a figure
-    /// renamed while this one was parked.
+    /// by id, then by its text at the copy's positions. A formula the copy
+    /// read as `=…` text (`TableCSV.read`'s unreadable formula: a name it does
+    /// not know) is unchanged when that text is exactly the base formula
+    /// written with the names of park time (`namesAtPark`) — a figure renamed
+    /// while this one was parked. Any other unknown name, a typo, is a change.
     private static func sameContent(
         _ ours: CellContent, _ old: CellContent, toResult: IDMap, toCopy: IDMap,
-        copy: FigureTable, names: FormulaNames
+        copy: FigureTable, names: FormulaNames, namesAtPark: FormulaNames?
     ) -> Bool {
         switch (ours, old) {
         case let (.value(a), .value(b)):
@@ -486,22 +276,11 @@ public enum FigureReturnDiff {
             return FormulaParser.render(a, in: copy, names: names)
                 == FormulaParser.render(toCopy.formula(b), in: copy, names: names)
         case let (.value(.text(t)), .formula(b)):
-            guard t.hasPrefix("=") else { return false }
-            let theirs = "=" + FormulaParser.render(toCopy.formula(b), in: copy, names: names)
-            return withoutNames(t) == withoutNames(theirs)
+            guard t.hasPrefix("="), let namesAtPark else { return false }
+            return t == "=" + FormulaParser.render(toCopy.formula(b), in: copy, names: namesAtPark)
         default:
             return false
         }
-    }
-
-    private static let namePrefix = try! NSRegularExpression(
-        pattern: #"(research:)?('(?:[^']|'')*'|[A-Za-z0-9_.\-]+)!"#)
-
-    /// Formula text with every `name!` (figure or research, bare or quoted)
-    /// replaced by one placeholder.
-    private static func withoutNames(_ text: String) -> String {
-        namePrefix.stringByReplacingMatches(
-            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\u{1}!")
     }
 
     // MARK: - Ids
@@ -565,6 +344,7 @@ private struct Simulation {
     func isLive<ID: AxisID>(_ id: ID) -> Bool { id.isLive(in: state.table) }
     func slot<ID: AxisID>(of id: ID) -> Int? { id.slot(in: state.table) }
     func predecessor<ID: AxisID>(of id: ID) -> ID? { id.predecessor(in: state.table) }
+    func livePredecessor<ID: AxisID>(of id: ID) -> ID? { id.livePredecessor(in: state.table) }
 
     /// Cells of a row about to be deleted that differ from the base: late edits
     /// the copy's delete takes.
@@ -585,6 +365,8 @@ private protocol AxisID: Hashable {
     func slot(in table: FigureTable) -> Int?
     /// The slot just before this one (tombstones too), nil when it is first.
     func predecessor(in table: FigureTable) -> Self?
+    /// The live one just before this one, nil when it is first.
+    func livePredecessor(in table: FigureTable) -> Self?
 }
 
 extension RowID: AxisID {
@@ -598,6 +380,10 @@ extension RowID: AxisID {
         guard let i = table.rowSlotIndex(of: self), i > 0 else { return nil }
         return table.rowSlots[i - 1].id
     }
+    func livePredecessor(in table: FigureTable) -> RowID? {
+        guard let i = table.rowIndex(of: self), i > 0 else { return nil }
+        return table.rows[i - 1]
+    }
 }
 
 extension ColumnID: AxisID {
@@ -610,5 +396,9 @@ extension ColumnID: AxisID {
     func predecessor(in table: FigureTable) -> ColumnID? {
         guard let i = table.columnSlotIndex(of: self), i > 0 else { return nil }
         return table.columnSlots[i - 1].id
+    }
+    func livePredecessor(in table: FigureTable) -> ColumnID? {
+        guard let i = table.columnIndex(of: self), i > 0 else { return nil }
+        return table.columns[i - 1]
     }
 }

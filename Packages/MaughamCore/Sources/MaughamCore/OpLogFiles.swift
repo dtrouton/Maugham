@@ -120,6 +120,28 @@ public enum OpLogFiles {
             .appendingPathComponent(segmentURL.lastPathComponent + ".sig")
     }
 
+    /// **`urls` in append order**: the legacy shared `<docId>.jsonl` first,
+    /// then per stream (by its slug) its sealed segments by index and its tail
+    /// `.jsonl` last — so each device's lines, read in this order, come in the
+    /// order they were appended.
+    public nonisolated static func appendOrdered(_ urls: [URL], docId: String) -> [URL] {
+        func key(_ url: URL) -> (stream: String, rank: Int) {
+            let name = url.lastPathComponent
+            if name == "\(docId).jsonl" { return ("", -1) }
+            let rest = name.dropFirst(docId.count + 1)
+            if name.hasSuffix(".\(OpLogSegment.fileExtension)"), let r = rest.range(of: ".seg", options: .backwards),
+               let index = Int(rest[r.upperBound...].dropLast(OpLogSegment.fileExtension.count + 1)) {
+                return (String(rest[..<r.lowerBound]), index)
+            }
+            return (String(rest.dropLast(".jsonl".count)), Int.max)
+        }
+        return urls.sorted { a, b in
+            let ka = key(a), kb = key(b)
+            return ka.stream != kb.stream ? ka.stream < kb.stream
+                : ka.rank != kb.rank ? ka.rank < kb.rank : a.lastPathComponent < b.lastPathComponent
+        }
+    }
+
     /// Parse `<docId>.<deviceSlug>.seg<NNNN>.mzseg` → NNNN, or nil if `name`
     /// is not a segment of this (docId, deviceSlug) pair.
     nonisolated static func segmentIndex(

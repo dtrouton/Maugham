@@ -41,6 +41,22 @@ public struct FigureParkedRefused: LocalizedError, Equatable {
     }
 }
 
+/// **A return from Research that stopped part way** (report plan 6b Task 8):
+/// the resume and `applied` of `of` changes landed, then an append failed. The
+/// figure was parked again (`parkedAgain`), so *Use in document* on the same
+/// copy brings back what is left.
+public struct FigureBringBackIncomplete: LocalizedError, Equatable {
+    public let applied: Int
+    public let of: Int
+    public let parkedAgain: Bool
+
+    public var errorDescription: String? {
+        parkedAgain
+            ? "Only part of the figure came back (\(applied) of \(of) changes), so it was put back in Research. Try Use in Document again."
+            : "Only part of the figure came back (\(applied) of \(of) changes), and it could not be put back in Research."
+    }
+}
+
 /// **An edit that names something the figure does not have** — a row or
 /// column that is not live, a table edit on an image. Nothing is written.
 public struct FigureEditInvalid: LocalizedError, Equatable {
@@ -100,6 +116,16 @@ public final class FigureDocument {
     /// `state` is re-derived from when an append fails.
     @ObservationIgnored private(set) var _ops: [Op]
 
+    /// **Each device's own stream in append order**, by op id
+    /// (`OpLogStore.loadDiagnosedStreams`), this host's commits added as they
+    /// are made: what a park records it had read (`parkedFrontier`: each
+    /// stream's last op), and what a return reads that against.
+    @ObservationIgnored private(set) var streams: [String: [String]]
+
+    /// The newest op id this host has folded: every op it mints sorts after
+    /// it (`commit`), so a local edit never sorts before one already here.
+    @ObservationIgnored private var newestOpId: String?
+
     /// The window's posture door, where a window holds this figure (ruling
     /// R-6a-8): the figure's piece owner and starter yields and *Edit Anyway*
     /// come from it. Nil for a figure no window holds, which asks Core's
@@ -146,7 +172,7 @@ public final class FigureDocument {
 
     private init(
         figureId: String, projectURL: URL, actor: DeviceActor, session: String,
-        opStore: OpLogStore, ops: [Op], provenance: OpLogProvenance?
+        opStore: OpLogStore, ops: [Op], streams: [String: [String]], provenance: OpLogProvenance?
     ) {
         self.figureId = figureId
         self.projectURL = projectURL
@@ -155,6 +181,8 @@ public final class FigureDocument {
         self.opStore = opStore
         self.device = Document.loadIdentities[actor].deviceId
         self._ops = ops
+        self.streams = streams
+        self.newestOpId = ops.map(\.opId).max()
         self.provenance = provenance
         self.state = Self.derive(ops)
     }
@@ -185,11 +213,11 @@ public final class FigureDocument {
         documentStore: DocumentStore?
     ) async throws -> FigureDocument {
         let opStore = Document.makeLoadOpStore(projectURL: projectURL, presenter: presenter)
-        let (ops, provenance) = try await readHistory(
+        let (ops, streams, provenance) = try await readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
         let doc = FigureDocument(
             figureId: figureId, projectURL: projectURL, actor: actor,
-            session: session, opStore: opStore, ops: ops, provenance: provenance)
+            session: session, opStore: opStore, ops: ops, streams: streams, provenance: provenance)
         doc.documentStore = documentStore
         return doc
     }
@@ -212,7 +240,7 @@ public final class FigureDocument {
         reloadGeneration += 1
         let generation = reloadGeneration
         let inTheStreamBeforeTheRead = appendedLocalOpIds
-        let (ops, provenance) = try await Self.readHistory(
+        let (ops, read, provenance) = try await Self.readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
         if let hook = Self.afterReloadReadForTesting { await hook(self) }
         guard !isClosed, generation == reloadGeneration else { return }
@@ -221,15 +249,19 @@ public final class FigureDocument {
         appendedLocalOpIds.subtract(seen)
         let carried = _ops.filter { unconfirmedLocalOpIds.contains($0.opId) }
         _ops = ops + carried
+        var streams = read
+        for op in carried { streams[op.device, default: []].append(op.opId) }
+        self.streams = streams
+        newestOpId = max(newestOpId ?? "", ops.map(\.opId).max() ?? "")
         self.provenance = provenance
         state = Self.derive(_ops)
     }
 
     private static func readHistory(
         figureId: String, projectURL: URL, opStore: OpLogStore
-    ) async throws -> ([Op], OpLogProvenance) {
+    ) async throws -> ([Op], [String: [String]], OpLogProvenance) {
         try OpLogStore.verifyOpsDirectoryListable(in: projectURL)
-        let loaded = try await opStore.loadDiagnosed(docId: figureId)
+        let loaded = try await opStore.loadDiagnosedStreams(docId: figureId)
         if !loaded.diagnostics.skipped.isEmpty {
             // Forensics, never a gate: the figure still opens.
             let stamp = ISO8601DateFormatter.quarantineStamp(from: Date())
@@ -242,7 +274,7 @@ public final class FigureDocument {
                     "figure quarantine-record write failed for \(figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
-        return (loaded.ops, loaded.provenance)
+        return (loaded.ops, loaded.streams, loaded.provenance)
     }
 
     /// The figure's own ops only: a note anchored on a cell rides the same
@@ -733,8 +765,8 @@ public final class FigureDocument {
     /// - **The op sorts after every op this host has read** (`commit`'s
     ///   `after:`), so an edit the copy holds, from a device whose clock ran
     ///   ahead, still folds before the park rather than being dropped by it.
-    /// - **It records what this host had read** (`parkedFrontier`: per device
-    ///   stream, the last op id folded here), so the return can tell the state
+    /// - **It records what this host had read** (`parkedFrontier`: per device,
+    ///   the last op of its own stream in append order), so the return can tell the state
     ///   the copy was written from from an edit that sorts before the park but
     ///   arrived after it (`FigureReturnDiff.base(of:frontier:)`).
     /// - Not registered for ⌘Z (ruling P-8): a park is undone by bringing the
@@ -749,11 +781,10 @@ public final class FigureDocument {
             throw FigureEditInvalid(reason: "the figure changed while it was being sent to Research")
         }
         try alongside()
-        let frontier = Dictionary(_ops.map { ($0.device, $0.opId) }, uniquingKeysWith: max)
         try await commit(
             .figureParked,
-            FigureOpPayload(parkedPath: path, parkedHash: hash, parkedItemId: itemId, parkedFrontier: frontier),
-            after: _ops.map(\.opId).max())
+            FigureOpPayload(parkedPath: path, parkedHash: hash, parkedItemId: itemId,
+                            parkedFrontier: streams.compactMapValues(\.last)))
     }
 
     /// **Bring this figure back from Research** (spec §4.2 "Coming back",
@@ -763,17 +794,20 @@ public final class FigureDocument {
     /// `figureImageSet`.
     ///
     /// - **The resume comes first**: content ordered between the park and the
-    ///   resume folds nothing (ruling P-5), so every op here is minted after
-    ///   the one before it, the resume after every op this host has read
-    ///   (`commit`'s `after:`) — a park minted ahead of this Mac's clock still
-    ///   sorts before it.
+    ///   resume folds nothing (ruling P-5); `commit` mints every op after the
+    ///   newest this host has folded, so a park minted ahead of this Mac's
+    ///   clock still sorts before the resume, and each change after it.
     /// - **Signed by whoever brings it back** (this host's actor) and carrying
     ///   `SynthesisSource.broughtBackFromResearch`, every one.
     /// - **Refused unless the figure is parked and still `expecting`**, the
     ///   state the changes were made against: nothing is appended.
+    /// - **Every change is checked to apply before anything is appended**
+    ///   (`FigureReturnDiff.everyChangeApplies`). An append that still fails after the
+    ///   resume parks the figure again exactly as it was — the changes that
+    ///   landed stay, and count as written from at the retry
+    ///   (`FigureReturnDiff.base`) — and throws `FigureBringBackIncomplete`.
     /// - The picture is replaced before anything is appended and put back if
-    ///   the resume or its op fails. A change failing after the resume leaves
-    ///   the figure resumed with the changes before it, and throws.
+    ///   the resume or its op fails.
     /// - Not registered for ⌘Z (ruling P-8): a return is undone by sending the
     ///   figure to Research again. The render follows once, at the end.
     func resumeFromResearch(
@@ -787,28 +821,50 @@ public final class FigureDocument {
             throw FigureEditInvalid(reason: "the figure changed while it was being brought back")
         }
         let reason = Op.Provenance(synthesisSource: .broughtBackFromResearch)
+        guard let parking = state.parked else { throw FigureEditInvalid(reason: "this figure is not in Research") }
+        guard FigureReturnDiff.everyChangeApplies(changes, onto: state) else {
+            throw FigureEditInvalid(reason: "the copy's changes don't fit the figure")
+        }
         var newImage: FigureOpPayload?
         var putPictureBack: (() async -> Void)?
         if let picture {
             (newImage, putPictureBack) = try await placeReturningPicture(picture)
         }
-        var floor: String
+        var applied = 0
+        var resumed = false
         do {
-            floor = try await commit(
-                .figureResumed, FigureOpPayload(), after: _ops.map(\.opId).max(),
-                provenance: reason, render: false).opId
+            try await commit(.figureResumed, FigureOpPayload(), provenance: reason, render: false)
+            resumed = true
             for change in changes {
-                floor = try await commit(change.kind, change.payload, after: floor, provenance: reason, render: false).opId
+                try await commit(change.kind, change.payload, provenance: reason, render: false)
+                applied += 1
             }
             if let newImage {
-                try await commit(.figureImageSet, newImage, after: floor, provenance: reason, render: false)
+                try await commit(.figureImageSet, newImage, provenance: reason, render: false)
             }
         } catch {
             // The picture op is the last: unless it landed, the file goes back
             // to the picture the op log still names.
             if let newImage, state.image != newImage.image { await putPictureBack?() }
+            guard resumed else {
+                await documentStore?.figureHostAppended(figureId)
+                throw error
+            }
+            // Part way: parked again exactly as it was, so the copy still
+            // routes back here and a retry brings back what is left.
+            var parkedAgain = true
+            do {
+                try await commit(.figureParked, FigureOpPayload(
+                    parkedPath: parking.path, parkedHash: parking.hash, parkedItemId: parking.itemId,
+                    parkedFrontier: parking.frontier), render: false)
+            } catch {
+                parkedAgain = false
+                documentLog.error(
+                    "figure \(self.figureId, privacy: .public): a return stopped part way and could not be parked again: \(error.localizedDescription, privacy: .public)")
+            }
             await documentStore?.figureHostAppended(figureId)
-            throw error
+            throw FigureBringBackIncomplete(
+                applied: applied, of: changes.count + (newImage == nil ? 0 : 1), parkedAgain: parkedAgain)
         }
         await documentStore?.figureHostAppended(figureId)
     }
@@ -999,8 +1055,9 @@ public final class FigureDocument {
 
     /// Fold the op into `state` first (so a second press in the same turn
     /// reads the new state), then append; a failed append takes it back out.
-    /// With `after`, the op's id sorts strictly after that one even when this
-    /// Mac's clock is behind the device that wrote it (`ULID.generate(atMillis:)`).
+    /// The op's id sorts strictly after the newest op this host has folded, and
+    /// after `after`, even when this Mac's clock is behind the device that
+    /// wrote it (`ULID.generate(atMillis:)`).
     ///
     /// `provenance` rides the op (a return's reason, ruling P-7). With
     /// `render: false` the caller renders once itself, after a run of ops.
@@ -1011,13 +1068,19 @@ public final class FigureDocument {
     ) async throws -> Op {
         guard !isClosed else { throw DocumentNotWritableError(site: "commit") }
         var opId = ULID.generate()
-        if let floor, opId <= floor, let millis = ULID.timestampMillis(of: floor) {
+        // After the newest op this host has folded, and after `floor`: a
+        // device whose clock ran ahead never puts this Mac's next edit behind
+        // what it already shows.
+        let floor = max(floor ?? "", newestOpId ?? "")
+        if !floor.isEmpty, opId <= floor, let millis = ULID.timestampMillis(of: floor) {
             opId = ULID.generate(atMillis: millis + 1)
         }
         let op = Op(
             opId: opId, docId: figureId, at: Date(), device: device,
             session: session, kind: kind, changes: [], provenance: provenance, figure: payload)
         _ops.append(op)
+        streams[device, default: []].append(op.opId)
+        newestOpId = op.opId
         unconfirmedLocalOpIds.insert(op.opId)
         FigureDeriver.fold(op, into: &state)
         do {
@@ -1029,6 +1092,7 @@ public final class FigureDocument {
         } catch {
             unconfirmedLocalOpIds.remove(op.opId)
             _ops.removeAll { $0.opId == op.opId }
+            streams[device]?.removeAll { $0 == op.opId }
             state = Self.derive(_ops)
             throw error
         }

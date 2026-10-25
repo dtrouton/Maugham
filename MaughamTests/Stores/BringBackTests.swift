@@ -149,6 +149,13 @@ final class BringBackTests: XCTestCase {
         let park = try XCTUnwrap(try ops(of: record.id).last)
         XCTAssertEqual(park.kind, .figureParked)
         XCTAssertFalse(FileManager.default.fileExists(atPath: file(record.path).path))
+        // The fast path holds: the parked state renders back to the park's
+        // hash, so an unchanged figure's return needs no frontier.
+        let parkedState = try await state(record.id)
+        let names = try await store.formulaNamesForUse()
+        XCTAssertEqual(
+            ProjectStore.researchHash(of: parkedState.table, locale: TableLocale(languageTag: nil), names: names),
+            park.figure?.parkedHash)
 
         let result = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
 
@@ -160,7 +167,12 @@ final class BringBackTests: XCTestCase {
         let after = try await state(record.id)
         XCTAssertNil(after.parked)
         XCTAssertEqual(after.table, before.table, "ids, cells and formats as they were")
-        XCTAssertNotNil(after.table.rowIndex(of: food), "the note's row anchor is on a live row")
+        // The note itself still resolves to its row: listed on the figure, and
+        // its anchor names Food's row, live, labelled Food.
+        let notes = projectStore.listAnnotationsAcrossProject().annotations.filter { $0.docId == record.id }
+        XCTAssertEqual(notes.map(\.annotation.body), ["check"])
+        let anchor = try XCTUnwrap(try ops(of: record.id).first { $0.kind == .claudeComment }?.provenance?.figureRowId)
+        XCTAssertEqual(row(after, labelled: "Food"), RowID(anchor))
         XCTAssertTrue(projectStore.manifest.research.contains { $0.id == item.id }, "the copy stays in Research")
         await store.awaitOpenFigureRenderForTesting()
         XCTAssertTrue(FileManager.default.fileExists(atPath: file(record.path).path), "the render is back")
@@ -252,6 +264,110 @@ final class BringBackTests: XCTestCase {
                        .value(.number(1300)))
     }
 
+    /// What the parker read of a stream is a prefix in APPEND order: an edit
+    /// the other Mac appended after one the parker read, but whose id sorts
+    /// lower (its clock stepped back), is not in what the copy was written
+    /// from — the return leaves it standing.
+    func test_anUnreadEditWhoseIdSortsBelowTheFrontierSurvives() async throws {
+        let (store, projectStore) = try await openBook()
+        let record = try await budget(projectStore)
+        let other = try await admitAnotherMac(store)
+        let before = try await state(record.id)
+        let amount = before.table.columns[1]
+        let food = CellKey(row: row(before, labelled: "Food")!, column: amount)
+        let books = CellKey(row: row(before, labelled: "Books")!, column: amount)
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        let read = try await theirCellSet(other, record.id, food, Cell(content: .value(.number(341))),
+                                          prior: before.table[food], atMillis: now)
+        let item = try await projectStore.sendToResearch(figureId: record.id, scope: .shared)
+        let park = try XCTUnwrap(try ops(of: record.id).last)
+        XCTAssertEqual(park.figure?.parkedFrontier?[other.author.deviceId], read.opId, "the parker read it")
+        let unread = try await theirCellSet(other, record.id, books, Cell(content: .value(.number(46))),
+                                            prior: before.table[books], atMillis: now - 1)
+        XCTAssertLessThan(unread.opId, read.opId, "its id sorts below what was read")
+        store.figureCache.invalidate(figureId: record.id)
+
+        // The copy (as written: Food 341) changes only Rent.
+        try resave(item, Data("Item,Amount\nRent,1300\nFood,341\nTravel,99.9\nBooks,45\n".utf8))
+        let result = try await projectStore.bringBack(researchItemId: item.id, piece: nil)
+
+        let after = try await state(record.id)
+        XCTAssertEqual(after.table[books]?.content, .value(.number(46)), "the unread edit survives")
+        XCTAssertEqual(after.table[food]?.content, .value(.number(341)))
+        XCTAssertEqual(result.overwritten, [])
+    }
+
+    /// After a return whose ops were minted ahead of this Mac's clock (they
+    /// follow another Mac's fast-clock edit), this Mac's next edit still sorts
+    /// after them: last writer wins for the writer.
+    func test_aLocalEditAfterAReturnSortsAfterIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let record = try await budget(projectStore)
+        let other = try await admitAnotherMac(store)
+        let before = try await state(record.id)
+        let food = CellKey(row: row(before, labelled: "Food")!, column: before.table.columns[1])
+        let future = UInt64(Date().timeIntervalSince1970 * 1000) + 10 * 60_000
+        try await theirCellSet(other, record.id, food, Cell(content: .value(.number(350))),
+                               prior: before.table[food], atMillis: future)
+        let item = try await projectStore.sendToResearch(figureId: record.id, scope: .shared)
+        try resave(item, Data("Item,Amount\nRent,1300\nFood,350\nTravel,99.9\nBooks,45\n".utf8))
+        _ = try await projectStore.bringBack(researchItemId: item.id, piece: nil)
+        let newestReturned = try XCTUnwrap(try ops(of: record.id).last)
+        XCTAssertEqual(newestReturned.provenance?.synthesisSource, .broughtBackFromResearch)
+
+        let host = try await store.openFigure(figureId: record.id)
+        try await host.setCell(Cell(content: .value(.number(360))), at: food)
+        await store.closeFigure(figureId: record.id)
+        let mine = try XCTUnwrap(try ops(of: record.id).last)
+        XCTAssertEqual(mine.figure?.next?.content, .value(.number(360)), "the local edit sorts last")
+        XCTAssertGreaterThan(mine.opId, newestReturned.opId)
+        let after = try await state(record.id)
+        XCTAssertEqual(after.table[food]?.content, .value(.number(360)))
+    }
+
+    /// A return whose append fails part way parks the figure again exactly as
+    /// it was and says so; Use in document again brings back what was left —
+    /// one Phone row, every matched id kept.
+    func test_aReturnThatStopsPartWayIsParkedAgainAndARetryFinishesIt() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { FigureDocument.beforeCommitAppendForTesting = nil }
+        let record = try await budget(projectStore)
+        let before = try await state(record.id)
+        let ids = Dictionary(uniqueKeysWithValues: ["Item", "Rent", "Food", "Travel", "Books"].map {
+            ($0, row(before, labelled: $0)!) })
+        let item = try await projectStore.sendToResearch(figureId: record.id, scope: .shared)
+        try resave(item, Data("\u{FEFF}Item;Amount\r\nBooks;45\r\nRent;1250,5\r\nFood;340\r\nPhone;25,75\r\n".utf8))
+
+        var changesSeen = 0
+        FigureDocument.beforeCommitAppendForTesting = { op in
+            guard op.provenance?.synthesisSource == .broughtBackFromResearch, op.kind != .figureResumed else { return }
+            changesSeen += 1
+            if changesSeen == 2 { throw CocoaError(.fileWriteUnknown) }
+        }
+        do {
+            _ = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+            XCTFail("the failed append was not said")
+        } catch let incomplete as FigureBringBackIncomplete {
+            XCTAssertEqual(incomplete.applied, 1)
+            XCTAssertTrue(incomplete.parkedAgain)
+            XCTAssertTrue(incomplete.localizedDescription.contains("put back in Research"))
+        }
+        let halfway = try await state(record.id)
+        XCTAssertEqual(halfway.parked?.itemId, item.id, "parked again, as it was")
+        XCTAssertNil(store.openFigure(forId: record.id), "no host is left open")
+
+        FigureDocument.beforeCommitAppendForTesting = nil
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        XCTAssertEqual(result.record.id, record.id, "the retry went back to the figure, no second one")
+        XCTAssertEqual(projectStore.manifest.figures?.count, 1)
+        let after = try await state(record.id)
+        XCTAssertNil(after.parked)
+        let phone = try XCTUnwrap(row(after, labelled: "Phone"))
+        XCTAssertEqual(after.table.rows, [ids["Item"]!, ids["Books"]!, ids["Rent"]!, ids["Food"]!, phone])
+        XCTAssertEqual(after.table[CellKey(row: ids["Rent"]!, column: after.table.columns[1])]?.content,
+                       .value(.number(1250.5)))
+    }
+
     // MARK: - Refusals
 
     /// Only the copy the park names brings a figure back: a second copy whose
@@ -327,17 +443,20 @@ final class BringBackTests: XCTestCase {
         return other
     }
 
+    @discardableResult
     private func theirCellSet(
         _ other: LocalIdentities, _ id: String, _ key: CellKey, _ next: Cell, prior: Cell?, atMillis millis: UInt64
-    ) async throws {
+    ) async throws -> Op {
         let theirs = OpLogStore(
             projectURL: projectURL, identities: other,
             state: OpLogDeviceState(fileURL: projectURL.appendingPathComponent("other-\(UUID().uuidString).json")))
-        try await theirs.append(Op(
+        let op = Op(
             opId: ULID.generate(atMillis: millis), docId: id, at: Date(), device: other.author.deviceId,
             session: "x", kind: .figureCellSet, changes: [],
-            figure: FigureOpPayload(cell: key, next: next, prior: prior)))
+            figure: FigureOpPayload(cell: key, next: next, prior: prior))
+        try await theirs.append(op)
         _ = try await theirs.sealChain(docId: id)
+        return op
     }
 
     private func png(_ name: String, _ colour: NSColor) throws -> URL {

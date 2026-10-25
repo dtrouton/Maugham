@@ -399,8 +399,23 @@ public final class OpLogStore {
         docId: String, amendmentPermits: AmendmentPermits? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
+        let loaded = try await loadDiagnosedStreams(docId: docId, amendmentPermits: amendmentPermits)
+        return (loaded.ops, loaded.diagnostics, loaded.provenance)
+    }
+
+    /// **`loadDiagnosed`, plus each device's own stream in APPEND order**
+    /// (report plan 6b Task 8): `streams[device]` is the op ids that device's
+    /// files hold, in the order its lines were appended — its sealed segments
+    /// by index, then its tail (`OpLogFiles.appendOrdered`) — where `ops` is
+    /// the merged, id-sorted history. What a reader had read of a stream is a
+    /// prefix of this order, not of the ids (a device's ids need not rise).
+    public func loadDiagnosedStreams(
+        docId: String, amendmentPermits: AmendmentPermits? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
+                       streams: [String: [String]])
+    {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
-        guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance()) }
+        guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance(), [:]) }
         let table = try await trust()
         // **The permit partition's two document-level answers** (P3a Task 5).
         // One context for the whole document: its class is resolved at most
@@ -412,6 +427,7 @@ public final class OpLogStore {
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []
+        var orderByFile: [URL: [String]] = [:]
         // One watch for the whole document: a stream is a run of segments plus
         // a tail, and whether its remembered line is still anywhere in it can
         // only be asked once every file has been seen (P3a Task 9).
@@ -426,11 +442,20 @@ public final class OpLogStore {
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
+            orderByFile[url] = result.appendOrder
         }
         foreign.settle()
+        var streams: [String: [String]] = [:]
+        let deviceOf = Dictionary(merged.map { ($0.opId, $0.device) }, uniquingKeysWith: { a, _ in a })
+        for url in OpLogFiles.appendOrdered(urls, docId: docId) {
+            for id in orderByFile[url] ?? [] {
+                if let device = deviceOf[id] { streams[device, default: []].append(id) }
+            }
+        }
         return (OpLogClassifier.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
-                OpLogProvenance(files: files, ownStreams: mine))
+                OpLogProvenance(files: files, ownStreams: mine),
+                streams)
     }
 
     /// **The lines one holder is waiting under, as the walk itself answers
@@ -1013,9 +1038,10 @@ public final class OpLogStore {
         trust: TrustTable? = nil, permit: PermitContext? = nil,
         foreign: ForeignStreamWatch? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
-        try await OpLogClassifier.loadFileDiagnosed(
+        let read = try await OpLogClassifier.loadFileDiagnosed(
             url: url, presenter: presenter, identities: identities, state: state,
             trust: trust, permit: permit, foreign: foreign)
+        return (read.ops, read.diagnostics, read.provenance)
     }
 
     public nonisolated static func provenance(

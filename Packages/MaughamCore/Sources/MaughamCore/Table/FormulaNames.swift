@@ -94,4 +94,41 @@ public struct FormulaNames: Sendable {
     }
 
     private static func folded(_ name: String) -> String { name.lowercased() }
+
+    /// **This directory with some names as they were** (report plan 6b Task
+    /// 8): each figure or research item in `names` (by id) answers to the name
+    /// given there instead — the names a working copy was written with.
+    public func renaming(_ names: [String: String]) -> FormulaNames {
+        FormulaNames(
+            figures: figuresById.values.sorted { $0.id < $1.id }.map {
+                Figure(id: $0.id, name: names[$0.id] ?? $0.name, table: $0.table)
+            },
+            research: researchTitlesById.sorted { $0.key < $1.key }.map { ($0.key, names[$0.key] ?? $0.value) })
+    }
+
+    /// **The names `table`'s formulas show now**, by id: every figure and
+    /// research item a formula in it reads that this directory can name —
+    /// what a park records so a return can read the copy's names back.
+    public func cited(by table: FigureTable) -> [String: String] {
+        var out: [String: String] = [:]
+        func target(_ t: RefTarget) {
+            switch t {
+            case .this: break
+            case .figure(let id): if let n = figureName(id: id) { out[id] = n }
+            case .research(let id): if let n = researchTitle(id: id) { out[id] = n }
+            }
+        }
+        func walk(_ e: FormulaExpr) {
+            switch e {
+            case .number, .text, .bool, .missing, .error: break
+            case .ref(let r): target(r.target)
+            case .range(let g): target(g.start.target); target(g.end.target)
+            case .unary(_, let x): walk(x)
+            case .binary(_, let l, let r): walk(l); walk(r)
+            case .call(_, let args): args.forEach(walk)
+            }
+        }
+        for cell in table.cells.values { if case .formula(let f) = cell.content { walk(f.expr) } }
+        return out
+    }
 }
