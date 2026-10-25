@@ -43,6 +43,15 @@ public enum FigureRestoreDiff {
         FigureDeriver.derive(ops.filter { $0.opId <= pointer })
     }
 
+    /// **Did the figure go to Research, or come back, after `pointer`?** — a
+    /// `figureParked` or `figureResumed` op above it (controller ruling, plan
+    /// 6c final review I5). A restore across one is skipped and named: the
+    /// fold drops what was done while parked, so winding back across a park
+    /// would quietly revert the work brought back from Research.
+    public static func wentToResearch(since pointer: String, in ops: [Op]) -> Bool {
+        ops.contains { $0.opId > pointer && ($0.kind == .figureParked || $0.kind == .figureResumed) }
+    }
+
     /// The ops, in order, that bring `current` to `target`'s content; empty
     /// when they already agree. `parks` is the book's park cycle of each
     /// figure parked now (figure id → `FigureParking.cycle`), what

@@ -95,7 +95,7 @@ struct PartialRestorePicker: View {
         projectURL: URL,
         activeDocId: String,
         allDocIds: [String],
-        figures: [FigureRecord] = [],
+        figures: [FigureRecord],
         device: String,
         session: String,
         docPaths: [String: String],
@@ -334,13 +334,16 @@ struct PartialRestorePicker: View {
     /// scope reads its piece from there. Then it asks its own door
     /// (`settledPosture(forDocId:)`, `.editFigure`, Q-2) before any host
     /// opens; no `DocumentStore` behind the sheet fails closed. The figure at
-    /// the checkpoint is the fold of the host's own ops through the pointer
-    /// (`FigureRestoreDiff.target`). Not registered for ⌘Z, like the text.
+    /// the checkpoint is the fold of the host's own ops through the pointer;
+    /// one memo hashes `figures/` once for the whole restore. Not registered
+    /// for ⌘Z, like the text.
     static func restoreFigures(
         _ figures: [FigureRecord], in scope: ScopeChoice, to checkpoint: Checkpoint,
         documentStore: DocumentStore?
     ) async -> [(record: FigureRecord, result: FigureResult)] {
         var results: [(record: FigureRecord, result: FigureResult)] = []
+        // One memo for the whole restore: `figures/` is hashed once (M6).
+        let pictureHashes = FigurePictureHashes()
         for listed in figures {
             guard let documentStore else {
                 results.append((listed, .refused))
@@ -358,8 +361,7 @@ struct PartialRestorePicker: View {
             do {
                 result = .outcome(try await documentStore.withFigureHost(record.id) { host in
                     try await host.restoreToCheckpoint(
-                        checkpoint.checkpointId,
-                        target: FigureRestoreDiff.target(of: host._ops, through: pointer))
+                        checkpoint.checkpointId, through: pointer, pictureHashes: pictureHashes)
                 })
             } catch is FigureEditRefused {
                 result = .refused
@@ -379,13 +381,15 @@ struct PartialRestorePicker: View {
     static func figureSentence(
         for results: [(record: FigureRecord, result: FigureResult)]
     ) -> String? {
-        var refused: [String] = [], parked: [String] = [], pictures: [String] = []
+        var refused: [String] = [], parked: [String] = [], wentToResearch: [String] = []
+        var pictures: [String] = []
         var partly: [String] = [], failed: [String] = []
         for (record, result) in results {
             switch result {
             case .refused: refused.append(record.name)
             case .failed(let why): failed.append("\(record.name) (\(why))")
             case .outcome(.skippedParked): parked.append(record.name)
+            case .outcome(.skippedWentToResearch): wentToResearch.append(record.name)
             case .outcome(.skippedPicture): pictures.append(record.name)
             case .outcome(.partlyRestored): partly.append(record.name)
             case .outcome(.restored), .outcome(.unchanged): break
@@ -399,6 +403,9 @@ struct PartialRestorePicker: View {
         }
         if !parked.isEmpty {
             sentences.append("Not restored, in Research — bring it back first: \(list(parked)).")
+        }
+        if !wentToResearch.isEmpty {
+            sentences.append("Left as it is — went to Research since this checkpoint: \(list(wentToResearch)).")
         }
         if !pictures.isEmpty {
             sentences.append("The rest restored, but the picture from then is no longer on disk: \(list(pictures)).")

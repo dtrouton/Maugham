@@ -116,6 +116,7 @@ final class PartialRestoreScopeTests: XCTestCase {
             projectURL: URL(fileURLWithPath: "/tmp/nowhere"),
             activeDocId: BinderSubject.noDocumentSubject,
             allDocIds: census,
+            figures: [],
             device: "m", session: "s",
             docPaths: [:], documentStore: nil,
             onComplete: {}, onCancel: {})

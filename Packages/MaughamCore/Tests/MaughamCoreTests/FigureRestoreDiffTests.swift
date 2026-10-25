@@ -462,4 +462,18 @@ final class FigureRestoreDiffTests: XCTestCase {
         // And to the very start of the table, before any content.
         roundTrip(h, to: h.ops[5].opId)
     }
+    /// A park or a resume above the pointer is a trip to Research since the
+    /// checkpoint (plan 6c final review I5); one at or below it is not.
+    func test_wentToResearchSinceThePointer() {
+        func op(_ id: String, _ kind: OpKind) -> Op {
+            Op(opId: id, docId: "fig-k3m9q2zt", at: Date(), device: "macA", session: "s",
+               kind: kind, changes: [], figure: FigureOpPayload())
+        }
+        let parked = [op("01H01", .figureCreate), op("01H02", .figureParked)]
+        XCTAssertTrue(FigureRestoreDiff.wentToResearch(since: "01H01", in: parked))
+        XCTAssertFalse(FigureRestoreDiff.wentToResearch(since: "01H02", in: parked))
+        let resumed = parked + [op("01H03", .figureResumed), op("01H04", .figureCellSet)]
+        XCTAssertTrue(FigureRestoreDiff.wentToResearch(since: "01H02", in: resumed))
+        XCTAssertFalse(FigureRestoreDiff.wentToResearch(since: "01H03", in: resumed))
+    }
 }

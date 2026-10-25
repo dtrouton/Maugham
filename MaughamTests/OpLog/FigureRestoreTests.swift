@@ -185,7 +185,7 @@ final class FigureRestoreTests: XCTestCase {
                        "precondition: the other device's edit is read")
 
         let before = try mark(record.id)
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .restored(opCount: 2), "the column deleted, the row revived")
         XCTAssertEqual(host.state.table.rows, rows, "the row is back in its own slot")
@@ -200,7 +200,7 @@ final class FigureRestoreTests: XCTestCase {
         try await host.reload()
         XCTAssertEqual(host.state.table.rows, rows, "the stream says so too")
         XCTAssertEqual(host.state.table.cells, then.table.cells)
-        let again = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let again = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
         XCTAssertEqual(again, .unchanged, "a restored figure needs no second restore")
         await store.closeFigure(figureId: record.id)
     }
@@ -214,13 +214,12 @@ final class FigureRestoreTests: XCTestCase {
         let host = try await store.openFigure(figureId: record.id)
         let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
         let pointer = try XCTUnwrap(host._ops.map(\.opId).max())
-        let then = target(host, through: pointer)
         try await host.setCell(text("since"), at: key)
         try await host.parkInResearch(
             path: "research/budget.csv", hash: "h", itemId: "item-1", expecting: host.state, alongside: {})
         let before = try streamBytes(of: record.id)
 
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .skippedParked)
         XCTAssertEqual(try streamBytes(of: record.id), before, "nothing was appended")
@@ -234,7 +233,6 @@ final class FigureRestoreTests: XCTestCase {
         let record = try await projectStore.createFigure(kind: .table, name: "b_table", piece: Self.pieceB)
         let host = try await store.openFigure(figureId: record.id)
         let pointer = try XCTUnwrap(host._ops.map(\.opId).max())
-        let then = target(host, through: pointer)
         try await host.setCell(text("since"), at: CellKey(
             row: host.state.table.rows[0], column: host.state.table.columns[0]))
         let sam = LocalIdentities.softwareForTesting()
@@ -245,7 +243,7 @@ final class FigureRestoreTests: XCTestCase {
         let before = try streamBytes(of: record.id)
 
         do {
-            _ = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+            _ = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
             XCTFail("a restore of a yielded piece's figure was not refused")
         } catch let refused as FigureEditRefused {
             XCTAssertEqual(refused.site, "restoreToCheckpoint")
@@ -269,7 +267,7 @@ final class FigureRestoreTests: XCTestCase {
         try await host.setImage(fromURL: try png("blue.png", .blue))
 
         let before = try mark(record.id)
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .restored(opCount: 1))
         XCTAssertEqual(try Data(contentsOf: file("figures/chart.png")), try Data(contentsOf: red))
@@ -294,7 +292,7 @@ final class FigureRestoreTests: XCTestCase {
         let then = target(host, through: pointer)
 
         let before = try mark(record.id)
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .restored(opCount: 1))
         XCTAssertEqual(try Data(contentsOf: file("figures/chart.png")), try Data(contentsOf: red))
@@ -320,10 +318,9 @@ final class FigureRestoreTests: XCTestCase {
             structure: .insertRow(RowID("r-since"), after: nil)))
         host = try await store.openFigure(figureId: record.id)
         XCTAssertEqual(host.state.table.rows, [RowID("r-since")], "precondition: their row is read")
-        let then = target(host, through: pointer)
 
         let before = try mark(record.id)
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .skippedPicture(hash: redHash, opCount: 1))
         XCTAssertEqual(host.state.table.rows, [], "the rest was restored")
@@ -373,7 +370,7 @@ final class FigureRestoreTests: XCTestCase {
         XCTAssertFalse(FigureRestoreDiff.changes(from: totalDoc.state, to: then, parks: [:]).isEmpty,
                        "precondition: without the book's parks the checkpoint's pin would come back")
 
-        let outcome = try await totalDoc.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await totalDoc.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .unchanged)
         XCTAssertEqual(totalDoc.state.pins[t1], live, "the pin that counts stays")
@@ -420,7 +417,7 @@ final class FigureRestoreTests: XCTestCase {
         XCTAssertFalse(FigureRestoreDiff.changes(from: totalDoc.state, to: then, parks: [:]).isEmpty,
                        "precondition: without the book's parks the checkpoint's pin would come back")
 
-        let outcome = try await totalDoc.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await totalDoc.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .unchanged)
         XCTAssertEqual(totalDoc.state.pins[t1], live, "the pin that counts stays")
@@ -430,23 +427,24 @@ final class FigureRestoreTests: XCTestCase {
     // MARK: - Part way (plan 6c Task 2 review)
 
     /// Review Focus 1's figure, ready to restore: two ops to go.
-    private func twoOpsToGo() async throws -> (DocumentStore, FigureRecord, FigureDocument, FigureState) {
+    private func twoOpsToGo() async throws -> (DocumentStore, FigureRecord, FigureDocument, FigureState, String) {
         let (store, projectStore) = try await openBook()
         let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
         let host = try await store.openFigure(figureId: record.id)
         let rows = host.state.table.rows, columns = host.state.table.columns
         try await host.setCell(text("Lodging"), at: CellKey(row: rows[1], column: columns[0]))
-        let then = target(host, through: try XCTUnwrap(host._ops.map(\.opId).max()))
+        let pointer = try XCTUnwrap(host._ops.map(\.opId).max())
+        let then = target(host, through: pointer)
         try await host.deleteRow(rows[1])
         _ = try await host.insertColumn(after: columns[2])
-        return (store, record, host, then)
+        return (store, record, host, then, pointer)
     }
 
     /// **An op that will not write stops the restore and says how far it
     /// got**; restoring again does only what is left.
     func test_aFailedAppendPartWayAnswersPartlyRestored_andARetryFinishes() async throws {
         struct Refused: Error {}
-        let (store, record, host, then) = try await twoOpsToGo()
+        let (store, record, host, then, pointer) = try await twoOpsToGo()
         var commits = 0
         FigureDocument.beforeCommitAppendForTesting = { _ in
             commits += 1
@@ -454,14 +452,14 @@ final class FigureRestoreTests: XCTestCase {
         }
         let before = try mark(record.id)
 
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         guard case .partlyRestored(1, .notRecorded) = outcome else {
             return XCTFail("expected partly restored after one op, got \(outcome)")
         }
         try assertStamped(after: before, record.id, host, count: 1)
         FigureDocument.beforeCommitAppendForTesting = nil
-        let retry = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let retry = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
         XCTAssertEqual(retry, .restored(opCount: 1), "only what is left")
         XCTAssertEqual(host.state.table.rows, then.table.rows)
         XCTAssertEqual(host.state.table.columns, then.table.columns)
@@ -473,7 +471,7 @@ final class FigureRestoreTests: XCTestCase {
     /// op**: the rest was worked out against the fold before; restoring again
     /// works it out afresh — their cell, too, goes back to the checkpoint.
     func test_aReloadMidRestoreStopsIt_andARetryFinishes() async throws {
-        let (store, record, host, then) = try await twoOpsToGo()
+        let (store, record, host, then, pointer) = try await twoOpsToGo()
         let other = try await admitAnotherMac(store)
         let theirKey = CellKey(row: then.table.rows[2], column: then.table.columns[1])
         FigureDocument.betweenRestoreOpsForTesting = { [self] doc in
@@ -484,16 +482,81 @@ final class FigureRestoreTests: XCTestCase {
         }
         let before = try mark(record.id)
 
-        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
 
         XCTAssertEqual(outcome, .partlyRestored(opCount: 1, why: .changedElsewhere))
         let ours = try ops(of: record.id).filter { $0.opId > before && $0.device == host.device }
         XCTAssertEqual(ours.map(\.provenance?.sourceCheckpoint), [Self.checkpoint], "one op landed, stamped")
-        let retry = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        let retry = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
         XCTAssertEqual(retry, .restored(opCount: 2), "the row's revive, and their cell set back")
         XCTAssertEqual(host.state.table.rows, then.table.rows)
         XCTAssertEqual(host.state.table.columns, then.table.columns)
         XCTAssertEqual(host.state.table.cells, then.table.cells)
         await store.closeFigure(figureId: record.id)
+    }
+    // MARK: - Across a trip to Research (plan 6c final review I5, M6)
+
+    /// **A figure that went to Research, or came back, since the checkpoint
+    /// is skipped and named** (controller ruling): winding it back across the
+    /// park would revert what came back from Research. Both a checkpoint taken
+    /// before the send and one taken while it was parked; nothing is appended.
+    func test_aFigureThatWentToResearchSinceTheCheckpointIsSkippedAndNamed() async throws {
+        let (store, projectStore) = try await openBook()
+        for midPark in [false, true] {
+            let record = try await projectStore.createFigure(kind: .table, name: "budget\(midPark)", piece: nil)
+            let key = try await store.withFigureHost(record.id) { host in
+                let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+                try await host.setCell(self.text("then"), at: key)
+                return key
+            }
+            var pointer = try mark(record.id)
+            let copy = try await projectStore.sendToResearch(figureId: record.id, scope: .shared)
+            if midPark { pointer = try mark(record.id) }
+            _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+            let host = try await store.openFigure(figureId: record.id)
+            try await host.setCell(text("now"), at: key)
+            let before = try mark(record.id)
+
+            let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+            XCTAssertEqual(outcome, .skippedWentToResearch, "midPark \(midPark)")
+            XCTAssertEqual(try mark(record.id), before, "midPark \(midPark): nothing appended")
+            XCTAssertEqual(host.state.table[key]?.content, .value(.text("now")), "midPark \(midPark)")
+            XCTAssertEqual(
+                PartialRestorePicker.figureSentence(for: [(record, .outcome(outcome))]),
+                "Left as it is — went to Research since this checkpoint: budget\(midPark).")
+            await store.closeFigure(figureId: record.id)
+        }
+    }
+
+    /// **One restore hashes `figures/` once** (final review M6): two image
+    /// figures restored with one memo hash each file once, plus the one the
+    /// first restore wrote over — not every file per figure.
+    func test_oneRestoreHashesTheFiguresFolderOnce() async throws {
+        let (store, projectStore) = try await openBook()
+        let red = try png("red.png", .red)
+        var pointers: [String: String] = [:]
+        var records: [FigureRecord] = []
+        for name in ["one.png", "two.png"] {
+            let record = try await projectStore.createImageFigure(fromURL: try png(name, .red), piece: nil)
+            pointers[record.id] = try mark(record.id)
+            try await store.withFigureHost(record.id) { try await $0.setImage(fromURL: try self.png("b.png", .blue)) }
+            records.append(record)
+        }
+        try FileManager.default.copyItem(at: red, to: file("figures/kept-red.png"))
+        let files = try FileManager.default.contentsOfDirectory(atPath: file("figures").path)
+            .filter { $0.hasSuffix(".png") }.count
+        XCTAssertEqual(files, 3, "precondition: two figures' files and the kept red one")
+
+        let hashes = FigurePictureHashes()
+        for record in records {
+            let outcome = try await store.withFigureHost(record.id) {
+                try await $0.restoreToCheckpoint(
+                    Self.checkpoint, through: try XCTUnwrap(pointers[record.id]), pictureHashes: hashes)
+            }
+            XCTAssertEqual(outcome, .restored(opCount: 1), record.name)
+        }
+        XCTAssertTrue((files...files + 1).contains(hashes.hashCount),
+                      "each file once, and the one written over again: \(hashes.hashCount)")
     }
 }
