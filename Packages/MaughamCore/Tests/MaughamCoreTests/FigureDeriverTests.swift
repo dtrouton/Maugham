@@ -292,6 +292,136 @@ final class FigureDeriverTests: XCTestCase {
         XCTAssertEqual(s.diagnostics.count, 1)
     }
 
+    // MARK: - Revive (report plan 6b Task 4, rulings P-1/P-2)
+
+    private func pin(_ research: String, _ v: Double) -> FigureResearchPin {
+        FigureResearchPin(research: research, row: 0, column: 0, value: .number(v),
+                          sourceHash: "h", at: Date(timeIntervalSince1970: 5))
+    }
+
+    private func structure(_ change: FigureStructureChange, removed: FigureRemovedSlice? = nil,
+                           device: String = "macA") -> Op {
+        op(.figureStructure, FigureOpPayload(structure: change, removed: removed), device: device)
+    }
+
+    /// **Review Focus 5, in the fold**: a row deleted with its slice, then a
+    /// neighbour inserted after its tombstone and a width set by another
+    /// device; the revive puts the row back in its own slot with its cells
+    /// and pins, and the neighbour and the width stand.
+    func test_aRevivedRow_returnsInItsOwnSlotWithItsCellsAndPins() {
+        let p = pin("res-a", 4)
+        var ops = base() + [
+            set(key(r1, c1), num(1)), set(key(r1, c2), num(2)),
+            op(.figurePinSet, FigureOpPayload(cell: key(r1, c2), pin: p)),
+        ]
+        let before = FigureDeriver.derive(ops)
+        let slice = before.removedSlice(row: r1)
+        XCTAssertEqual(slice.cells.count, 2, "control: the slice holds both cells")
+        ops.append(structure(.deleteRow(r1), removed: slice))
+        let neighbour = RowID("rNnnnnnn")
+        ops.append(insRow(neighbour, after: r1, device: "macB"))
+        ops.append(op(.figureSettings, FigureOpPayload(settings: .columnWidth(c1, 90, prior: nil)), device: "macB"))
+        let deleted = FigureDeriver.derive(ops)
+        XCTAssertEqual(deleted.table.rows, [neighbour, r2])
+        XCTAssertNil(deleted.pins[key(r1, c2)])
+
+        ops.append(structure(.reviveRow(r1), removed: slice))
+        let s = FigureDeriver.derive(ops)
+        XCTAssertEqual(s.table.rows, [r1, neighbour, r2], "its own slot, before the neighbour")
+        XCTAssertEqual(s.table[key(r1, c1)], num(1))
+        XCTAssertEqual(s.table[key(r1, c2)], num(2))
+        XCTAssertEqual(s.pins[key(r1, c2)], [p])
+        XCTAssertEqual(s.table.columnWidths[c1], 90, "their width stands")
+        XCTAssertEqual(s.diagnostics, [])
+    }
+
+    func test_aRevivedColumn_getsItsWidthBack() {
+        var ops = base() + [
+            set(key(r2, c2), num(7)),
+            op(.figureSettings, FigureOpPayload(settings: .columnWidth(c2, 120, prior: nil))),
+        ]
+        let slice = FigureDeriver.derive(ops).removedSlice(column: c2)
+        XCTAssertEqual(slice.width, 120)
+        ops.append(structure(.deleteColumn(c2), removed: slice))
+        XCTAssertEqual(FigureDeriver.derive(ops).table.columnWidths, [:], "control: the delete took the width")
+        ops.append(structure(.reviveColumn(c2), removed: slice))
+        let s = FigureDeriver.derive(ops)
+        XCTAssertEqual(s.table.columns, [c1, c2])
+        XCTAssertEqual(s.table[key(r2, c2)], num(7))
+        XCTAssertEqual(s.table.columnWidths[c2], 120)
+        XCTAssertEqual(s.diagnostics, [])
+    }
+
+    /// A revive from another device whose column was deleted here meanwhile:
+    /// the row returns with its other cells; the one in the deleted column
+    /// stays gone, diagnosed.
+    func test_aReviveWhoseColumnWasDeletedMeanwhile_keepsTheOtherCells() {
+        var ops = base() + [set(key(r1, c1), num(1)), set(key(r1, c2), num(2))]
+        let slice = FigureDeriver.derive(ops).removedSlice(row: r1)
+        ops.append(structure(.deleteRow(r1), removed: slice, device: "macB"))
+        ops.append(structure(.deleteColumn(c2), removed: FigureRemovedSlice(), device: "macA"))
+        let revive = structure(.reviveRow(r1), removed: slice, device: "macB")
+        ops.append(revive)
+        let s = FigureDeriver.derive(ops)
+        XCTAssertEqual(s.table.rows, [r1, r2])
+        XCTAssertEqual(s.table[key(r1, c1)], num(1), "the other cell is back")
+        XCTAssertNil(s.table[key(r1, c2)])
+        XCTAssertEqual(s.diagnostics.count, 1)
+        XCTAssertTrue(s.diagnostics[0].contains(revive.opId) && s.diagnostics[0].contains(c2.raw), s.diagnostics[0])
+    }
+
+    func test_aReviveOfALiveRowIsDropped_andAnInsertOfATombstoneStaysRefused() {
+        let liveRevive = structure(.reviveRow(r1), removed: FigureRemovedSlice(cells: [.init(at: c1.raw, cell: num(9))]))
+        var s = FigureDeriver.derive(base() + [liveRevive])
+        XCTAssertNil(s.table[key(r1, c1)], "a live row's revive puts nothing back")
+        XCTAssertEqual(s.diagnostics.count, 1)
+        XCTAssertTrue(s.diagnostics[0].contains(liveRevive.opId))
+
+        let reinsert = insRow(r1, after: nil)
+        s = FigureDeriver.derive(base() + [structure(.deleteRow(r1)), reinsert])
+        XCTAssertEqual(s.table.rows, [r2], "only a revive brings a tombstone back (ruling P-1)")
+        XCTAssertEqual(s.diagnostics.count, 1)
+        XCTAssertTrue(s.diagnostics[0].contains(reinsert.opId))
+    }
+
+    /// A revive naming a row never seen waits like a delete does (R-6a-4):
+    /// sorted before the insert and delete it follows, it replays after them.
+    func test_aReviveSortedBeforeItsInsert_waitsAndReplaysInOrder() {
+        let slice = FigureRemovedSlice(cells: [.init(at: c1.raw, cell: num(3))])
+        let delete = structure(.deleteRow(r3), removed: slice, device: "macB")
+        let revive = structure(.reviveRow(r3), removed: slice, device: "macB")
+        let insert = insRow(r3, after: r2, device: "macB")
+        let s = FigureDeriver.derive(base() + [delete, revive, insert])
+        XCTAssertEqual(s.table.rows, [r1, r2, r3])
+        XCTAssertEqual(s.table[key(r3, c1)], num(3))
+        XCTAssertEqual(s.diagnostics, [])
+        // Never inserted at all: held, then diagnosed once.
+        let t = FigureDeriver.derive(base() + [structure(.reviveRow(RowID("nowhere1")), removed: slice)])
+        XCTAssertEqual(t.diagnostics.count, 1)
+    }
+
+    func test_aReviveWithoutASlice_isMissingWhatItNeeds() {
+        let bare = structure(.reviveRow(r1))
+        let s = FigureDeriver.derive(base() + [structure(.deleteRow(r1)), bare])
+        XCTAssertEqual(s.table.rows, [r2])
+        XCTAssertEqual(s.diagnostics.count, 1)
+        XCTAssertTrue(s.diagnostics[0].contains("missing"), s.diagnostics[0])
+    }
+
+    func test_theRemovedSliceIsKeyedByTheOtherAxisAndSortedByIt() {
+        var ops = base() + [set(key(r2, c2), num(2)), set(key(r2, c1), num(1))]
+        ops.append(op(.figurePinSet, FigureOpPayload(cell: key(r1, c1), pin: pin("res-b", 1))))
+        let s = FigureDeriver.derive(ops)
+        XCTAssertEqual(s.removedSlice(row: r2), FigureRemovedSlice(cells: [
+            .init(at: c1.raw, cell: num(1)), .init(at: c2.raw, cell: num(2)),
+        ]))
+        XCTAssertEqual(s.removedSlice(row: r2).cells.map(\.at), [c1.raw, c2.raw])
+        XCTAssertEqual(s.removedSlice(column: c1), FigureRemovedSlice(cells: [
+            .init(at: r1.raw, pins: [pin("res-b", 1)]), .init(at: r2.raw, cell: num(1)),
+        ]))
+        XCTAssertTrue(s.removedSlice(column: ColumnID("nowhere0")).isEmpty)
+    }
+
     // MARK: - Odd input
 
     func test_createSeenTwice_firstWins_withADiagnostic() {

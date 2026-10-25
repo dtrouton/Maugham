@@ -255,31 +255,147 @@ final class FigureDocumentTests: XCTestCase {
         await doc.close()
     }
 
-    func test_anInsertUndoesToADeleteAndDeclinesItsRedo_aDeleteRegistersNoUndo() async throws {
+    /// **An undone insert redoes as a revive** (report plan 6b Task 4, ruling
+    /// P-1): the same id back in its own slot — so a formula naming it by id
+    /// reconnects — and the redo is undoable again.
+    ///
+    /// The manager groups by event (the default): a redo re-enters the
+    /// mutator after an await, and its registration must land in an open
+    /// group.
+    func test_anUndoneInsertRedoesInItsOwnSlot() async throws {
         let store = try await ProjectStore.load(from: projectURL)
         let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
         let doc = try await load(record.id)
         let um = UndoManager()
+        let before = doc.state.table.rows
 
-        let row = try await doc.insertRow(after: doc.state.table.rows.last, undoManager: um)
-        XCTAssertEqual(doc.state.table.rows.count, 4)
+        let row = try await doc.insertRow(after: before[0], undoManager: um)
         um.undo()
         await doc.awaitPendingUndoWork()
-        XCTAssertNil(doc.state.table.rowIndex(of: row), "undo deleted the inserted row")
-        let count = try ops(of: record.id).count
+        XCTAssertEqual(doc.state.table.rows, before, "undo deleted the inserted row")
 
-        let said = await notices {
+        let said = await notices { um.redo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, [], "the redo is not declined")
+        XCTAssertEqual(doc.state.table.rows, [before[0], row, before[1], before[2]], "the same id, in its own slot")
+        let last = try XCTUnwrap(try ops(of: record.id).last?.figure)
+        XCTAssertEqual(last.structure, .reviveRow(row))
+        XCTAssertEqual(last.removed, FigureRemovedSlice(), "revived empty")
+        XCTAssertTrue(um.canUndo, "and the redo is undoable again")
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(doc.state.table.rows, before)
+
+        // The column's twin.
+        let columns = doc.state.table.columns
+        let column = try await doc.insertColumn(after: nil, undoManager: um)
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        um.redo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(doc.state.table.columns, [column] + columns)
+        await doc.close()
+    }
+
+    /// **A delete undoes to a revive** (ruling P-2): the column returns in its
+    /// own slot with its cell and its width; redo deletes it again, and the
+    /// redo's own undo brings it back again.
+    func test_aDeleteUndoesToARevive_withItsCellsAndWidth() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let um = UndoManager()
+        let columns = doc.state.table.columns
+        let key = CellKey(row: doc.state.table.rows[2], column: columns[1])
+        try await doc.setCell(text("kept"), at: key, undoManager: nil)
+        try await doc.setColumnWidth(columns[1], 120, undoManager: nil)
+
+        try await doc.deleteColumn(columns[1], undoManager: um)
+        XCTAssertEqual(doc.state.table.columns, [columns[0], columns[2]])
+        let delete = try XCTUnwrap(try ops(of: record.id).last?.figure)
+        XCTAssertEqual(delete.removed, FigureRemovedSlice(
+            cells: [.init(at: key.row.raw, cell: text("kept"))], width: 120), "the delete carries what it took")
+        XCTAssertTrue(um.canUndo, "a delete registers an undo")
+
+        for pass in 1...2 {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+            XCTAssertEqual(doc.state.table.columns, columns, "pass \(pass): back in its own slot")
+            XCTAssertEqual(doc.state.table[key], text("kept"), "pass \(pass)")
+            XCTAssertEqual(doc.state.table.columnWidths[columns[1]], 120, "pass \(pass)")
             um.redo()
             await doc.awaitPendingUndoWork()
+            XCTAssertEqual(doc.state.table.columns, [columns[0], columns[2]], "pass \(pass): redo deletes it again")
         }
-        XCTAssertEqual(said.count, 1, "the declined redo is said: \(said)")
-        XCTAssertEqual(try ops(of: record.id).count, count, "and writes nothing (ruling R-6a-5)")
+        await doc.close()
+    }
 
-        // A delete takes no undo manager at all: 6a cannot revive a tombstone.
-        try await doc.deleteRow(doc.state.table.rows[0])
-        try await doc.deleteColumn(doc.state.table.columns[0])
-        XCTAssertEqual(doc.state.table.rows.count, 2)
-        XCTAssertEqual(doc.state.table.columns.count, 2)
+    /// The same values whichever figure reads them: none.
+    private struct NoPins: ResearchPinSource {
+        func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? { nil }
+    }
+
+    /// What the formula at `key` evaluates to in the figure's own table.
+    private func evaluated(_ doc: FigureDocument, _ key: CellKey) -> CellValue {
+        var book = Workbook(pins: NoPins())
+        book.setTable(doc.state.table, id: doc.figureId)
+        return book.value(at: CellAddress(table: doc.figureId, key: key))
+    }
+
+    /// **Review Focus 5** (report plan 6b): undo of a row delete after
+    /// another device inserted a neighbouring row and set a column width —
+    /// the row returns in its own slot with its cells, their row and width
+    /// stand, and the formula that showed `#REF!` shows its value again.
+    func test_undoOfARowDeleteAfterAnotherDevicesNeighbourAndWidth_bringsTheRowAndItsValueBack() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let um = UndoManager()
+        let rows = doc.state.table.rows, columns = doc.state.table.columns
+        let source = CellKey(row: rows[1], column: columns[0])      // A2
+        let reader = CellKey(row: rows[0], column: columns[1])      // B1 = A2
+        try await doc.setCell(Cell(content: .value(.number(7))), at: source, undoManager: nil)
+        let formula = try FormulaParser.parse("A2", in: doc.state.table).get()
+        try await doc.setCell(Cell(content: .formula(formula)), at: reader, undoManager: nil)
+        XCTAssertEqual(evaluated(doc, reader), .number(7), "control: the formula reads A2")
+
+        try await doc.deleteRow(rows[1], undoManager: um)
+        XCTAssertEqual(evaluated(doc, reader), .error(.ref), "the deleted row's value is #REF!")
+
+        let neighbour = RowID("nbrnbr00")
+        try await theirOp(doc, .figureStructure, FigureOpPayload(structure: .insertRow(neighbour, after: rows[1])))
+        try await theirOp(doc, .figureSettings, FigureOpPayload(settings: .columnWidth(columns[2], 90, prior: nil)))
+        XCTAssertEqual(doc.state.table.rows, [rows[0], neighbour, rows[2]], "precondition: their row arrived")
+
+        let said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, [])
+        XCTAssertEqual(doc.state.table.rows, [rows[0], rows[1], neighbour, rows[2]], "its own slot, before their row")
+        XCTAssertEqual(doc.state.table[source], Cell(content: .value(.number(7))), "with its cell")
+        XCTAssertEqual(doc.state.table.columnWidths[columns[2]], 90, "their width stands")
+        XCTAssertEqual(evaluated(doc, reader), .number(7), "the formula shows its value again")
+        XCTAssertEqual(doc.state.diagnostics, [])
+
+        // Read back from disk, the same.
+        let reread = try await load(record.id)
+        XCTAssertEqual(reread.state.table, doc.state.table)
+        await reread.close()
+        await doc.close()
+    }
+
+    /// A delete's undo is drift-guarded: once another device has revived the
+    /// row, the undo declines and appends nothing.
+    func test_undoOfADeleteAnotherDeviceRevivedDeclines() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let um = UndoManager()
+        let row = doc.state.table.rows[1]
+        try await doc.deleteRow(row, undoManager: um)
+        try await theirOp(doc, .figureStructure, FigureOpPayload(structure: .reviveRow(row), removed: FigureRemovedSlice()))
+        XCTAssertNotNil(doc.state.table.rowIndex(of: row), "precondition: their revive arrived")
+        let count = try ops(of: record.id).count
+        let said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
         await doc.close()
     }
 
@@ -525,6 +641,10 @@ final class FigureDocumentTests: XCTestCase {
             ("insertColumn", { _ = try await doc.insertColumn(after: nil, undoManager: um) }),
             ("deleteRow", { try await doc.deleteRow(key.row) }),
             ("deleteColumn", { try await doc.deleteColumn(key.column) }),
+            ("reviveRow", { try await doc.reviveRow(key.row, removed: FigureRemovedSlice(), actionName: "x", undoManager: um) }),
+            ("reviveColumn", {
+                try await doc.reviveColumn(key.column, removed: FigureRemovedSlice(), actionName: "x", undoManager: um)
+            }),
             ("moveRow", { try await doc.moveRow(key.row, after: doc.state.table.rows.last, undoManager: um) }),
             ("moveColumn", { try await doc.moveColumn(key.column, after: doc.state.table.columns.last, undoManager: um) }),
             ("setHeaderRows", { try await doc.setHeaderRows(1, undoManager: um) }),

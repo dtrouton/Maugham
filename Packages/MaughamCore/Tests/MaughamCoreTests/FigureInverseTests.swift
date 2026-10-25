@@ -84,6 +84,37 @@ final class FigureInverseTests: XCTestCase {
             .deleteRow(r4))
     }
 
+    /// **A delete carrying its slice undoes to a revive** (rulings P-1/P-2):
+    /// the table is exactly as it was — the same slot, cells and width.
+    func test_deleteWithItsSlice_roundTrips_asARevive() {
+        let s = start()
+        roundTrip((.figureStructure, FigureOpPayload(structure: .deleteRow(r1), removed: s.removedSlice(row: r1))))
+        roundTrip((.figureStructure, FigureOpPayload(structure: .deleteColumn(c1), removed: s.removedSlice(column: c1))))
+        let slice = s.removedSlice(row: r2)
+        let inv = FigureInverse.inverse(of: FigureOpPayload(structure: .deleteRow(r2), removed: slice), kind: .figureStructure)
+        XCTAssertEqual(inv?.1, FigureOpPayload(structure: .reviveRow(r2), removed: slice))
+    }
+
+    /// The revive's inverse is the delete again, carrying the same slice;
+    /// an insert's is a delete with an empty slice, whose inverse is a revive
+    /// with an empty slice — an insert's redo.
+    func test_reviveAndInsert_invertThroughTheSlice() {
+        let slice = FigureRemovedSlice(cells: [.init(at: c1.raw, cell: num(1))])
+        XCTAssertEqual(
+            FigureInverse.inverse(of: FigureOpPayload(structure: .reviveColumn(c2), removed: slice), kind: .figureStructure)?.1,
+            FigureOpPayload(structure: .deleteColumn(c2), removed: slice))
+        let r4 = RowID("r4ffffff")
+        let undo = FigureInverse.inverse(of: FigureOpPayload(structure: .insertRow(r4, after: r1)), kind: .figureStructure)
+        XCTAssertEqual(undo?.1, FigureOpPayload(structure: .deleteRow(r4), removed: FigureRemovedSlice()))
+        let redo = undo.flatMap { FigureInverse.inverse(of: $0.1, kind: $0.0) }
+        XCTAssertEqual(redo?.1, FigureOpPayload(structure: .reviveRow(r4), removed: FigureRemovedSlice()))
+        // Folded: insert, undo, redo — the row is back where it was inserted.
+        let back = apply([(.figureStructure, FigureOpPayload(structure: .insertRow(r4, after: r1))),
+                          undo!, redo!], to: start())
+        XCTAssertEqual(back.table.rows, [r1, r4, r2, r3])
+        XCTAssertEqual(back.diagnostics, [])
+    }
+
     func test_move_roundTrips_asAMoveBack() {
         roundTrip((.figureStructure, FigureOpPayload(structure: .moveRow(r3, after: nil, priorAfter: r2))))
         roundTrip((.figureStructure, FigureOpPayload(structure: .moveRow(r1, after: r3, priorAfter: nil))))
@@ -105,7 +136,9 @@ final class FigureInverseTests: XCTestCase {
 
     // MARK: - No inverse
 
-    func test_delete_hasNoInverseIn6a() {
+    /// A delete with nothing recorded has no inverse: what it took is not
+    /// known, and a revive would bring the row back as if it held nothing.
+    func test_aDeleteWithoutASlice_hasNoInverse() {
         XCTAssertNil(FigureInverse.inverse(of: FigureOpPayload(structure: .deleteRow(r1)), kind: .figureStructure))
         XCTAssertNil(FigureInverse.inverse(of: FigureOpPayload(structure: .deleteColumn(c1)), kind: .figureStructure))
     }

@@ -59,7 +59,8 @@ public enum FigureKind: Codable, Equatable, Hashable, Sendable {
 /// - `figureResumed` — nothing.
 /// - `figureCellSet` — `cell`; `next` is the new cell (nil = cleared) and
 ///   `prior` the cell it replaced (nil = was empty).
-/// - `figureStructure` — `structure`.
+/// - `figureStructure` — `structure`. A delete may carry `removed`, what it
+///   took (ruling P-2); a revive must carry the slice it puts back.
 /// - `figureSettings` — `settings`.
 /// - `figureImageSet` — `image`; `priorImage` is the one it replaced.
 /// - `figurePinSet` — `cell` and `pin`.
@@ -80,6 +81,12 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     public var pin: FigureResearchPin?
     public var parkedPath: String?
     public var parkedHash: String?
+    /// **What a row or column delete took, or what a revive puts back**
+    /// (ruling P-2). The host fills it at delete time so `FigureInverse`
+    /// stays payload-only. Nil on a delete that did not record it — a delete
+    /// with nothing to put back offers no undo; an empty slice is a row or
+    /// column that held nothing (an insert's undo).
+    public var removed: FigureRemovedSlice?
 
     enum CodingKeys: String, CodingKey {
         case kind, cell, next, prior, structure, settings, image
@@ -87,6 +94,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case pin
         case parkedPath = "parked_path"
         case parkedHash = "parked_hash"
+        case removed
     }
 
     public init(
@@ -96,7 +104,8 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         settings: FigureSettingsChange? = nil,
         image: FigureImageRef? = nil, priorImage: FigureImageRef? = nil,
         pin: FigureResearchPin? = nil,
-        parkedPath: String? = nil, parkedHash: String? = nil
+        parkedPath: String? = nil, parkedHash: String? = nil,
+        removed: FigureRemovedSlice? = nil
     ) {
         self.kind = kind
         self.cell = cell
@@ -109,6 +118,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         self.pin = pin
         self.parkedPath = parkedPath
         self.parkedHash = parkedHash
+        self.removed = removed
     }
 
     /// The nine figure op kinds, in the order `OpKind` declares them.
@@ -136,7 +146,14 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case .figureParked: return payload.parkedPath != nil && payload.parkedHash != nil
         case .figureResumed: return true
         case .figureCellSet: return payload.cell != nil
-        case .figureStructure: return payload.structure != nil
+        case .figureStructure:
+            // A revive puts back a slice, so it carries one (an empty one
+            // for a row or column that held nothing).
+            switch payload.structure {
+            case .reviveRow?, .reviveColumn?: return payload.removed != nil
+            case nil: return false
+            default: return true
+            }
         case .figureSettings: return payload.settings != nil
         case .figureImageSet: return payload.image != nil
         case .figurePinSet: return payload.cell != nil && payload.pin != nil
@@ -152,6 +169,11 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
 ///
 /// On the wire: `{"change": "insert_row", "row": "…", "after": "…"}` — a word
 /// and flat ids, so a later reader needs no knowledge of Swift's enum coding.
+///
+/// **A revive** (`revive_row` / `revive_column`, ruling P-1, schema 10) clears
+/// a deleted row's or column's tombstone in place — its own slot, so its own
+/// position — and puts back the payload's `removed` slice. An insert of a
+/// tombstoned id stays refused: only a revive brings one back.
 public enum FigureStructureChange: Equatable, Sendable {
     case insertRow(RowID, after: RowID?)
     case insertColumn(ColumnID, after: ColumnID?)
@@ -159,6 +181,8 @@ public enum FigureStructureChange: Equatable, Sendable {
     case deleteColumn(ColumnID)
     case moveRow(RowID, after: RowID?, priorAfter: RowID?)
     case moveColumn(ColumnID, after: ColumnID?, priorAfter: ColumnID?)
+    case reviveRow(RowID)
+    case reviveColumn(ColumnID)
 }
 
 extension FigureStructureChange: Codable {
@@ -174,6 +198,8 @@ extension FigureStructureChange: Codable {
         case deleteColumn = "delete_column"
         case moveRow = "move_row"
         case moveColumn = "move_column"
+        case reviveRow = "revive_row"
+        case reviveColumn = "revive_column"
     }
 
     public init(from decoder: Decoder) throws {
@@ -197,6 +223,10 @@ extension FigureStructureChange: Codable {
             self = .moveColumn(try c.decode(ColumnID.self, forKey: .column),
                                after: try c.decodeIfPresent(ColumnID.self, forKey: .after),
                                priorAfter: try c.decodeIfPresent(ColumnID.self, forKey: .priorAfter))
+        case .reviveRow:
+            self = .reviveRow(try c.decode(RowID.self, forKey: .row))
+        case .reviveColumn:
+            self = .reviveColumn(try c.decode(ColumnID.self, forKey: .column))
         }
     }
 
@@ -227,8 +257,50 @@ extension FigureStructureChange: Codable {
             try c.encode(column, forKey: .column)
             try c.encodeIfPresent(after, forKey: .after)
             try c.encodeIfPresent(priorAfter, forKey: .priorAfter)
+        case let .reviveRow(row):
+            try c.encode(Word.reviveRow, forKey: .change)
+            try c.encode(row, forKey: .row)
+        case let .reviveColumn(column):
+            try c.encode(Word.reviveColumn, forKey: .change)
+            try c.encode(column, forKey: .column)
         }
     }
+}
+
+/// **What a row or column delete took** (ruling P-2): the row's (or column's)
+/// cells and research pins, each keyed by the OTHER axis's id (a row's by
+/// column id, a column's by row id), and for a column its width. Entries are
+/// sorted by that id and an empty position has none, so two slices of the
+/// same content are equal whatever order the table holds its other axis in.
+///
+/// On the wire: `{"cells": [{"at": "<id>", "cell": {…}, "pins": […]}], "width": 80}`.
+public struct FigureRemovedSlice: Codable, Equatable, Sendable {
+    /// One position along the other axis that held a cell, pins or both.
+    public struct Entry: Codable, Equatable, Sendable {
+        /// The other axis's id: a column id in a row's slice, a row id in a column's.
+        public var at: String
+        public var cell: Cell?
+        public var pins: [FigureResearchPin]?
+
+        public init(at: String, cell: Cell? = nil, pins: [FigureResearchPin]? = nil) {
+            self.at = at
+            self.cell = cell
+            self.pins = pins
+        }
+    }
+
+    public var cells: [Entry]
+    /// A column's width; nil for a row, or for a column at the automatic width.
+    public var width: Double?
+
+    public init(cells: [Entry] = [], width: Double? = nil) {
+        self.cells = cells.sorted { $0.at < $1.at }
+        self.width = width
+    }
+
+    /// Nothing to put back: what an insert's undo deletes, and what a redone
+    /// insert revives.
+    public var isEmpty: Bool { cells.isEmpty && width == nil }
 }
 
 /// A change to a table's settings, carrying the value it replaced so its

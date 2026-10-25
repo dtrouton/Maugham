@@ -31,6 +31,32 @@ final class FigureTableTests: XCTestCase {
         XCTAssertEqual(Set(raws).count, 5)
     }
 
+    /// **A revive clears the tombstone in place** (report plan 6b Task 4): the
+    /// row returns in its own slot, so its own position, even after a
+    /// neighbour landed after its tombstone; a live or never-held id is refused.
+    func test_reviveRow_returnsInItsOwnSlot_andRefusesALiveOrUnknownId() {
+        var t = table(rowIDs: ["a", "b", "c"])
+        t.deleteRow(rid("b"))
+        t.insertRow(rid("x"), after: rid("b"))
+        XCTAssertTrue(t.reviveRow(rid("b")))
+        XCTAssertEqual(t.rows, [rid("a"), rid("b"), rid("x"), rid("c")])
+        let before = t
+        XCTAssertFalse(t.reviveRow(rid("b")), "a live row is refused")
+        XCTAssertFalse(t.reviveRow(rid("zzzz")), "a never-held row is refused")
+        XCTAssertEqual(t, before, "and a refusal changes nothing")
+    }
+
+    func test_reviveColumn_returnsInItsOwnSlot_andRefusesALiveOrUnknownId() {
+        var t = FigureTable(rows: 1, columns: 3)
+        let c = t.columns
+        t.deleteColumn(c[1])
+        XCTAssertEqual(t.columns, [c[0], c[2]])
+        XCTAssertTrue(t.reviveColumn(c[1]))
+        XCTAssertEqual(t.columns, c)
+        XCTAssertFalse(t.reviveColumn(c[1]))
+        XCTAssertFalse(t.reviveColumn(ColumnID("nowhere0")))
+    }
+
     func test_insertRow_afterTombstone_landsAfterIt() {
         var t = table(rowIDs: ["a", "b", "c"])
         t.deleteRow(rid("b"))

@@ -124,6 +124,24 @@ public struct FigureTable: Equatable, Codable, Sendable {
         columnWidths[id] = nil
     }
 
+    /// **Brings a deleted row back in its own slot** (so its own position),
+    /// empty: the caller puts back its cells. Answers false — and changes
+    /// nothing — for a live row or one this table has never held.
+    @discardableResult
+    public mutating func reviveRow(_ id: RowID) -> Bool {
+        guard let i = rowSlotIndex(of: id), rowSlots[i].isDeleted else { return false }
+        rowSlots[i].isDeleted = false
+        return true
+    }
+
+    /// The column's twin of `reviveRow`; its width is the caller's to put back.
+    @discardableResult
+    public mutating func reviveColumn(_ id: ColumnID) -> Bool {
+        guard let i = columnSlotIndex(of: id), columnSlots[i].isDeleted else { return false }
+        columnSlots[i].isDeleted = false
+        return true
+    }
+
     public mutating func moveRow(_ id: RowID, after: RowID?) {
         guard rowIndex(of: id) != nil, after != id, let from = rowSlotIndex(of: id) else { return }
         let slot = rowSlots.remove(at: from)

@@ -58,6 +58,11 @@ public struct FigureState: Equatable, Sendable {
 /// - **Delete beats edit** (spec §11.5): a cell set, pin or column width on a
 ///   deleted row or column is dropped from the view and diagnosed; a delete
 ///   takes the cells, pins and width it held.
+/// - **A revive puts a deleted row or column back in its own slot** (ruling
+///   P-1) with the slice its payload carries (ruling P-2): cells and pins only
+///   where the other axis is still live — one whose column (or row) was
+///   deleted meanwhile stays gone, diagnosed — and a column's width. Reviving
+///   a live row or column is dropped; one never seen waits like any other op.
 /// - **A not-yet-seen id waits** (ruling R-6a-4): an op naming a row or column
 ///   no insert has folded is held (`FigureState.held`) and replays in its
 ///   original fold order when that insert folds; one still held at the end of
@@ -132,6 +137,25 @@ public enum FigureDeriver {
                 let waiting = state.held
                 state.held = []
                 for held in waiting { fold(held, into: &state) }
+            case let .reviveRow(id):
+                for entry in p.removed?.cells ?? [] {
+                    let key = CellKey(row: id, column: ColumnID(entry.at))
+                    guard isLive(key, in: state.table) else {
+                        drop("revive of row \(id.raw): its cell in deleted column \(entry.at) stays gone")
+                        continue
+                    }
+                    restore(entry, at: key, into: &state)
+                }
+            case let .reviveColumn(id):
+                for entry in p.removed?.cells ?? [] {
+                    let key = CellKey(row: RowID(entry.at), column: id)
+                    guard isLive(key, in: state.table) else {
+                        drop("revive of column \(id.raw): its cell in deleted row \(entry.at) stays gone")
+                        continue
+                    }
+                    restore(entry, at: key, into: &state)
+                }
+                state.table.columnWidths[id] = p.removed?.width
             default:
                 break
             }
@@ -209,6 +233,16 @@ public enum FigureDeriver {
             state.table.deleteColumn(id)
             state.pins = state.pins.filter { $0.key.column != id }
             return nil
+        case let .reviveRow(id):
+            guard state.table.reviveRow(id) else {
+                return "revive of row \(id.raw), which is not deleted"
+            }
+            return nil
+        case let .reviveColumn(id):
+            guard state.table.reviveColumn(id) else {
+                return "revive of column \(id.raw), which is not deleted"
+            }
+            return nil
         case let .moveRow(id, after, _):
             guard state.table.rowIndex(of: id) != nil, after != id else {
                 return "move of a deleted row \(id.raw)"
@@ -239,13 +273,19 @@ public enum FigureDeriver {
             return false
         case .figureStructure:
             switch p.structure {
-            case let .deleteRow(r)?, let .moveRow(r, _, _)?: return unseen(r)
-            case let .deleteColumn(c)?, let .moveColumn(c, _, _)?: return unseen(c)
+            case let .deleteRow(r)?, let .moveRow(r, _, _)?, let .reviveRow(r)?: return unseen(r)
+            case let .deleteColumn(c)?, let .moveColumn(c, _, _)?, let .reviveColumn(c)?: return unseen(c)
             default: return false
             }
         default:
             return false
         }
+    }
+
+    /// One slice entry back onto its (live) cell.
+    private static func restore(_ entry: FigureRemovedSlice.Entry, at key: CellKey, into state: inout FigureState) {
+        if let cell = entry.cell { state.table.setCell(cell, at: key) }
+        if let pins = entry.pins, !pins.isEmpty { state.pins[key] = pins }
     }
 
     private static func isLive(_ key: CellKey, in table: FigureTable) -> Bool {
@@ -255,5 +295,33 @@ public enum FigureDeriver {
     /// Two pins read the same source cell: one research item, one row and column.
     private static func sameSource(_ a: FigureResearchPin, _ b: FigureResearchPin) -> Bool {
         a.research == b.research && a.row == b.row && a.column == b.column
+    }
+}
+
+extension FigureState {
+    /// **What deleting row `id` would take** (ruling P-2): its cells and pins
+    /// keyed by column id, for the delete's payload, so its undo can put them
+    /// back. Empty for a row that holds nothing, or that is not live.
+    public func removedSlice(row id: RowID) -> FigureRemovedSlice {
+        var at: [String: FigureRemovedSlice.Entry] = [:]
+        for (key, cell) in table.cells where key.row == id {
+            at[key.column.raw, default: .init(at: key.column.raw)].cell = cell
+        }
+        for (key, list) in pins where key.row == id && !list.isEmpty {
+            at[key.column.raw, default: .init(at: key.column.raw)].pins = list
+        }
+        return FigureRemovedSlice(cells: Array(at.values))
+    }
+
+    /// The column's twin of `removedSlice(row:)`: keyed by row id, with its width.
+    public func removedSlice(column id: ColumnID) -> FigureRemovedSlice {
+        var at: [String: FigureRemovedSlice.Entry] = [:]
+        for (key, cell) in table.cells where key.column == id {
+            at[key.row.raw, default: .init(at: key.row.raw)].cell = cell
+        }
+        for (key, list) in pins where key.column == id && !list.isEmpty {
+            at[key.row.raw, default: .init(at: key.row.raw)].pins = list
+        }
+        return FigureRemovedSlice(cells: Array(at.values), width: table.columnWidths[id])
     }
 }

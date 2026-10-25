@@ -184,7 +184,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
 - `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked and resumed.
 - `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed.
-- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, move, setting, image), and a visit's inverses as one all-or-nothing undo.
+- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image), and a visit's inverses as one all-or-nothing undo.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.

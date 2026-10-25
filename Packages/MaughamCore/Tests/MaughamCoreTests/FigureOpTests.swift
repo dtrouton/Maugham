@@ -54,6 +54,12 @@ final class FigureOpTests: XCTestCase {
             (.figureStructure, FigureOpPayload(structure: .insertColumn(c2, after: nil))),
             (.figureStructure, FigureOpPayload(structure: .deleteRow(r1))),
             (.figureStructure, FigureOpPayload(structure: .deleteColumn(c1))),
+            (.figureStructure, FigureOpPayload(structure: .deleteRow(r1), removed: FigureRemovedSlice(
+                cells: [.init(at: c1.raw, cell: cell, pins: [pin]), .init(at: c2.raw, cell: formula)]))),
+            (.figureStructure, FigureOpPayload(structure: .deleteColumn(c1), removed: FigureRemovedSlice(width: 80))),
+            (.figureStructure, FigureOpPayload(structure: .reviveRow(r1), removed: FigureRemovedSlice())),
+            (.figureStructure, FigureOpPayload(structure: .reviveColumn(c1), removed: FigureRemovedSlice(
+                cells: [.init(at: r2.raw, pins: [pin])], width: 64.5))),
             (.figureStructure, FigureOpPayload(structure: .moveRow(r1, after: r2, priorAfter: nil))),
             (.figureStructure, FigureOpPayload(structure: .moveRow(r1, after: nil, priorAfter: r2))),
             (.figureStructure, FigureOpPayload(structure: .moveColumn(c1, after: c2, priorAfter: nil))),
@@ -105,6 +111,27 @@ final class FigureOpTests: XCTestCase {
             priorImage: nil, parkedPath: "p", parkedHash: "q")), encoding: .utf8)
         XCTAssertEqual(payload,
                        #"{"image":{"content_hash":"h","filename":"a.png"},"parked_hash":"q","parked_path":"p"}"#)
+    }
+
+    /// **The revive words and the removed slice** (report plan 6b Task 4,
+    /// rulings P-1/P-2, schema 10): pinned like the words before them.
+    func test_theReviveWordsAndTheRemovedSliceArePinned() throws {
+        let enc = encoder()
+        XCTAssertEqual(String(data: try enc.encode(FigureStructureChange.reviveRow(r1)), encoding: .utf8),
+                       #"{"change":"revive_row","row":"r1aaaaaa"}"#)
+        XCTAssertEqual(String(data: try enc.encode(FigureStructureChange.reviveColumn(c1)), encoding: .utf8),
+                       #"{"change":"revive_column","column":"c1cccccc"}"#)
+        let delete = String(data: try enc.encode(FigureOpPayload(
+            structure: .deleteColumn(c1),
+            removed: FigureRemovedSlice(cells: [.init(at: r2.raw, cell: Cell(content: .value(.number(1))))], width: 80))),
+            encoding: .utf8)
+        XCTAssertEqual(delete,
+            #"{"removed":{"cells":[{"at":"r2bbbbbb","cell":{"alignment":"automatic","content":{"value":{"_0":{"number":{"_0":1}}}},"format":{"negatives":"minus","number":{"general":{}},"zeroAsDash":false}}}],"width":80},"structure":{"change":"delete_column","column":"c1cccccc"}}"#)
+        XCTAssertEqual(String(data: try enc.encode(FigureOpPayload(structure: .deleteRow(r1))), encoding: .utf8),
+                       #"{"structure":{"change":"delete_row","row":"r1aaaaaa"}}"#,
+                       "a delete without a slice carries no removed key")
+        XCTAssertFalse(FigureOpPayload.validate(kind: .figureStructure, payload: FigureOpPayload(structure: .reviveRow(r1))),
+                       "a revive carries a slice")
     }
 
     // MARK: - Existing bytes

@@ -178,16 +178,17 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         case .figureCellSet, .figureStructure, .figureSettings, .figureImageSet:
             // FigureInverse.swift (Core) builds each compensating op from the
             // payload alone: a cell set swaps next/prior, an insert becomes a
-            // delete, a move goes back to priorAfter, a setting swaps, an
-            // image set swaps to priorImage. Two shapes answer nil and so get
-            // no undo: a row/column delete (reviving a tombstone is plan 6b's)
-            // and a first image (there is no clear). An undone insert is not
-            // redoable in 6a: the deriver refuses to re-insert a tombstoned
-            // id, so redo waits for plan 6b's revive (ruling R-6a-5). The figure host's
-            // OpUndoRegistrar registration (`FigureDocument.registerFigureUndo`)
-            // is the caller; each undo declines when another device has since
-            // changed what the op wrote.
-            return .inverseCovered(mechanism: "FigureInverse.inverse (nil for a row/column delete and a first image; insert undo declines redo until the revive API, since re-inserting a tombstoned id is refused, ruling R-6a-5), registered by FigureDocument.registerFigureUndo, drift-guarded")
+            // delete with an empty removed slice, a delete becomes a revive
+            // carrying the slice it took (rulings P-1/P-2, report plan 6b), a
+            // revive becomes the delete again, a move goes back to priorAfter,
+            // a setting swaps, an image set swaps to priorImage. Two shapes
+            // answer nil and so get no undo: a first image (there is no clear)
+            // and a delete that recorded no slice. An undone insert redoes as
+            // a revive (`FigureDocument.reviveRow`/`reviveColumn`). The figure
+            // host's OpUndoRegistrar registration
+            // (`FigureDocument.registerFigureUndo`) is the caller; each undo
+            // declines when another device has since changed what the op wrote.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (a delete revives through the removed slice it carries; nil for a first image and a slice-less delete; an undone insert redoes through FigureDocument.reviveRow and FigureDocument.reviveColumn), registered by FigureDocument.registerFigureUndo, drift-guarded")
 
         case .figureCreate:
             // Creating a figure is undone by deleting it, which is a registry

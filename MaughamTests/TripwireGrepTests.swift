@@ -11938,6 +11938,7 @@ final class TripwireGrepTests: XCTestCase {
         "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
         "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
+        "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "createFigure(", "createImageFigure(", figureOpMintSpelling,
     ]
@@ -11959,6 +11960,7 @@ final class TripwireGrepTests: XCTestCase {
     /// not every table helper in the codebase.
     static let figureMutatorSpellings: Set<String> = [
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
+        "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(",
     ]
@@ -12356,6 +12358,9 @@ final class TripwireGrepTests: XCTestCase {
             "setCell(": 1, "moveRow(": 1, "moveColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1,
             "setImage(": 1,
+            // A delete's redo; an undone insert's redo and a revive's own
+            // redo (report plan 6b Task 4).
+            "deleteRow(": 1, "deleteColumn(": 1, "reviveRow(": 2, "reviveColumn(": 2,
         ],
         "ProjectStore+Figures.swift": [figureOpMintSpelling: 1],
         "FigureIngest.swift": ["createImageFigure(": 1],
@@ -12431,6 +12436,7 @@ final class TripwireGrepTests: XCTestCase {
         // `figureMutatorSpellings` (counted only as an awaited call).
         "setCell": "figure", "insertRow": "figure", "insertColumn": "figure",
         "deleteRow": "figure", "deleteColumn": "figure", "moveRow": "figure",
+        "reviveRow": "figure", "reviveColumn": "figure",
         "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
         "setColumnWidth": "figure", "setImage": "figure",
     ]
@@ -12615,6 +12621,8 @@ final class TripwireGrepTests: XCTestCase {
         _ = try await self.figure?.insertColumn(after: nil)
         try await figures[i].deleteRow(row)
         try await figure.deleteColumn(column)
+        try await d.reviveRow(id, removed: slice, actionName: name, undoManager: undoManager)
+        try await d.reviveColumn(id, removed: slice, actionName: name, undoManager: undoManager)
         await d.redoing { try await d.moveRow(id, after: after, undoManager: undoManager) }
         try await figure.moveColumn(column, after: nil)
         try await setHeaderRows(1)

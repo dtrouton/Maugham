@@ -168,7 +168,11 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// words under the same 10, before it shipped: a formula's ref to another
     /// figure or a research item is stored by id (`{"figure":{"id":…}}`,
     /// `{"research":{"id":…}}`, Denver's ruling R-D1), no longer by name, so
-    /// a rename rewrites no formula (`TableWireFormatTests` pins it).
+    /// a rename rewrites no formula (`TableWireFormatTests` pins it). It also
+    /// added, under the same 10, the structure words `revive_row` and
+    /// `revive_column` and the payload field `removed` — what a row or column
+    /// delete took, so its undo revives it in place (rulings P-1, P-2;
+    /// `FigureOpTests` pins them).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book
