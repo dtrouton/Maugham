@@ -192,7 +192,7 @@ final class PersonKeyCensusTests: XCTestCase {
         Site(pattern: #"PersonKey\.findOrCreate\("#,
              sample: "PersonKey.findOrCreate(in: s, seedName: n)",
              expected: ["type:DocumentStore": 1]),
-        // …and the phone only FINDS it (`RegistryPresence`, controller ruling 5:
+        // …and the phone only FINDS it (controller ruling 5:
         // a phone that minted would fork the person) — once, in
         // `PhoneDeviceRecord.findPersonKey`, which the claim AND Settings'
         // *This Device* line both ask (the This Device line routes through
