@@ -773,6 +773,8 @@ struct EditorHost: View {
     /// 3): the store tells the cache when a figure changes, and a fill reads
     /// through the store (`figureCardInputs`), which opens no figure host.
     private func attachFigureCards() {
+        let control = control
+        figureCards.onVersionChange = { control.figureCardVersion = $0 }
         documentStore.figureCardCache = figureCards
         figureCards.attach(FigureCardCache.Source(
             read: { [weak documentStore] in await documentStore?.figureCardInputs() }))
@@ -928,6 +930,12 @@ struct EditorHost: View {
                     FigureImageResolver.resolve(
                         figurePath, piecePath: path, projectURL: projectURL,
                         allowed: FigureThumbnailStore.triedExtensions)
+                },
+                // The card under each figure line (report plan 7a Task 4): the
+                // window's cached model, memory only; a miss is nil and keeps
+                // the placeholder room until the fill lands (R7a-2).
+                figureCardModel: { [figureCards] linePath in
+                    figureCards.model(forLinePath: linePath, documentPath: path)
                 }),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in

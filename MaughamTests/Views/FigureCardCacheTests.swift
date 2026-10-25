@@ -319,6 +319,19 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(Self.watchFaults(in: source), [])
     }
 
+    /// `EditorHost` hands the editor the cached card (never a fill) by the
+    /// line's path and this document's path, and pushes a new version
+    /// through the control plane (report plan 7a Task 4).
+    func test_editorHostWiresTheCardsIntoTheEditor() throws {
+        let source = try SourceTree.read("Maugham/Views/EditorHost.swift")
+        for needle in [
+            "figureCards.model(forLinePath: linePath, documentPath: path)",
+            "figureCards.onVersionChange = { control.figureCardVersion = $0 }",
+        ] {
+            XCTAssertTrue(source.contains(needle), "EditorHost no longer says: \(needle)")
+        }
+    }
+
     func test_theWatchCensusFiresOnAPlantedOffender() {
         let planted = """
                 .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }

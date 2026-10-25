@@ -109,6 +109,9 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.typewriterScroll = userPreferences.typewriterScroll
                 editorControl.sentenceFocus = userPreferences.sentenceFocus
                 editorControl.paragraphFocus = userPreferences.paragraphFocus
+                // Not mirrored here: `referenceIndexVersion` and
+                // `figureCardVersion` are written by `EditorHost`, which owns
+                // the index and the cards (report plan 7a Task 4).
             }
     }
 }

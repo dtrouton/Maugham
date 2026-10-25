@@ -76,6 +76,17 @@ final class EditorControl {
     /// actually changed — never per keystroke.
     var referenceIndexVersion: Int = 0
 
+    /// **The version of the window's figure cards** (report plan 7a Task 4):
+    /// the re-layout trigger for the room under each table figure line. The
+    /// cards themselves are read through `EditorSurface.ParagraphProviders.figureCardModel`;
+    /// this only says one changed. Written one-way by `EditorHost` alone, off
+    /// `FigureCardCache.onVersionChange`; `ProjectWindow`'s mirror, the
+    /// research note and the statement hosts have no cards and leave it 0.
+    /// D1-safe: it moves when a fill lands (a figure's host appending, a
+    /// remote figure change, the registry or trust changing), off the typing
+    /// path — never per keystroke.
+    var figureCardVersion: Int = 0
+
     /// The ordered translation-freshness entries (each carrying its own block
     /// text), plus the resolved orphan records for the same derivation — a
     /// translation whose paragraph no longer exists in the manuscript (Task 5).

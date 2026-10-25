@@ -341,6 +341,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The index version last applied from `EditorControl.referenceIndexVersion`.
     private(set) var referenceIndexVersion = 0
 
+    /// **The cached card under a figure line** (report plan 7a Task 4): the
+    /// path as written → the window's `FigureCardCache` model, nil on a miss.
+    /// Memory only, never a disk or op-log read, so the styler may ask it on
+    /// both paints (`figureRoom(forLinePath:)`). Its redraw trigger is
+    /// `EditorControl.figureCardVersion`. Built by `EditorHost`, which knows
+    /// the document's path; nil on every other surface.
+    var figureCardModel: ((String) -> FigureCardModel?)?
+
+    /// The card version last applied from `EditorControl.figureCardVersion`.
+    private(set) var figureCardVersion = 0
+
     // MARK: Labels and problem marks (plan 3b Task 6, `ReferenceLabelOverlay.swift`, `ManuscriptChecks.swift`)
 
     /// The project's profile, which decides a problem mark's colour
@@ -1213,6 +1224,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.translationLanguage
             _ = control.translationBadges
             _ = control.referenceIndexVersion
+            _ = control.figureCardVersion
         } onChange: { [weak self] in
             // onChange fires once (pre-change). Re-arm on the next main-actor
             // turn — after the mutation commits — so the re-applied values are
@@ -1254,6 +1266,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         setReviewAnnotations(c.reviewAnnotations)   // self-guarded
         setTranslationBadges(c.translationBadges)   // self-guarded
         setReferenceIndexVersion(c.referenceIndexVersion)   // self-guarded
+        setFigureCardVersion(c.figureCardVersion)           // self-guarded
     }
 
     /// The reference index changed (a new version arrived through
@@ -1268,6 +1281,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         referenceLabelOverlay?.needsDisplay = true
         // An open picker's rows follow the new index (whole-branch review M2).
         requeryOpenCompletion()
+    }
+
+    /// The window's figure cards changed (a new version arrived through
+    /// `EditorControl`). Self-guarded (D2). The cards themselves are re-read
+    /// through `figureCardModel`, never pushed.
+    ///
+    /// Report plan 7a Task 5 hangs the re-layout here: the changed figures'
+    /// lines only (`FigureCardCache.takeChanged()`), deferred past a typing
+    /// burst. Until then the next paint of a line picks up its new room.
+    func setFigureCardVersion(_ version: Int) {
+        guard version != figureCardVersion else { return }
+        figureCardVersion = version
     }
 
     // MARK: - NSTextViewDelegate

@@ -51,7 +51,8 @@ final class FigureCardCache {
     /// Bumps once per fill that changed a card (and on the first fill).
     private(set) var version = 0
     /// Called on the main actor with the new version after a fill changed a
-    /// card. Plan 7a Task 5 writes it to the editor's control plane.
+    /// card. `EditorHost` writes it to the editor's control plane
+    /// (`EditorControl.figureCardVersion`, plan 7a Task 4).
     var onVersionChange: ((Int) -> Void)?
 
     private var source: Source?

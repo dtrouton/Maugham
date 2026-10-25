@@ -7,8 +7,8 @@ import MaughamCore
 //
 // It is a DECORATION, never an attachment: the text storage stays plain text
 // (tripwires 1, 26). The room comes from the figure line's `paragraphSpacing`
-// (`ProseMode.reservesFigureThumbnails`, a text-derived attribute, so the
-// windowed and whole-document paints agree); the picture is drawn into that
+// (`ProseMode.reservesFigureThumbnails`; both paints read one function of the
+// line's path, `figureRoom(forLinePath:)`, so they agree); the picture is drawn into that
 // gap by `FigureThumbnailOverlay`, a click-through view over the text view on
 // the `AnnotationMarkRenderer` pattern. Images resolve through
 // `FigureImageResolver` from the document's own path, decode off the main
@@ -164,6 +164,56 @@ enum FigureThumbnailLayout {
 private let closeBracket = unichar(UInt8(ascii: "]"))
 private let openParen = unichar(UInt8(ascii: "("))
 private let closeParen = unichar(UInt8(ascii: ")"))
+
+// MARK: - The table card's metrics (pure)
+
+/// **The one place the editor turns a table figure's cached card into room**
+/// (report plan 7a Task 4): the card's row metrics, derived from the editor's
+/// typography, and the `paragraphSpacing` its figure line reserves
+/// (`ProseMode.reserveFigureThumbnailSpace`, through the coordinator's
+/// `figureRoom(forLinePath:)`). The card overlay (Task 6) draws with these
+/// same metrics, so what it draws fits the room the text left.
+///
+/// A pure function of (model, typography): the windowed and whole-document
+/// paints agree, and nothing here reads the disk or the op log.
+enum FigureCardMetrics {
+    /// The card's text is the body size scaled by this, rounded to a point.
+    static let fontScale: CGFloat = 0.8
+    /// The space above and below each row's text, inside the row.
+    static let rowInset: CGFloat = 3
+
+    /// The card's font: the system font at `fontScale` of the body size.
+    static func font(for typography: TypographySettings) -> NSFont {
+        NSFont.systemFont(ofSize: (CGFloat(typography.fontSize) * fontScale).rounded())
+    }
+
+    /// One row: the card font's line height, rounded up, plus `rowInset`
+    /// above and below. The "+ N more rows" line is one row tall.
+    static func rowHeight(for typography: TypographySettings) -> CGFloat {
+        let font = font(for: typography)
+        return (font.ascender - font.descender + font.leading).rounded(.up) + 2 * rowInset
+    }
+
+    /// The card's padding above its first row and below its last, the
+    /// thumbnail's gap.
+    static var verticalPadding: CGFloat { FigureThumbnailLayout.gap }
+
+    /// **The room a figure line reserves**: a table card's height from its
+    /// model (`FigureCardLayout.height`), or `FigureThumbnailLayout.reservedHeight`
+    /// for an image, a labelled card (removed, ambiguous, parked; ruling
+    /// R7a-3) and a cache miss (`nil`, the placeholder until the fill lands;
+    /// ruling R7a-2). Rows are one line each, so the column width does not
+    /// enter the height (`FigureCardLayout`); passing none keeps the room
+    /// independent of the window's width.
+    static func room(for model: FigureCardModel?, typography: TypographySettings) -> CGFloat {
+        guard let model else { return FigureThumbnailLayout.reservedHeight }
+        let row = rowHeight(for: typography)
+        return FigureCardLayout.height(
+            for: model, columnWidth: 0,
+            rowHeight: row, moreLineHeight: row, verticalPadding: verticalPadding,
+            placeholderHeight: FigureThumbnailLayout.reservedHeight)
+    }
+}
 
 // MARK: - The cache
 
@@ -628,6 +678,17 @@ extension EditorCoordinator {
         guard let overlay = figureThumbnailOverlay else { return }
         overlay.frame = textView.bounds
         overlay.needsDisplay = true
+    }
+
+    /// **The room under the figure line written `path`** (report plan 7a
+    /// Task 4): what `ProseMode.reserveFigureThumbnailSpace` adds to the
+    /// line's `paragraphSpacing` on BOTH paints, so window ≡ whole document.
+    /// The card comes from `figureCardModel` (the window's `FigureCardCache`,
+    /// memory only); a surface with no provider, or a figure the cache has
+    /// not filled, gets the fixed placeholder (`FigureCardMetrics.room`).
+    /// Asked once per figure line a paint covers, never on its own.
+    func figureRoom(forLinePath path: String) -> CGFloat {
+        FigureCardMetrics.room(for: figureCardModel?(path), typography: typography)
     }
 
     /// The room a figure on the document's LAST line needs below the text:

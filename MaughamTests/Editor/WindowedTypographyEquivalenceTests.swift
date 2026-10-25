@@ -451,6 +451,90 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         assertEquivalent(doc: reportDoc, edit: edit, mode: .manuscript)
     }
 
+    // MARK: - The table card's reserved room (report plan 7a Task 4)
+    //
+    // A table figure's line reserves its card's height, read from the cached
+    // model through the coordinator's `figureRoom(forLinePath:)`. The room is
+    // data-derived (the row count), so both paints must read the same
+    // function of the path, and a path the cache has not filled keeps the
+    // placeholder (R7a-2).
+
+    private let cardDoc = """
+    Opening prose before the tables.
+
+    ![Cash flows](figures/cash.csv){#tbl:cash}
+
+    Middle prose between them.
+
+    ![Staff by grade](figures/staff.csv){#tbl:staff}
+
+    ![The full ledger](figures/ledger.csv){#tbl:ledger}
+
+    ![Not filled yet](figures/unfilled.csv){#tbl:unfilled}
+
+    A closing paragraph after the tables.
+    """
+
+    private static func table(rows: Int) -> FigureCardModel {
+        let shown = min(rows, FigureCardModel.maxShownRows)
+        return FigureCardModel(kind: .table, bodyRows: Array(repeating: ["1"], count: shown),
+                               moreRows: rows - shown)
+    }
+
+    /// Three tables of 3, 7 and 40 rows; `figures/unfilled.csv` is a miss.
+    private let cardModels: [String: FigureCardModel] = [
+        "figures/cash.csv": table(rows: 3),
+        "figures/staff.csv": table(rows: 7),
+        "figures/ledger.csv": table(rows: 40),
+    ]
+
+    private var cardRoom: (String) -> CGFloat {
+        let models = cardModels
+        return { FigureCardMetrics.room(for: models[$0], typography: .defaults) }
+    }
+
+    func test_card_eachTableLineReservesItsOwnCardsRoom() {
+        let storage = NSTextStorage(string: cardDoc)
+        applyWhole(storage, text: cardDoc, mode: .manuscript, figureRoom: cardRoom)
+        func spacing(_ needle: String) -> CGFloat {
+            let at = (storage.string as NSString).range(of: needle).location
+            return (storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+                    as? NSParagraphStyle)?.paragraphSpacing ?? -1
+        }
+        let body = spacing("Middle prose")
+        let rooms = ["cash", "staff", "ledger"].map { spacing("figures/\($0).csv") - body }
+        XCTAssertEqual(rooms, ["cash", "staff", "ledger"].map {
+            FigureCardMetrics.room(for: cardModels["figures/\($0).csv"], typography: .defaults)
+        })
+        XCTAssertEqual(Set(rooms).count, 3, "three row counts, three rooms: \(rooms)")
+        XCTAssertEqual(spacing("figures/unfilled.csv") - body, FigureThumbnailLayout.reservedHeight,
+                       "a cache miss reserves the placeholder")
+        XCTAssertNotEqual(rooms[0], FigureThumbnailLayout.reservedHeight,
+                          "a filled table's room is its card's, not the placeholder")
+    }
+
+    func test_card_editTheSecondTablesCaption() {
+        let edit = Edit(replace: "Staff by grade", with: "Staff by grade and year")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
+    func test_card_proseEditElsewhereKeepsEveryRoom() {
+        let edit = Edit(replace: "Middle prose", with: "Some middle prose")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
+    /// Re-pointing a line at a path the cache has not filled swaps its card's
+    /// room for the placeholder, on both paints.
+    func test_card_repointingALineToAMissTakesThePlaceholder() {
+        let edit = Edit(replace: "figures/cash.csv", with: "figures/cashflow.csv")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
+    func test_card_aLineUnderTheLongTableTakesItsRoomAway() {
+        let edit = Edit(replace: "{#tbl:ledger}", with: "{#tbl:ledger}\nand a second line")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
     // MARK: - The typing window's cap
 
     /// A 250 KB document with single newlines and no blank line is ONE block.
@@ -494,6 +578,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         doc oldText: String,
         edit: Edit,
         mode: ModeKind,
+        figureRoom: ((String) -> CGFloat)? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -508,7 +593,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
 
         // ----- Storage A: old text fully styled, then edited, then windowed -----
         let storageA = NSTextStorage(string: oldText)
-        applyWhole(storageA, text: oldText, mode: mode)
+        applyWhole(storageA, text: oldText, mode: mode, figureRoom: figureRoom)
         // Apply the edit the way NSTextView does — attributes shift with chars.
         storageA.replaceCharacters(in: editRange, with: edit.with)
         XCTAssertEqual(storageA.length, (newText as NSString).length,
@@ -516,7 +601,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
 
         // ----- Storage B: new text styled whole-doc from scratch -----
         let storageB = NSTextStorage(string: newText)
-        applyWhole(storageB, text: newText, mode: mode)
+        applyWhole(storageB, text: newText, mode: mode, figureRoom: figureRoom)
 
         // Two windows, each checked from the same edited storage: the token
         // diff (the oracle) and the typing path's own character diff widened
@@ -539,7 +624,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         for (name, window) in [("token-diff", tokenWindow), ("typing-path", typingWindow)] {
             let edited = NSMutableAttributedString(attributedString: storageA)
             let windowed = NSTextStorage(attributedString: edited)
-            applyWindowed(windowed, tokens: newTokens, mode: mode, window: window)
+            applyWindowed(windowed, tokens: newTokens, mode: mode, window: window,
+                          figureRoom: figureRoom)
             assertStoragesEqual(windowed, storageB, label: name, file: file, line: line)
         }
     }
@@ -552,7 +638,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         }
     }
 
-    private func applyWhole(_ storage: NSTextStorage, text: String, mode: ModeKind) {
+    private func applyWhole(_ storage: NSTextStorage, text: String, mode: ModeKind,
+                            figureRoom: ((String) -> CGFloat)? = nil) {
         switch mode {
         case .screenplay:
             let m = ScreenplayMode()
@@ -563,7 +650,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
             let m = ProseMode(reservesFigureThumbnails: mode == .manuscript)
             m.applyTypography(
                 in: storage, theme: theme, typography: .defaults,
-                tokens: m.tokenize(text), wikiLinkResolver: nil)
+                tokens: m.tokenize(text), wikiLinkResolver: nil, figureRoom: figureRoom)
         }
     }
 
@@ -571,7 +658,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         _ storage: NSTextStorage,
         tokens: [Token],
         mode: ModeKind,
-        window: NSRange?
+        window: NSRange?,
+        figureRoom: ((String) -> CGFloat)? = nil
     ) {
         let text = storage.string
         switch mode {
@@ -585,7 +673,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
             let m = ProseMode(reservesFigureThumbnails: mode == .manuscript)
             m.applyTypography(
                 in: storage, theme: theme, typography: .defaults,
-                tokens: tokens, wikiLinkResolver: nil, restyleWindow: window)
+                tokens: tokens, wikiLinkResolver: nil, figureRoom: figureRoom,
+                restyleWindow: window)
         }
     }
 

@@ -121,6 +121,12 @@ struct EditorSurfaceConfiguration {
         /// `FigureThumbnailOverlay`). Wired by `EditorHost`, together with a
         /// mode that reserves the thumbnails' space; nil elsewhere.
         var figureImageResolver: FigureThumbnailStore.Resolve? = nil
+        /// The cached card under a figure line, by its path as written
+        /// (report plan 7a Task 4, `FigureCardCache`): memory only, so the
+        /// styler asks it on both paints. Its re-layout trigger is
+        /// `EditorControl.figureCardVersion`. Wired by `EditorHost`; nil
+        /// elsewhere, where every figure line keeps the fixed room.
+        var figureCardModel: ((String) -> FigureCardModel?)? = nil
     }
 
     /// Review-mode annotation authoring plus the resolvers the crafted render
@@ -249,6 +255,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.commandFailureReporter = pp.commandFailureReporter
         coordinator.tableEditor = pp.tableEditor
         coordinator.figureImageResolver = pp.figureImageResolver
+        coordinator.figureCardModel = pp.figureCardModel
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
@@ -521,6 +528,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
         context.coordinator.tableEditor = pp.tableEditor
         context.coordinator.figureImageResolver = pp.figureImageResolver
+        context.coordinator.figureCardModel = pp.figureCardModel
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider

@@ -645,6 +645,8 @@ struct StatementEditorHost: View {
         editorControl.typewriterScroll = false
         editorControl.sentenceFocus = false
         editorControl.paragraphFocus = false
+        // `referenceIndexVersion` and `figureCardVersion` stay 0: a statement
+        // has no reference index and no figure cards (report plan 7a Task 4).
     }
 
     /// Bring this host onto the scope the pane is asking for: close whatever was

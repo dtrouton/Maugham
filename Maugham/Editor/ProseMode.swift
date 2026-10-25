@@ -77,6 +77,7 @@ public struct ProseMode: WritingMode {
         typography: TypographySettings,
         tokens: [Token],
         wikiLinkResolver: ((String) -> Bool)?,
+        figureRoom: ((String) -> CGFloat)? = nil,
         restyleWindow: NSRange? = nil
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
@@ -104,7 +105,8 @@ public struct ProseMode: WritingMode {
         storage.setAttributes(bodyAttrs, range: window)
         if reservesFigureThumbnails {
             reserveFigureThumbnailSpace(in: storage, tokens: tokens, window: window,
-                                        body: bodyAttrs[.paragraphStyle] as? NSParagraphStyle)
+                                        body: bodyAttrs[.paragraphStyle] as? NSParagraphStyle,
+                                        figureRoom: figureRoom ?? { _ in FigureThumbnailLayout.reservedHeight })
         }
 
         for token in tokens {
@@ -344,33 +346,49 @@ public struct ProseMode: WritingMode {
         }
     }
 
-    /// Gives each figure line's paragraph room for its thumbnail: the body
-    /// paragraph style with `FigureThumbnailLayout.reservedHeight` more
+    /// Gives each figure line's paragraph room for its thumbnail or card: the
+    /// body paragraph style with `figureRoom(path as written)` more
     /// `paragraphSpacing`. An attribute, never a character (tripwires 1, 26).
     ///
-    /// Keyed on the LINE, not the token, and clipped to the window: a windowed
-    /// paint that covers only part of a figure line (the caption, say) has just
-    /// reset that part to the body style, so it must put the spacing back on
-    /// exactly that part, as the whole-document paint does
-    /// (`WindowedTypographyEquivalenceTests`' thumbnail cases).
+    /// `figureRoom` is the coordinator's `figureRoom(forLinePath:)` (report
+    /// plan 7a Task 4): an image figure's or a cache miss's
+    /// `FigureThumbnailLayout.reservedHeight`, a table figure's card height
+    /// from its cached model. Both paints read the same function of the
+    /// path, so window ≡ whole document holds; it reads memory only. A caller
+    /// with none (a test, the protocol witness) gets the fixed height.
+    ///
+    /// Keyed on the LINE, not the token: a windowed paint that covers any part
+    /// of a figure line (the caption, say) has just reset that part to the body
+    /// style, so it puts the spacing back on the WHOLE line, as the
+    /// whole-document paint does. The whole line, not only the painted part,
+    /// because the room now depends on the path: an edit to the path changes
+    /// the room of the line's unpainted start too
+    /// (`WindowedTypographyEquivalenceTests`' thumbnail and card cases). Only
+    /// `.paragraphStyle` is touched outside the window, on that line alone.
     private func reserveFigureThumbnailSpace(
-        in storage: NSTextStorage, tokens: [Token], window: NSRange, body: NSParagraphStyle?
+        in storage: NSTextStorage, tokens: [Token], window: NSRange, body: NSParagraphStyle?,
+        figureRoom: (String) -> CGFloat
     ) {
         let text = storage.string as NSString
-        var figureStyle: NSParagraphStyle?
+        // One style per distinct room, shared by every line that needs it.
+        var styles: [CGFloat: NSParagraphStyle] = [:]
         for token in tokens {
-            guard FigureThumbnailLayout.figurePath(closing: token, in: text) != nil
+            guard let path = FigureThumbnailLayout.figurePath(closing: token, in: text)
             else { continue }
             let line = text.lineRange(for: NSRange(location: token.range.location, length: 0))
-            let painted = NSIntersectionRange(line, window)
-            guard painted.length > 0 else { continue }
-            if figureStyle == nil {
+            guard NSIntersectionRange(line, window).length > 0 else { continue }
+            let room = figureRoom(path)
+            let figureStyle: NSParagraphStyle
+            if let shared = styles[room] {
+                figureStyle = shared
+            } else {
                 let style = (body?.mutableCopy() as? NSMutableParagraphStyle)
                     ?? NSMutableParagraphStyle()
-                style.paragraphSpacing += FigureThumbnailLayout.reservedHeight
+                style.paragraphSpacing += room
+                styles[room] = style
                 figureStyle = style
             }
-            storage.addAttribute(.paragraphStyle, value: figureStyle!, range: painted)
+            storage.addAttribute(.paragraphStyle, value: figureStyle, range: line)
         }
     }
 

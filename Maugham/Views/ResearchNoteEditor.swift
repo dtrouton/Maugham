@@ -81,6 +81,8 @@ struct ResearchNoteEditor: View {
             editorControl.sentenceFocus = userPreferences.sentenceFocus
             editorControl.paragraphFocus = userPreferences.paragraphFocus
             editorControl.lockEditing = lockEditing
+            // `referenceIndexVersion` and `figureCardVersion` stay 0: a note
+            // has no reference index and no figure cards (report plan 7a Task 4).
         }
     }
 

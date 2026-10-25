@@ -131,4 +131,23 @@ final class EditorControlBridgeTests: XCTestCase {
         XCTAssertEqual(coordinator.referenceIndexVersion, 3,
                        "the version must reach the coordinator through the model")
     }
+
+    /// The figure cards' re-layout trigger (report plan 7a Task 4) is a
+    /// control-plane input too: a new version re-applies and reaches the
+    /// coordinator.
+    func test_figureCardVersionReachesTheCoordinator() async {
+        let (coordinator, _) = makeCoordinator()
+        let control = EditorControl()
+        coordinator.observeControl(control)
+        await settle()
+        XCTAssertEqual(coordinator.figureCardVersion, 0)
+        let baseline = coordinator.applyControlCount
+
+        control.figureCardVersion = 2
+        await settle()
+        XCTAssertGreaterThan(coordinator.applyControlCount, baseline,
+                             "the version is in the tracked set")
+        XCTAssertEqual(coordinator.figureCardVersion, 2,
+                       "the version must reach the coordinator through the model")
+    }
 }

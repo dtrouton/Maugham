@@ -184,6 +184,70 @@ final class FigureThumbnailTests: XCTestCase {
         XCTAssertEqual(spacing(s, at: "![Revenue"), spacing(s, at: "Middle"))
     }
 
+    // MARK: - The room beside a table card (report plan 7a Task 4)
+
+    /// An image figure, a labelled card (removed, ambiguous, parked; R7a-3)
+    /// and a cache miss (R7a-2) all keep today's thumbnail room; a table
+    /// takes its card's height, which grows with its rows up to the card's cap.
+    func test_cardRoom_imagesLabelledCardsAndMissesKeepTheThumbnailsRoom() {
+        for kind: FigureCardModel.Kind in [.image, .removed, .ambiguous, .parked] {
+            XCTAssertEqual(FigureCardMetrics.room(for: .placeholder(kind), typography: .defaults),
+                           FigureThumbnailLayout.reservedHeight, "\(kind)")
+        }
+        XCTAssertEqual(FigureCardMetrics.room(for: nil, typography: .defaults),
+                       FigureThumbnailLayout.reservedHeight, "a miss is the placeholder")
+        let row = FigureCardMetrics.rowHeight(for: .defaults)
+        let three = FigureCardModel(kind: .table, bodyRows: Array(repeating: ["1"], count: 3))
+        XCTAssertEqual(FigureCardMetrics.room(for: three, typography: .defaults),
+                       3 * row + 2 * FigureCardMetrics.verticalPadding)
+        let capped = FigureCardModel(kind: .table, bodyRows: Array(repeating: ["1"], count: 12),
+                                     moreRows: 28)
+        XCTAssertEqual(FigureCardMetrics.room(for: capped, typography: .defaults),
+                       13 * row + 2 * FigureCardMetrics.verticalPadding,
+                       "twelve rows and the \"+ N more rows\" line")
+    }
+
+    /// The coordinator's paint reads the cached card through its provider:
+    /// the table line takes its card's room, the image line and the line the
+    /// cache has not filled keep the thumbnail's.
+    func test_cardRoom_theEditorReadsTheCachedCardForEachFigureLine() {
+        let text = """
+        Opening
+
+        ![Cash](figures/cash.csv){#tbl:cash}
+
+        ![Logo](figures/logo.png){#fig:logo}
+
+        ![Pending](figures/pending.csv){#tbl:pending}
+
+        Closing
+        """
+        let three = FigureCardModel(kind: .table, bodyRows: Array(repeating: ["1"], count: 3))
+        let harness = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true), initialText: text, cursorLocation: 0)
+        var asked: [String] = []
+        harness.coordinator.figureCardModel = { path in
+            asked.append(path)
+            switch path {
+            case "figures/cash.csv": return three
+            case "figures/logo.png": return .placeholder(.image)
+            default: return nil
+            }
+        }
+        harness.coordinator.attach(to: harness.textView)   // a whole-document paint
+        let storage = harness.textView.textStorage!
+        let body = spacing(storage, at: "Opening")
+        XCTAssertEqual(spacing(storage, at: "![Cash"),
+                       body + FigureCardMetrics.room(for: three, typography: .defaults))
+        XCTAssertNotEqual(spacing(storage, at: "![Cash"), body + FigureThumbnailLayout.reservedHeight)
+        XCTAssertEqual(spacing(storage, at: "![Logo"), body + FigureThumbnailLayout.reservedHeight,
+                       "an image keeps its thumbnail's room")
+        XCTAssertEqual(spacing(storage, at: "![Pending"), body + FigureThumbnailLayout.reservedHeight,
+                       "a miss keeps the placeholder")
+        XCTAssertEqual(Set(asked), ["figures/cash.csv", "figures/logo.png", "figures/pending.csv"],
+                       "asked only for the figure lines, by the path as written")
+    }
+
     // MARK: - The store
 
     private func writePNG(to url: URL, width: Int, height: Int) throws {
