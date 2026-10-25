@@ -17,8 +17,9 @@ import XCTest
 ///
 /// Two pins: a MEASUREMENT taken inside the function (the mirror of
 /// `UnsignedDoorTests.test_theHeldLineWalkDoesNotRunOnTheMainThread`), and a
-/// census over the six files the split created, so the next async function
-/// moved into one of them has to say where it runs.
+/// census over the files the split created, so the next async function moved
+/// into one of them has to say where it runs. `OpLogClassifier` answers once,
+/// at type level, and is pinned by its own census below.
 @MainActor
 final class OpLogClassifierIsolationTests: XCTestCase {
     private var tmp: URL!
@@ -67,11 +68,13 @@ final class OpLogClassifierIsolationTests: XCTestCase {
 
     // MARK: - The census
 
-    /// The files plan 6 split out of `OpLogStore.swift`. Each began life on a
-    /// `@MainActor` class.
+    /// The files plan 6 split out of `OpLogStore.swift` whose types are not
+    /// `@MainActor` themselves. Each began life on a `@MainActor` class.
+    /// `OpLogClassifier`, the sixth, is `@MainActor` at type level instead:
+    /// `test_theClassifierIsMainActorAtTypeLevel`.
     private static let splitFiles = [
         "OpLogFiles", "StreamCensus", "StreamPositions",
-        "OpLogClassifier", "LocalWritePermitBuilder", "SegmentSealer",
+        "LocalWritePermitBuilder", "SegmentSealer",
     ]
 
     /// Async functions in those files allowed to run off the main actor, by
@@ -136,6 +139,82 @@ final class OpLogClassifierIsolationTests: XCTestCase {
         }
         XCTAssertEqual(offenders, [],
                        "an async function moved off a @MainActor class runs on the generic executor; mark it @MainActor or allow-list it with a reason")
+    }
+
+    // MARK: - The classifier, isolated at type level
+
+    /// Why `typeName`, declared in `source`, does NOT keep every async member
+    /// on the main actor: its declaration is missing or lacks a `@MainActor`
+    /// attribute (on its line or the attribute lines directly above), or an
+    /// async function in the file opts out with `nonisolated`.
+    static func typeLevelMainActorOffenders(of typeName: String, in source: String) -> [String] {
+        let lines = source.components(separatedBy: "\n")
+        let header = try! NSRegularExpression(
+            pattern: #"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|internal|package|final)\s+)*(?:enum|struct|class)\s+"#
+                + NSRegularExpression.escapedPattern(for: typeName) + #"\b"#)
+        guard let at = lines.firstIndex(where: {
+            header.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil
+        }) else { return ["no declaration of \(typeName)"] }
+        var attributes = lines[at]
+        var k = at - 1
+        while k >= 0, lines[k].trimmingCharacters(in: .whitespaces).hasPrefix("@") {
+            attributes += " " + lines[k]
+            k -= 1
+        }
+        var offenders = attributes.contains("@MainActor") ? [] : ["\(typeName) is not @MainActor"]
+        // Every function whose own line says `nonisolated` and whose signature is async.
+        for (i, line) in lines.enumerated() {
+            let ns = line as NSString
+            guard let m = funcDecl.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)),
+                  line.range(of: #"\bnonisolated\b"#, options: .regularExpression) != nil
+            else { continue }
+            let name = ns.substring(with: m.range(at: 1))
+            var signature = ""
+            for next in lines[i...] {
+                if let brace = next.firstIndex(of: "{") { signature += next[..<brace]; break }
+                signature += next + " "
+            }
+            if signature.range(of: #"\basync\b"#, options: .regularExpression) != nil {
+                offenders.append("nonisolated async \(name)")
+            }
+        }
+        return offenders
+    }
+
+    /// **`OpLogClassifier` is `@MainActor` at type level** (tripwire 56), so an
+    /// async function moved into it runs on the main actor unless it says
+    /// `nonisolated` — which this refuses, the way the census above refuses an
+    /// unattributed one.
+    func test_theClassifierIsMainActorAtTypeLevel() throws {
+        let url = Self.sourceDir.appendingPathComponent("OpLogClassifier.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(Self.typeLevelMainActorOffenders(of: "OpLogClassifier", in: source), [],
+                       "OpLogClassifier keeps its async members on the main actor by its type-level @MainActor")
+    }
+
+    func test_theTypeLevelCensusCatchesPlantedOffenders() {
+        let bare = """
+            public enum Planted {
+                static func sync() -> Int { 0 }
+            }
+            """
+        XCTAssertEqual(Self.typeLevelMainActorOffenders(of: "Planted", in: bare),
+                       ["Planted is not @MainActor"])
+        let optedOut = """
+            /// @MainActor named in prose above is not the attribute
+            @MainActor
+            public enum Planted {
+                nonisolated static func walk() -> Int { 0 }
+                public nonisolated static func away(
+                    url: URL
+                ) async -> Int { 0 }
+                static func stays() async -> Int { 0 }
+            }
+            """
+        XCTAssertEqual(Self.typeLevelMainActorOffenders(of: "Planted", in: optedOut),
+                       ["nonisolated async away"])
+        XCTAssertEqual(Self.typeLevelMainActorOffenders(of: "Missing", in: optedOut),
+                       ["no declaration of Missing"])
     }
 
     /// The census against planted code: an unattributed async function fires,

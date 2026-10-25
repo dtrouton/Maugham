@@ -5176,6 +5176,9 @@ final class TripwireGrepTests: XCTestCase {
     /// `private var x: T { T(…) }` computed property: tripwire 57's walk follows
     /// that property, so a frozen view value handed in is caught. A helper held
     /// in `@State`, or made by a factory method and stored, would escape it.
+    /// **Tripwire 57's census depends on this one**: it never descends into a
+    /// helper struct's methods, and is sound only while this test keeps every
+    /// helper built in a view computed property and nowhere else.
     ///
     /// One helper never builds another: a helper is built only in a `CanvasView`
     /// computed property and handed what it needs. A sibling surface file may
@@ -5774,7 +5777,14 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// Allowed: `@State` storage, and `canvasLoadClosureAllowedReads` — the
     /// model (a reference) and the two values that cannot change under one
-    /// window. A value the closures need that DOES change goes on the model,
+    /// window.
+    ///
+    /// **This census depends on tripwire 32's
+    /// `test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly`**: the walk stops
+    /// at a helper struct's methods, and that is sound only because tripwire 32
+    /// keeps every helper built in a view computed property (which the walk
+    /// does follow) and stored or built nowhere else. Loosen that test and
+    /// this one goes blind. A value the closures need that DOES change goes on the model,
     /// the way `CanvasModel.itemIndex` did.
     func test_theCanvasLoadClosuresReadNoChangingViewValue() throws {
         let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasViewFile)")
@@ -5965,6 +5975,37 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: a helper built with a frozen view value must fire on "
             + "`itemIndex`, and never on the `$layouts` projection.")
 
+        // #114 F29: a closure stored on ANY receiver — a nested reference, an
+        // optional, `self.model` — and one handed to a call as a labelled
+        // argument are walked exactly as `model.x = {` is.
+        let receivers = try Self.canvasLoadClosureCensus(of: """
+            struct CanvasView: View {
+                let model: CanvasModel
+                var subject: CanvasSubject = .wholeProject
+                var pieceTitles: CanvasPieceTitles = .empty
+                var itemIndex: CanvasItemIndex = .empty
+                private func load() {
+                    model.recorder.onCommit = { _ = subject }
+                    self.model.onTidy = { _ = 1 }
+                    layoutHost?.onMeasure = { _ = pieceTitles }
+                    model.attach(projectRoot: root, onArrive: { _ = itemIndex })
+                    model.store.onHook = later
+                }
+                private func later() { _ = subject }
+            }
+            """)
+        XCTAssertEqual(receivers.callbacks.sorted(),
+                       ["(onArrive:)", "layoutHost?.onMeasure", "model.recorder.onCommit",
+                        "model.store.onHook", "onTidy"],
+            "Self-check: every receiver's closure and hook, and a labelled-argument closure, is found; "
+            + "`self.model.` is labelled like `model.`.")
+        XCTAssertEqual(receivers.offenders.sorted(), [
+            "(onArrive:) → itemIndex",
+            "layoutHost?.onMeasure → pieceTitles",
+            "model.recorder.onCommit → subject",
+            "model.store.onHook → later → subject",
+        ], "Self-check: a frozen read through a closure on any receiver, or handed as an argument, fires.")
+
         XCTAssertThrowsError(try Self.canvasLoadClosureCensus(of: """
             struct CanvasView: View { let model: CanvasModel; private func appear() {} }
             """), "Self-check: no `load()` must throw, not pass.")
@@ -5998,14 +6039,15 @@ final class TripwireGrepTests: XCTestCase {
     /// The census itself. Over comment- and string-stripped source it:
     /// 1. finds `struct CanvasView`'s body and its top-level members — stored
     ///    properties (with their attributes), functions and computed properties;
-    /// 2. finds `func load()` and every `model.<name> = { … }` in it;
+    /// 2. finds `func load()` and every `<receiver>.<name> = { … }` in it, on
+    ///    any receiver, and every closure handed to a call as a labelled argument;
     /// 3. walks each closure's identifiers, following any that name a view
     ///    method or computed property into that member's body, and records
     ///    every identifier that names a plain stored property outside the
     ///    allowed set, as `callback → member → … → property`.
     /// Members come from the struct body and from every `extension CanvasView`
     /// (not `CanvasView.Nested`) in `text` and in `extensions`. A hook assigned
-    /// a view method (`model.x = someMethod`) is walked like a closure, and one
+    /// a view method (`<receiver>.x = someMethod`) is walked like a closure, and one
     /// assigned a forbidden stored property outside `canvasLoadValueCopies` is
     /// itself an offender.
     /// It throws when it cannot find the struct, `load()` or a single closure.
@@ -6106,13 +6148,29 @@ final class TripwireGrepTests: XCTestCase {
         guard let loads = memberBodies["load"], loads.count == 1, let load = loads.first
         else { throw fail("`CanvasView.load()` not found exactly once (found \(memberBodies["load"]?.count ?? 0))") }
 
-        // Every `model.<callback> = {` in load(), with its body.
+        // Every `<receiver>.<callback> = {` in load(), with its body — on ANY
+        // receiver, not only `model` (#114 F29): a closure stored on a nested
+        // reference (`model.recorder.onX = {`) or on another long-lived object
+        // captures the view value exactly as one stored on the model does. The
+        // label is the bare name on `model`, and `receiver.name` elsewhere.
+        // So is every closure handed to a call as a LABELLED argument
+        // (`attach(onX: { … })`): text cannot tell an escaping parameter from
+        // a non-escaping one, so each is walked as if it escaped.
         var closures: [(callback: String, body: String)] = []
         let loadChars = Array(load)
-        let assignment = try NSRegularExpression(pattern: #"\bmodel\.([A-Za-z_]\w*)\s*=\s*\{"#)
+        func label(receiver: String, name: String) -> String {
+            ["model.", "self.model."].contains(receiver) ? name : receiver + name
+        }
+        let assignment = try NSRegularExpression(
+            pattern: #"(?<![\w.])((?:[A-Za-z_]\w*\??\.)+)([A-Za-z_]\w*)\s*=\s*\{|(?<=[(,])\s*([A-Za-z_]\w*)\s*:\s*\{"#)
         for m in assignment.matches(in: load, range: NSRange(load.startIndex..., in: load)) {
-            guard let callback = group(m, 1, in: load),
-                  let whole = Range(m.range, in: load) else { continue }
+            let callback: String
+            if let receiver = group(m, 1, in: load), let name = group(m, 2, in: load) {
+                callback = label(receiver: receiver, name: name)
+            } else if let argument = group(m, 3, in: load) {
+                callback = "(\(argument):)"
+            } else { continue }
+            guard let whole = Range(m.range, in: load) else { continue }
             let open = load.distance(from: load.startIndex, to: whole.upperBound) - 1
             var d = 0
             var close: Int?
@@ -6120,11 +6178,11 @@ final class TripwireGrepTests: XCTestCase {
                 if loadChars[i] == "{" { d += 1 }
                 if loadChars[i] == "}" { d -= 1; if d == 0 { close = i; break } }
             }
-            guard let close else { throw fail("`model.\(callback) = {` in `load()` never closes") }
+            guard let close else { throw fail("`\(callback) = {` in `load()` never closes") }
             closures.append((callback, String(loadChars[(open + 1)..<close])))
         }
         guard !closures.isEmpty
-        else { throw fail("no `model.<callback> = { … }` found in `CanvasView.load()`") }
+        else { throw fail("no `<receiver>.<callback> = { … }` found in `CanvasView.load()`") }
 
         let forbidden = Set(stored.filter { !$0.isState }.map(\.name))
             .subtracting(canvasLoadClosureAllowedReads)
@@ -6138,13 +6196,14 @@ final class TripwireGrepTests: XCTestCase {
         // on change) is made now, not captured, and is excused by name alone:
         // `canvasLoadValueCopies`.
         let reference = try NSRegularExpression(
-            pattern: #"\bmodel\.([A-Za-z_]\w*)\s*=\s*(?:self\.)?([A-Za-z_]\w*)\b(?!\s*[.(\[?!])"#)
+            pattern: #"(?<![\w.])((?:[A-Za-z_]\w*\??\.)+)([A-Za-z_]\w*)\s*=\s*(?:self\.)?([A-Za-z_]\w*)\b(?!\s*[.(\[?!])"#)
         for m in reference.matches(in: load, range: NSRange(load.startIndex..., in: load)) {
-            guard let callback = group(m, 1, in: load), let target = group(m, 2, in: load),
+            guard let receiver = group(m, 1, in: load), let name = group(m, 2, in: load),
+                  let target = group(m, 3, in: load),
                   memberBodies[target] != nil
                     || (forbidden.contains(target) && !canvasLoadValueCopies.contains(target))
             else { continue }
-            closures.append((callback, target))
+            closures.append((label(receiver: receiver, name: name), target))
         }
         // An identifier that is not a member access (`model.subject`), not a
         // binding projection (`$camera`), and not an argument label (`subject:`).

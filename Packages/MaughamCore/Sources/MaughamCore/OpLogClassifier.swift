@@ -8,6 +8,11 @@ import Foundation
 /// table they resolve. Split out of `OpLogStore` (foundations plan 6);
 /// `OpLogStore` keeps one-line forwarders for its public and Mac-facing entry
 /// points.
+///
+/// **`@MainActor` at type level** (tripwire 56): a member that is not
+/// `nonisolated` runs where `OpLogStore` ran, so an async function moved in
+/// here keeps its isolation without having to say so.
+@MainActor
 public enum OpLogClassifier {
     // MARK: - Classification (the one rule both readers obey)
 
@@ -19,7 +24,7 @@ public enum OpLogClassifier {
     /// document is made of. Only the coordinated one performs the side effects.
     /// A file's ops: deduplicated and sorted by id, as every reader takes
     /// them, with the order the file held them in (`appendOrder`).
-    static func parseOps(_ bytes: Data) -> (elements: [Op], diagnostics: ParseDiagnostics, order: [String]) {
+    nonisolated static func parseOps(_ bytes: Data) -> (elements: [Op], diagnostics: ParseDiagnostics, order: [String]) {
         let parsed = JSONLAppendStore<Op>.parse(bytes: bytes, dedupKey: { $0.opId })
         return (parsed.elements.sorted { $0.opId < $1.opId }, parsed.diagnostics, parsed.elements.map(\.opId))
     }
