@@ -531,3 +531,20 @@ To make room for the figure rows (pins, the return, restore), the figure posture
 To make room for the `ProjectStore+FigureTranslations.swift` Map row, the figure rows' parked-rename refusal and always-a-Trash-entry removal, and tripwire 58 in the header list, under the 8,000-word cap:
 
 - This device's key material must never sync because a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account.
+
+## Moved from the guide by report plan 6c Task 6 (2026-10-25)
+
+To make room for plan 6c's figure restore, `withFigureHost` and the promotion's figure carry under the 8,000-word cap:
+
+- The word-count pass's fix is the model for the `[weak self]` rule; the three live instances left alone are `DebounceScheduler.schedule`, `ProjectStore+Search.performSearch` and `DocumentStore`'s idle-session timer around `appendSessionEvent`.
+- `research/` has no op log, so deleting the staging tree on a failed promotion would lose it; the rollback's test seam, `afterStaging:`, cannot throw.
+- The single-item `moveResearchItem` routes through the same plan builder as `moveResearchItems`, the one place that knows a note travels with its assets.
+- `StructuralVerbCensusTests` states its known limits in the test's header.
+- Going through the load on a Removed Elsewhere restore keeps every held or refused line as judged.
+- The posture refresh's single-turn publish is pinned by `test_theRestampAndTheBumpAreOneTurn` and `DocumentStorePostureTests.test_theRedrawAfterATrustChangeIsAllHitsAndEveryHitIsFresh`.
+- A promoted piece's op log stays behind; the new project re-bootstraps from the `.md`, so a derive-only read of its intent answers "" until something opens it.
+- The presenter's open arm collects every open document a burst touched (`pendingAnnounceDocIds`).
+- Recognition runs before `admitRemembered` so the remembered path never hands a person narrowed in this book the whole book, nor admits a device recognition declined.
+- `heldLines()` carries stream slugs because only the file a holder wrote in says which of a device's four writers a key is; a key that is not a person's is never offered as one.
+- `handleExternalLogChange` re-stamps above the echo guard because a held line produces no op, so below the guard the pending count would stay at the open-time value; assigning only on change keeps an invalidation off every keystroke's echo.
+- A closed-document held-lines pass: nothing lands if the epoch moved, a fresher entry wins, and ids the manifest dropped go.

@@ -164,7 +164,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `HistoryPane.swift` — the forensic timeline, its notices, the project section; `HeldLineNoticeRow`, `SetAsideRecordsDisclosure`. Tripwire 50.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
-- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts.
+- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, a document its piece's, each behind its own `.editFigure` door through `withFigureHost`, re-checked against the live registry; the sheet names those refused or part-restored.
 - `CheckpointLabelPromptSheet.swift` — the label sheet for ⌘⇧S and Snapshot here.
 - `RestoreWindow.swift` — restore from a backup generation.
 
@@ -226,7 +226,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The window's stores and `claude` services are the session's**: it gives its lease back in `.onDisappear`, and `CompilerRunModifier` runs `roster.shutdownAll()`, pipeline first; a merely released session is a live, billing process.
 - **The `NavigationSplitView`'s `columnVisibility:` is written by `CanvasCollapseModifier` and `PersonaModifier` and nothing else.** `.detailOnly` hides the canvas, which is the CONTENT column.
 - **A hidden detail arm renders `Self.hiddenDetailColumn` (`Color.clear.navigationSplitViewColumnWidth(0)`), never no view**: an arm with no width hands the leftover to an empty detail column. ⌘⌥I's hidden case uses the same static (`DetailColumnWidthTests`).
-- **Never put permanent chrome in a top `safeAreaInset` around the `NavigationSplitView`**: it is not propagated into the columns and occludes their tops. The persona bar is a window-toolbar item (`TopChromeModifier`, hidden in ⌘\ focus); only the zero-height-when-idle banners live in the inset.
+- **Never put permanent chrome in a top `safeAreaInset` around the `NavigationSplitView`**. The persona bar is a window-toolbar item (`TopChromeModifier`, hidden in ⌘\ focus); only the zero-height-when-idle banners live in the inset.
 - **`ProjectWindow.detailColumn` frames its content to the width it declares**: one width, bound once, from `detailColumnWidth` (the persisted wish, written only by the resize handle, clamped to `UIState.detailColumnWidthRange`, 240–480).
 
 ### The centre column
@@ -282,10 +282,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Where the centre is the canvas, a research subject never swaps the centre out**; it previews in the right column. Elsewhere it takes the centre.
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre` (a locked editor, not an unmounted one).
-- **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when an arriving subject previews there; `openResearchItem` and `handleShowLatestMCPNote` call it explicitly, because re-selecting the current subject fires no `onChange`. `load()`'s restore does not force the pane.
+- **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when an arriving subject previews there; `openResearchItem` and `handleShowLatestMCPNote` call it explicitly; `load()`'s restore does not force the pane. 
 - **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`), and is window `@State`, not persisted.
 - **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`), and drops the stash rather than restoring it.
-- **In Plan the Open Wall door travels**: `pressPaletteWallDoor` arms `travelPending`, writes the persona, opens nothing and writes no subject; `PaletteWallModifier`'s `.onChange(of: persona)` consumes it immediately AFTER `closePaletteWallOnPersonaChange`, in the same handler. Swap them and the wall opens and shuts in one pass.
+- **In Plan the Open Wall door travels**: `pressPaletteWallDoor` arms `travelPending`, writes the persona, opens nothing and writes no subject; `PaletteWallModifier`'s `.onChange(of: persona)` consumes it immediately AFTER `closePaletteWallOnPersonaChange`, in the same handler.
 - **The door's tooltip and its press ask one spelling, `paletteWallDoorTravels`** (`PaletteWallDoorTests`, driven with real mouse events).
 
 ### Layout and sizing
@@ -321,7 +321,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The register's surfaces
 - **Every decision about who may write is the MODEL's, as a pure function** (`AdmissionDecision`, `PeopleAndDevicesModel`, `ClaimDecision`, `LoadQuestions`, `SetAsideDoor`); the views draw and decide nothing (`PeopleAndDevicesModelTests`, `AdmissionDecisionTests`, `AdmissionQueueTests`).
-- **A merge is never the default**: a proposed label never merges into an existing person (`AdmissionDecisionTests.test_theProposedLabelNeverMerges`), and the pre-fill (`claimedLabel`) is never a known label. Nothing goes up from a queue an admission has overtaken (`awaitingSettlement`) or while a sheet is closing (`isClosing`).
+- **A merge is never the default**: a proposed label never merges into an existing person, and the pre-fill (`claimedLabel`) is never a known label. Nothing goes up from a queue an admission has overtaken (`awaitingSettlement`) or while a sheet is closing (`isClosing`).
 - **A device with no proposed name keeps Admit refused until the writer types a label.**
 - **Who is never offered is one classification**, `AdmissionDecision.standing(ofHolder:streams:registry:)`; a stranger's device record raises the question as a held line does, as one request.
 - **A claim hint asks `Recognition.recognise`, never a second opinion**; the saved-by name never pre-fills or merges.

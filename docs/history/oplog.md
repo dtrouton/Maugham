@@ -2306,3 +2306,17 @@ To make room for the Figures rules (a figure follows its piece's posture, parked
 To make room for the return's `returnOf` and a figure edit claiming its piece (revised ruling R-D4) in the Figures rules, under the 8,000-word cap:
 
 - A figure op is minted after the newest op its host folded so a park minted ahead of the clock never sorts a later op before it.
+
+## Moved from the guide by report plan 6c Task 6 (2026-10-25)
+
+To make room for plan 6c's figure restore, `withFigureHost` and the promotion's figure carry under the 8,000-word cap:
+
+- A narrowed book costs about one 16 ms frame per document open (`NarrowedBookCostTests`, env-gated).
+- Where the refused displacing record is about this device, its key is recorded as a claimant (the registry cache restore).
+- `RegistryCacheTests.test_aProjectWithNoRegistryNeverReachesForTheEnclave` pins that `RegistryCache.shared` resolves no identity for a project with no registry and no cache.
+- `OpLogChainTests.test_anUnattributableVerdictCanOnlyHoldOrLeaveASpanAlone` pins the filename fall-through.
+- Ping-pong damping counts distinct bytes would never reach the threshold because two Macs alternate between two renders; skipping the rewrite for a repeat would let the outside edit survive on disk.
+- `declareActorOnce` runs on the store's own actor because a detached hop reordered what `append`'s callers observe.
+- The remembered head is written before the line because deferring or coalescing the head persist would turn a crash into a set-aside of the writer's own words.
+- `handleExternalLogChange` flushes the writer's un-bursted words first, which is what makes a shrinking reload safe.
+- The crash window between a segment write and the tail delete is safe because `mergeSortedDedup` dedupes.
