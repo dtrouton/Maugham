@@ -14726,6 +14726,12 @@ extension TripwireGrepTests {
         "ProseMode.swift": "figureLineStyle",
     ]
 
+    /// Where a spelling of the attachment character may stand in code, and why:
+    /// file -> (function, reason).
+    static let editorAttachmentCharacterAllowed: [String: (function: String, reason: String)] = [
+        "FigureIngest.swift": ("hasWords", "filters pasted attachment characters; creates none"),
+    ]
+
     static func editorDecorationOffenders(in editorDir: URL) throws -> [String] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: editorDir, includingPropertiesForKeys: nil) else { return [] }
@@ -14763,7 +14769,11 @@ extension TripwireGrepTests {
                 let trimmed = raw[i].trimmingCharacters(in: .whitespaces)
                 if !trimmed.hasPrefix("//") {
                     let code = raw[i].components(separatedBy: " // ").first ?? raw[i]
-                    if code.contains("\u{FFFC}") || code.lowercased().contains("\\u{fffc}") {
+                    let lower = code.lowercased()
+                    let spelled = code.contains("\u{FFFC}") || lower.contains("\\u{fffc}")
+                        || lower.contains("0xfffc") || code.contains("NSAttachmentCharacter")
+                        || code.contains("NSTextAttachment.character")
+                    if spelled, editorAttachmentCharacterAllowed[name]?.function != currentFunc {
                         out.append(spot)
                     }
                 }
@@ -14797,8 +14807,10 @@ extension TripwireGrepTests {
             s.paragraphSpacing = 4
         }
         """#.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
-        try "let d = \"\u{FFFC}\"\n".write(
+        try "let d = \"\u{FFFC}\"\nlet e = scalar.value == 0xFFFC\nlet f = NSAttachmentCharacter\n".write(
             to: dir.appendingPathComponent("Raw.swift"), atomically: true, encoding: .utf8)
+        try "private static func hasWords(_ t: String) -> Bool { t.unicodeScalars.contains { $0.value != 0xFFFC } }\n"
+            .write(to: dir.appendingPathComponent("FigureIngest.swift"), atomically: true, encoding: .utf8)
         try #"""
         func baseline(_ p: NSMutableParagraphStyle) {
             p.paragraphSpacing =
@@ -14811,7 +14823,7 @@ extension TripwireGrepTests {
 
         let found = try Self.editorDecorationOffenders(in: dir)
         XCTAssertEqual(found.map { $0.prefix { $0 != ":" } + ":" + $0.split(separator: ":")[1] }.sorted(), [
-            "Planted.swift:3", "Planted.swift:4", "Planted.swift:6", "Planted.swift:7", "Raw.swift:1",
+            "Planted.swift:3", "Planted.swift:4", "Planted.swift:6", "Planted.swift:7", "Raw.swift:1", "Raw.swift:2", "Raw.swift:3",
         ], found.joined(separator: "\n"))
     }
 }
