@@ -287,9 +287,9 @@ struct PartialRestorePicker: View {
                 )
             }
         }
+        // The sheet's list, each re-checked against the live registry.
         let figureResults = await Self.restoreFigures(
-            Self.figuresInScope(figures, scope, of: checkpoint),
-            to: checkpoint, documentStore: documentStore)
+            figures, in: scope, to: checkpoint, documentStore: documentStore)
         let sentences = [
             Self.leftAloneSentence(
                 for: leftAlone, in: documentStore?.projectStore?.manifest.structure),
@@ -328,29 +328,39 @@ struct PartialRestorePicker: View {
     }
 
     /// **Each figure wound back through its host** — the open one, or one
-    /// opened for this and released after (`DocumentStore.closeFigure`).
-    /// Each asks its own door first (`settledPosture(forDocId:)`, `.editFigure`,
-    /// Q-2); no `DocumentStore` behind the sheet fails closed. The figure at
+    /// opened for this and closed after (`DocumentStore.withFigureHost`).
+    /// Each is first checked against the LIVE registry: one removed or
+    /// promoted since the sheet was built is left alone (Q-1), and document
+    /// scope reads its piece from there. Then it asks its own door
+    /// (`settledPosture(forDocId:)`, `.editFigure`, Q-2) before any host
+    /// opens; no `DocumentStore` behind the sheet fails closed. The figure at
     /// the checkpoint is the fold of the host's own ops through the pointer
     /// (`FigureRestoreDiff.target`). Not registered for ⌘Z, like the text.
     static func restoreFigures(
-        _ figures: [FigureRecord], to checkpoint: Checkpoint, documentStore: DocumentStore?
+        _ figures: [FigureRecord], in scope: ScopeChoice, to checkpoint: Checkpoint,
+        documentStore: DocumentStore?
     ) async -> [(record: FigureRecord, result: FigureResult)] {
         var results: [(record: FigureRecord, result: FigureResult)] = []
-        for record in figures {
-            guard let pointer = checkpoint.docPointers[record.id] else { continue }
-            guard let documentStore,
-                  await documentStore.settledPosture(forDocId: record.id).allows(.editFigure) else {
+        for listed in figures {
+            guard let documentStore else {
+                results.append((listed, .refused))
+                continue
+            }
+            guard let record = documentStore.projectStore?.manifest.figures?
+                    .first(where: { $0.id == listed.id }),
+                  let pointer = checkpoint.docPointers[record.id],
+                  !figuresInScope([record], scope, of: checkpoint).isEmpty else { continue }
+            guard await documentStore.settledPosture(forDocId: record.id).allows(.editFigure) else {
                 results.append((record, .refused))
                 continue
             }
-            let wasOpen = documentStore.openFigure(forId: record.id) != nil
             let result: FigureResult
             do {
-                let host = try await documentStore.openFigure(figureId: record.id)
-                let target = FigureRestoreDiff.target(of: host._ops, through: pointer)
-                result = .outcome(try await host.restoreToCheckpoint(
-                    checkpoint.checkpointId, target: target))
+                result = .outcome(try await documentStore.withFigureHost(record.id) { host in
+                    try await host.restoreToCheckpoint(
+                        checkpoint.checkpointId,
+                        target: FigureRestoreDiff.target(of: host._ops, through: pointer))
+                })
             } catch is FigureEditRefused {
                 result = .refused
             } catch {
@@ -358,7 +368,6 @@ struct PartialRestorePicker: View {
                     "partial-restore failed for figure \(record.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 result = .failed(error.localizedDescription)
             }
-            if !wasOpen { await documentStore.closeFigure(figureId: record.id) }
             results.append((record, result))
         }
         return results

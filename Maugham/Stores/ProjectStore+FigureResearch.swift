@@ -163,10 +163,8 @@ extension ProjectStore {
             throw FigureReturnRefused(reason: .notAParkedCopy)
         }
         try await requireFigurePermitted(figureId: figureId, site: "bringBack", documentStore: documentStore)
-        let wasOpen = documentStore.openFigure(forId: figureId) != nil
-        let host = try await documentStore.openFigure(figureId: figureId)
-        let result: UseInDocumentResult
-        do {
+        // The return renders once, as it ends (`resumeFromResearch`).
+        let result = try await documentStore.withFigureHost(figureId) { host in
             let plan = try await returnPlan(for: item, record: record, host: host)
             try await host.resumeFromResearch(
                 changes: plan.changes.ops, picture: plan.picture, expecting: plan.expecting)
@@ -174,14 +172,9 @@ extension ProjectStore {
                 projectStoreLog.info(
                     "bringBack: \(item.title, privacy: .public) row \(problem.row + 1, privacy: .public), column \(problem.column + 1, privacy: .public) kept as text: \(problem.message, privacy: .public)")
             }
-            result = UseInDocumentResult(
+            return UseInDocumentResult(
                 record: record, problems: plan.changes.problems, overwritten: plan.changes.overwritten)
-        } catch {
-            if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
-            throw error
         }
-        // The return rendered once, as it ended (`resumeFromResearch`).
-        if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
         return result
     }
 
@@ -339,53 +332,42 @@ extension ProjectStore {
         var held: HeldFigureTextEdit?
         if let label { held = try await holdManuscriptsForFigureText(.removeLine(label)) }
 
-        let wasOpen = documentStore.openFigure(forId: figureId) != nil
         let holding = held
-        func letGo() async {
-            await holding?.release()
-            if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
-        }
-        let host: FigureDocument
-        do { host = try await documentStore.openFigure(figureId: figureId) } catch {
-            await letGo()
-            throw error
-        }
-        let snapshot = host.state
-        guard snapshot.parked == nil else {
-            await letGo()
-            throw FigureSendRefused(reason: .alreadyInResearch)
-        }
-        var caption: String?
-        if let label, let held {
-            caption = held.manuscripts.lazy.compactMap {
-                Self.figureCaption(in: $0.manuscript.doc.displayText, label)
-            }.first
-        }
-
         let copy: (item: ResearchItem, path: String, hash: String)
         do {
-            copy = try await writeWorkingCopy(of: record, state: snapshot, caption: caption, scope: scope)
-        } catch {
-            await letGo()
-            throw error
-        }
-        var written: HeldFigureTextEdit.Written = []
-        do {
-            try await Self.beforeSendParksForTesting?(holding)
-            try await host.parkInResearch(
-                path: copy.path, hash: copy.hash, itemId: copy.item.id, expecting: snapshot
-            ) {
-                if let holding { written = try holding.write() }
+            copy = try await documentStore.withFigureHost(figureId) { host in
+                let snapshot = host.state
+                guard snapshot.parked == nil else { throw FigureSendRefused(reason: .alreadyInResearch) }
+                var caption: String?
+                if let label, let held {
+                    caption = held.manuscripts.lazy.compactMap {
+                        Self.figureCaption(in: $0.manuscript.doc.displayText, label)
+                    }.first
+                }
+                let copy = try await writeWorkingCopy(
+                    of: record, state: snapshot, caption: caption, scope: scope)
+                var written: HeldFigureTextEdit.Written = []
+                do {
+                    try await Self.beforeSendParksForTesting?(holding)
+                    try await host.parkInResearch(
+                        path: copy.path, hash: copy.hash, itemId: copy.item.id, expecting: snapshot
+                    ) {
+                        if let holding { written = try holding.write() }
+                    }
+                } catch {
+                    // The park never landed: whatever text the step removed goes
+                    // back, and so does the copy.
+                    HeldFigureTextEdit.unwrite(written)
+                    await removeWorkingCopy(copy.item)
+                    throw error
+                }
+                return copy
             }
         } catch {
-            // The park never landed: whatever text the step removed goes
-            // back, and so does the copy.
-            HeldFigureTextEdit.unwrite(written)
-            await removeWorkingCopy(copy.item)
-            await letGo()
+            await holding?.release()
             throw error
         }
-        await letGo()
+        await holding?.release()
         // Its render is no longer written; the stale one goes to the Trash,
         // unless another record still names the file.
         let shared = (manifest.figures ?? []).contains {

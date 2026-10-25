@@ -155,6 +155,7 @@ final class PartialRestoreFigureTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        FigureDocument.betweenRestoreOpsForTesting = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -404,6 +405,105 @@ final class PartialRestoreFigureTests: XCTestCase {
         XCTAssertFalse(said.contains("of_a"), said)
     }
 
+    /// **The picker asks the door itself, before any host opens** (Q-2): B's
+    /// figure is parked, then B is yielded to Sam. The picker's door answers
+    /// `.refused`; without it the host would answer `.skippedParked` (its
+    /// park check runs before its posture check), so this pins the picker's.
+    func test_theDoorIsAskedBeforeTheHost_aParkedFigureInAYieldedPieceIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let ofB = try await table("of_b", piece: "doc-b", store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", ofB.id])
+        let host = try await store.openFigure(figureId: ofB.id)
+        try await host.setCell(text("since"), at: firstCell(host))
+        try await host.parkInResearch(
+            path: "research/of_b.csv", hash: "h", itemId: "item-1",
+            expecting: host.state, alongside: {})
+        await store.closeFigure(figureId: ofB.id)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["doc-b"])))
+        await store.postureSettled()
+
+        let results = await PartialRestorePicker.restoreFigures(
+            projectStore.manifest.figures ?? [], in: .wholeProject, to: cp, documentStore: store)
+
+        XCTAssertEqual(results.map(\.result), [.refused])
+        XCTAssertNil(store.openFigure(forId: ofB.id), "no host was opened for a refused figure")
+    }
+
+    /// **A figure removed after the sheet was built is left alone** (Q-1): the
+    /// sheet's list still names it, the live registry does not.
+    func test_aFigureRemovedAfterThePickerWasBuiltIsLeftAlone() async throws {
+        let (store, projectStore) = try await openBook()
+        let gone = try await table("gone", piece: nil, store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", gone.id])
+        try await edit(gone.id, "since", store)
+        let sheet = picker(cp, store, projectStore)
+        try await projectStore.removeFigure(id: gone.id)
+        let before = try streamBytes(of: gone.id)
+
+        let results = await PartialRestorePicker.restoreFigures(
+            sheet.figures, in: .wholeProject, to: cp, documentStore: store)
+        let sentence = await sheet.restore(.wholeProject)
+
+        XCTAssertTrue(results.isEmpty, "not reported at all: \(results.map(\.result))")
+        XCTAssertNil(sentence)
+        XCTAssertEqual(try streamBytes(of: gone.id), before, "its stream is untouched")
+    }
+
+    /// **A host someone else opened during the restore stays open**: the
+    /// restore opened it for itself, and the window asked to keep it between
+    /// the restore's two ops.
+    func test_aHostOpenedByAnotherCallerDuringTheRestoreStaysOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        let kept = try await table("kept", piece: nil, store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", kept.id])
+        let host = try await store.openFigure(figureId: kept.id)
+        try await host.setCell(text("since"), at: firstCell(host))
+        try await host.setCell(text("more"), at: CellKey(
+            row: host.state.table.rows[1], column: host.state.table.columns[0]))
+        await store.closeFigure(figureId: kept.id)
+        var openedMeanwhile: FigureDocument?
+        FigureDocument.betweenRestoreOpsForTesting = { _ in
+            openedMeanwhile = try? await store.openFigure(figureId: kept.id)
+        }
+
+        let sentence = await picker(cp, store, projectStore).restore(.wholeProject)
+
+        XCTAssertNil(sentence)
+        XCTAssertNotNil(openedMeanwhile, "precondition: the restore made two ops")
+        XCTAssertTrue(store.openFigure(forId: kept.id) === openedMeanwhile,
+                      "the host the window opened meanwhile stays open")
+        XCTAssertEqual(store.openFigure(forId: kept.id)?.state.table[firstCell(host)], text("then"))
+        await store.closeFigure(figureId: kept.id)
+    }
+
+    /// `withFigureHost` closes a host it opened, keeps one already open, and
+    /// keeps one someone opened during the loan.
+    func test_withFigureHostClosesOnlyWhatItAloneOpened() async throws {
+        let (store, projectStore) = try await openBook()
+        let fig = try await table("fig", piece: nil, store, projectStore)
+
+        try await store.withFigureHost(fig.id) { _ in }
+        XCTAssertNil(store.openFigure(forId: fig.id), "a host it opened is closed")
+
+        let open = try await store.openFigure(figureId: fig.id)
+        try await store.withFigureHost(fig.id) { XCTAssertTrue($0 === open) }
+        XCTAssertTrue(store.openFigure(forId: fig.id) === open, "a host already open stays open")
+        await store.closeFigure(figureId: fig.id)
+
+        try await store.withFigureHost(fig.id) { _ in
+            _ = try await store.openFigure(figureId: fig.id)
+        }
+        XCTAssertNotNil(store.openFigure(forId: fig.id), "a host opened during the loan stays open")
+        await store.closeFigure(figureId: fig.id)
+
+        struct Boom: Error {}
+        do { try await store.withFigureHost(fig.id) { _ in throw Boom() } } catch is Boom {}
+        XCTAssertNil(store.openFigure(forId: fig.id), "a failed act still closes what it opened")
+    }
+
     /// No door behind the sheet fails closed: every figure is refused.
     func test_noDoorRefusesEveryFigure() async throws {
         let cp = Checkpoint(
@@ -412,7 +512,7 @@ final class PartialRestoreFigureTests: XCTestCase {
         let record = FigureRecord(
             id: "fig-00000001", name: "t", kind: .table, piece: nil, path: "figures/t.csv")
         let results = await PartialRestorePicker.restoreFigures(
-            [record], to: cp, documentStore: nil)
+            [record], in: .wholeProject, to: cp, documentStore: nil)
         XCTAssertEqual(results.map(\.result), [.refused])
     }
 

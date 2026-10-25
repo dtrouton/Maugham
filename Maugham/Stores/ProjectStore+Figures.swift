@@ -672,13 +672,9 @@ extension ProjectStore {
     /// one opened for this and closed after.
     private func renameImageFileThroughHost(figureId: String, to filename: String) async throws {
         guard let documentStore else { return }
-        let wasOpen = documentStore.openFigure(forId: figureId) != nil
-        let host = try await documentStore.openFigure(figureId: figureId)
-        do { try await host.renameImageFile(to: filename) } catch {
-            if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
-            throw error
+        try await documentStore.withFigureHost(figureId) { host in
+            try await host.renameImageFile(to: filename)
         }
-        if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
     }
 
     /// `record` written over the registry's record with its id, through the
