@@ -26,6 +26,11 @@ public enum MCPError: Error, Equatable {
     /// 1, M4) — the typed `waiting_for_piece` payload is its message.
     public static let waitingForPieceCode = -32004
 
+    /// The JSON-RPC code a directly-dispatched method answers an oversized
+    /// response line with (`MCPServer.encodeLine`, tripwire 10); the
+    /// `payload_too_large` payload is its message.
+    public static let payloadTooLargeCode = -32005
+
     public var code: Int {
         switch self {
         case .maughamNotRunning: return -32001

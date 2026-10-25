@@ -249,7 +249,7 @@ public final class MCPServer {
             req = try JSONDecoder().decode(MCPRequest.self, from: lineData)
         } catch {
             let resp = MCPResponse.failure(id: nil, code: -32700, message: "Parse error")
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: nil)
         }
 
         // JSON-RPC notification: no id, no response. Per spec, server MUST NOT reply.
@@ -263,22 +263,22 @@ public final class MCPServer {
                 id: req.id,
                 code: MCPError.mcpDisabled.code,
                 message: MCPError.mcpDisabled.message)
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: req.method)
         }
 
         do {
             let resultJSON = try await router.dispatch(
                 method: req.method, paramsJSON: req.paramsJSON)
             let resp = MCPResponse.success(id: req.id, resultJSON: resultJSON)
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: req.method)
         } catch let MCPRouterError.methodNotFound(method) {
             let resp = MCPResponse.failure(
                 id: req.id, code: -32601, message: "Method not found: \(method)")
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: req.method)
         } catch let e as MCPError {
             let resp = MCPResponse.failure(
                 id: req.id, code: e.code, message: e.message)
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: req.method)
         } catch let waiting as DocumentLoadError {
             // **The waiting state is not an internal error on this path
             // either** (P3c plan 2 Task 4 fix round 1, M4). `tools/call`
@@ -293,13 +293,37 @@ public final class MCPServer {
                 id: req.id, code: MCPError.waitingForPieceCode,
                 message: String(data: payload.encodedJSON(), encoding: .utf8)
                     ?? payload.message)
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: req.method)
         } catch {
             let resp = MCPResponse.failure(
                 id: req.id,
                 code: MCPError.internalError("").code,
                 message: "Internal error: \(error.localizedDescription)")
-            return (try? JSONEncoder().encode(resp)) ?? Data()
+            return encodeLine(resp, method: req.method)
         }
+    }
+
+    /// **The one place a response line is serialized** (tripwire 10), for
+    /// both dispatch paths: `tools/call` and a tool's top-level method. A line
+    /// over `MCPResponseBudget.maxLineBytes` never reaches the socket; it is
+    /// replaced, for the same request id, by the structured
+    /// `payload_too_large` error: an `isError` tool result under `tools/call`,
+    /// a JSON-RPC error (`MCPError.payloadTooLargeCode`, the payload as its
+    /// message) on a direct method. A tool's own `MCPResponseBudget.enforce`
+    /// fires first with a better hint; this is the backstop no tool can skip.
+    nonisolated static func encodeLine(_ resp: MCPResponse, method: String?) -> Data {
+        guard let line = try? JSONEncoder().encode(resp) else { return Data() }
+        guard line.count > MCPResponseBudget.maxLineBytes else { return line }
+        let payload = MCPResponseBudget.lineTooLarge(byteCount: line.count)
+        let replacement: MCPResponse
+        if method == MCPToolsCallHandler.method,
+           let envelope = try? MCPToolsCallHandler.errorEnvelope(payload) {
+            replacement = .success(id: resp.id, resultJSON: envelope)
+        } else {
+            replacement = .failure(
+                id: resp.id, code: MCPError.payloadTooLargeCode,
+                message: String(decoding: payload.encodedJSON(), as: UTF8.self))
+        }
+        return (try? JSONEncoder().encode(replacement)) ?? Data()
     }
 }
