@@ -1,10 +1,6 @@
 import XCTest
 @testable import MaughamCore
 
-private struct NoPins: ResearchPinSource {
-    func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? { nil }
-}
-
 /// Report plan 6a Task 4: the mtime-keyed figure cache and the document
 /// workbook, keyed by figure id since report plan 6b Task 3 (R-D1).
 @MainActor
@@ -100,7 +96,7 @@ final class FigureCacheTests: XCTestCase {
     func test_workbookEvaluatesACrossFigureReferenceById() throws {
         let (root, manifest, _) = try twoFigureBook()
         let cache = FigureCache()
-        let r = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        let r = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root)
         let wb = r.workbook
         XCTAssertEqual(Set(wb.tables.keys), ["fig-cash0001", "fig-summ0001"])
         XCTAssertEqual(r.parked, [])
@@ -117,7 +113,7 @@ final class FigureCacheTests: XCTestCase {
         var renamed = manifest
         renamed.figures?[0].name = "cash flow 2026"
         let cache = FigureCache()
-        let wb = FigureWorkbook.assemble(for: renamed, cache: cache, projectURL: root, pins: NoPins()).workbook
+        let wb = FigureWorkbook.assemble(for: renamed, cache: cache, projectURL: root).workbook
         let t = try XCTUnwrap(wb.tables["fig-summ0001"])
         let a1 = CellKey(row: t.rows[0], column: t.columns[0])
         XCTAssertEqual(wb.value(at: CellAddress(table: "fig-summ0001", key: a1)), .number(100))
@@ -135,7 +131,7 @@ final class FigureCacheTests: XCTestCase {
         try append([op("fig-cash0001", .figureParked,
                        FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h1"))],
                    docId: "fig-cash0001", to: root)
-        let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root)
         XCTAssertEqual(r.parked, ["fig-cash0001"])
         XCTAssertNotNil(r.workbook.tables["fig-cash0001"])
         let t = try XCTUnwrap(r.workbook.tables["fig-summ0001"])
@@ -147,7 +143,7 @@ final class FigureCacheTests: XCTestCase {
     /// the one answer to which figures sit in Research.
     func test_anOverlaysParkedStatusWins() throws {
         let (root, manifest, cash) = try twoFigureBook()
-        var r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        var r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root)
         XCTAssertEqual(r.parked, [])
         r.overlay(FigureState(kind: .table, table: cash, parked: FigureParking(path: "research/c.csv", hash: "h1")), id: "fig-cash0001")
         XCTAssertEqual(r.parked, ["fig-cash0001"], "a host that has just parked it")
@@ -178,7 +174,7 @@ final class FigureCacheTests: XCTestCase {
         let file = root.appendingPathComponent(".maugham/ops/fig-cash0001.jsonl")
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
-        let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root)
         XCTAssertEqual(r.unreadable.map(\.name), ["cashflow"])
         XCTAssertNil(r.workbook.tables["fig-cash0001"])
         XCTAssertEqual(r.parked, [], "unreadable is never conflated with parked")
@@ -190,12 +186,12 @@ final class FigureCacheTests: XCTestCase {
     func test_assembling_evictsFiguresNoLongerInTheManifest() throws {
         let (root, manifest, _) = try twoFigureBook()
         let cache = FigureCache()
-        _ = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        _ = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root)
         XCTAssertEqual(cache.deriveCount, 2)
         var smaller = manifest
         smaller.figures = [record("fig-summ0001", "summary")]
-        _ = FigureWorkbook.assemble(for: smaller, cache: cache, projectURL: root, pins: NoPins())
-        _ = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        _ = FigureWorkbook.assemble(for: smaller, cache: cache, projectURL: root)
+        _ = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root)
         XCTAssertEqual(cache.deriveCount, 3, "summary still cached; cashflow was evicted, so re-derived")
     }
 }

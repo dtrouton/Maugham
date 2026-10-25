@@ -95,7 +95,7 @@ final class FigureRenderTests: XCTestCase {
         let record = FigureRecord(id: "fig-0a1b2c3d", name: "t", kind: .table, piece: nil, path: "figures/t.csv")
         let text = FigureRender.csv(
             record: record, state: FigureState(kind: .table, table: table),
-            workbook: Workbook(pins: FigureRender.noResearchPins))
+            workbook: Workbook(pins: FigurePinIndex()))
         XCTAssertEqual(text, "2,6\n,\n")
     }
 
@@ -103,7 +103,7 @@ final class FigureRenderTests: XCTestCase {
     /// nothing.
     func test_anImageAParkedTableAndAnUnknownKindRenderNothing() {
         let table = FigureTable(rows: 1, columns: 1)
-        let book = Workbook(pins: FigureRender.noResearchPins)
+        let book = Workbook(pins: FigurePinIndex())
         let image = FigureRecord(id: "fig-1", name: "i", kind: .image, piece: nil, path: "figures/i")
         XCTAssertNil(FigureRender.csv(record: image, state: FigureState(kind: .image), workbook: book))
         let tableRecord = FigureRecord(id: "fig-2", name: "t", kind: .table, piece: nil, path: "figures/t.csv")

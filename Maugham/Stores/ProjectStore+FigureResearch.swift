@@ -437,6 +437,33 @@ extension ProjectStore {
         }
     }
 
+    // MARK: - Research pins (report plan 6b Task 9, spec §4.3)
+
+    /// **A Research table as a pin reads it now** — its file's content hash
+    /// and its values, its formulas computed against `book` (read as *Use in
+    /// document* reads one: the book's language, `names`). Nil when the item
+    /// is gone, is not a Research table, or its file will not read: the pins
+    /// on it keep their values (`PinStatus.sourceMissing`).
+    func pinSourceRead(researchItemId: String, book: Workbook, names: FormulaNames) async -> PinSourceRead? {
+        guard let item = findResearchItem(id: researchItemId, in: manifest.research),
+              item.type == .asset, item.kind == .table,
+              let path = item.path, let file = try? resolvedProjectPath(path) else { return nil }
+        guard let (text, hash) = try? await Task.detached(operation: { try Self.readResearchTable(file) }).value
+        else { return nil }
+        let locale = TableLocale(languageTag: await bookLanguageTag())
+        let table = TableCSV.read(text, locale: locale, names: names).table
+        return PinSourceRead(hash: hash, table: table, book: book, as: "research:\(item.id)")
+    }
+
+    /// **A parked figure's working copy as a pin reads it now**: the Research
+    /// item its park names (`FigureParking.itemId`, which follows the typed
+    /// mover; else the item at its park's path). Nil when the copy is gone.
+    func pinSourceRead(workingCopyOf parking: FigureParking, book: Workbook, names: FormulaNames) async -> PinSourceRead? {
+        let itemId = parking.itemId ?? TreeWalk.collect(in: manifest.research, where: { $0.path == parking.path }).first?.id
+        guard let itemId else { return nil }
+        return await pinSourceRead(researchItemId: itemId, book: book, names: names)
+    }
+
     /// **The content hash a park's working copy of `table` has** — the bytes
     /// `writeWorkingCopy` writes (`TableCSV.renderResearch`). A parked state
     /// that still hashes to its `parkedHash` is what the copy was written

@@ -2,10 +2,13 @@ import Foundation
 
 /// Where research refs read: the value one figure pinned for one research cell. Pins are
 /// per reading figure (`FigureState.pins`), so two figures pinned at different times to
-/// the same research cell each read their own value.
+/// the same research cell each read their own value. A ref to a figure parked in
+/// Research asks the same question with that figure's id and its cell's position
+/// (R-D2); with no pin it reads the parked table.
 public protocol ResearchPinSource: Sendable {
-    /// The value figure `home` (a figure id) pinned for research item `research` (its id)
-    /// at a 0-based position, or nil when that figure holds no such pin (→ #REF!).
+    /// The value figure `home` (a figure id) pinned for research item `research` (its id,
+    /// or a parked figure's) at a 0-based position, or nil when that figure holds no such
+    /// pin (→ #REF! for a research item, the parked value for a parked figure).
     func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue?
 }
 
@@ -16,15 +19,19 @@ public enum FormulaNote: Hashable, Sendable {
 }
 
 /// A document's figure tables evaluated together, keyed by figure id (a `CellAddress`'s
-/// `table` is that id): refs between tables are live, research refs read the reading table's pins, and an edit recalculates only the cells that read what changed, in
+/// `table` is that id): refs between tables are live, research refs read the reading table's pins, a ref into a `parked`
+/// table reads the reading table's pin for that cell when it holds one, and an edit recalculates only the cells that read what changed, in
 /// dependency order. A reference cycle is `#CIRC!` on every cell in it; a cell that reads
 /// it sees that error as any other (IFERROR catches it). Dependencies are static (both branches of an `IF` count), as in Excel.
 public struct Workbook: Sendable {
     public private(set) var tables: [String: FigureTable] = [:]
+    /// The figures parked in Research (`setParked`): a ref into one from another table
+    /// reads that table's pin for the cell's position, when it has one.
+    public private(set) var parked: Set<String> = []
     /// Test seam: how many formula cells the last `setTable`/`pinsChanged` evaluated.
     public private(set) var lastEvaluationCount = 0
 
-    private let pins: any ResearchPinSource
+    private var pins: any ResearchPinSource
     private var formulas: [CellAddress: Formula] = [:]
     private var values: [CellAddress: CellValue] = [:]          // formula cells' results
     private var graph = DependencyGraph()
@@ -75,13 +82,30 @@ public struct Workbook: Sendable {
         return recalculate(seeds: Set(changed).union(resolve), before: &before)
     }
 
-    /// After figure `home`'s pins for research item `research` change (both ids): recalculates
-    /// the cells of `home` that read that item, and everything reading them. Another figure's
-    /// cells reading the same item keep their own pins' values.
+    /// After figure `home`'s pins for research item `research` change (both ids; `research`
+    /// may be a parked figure's): recalculates the cells of `home` that read that item, and
+    /// everything reading them. Another figure's cells reading the same item keep their own
+    /// pins' values. Call it after `setPins` hands in the source holding the new pins.
     @discardableResult
     public mutating func pinsChanged(home: String, research: String) -> Set<CellAddress> {
         var before = [CellAddress: CellValue]()
-        let seeds = (researchReadersIndex[research] ?? []).filter { $0.table == home }
+        let seeds = (researchReadersIndex[research] ?? []).union(tableReaders[research] ?? [])
+            .filter { $0.table == home }
+        return recalculate(seeds: seeds, before: &before)
+    }
+
+    /// Replaces where research refs read, recalculating nothing: follow it with
+    /// `pinsChanged` for each home and source whose pins moved.
+    public mutating func setPins(_ pins: any ResearchPinSource) { self.pins = pins }
+
+    /// Marks figure `id` parked in Research or not, recalculating every other table's cells
+    /// that read it (a parked figure's pins win over its table; a resumed one's do not, R-D2).
+    @discardableResult
+    public mutating func setParked(_ isParked: Bool, id: String) -> Set<CellAddress> {
+        guard parked.contains(id) != isParked else { return [] }
+        if isParked { parked.insert(id) } else { parked.remove(id) }
+        var before = [CellAddress: CellValue]()
+        let seeds = (tableReaders[id] ?? []).filter { $0.table != id }
         return recalculate(seeds: seeds, before: &before)
     }
 
@@ -177,8 +201,15 @@ public struct Workbook: Sendable {
 
     private func environment(home: String) -> FormulaEnvironment {
         let resolver = self.resolver(home: home)
-        let values = self.values, tables = self.tables, pins = self.pins
+        let values = self.values, tables = self.tables, pins = self.pins, parked = self.parked
         @Sendable func read(_ a: CellAddress) -> CellValue {
+            // A parked figure read from another table: that table's pin for the cell's
+            // position wins over the parked value (R-D2).
+            if a.table != home, parked.contains(a.table), let t = tables[a.table],
+               let r = t.rowIndex(of: a.key.row), let c = t.columnIndex(of: a.key.column),
+               let v = pins.pinnedValue(home: home, research: a.table, row: r, column: c) {
+                return v
+            }
             if let v = values[a] { return v }
             guard let cell = tables[a.table]?[a.key], case .value(let v) = cell.content else { return .empty }
             return v

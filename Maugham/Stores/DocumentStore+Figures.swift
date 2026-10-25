@@ -256,23 +256,69 @@ extension DocumentStore {
         }.value
     }
 
+    /// **The book's figures as one workbook, freshest first**: every table
+    /// figure read through the cache (`FigureWorkbook.assemble`) with each open
+    /// host's fold laid over its read (`FigureWorkbook.overlay`) — its table,
+    /// its pins and its parked status. Throws when the registry will not read.
+    func assembledFigures() async throws -> FigureWorkbook? {
+        guard let manifest = projectStore?.manifest else { return nil }
+        let trust = try await figureTrust()
+        return assembledFigures(manifest: manifest, trust: trust)
+    }
+
+    private func assembledFigures(manifest: ProjectManifest, trust: TrustTable) -> FigureWorkbook {
+        var assembled = FigureWorkbook.assemble(
+            for: manifest, cache: figureCache, projectURL: projectURL, trust: trust)
+        let tableIds = Set((manifest.figures ?? []).filter { $0.kind == .table }.map(\.id))
+        for (id, doc) in openFigures where !doc.isClosed && tableIds.contains(id) {
+            assembled.overlay(doc.state, id: id)
+        }
+        return assembled
+    }
+
     /// **The names a Research CSV's formulas resolve through** (report plan 6b
     /// Task 6): `FormulaNames(records:tables:research:)` over every figure with
     /// its table — an open host's fold laid over its read — and the Research
     /// tables. Throws when the registry will not read.
     func formulaNamesForUse() async throws -> FormulaNames {
-        guard let manifest = projectStore?.manifest else { return .empty }
-        let trust = try await figureTrust()
-        var assembled = FigureWorkbook.assemble(
-            for: manifest, cache: figureCache, projectURL: projectURL,
-            trust: trust, pins: FigureRender.noResearchPins)
-        let records = manifest.figures ?? []
-        let tableIds = Set(records.filter { $0.kind == .table }.map(\.id))
-        for (id, doc) in openFigures where !doc.isClosed && tableIds.contains(id) {
-            assembled.overlay(doc.state, id: id)
-        }
+        guard let manifest = projectStore?.manifest, let assembled = try await assembledFigures() else { return .empty }
         return FormulaNames(
-            records: records, tables: assembled.workbook.tables, research: manifest.research)
+            records: manifest.figures ?? [], tables: assembled.workbook.tables, research: manifest.research)
+    }
+
+    /// **Every source figure `state`'s pins read, as it stands now** (spec
+    /// §4.3, report plan 6b Task 9): each Research table its formulas name,
+    /// read through `ProjectStore.pinSourceRead` (absent when the item or its
+    /// file is gone), and each figure they read that is parked in Research,
+    /// with its park, its parked table and values, and its working copy read
+    /// the same way (nil when the copy is gone). Throws when the registry or
+    /// a parked figure's stream will not read.
+    func pinSources(for state: FigureState) async throws -> PinSources {
+        guard let manifest = projectStore?.manifest, let projectStore else { return PinSources() }
+        let trust = try await figureTrust()
+        let assembled = assembledFigures(manifest: manifest, trust: trust)
+        let book = assembled.workbook
+        let parkedTables = assembled.parked.reduce(into: [String: FigureTable]()) { out, id in
+            if let table = book.tables[id] { out[id] = table }
+        }
+        let read = Set(FigurePins.reads(of: state.table, parked: parkedTables).values.flatMap { $0.map(\.source) })
+        let names = FormulaNames(records: manifest.figures ?? [], tables: book.tables, research: manifest.research)
+        let facts = DocumentClass.Facts(manifest)
+        var sources = PinSources()
+        for source in read.sorted() {
+            if let table = parkedTables[source] {
+                let parkedState = try openFigure(forId: source)?.state
+                    ?? figureCache.state(forFigureId: source, in: projectURL, trust: trust, facts: facts)
+                guard let parking = parkedState.parked else { continue }
+                sources.parked[source] = PinSources.Parked(
+                    parking: parking, table: table,
+                    parkedValues: PinSourceRead(hash: parking.hash, table: table, book: book, as: source),
+                    copy: await projectStore.pinSourceRead(workingCopyOf: parking, book: book, names: names))
+            } else if let now = await projectStore.pinSourceRead(researchItemId: source, book: book, names: names) {
+                sources.research[source] = now
+            }
+        }
+        return sources
     }
 
     /// **Is figure `figureId` parked in Research?** Asked of its open host,
@@ -295,9 +341,10 @@ extension DocumentStore {
     ///
     /// The book's tables are assembled into one `Workbook` from the cache
     /// (`FigureWorkbook.assemble`), with each open figure's own state laid
-    /// over its read (`FigureWorkbook.overlay`) — the host holds the freshest
-    /// fold, a parked one's too (its readers keep its parked values, R-D2),
-    /// and the parked set it leaves is kept on `lastParkedFigures`. Figures the assembly
+    /// over its read (`assembledFigures`) — the host holds the freshest
+    /// fold, a parked one's too (its readers keep its parked values, R-D2, or
+    /// their own pins on it), and research refs read each reader's pins.
+    /// The parked set it leaves is kept on `lastParkedFigures`. Figures the assembly
     /// could not read (R-6a-7) are logged, one line each, and kept on
     /// `lastUnreadableFigures`; their renders are left as they were. A
     /// failure to write one render is logged and the others still write.
@@ -321,9 +368,7 @@ extension DocumentStore {
             lastUnreadableFigures = []
             return
         }
-        var assembled = FigureWorkbook.assemble(
-            for: manifest, cache: figureCache, projectURL: projectURL,
-            trust: trust, pins: FigureRender.noResearchPins)
+        let assembled = assembledFigures(manifest: manifest, trust: trust)
         lastUnreadableFigures = assembled.unreadable
         for (name, error) in assembled.unreadable {
             documentLog.error(
@@ -331,10 +376,6 @@ extension DocumentStore {
         }
 
         let byId = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        for (id, doc) in openFigures where !doc.isClosed {
-            guard let record = byId[id], record.kind == .table else { continue }
-            assembled.overlay(doc.state, id: record.id)
-        }
         lastParkedFigures = assembled.parked
         let book = assembled.workbook
 

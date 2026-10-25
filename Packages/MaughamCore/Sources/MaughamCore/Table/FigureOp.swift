@@ -66,7 +66,9 @@ public enum FigureKind: Codable, Equatable, Hashable, Sendable {
 ///   took (ruling P-2); a revive must carry the slice it puts back.
 /// - `figureSettings` — `settings`.
 /// - `figureImageSet` — `image`; `priorImage` is the one it replaced.
-/// - `figurePinSet` — `cell` and `pin`.
+/// - `figurePinSet` — `cell` and `pin`; `priorPin` is the pin from the same
+///   source cell it replaced (nil = the cell held none), so its undo is
+///   payload-only (ruling P-8).
 /// - `figurePinClear` — `cell` (`pin`, when present, names the one cleared).
 ///
 /// The wire shape is append-only history: a field renamed here is a field
@@ -82,6 +84,10 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     public var image: FigureImageRef?
     public var priorImage: FigureImageRef?
     public var pin: FigureResearchPin?
+    /// **The pin a `figurePinSet` replaced** (ruling P-8, report plan 6b
+    /// Task 9): the cell's pin from the same source cell before the set, nil
+    /// when it held none. Optional on the wire; `validate` does not ask for it.
+    public var priorPin: FigureResearchPin?
     public var parkedPath: String?
     public var parkedHash: String?
     /// **The Research item a park wrote its working copy as** (spec §4.2,
@@ -111,6 +117,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case kind, cell, next, prior, structure, settings, image
         case priorImage = "prior_image"
         case pin
+        case priorPin = "prior_pin"
         case parkedPath = "parked_path"
         case parkedHash = "parked_hash"
         case parkedItemId = "parked_item_id"
@@ -125,7 +132,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         structure: FigureStructureChange? = nil,
         settings: FigureSettingsChange? = nil,
         image: FigureImageRef? = nil, priorImage: FigureImageRef? = nil,
-        pin: FigureResearchPin? = nil,
+        pin: FigureResearchPin? = nil, priorPin: FigureResearchPin? = nil,
         parkedPath: String? = nil, parkedHash: String? = nil,
         parkedItemId: String? = nil,
         parkedFrontier: [String: String]? = nil,
@@ -141,6 +148,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         self.image = image
         self.priorImage = priorImage
         self.pin = pin
+        self.priorPin = priorPin
         self.parkedPath = parkedPath
         self.parkedHash = parkedHash
         self.parkedItemId = parkedItemId
@@ -450,9 +458,10 @@ public struct FigureImageRef: Codable, Equatable, Hashable, Sendable {
 
 /// **A research pin** — the value a formula last read from a Research table
 /// (spec §4.3): which research item, the zero-based row and column it read,
-/// the value, the source file's content hash and when it was read. Defined
-/// here so the wire shape is fixed with the kinds; plan 6b sets and refreshes
-/// pins.
+/// the value, the source file's content hash and when it was read. A ref to
+/// a figure parked in Research pins the same way, `research` holding that
+/// figure's id and the position its parked table's cell had (R-D2). Taken
+/// when a formula is entered and refreshed by `FigureDocument.refreshPins`.
 public struct FigureResearchPin: Codable, Equatable, Sendable {
     /// The research item's id.
     public var research: String

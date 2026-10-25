@@ -16,16 +16,11 @@ import MaughamCore
 /// - **An image figure, a parked table and a figure whose kind this build
 ///   does not know render nothing**: the image's file is its own, a parked
 ///   table lives in Research (plan 6b), and an unknown kind has no CSV shape.
-/// - Research references read no pins until plan 6b Task 9 wires them
-///   (`noResearchPins`): such a cell renders `#REF!`.
+/// - Research references read the figure's own pins (`FigurePinIndex`, laid
+///   in by `DocumentStore.assembledFigures`; report plan 6b Task 9): the value
+///   last read, or `#REF!` for a source cell it holds no pin on.
 @MainActor
 enum FigureRender {
-
-    /// The pin source until plan 6b Task 9: every research reference is `#REF!`.
-    struct NoResearchPins: ResearchPinSource {
-        func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? { nil }
-    }
-    static let noResearchPins = NoResearchPins()
 
     /// The CSV `record` renders to, or nil when it renders nothing (an image,
     /// a parked or unknown-kind figure). The table is set into a copy of

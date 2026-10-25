@@ -156,6 +156,25 @@ final class FigureOpTests: XCTestCase {
                        "a revive carries a slice")
     }
 
+    /// Report plan 6b Task 9 (ruling P-8, schema 10): a pin set carries the
+    /// pin it replaced under `prior_pin`; a first pin carries none.
+    func test_thePriorPinWireWordIsPinned() throws {
+        let pin = FigureResearchPin(research: "res-a", row: 1, column: 2, value: .number(3), sourceHash: "h",
+                                    at: Date(timeIntervalSince1970: 0))
+        let key = CellKey(row: r1, column: c1)
+        func keys(_ p: FigureOpPayload) throws -> [String] {
+            let object = try JSONSerialization.jsonObject(with: try encoder().encode(p)) as? [String: Any]
+            return (object?.keys).map { $0.sorted() } ?? []
+        }
+        XCTAssertEqual(try keys(FigureOpPayload(cell: key, pin: pin, priorPin: pin)), ["cell", "pin", "prior_pin"])
+        XCTAssertEqual(try keys(FigureOpPayload(cell: key, pin: pin)), ["cell", "pin"])
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        let back = try dec.decode(
+            FigureOpPayload.self, from: try encoder().encode(FigureOpPayload(cell: key, pin: pin, priorPin: pin)))
+        XCTAssertEqual(back.priorPin, pin)
+    }
+
     /// Report plan 6b Task 6 (spec §4.1, schema 10): a figure made from a
     /// Research item records where it came from on its `figureCreate`, and the
     /// deriver keeps it.

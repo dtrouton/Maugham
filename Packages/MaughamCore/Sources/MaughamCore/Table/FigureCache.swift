@@ -65,47 +65,98 @@ public final class FigureCache {
     public func invalidateAll() { lines.removeAll() }
 }
 
+/// **Every figure's research pins, as the workbook reads them** (spec §4.3,
+/// report plan 6b Task 9): per reading figure ("home"), the pin for each
+/// source cell — a Research item's or a parked figure's, by id and 0-based
+/// position. Pins live per cell (`FigureState.pins`); two cells of one figure
+/// holding a pin on the same source cell read the later-taken one.
+public struct FigurePinIndex: ResearchPinSource {
+    private struct Key: Hashable {
+        let source: String
+        let row: Int
+        let column: Int
+    }
+
+    private var byHome: [String: [Key: FigureResearchPin]] = [:]
+
+    public init() {}
+
+    /// Figure `home`'s pins replaced by `pins`. Answers the sources whose pinned
+    /// values moved, for `Workbook.pinsChanged`.
+    @discardableResult
+    public mutating func set(_ pins: [CellKey: [FigureResearchPin]], home: String) -> Set<String> {
+        var next: [Key: FigureResearchPin] = [:]
+        for list in pins.values {
+            for pin in list {
+                let key = Key(source: pin.research, row: pin.row, column: pin.column)
+                if let held = next[key], held.at >= pin.at { continue }
+                next[key] = pin
+            }
+        }
+        let old = byHome[home] ?? [:]
+        byHome[home] = next.isEmpty ? nil : next
+        var moved = Set<String>()
+        for (key, pin) in next where old[key]?.value != pin.value { moved.insert(key.source) }
+        for key in old.keys where next[key] == nil { moved.insert(key.source) }
+        return moved
+    }
+
+    public func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? {
+        byHome[home]?[Key(source: research, row: row, column: column)]?.value
+    }
+}
+
 /// **A book's figures as one `Workbook`**, keyed by each record's id (what a
 /// formula stores, R-D1; `FormulaNames(records:tables:research:)` over its
 /// `workbook.tables` gives each its current name). Holds every table
 /// figure, a parked one from its parked state — the last values the figures
 /// reading it keep while it sits in Research (R-D2) — and listed in `parked`, so
-/// its readers can be flagged. A figure whose stream cannot be read (RULING-54)
+/// its readers can be flagged. Research refs, and refs into a parked figure,
+/// read the reading figure's own pins (`FigurePinIndex`, spec §4.3). A figure whose stream cannot be read (RULING-54)
 /// is absent, so a reference to it is `#REF!`, and is LISTED in `unreadable`.
 public struct FigureWorkbook: Sendable {
     public var workbook: Workbook
-    /// The ids of the figures assembled from a parked state.
-    public var parked: Set<String>
+    /// Every figure's research pins, as `workbook` reads them.
+    public private(set) var pins = FigurePinIndex()
     public var unreadable: [(name: String, error: String)]
+
+    /// The ids of the figures assembled from a parked state.
+    public var parked: Set<String> { workbook.parked }
 
     @MainActor
     public static func assemble(
         for manifest: ProjectManifest, cache: FigureCache, projectURL: URL,
-        trust: TrustTable? = nil, pins: ResearchPinSource
+        trust: TrustTable? = nil
     ) -> FigureWorkbook {
-        var book = Workbook(pins: pins)
-        var parked = Set<String>()
         var unreadable: [(name: String, error: String)] = []
         let facts = DocumentClass.Facts(manifest)
         cache.evict(except: Set(facts.figures.map(\.id)))
+        var states: [(String, FigureState)] = []
+        var pins = FigurePinIndex()
         for record in facts.figures where record.kind == .table {
             do {
                 let state = try cache.state(
                     forFigureId: record.id, in: projectURL, trust: trust, facts: facts)
-                if state.parked != nil { parked.insert(record.id) }
-                book.setTable(state.table, id: record.id)
+                states.append((record.id, state))
+                pins.set(state.pins, home: record.id)
             } catch {
                 unreadable.append((record.name, String(describing: error)))
             }
         }
-        return FigureWorkbook(workbook: book, parked: parked, unreadable: unreadable)
+        var book = Workbook(pins: pins)
+        for (id, state) in states where state.parked != nil { book.setParked(true, id: id) }
+        for (id, state) in states { book.setTable(state.table, id: id) }
+        return FigureWorkbook(workbook: book, pins: pins, unreadable: unreadable)
     }
 
     /// **Lay a fresher state of figure `id` over its read** — an open host's fold.
-    /// Its table replaces the read one and its parked status wins, so `parked` stays
+    /// Its table and pins replace the read ones and its parked status wins, so `parked` stays
     /// the one answer to "which figures are in Research" for whoever reads this book.
     public mutating func overlay(_ state: FigureState, id: String) {
+        let moved = pins.set(state.pins, home: id)
+        workbook.setPins(pins)
+        workbook.setParked(state.parked != nil, id: id)
         workbook.setTable(state.table, id: id)
-        if state.parked != nil { parked.insert(id) } else { parked.remove(id) }
+        for source in moved { workbook.pinsChanged(home: id, research: source) }
     }
 }

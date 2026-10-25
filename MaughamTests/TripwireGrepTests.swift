@@ -11931,7 +11931,8 @@ final class TripwireGrepTests: XCTestCase {
     /// (`figureMutatorSpellings`), `createFigure(`, `createImageFigure(` and `useInDocument(` (a figure's birth, behind
     /// its own posture question), `sendToResearch(` (a park, behind the
     /// figure's door and its line's manuscript door), `bringBack(` (a return,
-    /// behind the figure's door), and `figureOpMintSpelling` — every `Op(`
+    /// behind the figure's door), `refreshPins(` (a figure's research pins
+    /// re-read, behind its door, R-D2), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
     /// copied off another op) is still a named site.
@@ -11944,7 +11945,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
-        "resumeFromResearch(", "bringBack(",
+        "resumeFromResearch(", "bringBack(", "refreshPins(",
         figureOpMintSpelling,
     ]
 
@@ -11968,6 +11969,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
+        "refreshPins(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12376,6 +12378,9 @@ final class TripwireGrepTests: XCTestCase {
             // A delete's redo; an undone insert's redo and a revive's own
             // redo (report plan 6b Task 4).
             "deleteRow(": 1, "deleteColumn(": 1, "reviveRow(": 2, "reviveColumn(": 2,
+            // A pin refresh's redo refreshes again, behind its own door
+            // (report plan 6b Task 9).
+            "refreshPins(": 1,
         ],
         // A rename's picture: `renameImageFile` through the figure's host,
         // after `renameFigure` asked every door (report plan 6b Task 5).
@@ -12473,6 +12478,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
         "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
         "parkInResearch": "figure", "resumeFromResearch": "figure",
+        "refreshPins": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12672,6 +12678,7 @@ final class TripwireGrepTests: XCTestCase {
         let parked = try await store.sendToResearch(figureId: f, scope: .shared)
         try await host.resumeFromResearch(changes: c, picture: nil, expecting: s)
         let back = try await store.bringBack(researchItemId: i, piece: p)
+        try await reader.refreshPins(undoManager: um)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

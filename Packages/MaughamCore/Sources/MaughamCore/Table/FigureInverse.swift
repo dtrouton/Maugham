@@ -4,7 +4,7 @@ import Foundation
 /// removes one). Pure; the host registers the result on its window's
 /// `UndoManager`. Each inverse reads only the payload, which carries what the
 /// op replaced (`prior`, `priorAfter`, a setting's prior, `priorImage`, a
-/// delete's `removed` slice — ruling P-2).
+/// delete's `removed` slice — ruling P-2, a pin's `priorPin` — ruling P-8).
 public enum FigureInverse {
 
     /// The op that undoes `payload` under `kind`, or nil when there is none:
@@ -20,7 +20,9 @@ public enum FigureInverse {
     /// - a setting swaps its value and prior;
     /// - an image set swaps to `priorImage` — nil when there was none, since
     ///   no op clears an image;
-    /// - create, park, resume and pins have none.
+    /// - a pin set swaps to `priorPin`, or — for a cell that held no pin from
+    ///   that source — clears the pin it set (ruling P-8);
+    /// - create, park, resume and a pin clear have none.
     public static func inverse(of payload: FigureOpPayload, kind: OpKind) -> (OpKind, FigureOpPayload)? {
         guard FigureOpPayload.validate(kind: kind, payload: payload) else { return nil }
         switch kind {
@@ -60,6 +62,12 @@ public enum FigureInverse {
         case .figureImageSet:
             guard let prior = payload.priorImage else { return nil }
             return (.figureImageSet, FigureOpPayload(image: prior, priorImage: payload.image))
+
+        case .figurePinSet:
+            guard let prior = payload.priorPin else {
+                return (.figurePinClear, FigureOpPayload(cell: payload.cell, pin: payload.pin))
+            }
+            return (.figurePinSet, FigureOpPayload(cell: payload.cell, pin: prior, priorPin: payload.pin))
 
         default:
             return nil

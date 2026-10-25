@@ -148,14 +148,44 @@ final class FigureInverseTests: XCTestCase {
         XCTAssertNil(FigureInverse.inverse(of: FigureOpPayload(image: a, priorImage: nil), kind: .figureImageSet))
     }
 
-    func test_lifecycleAndPinKinds_haveNoInverse() {
-        let at = Date(timeIntervalSince1970: 1)
-        let pin = FigureResearchPin(research: "res-a", row: 0, column: 0, value: .empty, sourceHash: "h", at: at)
+    /// Ruling P-8: a pin refresh is undone from its payload alone — a pin
+    /// that replaced one swaps back to it, a cell's first pin is cleared.
+    func test_aPinSet_swapsToItsPriorPin_orClearsAFirstPin() throws {
+        let old = FigureResearchPin(research: "res-a", row: 2, column: 1, value: .number(10), sourceHash: "h1",
+                                    at: Date(timeIntervalSince1970: 1))
+        let new = FigureResearchPin(research: "res-a", row: 2, column: 1, value: .number(12), sourceHash: "h2",
+                                    at: Date(timeIntervalSince1970: 2))
+        let swap = try XCTUnwrap(FigureInverse.inverse(
+            of: FigureOpPayload(cell: key(r1, c1), pin: new, priorPin: old), kind: .figurePinSet))
+        XCTAssertEqual(swap.0, .figurePinSet)
+        XCTAssertEqual(swap.1, FigureOpPayload(cell: key(r1, c1), pin: old, priorPin: new))
+        let first = try XCTUnwrap(FigureInverse.inverse(
+            of: FigureOpPayload(cell: key(r1, c1), pin: new), kind: .figurePinSet))
+        XCTAssertEqual(first.0, .figurePinClear)
+        XCTAssertEqual(first.1, FigureOpPayload(cell: key(r1, c1), pin: new))
+        // Folded, the swap puts the old pin back and the clear leaves none.
+        var state = FigureState(kind: .table, table: FigureTable(rows: 3, columns: 3))
+        let k = CellKey(row: state.table.rows[0], column: state.table.columns[0])
+        func fold(_ kind: OpKind, _ p: FigureOpPayload) {
+            FigureDeriver.fold(Op(opId: ULID.generate(), docId: "fig-a", at: Date(), device: "d", session: "s",
+                                  kind: kind, changes: [], figure: p), into: &state)
+        }
+        fold(.figurePinSet, FigureOpPayload(cell: k, pin: old))
+        fold(.figurePinSet, FigureOpPayload(cell: k, pin: new, priorPin: old))
+        let back = try XCTUnwrap(FigureInverse.inverse(
+            of: FigureOpPayload(cell: k, pin: new, priorPin: old), kind: .figurePinSet))
+        fold(back.0, back.1)
+        XCTAssertEqual(state.pins[k], [old])
+        let clear = try XCTUnwrap(FigureInverse.inverse(of: FigureOpPayload(cell: k, pin: old), kind: .figurePinSet))
+        fold(clear.0, clear.1)
+        XCTAssertNil(state.pins[k])
+    }
+
+    func test_lifecycleKindsAndAPinClear_haveNoInverse() {
         let cases: [(OpKind, FigureOpPayload)] = [
             (.figureCreate, FigureOpPayload(kind: .table)),
             (.figureParked, FigureOpPayload(parkedPath: "research/x.csv", parkedHash: "h")),
             (.figureResumed, FigureOpPayload()),
-            (.figurePinSet, FigureOpPayload(cell: key(r1, c1), pin: pin)),
             (.figurePinClear, FigureOpPayload(cell: key(r1, c1))),
             (.typingBurst, FigureOpPayload(cell: key(r1, c1), next: num(1))),
         ]
