@@ -72,24 +72,24 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 
 | # | Rule | Enforced by |
 |---|---|---|
-| 1 | No `NSTextStorage` subclass fronting several files | prose only |
+| 1 | No `NSTextStorage` subclass fronting several files | `TripwireGrepTests.test_noNSTextStorageSubclassInProduction` +1 |
 | 2 | No SwiftUI ↔ AppKit two-way sync guarded by flags | prose only |
 | 3 | No heavy work inside a synchronous SwiftUI binding setter | `EditorIntegrationHarnessTests` |
 | 4 | No uncached per-row computation in SwiftUI list rows | prose only |
-| 5 | No `NSPopover` for editor autocomplete | prose only |
+| 5 | No `NSPopover` for editor autocomplete | `TripwireGrepTests.test_noPopoverInEditorAutocomplete` +1 |
 | 6 | No parallel observable state on `EditorHost`; one `Binding` writes `displayText` exactly once | `EditorIntegrationHarnessTests` |
 | 7 | No 4th caller of `EditorSurface.applyExternalText` | `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite` |
 | 8 | Tests crossing the `.md` ↔ op log boundary use 4-char paragraph ids from the valid alphabet | `TripwireGrepTests.test_paragraphIdLiteralsInTestsUseValidAlphabet` |
-| 9 | No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)` | prose only |
+| 9 | No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)` | `TripwireGrepTests.test_noTapGestureInASidebarListFile` +1 |
 | 10 | No MCP tool response over 1 MB; images crop on demand | prose only (ADR 0004) |
 | 11 | No test data migration — delete and recreate | prose only |
 | 12 | No stringly-typed `synthesisSource`; it is the typed `SynthesisSource` enum | the compiler (typed enum) |
-| 13 | No hardcoded `"maugham"` / `"Maugham"` / socket paths outside `BuildVariant.swift` | `TripwireGrepTests` +1 |
+| 13 | No hardcoded `"maugham"` / `"Maugham"` / socket paths outside `BuildVariant.swift` | `TripwireGrepTests.test_noHardcodedIdentityStringsInMacSources` +1 |
 | 14 | Move or delete user-editable content only through the typed `DocumentStore` mover | `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` |
-| 15 | `ContentUnavailableView` chains a full-size `.frame`, and the pane's outer `VStack` takes `alignment: .top` | `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame` |
+| 15 | `ContentUnavailableView` chains a full-size `.frame`, and its enclosing `VStack` chains `.frame(…, alignment: .top)` | `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame` |
 | 16 | Inline rename focus defers `Task.sleep(30ms)` and fires from both `.onAppear` and `.onChange(of: renamingItemId)` | prose only |
 | 17 | No single JSONL file shared across devices through iCloud Drive; never seal (`SegmentSealer`) the legacy file or another device's | `OpLogStoreSegmentTests.test_legacyFile_neverSealed` |
-| 18 | On iOS: don't assume eviction; `startAccessing==false` is not a denial; don't `d_`-prefix a docId twice | prose only |
+| 18 | On iOS: don't assume eviction; `startAccessing==false` is not a denial; don't `d_`-prefix a docId twice | `TripwireGrepTests.test_noDocIdIsGivenADPrefix` +1 |
 | 19 | Anything both Mac and phone touch goes through one shared MaughamCore implementation | `TripwirePhoneGrepTest` +1 |
 | 20 | No raw manuscript `.md`/`.fountain` read as truth; derive from the op log | `TripwireGrepTests` +1 |
 | 21 | No raw `maugham.*` NotificationCenter traffic outside `MaughamEvent`; every post declares its scope | `TripwireGrepTests` |

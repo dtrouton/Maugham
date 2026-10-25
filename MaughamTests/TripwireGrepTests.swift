@@ -476,55 +476,92 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - Identity-string literal tripwire (tripwire 13)
 
-    /// Recurrence-tripper: prevents hardcoded `"maugham"` / `"Maugham"` identity
-    /// literals from reappearing in Maugham/ source outside the one sanctioned
-    /// home (`BuildVariant.swift`). The six variant-dependent identity values
-    /// (bundle id, display name, support-folder name, MCP socket path, Claude
-    /// Desktop config key, MCP serverInfo.name) vary between stable and dev
-    /// builds and MUST be derived from `BuildVariant.current`.
-    ///
-    /// Allowed exceptions (documented here as the authoritative list):
-    ///   - `BuildVariant.swift` — the one canonical source of truth; excluded by
-    ///     `allowedFiles`.
-    ///   - `GitHubReleasesAPI.swift` — `repo: String = "Maugham"` is the GitHub
-    ///     repository name. Dev and stable builds update from the SAME repo, so
-    ///     this is a genuinely-constant string, not a variant identity value.
-    ///     Routing it through BuildVariant would be wrong.
-    ///   - `ProjectFolderPresenter.swift` — `"com.maugham.ProjectFolderPresenter"`
-    ///     is an OperationQueue debug label. It does NOT match the exact quoted
-    ///     patterns `"maugham"` or `"Maugham"` (it is a longer string containing
-    ///     the substring), so it is not caught by this tripwire — no exclusion
-    ///     needed. Noted here for audit completeness.
+    /// The quoted spellings of a variant identity value: the stable and dev
+    /// display names and MCP server keys (`"Maugham"`, `"maugham"`, and any
+    /// literal STARTING `"Maugham Dev` / `"maugham-dev`), any literal ENDING in
+    /// a socket file name (`….sock"`), and a hand-built support-folder path
+    /// (`…Support/Maugham…`). Not matched: the `.maugham/` sidecar folder, which
+    /// is per project and the same in both variants; a URL naming the GitHub
+    /// repo; and the `Bundle.main.bundleIdentifier ?? "com.maugham.Maugham"`
+    /// logger-subsystem fallbacks, which name the bundle rather than derive
+    /// anything from it.
+    static let identityLiteralPatterns = [
+        #""maugham""#, #""Maugham""#, #""maugham-dev"#, #""Maugham Dev"#,
+        #".sock""#, #"Support/Maugham"#,
+    ]
+
+    /// Where an identity literal may be spelled, and why.
+    static let identityLiteralAllowed: [String: String] = [
+        "type:BuildVariant": "the one home: display name, support folder, MCP key and socket path per variant",
+        "type:GitHubReleasesAPI": "`repo = \"Maugham\"`: both variants update from the same GitHub repository",
+        "type:TestHost": "`hostSocketSuffix`: a test host's per-pid temporary socket, never a variant's",
+    ]
+
+    private func identityLiteralOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: Self.identityLiteralPatterns, allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: nil)
+    }
+
+    /// **No variant identity value is spelled outside `BuildVariant`** (tripwire
+    /// 13). Six values differ between the stable and dev builds (bundle id,
+    /// display name, support folder, MCP socket path, Claude Desktop config key,
+    /// MCP serverInfo.name); a hardcoded one is a split-build bug — the dev
+    /// build answering as stable, or binding stable's socket. Mac, phone and
+    /// Core are all scanned (`productionRootURLs`); the allow-list is keyed by
+    /// type, so a file merely NAMED `BuildVariant.swift` earns nothing. The
+    /// phone twin `TripwirePhoneGrepTest` keeps its own narrower scan.
     func test_noHardcodedIdentityStringsInMacSources() throws {
-        // The one sanctioned home for Maugham/ identity literals.
-        let allowedFiles: Set<String> = ["BuildVariant.swift"]
-
-        // Genuinely-constant literals that contain "maugham"/"Maugham" but are
-        // NOT variant-identity values — excluded by line predicate.
-        let isAllowedConstantLine: (String) -> Bool = { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            // Comment lines — tripwire explanation comments are fine.
-            if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
-            // GitHubReleasesAPI: repo name is constant across variants (both
-            // stable and dev update from dtrouton/Maugham on GitHub). Hoisted
-            // to `static let repo` so the trusted-URL check shares it (#67).
-            if trimmed == "public static let repo = \"Maugham\"" { return true }
-            return false
-        }
-
-        let offenders = try grepSwift(
-            in: sourceDir,
-            patterns: ["\"maugham\"", "\"Maugham\""],
-            allowed: allowedFiles,
-            excludeLine: isAllowedConstantLine
-        )
-        XCTAssertTrue(offenders.isEmpty,
-            "Hardcoded \"maugham\"/\"Maugham\" identity strings found in Maugham/ "
-            + "outside BuildVariant.swift. Route variant-dependent values through "
-            + "BuildVariant.current (tripwire 13). If the literal is genuinely "
-            + "constant (e.g. a GitHub repo path), add it to isAllowedConstantLine "
-            + "with a reason. Offenders:\n"
+        let offenders = try identityLiteralOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.identityLiteralAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "a variant identity literal outside BuildVariant — route it through "
+            + "`BuildVariant.current` (tripwire 13). If the literal is genuinely the "
+            + "same in both variants, add its type to `identityLiteralAllowed` with a reason:\n"
             + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: every spelling is caught in code, while a comment, the
+    /// `.maugham/` sidecar folder, a repo URL and a bundle-id fallback are not;
+    /// inside `BuildVariant` they pass, and a lookalike file NAMED
+    /// `BuildVariant.swift` declaring another type is still caught.
+    func test_theIdentityLiteralCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("identity-literal-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let planted = dir.appendingPathComponent("Planted.swift")
+        try #"""
+        let a = "maugham"
+        let b = "Maugham"
+        let c = "maugham-dev"
+        let d = "Maugham Dev"
+        let e = support.appendingPathComponent("mcp.sock")
+        let f = "~/Library/Application Support/Maugham/x"
+        // "maugham" in a comment
+        let g = project.appendingPathComponent(".maugham/ops")
+        let h = URL(string: "https://github.com/dtrouton/Maugham")
+        let i = Bundle.main.bundleIdentifier ?? "com.maugham.Maugham"
+        """#.write(to: planted, atomically: true, encoding: .utf8)
+        try #"struct BuildVariantish { let n = "maugham" }"#
+            .write(to: dir.appendingPathComponent("BuildVariant.swift"), atomically: true, encoding: .utf8)
+
+        let bare = try identityLiteralOffenders(in: [dir], allowed: [])
+        let byFile = Dictionary(grouping: bare) { String($0.prefix { $0 != ":" }) }
+        XCTAssertEqual(byFile["Planted.swift"]?.map { SourceTree.Hit(offender: $0)?.line },
+                       [1, 2, 3, 4, 5, 6],
+                       "the six code spellings, not the comment, the sidecar, the URL or the fallback:\n"
+                       + bare.joined(separator: "\n"))
+        XCTAssertEqual(byFile["BuildVariant.swift"]?.count, 1, bare.joined(separator: "\n"))
+
+        try Self.declare("BuildVariant", in: planted)
+        let allowed = Self.dropping(
+            unplanted: ["type:GitHubReleasesAPI", "type:TestHost"],
+            from: try identityLiteralOffenders(in: [dir], allowed: Set(Self.identityLiteralAllowed.keys)))
+        XCTAssertEqual(allowed.count, 1, "only the lookalike is caught:\n" + allowed.joined(separator: "\n"))
+        XCTAssertTrue(allowed.first?.hasPrefix("BuildVariant.swift:1:") == true,
+                      "a file NAMED BuildVariant.swift earns nothing: \(allowed)")
     }
 
     // MARK: - Typed user-content mover tripwire (tripwire 14)
@@ -3633,27 +3670,27 @@ final class TripwireGrepTests: XCTestCase {
     /// SHAPE rather than by how many lines its arguments happen to take —
     /// there is no length at which a pane silently stops being checked.
     func test_contentUnavailableViewAlwaysChainsFullFrame() throws {
-        // **`Maugham/`, not `Maugham/Views`.** 1C-c1's docs sweep found the scan
-        // pointed at one directory while the panes it protects had spread out of
-        // it: both canvas inspector panes live in `Maugham/Canvas/`, so the
-        // full-frame chain was correct there and enforced nowhere. A tidy-up
-        // dropping it would have shipped green, and this is a bug that has
-        // recurred four or more times. Any new pane anywhere under the app target
-        // is now covered by default, which is the point — a rule that only holds
-        // in the directory it was written in is a rule about a directory.
-        let appDir = repoRoot.appendingPathComponent("Maugham", isDirectory: true)
-
+        // **Every production root, not `Maugham/` alone.** 1C-c1's docs sweep
+        // found the scan pointed at one directory while the panes it protects
+        // had spread out of it (both canvas inspector panes live in
+        // `Maugham/Canvas/`); #114 found the phone's ten uses unscanned the same
+        // way. A rule that only holds in the directory it was written in is a
+        // rule about a directory.
+        //
         // **Non-vacuity, by name rather than by count.** The reason this census
         // sat blind for milestones is that a scan finding nothing and a scan
-        // looking at nothing read identically from the outside. These four
-        // panes use the trailing-closure form, so ALL FOUR were invisible to
-        // the old scan; if a future edit narrows the opener again, this fails
-        // before the emptiness of `offenders` can be mistaken for safety.
-        let inspected = try Self.contentUnavailableViewSites(in: appDir)
+        // looking at nothing read identically from the outside. These panes use
+        // the trailing-closure form, so ALL were invisible to the old scan; if a
+        // future edit narrows the opener or the roots again, this fails before
+        // the emptiness of `offenders` can be mistaken for safety.
+        let inspected = try SourceTree.productionRootURLs.flatMap {
+            try Self.contentUnavailableViewSites(in: $0)
+        }
         for pane in ["Maugham/Views/ProjectAltitudePane.swift",
                      "Maugham/Views/Review/ReviewBoardPane.swift",
                      "Maugham/Views/ResearchNoteEditor.swift",
-                     "Maugham/Views/CollectionPiecesPane.swift"] {
+                     "Maugham/Views/CollectionPiecesPane.swift",
+                     "MaughamPhone/Read/BinderView.swift"] {
             XCTAssertTrue(inspected.contains { $0.path == pane },
                 "\(pane) holds a trailing-closure ContentUnavailableView that "
                 + "this census did not even look at. Inspected: "
@@ -3670,6 +3707,54 @@ final class TripwireGrepTests: XCTestCase {
             + "center — this has recurred 4+ times. Canonical examples: "
             + "HistoryPane, AnnotationsPane, ProjectAltitudePane. Offenders:\n"
             + offenders.joined(separator: "\n"))
+
+        // The other half: the VStack around it. Asserted non-vacuous too — the
+        // canonical panes hold their ContentUnavailableView inside one.
+        XCTAssertTrue(inspected.contains {
+            $0.path == "Maugham/Views/ProjectAltitudePane.swift" && $0.enclosingVStack != nil
+        }, "the enclosing-VStack walk found no VStack around ProjectAltitudePane's "
+            + "ContentUnavailableView — the alignment half is reading nothing")
+        let unaligned = try Self.unalignedContentUnavailableViewStacks(
+            inspected, roots: SourceTree.productionRootURLs,
+            allowed: Set(Self.contentUnavailableViewStackAllowed.keys))
+        XCTAssertEqual(unaligned, [],
+            "a ContentUnavailableView sits in a VStack (in the same view "
+            + "declaration) whose own modifier chain has no `.frame(…, alignment: "
+            + ".top)` — the parent centres the pane and its toolbar floats "
+            + "(tripwire 15). Chain `.frame(maxWidth: .infinity, maxHeight: "
+            + ".infinity, alignment: .top)` onto the outer VStack:\n"
+            + unaligned.joined(separator: "\n"))
+    }
+
+    /// The VStacks that may hold a `ContentUnavailableView` without a
+    /// top-aligned frame, keyed by type, and why.
+    static let contentUnavailableViewStackAllowed: [String: String] = [
+        "type:RecoveredHistorySheet": "a sheet's root: its VStack is the whole sheet, so no parent centres it",
+        "type:RestoreWindow": "a window's root: its VStack is the whole window, so no parent centres it",
+    ]
+
+    /// **The alignment half of tripwire 15**, read where text can read it: for
+    /// each site whose OUTERMOST `VStack` within the same declaration (`var`,
+    /// `func`, `init`) is found, that VStack's own modifier chain — the lines
+    /// from its closing brace to the end of the chain — must carry
+    /// `.frame(… alignment: .top)`. A site factored into a helper with no
+    /// VStack of its own (most `DetailPaneToggle` panes, every phone use, which
+    /// sit in a `List` or a `NavigationStack`) has no enclosing VStack in its
+    /// declaration and is not judged by this half.
+    static func unalignedContentUnavailableViewStacks(
+        _ sites: [ContentUnavailableViewSite], roots: [URL], allowed: Set<String>
+    ) throws -> [String] {
+        let (allowance, unresolved) = SourceTree.expandingTypeKeys(allowed, in: roots)
+        var seen: Set<String> = []
+        var offenders = unresolved
+        for site in sites {
+            guard let stack = site.enclosingVStack, !stack.topAligned else { continue }
+            let basename = (site.path as NSString).lastPathComponent
+            if allowance.allows(file: basename, line: stack.line) { continue }
+            let entry = "\(site.path):\(stack.line): \(stack.text) (holds the ContentUnavailableView at line \(site.line))"
+            if seen.insert("\(site.path):\(stack.line)").inserted { offenders.append(entry) }
+        }
+        return offenders
     }
 
     /// Shared scan: walk every `.swift` file in `dir`, and for each
@@ -3700,6 +3785,9 @@ final class TripwireGrepTests: XCTestCase {
         let line: Int
         let text: String
         let hasFrame: Bool
+        /// The outermost `VStack` enclosing the site within its own
+        /// declaration, if any, and whether its chain is top-aligned.
+        var enclosingVStack: (line: Int, text: String, topAligned: Bool)? = nil
 
         var description: String { "\(path):\(line): \(text)" }
     }
@@ -3739,7 +3827,8 @@ final class TripwireGrepTests: XCTestCase {
                 sites.append(ContentUnavailableViewSite(
                     path: shown, line: i + 1,
                     text: line.trimmingCharacters(in: .whitespaces),
-                    hasFrame: hasFrame))
+                    hasFrame: hasFrame,
+                    enclosingVStack: outermostEnclosingVStack(of: i, in: lines)))
             }
         }
         return sites
@@ -3806,6 +3895,75 @@ final class TripwireGrepTests: XCTestCase {
             j += 1
         }
         return start...end
+    }
+
+    /// **The outermost `VStack` opened around line `index` within the same
+    /// declaration**, walking back and counting brackets (string literals and
+    /// trailing comments removed). The walk stops at the first enclosing opener
+    /// that is a `var`, `func` or `init` — the declaration's own brace — so a
+    /// VStack in the caller of a factored helper is never mistaken for this
+    /// one's. Returns its 1-based line, its text, and whether its own modifier
+    /// chain (closing brace to chain end) carries `.frame(… alignment: .top)`.
+    static func outermostEnclosingVStack(
+        of index: Int, in lines: [String]
+    ) -> (line: Int, text: String, topAligned: Bool)? {
+        var depth = 0
+        var outermost: Int?
+        var k = index - 1
+        while k >= 0 {
+            let code = codeOnly(lines[k])
+            for character in code.reversed() {
+                switch character {
+                case ")", "}", "]": depth += 1
+                case "(", "{", "[": depth -= 1
+                default: break
+                }
+            }
+            if depth < 0 {
+                depth = 0
+                if code.range(of: #"\bVStack\b"#, options: .regularExpression) != nil { outermost = k }
+                if code.range(of: #"\b(var|func|init)\b"#, options: .regularExpression) != nil { break }
+            }
+            k -= 1
+        }
+        guard let start = outermost else { return nil }
+        // Walked to the end of the file, not to `contentUnavailableViewSpanLimit`:
+        // a pane's outer VStack is routinely hundreds of lines long.
+        let last = lines.count - 1
+        func balancedEnd(from first: Int) -> Int {
+            var depth = 0, opened = false
+            for j in first...last {
+                for character in codeOnly(lines[j]) {
+                    switch character {
+                    case "(", "{", "[": depth += 1; opened = true
+                    case ")", "}", "]": depth -= 1
+                    default: break
+                    }
+                }
+                if depth <= 0 && (opened || j == first) { return j }
+            }
+            return last
+        }
+        // The VStack's own chain begins where its body closes, and runs on
+        // through every following line that continues it with a leading `.`.
+        let close = balancedEnd(from: start)
+        var chainEnd = close
+        while let next = nextCodeLine(after: chainEnd, in: lines, limit: last),
+              lines[next].trimmingCharacters(in: .whitespaces).hasPrefix(".") {
+            chainEnd = balancedEnd(from: next)
+        }
+        let chain = lines[close...chainEnd].map(codeOnly).joined(separator: " ")
+        let topAligned = chain.range(
+            of: #"\.frame\([^()]*alignment:\s*\.top\s*\)"#, options: .regularExpression) != nil
+        return (start + 1, lines[start].trimmingCharacters(in: .whitespaces), topAligned)
+    }
+
+    /// `line` with its string-literal contents and any trailing `//` comment
+    /// removed — the code a bracket count may read.
+    private static func codeOnly(_ line: String) -> String {
+        let stripped = strippingStringLiterals(line)
+        guard let comment = stripped.range(of: "//") else { return stripped }
+        return String(stripped[..<comment.lowerBound])
     }
 
     /// The next line that is neither blank nor a whole-line comment, or nil.
@@ -3937,6 +4095,78 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.contains { $0.contains("Comment trap") },
             "Self-check: the planted CommentTrapPane offender should be caught "
             + "even though a nearby COMMENT contains the frame substring.")
+    }
+
+    /// The control for the alignment half: a VStack whose own chain carries
+    /// `.frame(… alignment: .top)` passes however long it is (past the
+    /// 60-line span limit); one with no such frame fires, and so does one whose
+    /// only `alignment: .top` is a CHILD's frame or an `.overlay` — neither
+    /// aligns the pane. A site factored into a helper whose VStack is in the
+    /// caller is not judged by this half.
+    func test_theContentUnavailableViewAlignmentHalfFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-cuv-align-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        // Past `contentUnavailableViewSpanLimit`, so the walk must not stop there.
+        let filler = Array(repeating: "                Text(\"filler\")", count: 70)
+            .joined(separator: "\n")
+        try """
+        struct AlignedPane: View {
+            var body: some View {
+                VStack(spacing: 0) {
+                    ContentUnavailableView("Aligned", systemImage: "tray")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        \(filler)
+                }
+                .padding(4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+        struct UnalignedPane: View {
+            var body: some View {
+                VStack(alignment: .leading) {
+                    ContentUnavailableView("Unaligned", systemImage: "tray")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        struct ChildTrapPane: View {
+            var body: some View {
+                VStack {
+                    Text("head").frame(maxWidth: .infinity, alignment: .top)
+                    ContentUnavailableView("Child trap", systemImage: "tray")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .overlay(alignment: .top) { Text("x") }
+            }
+        }
+        struct FactoredPane: View {
+            var body: some View {
+                VStack { empty }
+            }
+            private var empty: some View {
+                ContentUnavailableView("Factored", systemImage: "tray")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("AlignPane.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try Self.contentUnavailableViewSites(in: tmp)
+        XCTAssertEqual(sites.count, 4, "control: all four sites inspected")
+        XCTAssertNil(sites.first { $0.text.contains("Factored") }?.enclosingVStack,
+            "a factored helper's VStack lives in its caller and is not this site's")
+        let unaligned = try Self.unalignedContentUnavailableViewStacks(sites, roots: [tmp], allowed: [])
+        XCTAssertEqual(unaligned.count, 2, unaligned.joined(separator: "\n"))
+        XCTAssertTrue(unaligned.contains { $0.contains("VStack(alignment: .leading) {") },
+            "the unaligned VStack fires: \(unaligned)")
+        XCTAssertTrue(unaligned.contains { $0.contains("Child trap") || $0.contains("VStack {") },
+            "a child's frame or an overlay is not the VStack's own: \(unaligned)")
+        XCTAssertFalse(unaligned.contains { $0.contains("VStack(spacing: 0)") },
+            "a long VStack whose own chain is top-aligned passes: \(unaligned)")
     }
 
     /// **The trailing-closure form is a `ContentUnavailableView` too** — the
