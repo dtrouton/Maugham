@@ -142,6 +142,8 @@ extension ProjectStore {
             report = try await restoreResearchItem(item, entryId: id, pending: pending)
         case .priorVersion:
             report = try await restorePriorVersion(entryId: id)
+        case .figure(let record):
+            try await restoreRemovedFigure(record, entryId: id)
         case .fileOnly:
             // A capture's asset (RULING-15): there is no row to rewire, and
             // putting the file back where it was is the whole restore.
@@ -165,6 +167,7 @@ extension ProjectStore {
         case manuscript(StructureItem)
         case research(ResearchItem)
         case priorVersion
+        case figure(FigureRecord)
         case fileOnly
         case unknownEntry
     }
@@ -220,6 +223,13 @@ extension ProjectStore {
             // note — so nothing is REWIRED. But a row of its own is minted, or
             // the restore is invisible: see `restorePriorVersion`.
             return .priorVersion
+        case .figure:
+            guard let record = try? JSONDecoder().decode(FigureRecord.self, from: entry.itemMetadata) else {
+                throw ProjectStoreError.trashEntryNotRewirable(
+                    title: entry.displayTitle,
+                    reason: "its record of the figure can’t be read.")
+            }
+            return .figure(record)
         case .internalArtifact:
             throw ProjectStoreError.trashEntryNotRewirable(
                 title: entry.displayTitle,

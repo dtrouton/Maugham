@@ -206,11 +206,11 @@ extension ProjectStore {
     }
 
     /// Apply a query→replacement edit to a manuscript document through the op
-    /// log. Obtains the live `Document` from the registry if open, else
-    /// transient-loads it; re-finds occurrences in `displayText` (display
-    /// coordinates, respecting `options`); replaces either the given ordinal
-    /// occurrences (`occurrenceIndices`) or all of them (nil); commits via
-    /// `setFullText`; persists + closes a transiently-loaded doc.
+    /// log. Holds the document through the door-checked route
+    /// (`openManuscriptForWriting`); re-finds occurrences in `displayText`
+    /// (display coordinates, respecting `options`); replaces either the given
+    /// ordinal occurrences (`occurrenceIndices`) or all of them (nil); commits
+    /// via `setFullText`; persists + closes a transiently-loaded doc.
     private func replaceInManuscript(
         path: String,
         title: String,
@@ -219,45 +219,8 @@ extension ProjectStore {
         replacement: String,
         occurrenceIndices: [Int]?
     ) async throws {
-        let refused = ManuscriptReplaceRefused(titles: [title])
-        // **The door, before any load** (C1, ruling AI): the acting answer —
-        // never the drawn one (controller ruling I) — so the root's yield is
-        // honoured here as it is by the hidden per-match button.
-        if let documentStore,
-           !(await documentStore.settledPosture(forPath: path).allows(.writeText)) {
-            throw refused
-        }
-        // Obtain the Document — open one from the registry, else transient-load.
-        let docURL = try resolvedProjectPath(path)
-        let openDoc = documentStore?.document(for: path)
-        let doc: Document
-        let isTransient: Bool
-        if let openDoc {
-            doc = openDoc
-            isTransient = false
-        } else {
-            // Search-and-replace is an automation of the writer's hand, so it
-            // signs as the writer (constraint 6): the ops it lands are the
-            // writer's own edits, made in one sweep instead of one at a time.
-            do {
-                doc = try await Document.load(
-                    url: docURL,
-                    actor: .author,
-                    session: "find-replace-\(UUID().uuidString.prefix(8))",
-                    presenter: documentStore?.presenter)
-            } catch DocumentLoadError.waitingForPiece {
-                // A piece this device may not write whose history has not
-                // arrived: left alone and named, not a part-way failure.
-                throw refused
-            }
-            isTransient = true
-        }
-        // **And the Document's own stamp** — the answer the load made, and
-        // the only one where no `DocumentStore` stands behind this store.
-        guard doc.mayWriteItsText else {
-            if isTransient { await doc.close() }
-            throw refused
-        }
+        let held = try await openManuscriptForWriting(
+            path: path, title: title, session: "find-replace")
 
         // Apply the edit, then close a transiently-loaded doc on EVERY exit
         // path (normal completion AND throw), exactly once, AWAITED. close()
@@ -276,14 +239,239 @@ extension ProjectStore {
         var thrown: Error?
         do {
             try applyReplacement(
-                to: doc, query: query, options: options,
+                to: held.doc, query: query, options: options,
                 replacement: replacement, occurrenceIndices: occurrenceIndices)
         } catch {
             thrown = error
         }
         // Single close site — runs on success AND failure, awaited exactly once.
-        if isTransient { await doc.close() }
+        await held.release()
         if let thrown { throw thrown }
+    }
+
+    /// A manuscript document held for writing by `openManuscriptForWriting`:
+    /// the window's live `Document`, or one loaded for this write alone.
+    struct WritableManuscript {
+        let doc: Document
+        let isTransient: Bool
+
+        /// Close a document loaded for this write — which flushes its burst
+        /// and autosave, so the `.md` holds the edit — exactly once, awaited.
+        /// A live document is left to its window's schedulers.
+        @MainActor func release() async {
+            if isTransient { await doc.close() }
+        }
+    }
+
+    /// **The door-checked manuscript route** — the one way a verb outside the
+    /// editor holds a manuscript to write its text: Replace and Replace All,
+    /// and a figure rename's relabel (`relabelFigure`).
+    ///
+    /// 1. **The door, before any load** (C1, ruling AI): the acting answer —
+    ///    never the drawn one (controller ruling I) — so the root's yield is
+    ///    honoured here as it is by the hidden per-match button.
+    /// 2. The window's live `Document` if it has one open; else a transient
+    ///    `Document.load`, signed as the writer (constraint 6): the ops it
+    ///    lands are the writer's own edits, made in one sweep.
+    /// 3. **And the Document's own stamp** — the answer the load made, and
+    ///    the only one where no `DocumentStore` stands behind this store.
+    ///
+    /// Any refusal throws `ManuscriptReplaceRefused` naming `title`, with
+    /// nothing loaded left open. The caller writes through `doc` and then
+    /// `release()`s it.
+    func openManuscriptForWriting(
+        path: String, title: String, session: String
+    ) async throws -> WritableManuscript {
+        let refused = ManuscriptReplaceRefused(titles: [title])
+        if let documentStore,
+           !(await documentStore.settledPosture(forPath: path).allows(.writeText)) {
+            throw refused
+        }
+        let docURL = try resolvedProjectPath(path)
+        let held: WritableManuscript
+        if let openDoc = documentStore?.document(for: path) {
+            held = WritableManuscript(doc: openDoc, isTransient: false)
+        } else {
+            do {
+                let doc = try await Document.load(
+                    url: docURL,
+                    actor: .author,
+                    session: "\(session)-\(UUID().uuidString.prefix(8))",
+                    presenter: documentStore?.presenter)
+                held = WritableManuscript(doc: doc, isTransient: true)
+            } catch DocumentLoadError.waitingForPiece {
+                // A piece this device may not write whose history has not
+                // arrived: left alone and named, not a part-way failure.
+                throw refused
+            }
+        }
+        guard held.doc.mayWriteItsText else {
+            await held.release()
+            throw refused
+        }
+        return held
+    }
+
+    // MARK: - A figure's label, relabelled (report plan 6b Task 5, ruling P-3)
+
+    /// **What a figure rename changes in the text**: its line's label
+    /// (`{#tbl:old}` → `{#tbl:new}`), that line's file name when it names the
+    /// figure's file (`figures/old.csv` → `figures/new.csv`), and every
+    /// cross-reference to the label (`@tbl:old`, `[@tbl:old]`).
+    struct FigureLabelChange: Equatable {
+        let old: ManuscriptLabel
+        let newName: String
+        let oldFile: String
+        let newFile: String
+    }
+
+    /// **The manuscripts a figure rename relabels, each held for writing**
+    /// through `openManuscriptForWriting` — phase one of ruling P-3's all or
+    /// nothing. `apply()` writes every one and releases it; `abandon()`
+    /// releases them unwritten.
+    struct HeldFigureRelabel {
+        let change: FigureLabelChange
+        let manuscripts: [WritableManuscript]
+
+        /// Relabel each held manuscript through `setFullText`, re-finding the
+        /// sites in its CURRENT text, then release it.
+        @MainActor func apply() async {
+            for held in manuscripts {
+                if let text = ProjectStore.relabelled(held.doc.displayText, change) {
+                    held.doc.setFullText(text)
+                }
+                await held.release()
+            }
+        }
+
+        /// Release every held manuscript without writing it.
+        @MainActor func abandon() async {
+            for held in manuscripts { await held.release() }
+        }
+    }
+
+    /// **Phase one of a figure rename's relabel**: every manuscript whose
+    /// text holds the figure's line or a cross-reference to its label is
+    /// found (its live text where a window has it open, else derived from
+    /// its op log — never the `.md`), and each is held through the door-checked
+    /// route. **Any refusal releases them all and throws**
+    /// `FigureRenameRefused` naming every piece that refused, so nothing is
+    /// written anywhere. When the text holds the figure, a new name that is
+    /// not a valid label name, or a label the text already defines, is
+    /// refused too.
+    func holdManuscriptsForFigureRelabel(_ change: FigureLabelChange) async throws -> HeldFigureRelabel {
+        let newLabel = ManuscriptLabel(reference: "\(change.old.kind.rawValue):\(change.newName)")
+        var candidates: [(title: String, path: String)] = []
+        for item in Self.collectDocuments(in: manifest.structure) {
+            guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay else { continue }
+            let text = documentStore?.document(for: path)?.displayText
+                ?? (try? derivedCache.displayText(forDocId: item.id, in: url))
+            guard let text else {
+                // Unreadable here: it may hold the figure, so it is asked.
+                candidates.append((item.title, path))
+                continue
+            }
+            if let newLabel, change.old != newLabel, Self.definesLabel(text, newLabel) {
+                throw FigureRenameRefused(reason: .labelTaken(newLabel.reference))
+            }
+            if !Self.figureRelabelEdits(in: text, change).isEmpty {
+                candidates.append((item.title, path))
+            }
+        }
+        guard !candidates.isEmpty else { return HeldFigureRelabel(change: change, manuscripts: []) }
+        guard newLabel != nil else {
+            throw FigureRenameRefused(reason: .notALabelName(change.newName))
+        }
+        var held: [WritableManuscript] = []
+        var refused: [String] = []
+        for candidate in candidates {
+            do {
+                held.append(try await openManuscriptForWriting(
+                    path: candidate.path, title: candidate.title, session: "figure-rename"))
+            } catch is ManuscriptReplaceRefused {
+                refused.append(candidate.title)
+            } catch {
+                await HeldFigureRelabel(change: change, manuscripts: held).abandon()
+                throw error
+            }
+        }
+        guard refused.isEmpty else {
+            await HeldFigureRelabel(change: change, manuscripts: held).abandon()
+            throw FigureRenameRefused(reason: .piecesNotWritable(refused))
+        }
+        return HeldFigureRelabel(change: change, manuscripts: held)
+    }
+
+    /// `text` with `change` made, or nil when it holds nothing to change.
+    nonisolated static func relabelled(_ text: String, _ change: FigureLabelChange) -> String? {
+        let edits = figureRelabelEdits(in: text, change)
+        guard !edits.isEmpty else { return nil }
+        let ns = NSMutableString(string: text)
+        for edit in edits.sorted(by: { $0.range.location > $1.range.location }) {
+            ns.replaceCharacters(in: edit.range, with: edit.replacement)
+        }
+        return ns as String
+    }
+
+    /// **Every site `change` rewrites in `text`**, as UTF-16 ranges: the
+    /// figure line's label name and (when it names `oldFile`, in any case)
+    /// its file name, and each cross-reference's name. Nothing inside a code
+    /// fence or code span is a site.
+    nonisolated static func figureRelabelEdits(
+        in text: String, _ change: FigureLabelChange
+    ) -> [(range: NSRange, replacement: String)] {
+        let lines = text.components(separatedBy: "\n")
+        var starts: [Int] = []
+        var offset = 0
+        for line in lines {
+            starts.append(offset)
+            offset += (line as NSString).length + 1
+        }
+        let old = change.old
+        let nameLength = (old.name as NSString).length
+        let prefixLength = (old.kind.rawValue as NSString).length + 1   // "tbl:"
+        var edits: [(range: NSRange, replacement: String)] = []
+        for (block, range) in ManuscriptBlocks.parse(text) {
+            if case .other(.fence) = block { continue }
+            if case .figure(_, let path, let label) = block, label == old {
+                let index = range.lowerBound
+                let line = lines[index] as NSString
+                let labelBlock = line.range(of: "{#\(old.reference)}", options: .backwards)
+                if labelBlock.location != NSNotFound {
+                    edits.append((NSRange(location: starts[index] + labelBlock.location + 2 + prefixLength,
+                                          length: nameLength), change.newName))
+                    let file = (path as NSString).lastPathComponent
+                    let target = line.range(of: "](\(path))", options: .backwards,
+                                            range: NSRange(location: 0, length: labelBlock.location))
+                    if file.lowercased() == change.oldFile.lowercased(), target.location != NSNotFound {
+                        let fileLength = (file as NSString).length
+                        let at = target.location + 2 + (path as NSString).length - fileLength
+                        edits.append((NSRange(location: starts[index] + at, length: fileLength), change.newFile))
+                    }
+                }
+            }
+            let blockText = lines[range].joined(separator: "\n") as NSString
+            for (marker, found) in ManuscriptInlineScanner.scan(blockText as String) {
+                guard case .crossRef(let label) = marker, label == old else { continue }
+                let at = blockText.range(of: "@\(old.reference)", options: [], range: found)
+                guard at.location != NSNotFound else { continue }
+                edits.append((NSRange(location: starts[range.lowerBound] + at.location + 1 + prefixLength,
+                                      length: nameLength), change.newName))
+            }
+        }
+        return edits
+    }
+
+    /// True when a heading, table caption or figure line in `text` defines
+    /// `label` (outside a code fence).
+    nonisolated static func definesLabel(_ text: String, _ label: ManuscriptLabel) -> Bool {
+        ManuscriptBlocks.parse(text).contains { block, _ in
+            switch block {
+            case .heading(_, _, let l), .figure(_, _, let l): return l == label
+            case .table(_, _, _, _, let l): return l == label
+            default: return false
+            }
+        }
     }
 
     /// Pure-in-memory replacement step: re-find occurrences in the doc's CURRENT

@@ -33,7 +33,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+WikiLink.swift` — `[[…]]` title resolution (`WikiLinkProject` conformance).
 - `ProjectStore+Search.swift` — project search and Replace (`performSearch`, `replaceMatch`, `replaceAll`, `replaceInManuscript`). Tripwire 52.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
-- `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: asks the window's posture for the new figure first, mints `fig-` ids, writes `figureCreate` and its rows and columns (or copies the picture into `figures/` and writes its hash), then the de-duplicated record through `saveManifest`. Tripwire 52.
+- `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: asks the window's posture for the new figure first, mints `fig-` ids, writes `figureCreate` and its rows and columns (or copies the picture into `figures/` and writes its hash), then the de-duplicated record through `saveManifest`. `renameFigure` asks every door first, then relabels the text (ruling P-3); `removeFigure` trashes the file. Tripwire 52.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54), so a count says unknown rather than a short number. Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
@@ -209,7 +209,7 @@ Two things deliberately live elsewhere:
 
 ### The trash
 - **The Trash is `<project>/.trash/`**, swept of entries over 30 days at `ProjectStore.load`.
-- **Every entry records a `TrashSubject`** (`manuscriptItem`, `researchItem`, `captureAsset`, `internalArtifact`); `moveToTrash` will not compile without one. It decides which tree a restore rewires; an old entry without one falls back to the shape sniff and is REFUSED if it matches neither tree.
+- **Every entry records a `TrashSubject`** (`manuscriptItem`, `researchItem`, `captureAsset`, `internalArtifact`, `priorVersion`, `figure`); `moveToTrash` will not compile without one. It decides which tree a restore rewires; an old entry without one falls back to the shape sniff and is REFUSED if it matches neither tree.
 - **`list()` is the writer's view; `entriesIncludingInternal()` is all of it**, used by disposal and `restoreTrashEntry`.
 - **Neither hides an entry it cannot read** (RULING-7): a Maugham-named folder with a missing or undecodable meta.json is an `isUnreadable` entry titled `TrashEntry.unreadableTitle`; restore refuses naming the cause; disposal reaches it. A folder whose name Maugham did not write (RULING-9) and an empty folder get no row.
 - **`mintEntryFolder` claims a folder name** (`withIntermediateDirectories: false`; a taken name takes the next number). **Keep the timestamp a PREFIX**: the sweep dates entries by parsing the name (RULING-39).

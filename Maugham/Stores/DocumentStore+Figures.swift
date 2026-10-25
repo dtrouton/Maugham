@@ -81,6 +81,27 @@ extension DocumentStore {
         if let replaceError { throw replaceError }
     }
 
+    /// **A figure's file, moved to a new name in `figures/`** — a rename's
+    /// file half (`ProjectStore.renameFigure`, `FigureDocument.renameImageFile`),
+    /// through the typed mover (tripwire 14). Both URLs are the caller's,
+    /// already checked as plain files in `figures/` (tripwire 58). A move
+    /// that only changes the name's case goes through a temporary name, so a
+    /// case-insensitive disk renames it rather than finding it already there.
+    func moveFigureFile(from source: URL, to destination: URL) async throws {
+        try await relocateUserContent(affectedPaths: []) {
+            guard source.path.lowercased() == destination.path.lowercased() else {
+                return try await coordinatedMove(from: source, to: destination)
+            }
+            let step = source.deletingLastPathComponent()
+                .appendingPathComponent(".rename-\(UUID().uuidString)") // local-path: minted here, a step on the way
+            try await coordinatedMove(from: source, to: step)
+            do { try await coordinatedMove(from: step, to: destination) } catch {
+                try? await coordinatedMove(from: step, to: source)
+                throw error
+            }
+        }
+    }
+
     /// Close a figure this window opened: sealed, and no longer reloaded.
     func closeFigure(figureId: String) async {
         guard let doc = openFigures.removeValue(forKey: figureId) else { return }
@@ -235,7 +256,12 @@ extension DocumentStore {
     /// failure to write one render is logged and the others still write.
     func renderFigures(changed: Set<String>) async {
         guard let manifest = projectStore?.manifest,
-              let records = manifest.figures, !records.isEmpty else { return }
+              let records = manifest.figures, !records.isEmpty else {
+            // No figures: nothing parked or unreadable is left to say.
+            lastParkedFigures = []
+            lastUnreadableFigures = []
+            return
+        }
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let registryCache = Document.loadRegistryCache
@@ -248,6 +274,9 @@ extension DocumentStore {
         } catch {
             documentLog.error(
                 "figures were not rendered: the registry would not read: \(error.localizedDescription, privacy: .public)")
+            // Nothing was assembled, so the last pass's lists no longer hold.
+            lastParkedFigures = []
+            lastUnreadableFigures = []
             return
         }
         var assembled = FigureWorkbook.assemble(
@@ -267,14 +296,17 @@ extension DocumentStore {
         lastParkedFigures = assembled.parked
         let book = assembled.workbook
 
+        // A changed figure the registry no longer lists (removed here or
+        // elsewhere) renders nothing, but its readers do.
         var due = Set<String>()
-        for id in changed where byId[id] != nil {
-            due.insert(id)
+        for id in changed {
+            if byId[id] != nil { due.insert(id) }
             due.formUnion(book.tablesReading(id))
         }
         // Two records naming one file (two devices made "cash" before either
         // saw the other's) would overwrite each other on every pass: neither
-        // renders, and it is said, until a rename separates them (plan 6b).
+        // renders, and it is said, until a rename separates them
+        // (`ProjectStore.renameFigure`, which then renders both).
         var byPath: [String: [FigureRecord]] = [:]
         for record in records { byPath[record.path.lowercased(), default: []].append(record) }
         let shared = Set(byPath.values.filter { $0.count > 1 }.flatMap { $0.map(\.id) })
@@ -282,7 +314,7 @@ extension DocumentStore {
         for record in records where record.kind == .table && due.contains(record.id) {
             if shared.contains(record.id) {
                 documentLog.error(
-                    "figure \(record.name, privacy: .public) was not rendered: another figure names the same file, \(record.path, privacy: .public)")
+                    "figure \(record.name, privacy: .public) was not rendered: another figure names the same file, \(record.path, privacy: .public); rename one of them to render both")
                 continue
             }
             // A window closing mid-pass: nothing writes once its presenter is gone.

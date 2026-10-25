@@ -1,0 +1,438 @@
+import XCTest
+import AppKit
+@testable import Maugham
+@testable import MaughamCore
+
+/// **Renaming and removing a figure** (report plan 6b Task 5, ruling P-3).
+///
+/// A rename relabels the text, all or nothing: every door — the figure's own
+/// `.editFigure` posture and the `.writeText` door of every manuscript that
+/// holds its line or a cross-reference to its label — is asked first, and any
+/// refusal changes nothing (Review Focus 4). A removal sends the figure's file
+/// to the project Trash carrying its record, and keeps its stream.
+@MainActor
+final class FigureRenameTests: XCTestCase {
+
+    private var projectURL: URL!
+
+    override func setUp() async throws {
+        projectURL = TestTemp.root.appendingPathComponent("figrename-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        let identities = LocalIdentities.softwareForTesting()
+        Document.localIdentitiesForTesting = identities
+        Document.deviceStateForTesting = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("op-log-state.json"))
+        Document.registryCacheForTesting = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("registry-cache.json"),
+            identity: identities.author.fingerprint)
+        Document.admissionMemoryForTesting = AdmissionMemory(
+            fileURL: projectURL.appendingPathComponent("admission-memory.json"),
+            identity: identities.author.fingerprint)
+    }
+
+    override func tearDown() async throws {
+        Document.localIdentitiesForTesting = nil
+        Document.deviceStateForTesting = nil
+        Document.registryCacheForTesting = nil
+        Document.admissionMemoryForTesting = nil
+        try? FileManager.default.removeItem(at: projectURL)
+    }
+
+    // MARK: - Fixture
+
+    /// Chapters A, B and C with these bodies, each bootstrapped into its op
+    /// log by this Mac's hand, and a window over the book.
+    private func openBook(
+        a: String = "Words.\n", b: String = "More words.\n", c: String = "Last words.\n"
+    ) async throws -> (DocumentStore, ProjectStore) {
+        for (slug, body) in [("a", a), ("b", b), ("c", c)] {
+            try body.write(to: chapter(slug), atomically: true, encoding: .utf8)
+        }
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: ["a", "b", "c"].map {
+                StructureItem(id: "doc-\($0)", title: $0.uppercased(), type: .document,
+                              path: "manuscript/\($0).md")
+            },
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: projectURL.appendingPathComponent(ProjectManifest.fileName))
+        let store = try await DocumentStore.open(url: projectURL)
+        for slug in ["a", "b", "c"] {
+            let doc = try await Document.load(url: chapter(slug), actor: .author, session: "boot", presenter: nil)
+            await doc.close()
+        }
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        return (store, projectStore)
+    }
+
+    private func chapter(_ slug: String) -> URL {
+        projectURL.appendingPathComponent("manuscript/\(slug).md")
+    }
+
+    /// What a chapter says now, derived from its op log.
+    private func text(_ slug: String) async throws -> String {
+        let doc = try await Document.load(url: chapter(slug), actor: .author, session: "read", presenter: nil)
+        let text = doc.displayText
+        await doc.close()
+        return text
+    }
+
+    private func file(_ relative: String) -> URL { projectURL.appendingPathComponent(relative) }
+
+    private func exists(_ relative: String) -> Bool {
+        FileManager.default.fileExists(atPath: file(relative).path)
+    }
+
+    private func csv(_ relative: String) throws -> String {
+        try String(contentsOf: file(relative), encoding: .utf8)  // adr-0018-ok: test reads the derived render to assert what was written
+    }
+
+    private func number(_ x: Double) -> Cell { Cell(content: .value(.number(x))) }
+
+    /// `cash` with 5 in A1, and `total` whose A1 is `cash!A1*2`.
+    private func cashAndTotal(
+        _ store: DocumentStore, _ projectStore: ProjectStore
+    ) async throws -> (cash: FigureRecord, total: FigureRecord, totalCell: CellKey) {
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let total = try await projectStore.createFigure(kind: .table, name: "total", piece: nil)
+        let cashDoc = try await store.openFigure(figureId: cash.id)
+        try await cashDoc.setCell(number(5), at: CellKey(
+            row: cashDoc.state.table.rows[0], column: cashDoc.state.table.columns[0]))
+        let totalDoc = try await store.openFigure(figureId: total.id)
+        let t1 = CellKey(row: totalDoc.state.table.rows[0], column: totalDoc.state.table.columns[0])
+        let names = FormulaNames(figures: [.init(id: cash.id, name: "cash", table: cashDoc.state.table)])
+        guard case .success(let f) = FormulaParser.parse("cash!A1*2", in: totalDoc.state.table, names: names)
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        try await totalDoc.setCell(Cell(content: .formula(f)), at: t1)
+        await store.closeFigure(figureId: cash.id)
+        await store.closeFigure(figureId: total.id)
+        return (cash, total, t1)
+    }
+
+    /// How `total`'s formula reads now, under the registry's current names —
+    /// each table read windowless (`documentStore: nil`), so asking renders
+    /// nothing.
+    private func formulaText(
+        _ store: DocumentStore, _ projectStore: ProjectStore,
+        total: FigureRecord, cell: CellKey
+    ) async throws -> String? {
+        var tables: [String: FigureTable] = [:]
+        for record in projectStore.manifest.figures ?? [] where record.kind == .table {
+            let doc = try await FigureDocument.load(
+                figureId: record.id, projectURL: projectURL, actor: .author,
+                session: "read", presenter: nil, documentStore: nil)
+            tables[record.id] = doc.state.table
+            await doc.close()
+        }
+        guard let table = tables[total.id],
+              case .formula(let f)? = table[cell]?.content else { return nil }
+        let names = FormulaNames(records: projectStore.manifest.figures ?? [],
+                                 tables: tables, research: projectStore.manifest.research)
+        return FormulaParser.render(f, in: table, names: names)
+    }
+
+    /// A real PNG outside the project, of one colour.
+    private func png(_ name: String, _ color: NSColor) throws -> URL {
+        let dir = TestTemp.root.appendingPathComponent("figrename-png-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 4, height: 4).fill()
+        image.unlockFocus()
+        let url = dir.appendingPathComponent(name)
+        try ImagePasteHandler.encodePNG(image).write(to: url)
+        return url
+    }
+
+    // MARK: - A rename relabels the text
+
+    /// **A rename relabels the figure's line and a cross-reference in another
+    /// document**, moves its render, and a formula in another figure shows
+    /// the new name with nothing written to it (R-D1).
+    func test_aRenameRelabelsTheLineAndACrossReferenceElsewhere_andMovesTheRender() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n",
+            b: "See @tbl:cash and [@tbl:cash], not @tbl:cashflow.\n")
+        let (cash, total, t1) = try await cashAndTotal(store, projectStore)
+        XCTAssertTrue(exists("figures/cash.csv"), "precondition: the render is there")
+        let totalOps = try OpLogStore.loadSyncMerged(forDocId: total.id, in: projectURL, facts: .empty).count
+
+        let renamed = try await projectStore.renameFigure(id: cash.id, to: "costs")
+
+        XCTAssertEqual(renamed.name, "costs")
+        XCTAssertEqual(renamed.path, "figures/costs.csv")
+        XCTAssertEqual(projectStore.manifest.figures?.first { $0.id == cash.id }, renamed)
+        let a = try await text("a")
+        let b = try await text("b")
+        XCTAssertEqual(a, "![Cash](../figures/costs.csv){#tbl:costs}")
+        XCTAssertEqual(b, "See @tbl:costs and [@tbl:costs], not @tbl:cashflow.")
+        XCTAssertFalse(exists("figures/cash.csv"), "the old render is gone")
+        XCTAssertEqual(try csv("figures/costs.csv"), "5,,\n,,\n,,\n", "the new render is there")
+        let shown = try await formulaText(store, projectStore, total: total, cell: t1)
+        XCTAssertEqual(shown, "costs!A1*2")
+        XCTAssertEqual(try OpLogStore.loadSyncMerged(forDocId: total.id, in: projectURL, facts: .empty).count,
+                       totalOps, "the reader's stream was not written")
+    }
+
+    /// **The relabel's sites, and only those**: the line's label and file,
+    /// bare and bracketed references; a longer label, a code fence and a
+    /// line naming another file are left.
+    func test_theRelabelChangesOnlyTheFiguresOwnSites() {
+        let change = ProjectStore.FigureLabelChange(
+            old: ManuscriptLabel(reference: "tbl:cash")!, newName: "costs",
+            oldFile: "cash.csv", newFile: "costs.csv")
+        let text = """
+        ![Cash](figures/cash.csv){#tbl:cash}
+
+        See @tbl:cash, [@tbl:cash; @fig:map] and @tbl:cashflow.
+
+        ```
+        @tbl:cash stays in code
+        ```
+        """
+        XCTAssertEqual(ProjectStore.relabelled(text, change), """
+        ![Cash](figures/costs.csv){#tbl:costs}
+
+        See @tbl:costs, [@tbl:costs; @fig:map] and @tbl:cashflow.
+
+        ```
+        @tbl:cash stays in code
+        ```
+        """)
+        XCTAssertNil(ProjectStore.relabelled("Nothing here about @tbl:cashflow.\n", change))
+    }
+
+    /// **A rename that separates two records sharing one file renders both**:
+    /// the shared file is the other record's, so it is not moved, and the
+    /// renamed one renders at its own new file.
+    func test_aRenameThatSeparatesTwoRecordsSharingAFileRendersBoth() async throws {
+        let (store, projectStore) = try await openBook()
+        let one = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let two = try await projectStore.createFigure(kind: .table, name: "other", piece: nil)
+        var figures = try XCTUnwrap(projectStore.manifest.figures)
+        figures[1] = FigureRecord(id: two.id, name: "cash", kind: .table, piece: nil, path: one.path)
+        projectStore.manifest.figures = figures
+        try "edited,in,Excel\n".write(to: file(one.path), atomically: true, encoding: .utf8)
+
+        _ = try await projectStore.renameFigure(id: two.id, to: "split")
+
+        XCTAssertEqual(try csv("figures/cash.csv"), ",,\n,,\n,,\n", "the one left on the file renders it")
+        XCTAssertEqual(try csv("figures/split.csv"), ",,\n,,\n,,\n", "the renamed one renders its own")
+        withExtendedLifetime(store) {}
+    }
+
+    /// **A rename that changes only the name's case is the figure's own**:
+    /// not refused as taken, and the render file takes the new case on a
+    /// case-insensitive disk.
+    func test_aCaseOnlyRenameIsAllowedAndTheFileTakesTheNewCase() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+
+        let renamed = try await projectStore.renameFigure(id: cash.id, to: "Cash")
+
+        XCTAssertEqual(renamed.path, "figures/Cash.csv")
+        let names = try FileManager.default.contentsOfDirectory(atPath: file("figures").path)
+        XCTAssertEqual(names.filter { !$0.hasPrefix(".") }, ["Cash.csv"])
+    }
+
+    // MARK: - Review Focus 4: refused, nothing changed
+
+    /// What a refused rename must leave exactly as it was.
+    private struct Snapshot: Equatable {
+        let figures: [FigureRecord]?
+        let a: String
+        let b: String
+        let cashCSV: Bool
+        let costsCSV: Bool
+        let formula: String?
+    }
+
+    private func snapshot(
+        _ store: DocumentStore, _ projectStore: ProjectStore,
+        total: FigureRecord, cell: CellKey
+    ) async throws -> Snapshot {
+        let onDisk = try ProjectManifest.decodeGuardingSchema(Data(contentsOf: file(ProjectManifest.fileName)))
+        XCTAssertEqual(onDisk.figures, projectStore.manifest.figures, "the registry on disk is the one in memory")
+        let a = try await text("a")
+        let b = try await text("b")
+        let formula = try await formulaText(store, projectStore, total: total, cell: cell)
+        return Snapshot(
+            figures: projectStore.manifest.figures, a: a, b: b,
+            cashCSV: exists("figures/cash.csv"), costsCSV: exists("figures/costs.csv"),
+            formula: formula)
+    }
+
+    /// **A name another figure has — exactly, or in another case — is
+    /// refused** (the `lowercased()` fold formulas match names with), and
+    /// nothing changes: registry, files, text, formulas.
+    func test_aNameAnotherFigureHasInAnyCaseIsRefusedAndNothingChanges() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        let (cash, total, t1) = try await cashAndTotal(store, projectStore)
+        let before = try await snapshot(store, projectStore, total: total, cell: t1)
+
+        for name in ["total", "TOTAL", "  Total "] {
+            do {
+                _ = try await projectStore.renameFigure(id: cash.id, to: name)
+                XCTFail("renaming to \(name) was not refused")
+            } catch let refused as FigureRenameRefused {
+                XCTAssertEqual(refused.reason, .nameTaken("total"))
+            }
+            let after = try await snapshot(store, projectStore, total: total, cell: t1)
+            XCTAssertEqual(after, before, "renaming to \(name) changed something")
+        }
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "   ")
+            XCTFail("an empty name was not refused")
+        } catch let refused as FigureRenameRefused {
+            XCTAssertEqual(refused.reason, .emptyName)
+        }
+        XCTAssertEqual(before.formula, "cash!A1*2")
+    }
+
+    /// **A figure referenced in a piece this Mac may not write is not
+    /// renamed**: this Mac roots the book and yields on B to Sam, its author.
+    /// A holds the figure's line and is writable, B refers to it: the rename
+    /// is refused naming B, and A is NOT relabelled — nothing changed. After
+    /// *Edit Anyway* on B, the same rename goes through: both directions.
+    func test_aFigureReferencedInAPieceThisMacMayNotWriteIsRefusedAndNothingChanges() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n", b: "See @tbl:cash.\n")
+        let (cash, total, t1) = try await cashAndTotal(store, projectStore)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["doc-b"])))
+        await store.postureSettled()
+        XCTAssertEqual(store.posture(forDocId: "doc-b").yieldingTo, "Sam", "precondition: this Mac yields on B")
+        let before = try await snapshot(store, projectStore, total: total, cell: t1)
+
+        do {
+            _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+            XCTFail("the rename was not refused")
+        } catch let refused as FigureRenameRefused {
+            XCTAssertEqual(refused.reason, .piecesNotWritable(["B"]))
+            XCTAssertTrue(refused.localizedDescription.contains("B"))
+        }
+        let after = try await snapshot(store, projectStore, total: total, cell: t1)
+        XCTAssertEqual(after, before, "registry, files, text and formulas are all as they were")
+        XCTAssertEqual(after.a, "![Cash](../figures/cash.csv){#tbl:cash}", "A, writable, was not relabelled alone")
+
+        store.overrideYield(docId: "doc-b")
+        _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+        let b = try await text("b")
+        XCTAssertEqual(b, "See @tbl:costs.", "Edit Anyway: B follows the rename")
+    }
+
+    /// **A figure this Mac may not change is neither renamed nor removed**:
+    /// B's figure, once this Mac yields on B to Sam, refuses both at its own
+    /// door, and its record and render are as they were.
+    func test_aFigureThisMacMayNotChangeIsNeitherRenamedNorRemoved() async throws {
+        let (store, projectStore) = try await openBook()
+        let prices = try await projectStore.createFigure(kind: .table, name: "prices", piece: "doc-b")
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["doc-b"])))
+        await store.postureSettled()
+
+        do {
+            _ = try await projectStore.renameFigure(id: prices.id, to: "costs")
+            XCTFail("the rename was not refused")
+        } catch let refused as FigureEditRefused {
+            XCTAssertEqual(refused.site, "renameFigure")
+        }
+        do {
+            try await projectStore.removeFigure(id: prices.id)
+            XCTFail("the removal was not refused")
+        } catch let refused as FigureEditRefused {
+            XCTAssertEqual(refused.site, "removeFigure")
+        }
+        XCTAssertEqual(projectStore.manifest.figures, [prices])
+        XCTAssertTrue(exists("figures/prices.csv"))
+        XCTAssertFalse(exists("figures/costs.csv"))
+    }
+
+    // MARK: - Images
+
+    /// **An image's rename moves its picture** and appends a `figureImageSet`
+    /// with the same hash and the new file name, so the next `setImage`
+    /// writes the new file; the line's path and label follow.
+    func test_anImageRenameMovesThePicture_andTheNextReplaceWritesTheNewName() async throws {
+        let (store, projectStore) = try await openBook()
+        let image = try await projectStore.createImageFigure(
+            fromURL: try png("map.png", .red), name: "map", piece: nil)
+        let a = try await Document.load(url: chapter("a"), actor: .author, session: "t", presenter: nil)
+        a.setFullText("![Map](../figures/map.png){#fig:map}")
+        await a.close()
+        let hash = try OpLogStore.loadSyncMerged(forDocId: image.id, in: projectURL, facts: .empty)
+            .compactMap { $0.figure?.image?.contentHash }.last
+
+        let renamed = try await projectStore.renameFigure(id: image.id, to: "chart")
+
+        XCTAssertEqual(renamed.path, "figures/chart.png")
+        XCTAssertFalse(exists("figures/map.png"))
+        XCTAssertTrue(exists("figures/chart.png"))
+        let set = try OpLogStore.loadSyncMerged(forDocId: image.id, in: projectURL, facts: .empty)
+            .compactMap { $0.figure?.image }.last
+        XCTAssertEqual(set, FigureImageRef(filename: "chart.png", contentHash: try XCTUnwrap(hash)),
+                       "same hash, new file name")
+        let text = try await text("a")
+        XCTAssertEqual(text, "![Map](../figures/chart.png){#fig:chart}")
+
+        let doc = try await store.openFigure(figureId: image.id)
+        try await doc.setImage(fromURL: try png("blue.png", .blue))
+        XCTAssertEqual(doc.state.image?.filename, "chart.png")
+        XCTAssertFalse(exists("figures/map.png"), "the replace wrote the new name, not the old")
+        await store.closeFigure(figureId: image.id)
+    }
+
+    // MARK: - Remove
+
+    /// **Removing a figure sends its CSV to the Trash** carrying its record;
+    /// the record leaves the registry, the stream stays, and restoring the
+    /// entry brings the figure back, rendered.
+    func test_removeSendsTheCSVToTrash_andARestoreBringsTheFigureBack() async throws {
+        let (store, projectStore) = try await openBook()
+        let (cash, total, _) = try await cashAndTotal(store, projectStore)
+
+        try await projectStore.removeFigure(id: cash.id)
+
+        XCTAssertEqual(projectStore.manifest.figures?.map(\.id), [total.id])
+        XCTAssertFalse(exists("figures/cash.csv"))
+        let entries = try await projectStore.trashStore.list()
+        let entry = try XCTUnwrap(entries.first { $0.subject == .figure })
+        XCTAssertEqual(entry.displayTitle, "Table: cash")
+        XCTAssertFalse(OpLogStore.opLogFileURLs(forDocId: cash.id, in: projectURL).isEmpty,
+                       "the stream stays")
+
+        try await projectStore.restoreTrashEntry(id: entry.id)
+
+        XCTAssertEqual(projectStore.manifest.figures?.first { $0.id == cash.id }?.name, "cash")
+        XCTAssertEqual(try csv("figures/cash.csv"), "5,,\n,,\n,,\n", "back, and rendered from its stream")
+    }
+
+    // MARK: - renderFigures' early exits
+
+    /// **A pass that renders nothing leaves no stale lists**: with no figures
+    /// in the registry, the last pass's parked and unreadable figures are
+    /// cleared rather than left standing.
+    func test_aPassWithNoFiguresClearsTheParkedAndUnreadableLists() async throws {
+        let (store, _) = try await openBook()
+        store.lastParkedFigures = ["fig-0a1b2c3d"]
+        store.lastUnreadableFigures = [("cash", "unreadable")]
+
+        await store.renderFigures(changed: [])
+
+        XCTAssertEqual(store.lastParkedFigures, [])
+        XCTAssertTrue(store.lastUnreadableFigures.isEmpty)
+    }
+}

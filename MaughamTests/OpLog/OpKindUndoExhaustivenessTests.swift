@@ -191,9 +191,9 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             return .inverseCovered(mechanism: "FigureInverse.inverse (a delete revives through the removed slice it carries; nil for a first image and a slice-less delete; an undone insert redoes through FigureDocument.reviveRow and FigureDocument.reviveColumn), registered by FigureDocument.registerFigureUndo, drift-guarded")
 
         case .figureCreate:
-            // Creating a figure is undone by deleting it, which is a registry
-            // act built with the figure's lifecycle in plan 6b.
-            return .nonUndoable(reason: "creating a figure is undone by removing it, a registry act report plan 6b builds")
+            // Creating a figure is undone by removing it: a registry act
+            // (the record leaves, its file goes to the Trash), never an op.
+            return .nonUndoable(reason: "a created figure is removed by ProjectStore.removeFigure")
 
         case .figureParked, .figureResumed, .figurePinSet, .figurePinClear:
             // Send to Research, bringing a figure back and research pins are

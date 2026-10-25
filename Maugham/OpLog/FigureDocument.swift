@@ -641,6 +641,50 @@ public final class FigureDocument {
             })
     }
 
+    /// **An image figure's picture takes a new file name** — its rename's
+    /// half (`ProjectStore.renameFigure`, ruling P-3): the file under
+    /// `figures/` is moved through the window's typed mover, then one
+    /// `figureImageSet` is appended carrying the same hash and the new name,
+    /// so the next `setImage` writes the new file. The op failing moves the
+    /// file back. A figure with no picture yet has no file to move: nothing
+    /// is written. Not registered for ⌘Z: a rename is undone by renaming.
+    func renameImageFile(to filename: String) async throws {
+        try await requireWritable("renameImageFile")
+        guard state.kind == .image else {
+            throw FigureEditInvalid(reason: "this figure is not an image")
+        }
+        guard let documentStore else {
+            throw FigureEditInvalid(reason: "a picture is renamed only in a window that holds the figure")
+        }
+        guard let prior = state.image, prior.filename != filename else { return }
+        // Both names are checked as one plain file inside `figures/`: the old
+        // came from the op log, the new from a synced record's name.
+        let from: URL
+        let to: URL
+        do {
+            from = try SafeRelativePath.resolveFile(
+                named: prior.filename, in: ProjectStore.figuresFolder, under: projectURL)
+            to = try SafeRelativePath.resolveFile(
+                named: filename, in: ProjectStore.figuresFolder, under: projectURL)
+        } catch {
+            throw FigureEditInvalid(reason: "this figure's file name is not a file in figures/")
+        }
+        try await documentStore.moveFigureFile(from: from, to: to)
+        do {
+            try await commit(.figureImageSet, FigureOpPayload(
+                image: FigureImageRef(filename: filename, contentHash: prior.contentHash),
+                priorImage: prior))
+        } catch {
+            // The op never landed: the file goes back to the name the op log
+            // still says.
+            do { try await documentStore.moveFigureFile(from: to, to: from) } catch {
+                documentLog.error(
+                    "figure \(self.figureId, privacy: .public): the picture could not be moved back after a failed append: \(error.localizedDescription, privacy: .public)")
+            }
+            throw error
+        }
+    }
+
     /// `jpg` and `jpeg` are one format; every other extension is its own.
     private static func sameImageFormat(_ a: String, _ b: String) -> Bool {
         let jpeg: Set<String> = ["jpg", "jpeg"]

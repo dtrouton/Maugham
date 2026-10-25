@@ -11940,7 +11940,8 @@ final class TripwireGrepTests: XCTestCase {
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
-        "setImage(", "createFigure(", "createImageFigure(", figureOpMintSpelling,
+        "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
+        figureOpMintSpelling,
     ]
 
     /// The key a figure op's minting is counted under: an `Op(`/`Op.init(`
@@ -11962,7 +11963,7 @@ final class TripwireGrepTests: XCTestCase {
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
-        "setImage(",
+        "setImage(", "renameImageFile(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12258,10 +12259,13 @@ final class TripwireGrepTests: XCTestCase {
     ///   pieces and statements: `sweepMayWrite` (the settled posture) before any
     ///   load and the Document's stamp before the write; skipped and NAMED
     ///   (ruling AH).
-    /// - `ProjectStore+Search.swift` × 3 — `replaceMatch`/`replaceAll` →
-    ///   `replaceInManuscript` → `setFullText`: the settled posture before any
+    /// - `ProjectStore+Search.swift` × 4 — `replaceMatch`/`replaceAll` →
+    ///   `replaceInManuscript` → `setFullText`, and a figure rename's relabel
+    ///   (`HeldFigureRelabel.apply`'s `setFullText`): each document is held
+    ///   through `openManuscriptForWriting` — the settled posture before any
     ///   load and the Document's stamp before the write; Replace All skips and
-    ///   names (ruling AI).
+    ///   names (ruling AI); a rename refuses whole, naming every piece, before
+    ///   anything is written (ruling P-3).
     /// - `ProjectSearchView.swift` × 2 — the two presses; per-match Replace and
     ///   Replace All are drawn only where the match's own document allows
     ///   `.writeText` (`ProjectSearchView.mayReplace`).
@@ -12341,7 +12345,7 @@ final class TripwireGrepTests: XCTestCase {
         "StatementEditorHost.swift": ["setFullText(": 2],
         "ProjectStore+Statements.swift": ["setFullText(": 1],
         "ProjectStore+Structure.swift": ["setFullText(": 2],
-        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 1],
+        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 2],
         "ProjectSearchView.swift": ["replaceMatch(": 1, "replaceAll(": 1],
         "Document+Rewind.swift": ["applyRestore(": 1, "buildRestoreOp(": 1],
         "Document+RewindUndo.swift": ["restoreToOp(": 3, "restoreToOpUndoable(": 1],
@@ -12362,7 +12366,9 @@ final class TripwireGrepTests: XCTestCase {
             // redo (report plan 6b Task 4).
             "deleteRow(": 1, "deleteColumn(": 1, "reviveRow(": 2, "reviveColumn(": 2,
         ],
-        "ProjectStore+Figures.swift": [figureOpMintSpelling: 1],
+        // A rename's picture: `renameImageFile` through the figure's host,
+        // after `renameFigure` asked every door (report plan 6b Task 5).
+        "ProjectStore+Figures.swift": [figureOpMintSpelling: 1, "renameImageFile(": 1],
         "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
     ]
@@ -12438,7 +12444,7 @@ final class TripwireGrepTests: XCTestCase {
         "deleteRow": "figure", "deleteColumn": "figure", "moveRow": "figure",
         "reviveRow": "figure", "reviveColumn": "figure",
         "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
-        "setColumnWidth": "figure", "setImage": "figure",
+        "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12629,8 +12635,10 @@ final class TripwireGrepTests: XCTestCase {
         try await figure.setTotalRow(true)
         try await figure.setColumnWidth(column, 120)
         try await figure.setImage(fromURL: picture)
+        try await host.renameImageFile(to: filename)
         let record = try await store.createFigure(kind: .table, name: "Prices", piece: p)
         let image = try await store.createImageFigure(fromURL: picture, piece: p)
+        try await store.renameFigure(id: record.id, to: "Costs")
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
@@ -13886,6 +13894,9 @@ extension TripwireGrepTests {
         ]),
         "ProjectStore+Structure.swift": ("a trashed structure item's metadata", [
             "let metadata = try JSONEncoder().encode(item)",
+        ]),
+        "ProjectStore+Figures.swift": ("a removed figure's record, as its trash entry's metadata", [
+            "let metadata = try JSONEncoder().encode(record)",
         ]),
         // MCP projections: response DTOs built FROM the manifest, never written to it.
         "ProjectTools.swift": ("MCP project/metadata/outline projections", nil),

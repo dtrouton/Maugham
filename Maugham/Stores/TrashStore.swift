@@ -40,6 +40,11 @@ public enum TrashSubject: String, Codable, Sendable {
     /// note under a deduped filename (`destinationBesideAnyOccupant`), so
     /// nothing is overwritten and both are visible.
     case priorVersion
+    /// A removed figure's file — a table's render or an image's picture
+    /// (`ProjectStore.removeFigure`, report plan 6b Task 5). The entry carries
+    /// the figure's registry record, so a restore puts the record back and
+    /// the figure returns: its stream never left.
+    case figure
 }
 
 /// Per-project trash directory operations. Lives at <projectURL>/.trash/

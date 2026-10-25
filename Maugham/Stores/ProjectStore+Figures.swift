@@ -215,6 +215,276 @@ extension ProjectStore {
         try await saveManifest()
     }
 
+    // MARK: - Rename and remove (report plan 6b Task 5, ruling P-3)
+
+    /// **Rename a figure** and answer its new record. All or nothing (ruling
+    /// P-3): every door is asked before anything changes, and any refusal
+    /// changes nothing — registry, files, text and formulas all as before.
+    ///
+    /// 1. **Refused** (`FigureRenameRefused`): an empty name; a name another
+    ///    figure has, in any case (the `lowercased()` fold `FormulaNames`
+    ///    matches with); a render path another figure has, or an image file
+    ///    already in `figures/`.
+    /// 2. **The figure's own door**: its `.editFigure` posture — the window's
+    ///    acting answer, yields and *Edit Anyway* included. A refusal throws
+    ///    `FigureEditRefused`.
+    /// 3. **Every manuscript that holds its line or a cross-reference to its
+    ///    label** (`{#tbl:old}`, `@tbl:old`) is held through the door-checked
+    ///    manuscript route (`holdManuscriptsForFigureRelabel`); one refusing
+    ///    refuses the rename, naming each piece.
+    /// 4. Then: an image's file is moved and a `figureImageSet` with the same
+    ///    hash and the new file name appended (`FigureDocument.renameImageFile`);
+    ///    the record's name and path through `saveManifest`; a table's render
+    ///    moved to its new file and rendered there (with any figure that
+    ///    shared its old file, so a rename that separates two renders both);
+    ///    and the text relabelled. Formulas store the figure's id, so they
+    ///    show the new name with nothing written (R-D1).
+    ///
+    /// Needs the window's `DocumentStore` (the typed mover, the renders).
+    @discardableResult
+    public func renameFigure(id: String, to name: String) async throws -> FigureRecord {
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        let newName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty else { throw FigureRenameRefused(reason: .emptyName) }
+        guard let record = manifest.figures?.first(where: { $0.id == id }) else {
+            throw FigureEditInvalid(reason: "this figure is not in the book's list of figures")
+        }
+        guard newName != record.name else { return record }
+        let newPath = try renamedFigurePath(of: record, to: newName)
+        try await requireFigurePermitted(figureId: id, site: "renameFigure", documentStore: documentStore)
+
+        let label = Self.labelKind(of: record.kind).flatMap {
+            ManuscriptLabel(reference: "\($0.rawValue):\(record.name)")
+        }
+        var relabel: HeldFigureRelabel?
+        if let label {
+            relabel = try await holdManuscriptsForFigureRelabel(FigureLabelChange(
+                old: label, newName: newName,
+                oldFile: (record.path as NSString).lastPathComponent,
+                newFile: (newPath as NSString).lastPathComponent))
+        }
+        // Every door has answered yes. Anything after this that fails puts
+        // back what it did and releases the held manuscripts unwritten.
+        do {
+            // Asked again after the awaits: a record another verb wrote
+            // meanwhile may have taken the name.
+            _ = try renamedFigurePath(of: record, to: newName)
+            if record.kind == .image {
+                try await renameImageFileThroughHost(figureId: id, to: (newPath as NSString).lastPathComponent)
+            }
+        } catch {
+            await relabel?.abandon()
+            throw error
+        }
+        var renamed = record
+        renamed.name = newName
+        renamed.path = newPath
+        do {
+            try await replaceFigureRecord(renamed)
+        } catch {
+            if record.kind == .image {
+                try? await renameImageFileThroughHost(figureId: id, to: (record.path as NSString).lastPathComponent)
+            }
+            await relabel?.abandon()
+            throw error
+        }
+        let sharers = (manifest.figures ?? []).filter {
+            $0.id != id && $0.path.lowercased() == record.path.lowercased()
+        }
+        if record.kind == .table, sharers.isEmpty {
+            await moveTableRender(from: record.path, to: newPath, documentStore: documentStore)
+        }
+        await documentStore.renderFigures(changed: Set([id] + sharers.map(\.id)))
+        await relabel?.apply()
+        return renamed
+    }
+
+    /// **Remove a figure** — a structural verb behind the figure's own door
+    /// (its `.editFigure` posture; a refusal throws `FigureEditRefused`).
+    /// Its record leaves the registry and its file (a table's render, an
+    /// image's picture) goes to the project Trash through the typed mover,
+    /// carrying the record, so restoring it brings the figure back
+    /// (`restoreRemovedFigure`). Its stream stays (append-only). Its line and
+    /// references in the text are left; they read as broken references. The
+    /// tables reading it re-render.
+    public func removeFigure(id: String) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        guard let record = manifest.figures?.first(where: { $0.id == id }) else {
+            throw FigureEditInvalid(reason: "this figure is not in the book's list of figures")
+        }
+        try await requireFigurePermitted(figureId: id, site: "removeFigure", documentStore: documentStore)
+        await documentStore.closeFigure(figureId: id)
+
+        // Its file goes to the Trash unless another record names it too.
+        let shared = (manifest.figures ?? []).contains {
+            $0.id != id && $0.path.lowercased() == record.path.lowercased()
+        }
+        var trashed: TrashEntry?
+        if !shared, let file = try? resolvedProjectPathToChange(record.path),
+           FileManager.default.fileExists(atPath: file.path) {
+            let metadata = try JSONEncoder().encode(record)
+            trashed = try await documentStore.trash(
+                relativePath: record.path, using: trashStore,
+                itemMetadata: metadata,
+                originalParentId: nil, originalIndex: 0,
+                displayTitle: record.listTitle, subject: .figure)
+        }
+        manifest.figures = (manifest.figures ?? []).filter { $0.id != id }
+        manifest.modified = Date()
+        do {
+            try await saveManifest()
+        } catch {
+            manifest.figures = (manifest.figures ?? []) + [record]
+            if let trashed { _ = try? await trashStore.restore(trashId: trashed.id) }
+            throw error
+        }
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        await documentStore.renderFigures(changed: [id])
+    }
+
+    /// **A removed figure, back from the Trash** (`restoreTrashEntry`'s
+    /// `.figure` route): its record returns under the name it had — or the
+    /// next vacant one, when another figure took it meanwhile — behind the
+    /// door a new figure asks of its piece. A table's render lands at its
+    /// record's path and is rendered; an image's picture lands at its old
+    /// path, beside anything there since. The caller saves the manifest.
+    func restoreRemovedFigure(_ removed: FigureRecord, entryId: String) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        guard manifest.figures?.contains(where: { $0.id == removed.id }) != true else {
+            throw ProjectStoreError.trashEntryNotRewirable(
+                title: removed.listTitle, reason: "the figure is already in the book.")
+        }
+        let opStore = Document.makeLoadOpStore(projectURL: url, presenter: documentStore?.presenter)
+        try await requireNewFigurePermitted(
+            figureId: removed.id, piece: removed.piece, opStore: opStore, site: "restoreRemovedFigure")
+        let name = vacantFigureName(basedOn: removed.name, kind: removed.kind)
+        var restored = removed
+        restored.name = name
+        if removed.kind == .table {
+            restored.path = Self.figurePath(name: name, kind: .table)
+        }
+        let entry = try await trashStore.restore(trashId: entryId, to: restored.path)
+        if removed.kind != .table, let landed = entry.restoredRelativePath {
+            restored.path = landed
+        }
+        manifest.figures = (manifest.figures ?? []) + [restored]
+        await documentStore?.renderFigures(changed: [restored.id])
+    }
+
+    /// The path `record` takes under `name`, or a refusal: the name another
+    /// figure answers to in any case, the path another figure's record has,
+    /// or — an image — a file already in `figures/` under the new name.
+    private func renamedFigurePath(of record: FigureRecord, to name: String) throws -> String {
+        let others = (manifest.figures ?? []).filter { $0.id != record.id }
+        if let clash = others.first(where: { $0.name.lowercased() == name.lowercased() }) {
+            throw FigureRenameRefused(reason: .nameTaken(clash.name))
+        }
+        let path: String
+        switch record.kind {
+        case .table:
+            path = Self.figurePath(name: name, kind: .table)
+        case .image:
+            let ext = (record.path as NSString).pathExtension
+            path = Self.figurePath(name: name, kind: .image) + (ext.isEmpty ? "" : ".\(ext)")
+        case .unknown:
+            throw FigureEditInvalid(reason: "this build cannot rename a figure of this kind")
+        }
+        if others.contains(where: { $0.path.lowercased() == path.lowercased() }) {
+            throw FigureRenameRefused(reason: .pathTaken(path))
+        }
+        if record.kind == .image, path.lowercased() != record.path.lowercased(),
+           let file = try? resolvedProjectPathToChange(path),
+           FileManager.default.fileExists(atPath: file.path) {
+            throw FigureRenameRefused(reason: .pathTaken(path))
+        }
+        return path
+    }
+
+    /// The label kind a figure of `kind` takes in the text: `tbl:` for a
+    /// table, `fig:` for an image; none for a kind this build does not know.
+    private static func labelKind(of kind: FigureKind) -> ManuscriptLabel.Kind? {
+        switch kind {
+        case .table: return .tbl
+        case .image: return .fig
+        case .unknown: return nil
+        }
+    }
+
+    /// An image figure's picture renamed through its host: the open one, or
+    /// one opened for this and closed after.
+    private func renameImageFileThroughHost(figureId: String, to filename: String) async throws {
+        guard let documentStore else { return }
+        let wasOpen = documentStore.openFigure(forId: figureId) != nil
+        let host = try await documentStore.openFigure(figureId: figureId)
+        do { try await host.renameImageFile(to: filename) } catch {
+            if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
+            throw error
+        }
+        if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
+    }
+
+    /// `record` written over the registry's record with its id, through the
+    /// manifest's one door; the registry as it was when the save fails.
+    private func replaceFigureRecord(_ record: FigureRecord) async throws {
+        guard var figures = manifest.figures,
+              let index = figures.firstIndex(where: { $0.id == record.id }) else { return }
+        let before = manifest.figures
+        figures[index] = record
+        manifest.figures = figures
+        manifest.modified = Date()
+        do { try await saveManifest() } catch {
+            manifest.figures = before
+            throw error
+        }
+    }
+
+    /// A renamed table's render, moved to its new file through the typed
+    /// mover; the render pass that follows writes it fresh. Best-effort: the
+    /// render is derived, so a failure is logged, never a refusal. An old
+    /// file already gone is nothing to move; a new file already there takes
+    /// the render, and the old one goes to the Trash.
+    private func moveTableRender(from oldPath: String, to newPath: String, documentStore: DocumentStore) async {
+        guard let oldFile = FigureRender.renderPath(of: FigureRecord(
+                  id: "", name: "", kind: .table, piece: nil, path: oldPath)),
+              let from = try? resolvedProjectPathToChange(oldFile),
+              let to = try? resolvedProjectPathToChange(newPath),
+              FileManager.default.fileExists(atPath: from.path) else { return }
+        do {
+            if from.path.lowercased() != to.path.lowercased(),
+               FileManager.default.fileExists(atPath: to.path) {
+                _ = try await documentStore.trash(
+                    relativePath: oldFile, using: trashStore,
+                    itemMetadata: Data("{}".utf8), originalParentId: nil, originalIndex: 0,
+                    displayTitle: (oldFile as NSString).lastPathComponent, subject: .internalArtifact)
+            } else {
+                try await documentStore.moveFigureFile(from: from, to: to)
+            }
+        } catch {
+            projectStoreLog.error(
+                "renameFigure: the old render \(oldPath, privacy: .public) was not moved: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// **The door an existing figure's structural verb asks**: its
+    /// `.editFigure` posture — the window's acting answer, yields and *Edit
+    /// Anyway* included (R-6a-8). A refusal or a `.settling` answer throws
+    /// `FigureEditRefused`.
+    private func requireFigurePermitted(
+        figureId: String, site: StaticString, documentStore: DocumentStore
+    ) async throws {
+        let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
+        guard !posture.isSettling, posture.allows(.editFigure) else {
+            projectStoreLog.error("\(site, privacy: .public) refused: this device may not change this figure")
+            throw FigureEditRefused(site: "\(site)")
+        }
+    }
+
     // MARK: - The steps every creation shares
 
     /// **The door a new figure asks**, before anything is written: the
@@ -224,7 +494,7 @@ extension ProjectStore {
     /// Anyway* apply as they do to its text; windowless, Core's door directly
     /// (RulingPerformer's precedent). A refusal, or a `.settling` answer,
     /// throws `FigureEditRefused`.
-    private func requireNewFigurePermitted(
+    func requireNewFigurePermitted(
         figureId: String, piece: String?, opStore: OpLogStore, site: StaticString
     ) async throws {
         let posture: Posture
@@ -292,5 +562,46 @@ extension ProjectStore {
         let safe = String(name.map { "/:\\".contains($0) ? "_" : $0 })
         let file = safe.hasPrefix(".") ? "_" + safe.dropFirst() : safe
         return "\(figuresFolder)/\(file)" + (kind == .table ? ".csv" : "")
+    }
+}
+
+/// **A figure rename refused before anything changed** (report plan 6b
+/// Task 5, ruling P-3): the registry, the files, the text and the formulas
+/// are all as they were.
+public struct FigureRenameRefused: LocalizedError, Equatable {
+    public enum Reason: Equatable {
+        /// The new name is empty.
+        case emptyName
+        /// Another figure is called this, in some case.
+        case nameTaken(String)
+        /// Another figure's file is at this path, or a file already is.
+        case pathTaken(String)
+        /// The text holds the figure, and this name cannot be a label.
+        case notALabelName(String)
+        /// The text already defines this label for something else.
+        case labelTaken(String)
+        /// These pieces hold the figure's line or a reference to it, and
+        /// this Mac may not change their text.
+        case piecesNotWritable([String])
+    }
+
+    public let reason: Reason
+
+    public var errorDescription: String? {
+        switch reason {
+        case .emptyName:
+            return "A figure needs a name."
+        case .nameTaken(let name):
+            return "Another figure is already called \(name)."
+        case .pathTaken(let path):
+            return "\(path) is already taken in the figures folder."
+        case .notALabelName(let name):
+            return "\(name) can't be a label in the text: use letters, digits, - and _."
+        case .labelTaken(let label):
+            return "The text already uses the label \(label)."
+        case .piecesNotWritable(let titles):
+            return "Not renamed — this Mac may not change the text of "
+                + titles.joined(separator: ", ") + ", which refers to this figure."
+        }
     }
 }
