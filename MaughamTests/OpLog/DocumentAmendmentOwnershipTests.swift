@@ -182,7 +182,7 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
             at: Date(timeIntervalSince1970: 3_000))
         bytes.append(seal)
         bytes.append(0x0A)
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: Self.docId, deviceSlug: identity.slug, in: projectURL)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

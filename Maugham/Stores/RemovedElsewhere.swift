@@ -27,7 +27,8 @@ struct RemovedElsewherePiece: Identifiable, Equatable, Sendable {
 /// A piece qualifies when all four hold:
 /// 1. **It has an op log in this book** (`OpLogStore.docIds(inOpsDirectoryFilenames:)`,
 ///    the one filename→docId reader, which already leaves out `__project__`),
-///    and it is not a statement (statements are op-logged too).
+///    and it is not a statement or a figure (both are op-logged too; a figure
+///    is never a manuscript piece, whether or not the registry names it).
 /// 2. **Nothing in the book accounts for it**: no row in the live structure
 ///    and no Trash entry (a trashed group accounts for every row under it).
 /// 3. **No device let it go**: it is not in the `LetGoRecord` — the union of
@@ -61,6 +62,7 @@ enum RemovedElsewhere {
         letGoIds: Set<String>
     ) -> Set<String> {
         opLogDocIds
+            .filter { !DocumentClass.isFigureDocId($0) }
             .subtracting(TreeWalk.collectIds(in: live))
             .subtracting(statementIds)
             .subtracting(trashedIds)

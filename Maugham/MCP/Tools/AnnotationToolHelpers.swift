@@ -60,7 +60,7 @@ func withAnnotationDocument<T>(
         throw MCPError.invalidArgument(
             "document_id not found in project manifest: \(documentId)")
     }
-    let docURL = projectURL.appendingPathComponent(path)
+    let docURL = try ProjectStore.resolvedProjectPath(path, under: projectURL)
     // Anything arriving through MCP is the assistant's (constraint 6): the
     // annotation ops `body` appends land in the assistant's own file, chained
     // and sealed under the assistant's key rather than unsigned under a

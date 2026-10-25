@@ -327,8 +327,8 @@ final class DiagnosticsStore {
             previewing.contains(SlotKey(docId: docId, kind: $0))
         }
         guard held.count < RunKind.allCases.count else { return }
-        let url = Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
-        guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        guard let url = try? Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device),
+              let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
               var content = try? Self.makeDecoder().decode(FileContent.self, from: data)
         else {
             // Nothing readable on disk. A slot standing in front of a preview
@@ -907,10 +907,13 @@ final class DiagnosticsStore {
     /// `.maugham/diagnostics/<docId>.<slug>.json` — per-device so two
     /// machines running the compiler against the same doc never race each
     /// other's sidecar. `.raw` is interpolated only here (tripwire 24).
-    static func sidecarURL(projectRoot: URL, docId: String, device: DeviceSlug) -> URL {
-        projectRoot
+    /// Throws for a doc id that fails `SafeRelativePath.requireDocId`
+    /// (tripwire 58): the id is synced, and spelled into the file name.
+    static func sidecarURL(projectRoot: URL, docId: String, device: DeviceSlug) throws -> URL {
+        let fileId = try SafeRelativePath.requireDocId(docId)
+        return projectRoot
             .appendingPathComponent(".maugham/diagnostics")
-            .appendingPathComponent("\(docId).\(device.raw).json")
+            .appendingPathComponent("\(fileId).\(device.raw).json")
     }
 
     /// `.maugham/diagnostics/cold-start-refused.<slug>.json` — one small
@@ -1014,7 +1017,8 @@ final class DiagnosticsStore {
                 content[kind] = finishedBeforePreview[key]
             }
         }
-        let url = Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
+        guard let url = try? Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
+        else { return }
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()

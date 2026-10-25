@@ -602,7 +602,7 @@ Two limits the guards cannot cover:
 
 ### Figures are staged
 
-A figure's image must sit inside a research folder of the project; the path is written relative to the piece's own file. The PDF compile copies it to `build/figures/<content-hash>.<ext>` (PNG, JPEG or PDF) and `\includegraphics` reads that copy, so no project path — spaces and all — ever reaches TeX. The EPUB copies it to `OEBPS/images/` (PNG, JPEG, GIF or SVG). The counter is set before each `\caption` (`\setcounter{figure}{n-1}`, likewise `table`), so the resolution's number prints in any subset.
+A figure's image must sit inside the project's `figures/` folder or a research folder of the project; the path is written relative to the piece's own file. The PDF compile copies it to `build/figures/<content-hash>.<ext>` (PNG, JPEG or PDF) and `\includegraphics` reads that copy, so no project path — spaces and all — ever reaches TeX. The EPUB copies it to `OEBPS/images/` (PNG, JPEG, GIF or SVG). The counter is set before each `\caption` (`\setcounter{figure}{n-1}`, likewise `table`), so the resolution's number prints in any subset.
 
 ### Label anchors — `lbl-<kind>-<name>`
 

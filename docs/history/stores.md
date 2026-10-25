@@ -499,3 +499,35 @@ four things to know before editing in here:
 From its "Inbox + transcription" section (iPhone-companion Mac side):
 
 - `InboxStore` owns `.maugham/inbox/` (per-device `inbox.<slug>.jsonl`, monotonic `writtenAt`). `InboxPane` is ⌘⌥B. `InboxTranscriptionWorker` runs an injected `Transcriber`; production is `WhisperKitTranscriber` (Apple-Silicon only). MCP's scope over the inbox is read and promote only (CLAUDE.md).
+
+## Moved from the guide by report plan 6b Task 6 review (2026-10-25)
+
+To make room for the `ProjectStore+FigureResearch.swift` Map row under the 8,000-word cap:
+
+- The posture refresh bumps the epoch WITHOUT clearing because the first bump already cleared; clearing again would make every redraw a miss.
+- Restoring a piece removed elsewhere re-renders through `Document.load`, which backs a stale file up as `-diverged-`; a missing file is not a divergence.
+
+## Moved from the guide by report plan 6b Task 7 (2026-10-25)
+
+To make room for `sendToResearch` in the `ProjectStore+FigureResearch.swift` Map row under the 8,000-word cap:
+
+- `ProjectStore+Annotations.swift` returns an unreadable closed doc's id in `unreadableDocIds` so a count says unknown rather than a short number.
+
+## Moved from the guide by report plan 6b Task 10 (2026-10-25)
+
+To make room for the figure rows (pins, the return, restore), the figure posture and the figure text-hold rule under the 8,000-word cap:
+
+- Tripwire 14's why: a raw move or trash loses to the 750 ms autosave, which recreates the file at the old path.
+- Tripwire 17's why: iCloud cannot line-merge one shared JSONL.
+- Tripwire 19's why: two copies drift.
+- Statements stay out of `DocumentStore`'s registry because it would put them in `allOpenDocuments()`, which task aggregation iterates.
+- `appendToStatement` appends to the essay, not the file's end, because below a `## Rulings` section the text would be invisible to the Intent pane.
+- Routing one canvas-ingest case through the other twin would leave half the pair with no caller.
+- `InboxTranscriptionWorker` is poked on every inbox change because an `.m4a` and its manifest row arrive in either order.
+- `ProjectStore` is large only because the project is the central aggregate.
+
+## Moved from the guide by report plan 6b final fix wave (2026-10-25)
+
+To make room for the `ProjectStore+FigureTranslations.swift` Map row, the figure rows' parked-rename refusal and always-a-Trash-entry removal, and tripwire 58 in the header list, under the 8,000-word cap:
+
+- This device's key material must never sync because a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account.

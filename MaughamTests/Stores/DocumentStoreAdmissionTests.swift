@@ -1129,9 +1129,9 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             "this Mac applied her lines, which is what makes the memory a fact")
         await read.close()
 
-        let streamKey = try XCTUnwrap(PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+        let streamKey = try XCTUnwrap(PermitMark.streamKey(of: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
-        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+        try FileManager.default.removeItem(at: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
 
         do {
@@ -1169,7 +1169,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         let read = try await openDocument()
         _ = try await read.opStore.loadDiagnosed(docId: docId)
         await read.close()
-        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+        try FileManager.default.removeItem(at: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
 
         do {
@@ -1199,7 +1199,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
         // No load of the document since her file arrived, so nothing of hers
         // is remembered — and then it goes away again.
-        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+        try FileManager.default.removeItem(at: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
 
         _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
@@ -1228,7 +1228,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
                 ofDeviceIds: [mine.author.deviceId], in: projectURL,
                 state: Document.loadDeviceState).isEmpty,
             "this device's own streams are `heads`' business, not this memory's")
-        let ownFile = OpLogStore.opLogFileURL(
+        let ownFile = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: mine.author.slug, in: projectURL)
         try? FileManager.default.removeItem(at: ownFile)
 
@@ -1255,7 +1255,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         // Her file arrives with nothing in it yet, and this Mac reads the
         // chapter while it is like that.
         try Data().write(
-            to: OpLogStore.opLogFileURL(
+            to: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: stranger.slug, in: projectURL),
             options: .atomic)
         let read = try await openDocument()
@@ -1310,7 +1310,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         let last = try XCTUnwrap(records.last)
         let slug = try XCTUnwrap(
             [stranger!, second, third].first { $0.fingerprint == last.person }?.slug)
-        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+        try FileManager.default.removeItem(at: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: slug, in: projectURL))
 
         do {
@@ -1506,7 +1506,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         XCTAssertFalse(
             event.mark.isEmpty,
             "the open swept her streams, exactly as the mid-session path does")
-        let key = try XCTUnwrap(PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+        let key = try XCTUnwrap(PermitMark.streamKey(of: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
         XCTAssertNotNil(event.mark[key]?.line, "and named the stream it read")
     }

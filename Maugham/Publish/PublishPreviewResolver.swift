@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import PDFKit
 
 /// **What the Publish persona's centre column has to show** — an answer with a
@@ -124,8 +125,8 @@ enum PublishPreviewResolver {
         }
         var readable: [Publication] = []
         for row in rows.reversed() where row.format == .pdf {
-            let file = fileURL(of: row, in: projectURL)
-            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            guard let file = fileURL(of: row, in: projectURL),
+                  FileManager.default.fileExists(atPath: file.path) else { continue }
             guard PDFDocument(url: file) != nil else { continue }
             readable.append(row)
         }
@@ -156,9 +157,12 @@ enum PublishPreviewResolver {
     /// the absolute-prefix branch is `PublicationTools`' idiom rather than an
     /// invention here — the records a republish wrote before the field was
     /// normalised carry absolute paths.
-    static func fileURL(of publication: Publication, in projectURL: URL) -> URL {
+    ///
+    /// A relative path that leaves the project answers nil (tripwire 58): the
+    /// record is synced.
+    static func fileURL(of publication: Publication, in projectURL: URL) -> URL? {
         publication.outputPath.hasPrefix("/")
             ? URL(fileURLWithPath: publication.outputPath)
-            : projectURL.appendingPathComponent(publication.outputPath)
+            : try? SafeRelativePath.resolve(publication.outputPath, under: projectURL)
     }
 }

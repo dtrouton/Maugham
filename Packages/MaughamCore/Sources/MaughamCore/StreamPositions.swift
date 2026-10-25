@@ -47,12 +47,12 @@ public enum StreamPositions {
         // **The permit partition runs here too** (P3a Task 5): a refused line
         // is not *applied*, and a mark that counted one would record a
         // position this Mac never reached. Resolved once for the whole sweep.
-        let statements = OpLogStore.manifestStatements(in: projectURL)
+        let facts = OpLogStore.manifestFacts(in: projectURL)
         var highest: String?
         for docId in docIds.sorted() {
             let permit = OpLogStore.permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
-                statements: statements)
+                facts: facts)
             for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
                 guard let bytes = try OpLogStore.readCoordinated(url: url, presenter: nil)
                 else { continue }
@@ -248,7 +248,7 @@ public enum StreamPositions {
         // same reason the project-open sweep names it when it rotates tails.
         docIds.insert("__project__")
 
-        let statements = OpLogStore.manifestStatements(in: projectURL)
+        let facts = OpLogStore.manifestFacts(in: projectURL)
         var segments: [String: Set<String>] = [:]
         var lastKnownLine: [String: String] = [:]
         // What this sweep FOUND, per stream, in the shape the load's own
@@ -266,7 +266,7 @@ public enum StreamPositions {
         for docId in docIds.sorted() {
             let permit = OpLogStore.permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
-                statements: statements)
+                facts: facts)
             for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
                 guard let stream = PermitMark.stream(of: url),
                       let slug = stream.deviceSlug, slugs.contains(slug)

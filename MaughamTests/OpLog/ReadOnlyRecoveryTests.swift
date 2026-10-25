@@ -21,7 +21,7 @@ final class ReadOnlyRecoveryTests: XCTestCase {
 
         // Squat a second device's file so the strict load refuses…
         let bad = DeviceSlug.make(from: "bad")
-        let badURL = OpLogStore.opLogFileURL(forDocId: docId, deviceSlug: bad, in: project)
+        let badURL = try OpLogStore.opLogFileURL(forDocId: docId, deviceSlug: bad, in: project)
         try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
         do {
             _ = try await Document.load(url: docURL, device: "m", session: "s", presenter: nil)

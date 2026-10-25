@@ -93,6 +93,8 @@ Keyboard shortcuts are chosen when the plan is written, against the existing sho
 
 ### 4.2 Tables: tidy text plus a grid editor
 
+> Superseded for new tables by `2026-10-24-figures-and-tables-design.md` (tables become figure objects; the grid sheet is retired). Hand-typed pipe tables keep the tidy behaviour below.
+
 - **In the text:**
   - the table's pipes are kept column-aligned, re-aligned when you Tab, press Return or leave the table (Denver, 2026-10-20: never mid-keystroke);
   - Tab and Shift-Tab move between cells;

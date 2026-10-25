@@ -255,7 +255,7 @@ final class RewindFlowTests: XCTestCase {
         let cpAfterP2 = try await CheckpointCapture.run(
             projectURL: tmp,
             activeDocId: docId,
-            allDocIds: [docId],
+            allDocIds: [docId], figureIds: [],
             device: "d1",
             session: "s1",
             label: "after p2")

@@ -29,8 +29,11 @@ public enum InboxConvention {
     }
 
     /// Absolute file URL for `kind`'s asset named `filename` under `inboxDir`,
-    /// or nil for `.text`.
+    /// or nil for `.text` — and nil for a `filename` (an entry's synced
+    /// `sourceFilename`) that is not one plain file name
+    /// (`SafeRelativePath.isPlainFileName`; tripwire 58).
     public static func assetURL(kind: InboxEntry.Kind, filename: String, inboxDir: URL) -> URL? {
-        assetDir(for: kind, inboxDir: inboxDir)?.appendingPathComponent(filename)
+        guard let subdir = assetSubdir(for: kind) else { return nil }
+        return try? SafeRelativePath.resolveFile(named: filename, in: subdir, under: inboxDir)
     }
 }

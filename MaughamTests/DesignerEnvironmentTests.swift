@@ -283,7 +283,7 @@ final class DesignerEnvironmentTests: XCTestCase {
             report(files: [.init(path: "partials/dropcaps.tex", content: "\\lettrine")]),
             stageContext())
         let proposalId = try XCTUnwrap(outcome.proposalId)
-        let staged = DesignProposalStore(projectURL: harness.projectURL)
+        let staged = try DesignProposalStore(projectURL: harness.projectURL)
             .proposalDir(id: proposalId)
             .appendingPathComponent("files/partials/dropcaps.tex")
         XCTAssertEqual(try String(contentsOf: staged, encoding: .utf8), "\\lettrine")

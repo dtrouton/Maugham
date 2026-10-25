@@ -2,10 +2,11 @@ import Foundation
 import MaughamCore
 import AppKit
 
-// EditorCoordinator — figures backed by research (plan 3a Task 6): Insert
-// Figure… (⌘⇧I), an image dropped on the manuscript, an image pasted into it.
-// All three end in `beginFigureIngest`, which copies through the host's
-// `figureImporter` and writes the line through Route A (`applyCommandEdit`).
+// EditorCoordinator — image figures (plan 3a Task 6; report plan 6a Task 9):
+// Insert Figure… (⌘⇧I), an image dropped on the manuscript, an image pasted
+// into it. All three end in `beginFigureIngest`, which makes the figure
+// through the host's `figureImporter` and writes the line through Route A
+// (`applyCommandEdit`).
 extension EditorCoordinator {
     /// The membrane's answer, asked BEFORE anything is copied
     /// (`commandMayWrite`).
@@ -19,8 +20,11 @@ extension EditorCoordinator {
 
     // MARK: - The ingest
 
-    /// Copies each image into research, then writes its figure line as a
-    /// paragraph of its own, `Caption` selected — one ⌘Z step per figure.
+    /// Makes each image a figure in `figures/`, then writes its figure line
+    /// as a paragraph of its own, `Caption` selected — one ⌘Z step per
+    /// figure. The label is the figure's name, the returned path's stem: the
+    /// importer was handed the `fig:` names the text used when the ingest
+    /// began, so the name it chose is clear of them.
     ///
     /// The point is remembered now and carried through any typing while the
     /// copy runs (`FigureIngest.Anchor`). Nothing is copied when the membrane
@@ -60,7 +64,9 @@ extension EditorCoordinator {
             for url in urls {
                 let path: String
                 do {
-                    path = try await importer(url)
+                    let taken = FigureIngest.existingFigureNames(
+                        in: textView.string, elsewhere: self?.projectLabelsElsewhere?() ?? [])
+                    path = try await importer(url, taken)
                 } catch {
                     self?.commandFailureReporter?(ImagePasteHandler.failureMessage(for: error))
                     return
@@ -76,7 +82,7 @@ extension EditorCoordinator {
                     await self.figureCompositionWait()
                     guard !self.isDetached, self.textView === textView else { return }
                 }
-                let stem = url.deletingPathExtension().lastPathComponent
+                let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
                 let writerMoved = tracker.anchor.edited
                     || textView.selectedRange() != writersSelection
                 guard let end = self.writeFigure(path: path, stem: stem,
@@ -86,7 +92,7 @@ extension EditorCoordinator {
                                                  writerMoved: writerMoved)
                 else {
                     self.commandFailureReporter?(
-                        "The picture is in research, but this document can’t be written to now.")
+                        "The picture is in figures, but this document can’t be written to now.")
                     return
                 }
                 tracker.anchor = FigureIngest.Anchor(point: end, in: textView.string)
@@ -119,7 +125,7 @@ extension EditorCoordinator {
 
     /// What the writer is told when a composition outlasted every wait.
     static let compositionFailureMessage =
-        "The picture is in research, but it wasn’t placed while you were composing text. Insert it again from research."
+        "The picture is in figures, but it wasn’t placed while you were composing text. Insert it again."
 
     /// Removes a paste's temporary PNG (`FigureIngest.removeTemporary`).
     private static func remove(_ temporary: [URL]) {

@@ -22,10 +22,16 @@ public enum CheckpointCapture {
     ///   be a document** — see `documentSubject(of:in:)`.
     /// - Parameter allDocIds: The project's document census, and therefore also
     ///   the answer to *"is `activeDocId` a document?"*.
+    /// - Parameter figureIds: The book's figure streams (the manifest's
+    ///   `figures` registry, ruling D-g). Each gets a pointer in `docPointers`
+    ///   so plan 6b can restore a figure to the checkpoint; none is a
+    ///   document — no breadcrumb lands on one and no figure counts toward
+    ///   the manuscript's words.
     public static func run(
         projectURL: URL,
         activeDocId: String,
         allDocIds: [String],
+        figureIds: [String],
         device: String,
         session: String,
         label: String?,
@@ -60,9 +66,9 @@ public enum CheckpointCapture {
 
         let opStore = OpLogStore(projectURL: projectURL)
 
-        // doc_pointers = last op_id per doc.
+        // doc_pointers = last op_id per doc, and per figure stream (D-g).
         var pointers: [String: String] = [:]
-        for docId in allDocIds {
+        for docId in allDocIds + figureIds.filter({ !allDocIds.contains($0) }) {
             if let last = try await opStore.load(docId: docId).last {
                 pointers[docId] = last.opId
             }

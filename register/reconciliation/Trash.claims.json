@@ -1022,5 +1022,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M3-TR-065",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "a `figure` entry (a removed figure's file, carrying its FigureRecord as item metadata) restores by putting the record back in the manifest's figures registry under the name it had, its file at the record's path (an image at its stream's file name), and the figure renders again from the stream it never left; a name another figure now has refuses the restore with FigureRestoreRefused and the entry stays",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "FigureRenameTests.test_removeSendsTheCSVToTrash_andARestoreBringsTheFigureBack"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — report plan 6b Task 5 (ruling P-3; Denver's review ruling that a taken name refuses the restore); landed 2026-10-25",
+  "reachability": "ProjectStore.removeFigure's entry; restored from the Trash pane's Restore once plan 7 draws removal (P-9: no UI yet).",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

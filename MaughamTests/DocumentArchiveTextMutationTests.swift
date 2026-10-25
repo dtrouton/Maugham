@@ -243,7 +243,7 @@ final class DocumentArchiveTextMutationTests: XCTestCase {
         await first.close()
         // Squat a second device's file so only the read-only partial view opens
         // (`ReadOnlyRecoveryTests`' shape): every mutation there refuses.
-        let badURL = OpLogStore.opLogFileURL(
+        let badURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.make(from: "bad"), in: project)
         try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
         let doc = try await Document.load(

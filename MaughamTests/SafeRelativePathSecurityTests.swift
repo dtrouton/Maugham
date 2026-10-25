@@ -156,4 +156,51 @@ final class SafeRelativePathSecurityTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: outsideTarget.path),
             "the file outside the inbox subdir must be untouched")
     }
+
+    // MARK: - The one path checker, wired (report plan 6b Task 1)
+
+    /// A manifest doc id that climbs (`../x`) never becomes an op-log file:
+    /// the append throws and nothing is written outside `.maugham/ops/`.
+    func test_opLogAppend_climbingDocId_throws_writesNothingOutsideOps() async throws {
+        let project = temp.url.appendingPathComponent("DocIdEscape")
+        try FileManager.default.createDirectory(
+            at: project.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
+        let op = Op(opId: "op-a", docId: "../../escaped", at: Date(timeIntervalSince1970: 0),
+                    device: "Denvers-Mac.local", session: "s", kind: .typingBurst,
+                    changes: [Op.ParagraphChange(paragraphId: "aaaa", prior: nil, next: "x")],
+                    sequence: ["aaaa"])
+
+        do {
+            try await OpLogStore(projectURL: project).append(op)
+            XCTFail("expected the append to refuse a doc id that climbs")
+        } catch let error as SafeRelativePath.PathError {
+            guard case .notADocId = error else { return XCTFail("expected .notADocId, got \(error)") }
+        }
+
+        let written = FileManager.default.enumerator(atPath: temp.url.path)?
+            .compactMap { $0 as? String }
+            .filter { $0.contains("escaped") } ?? []
+        XCTAssertEqual(written, [])
+    }
+
+    /// The figure render spells no rule of its own: a file name the one
+    /// checker refuses (NUL, backslash, dot-leading) is never written.
+    func test_figureRenderPath_asksTheOnePlainFileNameRule() {
+        func path(_ p: String) -> String? {
+            FigureRender.renderPath(of: FigureRecord(id: "fig-1", name: "t", kind: .table, piece: nil, path: p))
+        }
+        XCTAssertEqual(path("figures/t.csv"), "figures/t.csv")
+        for bad in ["t\0x.csv", "a\\b.csv", ".t.csv"] {
+            XCTAssertFalse(SafeRelativePath.isPlainFileName(bad), bad.debugDescription)
+            XCTAssertNil(path("figures/" + bad), bad.debugDescription)
+        }
+    }
+
+    /// The staged image name is Core's content hash, unchanged.
+    func test_figureImageContentHash_isCoresContentHash() throws {
+        let url = temp.url.appendingPathComponent("fixture.bin")
+        try Data("Maugham figure fixture\n".utf8).write(to: url)
+        XCTAssertEqual(try FigureImageResolver.contentHash(of: url), "23fbb79b71ed07dd")
+        XCTAssertEqual(try FigureImageResolver.contentHash(of: url), try ContentHash.ofFile(url))
+    }
 }

@@ -39,7 +39,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
     }
 
     private func writeSegment(_ ops: [Op], slug: DeviceSlug = .unsafeForTesting("maca"), index: Int = 1) throws -> URL {
-        let url = OpLogStore.segmentFileURL(
+        let url = try OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: slug, index: index, in: projectURL)
         try OpLogSegment.encode(jsonl: jsonlBytes(ops)).write(to: url)
         return url
@@ -47,7 +47,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
 
     // Recognition: filename helpers are the ONLY places that know the shape.
     func test_filenameHelpers_recognizeSegments() {
-        let url = OpLogStore.segmentFileURL(
+        let url = try! OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: .unsafeForTesting("maca"), index: 3, in: projectURL)
         XCTAssertEqual(url.lastPathComponent, "doc-seg1.maca.seg0003.mzseg")
         XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: url.lastPathComponent), docId)
@@ -67,7 +67,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
 
     func test_opLogFileURLs_includeSegments() throws {
         let segURL = try writeSegment([op("01A", next: "x")])
-        let tailURL = OpLogStore.opLogFileURL(
+        let tailURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: .unsafeForTesting("maca"), in: projectURL)
         try Data("".utf8).write(to: tailURL)
         let urls = Set(OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
@@ -190,7 +190,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
         XCTAssertNotNil(segURL)
         XCTAssertEqual(segURL?.pathExtension, "mzseg")
 
-        let tailURL = OpLogStore.opLogFileURL(
+        let tailURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sealSlug, in: projectURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: tailURL.path),
                        "tail must be deleted after a successful seal")
@@ -223,7 +223,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
     func test_tornTail_abortsSeal() async throws {
         let store = OpLogStore(projectURL: projectURL)
         try await fillTail(store, opCount: 3)
-        let tailURL = OpLogStore.opLogFileURL(
+        let tailURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sealSlug, in: projectURL)
         var bytes = try Data(contentsOf: tailURL)
         bytes.append(Data("{\"op_id\":\"torn".utf8))   // no newline, truncated JSON
@@ -266,11 +266,11 @@ final class OpLogStoreSegmentTests: XCTestCase {
         let store = OpLogStore(projectURL: projectURL)
         try await fillTail(store, opCount: 5)
         // Simulate the crash: segment written, tail NOT deleted.
-        let tailURL = OpLogStore.opLogFileURL(
+        let tailURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sealSlug, in: projectURL)
         let tailBytes = try Data(contentsOf: tailURL)
         try OpLogSegment.encode(jsonl: tailBytes).write(
-            to: OpLogStore.segmentFileURL(
+            to: try OpLogStore.segmentFileURL(
                 forDocId: docId, deviceSlug: sealSlug, index: 1, in: projectURL))
         let before = try await store.load(docId: docId)
         XCTAssertEqual(before.count, 5, "duplicates dedupe in the interim")

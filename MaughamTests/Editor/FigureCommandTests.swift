@@ -7,7 +7,7 @@ import ImageIO
 import UniformTypeIdentifiers
 @testable import Maugham
 
-/// Figures backed by research, end to end (plan 3a Task 6): the ingest a drop,
+/// Image figures, end to end (plan 3a Task 6; report plan 6a Task 9): the ingest a drop,
 /// a paste and Insert Figure… all run, driven directly on a mounted
 /// `EditorSurface` over a real temporary project. No synthesised drag and no
 /// press: the drop's decision is asked of the text view as a function, and the
@@ -44,7 +44,7 @@ final class FigureCommandTests: XCTestCase {
     }
 
     private func mount(_ text: String,
-                       importer: ((URL) async throws -> String)?) throws -> Mounted {
+                       importer: FigureIngest.Importer?) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0 })
         var configuration = EditorSurfaceConfiguration(
@@ -133,12 +133,19 @@ final class FigureCommandTests: XCTestCase {
         return image
     }
 
-    private func importer(_ store: ProjectStore, _ item: StructureItem)
-        -> (URL) async throws -> String {
-        { url in
+    private func importer(_ store: ProjectStore, _ item: StructureItem) -> FigureIngest.Importer {
+        { url, taken in
             try await FigureIngest.importImage(url, documentId: item.id,
-                                               documentPath: item.path ?? "", store: store)
+                                               documentPath: item.path ?? "", taken: taken,
+                                               store: store)
         }
+    }
+
+    /// The one image figure the store holds.
+    private func onlyFigure(_ store: ProjectStore) throws -> FigureRecord {
+        let figures = store.manifest.figures ?? []
+        XCTAssertEqual(figures.count, 1, "\(figures)")
+        return try XCTUnwrap(figures.first)
     }
 
     private func selected(_ m: Mounted) -> String {
@@ -147,7 +154,12 @@ final class FigureCommandTests: XCTestCase {
 
     // MARK: - End to end
 
-    func test_anImageInANovelChapterIsCopiedLinkedAndWrittenAsOneUndoStep() async throws {
+    /// **A dropped PNG becomes an image figure in `figures/`** (report plan
+    /// 6a Task 9): the file lands there, the registry names it with the
+    /// chapter as its piece, its stream opens with `figureCreate(.image)` and
+    /// `figureImageSet` carrying the file's hash, the line points there with
+    /// the figure's name as its label, and the thumbnail's resolver finds it.
+    func test_anImageInANovelChapterBecomesAFigureInFiguresWrittenAsOneUndoStep() async throws {
         let (store, chapter) = try await novel()
         let m = try mount("", importer: importer(store, chapter))
         try await type("Intro", into: m)
@@ -157,36 +169,51 @@ final class FigureCommandTests: XCTestCase {
             await m.coordinator.beginFigureIngest([image], at: 5)?.value
         }
 
-        let item = try XCTUnwrap(TreeWalk.first(in: store.manifest.research,
-                                                where: { $0.title == "Revenue Chart" }),
-                                 "the research item exists")
-        XCTAssertEqual(item.path, "research/revenue-chart.png")
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: store.url.appendingPathComponent("research/revenue-chart.png").path))
-        XCTAssertTrue(store.linkedResearchIds(forDocumentId: chapter.id).contains(item.id),
-                      "a novel chapter's research is linked to it")
-        let line = "![Caption](../research/revenue-chart.png){#fig:revenue-chart}"
+        let record = try onlyFigure(store)
+        XCTAssertEqual(record.name, "revenue-chart")
+        XCTAssertEqual(record.kind, .image)
+        XCTAssertEqual(record.piece, chapter.id, "the figure is the chapter's")
+        XCTAssertEqual(record.path, "figures/revenue-chart.png")
+        let copied = store.url.appendingPathComponent("figures/revenue-chart.png")
+        XCTAssertEqual(try Data(contentsOf: copied), try Data(contentsOf: image),
+                       "copied byte for byte")
+        XCTAssertNil(TreeWalk.first(in: store.manifest.research, where: { $0.title == "Revenue Chart" }),
+                     "nothing is filed in research any more")
+        let figure = try await FigureDocument.load(
+            figureId: record.id, projectURL: store.url, actor: .author, session: "s",
+            presenter: nil, documentStore: nil)
+        XCTAssertEqual(figure.state.kind, .image)
+        XCTAssertEqual(figure.state.image, FigureImageRef(
+            filename: "revenue-chart.png",
+            contentHash: try FigureImageResolver.contentHash(of: copied)),
+            "the op log holds the file's name and hash")
+        await figure.close()
+
+        let line = "![Caption](../figures/revenue-chart.png){#fig:revenue-chart}"
         XCTAssertEqual(m.textView.string, "Intro\n\n" + line)
         XCTAssertEqual(m.box.text, m.textView.string, "the figure reached the binding")
         XCTAssertEqual(selected(m), "Caption")
         XCTAssertEqual(m.box.reported, [])
-        guard case .file = FigureImageResolver.resolve(
-            "../research/revenue-chart.png", piecePath: try XCTUnwrap(chapter.path),
-            projectURL: store.url, allowed: ["png"]) else {
-            return XCTFail("the written path does not resolve from the chapter")
+        guard case .file(let resolved) = FigureImageResolver.resolve(
+            "../figures/revenue-chart.png", piecePath: try XCTUnwrap(chapter.path),
+            projectURL: store.url, allowed: FigureThumbnailStore.triedExtensions) else {
+            return XCTFail("the written path does not resolve for the thumbnail")
         }
+        XCTAssertEqual(resolved, copied.resolvingSymlinksInPath())
 
         let undo = try XCTUnwrap(m.textView.undoManager)
         undo.undo()
         XCTAssertEqual(m.textView.string, "Intro", "one ⌘Z takes back the figure line")
         XCTAssertTrue(undo.canUndo, "the writer's typing is still undoable after it")
-        XCTAssertNotNil(TreeWalk.first(in: store.manifest.research, where: { $0.id == item.id }),
-                        "undoing the insert leaves the research item in place")
+        XCTAssertEqual(store.manifest.figures?.map(\.id), [record.id],
+                       "undoing the insert leaves the figure in place")
         undo.undo()
         XCTAssertEqual(m.textView.string, "")
     }
 
-    func test_anImageInACollectionPieceLandsInThatPiecesOwnResearch() async throws {
+    /// A Collection piece's picture goes to the project's `figures/` too,
+    /// reached from the piece's folder, and the figure is the piece's.
+    func test_anImageInACollectionPieceLandsInTheProjectsFigures() async throws {
         let (store, piece) = try await collectionPiece()
         let piecePath = try XCTUnwrap(piece.path)
         let m = try mount("", importer: importer(store, piece))
@@ -194,32 +221,74 @@ final class FigureCommandTests: XCTestCase {
 
         await m.coordinator.beginFigureIngest([image], at: 0)?.value
 
-        let item = try XCTUnwrap(TreeWalk.first(in: store.manifest.research,
-                                                where: { $0.title == "map" }))
-        let folder = (piecePath as NSString).deletingLastPathComponent
-        XCTAssertEqual(item.path, "\(folder)/research/map.png")
-        XCTAssertTrue(store.derivedResearchItems(forDocumentId: piece.id).contains { $0.id == item.id },
-                      "the piece holds it by containment, its own research")
-        XCTAssertEqual(m.textView.string, "![Caption](research/map.png){#fig:map}")
-        guard case .file = FigureImageResolver.resolve("research/map.png", piecePath: piecePath,
+        let record = try onlyFigure(store)
+        XCTAssertEqual(record.path, "figures/map.png")
+        XCTAssertEqual(record.piece, piece.id)
+        XCTAssertEqual(m.textView.string, "![Caption](../../figures/map.png){#fig:map}")
+        guard case .file = FigureImageResolver.resolve("../../figures/map.png", piecePath: piecePath,
                                                        projectURL: store.url, allowed: ["png"])
         else { return XCTFail("the written path does not resolve from the piece") }
     }
 
+    /// **The label is the figure's name, clear of the text's labels**: a
+    /// legacy research figure already says `fig:map`, and a file the project
+    /// already has in `figures/` is never overwritten — the new figure is
+    /// `map_2`, its file `figures/map_2.png`, its label `fig:map_2`.
+    func test_aNewFigureStepsAroundTheTextsLabelsAndTheFilesAlreadyThere() async throws {
+        let (store, chapter) = try await novel()
+        let legacy = "![Old](../research/map.png){#fig:map}"
+        let m = try mount(legacy, importer: importer(store, chapter))
+        let image = try pngFile(named: "map.png")
+
+        await m.coordinator.beginFigureIngest([image], at: (legacy as NSString).length)?.value
+
+        let record = try onlyFigure(store)
+        XCTAssertEqual(record.name, "map_2")
+        XCTAssertEqual(record.path, "figures/map_2.png")
+        XCTAssertTrue(m.textView.string.hasSuffix("![Caption](../figures/map_2.png){#fig:map_2}"),
+                      m.textView.string)
+
+        // A stray file already in figures/ is stepped around, never replaced.
+        let stray = store.url.appendingPathComponent("figures/chart.png")
+        try Data([1, 2, 3]).write(to: stray)
+        await m.coordinator.beginFigureIngest(
+            [try pngFile(named: "chart.png")], at: (m.textView.string as NSString).length)?.value
+        XCTAssertEqual(try Data(contentsOf: stray), Data([1, 2, 3]), "the stray file is untouched")
+        XCTAssertEqual(store.manifest.figures?.last?.path, "figures/chart_2.png")
+        XCTAssertTrue(m.textView.string.hasSuffix("![Caption](../figures/chart_2.png){#fig:chart_2}"),
+                      m.textView.string)
+    }
+
+    /// **Figure lines written before keep resolving** (spec §4.4): an old
+    /// `../research/x.png` line still finds its picture, beside a new one in
+    /// `figures/`.
+    func test_anOldResearchFigureLineStillResolves() async throws {
+        let (store, chapter) = try await novel()
+        let chapterPath = try XCTUnwrap(chapter.path)
+        let research = store.url.appendingPathComponent("research/old.png")
+        try ImagePasteHandler.encodePNG(Self.picture()).write(to: research)
+        guard case .file = FigureImageResolver.resolve(
+            "../research/old.png", piecePath: chapterPath, projectURL: store.url,
+            allowed: FigureThumbnailStore.triedExtensions)
+        else { return XCTFail("an old research figure line no longer resolves") }
+    }
+
     func test_theLabelIsUniqueAgainstThisDocumentsFigures() async throws {
+        var handed: Set<String> = []
         let m = try mount("![Caption](research/map.png){#fig:map}",
-                          importer: { _ in "research/map-2.png" })
+                          importer: { _, taken in handed = taken; return "research/map-2.png" })
         let image = try pngFile(named: "map.png")
         await m.coordinator.beginFigureIngest([image], at: (m.textView.string as NSString).length)?.value
         XCTAssertTrue(m.textView.string.hasSuffix("![Caption](research/map-2.png){#fig:map-2}"),
                       m.textView.string)
+        XCTAssertEqual(handed, ["map"], "the importer is handed the labels the text uses")
     }
 
     // MARK: - Failure, refusal and the async point
 
     func test_aFailedCopyWritesNothingAndSaysWhy() async throws {
         struct Refused: Error {}
-        let m = try mount("Intro", importer: { _ in throw Refused() })
+        let m = try mount("Intro", importer: { _, _ in throw Refused() })
         let image = try pngFile(named: "a.png")
         await m.coordinator.beginFigureIngest([image], at: 5)?.value
         XCTAssertEqual(m.textView.string, "Intro")
@@ -228,7 +297,7 @@ final class FigureCommandTests: XCTestCase {
 
     func test_aReadOnlyPostureRefusesTheDropAndCopiesNothing() async throws {
         var asked = 0
-        let m = try mount("Intro", importer: { _ in asked += 1; return "research/a.png" })
+        let m = try mount("Intro", importer: { _, _ in asked += 1; return "research/a.png" })
         let image = try pngFile(named: "a.png")
         XCTAssertEqual(m.textView.figureDragOperation(for: [image]), .copy,
                        "control: a writable manuscript takes the drop")
@@ -248,7 +317,7 @@ final class FigureCommandTests: XCTestCase {
 
     func test_typingDuringTheCopyMovesTheFigureToTheStartOfItsParagraph() async throws {
         var m: Mounted!
-        m = try mount("One.\n\nTwo three.", importer: { _ in
+        m = try mount("One.\n\nTwo three.", importer: { _, _ in
             // The writer types while the copy runs: above the paragraph, and in it.
             m.textView.insertText("Zero. ", replacementRange: NSRange(location: 0, length: 0))
             m.textView.insertText("!", replacementRange: NSRange(location: 15, length: 0))
@@ -275,7 +344,7 @@ final class FigureCommandTests: XCTestCase {
     func test_aFigureLandingWhileTheFocusIsElsewhereTakesNeitherTheFocusNorTheSelection() async throws {
         var m: Mounted!
         let elsewhere = NSTextView(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
-        m = try mount("Intro.\n\nBody text.", importer: { _ in
+        m = try mount("Intro.\n\nBody text.", importer: { _, _ in
             m.window.contentView?.addSubview(elsewhere)
             m.window.makeFirstResponder(elsewhere)
             return "research/a.png"
@@ -295,7 +364,7 @@ final class FigureCommandTests: XCTestCase {
     /// the line lands above, and their caret rides the edit.
     func test_aFigureLandingAfterTheCaretMovedKeepsTheCaretShiftedThroughTheEdit() async throws {
         var m: Mounted!
-        m = try mount("Intro.\n\nBody text.", importer: { _ in
+        m = try mount("Intro.\n\nBody text.", importer: { _, _ in
             m.textView.setSelectedRange(NSRange(location: 12, length: 0))   // "Body|"
             return "research/a.png"
         })
@@ -312,7 +381,7 @@ final class FigureCommandTests: XCTestCase {
 
     /// The control: a writer still where they were gets the caption selected.
     func test_aFigureLandingWithTheWriterStillThereSelectsTheCaption() async throws {
-        let m = try mount("Intro.", importer: { _ in "research/a.png" })
+        let m = try mount("Intro.", importer: { _, _ in "research/a.png" })
         m.window.makeFirstResponder(m.textView)
         m.textView.setSelectedRange(NSRange(location: 6, length: 0))
         await m.coordinator.beginFigureIngest([try pngFile(named: "a.png")], at: 6)?.value
@@ -323,7 +392,7 @@ final class FigureCommandTests: XCTestCase {
     /// the composition ends, then lands without touching it.
     func test_aFigureWaitsOutAComposition() async throws {
         var m: Mounted!
-        m = try mount("Intro.\n\nBody", importer: { _ in
+        m = try mount("Intro.\n\nBody", importer: { _, _ in
             m.textView.setSelectedRange(NSRange(location: 12, length: 0))
             m.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
                                      replacementRange: m.textView.selectedRange())
@@ -347,7 +416,7 @@ final class FigureCommandTests: XCTestCase {
     /// is untouched, and the writer is told.
     func test_aFigureGivesUpOnACompositionThatOutlastsTheWaits() async throws {
         var m: Mounted!
-        m = try mount("Intro.", importer: { _ in
+        m = try mount("Intro.", importer: { _, _ in
             m.textView.setSelectedRange(NSRange(location: 6, length: 0))
             m.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
                                      replacementRange: m.textView.selectedRange())
@@ -366,7 +435,7 @@ final class FigureCommandTests: XCTestCase {
 
     func test_aDocumentThatIsNoLongerOpenGetsNothing() async throws {
         var m: Mounted!
-        m = try mount("Intro", importer: { _ in
+        m = try mount("Intro", importer: { _, _ in
             m.coordinator.detach()     // the writer switched documents mid-copy
             return "research/a.png"
         })
@@ -384,7 +453,7 @@ final class FigureCommandTests: XCTestCase {
     /// stay open until the next event ended — and the writer's caption typing
     /// would join it. `applyCommandEdit` closes its own group.
     func test_anAsyncFigureIsItsOwnUndoStepWithTheDefaultGrouping() async throws {
-        let m = try mount("Intro", importer: { _ in "research/a.png" })
+        let m = try mount("Intro", importer: { _, _ in "research/a.png" })
         m.window.makeFirstResponder(m.textView)
         let undo = try XCTUnwrap(m.textView.undoManager)
         XCTAssertTrue(undo.groupsByEvent, "the premise: the default grouping")
@@ -416,14 +485,12 @@ final class FigureCommandTests: XCTestCase {
 
         await m.coordinator.beginFigureIngest([tiff], at: 0)?.value
 
-        let item = try XCTUnwrap(TreeWalk.first(in: store.manifest.research,
-                                                where: { $0.title == "Site Plan" }))
-        XCTAssertEqual(item.path, "research/site-plan.png")
-        let copied = store.url.appendingPathComponent("research/site-plan.png")
+        XCTAssertEqual(try onlyFigure(store).path, "figures/site-plan.png")
+        let copied = store.url.appendingPathComponent("figures/site-plan.png")
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(copied as CFURL, nil))
         XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.png.identifier,
                        "the copy really is a PNG")
-        XCTAssertEqual(m.textView.string, "![Caption](../research/site-plan.png){#fig:site-plan}")
+        XCTAssertEqual(m.textView.string, "![Caption](../figures/site-plan.png){#fig:site-plan}")
     }
 
     func test_aPDFIsCopiedAsItIs() async throws {
@@ -439,10 +506,10 @@ final class FigureCommandTests: XCTestCase {
 
         await m.coordinator.beginFigureIngest([pdf], at: 0)?.value
 
-        let copied = store.url.appendingPathComponent("research/chart.pdf")
+        let copied = store.url.appendingPathComponent("figures/chart.pdf")
         XCTAssertEqual(try Data(contentsOf: copied), try Data(contentsOf: pdf),
                        "copied byte for byte")
-        XCTAssertEqual(m.textView.string, "![Caption](../research/chart.pdf){#fig:chart}")
+        XCTAssertEqual(m.textView.string, "![Caption](../figures/chart.pdf){#fig:chart}")
     }
 
     // MARK: - Paste
@@ -460,7 +527,7 @@ final class FigureCommandTests: XCTestCase {
     /// writer copied words: the text pastes, and no figure is made.
     func test_textWithAPDFRenderingBesideItPastesTheText() throws {
         var asked = 0
-        let m = try mount("", importer: { _ in asked += 1; return "research/a.png" })
+        let m = try mount("", importer: { _, _ in asked += 1; return "research/a.png" })
         let pasteboard = privatePasteboard()
         pasteboard.declareTypes([.string, .rtf, .pdf], owner: nil)
         pasteboard.setString("Hello", forType: .string)
@@ -478,7 +545,7 @@ final class FigureCommandTests: XCTestCase {
     /// HTML fragment, and no `.string`. There are no words to paste — `super`
     /// would paste nothing — so the picture is the paste.
     func test_aBrowserImageWithOnlyAnImgTagMakesAFigure() async throws {
-        let m = try mount("", importer: { _ in "research/web.png" })
+        let m = try mount("", importer: { _, _ in "research/web.png" })
         let pasteboard = privatePasteboard()
         pasteboard.declareTypes([.tiff, .html], owner: nil)
         pasteboard.setData(Self.picture().tiffRepresentation, forType: .tiff)
@@ -492,7 +559,7 @@ final class FigureCommandTests: XCTestCase {
 
     /// Safari also offers RTFD whose only content is the image attachment.
     func test_aBrowserImageWithAnAttachmentOnlyRTFDMakesAFigure() async throws {
-        let m = try mount("", importer: { _ in "research/web.png" })
+        let m = try mount("", importer: { _, _ in "research/web.png" })
         let tiff = try XCTUnwrap(Self.picture().tiffRepresentation)
         let attachment = NSAttributedString(attachment: NSTextAttachment(data: tiff, ofType: "public.tiff"))
         let rtfd = try XCTUnwrap(attachment.rtfd(from: NSRange(location: 0, length: attachment.length),
@@ -524,7 +591,7 @@ final class FigureCommandTests: XCTestCase {
     /// A Finder copy of a non-image file carries its icon as an image too.
     func test_aCopiedTextFileWithItsIconKeepsTodaysBehaviour() throws {
         var asked = 0
-        let m = try mount("", importer: { _ in asked += 1; return "research/a.png" })
+        let m = try mount("", importer: { _, _ in asked += 1; return "research/a.png" })
         let notes = temp.url.appendingPathComponent("notes.txt")
         try Data("x".utf8).write(to: notes)
         let pasteboard = privatePasteboard()
@@ -540,20 +607,26 @@ final class FigureCommandTests: XCTestCase {
     }
 
     func test_aLonePNGOnThePasteboardStillMakesAFigure() async throws {
-        let m = try mount("", importer: { _ in "research/pasted.png" })
+        var handed: URL?
+        let m = try mount("", importer: { url, _ in
+            handed = url
+            return "figures/" + url.lastPathComponent
+        })
         let pasteboard = privatePasteboard()
         pasteboard.setData(try ImagePasteHandler.encodePNG(Self.picture()), forType: .png)
 
         XCTAssertTrue(m.coordinator.pasteFigure(from: pasteboard))
         await m.coordinator.figureIngestTask?.value
-        XCTAssertTrue(m.textView.string.hasPrefix("![Caption](research/pasted.png){#fig:image-"),
-                      m.textView.string)
+        XCTAssertTrue(try XCTUnwrap(handed).lastPathComponent.hasPrefix("image-"))
+        XCTAssertTrue(m.textView.string.hasPrefix("![Caption](figures/image-"), m.textView.string)
+        XCTAssertTrue(m.textView.string.contains("{#fig:image-"),
+                      "the label is the name the importer gave the file")
     }
 
     func test_aPastedImageBecomesAFigureAndNoAttachmentCharacter() async throws {
         var received: URL?
         var existedDuringImport = false
-        let m = try mount("Intro", importer: { url in
+        let m = try mount("Intro", importer: { url, _ in
             received = url
             existedDuringImport = ImagePasteHandler.isIngestableImage(url)
                 && FileManager.default.fileExists(atPath: url.path)

@@ -168,6 +168,40 @@ public final class DocumentStore {
     /// Anyway* (plan ruling R2) lifts the posture in this window alone.
     let postureBook = PostureBook()
 
+    /// **The book's figures, derived** (report plan 6a Task 7): one cache per
+    /// window, keyed by each stream's file token and the registry's facts.
+    /// Trust is not in its key, so `invalidateTrust` drops it whole (R-6a-6).
+    /// Everything about it lives in `DocumentStore+Figures.swift`.
+    let figureCache = FigureCache()
+
+    /// The figures this window holds open, by figure id — what the
+    /// presenter's figure arm reloads. Written by `openFigure`/`closeFigure`.
+    var openFigures: [String: FigureDocument] = [:]
+
+    /// Figure streams the presenter reported changed, drained by the
+    /// debounced figure pass (`figureChangeScheduler`).
+    var pendingFigureChanges: Set<String> = []
+
+    /// The figures the last workbook assembly could not read (R-6a-7), by
+    /// name with the error — logged by the render pass and kept here.
+    var lastUnreadableFigures: [(name: String, error: String)] = []
+
+    /// The figures the last pass found parked, open hosts' folds winning
+    /// (`FigureWorkbook.parked` after `overlay`) — the one answer for
+    /// flagging the figures that read them (plan 6b Task 9).
+    var lastParkedFigures: Set<String> = []
+
+    /// How many times a figure read resolved the registry's trust table
+    /// (`figureTrust()`); a test counts it to prove a picture's *Use in
+    /// document* resolves none (report plan 6b Task 6 review M-2).
+    var figureTrustResolutions = 0
+
+    var _figureChangeScheduler: DebounceScheduler<Int>?
+
+    /// The deferred render of every table figure at window open (R-6a-11);
+    /// cancelled by `close()`.
+    var _openFigureRenderTask: Task<Void, Never>?
+
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
     /// app quit via `flushSessionOnQuit()`.
@@ -202,6 +236,11 @@ public final class DocumentStore {
     /// today that's `ResearchNoteEditor` and `PartialRestorePicker`. Documents
     /// run their own autosave internally (see `Document.performAutosave`).
     private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
+
+    /// The synced paths a debounced save has already refused and logged
+    /// (tripwire 58): a note whose manifest path leaves the project is
+    /// refused on every save, and said once, not once per typing pause.
+    @ObservationIgnored private(set) var refusedSavePathsLogged: Set<String> = []
 
     private struct FileSavePayload: Sendable {
         let path: String
@@ -359,6 +398,9 @@ public final class DocumentStore {
         ) { [weak store] payload in
             do {
                 try await store?.performFileSave(path: payload.path, text: payload.text)
+            } catch ProjectStoreError.unsafeProjectPath(let path, let reason) {
+                guard let store, store.refusedSavePathsLogged.insert(path).inserted else { return }
+                documentStoreLog.error("Research-note autosave refused for \(path, privacy: .public): \(reason, privacy: .public)")
             } catch {
                 documentStoreLog.error("Research-note autosave failed for \(payload.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
@@ -655,6 +697,10 @@ public final class DocumentStore {
         for doc in openDocs {
             await doc.close()
         }
+        // And the figures, the same way and for the same reason (report plan
+        // 6a Task 7): each is sealed by its close while the presenter is still
+        // installed, and no pending figure pass may write after it is gone.
+        await closeFigures()
         if let presenter = _presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
             self._presenter = nil
@@ -744,12 +790,25 @@ public final class DocumentStore {
         await fileSaveScheduler.flush()
     }
 
+    /// A synced project-relative path as a URL inside this project, or
+    /// `ProjectStoreError.unsafeProjectPath` (tripwire 58;
+    /// `ProjectStore.resolvedProjectPath(_:under:)`).
+    nonisolated func resolvedProjectPath(_ relative: String) throws -> URL {
+        try ProjectStore.resolvedProjectPath(relative, under: projectURL)
+    }
+
+    /// The URL a write, copy, move, rename or delete changes
+    /// (`ProjectStore.resolvedProjectPathToChange(_:under:)`).
+    nonisolated func resolvedProjectPathToChange(_ relative: String) throws -> URL {
+        try ProjectStore.resolvedProjectPathToChange(relative, under: projectURL)
+    }
+
     /// `internal` (not `private`) so `ProjectStore+Palette.swift`'s
     /// `paletteCoordinatedWrite(_:to:)` funnel can call it directly for
     /// immediate (non-debounced) coordinated writes — palette card saves
     /// are await-and-done, unlike `scheduleFileSave`'s 750ms debounce.
     func performFileSave(path: String, text: String) async throws {
-        let url = projectURL.appendingPathComponent(path)
+        let url = try resolvedProjectPathToChange(path)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var saveError: Error?
@@ -1196,6 +1255,15 @@ public final class DocumentStore {
     /// (tripwire 14). The caller saves the manifest afterward (Phase 3).
     public func relocate(plan: RenamePlan) async throws {
         guard !plan.steps.isEmpty else { return }
+        // Every step's two paths came from the manifest (or were derived from
+        // it): all resolved inside the project before anything closes or
+        // moves, so one unsafe step refuses the whole plan (tripwire 58).
+        var resolved: [String: URL] = [:]
+        for step in plan.steps {
+            for relative in [step.oldRelativePath, step.newRelativePath] {
+                resolved[relative] = try resolvedProjectPathToChange(relative)
+            }
+        }
 
         // Close+unregister+flush every affected user-editable path before the
         // coordinated moves. The 750ms autosave on an open Document (or a
@@ -1229,7 +1297,7 @@ public final class DocumentStore {
             // Phase 1: move colliding items to scratch with unique names.
             var scratchMap: [(scratchURL: URL, finalRelativePath: String)] = []
             for step in plan.scratchSteps {
-                let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
+                let oldURL = resolved[step.oldRelativePath]!
                 let scratchURL = scratchDir.appendingPathComponent(UUID().uuidString)
                 try await coordinatedMove(from: oldURL, to: scratchURL)
                 completed.append((oldURL, scratchURL))
@@ -1238,15 +1306,15 @@ public final class DocumentStore {
 
             // Phase 2a: direct (non-colliding) renames.
             for step in plan.directSteps {
-                let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
-                let newURL = projectURL.appendingPathComponent(step.newRelativePath)
+                let oldURL = resolved[step.oldRelativePath]!
+                let newURL = resolved[step.newRelativePath]!
                 try await coordinatedMove(from: oldURL, to: newURL)
                 completed.append((oldURL, newURL))
             }
 
             // Phase 2b: scratch items to final destinations.
             for entry in scratchMap {
-                let finalURL = projectURL.appendingPathComponent(entry.finalRelativePath)
+                let finalURL = resolved[entry.finalRelativePath]!
                 try await coordinatedMove(from: entry.scratchURL, to: finalURL)
                 completed.append((entry.scratchURL, finalURL))
             }
@@ -1869,6 +1937,11 @@ public final class DocumentStore {
         // recounted — off this call, one table for the pass, none of it in the
         // writer's session (`recountFromOpLogs`). Open pieces are counted by
         // the re-read that follows every call of this verb.
+        // **And the figures** (R-6a-6): a figure's derived table is keyed by
+        // its files and the registry, never by trust, so a changed table
+        // drops every line; each open figure's store forgets its table too,
+        // and the open figures re-read and re-render off this call.
+        figureTrustChanged()
         if let store = projectStore {
             store.derivedCache.invalidateAll()
             store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
@@ -1908,6 +1981,18 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             handleManifestChanged()
 
         case .opLog(let docId):
+            // **A figure's stream** (report plan 6a Task 7): the cache forgets
+            // it, an open figure re-reads, and it and every table whose
+            // formulas name it re-render — debounced, since a device arrives
+            // as a burst. The arm below still runs (no `Document` holds a
+            // figure, so it is the closed arm): the project's note listing
+            // hears of it, and the stream is re-swept for held lines like any
+            // other the manifest lists (`sweptDocIds` carries the figures) —
+            // an OPEN figure answers for itself in `heldLines()` and is
+            // skipped by that pass.
+            if DocumentClass.isFigureDocId(docId) {
+                figureStreamChanged(docId)
+            }
             if let doc = document(forDocId: docId) {
                 Task { @MainActor in
                     // The merge announces `.maughamAnnotationsChanged` itself,
@@ -1971,7 +2056,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             guard let doc = document(for: relativePath) else { return }
             let projectRoot = projectURL
             Task { @MainActor in
-                let mdURL = projectRoot.appendingPathComponent(relativePath)
+                let mdURL = projectRoot.appendingPathComponent(relativePath) // local-path: the presenter's own sub-item, relative to this project — a file event, not a synced field
                 guard let data = try? Data(contentsOf: mdURL),  // adr-0018-ok: sanctioned external-change detector — .md bytes handed to handleExternalDiskChange; op log stays authoritative
                       let diskText = String(data: data, encoding: .utf8)
                 else { return }
@@ -1996,7 +2081,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot, .exports,
-             .unknownSidecar, .outsideProject:
+             .researchTable, .unknownSidecar, .outsideProject:
             // No presenter routing today. Each case has a named owner in
             // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"
             // rather than "extend a string cascade".
@@ -2088,6 +2173,10 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // total, and none of those words were typed here.
             excludeForeignWords(adoption.wordCountDelta)
             letGoOfPiecesMovedElsewhere(adoption, store: live)
+            // A figure record that arrived, moved piece or changed name or
+            // path: its stream is judged again and its render follows.
+            figureRegistryAdopted(
+                from: adoption.previous.figures ?? [], to: adoption.adopted.figures ?? [])
         }
         // A piece that moved or a statement that arrived is a document whose
         // CLASS may have changed, and whose writers may have (P3c Task 2).

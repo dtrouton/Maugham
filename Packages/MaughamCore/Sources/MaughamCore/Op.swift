@@ -12,6 +12,10 @@ public struct Op: Codable, Equatable, Sendable {
     public let changes: [ParagraphChange]
     public let sequence: [String]?
     public let provenance: Provenance?
+    /// A figure op's content (ruling D-a, report plan 6a) — nil on every other
+    /// op, and then absent from the line, so an existing op's bytes are
+    /// unchanged. See `FigureOpPayload`.
+    public let figure: FigureOpPayload?
 
     public struct ParagraphChange: Codable, Equatable, Sendable {
         public let paragraphId: String
@@ -118,6 +122,16 @@ public struct Op: Codable, Equatable, Sendable {
         /// be a second spelling of the same fields.
         public let compilerLessonHeading: String?
 
+        // Figure cell anchor (report plan 6a, the wire shape fixed for plans 7
+        // and 9) — an annotation on a figure names its cell, or the corners of
+        // a range, by row and column ids; the figure itself is the stream's
+        // `docId`. Four flat optional scalars on the rule above. Additive: no
+        // schema bump.
+        public let figureRowId: String?
+        public let figureRowEndId: String?
+        public let figureColId: String?
+        public let figureColEndId: String?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -150,6 +164,10 @@ public struct Op: Codable, Equatable, Sendable {
             case compilerFreshEyes = "compiler_fresh_eyes"
             case compilerFingerprint = "compiler_fingerprint"
             case compilerLessonHeading = "compiler_lesson_heading"
+            case figureRowId = "figure_row_id"
+            case figureRowEndId = "figure_row_end_id"
+            case figureColId = "figure_col_id"
+            case figureColEndId = "figure_col_end_id"
         }
 
         public init(
@@ -169,7 +187,9 @@ public struct Op: Codable, Equatable, Sendable {
             triageMark: String? = nil, reviewPassId: String? = nil,
             compilerRunId: String? = nil, compilerRound: Int? = nil,
             compilerFreshEyes: Bool? = nil, compilerFingerprint: String? = nil,
-            compilerLessonHeading: String? = nil
+            compilerLessonHeading: String? = nil,
+            figureRowId: String? = nil, figureRowEndId: String? = nil,
+            figureColId: String? = nil, figureColEndId: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -202,19 +222,24 @@ public struct Op: Codable, Equatable, Sendable {
             self.compilerFreshEyes = compilerFreshEyes
             self.compilerFingerprint = compilerFingerprint
             self.compilerLessonHeading = compilerLessonHeading
+            self.figureRowId = figureRowId
+            self.figureRowEndId = figureRowEndId
+            self.figureColId = figureColId
+            self.figureColEndId = figureColEndId
         }
     }
 
     enum CodingKeys: String, CodingKey {
         case opId = "op_id"
         case docId = "doc_id"
-        case at, device, session, kind, changes, sequence, provenance
+        case at, device, session, kind, changes, sequence, provenance, figure
     }
 
     public init(
         opId: String, docId: String, at: Date, device: String,
         session: String, kind: OpKind, changes: [ParagraphChange],
-        sequence: [String]? = nil, provenance: Provenance? = nil
+        sequence: [String]? = nil, provenance: Provenance? = nil,
+        figure: FigureOpPayload? = nil
     ) {
         self.opId = opId
         self.docId = docId
@@ -225,6 +250,7 @@ public struct Op: Codable, Equatable, Sendable {
         self.changes = changes
         self.sequence = sequence
         self.provenance = provenance
+        self.figure = figure
     }
 
     /// Returns a copy of this op with `opId` replaced. All other fields are
@@ -235,7 +261,7 @@ public struct Op: Codable, Equatable, Sendable {
         Op(
             opId: newOpId, docId: docId, at: at, device: device,
             session: session, kind: kind, changes: changes,
-            sequence: sequence, provenance: provenance)
+            sequence: sequence, provenance: provenance, figure: figure)
     }
 
     /// **The kind a raw op line carries**, read off the OBJECT rather than by

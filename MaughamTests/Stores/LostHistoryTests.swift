@@ -100,7 +100,7 @@ final class LostHistoryTests: XCTestCase {
                 sequence: ["aaaa"]))
         }
         _ = try await store.sealChain(docId: docId)
-        return OpLogStore.opLogFileURL(
+        return try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
     }
 
@@ -125,7 +125,7 @@ final class LostHistoryTests: XCTestCase {
             bytes.append(0x0A)
             head = OpLogChain.lineHash(line)
         }
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: ghost, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -223,7 +223,7 @@ final class LostHistoryTests: XCTestCase {
             changes: [.init(paragraphId: "aaaa", prior: nil, next: "03")],
             sequence: ["aaaa"]))
         _ = try await theirStore.sealChain(docId: docId)
-        let theirs = OpLogStore.opLogFileURL(
+        let theirs = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: other.author.slug, in: projectURL)
         try await admitSam(store)
         _ = try await store.admit(

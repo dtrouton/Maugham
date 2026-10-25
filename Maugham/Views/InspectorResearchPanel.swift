@@ -65,8 +65,8 @@ struct InspectorResearchPanel: View {
                                 .lineLimit(1)
                             Spacer()
                             Button("Show in Finder") {
-                                let fullURL = store.url
-                                    .appendingPathComponent(path)
+                                guard let fullURL = try? store.resolvedProjectPath(path)
+                                else { return }
                                 NSWorkspace.shared.activateFileViewerSelecting(
                                     [fullURL])
                             }
@@ -93,6 +93,7 @@ struct InspectorResearchPanel: View {
         case .document: return "Document"
         case .audio: return "Audio"
         case .link:  return "Link"
+        case .table: return "Table"
         case .none:  return "Item"
         }
     }

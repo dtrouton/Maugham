@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Compiles a design proposal's sample pages — the writer's look at what a
 /// round actually proposes — against a SCRATCH copy of the publish tree with
@@ -170,8 +171,8 @@ enum SampleCompiler {
     /// so deleting `.maugham/design/` still costs nothing but derived things.
     static func scratchURL(
         proposal: DesignProposalStore.Proposal, projectURL: URL
-    ) -> URL {
-        DesignProposalStore(projectURL: projectURL)
+    ) throws -> URL {
+        try DesignProposalStore(projectURL: projectURL)
             .proposalDir(id: proposal.id)
             .appendingPathComponent("scratch", isDirectory: true)
     }
@@ -194,7 +195,7 @@ enum SampleCompiler {
         guard fm.fileExists(atPath: livePublish.path, isDirectory: &isDir), isDir.boolValue
         else { throw Error.noLivePublishTree(projectURL.path) }
 
-        let scratch = scratchURL(proposal: proposal, projectURL: projectURL)
+        let scratch = try scratchURL(proposal: proposal, projectURL: projectURL)
         if fm.fileExists(atPath: scratch.path) {
             try fm.removeItem(at: scratch)
         }
@@ -214,19 +215,21 @@ enum SampleCompiler {
         }
 
         // The overlay: staged files on top, each one a real copy.
-        let filesDir = DesignProposalStore(projectURL: projectURL)
+        let filesDir = try DesignProposalStore(projectURL: projectURL)
             .proposalDir(id: proposal.id)
             .appendingPathComponent("files", isDirectory: true)
         let root = scratchPublish.standardizedFileURL.path
         for relativePath in proposal.filePaths {
-            let dest = scratchPublish.appendingPathComponent(relativePath).standardizedFileURL
             // Defence in depth behind `DesignerReport`'s parse-time guard:
             // `proposal.json` is a file on disk, and this is the one place a
-            // path that escaped it would write into the live templates.
-            guard dest.path.hasPrefix(root + "/") else {
+            // path that escaped it would write into the live templates. Both
+            // ends resolved on disk (`SafeRelativePath`; tripwire 58).
+            guard let dest = try? SafeRelativePath.resolveForChange(relativePath, under: scratchPublish)
+                    .standardizedFileURL,
+                  dest.path.hasPrefix(root + "/"),
+                  let source = try? SafeRelativePath.resolve(relativePath, under: filesDir) else {
                 throw Error.stagedPathEscapesTheScratch(relativePath)
             }
-            let source = filesDir.appendingPathComponent(relativePath)
             guard fm.fileExists(atPath: source.path) else {
                 throw Error.stagedFileMissing(relativePath)
             }

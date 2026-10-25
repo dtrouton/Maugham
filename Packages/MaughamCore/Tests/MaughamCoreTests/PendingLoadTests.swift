@@ -156,7 +156,7 @@ final class PendingLoadTests: XCTestCase {
 
     /// The stranger's own file on disk, wherever the fixtures above put it.
     private var strangersFileURL: URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL)
     }
 

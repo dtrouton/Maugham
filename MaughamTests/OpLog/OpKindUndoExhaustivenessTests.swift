@@ -173,6 +173,54 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // writer did in this window."
             return .nonUndoable(reason: "MCP-originated annotation creation; never registers on a window's undo stack (ADR 0023 §5)")
 
+        // MARK: - Figures (report plan 6a)
+
+        case .figureCellSet, .figureStructure, .figureSettings, .figureImageSet:
+            // FigureInverse.swift (Core) builds each compensating op from the
+            // payload alone: a cell set swaps next/prior, an insert becomes a
+            // delete with an empty removed slice, a delete becomes a revive
+            // carrying the slice it took (rulings P-1/P-2, report plan 6b), a
+            // revive becomes the delete again, a move goes back to priorAfter,
+            // a setting swaps, an image set swaps to priorImage. Two shapes
+            // answer nil and so get no undo: a first image (there is no clear)
+            // and a delete that recorded no slice. An undone insert redoes as
+            // a revive (`FigureDocument.reviveRow`/`reviveColumn`). The figure
+            // host's OpUndoRegistrar registration
+            // (`FigureDocument.registerFigureUndo`) is the caller; each undo
+            // declines when another device has since changed what the op wrote.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (a delete revives through the removed slice it carries; nil for a first image and a slice-less delete; an undone insert redoes through FigureDocument.reviveRow and FigureDocument.reviveColumn), registered by FigureDocument.registerFigureUndo, drift-guarded")
+
+        case .figureCreate:
+            // Creating a figure is undone by removing it: a registry act
+            // (the record leaves, its file goes to the Trash), never an op.
+            return .nonUndoable(reason: "a created figure is removed by ProjectStore.removeFigure")
+
+        case .figureParked:
+            // Ruling P-8: a park is undone by the opposite verb, bringing the
+            // figure back (`ProjectStore.bringBack`), never by ⌘Z.
+            return .nonUndoable(reason: "a park is undone by bringing the figure back from Research (ruling P-8)")
+
+        case .figureResumed:
+            // Ruling P-8: a return is undone by the opposite verb, sending the
+            // figure to Research again (`ProjectStore.sendToResearch`).
+            return .nonUndoable(reason: "a return is undone by sending the figure to Research again (ruling P-8)")
+
+        case .figurePinSet:
+            // Ruling P-8 (report plan 6b Task 9): a pin set carries the pin
+            // it replaced (`priorPin`), so its inverse is payload-only — a
+            // swap back, or a clear of a cell's first pin. Each pin set is
+            // part of a visit registered by FigureDocument.registerFigureUndo
+            // (`alongside:`): a refresh's sets as one ⌘Z (redo refreshes
+            // again), or a formula's entry pins with its cell edit (redo
+            // re-enters setCell, which takes them again); declined when
+            // another device has since changed a pin it wrote.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (a pin set swaps to priorPin; a first pin clears), in a visit registered by FigureDocument.registerFigureUndo (refreshPins, or setCell's entry pins), drift-guarded")
+
+        case .figurePinClear:
+            // Written only as a first pin's undo; that undo is reversed by
+            // the visit's redo (a refresh again, or setCell again).
+            return .nonUndoable(reason: "written only as the undo of a cell's first pin; the visit's redo (refreshPins or setCell) reverses it")
+
         case .unknown:
             // Forward-tolerance decode fallback for an op kind written by a
             // NEWER build (OpKind.init(from:)); this build never creates one,
@@ -250,6 +298,8 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
     /// construction — that's the point: the two must agree.
     func test_bucketMembership_matchesADR0023() {
         let covered: [OpKind] = [
+            .figureCellSet, .figureStructure, .figureSettings, .figureImageSet,
+            .figurePinSet,
             .claudeReject, .claudeArchive, .annotationWithdraw, .annotationEdit,
             .annotationReopen, .annotationStet, .annotationTriage,
             .claudeAccept, .claudeAcceptRevert,
@@ -260,6 +310,8 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         let excluded: [OpKind] = [
             .typingBurst, .externalEdit, .checkpoint, .bootstrap,
             .claudeSuggestion, .claudeComment, .claudeQuery, .claudeCraftNote,
+            .figureCreate, .figureParked, .figureResumed,
+            .figurePinClear,
             .unknown,
         ]
         XCTAssertEqual(

@@ -45,7 +45,7 @@ final class AbsentRememberedHeadTests: XCTestCase {
     }
 
     private var fileURL: URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: mine.slug, in: projectURL)
     }
 
@@ -262,7 +262,7 @@ final class AbsentRememberedHeadTests: XCTestCase {
         try await store.append(unsignedOp("01B"))
 
         let key = OpLogDeviceState.fileKey(
-            OpLogStore.opLogFileURL(
+            try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: unsigned.slug, in: projectURL))
         state.remember(head: String(repeating: "c", count: 64), for: key)
         state.remember(head: String(repeating: "d", count: 64), for: key)

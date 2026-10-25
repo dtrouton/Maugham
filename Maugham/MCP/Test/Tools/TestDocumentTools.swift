@@ -58,7 +58,7 @@ public enum TestOpenDocumentTool: MCPTool {
         let doc: Document
         do {
             doc = try await Document.load(
-                url: entry.url.appendingPathComponent(path),
+                url: try ProjectStore.resolvedProjectPath(path, under: entry.url),
                 actor: .author,
                 session: sessionId,
                 presenter: ds.presenter)

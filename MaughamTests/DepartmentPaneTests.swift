@@ -1247,7 +1247,7 @@ final class DepartmentPaneTests: XCTestCase {
         let docId = fixture.doc2.docId
         await fixture.doc2.close()
         fixture.documentStore.unregister(path: fixture.path2)
-        let squat = OpLogStore.opLogFileURL(
+        let squat = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.make(from: "bad"),
             in: fixture.projectURL)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)

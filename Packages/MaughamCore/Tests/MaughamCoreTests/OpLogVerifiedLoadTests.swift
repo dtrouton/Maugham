@@ -57,7 +57,7 @@ final class OpLogVerifiedLoadTests: XCTestCase {
     }
 
     private func fileURL(of identity: DeviceIdentity) -> URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
     }
 

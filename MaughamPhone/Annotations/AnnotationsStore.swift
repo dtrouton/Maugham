@@ -60,7 +60,8 @@ final class AnnotationsStore {
             let anns = await loadedAnnotations(for: project)
             guard !anns.isEmpty else { continue }
             let chapters = AnnotationLoading.groupByChapter(
-                anns, structure: project.manifest.structure, research: project.manifest.research)
+                anns, structure: project.manifest.structure, research: project.manifest.research,
+                figures: project.manifest.figures ?? [])
             results.append(ProjectAnnotations(
                 id: project.id,
                 projectName: project.manifest.title,

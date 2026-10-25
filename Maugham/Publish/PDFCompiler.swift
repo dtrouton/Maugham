@@ -128,6 +128,12 @@ public struct PDFCompiler {
 
     /// Full PDF compile.
     public func compile(label: String?) async throws -> Result {
+        // Where the PDF will land, asked before the run (tripwire 58).
+        _ = try OutputFilenameBuilder.destination(
+            filename: makeOutputFilename(
+                format: .pdf, label: label,
+                context: bodies[0].source.resolutionScope.publishContext()),
+            outputsDirectory: config.outputs.directory, projectURL: projectURL)
         let publish = projectURL.appendingPathComponent(".maugham/publish",
                                                         isDirectory: true)
         let build = publish.appendingPathComponent("build", isDirectory: true)
@@ -278,11 +284,10 @@ public struct PDFCompiler {
                 .deletingPathExtension + ".pdf"
         let generated = build.appendingPathComponent(generatedName)
         let filename = makeOutputFilename(format: .pdf, label: label, context: context)
-        let exports = projectURL.appendingPathComponent(config.outputs.directory,
-                                                       isDirectory: true)
+        let dest = try OutputFilenameBuilder.destination(
+            filename: filename, outputsDirectory: config.outputs.directory, projectURL: projectURL)
         try FileManager.default.createDirectory(
-            at: exports, withIntermediateDirectories: true)
-        let dest = exports.appendingPathComponent(filename)
+            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: dest.path) {
             guard replacesExistingOutput else {
                 let diag = OutputFilenameBuilder.occupiedDestinationRefusal(

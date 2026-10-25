@@ -890,7 +890,7 @@ struct StatementEditorHost: View {
         }
         do {
             let document = try await Document.load(
-                url: store.url.appendingPathComponent(statement.path),
+                url: try store.resolvedProjectPath(statement.path),
                 actor: .author,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)

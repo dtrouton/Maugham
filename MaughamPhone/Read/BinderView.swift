@@ -101,14 +101,16 @@ struct BinderView: View {
                             Label(card.title, systemImage: ReadIcons.paletteRowSymbol)
                         }
                     }
-                    if let intent = craftIntent {
+                    if let intent = craftIntent,
+                       let intentURL = try? SafeRelativePath.resolve(
+                        intent.relativePath, under: project.url) {
                         // Intent is plain markdown either way — the existing
                         // document reader renders it directly. A statement's
                         // path is the PROJECT ROOT's (`intent.md`); a legacy
                         // note's is under `research/`.
                         NavigationLink {
                             DocumentReaderView(
-                                docURL: project.url.appendingPathComponent(intent.relativePath),
+                                docURL: intentURL,
                                 title: intent.title,
                                 projectId: project.id,
                                 downloads: downloads,
@@ -186,8 +188,8 @@ private struct ResearchRow: View {
     let projectId: ProjectId
 
     var body: some View {
-        if let path = item.path, !path.isEmpty {
-            let url = projectRoot.appendingPathComponent(path)
+        if let path = item.path, !path.isEmpty,
+           let url = try? SafeRelativePath.resolve(path, under: projectRoot) {
             NavigationLink {
                 DocumentReaderView(
                     docURL: url,

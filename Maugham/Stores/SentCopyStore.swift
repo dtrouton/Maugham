@@ -132,8 +132,9 @@ struct SentCopyStore {
     /// One sent copy's `sent.json`, or nil when it can't be read here (not
     /// yet downloaded, or damaged).
     func record(book: String, exportID: String) -> SentCopy? {
+        guard let folderName = try? SafeRelativePath.requirePlainFileName(exportID) else { return nil }
         let url = Self.directory(book: book, in: projectURL)
-            .appendingPathComponent(exportID, isDirectory: true)
+            .appendingPathComponent(folderName, isDirectory: true)
             .appendingPathComponent(Self.recordName)
         guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: a Word export's sent.json, derived sidecar, not manuscript
         return try? Self.decoder().decode(SentCopy.self, from: data)
@@ -169,7 +170,7 @@ struct SentCopyStore {
         let id = Self.exportID(draft: draft, sentAt: sentAt, device: device)
         for n in 1...Self.suffixLimit {
             let candidate = n == 1 ? id : "\(id)-\(n)"
-            if !FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+            if !FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) { // local-path: minted here from the draft, time and device
                 return candidate
             }
         }
@@ -188,7 +189,8 @@ struct SentCopyStore {
 
         try fm.createDirectory(at: book, withIntermediateDirectories: true)
         Self.sweepStaleStaging(in: book)
-        let destination = book.appendingPathComponent(copy.exportID, isDirectory: true)
+        let destination = book.appendingPathComponent(
+            try SafeRelativePath.requirePlainFileName(copy.exportID), isDirectory: true)
         if fm.fileExists(atPath: destination.path) { throw WriteError.exportIDTaken(copy.exportID) }
         let staging = book.appendingPathComponent(".staging-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: false)

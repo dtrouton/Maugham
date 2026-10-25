@@ -142,7 +142,8 @@ public enum ListAllLinksTool: MCPTool {
         // from, which is exactly what ADR 0018 exists to prevent.
         for item in allResearch where item.kind == .document {
             guard let path = item.path,
-                  let text = try? String(contentsOf: entry.url.appendingPathComponent(path), encoding: .utf8),  // adr-0018-ok: research note, not manuscript
+                  let noteURL = try? ProjectStore.resolvedProjectPath(path, under: entry.url),
+                  let text = try? String(contentsOf: noteURL, encoding: .utf8),  // adr-0018-ok: research note, not manuscript
                   !text.isEmpty else { continue }
             for token in Self.wikiTokens(in: text) {
                 let hit = titleIndex[token.lowercased()]

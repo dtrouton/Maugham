@@ -393,11 +393,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// pasted `@` is never read as typing.
     var isInsertingNotTyping = false
 
-    /// Copies a picture into this document's research and returns the figure
-    /// path relative to the document (plan 3a Task 6,
-    /// `FigureIngest.importImage`). Built by `EditorHost`; nil on every other
+    /// Makes a picture an image figure of this document and returns the
+    /// figure path relative to the document (plan 3a Task 6, report plan 6a
+    /// Task 9, `FigureIngest.importImage`). Built by `EditorHost`; nil on every other
     /// surface, which is what keeps their drop and paste unchanged.
-    var figureImporter: (@MainActor (URL) async throws -> String)?
+    var figureImporter: FigureIngest.Importer?
 
     /// Where a command that could not finish is told — a figure that could
     /// not be made, a table grid save refused — the host's notice banner, the

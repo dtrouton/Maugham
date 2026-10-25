@@ -34,7 +34,7 @@ final class TableEditingTests: XCTestCase {
     }
 
     private func mount(_ text: String,
-                       figureImporter: ((URL) async throws -> String)? = nil) throws -> Mounted {
+                       figureImporter: FigureIngest.Importer? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0 })
         var configuration = EditorSurfaceConfiguration(
@@ -443,7 +443,7 @@ final class TableEditingTests: XCTestCase {
         let t1 = "|A|B|\n|-|-|\n|c|d|"
         let t2 = "|E|F|\n|-|-|\n|g|h|"
         let text = "Intro\n\n" + t1 + "\n\nMid paragraph of twenty\n\n" + t2 + "\n\nEnd."
-        let m = try mount(text, figureImporter: { _ in "research/a.png" })
+        let m = try mount(text, figureImporter: { _, _ in "research/a.png" })
         caret(m, at: (text as NSString).range(of: "|g|").location + 1)
         assertInATable(m)
         m.undo.groupsByEvent = true             // the ingest lands outside any event
@@ -465,7 +465,7 @@ final class TableEditingTests: XCTestCase {
         let t2 = "|E|F|\n|-|-|\n|g|h|"
         let text = "Intro\n\n" + t1 + "\n\nMid paragraph of twenty\n\n" + t2 + "\n\nEnd."
         var m: Mounted!
-        m = try mount(text, figureImporter: { _ in
+        m = try mount(text, figureImporter: { _, _ in
             m.textView.setSelectedRange(NSRange(location: (text as NSString).range(of: "|h|").location + 1,
                                                 length: 0))
             return "research/a.png"

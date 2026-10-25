@@ -31,7 +31,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
 
         let docId = doc1.docId
         let slug = DeviceSlug.make(from: "m")
-        let opLogURL = OpLogStore.opLogFileURL(
+        let opLogURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: slug, in: project)
         XCTAssertTrue(FileManager.default.fileExists(atPath: opLogURL.path),
                       "precondition: per-device op-log file exists after first open")
@@ -134,7 +134,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
 
         // A second device's file, present but unreadable (a directory squats
         // on its path — the permissions/iCloud-stub failure shape).
-        let other = OpLogStore.opLogFileURL(
+        let other = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.unsafeForTesting("phone"), in: project)
         try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
 
@@ -272,7 +272,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         let realSequence = doc1.sequence
         await doc1.close()
 
-        let opLogURL = OpLogStore.opLogFileURL(
+        let opLogURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.make(from: device), in: project)
         let before = try Data(contentsOf: opLogURL)
             .split(separator: 0x0A, omittingEmptySubsequences: true)

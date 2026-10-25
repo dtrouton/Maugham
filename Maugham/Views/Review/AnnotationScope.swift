@@ -55,10 +55,15 @@ enum AnnotationScopePolicy {
         /// navigation must never move the persona (`ManuscriptNavigation`, and
         /// the ejection trap the whole of M3 is written around).
         case travel(String)
+        /// The row belongs to a figure: nothing to travel to yet.
+        case stay
     }
 
     static func click(rowDocId: String, activeDocId: String?) -> Click {
-        rowDocId == activeDocId ? .jump : .travel(rowDocId)
+        // A figure's notes are read here; there is no figure surface to
+        // travel to yet (report plan 7), and a figure id is no subject.
+        if DocumentClass.isFigureDocId(rowDocId) { return .stay }
+        return rowDocId == activeDocId ? .jump : .travel(rowDocId)
     }
 
     /// **Multiselect and the bulk bar are document-scope only.**
@@ -150,10 +155,23 @@ enum AnnotationScopeSections {
         }
 
         let kind: Kind
-        let item: StructureItem
+        /// The document's id (a piece's, or a figure's stream), or a group's.
+        let id: String
+        /// What the header says: the piece's or group's title, or a figure's
+        /// registry name (`FigureRecord.listTitle`).
+        let title: String
         let annotations: [Annotation]
 
-        var id: String { item.id }
+        init(kind: Kind, id: String, title: String, annotations: [Annotation]) {
+            self.kind = kind
+            self.id = id
+            self.title = title
+            self.annotations = annotations
+        }
+
+        init(kind: Kind, item: StructureItem, annotations: [Annotation]) {
+            self.init(kind: kind, id: item.id, title: item.title, annotations: annotations)
+        }
     }
 
     /// Group `annotations` by piece and drop everything with nothing in it.
@@ -171,10 +189,15 @@ enum AnnotationScopeSections {
     ///     cross-document sort never degrades to derive order for the closed
     ///     documents). A piece with no entry sorts into the queue's unanchored
     ///     tail rather than being dropped.
+    ///   - figures: the manifest's figure registry. A figure's stream carries
+    ///     notes too (report plan 6a); they follow the board's rows under one
+    ///     "Figures" header, each figure titled by the registry
+    ///     (`FigureRecord.listTitle`) — the phone's grouping.
     static func build(
         rows: [ReviewBoardRows.Row],
         annotations: [ProjectAnnotation],
-        sequences: [String: [String]] = [:]
+        sequences: [String: [String]] = [:],
+        figures: [FigureRecord] = []
     ) -> [Section] {
         guard !annotations.isEmpty else { return [] }
 
@@ -206,8 +229,22 @@ enum AnnotationScopeSections {
                     kind: .group(depth: depth), item: row.item, annotations: []))
             }
         }
+        let annotatedFigures = figures.filter { !(byDoc[$0.id] ?? []).isEmpty }
+        if !annotatedFigures.isEmpty {
+            sections.append(Section(
+                kind: .group(depth: 0), id: figuresHeaderId,
+                title: FigureRecord.listGroupTitle, annotations: []))
+            for figure in annotatedFigures {
+                sections.append(Section(
+                    kind: .piece, id: figure.id, title: figure.listTitle,
+                    annotations: AnnotationQueueOrder.sorted(byDoc[figure.id] ?? [], sequence: [])))
+            }
+        }
         return sections
     }
+
+    /// The figures header's section id — no document's.
+    static let figuresHeaderId = "__figures__"
 
     /// Does anything under this group have notes?
     ///
@@ -240,11 +277,13 @@ enum AnnotationScopeSections {
     /// can say "unknown" where a silent queue would be saying "none". Titles,
     /// in board order, because an id means nothing to the writer.
     static func unreadableNotice(
-        unreadableDocIds: [String], rows: [ReviewBoardRows.Row]
+        unreadableDocIds: [String], rows: [ReviewBoardRows.Row],
+        figures: [FigureRecord] = []
     ) -> String? {
         guard !unreadableDocIds.isEmpty else { return nil }
         let ids = Set(unreadableDocIds)
         let titles = rows.filter { ids.contains($0.item.id) }.map(\.item.title)
+            + figures.filter { ids.contains($0.id) }.map(\.listTitle)
         guard !titles.isEmpty else { return nil }
         let named = titles.joined(separator: ", ")
         return titles.count == 1

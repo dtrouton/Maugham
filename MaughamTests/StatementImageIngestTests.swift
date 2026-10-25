@@ -58,8 +58,8 @@ final class StatementImageIngestTests: XCTestCase {
     /// rather than spelled — `ImagePasteHandler.destination` builds
     /// `<slug>_assets` from the note's filename, which is why `visual-language.md`
     /// yields its well with no literal anywhere in production code.
-    private func well(beside statement: Statement, in projectURL: URL) -> URL {
-        well(besideStatementAt: statement.path, in: projectURL)
+    private func well(beside statement: Statement, in projectURL: URL) throws -> URL {
+        try well(besideStatementAt: statement.path, in: projectURL)
     }
 
     /// The same derivation over a path alone, for the failure tests below: they
@@ -71,8 +71,8 @@ final class StatementImageIngestTests: XCTestCase {
     /// issue #35 gave `ImagePasteHandler` a `wellURL` of its own (the pure half
     /// of `destination`, creating nothing) precisely so the guard, the saver and
     /// this test cannot disagree about where a well is.
-    private func well(besideStatementAt path: String, in projectURL: URL) -> URL {
-        ImagePasteHandler.wellURL(forNoteAt: path, in: projectURL)
+    private func well(besideStatementAt path: String, in projectURL: URL) throws -> URL {
+        try ImagePasteHandler.wellURL(forNoteAt: path, in: projectURL)
     }
 
     /// The relative path a fresh novel mints a statement of this kind at, read
@@ -97,7 +97,7 @@ final class StatementImageIngestTests: XCTestCase {
     private func plantAFileWhereTheWellMustGo(
         forStatementAt path: String, in projectURL: URL
     ) throws -> URL {
-        let plant = well(besideStatementAt: path, in: projectURL)
+        let plant = try well(besideStatementAt: path, in: projectURL)
         try FileManager.default.createDirectory(
             at: plant.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("a file, where a directory has to be".utf8).write(to: plant)
@@ -130,7 +130,7 @@ final class StatementImageIngestTests: XCTestCase {
         let fixture = try await fixture(named: "VisualLanguagePaste")
         let statement = try await fixture.store.createStatement(
             kind: .visualLanguage, scope: .project)
-        let assets = well(beside: statement, in: fixture.projectURL)
+        let assets = try well(beside: statement, in: fixture.projectURL)
 
         let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
@@ -192,7 +192,7 @@ final class StatementImageIngestTests: XCTestCase {
         let fixture = try await fixture(named: "VisualLanguageVisible")
         let statement = try await fixture.store.createStatement(
             kind: .visualLanguage, scope: .project)
-        let assets = well(beside: statement, in: fixture.projectURL)
+        let assets = try well(beside: statement, in: fixture.projectURL)
 
         let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
@@ -239,7 +239,7 @@ final class StatementImageIngestTests: XCTestCase {
         }
         let statement = try XCTUnwrap(
             fixture.store.statement(kind: .visualLanguage, scope: .project))
-        let assets = well(beside: statement, in: fixture.projectURL)
+        let assets = try well(beside: statement, in: fixture.projectURL)
         await fixture.pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
 
         // Read BEFORE `settle`, which takes the content view down.
@@ -296,7 +296,7 @@ final class StatementImageIngestTests: XCTestCase {
         let statement = try XCTUnwrap(
             fixture.store.statement(kind: .visualLanguage, scope: .project),
             "pasting a picture is an act, and an act mints the statement")
-        let assets = well(beside: statement, in: fixture.projectURL)
+        let assets = try well(beside: statement, in: fixture.projectURL)
         await fixture.pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
         try await fixture.settle(window, expectingOpsFor: statement.id, until: {
             fixture.derivedText(forDocId: statement.id)
@@ -316,7 +316,7 @@ final class StatementImageIngestTests: XCTestCase {
         let fixture = try await fixture(named: "IntentNoPictures")
         let statement = try await fixture.store.createStatement(
             kind: .intent, scope: .project)
-        let assets = well(beside: statement, in: fixture.projectURL)
+        let assets = try well(beside: statement, in: fixture.projectURL)
 
         let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
@@ -408,7 +408,7 @@ final class StatementImageIngestTests: XCTestCase {
             + "answer available there is a proxy that can be stale")
         XCTAssertTrue(
             landed.ref.contains(
-                "\(well(beside: landed.statement, in: fixture.projectURL).lastPathComponent)/"),
+                "\(try well(beside: landed.statement, in: fixture.projectURL).lastPathComponent)/"),
             "and the ref is relative to THAT statement: \(landed.ref)")
     }
 
@@ -479,7 +479,7 @@ final class StatementImageIngestTests: XCTestCase {
             try XCTUnwrap(fixture.store.statement(kind: .visualLanguage, scope: .project)).id,
             "the picture names the statement it was saved beside, so an ingest "
             + "that finishes on another scope still knows where its ref belongs")
-        let assets = well(beside: landed.statement, in: fixture.projectURL)
+        let assets = try well(beside: landed.statement, in: fixture.projectURL)
         XCTAssertTrue(landed.ref.contains("\(assets.lastPathComponent)/"),
                       "control: a real picture lands in the derived well; got \(landed.ref)")
     }
@@ -574,7 +574,7 @@ final class StatementImageIngestTests: XCTestCase {
             try XCTUnwrap(fixture.store.statement(kind: .visualLanguage, scope: .project)).id,
             "with the disk healed the same call lands, so the refusals above were "
             + "the plant and not an ingest that refuses everything")
-        XCTAssertEqual(files(in: well(beside: landed.statement, in: fixture.projectURL)).count, 1)
+        XCTAssertEqual(files(in: try well(beside: landed.statement, in: fixture.projectURL)).count, 1)
     }
 
     /// **And the guard that makes rollback safe under find-or-create:** a save
@@ -593,7 +593,7 @@ final class StatementImageIngestTests: XCTestCase {
 
         let first = try await fixture.store.addImage(
             toStatement: .visualLanguage, scope: .project, fileURL: png)
-        let assets = well(beside: first.statement, in: fixture.projectURL)
+        let assets = try well(beside: first.statement, in: fixture.projectURL)
         XCTAssertEqual(files(in: assets).count, 1, "control: the first picture landed")
 
         // Break the well under the statement the writer now has.

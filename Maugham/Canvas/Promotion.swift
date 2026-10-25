@@ -467,7 +467,8 @@ struct ArtifactIndex: Equatable {
         if isCraftIntent(item) { return .craftIntent }
         if paletteCards.contains(item.id) { return .paletteCard }
         switch item.kind {
-        case .image, .pdf, .audio: return .researchAsset
+        // A Research table is a file too: never written over with a card's prose.
+        case .image, .pdf, .audio, .table: return .researchAsset
         // `.document`, `.link` and a nil kind alike: prose, or a URL with no file
         // at all. Nil is the legacy manifest's spelling, and `AssetKind`'s
         // forward-tolerance degrades an unknown kind to `.document` (ADR 0015),

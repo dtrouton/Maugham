@@ -159,6 +159,44 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// init default, as every bump has. As with every bump since M1A, this
     /// makes the milestone a **paired Mac + phone release**.
     ///
+    /// 10 also covers the nine figure op kinds (report plan 6a): `figureCreate`
+    /// through `figurePinClear`, whose content rides in `Op.figure`. Schema 10
+    /// had not shipped when they joined it, so they take no bump of their own —
+    /// `OpKind`'s SCHEMA CONTRACT is met by the number they ship under. A book
+    /// with any figure is raised to 10 by `contentSchemaFloor`, through the
+    /// manifest's figure registry. Report plan 6b changed one of their payload
+    /// words under the same 10, before it shipped: a formula's ref to another
+    /// figure or a research item is stored by id (`{"figure":{"id":…}}`,
+    /// `{"research":{"id":…}}`, Denver's ruling R-D1), no longer by name, so
+    /// a rename rewrites no formula (`TableWireFormatTests` pins it). It also
+    /// added, under the same 10, the structure words `revive_row` and
+    /// `revive_column` and the payload field `removed` — what a row or column
+    /// delete took, so its undo revives it in place (rulings P-1, P-2;
+    /// `FigureOpTests` pins them). And, under the same 10, the research kind
+    /// `table` (`AssetKind.table`, ruling P-4: a `.csv`/`.tsv` in Research,
+    /// which an older build reads as `.document`; a manifest holding one is
+    /// raised to 10 by `contentSchemaFloor`), the `figureCreate` payload
+    /// field `source` (`FigureSource`: the Research item a figure was made
+    /// from, its path and content hash), and the Research table sidecar
+    /// `.maugham/research-tables/<item id>.json` (`ResearchTableSidecar`).
+    /// And, under the same 10, the `figureParked` payload field
+    /// `parked_item_id` (the Research item a park wrote its working copy as)
+    /// and its fold: content ordered while parked folds nothing (ruling P-5;
+    /// `FigureOpTests` and `FigureDeriverTests` pin them). And, under the same
+    /// 10, the `figureParked` field `parked_frontier` (what the parker had
+    /// read) and the synthesis source `brought_back_from_research` (ruling
+    /// P-7), which the ops a return appends carry. And, under the same 10,
+    /// the `figurePinSet` payload field `prior_pin` (the pin a set replaced,
+    /// so a pin refresh undoes from its payload, ruling P-8) and the pin
+    /// field `park` (the park cycle a pin on a parked figure was taken in).
+    /// And, under the same 10, the payload field `return_of` (the resume a
+    /// return's content op belongs to): a return whose resume is dropped —
+    /// two Macs bringing one figure back at once — folds none of its ops
+    /// (final review M-2; `FigureReturnDiffTests` pins it). And, under the
+    /// same 10, `parked_item_id` on a `figureResumed`: the park it resumes; a
+    /// resume naming an earlier park than the current one folds nothing, nor
+    /// do its ops (final re-review; `FigureDeriverTests` pins it).
+    ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book
     /// with no v10 content still leaves it open to a v0.42 Mac.
@@ -183,6 +221,9 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// public for tests and for reading the format.
     public static func encodeForDisk(_ manifest: ProjectManifest) throws -> Data {
         var outgoing = manifest
+        // No figures is no key: an empty registry must not change a single
+        // byte of a book that has never had one.
+        if outgoing.figures?.isEmpty == true { outgoing.figures = nil }
         outgoing.schemaVersion = max(
             manifest.schemaVersion, min(manifest.contentSchemaFloor, currentSchemaVersion))
         return try makeEncoder().encode(outgoing)
@@ -403,6 +444,13 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// answer (schema 10).
     public var switches: ProjectSwitches?
 
+    /// **The figure registry** (report plan 6a, ruling D-e): each figure's id,
+    /// name, kind, piece and path — the truth for who a figure belongs to,
+    /// which `DocumentClass.resolve` reads. The figure's content is its own op
+    /// log. Nil when the book has none, and `encodeForDisk` writes an empty
+    /// list as nil, so a manifest with no figures keeps its bytes exactly.
+    public var figures: [FigureRecord]?
+
     /// **The recorded starter of the piece `id`** (P3c plan 2, Option A;
     /// ruling OA-1) — its `StructureItem.startedBy`, wherever in the tree the
     /// item sits. Nil for an item with none (made before this build), and for
@@ -566,7 +614,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         typography: TypographySettings? = nil,
         showElementGutter: Bool? = nil,
         profile: ProjectProfile? = nil,
-        switches: ProjectSwitches? = nil
+        switches: ProjectSwitches? = nil,
+        figures: [FigureRecord]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -587,6 +636,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.showElementGutter = showElementGutter
         self.profile = profile
         self.switches = switches
+        self.figures = figures
     }
 
     /// Hand-written because `statements` is non-optional and absent from every
@@ -623,5 +673,6 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)
         self.profile = try c.decodeIfPresent(ProjectProfile.self, forKey: .profile)
         self.switches = try c.decodeIfPresent(ProjectSwitches.self, forKey: .switches)
+        self.figures = try c.decodeIfPresent([FigureRecord].self, forKey: .figures)
     }
 }

@@ -250,7 +250,7 @@ final class NarrowedBookCostTests: XCTestCase {
             head = OpLogChain.lineHash(line)
         }
         try bytes.write(
-            to: OpLogStore.opLogFileURL(
+            to: try OpLogStore.opLogFileURL(
                 forDocId: piece,
                 deviceSlug: DeviceSlug.unsafeForTesting("ghostmac-0badf00d"),
                 in: book.url),

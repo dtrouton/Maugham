@@ -1,6 +1,6 @@
 # Stores — area guide
 
-The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores (recents, sessions, trash, debounce, staging); and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52 and 53. The why behind every rule below, and its history, is in `docs/history/stores.md`.
+The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores (recents, sessions, trash, debounce, staging); and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
 
 ## Map
 
@@ -13,6 +13,7 @@ Every file in `Maugham/Stores/` appears once.
 - `DocumentStore.swift` — the project-folder coordinator: the `NSFilePresenter` callbacks (`presenterDidChangeSubitem`), the `Document` registry, manifest IO and adoption hand-off, sessions and UI state, the typed mover (`relocate(plan:)`, `relocateUserContent`, `trash`), `coordinatedMove`/`coordinatedWrite`, `admit`, `invalidateTrust`, `reReadAfterExternalChange`. Tripwires 14, 40, 49, 50.
 - `DocumentStore+Registry.swift` — `revoke(person:)`, `retire(device:)`, `claim(adopting:)`, `forgetPersonKey(person:)`, `settle`, `heldLines()`/`heldLinesByDevice()`, `highestOpIdApplied(fromPerson:)`, the silent-admission queue. Tripwires 41, 53.
 - `DocumentStore+ClosedHeldLines.swift` — held lines in documents nobody has open (`closedProvenance`, `sweepClosedProvenance`).
+- `DocumentStore+Figures.swift` — figures in a window: `openFigure` (this store is the figure's door), the presenter's figure pass (reload, re-render the figure and its readers), `renderFigures` over `assembledFigures()`, `pinSources(for:)` (what a figure's research pins read), the figure cache's trust drop.
 - `DocumentStore+Posture.swift` — the Mac's posture door: `PostureBook`, `posture(forDocId:as:)`, `settledPosture(forDocId:as:)`, `posture(forPath:)`, `overrideYield(docId:)`. Tripwires 46, 51.
 - `ProjectFolderPresenter.swift` — the `NSFilePresenter` that forwards callbacks to its delegate (`DocumentStore`).
 - `MaughamSidecarPath.swift` — typed classification of a project-relative URL; the presenter dispatches on it. Tripwire 40.
@@ -32,7 +33,10 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+WikiLink.swift` — `[[…]]` title resolution (`WikiLinkProject` conformance).
 - `ProjectStore+Search.swift` — project search and Replace (`performSearch`, `replaceMatch`, `replaceAll`, `replaceInManuscript`). Tripwire 52.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
-- `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54), so a count says unknown rather than a short number. Tripwire 49.
+- `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` refuses a parked figure, asks every door first, then relabels the text; `removeFigure` always trashes the record (with its file, a fresh render, or alone), and restoring it re-registers the figure. Tripwire 52.
+- `ProjectStore+FigureTranslations.swift` — a rename's fresh translation records: read and door-checked first, relabelled after the text, all or nothing.
+- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack` (unchanged: resumed; changed: three-way); `sendToResearch` parks one; `pinSourceRead` reads a pin's source.
+- `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54). Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
 - `ProjectStore+Statements.swift` — statements: lookup, `createStatement`, `withStatementDocument`, `mutateStatementText`, `appendToStatement`, `statementText(of:)`, the open registry and gate. Tripwires 20, 52.
@@ -60,7 +64,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered` before anything is written). Tripwire 52 (starter).
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
-- `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind`.
+- `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
@@ -92,6 +96,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent: export.docx and sent.json; the id is `draft<N>-yyyyMMdd-HHmmss-<slug>`, chosen before packaging and carried in the file; backed up (R-S9) |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
+| `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold; a parked picture's copy gets one too, naming its figure |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
@@ -99,14 +104,14 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 
 Two things deliberately live elsewhere:
 - **The Trash is `<project>/.trash/`** (`TrashStore.trashRoot`), not under `.maugham/`.
-- **This device's key material** is in `DeviceState.directory` (`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`): one key blob and token per `DeviceActor` (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the others) and one op-log-state.json. It must never sync: a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account. Under XCTest the path gains an `xctest-worker-<pid>` leaf, so parallel workers never share a key or a head.
+- **This device's key material** is in `DeviceState.directory` (`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`): one key blob and token per `DeviceActor` (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the others) and one op-log-state.json. It must never sync (tripwire 17). Under XCTest the path gains an `xctest-worker-<pid>` leaf, so parallel workers never share a key or a head.
 
 ## Rules
 
 ### Tripwires this area carries
-- **14 — Move or delete a path the writer might be editing only through the typed mover** (`relocate(plan:)`, `relocateUserContent(affectedPaths:perform:)`, `trash(relativePath:using:…)`), never a raw `FileManager.moveItem`/`moveToTrash`: the 750 ms autosave recreates the file at the old path. `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` scans every `ProjectStore+*.swift` file; `test_userContentMoverTripwireFiresOnPlantedOffender` is its control.
-- **17 — A file more than one device writes is partitioned per device** (`let-go.<slug>.jsonl`, `inbox.<slug>.jsonl`), read as the union of every device's file: iCloud cannot line-merge one shared JSONL. Op-log side: `OpLogStoreSegmentTests.test_legacyFile_neverSealed`.
-- **19 — What the phone also reads is implemented once in MaughamCore** (`StatementLookup`, `StatementConvention`, `PaletteLookup`, `PaletteConvention`, `InboxConvention`, `RegistryPresence`'s claim rule, `PersonKeyStoreChoice`): two copies drift. `TripwirePhoneGrepTest`.
+- **14 — Move or delete a path the writer might be editing only through the typed mover** (`relocate(plan:)`, `relocateUserContent(affectedPaths:perform:)`, `trash(relativePath:using:…)`), never a raw `FileManager.moveItem`/`moveToTrash`. `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` scans every `ProjectStore+*.swift` file; `test_userContentMoverTripwireFiresOnPlantedOffender` is its control.
+- **17 — A file more than one device writes is partitioned per device** (`let-go.<slug>.jsonl`, `inbox.<slug>.jsonl`), read as the union of every device's file. Op-log side: `OpLogStoreSegmentTests.test_legacyFile_neverSealed`.
+- **19 — What the phone also reads is implemented once in MaughamCore** (`StatementLookup`, `StatementConvention`, `PaletteLookup`, `PaletteConvention`, `InboxConvention`, `RegistryPresence`'s claim rule, `PersonKeyStoreChoice`). `TripwirePhoneGrepTest`.
 - **20 — A statement's prose is read from its op log, never its `.md`**: through `statementText(of:)`. Every file read in a production file carries `// adr-0018-ok: <reason>` saying what it reads (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`).
 - **21 — Post through `MaughamEvent`** (`postNotice`, `postDetailSegment(_:)`, `postAdmissionRequested`), never a raw `maugham.*` notification (`TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`).
 - **22 — A rename or move is followed by the editor's PATH-keyed reload** (`EditorHost.needsReload`), never an id-keyed one: prose only.
@@ -123,7 +128,7 @@ Two things deliberately live elsewhere:
 - **53 — `PersonKeyAccess.swift` is the one production construction of a `PersonKeyStore`** (`PersonKeyCensusTests`).
 
 ### Store shape
-- **Model a new store after `RecentsStore`, `TrashStore` or `SessionLog`**: small, one responsibility. `ProjectStore` is large only because the project is the central aggregate.
+- **Model a new store after `RecentsStore`, `TrashStore` or `SessionLog`**: small, one responsibility.
 - **A new project-scoped seam is a new `extension ProjectStore` in its own peer file**, never a new top-level store class.
 - **A standalone sidecar store is a `@MainActor` struct over a bare `projectURL`** (`TrashStore`, `DesignProposalStore`, `PublicationSnapshotStore`), not a `ProjectStore` extension.
 - **No shared "current text" field on `DocumentStore`**: text lives on `Document` (`displayText`; `lastDiskEcho.bytes` for the echo guard). Look a document up through the registry's `document(for:)`.
@@ -201,13 +206,13 @@ Two things deliberately live elsewhere:
 - **A failed let-go write is logged, not thrown**: the deletion already happened.
 - **The wording names what happened to the binder, not who did it** (*Left the binder when two devices' outlines crossed*): the archive cannot say which.
 - **`refreshRemovedElsewhere()` reads files off-main, driven by `RemovedElsewhereRefresh`** (a `.task(id:)` keyed on structure ids and Trash entries), so no verb has to ask.
-- **Restore (`restoreRemovedElsewhere(id:)`) is a structural verb**: the row returns under its SAME id at its old parent and index (manuscript root if the group is gone; a numbered path if its path is claimed), the manifest saves, then the `.md` is re-rendered through `Document.load` + `performAutosave`, never from the stale file (the load backs a stale file up as `-diverged-`; a missing file is not a divergence). Going through the load keeps every held or refused line as judged. It moves no file, is not on ⌘Z, and moves the session baseline (`excludeForeignWords`).
+- **Restore (`restoreRemovedElsewhere(id:)`) is a structural verb**: the row returns under its SAME id at its old parent and index (manuscript root if the group is gone; a numbered path if its path is claimed), the manifest saves, then the `.md` is re-rendered through `Document.load` + `performAutosave`, never from the stale file. Going through the load keeps every held or refused line as judged. It moves no file, is not on ⌘Z, and moves the session baseline (`excludeForeignWords`).
 - **Known limits**: a piece dropped while every Mac holding it was closed left no archive and is not listed; a piece an earlier build emptied from Trash IS listed; a single-device book lists nothing.
 - **Known limit**: two Macs restoring one piece at once can leave a stray `.md` with no row; cleaning it up would belong in the adoption, through the typed mover, and is not built.
 
 ### The trash
 - **The Trash is `<project>/.trash/`**, swept of entries over 30 days at `ProjectStore.load`.
-- **Every entry records a `TrashSubject`** (`manuscriptItem`, `researchItem`, `captureAsset`, `internalArtifact`); `moveToTrash` will not compile without one. It decides which tree a restore rewires; an old entry without one falls back to the shape sniff and is REFUSED if it matches neither tree.
+- **Every entry records a `TrashSubject`** (`manuscriptItem`, `researchItem`, `captureAsset`, `internalArtifact`, `priorVersion`, `figure`); `moveToTrash` will not compile without one. It decides which tree a restore rewires; an old entry without one falls back to the shape sniff and is REFUSED if it matches neither tree.
 - **`list()` is the writer's view; `entriesIncludingInternal()` is all of it**, used by disposal and `restoreTrashEntry`.
 - **Neither hides an entry it cannot read** (RULING-7): a Maugham-named folder with a missing or undecodable meta.json is an `isUnreadable` entry titled `TrashEntry.unreadableTitle`; restore refuses naming the cause; disposal reaches it. A folder whose name Maugham did not write (RULING-9) and an empty folder get no row.
 - **`mintEntryFolder` claims a folder name** (`withIntermediateDirectories: false`; a taken name takes the next number). **Keep the timestamp a PREFIX**: the sweep dates entries by parsing the name (RULING-39).
@@ -222,22 +227,23 @@ Two things deliberately live elsewhere:
 - **Look a statement up by SCOPE in the manifest**: no path prefix, no filename convention in the read path. The pure halves are Core's (`StatementLookup.statement(in:kind:scope:)`, `StatementConvention.newPath(kind:scope:documentSlug:)`).
 - **Absence is valid and free**: `statement(kind:scope:)` returns nil and mints, stamps and logs nothing (`read_craft_intent` promises this).
 - **`createStatement` refuses rather than redirects**: a scope that is not a manuscript document throws `.structureMissing`; a `(kind, scope)` with no storage row throws `.statementHasNoStorage`.
+- **A synced path reaches a file call only through `resolvedProjectPath(_:)`, or `resolvedProjectPathToChange(_:)` for a write, move or delete** (no `.`/`..` component): an unsafe one throws `.unsafeProjectPath` before anything closes or moves; `relocate(plan:)` checks every step first (tripwire 58).
 - **`createStatement` refuses an unsafe path**: an edition brief whose tag fails `TranslationRecord.isValidLanguageTag` verbatim throws `.languageTagInvalid`; every path goes through `SafeRelativePath.resolve(_:under:)` (`.statementPathUnsafe`). Both throw before any directory or manifest row (`EditionBriefStatementTests`).
 - **Creation never takes an occupied path** (`vacantStatementPath` steers to intent-2.md): registering over an untracked file would own the writer's bytes.
 - **The slug is derived from the title once, at creation**; identity is the manifest `id`, and a statement's path moves through the typed mover.
 - **`createStatement` is idempotent.**
 - **`withStatementDocument(_:session:_:)` is the ONE statement open-and-mutate dance**: the live `Document` via `openStatementDocument(id:)`, then the open gate, a re-ask inside it, then a transient `Document.load`/mutate/awaited `close`. The lookup plus mutate does not suspend. A throwing closure writes nothing, and the transient `Document` closes on that path too.
 - **Who takes `lockStatementOpen` is a census** (`TripwireGrepTests.test_theStatementOpenGateIsTakenByExactlyTheseMembers`, `statementOpenGateTakers`). The gate is per statement and covers the OPENING only; a writer queued behind the pane re-asks the registry inside it (`StatementOpenGateTests`).
-- **Statements have their own open registry because they are in no `DocumentStore` one** (it would put them in `allOpenDocuments()`, which task aggregation iterates). The pane registers on bind and withdraws before every close (`noteStatementDocumentOpened(_:id:)`, `forgetStatementDocument(id:)`); `openStatementDocument(id:)` refuses a closed `Document`. Anything that writes into a statement asks it before loading its own.
+- **Statements have their own open registry, never a `DocumentStore` one.** The pane registers on bind and withdraws before every close (`noteStatementDocumentOpened(_:id:)`, `forgetStatementDocument(id:)`); `openStatementDocument(id:)` refuses a closed `Document`. Anything that writes into a statement asks it before loading its own.
 - **`mutateStatementText(of:session:transform:)` hands the transform the current text**, so check and write are one string; it asks the posture first (tripwire 52).
-- **`appendToStatement(_:to:session:)` appends to the end of the ESSAY, not the file** (`StatementEssay`): below a `## Rulings` section it would be invisible to the Intent pane.
+- **`appendToStatement(_:to:session:)` appends to the end of the ESSAY, not the file** (`StatementEssay`).
 - **The inspector's intent row (`IntentAffordanceRow`) is a pane swap that mints nothing**; its caption resolves through `StatementPane.effectiveScope`.
 - **Name every write's destination by statement**, never by what the pane shows now: callers suspend.
 - **`statementText(of:)` is the one reader of a statement's prose** (`read_craft_intent`, `read_visual_language`): the open pane's `Document` if any, else `derivedCache.displayText`.
 - **A promoted Collection piece takes its intent with it**: `stagePromotedIntent` (`// internal-move: staging`), `writePromotedManifest` re-scopes it with a fresh `stmt-` id, `convertPromotedPieceToReference` prunes the Collection's entry. The entry point closes an open statement `Document` explicitly first. The op log stays behind; the new project re-bootstraps from the `.md`, so a derive-only read answers "" until something opens it.
 
 ### Statement and canvas asset wells
-- **`ingestCanvasAsset(image:)`/`(fileURL:)` are the one pair that gives a canvas item a file**; every route is a caller. The Finder drop takes the file twin, the browser bitmap the image twin (`CanvasAssetIngest`, `CanvasExternalDrop`); never route one case through the other twin, which would leave half the pair with no caller. A research drag ingests nothing.
+- **`ingestCanvasAsset(image:)`/`(fileURL:)` are the one pair that gives a canvas item a file**; every route is a caller. The Finder drop takes the file twin, the browser bitmap the image twin (`CanvasAssetIngest`, `CanvasExternalDrop`); never route one case through the other twin. A research drag ingests nothing.
 - **`canvas_assets/` is at the project root beside `canvas.md`, content not derived state**: deleting .maugham/canvas.json must never cost the photographs.
 - **A well's name is derived and never spelled**: `ImagePasteHandler.wellURL(forNoteAt:in:)` builds `<slug>_assets` from the file's name and creates nothing. `TripwireGrepTests.test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell` (the files that may call `ImagePasteHandler.saveAndReference*`) and `test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode`.
 - **The canvas pair returns a PROJECT-RELATIVE path** (`CanvasItemReference.owned(path:)`), resolved through `ProjectStore.resolveImageRef(_:relativeTo:)`: never absolute, `file://` or the Markdown ref.
@@ -313,15 +319,16 @@ Two things deliberately live elsewhere:
 
 ### The posture door
 - **A surface DRAWS with `posture(forDocId:as:)`; a door that ACTS asks `settledPosture(forDocId:as:)`.** Drawing is cached per epoch, never resolves a registry on the main actor, is provisional (last known → the open document's stamp → `Posture.settling`) and uncached while a refresh runs, fails closed only for a document never answered, and may show a verb the new permit refuses until the refresh lands; the acting door refuses it. `settledPosture` waits out a refresh, re-warms if the folder moved, and never answers provisionally.
-- **A trust change or manifest adoption bumps the epoch, clears the cache and unpublishes the table.** The refresh warms every asked `(docId, actor)` into a staging dictionary off-main (`stagePostureCache`), then in ONE main-actor turn publishes the table and answers, re-stamps every open `Document` (manuscripts and `ProjectStore.liveStatementDocuments`) and bumps the epoch WITHOUT clearing (the first bump cleared; clearing here makes every redraw a miss) (`test_theRestampAndTheBumpAreOneTurn`, `DocumentStorePostureTests.test_theRedrawAfterATrustChangeIsAllHitsAndEveryHitIsFresh`). A folder that moves mid-warm abandons the warm and clears.
+- **A trust change or manifest adoption bumps the epoch, clears the cache and unpublishes the table.** The refresh warms every asked `(docId, actor)` into a staging dictionary off-main (`stagePostureCache`), then in ONE main-actor turn publishes the table and answers, re-stamps every open `Document` (manuscripts and `ProjectStore.liveStatementDocuments`) and bumps the epoch WITHOUT clearing (`test_theRestampAndTheBumpAreOneTurn`, `DocumentStorePostureTests.test_theRedrawAfterATrustChangeIsAllHitsAndEveryHitIsFresh`). A folder that moves mid-warm abandons the warm and clears.
 - **The builder reads class and starter from ONE `ManifestPlacement`** (`postureManifestPlacement`; `test_theBuilderReadsTheClassAndTheStarterFromTheSameManifest`).
 - **`PostureBook.asked` is pruned at every adoption** (`prunePostureAsked`): a key stays while its document is in the adopted manifest (structure item or statement), open in this window, or is `__project__`.
 - **A book with no register is always warm** and answers `Posture.author`.
 - **Every door behind a host fails CLOSED**: `ProjectStore.documentStore` is weak and goes a frame early (`TreeStructureVerbs.none`, `TranslationAuthorVerbs.none`).
 - **The owner yield**: where this device holds its root record, the author's posture on a piece (and its statement and translation) yields to that piece's writers (`PieceWriters`, over `TrustTable.myChain`), never to this device's own person or a whole-book co-author; a whole-book author that is not the root yields to nobody.
-- **The starter yield**: every book author yields to the permit's `unsettledStarter` ahead of the owner yield, without waiting for `PieceWriters`. Acting doors honour it. It lifts at a trust change or at the external re-read that brings a book author's text.
+- **The starter yield**: every book author yields to the permit's `unsettledStarter` ahead of the owner yield, without waiting for `PieceWriters`. Acting doors honour it. It lifts at a trust change or at the external re-read that brings a book author's text. A figure follows its piece's posture, both yields included; a piece's re-stamp forgets its figures' cached answers.
 - **Both yields end with `overrideYield(docId:)`** (Edit Anyway), for this window and session.
 - **The manuscript writers outside the editor skip and name** a refused document (Replace All, the rename's link sweep). The rename's sweep is the one that still LOADS a starter-yielded piece; only the load can say *waiting*, it cannot mint there, and the write asks the door again.
+- **A figure verb that changes the text holds every manuscript first** (`holdManuscriptsForFigureText`): one refusal refuses the rename or Send to Research, naming the pieces.
 - **`appendProjectTaskOp` is the one door for the `__project__` stream's task ops**; a refusal is a `postNotice` (`.settling` says *try again in a moment*), and a refused create or archive registers no ⌘Z. A refused ⌘Z inverse while `.settling` consumes that undo step. The census checks the door is asked before the mirror write (`TripwireGrepTests.test_everyProjectTaskOpPassesTheProjectStreamsDoor`, `projectTaskOpAppendSites`). Never allocate a real document with id `__project__`.
 - **`posture(forPath:)` asks the open document and the live manifest first, then caches an unknown path's resolution per epoch**, a fabricated id only while `ManifestFileStamp` is unchanged, and never the `?? path` fallback (`test_aPieceCreatedAfterAMissResolvesToItsRealIdOnTheNextAsk`).
 
@@ -351,7 +358,7 @@ Two things deliberately live elsewhere:
 - **`sendToCanvas` ingests, writes the canvas, flips, then retires.**
 - **The retry converges**: the node id is `cap-<entryId>`, and the image arm asks `CanvasCapture.existingNode` (via `CanvasClaudeWrite.liveModel`) before `ingestCanvasAsset`.
 - **There is no MCP write path onto the canvas from the inbox.**
-- **`InboxTranscriptionWorker` is poked on every inbox change**, audio or not, because an `.m4a` and its manifest row arrive in either order.
+- **`InboxTranscriptionWorker` is poked on every inbox change**, audio or not.
 
 ## Recipes
 
@@ -360,7 +367,7 @@ Two things deliberately live elsewhere:
 2. If the seam moves or deletes files, route them through `DocumentStore`'s typed mover. The file joins `test_noRawMoveOfUserContentOutsideTypedMover` automatically (every `ProjectStore+*.swift`).
 3. If a verb awaits before saving the manifest, bracket it with `beginStructuralVerb()`/`endStructuralVerb()`, or add a reasoned exception in `MaughamTests/Stores/StructuralVerbCensusTests.swift`.
 4. If it constructs a `StructureItem` piece, set `startedBy: thisMacAsAStarter`.
-5. If it writes manuscript or statement text, ask the posture and add the call to `TripwireGrepTests.manuscriptWriterCallSites`.
+5. If it writes manuscript, statement or figure content, ask the posture and add the call to `TripwireGrepTests.manuscriptWriterCallSites`.
 6. `./gen.sh`, then add the file to this guide's Map.
 
 Checks: `StructuralVerbCensusTests`, `TripwireGrepTests`.
@@ -395,7 +402,7 @@ Checks: `StatementOpenGateTests`, `test_theStatementOpenGateIsTakenByExactlyThes
 ## Pointers
 - `docs/history/stores.md`: the old guide word for word, with every rule's why and the defects behind them.
 - ADR 0006 (trash and undo, with the rulings amendment), ADR 0008 (id prefixes), ADR 0009 (Collection references), ADR 0010 (typed seams), ADR 0012 (per-device JSONL), ADR 0015 (schema evolution), ADR 0018 and 0019 (reads derive from the op log; clean `.md`), ADR 0021 (scoped events), ADR 0030 (the cast), ADR 0032 (the signed op log: admission, posture, Option A, the person key).
-- `docs/tripwires.md` rows 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53.
+- `docs/tripwires.md` rows 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53, 58.
 - `register/reconciliation/Trash.*`, `register/reconciliation/Inbox.*`.
 - Neighbouring guides: `Maugham/OpLog/AREA.md` (the op log, `Document.load`, the person key), `Maugham/Views/AREA.md` (the panes), `Maugham/Canvas/AREA.md` (`CanvasCapture`), `Maugham/Compiler/AREA.md` (the designer loop, the pipeline), `MaughamPhone/AREA.md` (the phone's inbox writer).
 - Cross-document search (⌘⌥F): `Maugham/Views/ProjectSearchView.swift`, `ProjectWindow.applyCloseFind`. `InboxPane` is ⌘⌥B.

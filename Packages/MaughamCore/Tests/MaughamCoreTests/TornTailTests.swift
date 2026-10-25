@@ -50,7 +50,7 @@ final class TornTailTests: XCTestCase {
     }
 
     private var theirFileURL: URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: theirs.slug, in: projectURL)
     }
 

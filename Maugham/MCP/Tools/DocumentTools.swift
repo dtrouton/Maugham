@@ -132,7 +132,8 @@ public enum ReadDocumentTool: MCPTool {
                 "Research item '\(item.title)' is a group, not a readable document")
         }
         switch item.kind {
-        case .document:
+        // A Research table is read as its CSV text (report plan 6b).
+        case .document, .table:
             guard let path = item.path else {
                 throw MCPError.invalidArgument(
                     "Research item '\(item.title)' has no on-disk path")

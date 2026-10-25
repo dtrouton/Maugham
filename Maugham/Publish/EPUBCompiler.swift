@@ -113,6 +113,12 @@ public struct EPUBCompiler {
     }
 
     public func compile(label: String?) async throws -> Result {
+        // Where the EPUB will land, asked before the run (tripwire 58).
+        _ = try OutputFilenameBuilder.destination(
+            filename: makeOutputFilename(
+                config: bodies[0].source.resolutionScope.publishContext().reportTitled(config),
+                format: .epub, label: label),
+            outputsDirectory: config.outputs.directory, projectURL: projectURL)
         let publish = projectURL.appendingPathComponent(".maugham/publish",
                                                         isDirectory: true)
 
@@ -229,8 +235,8 @@ public struct EPUBCompiler {
 
         var cover: EPUBPackage.Cover? = nil
         if let coverPath = config.cover.path {
-            let coverURL = publish.appendingPathComponent(coverPath)
-            if FileManager.default.fileExists(atPath: coverURL.path),
+            if let coverURL = try? SafeRelativePath.resolve(coverPath, under: publish),
+               FileManager.default.fileExists(atPath: coverURL.path),
                let data = try? Data(contentsOf: coverURL) {  // adr-0018-ok: cover-image bytes read, not manuscript
                 let mediaType: String
                 let ext = coverURL.pathExtension.lowercased()
@@ -274,11 +280,10 @@ public struct EPUBCompiler {
         }
 
         let filename = makeOutputFilename(config: context.reportTitled(config), format: .epub, label: label)
-        let exports = projectURL.appendingPathComponent(config.outputs.directory,
-                                                       isDirectory: true)
+        let dest = try OutputFilenameBuilder.destination(
+            filename: filename, outputsDirectory: config.outputs.directory, projectURL: projectURL)
         try FileManager.default.createDirectory(
-            at: exports, withIntermediateDirectories: true)
-        let dest = exports.appendingPathComponent(filename)
+            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: dest.path) {
             guard replacesExistingOutput else {
                 let diag = OutputFilenameBuilder.occupiedDestinationRefusal(

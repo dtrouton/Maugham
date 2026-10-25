@@ -54,7 +54,7 @@ final class SegmentSealTriggerTests: XCTestCase {
     }
 
     private func tailLines(docId: String, device: String = "test-mac") throws -> [Data] {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.make(from: device),
             in: projectURL)
         return try Data(contentsOf: url)
@@ -290,7 +290,7 @@ final class SegmentSealTriggerTests: XCTestCase {
         try await writing.flushBurstNow()
         let docId = writing.docId
         await writing.close()
-        let authorTail = OpLogStore.opLogFileURL(
+        let authorTail = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identities.author.slug, in: projectURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: authorTail.path),
                       "precondition: the author has a tail on disk")

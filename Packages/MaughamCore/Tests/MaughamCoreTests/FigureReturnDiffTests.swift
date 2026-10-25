@@ -1,0 +1,638 @@
+import XCTest
+@testable import MaughamCore
+
+/// **Coming back from Research** (report plan 6b Task 8, spec §4.2): a changed
+/// working copy brings back only its differences, and every row and column it
+/// still holds keeps its id — Review Focus 3 is the Excel round trip.
+final class FigureReturnDiffTests: XCTestCase {
+
+    private let gb = TableLocale(languageTag: "en-GB")
+    private var minted = 0
+
+    private func mintRow() -> RowID { minted += 1; return RowID(String(format: "nr%06d", minted)) }
+    private func mintColumn() -> ColumnID { minted += 1; return ColumnID(String(format: "nc%06d", minted)) }
+
+    /// A figure state holding `csv` as `TableCSV.read` reads it.
+    private func figure(_ csv: String, names: FormulaNames = .empty) -> FigureState {
+        FigureState(kind: .table, table: TableCSV.read(csv, locale: gb, names: names).table)
+    }
+
+    /// `state` with `changes` folded on, as the stream would after a resume.
+    private func applied(_ changes: [FigureReturnDiff.Change], to state: FigureState) -> FigureState {
+        var s = state
+        s.parked = nil
+        for (i, c) in changes.enumerated() {
+            FigureDeriver.fold(Op(opId: String(format: "zz%04d", i), docId: "fig-k3m9q2zt",
+                                  at: Date(timeIntervalSince1970: 0), device: "macA", session: "s",
+                                  kind: c.kind, changes: [], figure: c.payload), into: &s)
+        }
+        XCTAssertEqual(s.diagnostics, state.diagnostics, "every change applies")
+        return s
+    }
+
+    private func row(_ s: FigureState, labelled label: String) -> RowID? {
+        let first = s.table.columns[0]
+        return s.table.rows.first { s.table[CellKey(row: $0, column: first)]?.content == .value(.text(label)) }
+    }
+
+    private func value(_ s: FigureState, _ r: RowID, _ c: Int) -> CellContent? {
+        s.table[CellKey(row: r, column: s.table.columns[c])]?.content
+    }
+
+    // MARK: - Review Focus 3
+
+    /// A working copy edited in Excel and re-saved — a byte-order mark, CRLF,
+    /// `;` separators with decimal commas, a row inserted, one moved, one
+    /// deleted — comes back with every matched row keeping its id; only the
+    /// deleted row is gone (its anchors orphaned), the new row is fresh, and
+    /// the order is the copy's.
+    func test_anExcelResavedCopyKeepsEveryMatchedRowsId() throws {
+        var parked = figure("Item,Amount\nRent,1200.5\nFood,340\nTravel,99.9\nBooks,45\n")
+        let ids = Dictionary(uniqueKeysWithValues: ["Item", "Rent", "Food", "Travel", "Books"].map {
+            ($0, row(parked, labelled: $0)!) })
+        parked.parked = FigureParking(path: "research/budget.csv", hash: "h")
+        XCTAssertEqual(parked.table.headerRows, 1)
+        // Books moved to the top, Travel deleted, Phone inserted after Food,
+        // and Rent — now between moved rows — edited.
+        let excel = "\u{FEFF}Item;Amount\r\nBooks;45\r\nRent;1250,5\r\nFood;340\r\nPhone;25,75\r\n"
+        let copy = TableCSV.read(excel, locale: gb, names: .empty)
+        XCTAssertEqual(copy.problems, [])
+
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: copy.table, sidecar: nil,
+            mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: parked)
+
+        let phone = try XCTUnwrap(row(back, labelled: "Phone"))
+        XCTAssertEqual(back.table.rows, [ids["Item"]!, ids["Books"]!, ids["Rent"]!, ids["Food"]!, phone],
+                       "matched rows keep their ids, in the copy's order")
+        XCTAssertFalse(ids.values.contains(phone), "the new row has a fresh id")
+        XCTAssertNil(back.table.rowIndex(of: ids["Travel"]!), "the deleted row is gone: its anchors orphan")
+        XCTAssertNotNil(back.table.rowSlotIndex(of: ids["Travel"]!), "as a tombstone")
+        XCTAssertEqual(value(back, ids["Rent"]!, 1), .value(.number(1250.5)), "a decimal comma read as one")
+        XCTAssertEqual(value(back, phone, 1), .value(.number(25.75)))
+        XCTAssertEqual(back.table.columns, parked.table.columns, "both columns kept")
+
+        // The ops: one delete carrying what it took, one move, one insert, three cells — nothing else.
+        let structures = changes.ops.compactMap(\.payload.structure)
+        XCTAssertEqual(structures.count, 3, "\(structures)")
+        let delete = changes.ops.first { if case .deleteRow? = $0.payload.structure { return true }; return false }
+        XCTAssertEqual(delete?.payload.removed?.cells.count, 2, "the delete carries Travel's cells (ruling P-2)")
+        XCTAssertEqual(changes.ops.filter { $0.kind == .figureCellSet }.count, 3,
+                       "only Rent's amount and Phone's two cells are set")
+        XCTAssertEqual(changes.overwritten, [])
+    }
+
+    /// The two-way shape the brief names: the same ops when base and current agree.
+    func test_theTwoWayShapeIsTheThreeWayWithOneState() {
+        let parked = figure("A,1\nB,2\n")
+        let copy = TableCSV.read("A,1\nB,3\n", locale: gb, names: .empty).table
+        let ops = FigureReturnDiff.ops(from: parked, to: copy, sidecar: nil,
+                                       mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(ops.map(\.0), [.figureCellSet])
+        XCTAssertEqual(ops.first?.1.next?.content, .value(.number(3)))
+        XCTAssertEqual(ops.first?.1.prior?.content, .value(.number(2)))
+    }
+
+    /// An unchanged copy brings back nothing; an edited row (one cell of two
+    /// changed) keeps its id and sets only that cell.
+    func test_anUnchangedCopyIsNoChange_andAnEditedRowKeepsItsId() {
+        let parked = figure("Name,Total\nNorth,10\nSouth,20\nEast,30\n")
+        let csv = TableCSV.renderResearch(parked.table, locale: gb, names: .empty)
+        let same = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: TableCSV.read(csv, locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(same.ops, [])
+
+        let south = row(parked, labelled: "South")!
+        let edited = FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Name,Total\nNorth,10\nSouth,25\nEast,30\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(edited.ops.map(\.kind), [.figureCellSet])
+        XCTAssertEqual(edited.ops.first?.payload.cell?.row, south)
+    }
+
+    /// Columns match by header: swapped columns keep their ids and move; a
+    /// new header is a new column; a missing one is deleted.
+    func test_columnsMatchByHeader() {
+        let parked = figure("Name,Q1,Q2\nNorth,1,2\n")
+        let (name, q1, q2) = (parked.table.columns[0], parked.table.columns[1], parked.table.columns[2])
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Name,Q2,Q3\nNorth,2,9\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(back.table.columns.prefix(2), [name, q2])
+        XCTAssertNil(back.table.columnIndex(of: q1), "Q1 is gone")
+        XCTAssertEqual(back.table.columns.count, 3)
+        XCTAssertEqual(value(back, back.table.rows[1], 2), .value(.number(9)))
+        XCTAssertEqual(back.table.rows, parked.table.rows, "the rows still match over Name and Q2")
+    }
+
+    /// A formula Excel re-pointed because a row went in above still matches
+    /// its row (its shape relative to its cell is the same), and one whose
+    /// range the copy changed is set to the copy's, by the result's ids.
+    func test_formulasMatchByShape_andARangeTheCopyChangedIsTheCopys() {
+        let parked = figure("Item,Cost,Twice\nA,1,=B2*2\nB,2,=B3*2\nTotal,=SUM(B2:B3),\n")
+        let a = row(parked, labelled: "A")!, total = row(parked, labelled: "Total")!
+        let copy = TableCSV.read("Item,Cost,Twice\nNew,5,=B2*2\nA,1,=B3*2\nB,2,=B4*2\nTotal,=SUM(B2:B4),\n",
+                                 locale: gb, names: .empty)
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: copy.table, sidecar: nil,
+            mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(back.table.rows.dropFirst(2).first, a, "A keeps its id below the new row")
+        XCTAssertEqual(back.table.rows.last, total)
+        let fresh = back.table.rows[1]
+        let sum = back.table[CellKey(row: total, column: back.table.columns[1])]
+        guard case .formula(let f)? = sum?.content else { return XCTFail("the total is a formula") }
+        XCTAssertEqual(FormulaParser.render(f, in: back.table), "SUM(B2:B4)",
+                       "the copy's wider range, now spanning the new row")
+        XCTAssertNotNil(back.table[CellKey(row: fresh, column: back.table.columns[2])])
+        // A's and B's formulas were left alone: only the new row and the total are written.
+        let setRows = Set(changes.ops.compactMap(\.payload.cell?.row))
+        XCTAssertEqual(setRows, [fresh, total])
+    }
+
+    // MARK: - Three-way (late edits)
+
+    /// The state the copy was written from is the stream folded as far as the
+    /// parker had read, per device.
+    func test_theBaseIsTheStreamAsFarAsTheParkerHadRead() {
+        let r = RowID("r1aaaaaa"), c = ColumnID("c1dddddd")
+        func op(_ id: String, _ device: String, _ kind: OpKind, _ p: FigureOpPayload) -> Op {
+            Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: device,
+               session: "s", kind: kind, changes: [], figure: p)
+        }
+        let key = CellKey(row: r, column: c)
+        let ops = [
+            op("a1", "macA", .figureCreate, FigureOpPayload(kind: .table)),
+            op("a2", "macA", .figureStructure, FigureOpPayload(structure: .insertRow(r, after: nil))),
+            op("a3", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(c, after: nil))),
+            op("a4", "macA", .figureCellSet, FigureOpPayload(cell: key, next: Cell(content: .value(.number(1))))),
+            op("a5", "macB", .figureCellSet, FigureOpPayload(cell: key, next: Cell(content: .value(.number(2))))),
+            op("a6", "macA", .figureParked, FigureOpPayload(parkedPath: "p", parkedHash: "h")),
+        ]
+        let streams = ["macA": ["a1", "a2", "a3", "a4", "a6"], "macB": ["a5"]]
+        let base = FigureReturnDiff.base(of: ops, streams: streams, frontier: ["macA": "a4"])
+        XCTAssertEqual(base.table[key]?.content, .value(.number(1)), "macB's edit was never read")
+        XCTAssertNil(base.parked)
+        XCTAssertEqual(FigureDeriver.derive(ops).table[key]?.content, .value(.number(2)),
+                       "the parked state holds the late edit")
+    }
+
+    /// What was read is a prefix of each device's stream in APPEND order, not
+    /// of the ids: an op the device appended after the one the parker read,
+    /// whose id sorts lower (its clock stepped back), is not in the base — it
+    /// survives the return as a late edit.
+    func test_theBaseIsAnAppendOrderPrefix_notAnIdPrefix() {
+        let base = figure("Name,Q1\nNorth,1\nSouth,3\n")
+        let north = CellKey(row: row(base, labelled: "North")!, column: base.table.columns[1])
+        let south = CellKey(row: row(base, labelled: "South")!, column: base.table.columns[1])
+        // Ops that build `base`, then macB's two edits: "b9" read by the parker,
+        // "b1" appended after it with a lower id, unread.
+        var ops: [Op] = []
+        var s = FigureState()
+        func add(_ id: String, _ device: String, _ kind: OpKind, _ p: FigureOpPayload) {
+            let op = Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: device,
+                        session: "s", kind: kind, changes: [], figure: p)
+            ops.append(op)
+            FigureDeriver.fold(op, into: &s)
+        }
+        add("a00", "macA", .figureCreate, FigureOpPayload(kind: .table))
+        var n = 1
+        var after: RowID?
+        for r in base.table.rows {
+            add(String(format: "a%02d", n), "macA", .figureStructure, FigureOpPayload(structure: .insertRow(r, after: after)))
+            after = r; n += 1
+        }
+        var afterC: ColumnID?
+        for c in base.table.columns {
+            add(String(format: "a%02d", n), "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(c, after: afterC)))
+            afterC = c; n += 1
+        }
+        for (k, cell) in base.table.cells {
+            add(String(format: "a%02d", n), "macA", .figureCellSet, FigureOpPayload(cell: k, next: cell)); n += 1
+        }
+        add("b9", "macB", .figureCellSet, FigureOpPayload(cell: north, next: Cell(content: .value(.number(9)))))
+        add("b1", "macB", .figureCellSet, FigureOpPayload(cell: south, next: Cell(content: .value(.number(30)))))
+        let streams = ["macA": ops.filter { $0.device == "macA" }.map(\.opId), "macB": ["b9", "b1"]]
+        let merged = ops.sorted { $0.opId < $1.opId }
+        let frontier = ["macA": streams["macA"]!.last!, "macB": "b9"]
+
+        let read = FigureReturnDiff.base(of: merged, streams: streams, frontier: frontier)
+        XCTAssertEqual(read.table[north]?.content, .value(.number(9)), "b9 was read")
+        XCTAssertEqual(read.table[south]?.content, .value(.number(3)), "b1 sorts below b9 but was appended after it")
+
+        // The copy (written from what was read) changes nothing of South: b1 survives.
+        let current = FigureDeriver.derive(merged)
+        let copy = TableCSV.read("Name,Q1\nNorth,9\nSouth,3\nWest,5\n", locale: gb, names: .empty).table
+        let changes = FigureReturnDiff.changes(
+            from: read, onto: current, to: copy, sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: current)
+        XCTAssertEqual(back.table[south]?.content, .value(.number(30)), "the unread edit survives")
+        XCTAssertEqual(changes.overwritten, [])
+        // A device the parker never read gives none.
+        XCTAssertNil(FigureReturnDiff.base(of: merged, streams: streams, frontier: ["macC": "a01"]).kind)
+    }
+
+    /// **A frontier op this Mac can't find** (final review M-1): the device's
+    /// ops at or below the recorded id stand in for its append-order prefix,
+    /// so the rows the parker read are in the base and the copy's copies of
+    /// them match — never inserted a second time.
+    func test_aFrontierOpNotInItsStreamFallsBackToTheOpsAtOrBelowIt() {
+        let parked = figure("Name,Q1\nNorth,1\nSouth,2\n")
+        var ops: [Op] = []
+        func add(_ id: String, _ device: String, _ kind: OpKind, _ p: FigureOpPayload) {
+            ops.append(Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: device,
+                          session: "s", kind: kind, changes: [], figure: p))
+        }
+        add("a0", "macA", .figureCreate, FigureOpPayload(kind: .table))
+        add("a1", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[0], after: nil)))
+        add("a2", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[1], after: parked.table.columns[0])))
+        // macB inserted every row and wrote every cell; its last op ("b9")
+        // is the parker's frontier, but it is not in macB's stream here.
+        var after: RowID?
+        for (i, r) in parked.table.rows.enumerated() {
+            add("b\(i)", "macB", .figureStructure, FigureOpPayload(structure: .insertRow(r, after: after)))
+            after = r
+        }
+        var n = 5
+        for (k, c) in parked.table.cells.sorted(by: { $0.key.row.raw + $0.key.column.raw < $1.key.row.raw + $1.key.column.raw }) {
+            add("b\(n)", "macB", .figureCellSet, FigureOpPayload(cell: k, next: c)); n += 1
+        }
+        let streams = ["macA": ["a0", "a1", "a2"], "macB": ops.filter { $0.device == "macB" }.map(\.opId)]
+        let frontier = ["macA": "a2", "macB": "b99"]
+        XCTAssertFalse(streams["macB"]!.contains("b99"), "premise: the recorded op is not here")
+
+        let base = FigureReturnDiff.base(of: ops, streams: streams, frontier: frontier)
+        XCTAssertEqual(base.table.rows, parked.table.rows, "macB's rows are in the base")
+        let current = FigureDeriver.derive(ops)
+        let copy = TableCSV.read("Name,Q1\nNorth,1\nSouth,2\nWest,3\n", locale: gb, names: .empty).table
+        let changes = FigureReturnDiff.changes(from: base, onto: current, to: copy, sidecar: nil,
+                                               mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: current)
+        XCTAssertEqual(back.table.rows.count, 4, "North, South and the header once each, and West")
+    }
+
+    /// **Two Macs bringing one figure back at once** (final review M-2): the
+    /// second resume is dropped, and so is every content op naming it
+    /// (`returnOf`), so each new row appears once. The base leaves the
+    /// dropped return out too.
+    func test_aDuplicateConcurrentReturnAddsItsRowsOnce() {
+        let parked = figure("Name,Q1\nNorth,1\n")
+        let copy = TableCSV.read("Name,Q1\nNorth,1\nSouth,2\n", locale: gb, names: .empty).table
+        var ops: [Op] = []
+        func add(_ id: String, _ device: String, _ kind: OpKind, _ p: FigureOpPayload, reason: Bool = false) {
+            ops.append(Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: device,
+                          session: "s", kind: kind, changes: [],
+                          provenance: reason ? Op.Provenance(synthesisSource: .broughtBackFromResearch) : nil,
+                          figure: p))
+        }
+        add("a0", "macA", .figureCreate, FigureOpPayload(kind: .table))
+        add("a1", "macA", .figureStructure, FigureOpPayload(structure: .insertRow(parked.table.rows[0], after: nil)))
+        add("a2", "macA", .figureStructure, FigureOpPayload(structure: .insertRow(parked.table.rows[1], after: parked.table.rows[0])))
+        add("a3", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[0], after: nil)))
+        add("a4", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[1], after: parked.table.columns[0])))
+        var i = 5
+        for (k, c) in parked.table.cells { add("a\(i)", "macA", .figureCellSet, FigureOpPayload(cell: k, next: c)); i += 1 }
+        add("b0", "macA", .figureParked, FigureOpPayload(parkedPath: "p", parkedHash: "h"))
+        // Each Mac's own return, each with its own fresh ids.
+        for (device, resume, prefix) in [("macA", "c0", "c"), ("macB", "d0", "d")] {
+            let changes = FigureReturnDiff.changes(from: parked, onto: parked, to: copy, sidecar: nil,
+                                                   mintRow: mintRow, mintColumn: mintColumn)
+            add(resume, device, .figureResumed, FigureOpPayload(), reason: true)
+            for (j, c) in changes.ops.enumerated() {
+                var p = c.payload
+                p.returnOf = resume
+                add("\(prefix)\(j + 1)", device, c.kind, p, reason: true)
+            }
+        }
+        let merged = ops.sorted { $0.opId < $1.opId }
+        let state = FigureDeriver.derive(merged)
+        XCTAssertNil(state.parked)
+        XCTAssertEqual(state.table.rows.count, 3, "South once, not twice")
+        XCTAssertEqual(state.abandonedReturns, ["d0"])
+        XCTAssertTrue(state.diagnostics.contains { $0.hasPrefix("d1:") }, "the dropped return's ops are diagnosed")
+
+        let streams = ["macA": merged.filter { $0.device == "macA" }.map(\.opId),
+                       "macB": merged.filter { $0.device == "macB" }.map(\.opId)]
+        let base = FigureReturnDiff.base(of: merged, streams: streams, frontier: ["macA": "a\(i - 1)"])
+        XCTAssertEqual(base.table.rows.count, 3, "the base has the landed return, not the dropped one")
+    }
+
+    /// A return that stopped part way and was parked again: its ops count as
+    /// what the copy was written from, so the retry adds no second row.
+    func test_aPartReturnsOpsCountAsTheBase() {
+        let parked = figure("Name,Q1\nNorth,1\n")
+        let copy = TableCSV.read("Name,Q1\nNorth,1\nSouth,2\n", locale: gb, names: .empty).table
+        let first = FigureReturnDiff.changes(from: parked, onto: parked, to: copy, sidecar: nil,
+                                             mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(first.ops.count, 3, "insert South, two cells")
+        // Build the stream: the parked state's ops (all read), then the insert
+        // only, carrying the return's reason, then a re-park.
+        var ops: [Op] = []
+        func add(_ id: String, _ kind: OpKind, _ p: FigureOpPayload, reason: Bool = false) {
+            ops.append(Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: "macA",
+                          session: "s", kind: kind, changes: [],
+                          provenance: reason ? Op.Provenance(synthesisSource: .broughtBackFromResearch) : nil,
+                          figure: p))
+        }
+        add("a0", .figureCreate, FigureOpPayload(kind: .table))
+        add("a1", .figureStructure, FigureOpPayload(structure: .insertRow(parked.table.rows[0], after: nil)))
+        add("a2", .figureStructure, FigureOpPayload(structure: .insertRow(parked.table.rows[1], after: parked.table.rows[0])))
+        add("a3", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[0], after: nil)))
+        add("a4", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[1], after: parked.table.columns[0])))
+        var i = 5
+        for (k, c) in parked.table.cells { add("a\(i)", .figureCellSet, FigureOpPayload(cell: k, next: c)); i += 1 }
+        add("b0", .figureParked, FigureOpPayload(parkedPath: "p", parkedHash: "h"))
+        add("b1", .figureResumed, FigureOpPayload(), reason: true)
+        add("b2", first.ops[0].kind, first.ops[0].payload, reason: true)
+        add("b3", .figureParked, FigureOpPayload(parkedPath: "p", parkedHash: "h"))
+        let streams = ["macA": ops.map(\.opId)]
+        let base = FigureReturnDiff.base(of: ops, streams: streams, frontier: ["macA": "a\(i - 1)"])
+        let current = FigureDeriver.derive(ops)
+        let retry = FigureReturnDiff.changes(from: base, onto: current, to: copy, sidecar: nil,
+                                             mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(retry.ops.map(\.kind), [.figureCellSet, .figureCellSet], "only South's cells are left")
+        XCTAssertEqual(applied(retry.ops, to: current).table.rows.count, 3, "no second South")
+    }
+
+    /// A late edit the copy did not touch survives a changed copy coming back;
+    /// one the copy also changed takes the copy's value and is reported.
+    func test_aLateEditSurvivesUnlessTheCopyChangedThatCell() {
+        let base = figure("Name,Q1,Q2\nNorth,1,2\nSouth,3,4\n")
+        let north = row(base, labelled: "North")!, south = row(base, labelled: "South")!
+        let q1 = base.table.columns[1], q2 = base.table.columns[2]
+        var current = base
+        for (k, v) in [(CellKey(row: north, column: q1), 100.0), (CellKey(row: south, column: q2), 400.0)] {
+            current.table.setCell(Cell(content: .value(.number(v))), at: k)
+        }
+        // The copy changed South's Q2 (late-edited too) and North's Q2 (not late-edited).
+        let copy = TableCSV.read("Name,Q1,Q2\nNorth,1,7\nSouth,3,8\n", locale: gb, names: .empty).table
+        let changes = FigureReturnDiff.changes(
+            from: base, onto: current, to: copy, sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: current)
+        XCTAssertEqual(value(back, north, 1), .value(.number(100)), "the late edit the copy left alone stands")
+        XCTAssertEqual(value(back, north, 2), .value(.number(7)))
+        XCTAssertEqual(value(back, south, 2), .value(.number(8)), "the copy wins a cell both changed")
+        XCTAssertEqual(changes.overwritten, [CellKey(row: south, column: q2)], "and says which")
+        XCTAssertEqual(changes.ops.first { $0.payload.cell == CellKey(row: south, column: q2) }?.payload.prior?.content,
+                       .value(.number(400)), "the prior is what the stream held")
+    }
+
+    /// A row a late edit inserted stays; a late edit in a row the copy deleted
+    /// is reported with it.
+    func test_aLateRowStays_andALateEditInADeletedRowIsReported() {
+        let base = figure("Name,Q1\nNorth,1\nSouth,3\n")
+        let north = row(base, labelled: "North")!, south = row(base, labelled: "South")!
+        var current = base
+        current.table.insertRow(RowID("late0001"), after: north)
+        current.table.setCell(Cell(content: .value(.number(30))), at: CellKey(row: south, column: base.table.columns[1]))
+        let copy = TableCSV.read("Name,Q1\nNorth,1\n", locale: gb, names: .empty).table
+        let changes = FigureReturnDiff.changes(
+            from: base, onto: current, to: copy, sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: current)
+        XCTAssertNil(back.table.rowIndex(of: south))
+        XCTAssertNotNil(back.table.rowIndex(of: RowID("late0001")), "a row only the late edit knew stays")
+        XCTAssertEqual(changes.overwritten, [CellKey(row: south, column: base.table.columns[1])])
+    }
+
+    // MARK: - Names, formats
+
+    /// A formula naming a figure renamed while this one was parked reads back
+    /// as `=…` text (an unknown name); the return keeps the old formula and the
+    /// read's problem for that cell no longer stands.
+    func test_aFormulaCitingARenamedFigureKeepsItsFormula() {
+        let other = FigureTable(rows: 1, columns: 1)
+        let atPark = FormulaNames(figures: [.init(id: "fig-other001", name: "cash", table: other)])
+        let now = FormulaNames(figures: [.init(id: "fig-other001", name: "money", table: other)])
+        let parked = figure("Label,Value\nCash,=cash!A1*2\n", names: atPark)
+        let cash = row(parked, labelled: "Cash")!
+        let written = TableCSV.renderResearch(parked.table, locale: gb, names: atPark)
+        // The copy was then edited elsewhere: a row added.
+        let read = TableCSV.read(written + "More,5\n", locale: gb, names: now)
+        XCTAssertEqual(read.problems.count, 1, "the old name no longer reads")
+        let recorded = atPark.cited(by: parked.table)
+        XCTAssertEqual(recorded, ["fig-other001": "cash"], "what a park records")
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: read.table, sidecar: nil, names: now,
+            namesAtPark: now.renaming(recorded), problems: read.problems,
+            mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertFalse(changes.ops.contains { $0.payload.cell?.row == cash }, "the cell is left as it was")
+        XCTAssertEqual(changes.problems, [])
+        let back = applied(changes.ops, to: parked)
+        guard case .formula? = value(back, cash, 1) else { return XCTFail("still a formula") }
+
+        // A typo is not a rename: the copy's text is a change, its problem stands.
+        let typo = TableCSV.read("Label,Value\nCash,=csah!A1*2\nMore,5\n", locale: gb, names: now)
+        let typed = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: typo.table, sidecar: nil, names: now,
+            namesAtPark: now.renaming(recorded), problems: typo.problems,
+            mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(typed.ops.first { $0.payload.cell?.row == cash }?.payload.next?.content,
+                       .value(.text("=csah!A1*2")))
+        XCTAssertEqual(typed.problems.count, 1)
+        // Without the park-time names, even the rename is a change (never guessed).
+        let unknown = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: read.table, sidecar: nil, names: now, problems: read.problems,
+            mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(unknown.problems.count, 1)
+    }
+
+    // MARK: - Matching fixtures (Task 8 review)
+
+    /// A deleted row and a new one that merely share a value are two rows: the
+    /// new one gets a fresh id and the deleted one's anchors orphan.
+    func test_aDeletedRowAndANewOneSharingAValueAreTwoRows() {
+        let parked = figure("Label,Value\nA,10\nB,20\nC,30\n")
+        let b = row(parked, labelled: "B")!
+        let back = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nA,10\nD,20\nC,30\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertNil(back.table.rowIndex(of: b), "B is deleted, not renamed")
+        let d = row(back, labelled: "D")!
+        XCTAssertNotEqual(d, b)
+        // The same label with a new value IS the row edited.
+        let edited = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nA,10\nB,25\nC,30\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(edited.table.rows, parked.table.rows)
+    }
+
+    /// Duplicate rows keep their ids in order; deleting one of two equal rows
+    /// deletes one; empty rows match only empty rows.
+    func test_duplicateAndEmptyRows() {
+        let parked = figure("Label,Value\nX,1\nX,1\n,\nY,2\n")
+        let rows = parked.table.rows
+        XCTAssertEqual(rows.count, 5)
+        let same = FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nX,1\nX,1\n,\nY,2\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(same.ops, [])
+        let fewer = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nX,1\nY,2\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(fewer.table.rows, [rows[0], rows[1], rows[4]], "the first X kept, the second X and the empty row gone")
+        let moved = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nY,2\nX,1\n,\nX,1\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(Set(moved.table.rows), Set(rows), "every row kept its id")
+        XCTAssertEqual(moved.table.rows[1], rows[4], "Y moved up")
+    }
+
+    /// A retitled column at its own position keeps its id: its header cell is
+    /// set, its cells and anchors stay.
+    func test_aRetitledColumnAtItsPositionKeepsItsId() {
+        let parked = figure("Name,Q1,Q2\nNorth,1,2\n")
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Name,First quarter,Q2\nNorth,1,2\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(changes.ops.map(\.kind), [.figureCellSet], "only the header cell")
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(back.table.columns, parked.table.columns)
+        XCTAssertEqual(back.table.rows, parked.table.rows)
+        XCTAssertEqual(value(back, back.table.rows[0], 1), .value(.text("First quarter")))
+    }
+
+    /// Formats come from the sidecar written for the parked CSV; without one a
+    /// matched cell keeps its own and a new cell takes its suggested one.
+    func test_formatsComeFromTheSidecar() {
+        var parked = figure("Name,Rate\nA,0.5\n")
+        let a = row(parked, labelled: "A")!, rate = parked.table.columns[1]
+        var cell = parked.table[CellKey(row: a, column: rate)]!
+        cell.format = CellFormat(number: .percent(decimals: 1))
+        parked.table.setCell(cell, at: CellKey(row: a, column: rate))
+        let copy = TableCSV.read("Name,Rate\nA,0.6\nB,12%\n", locale: gb, names: .empty).table
+
+        let plain = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked, to: copy, sidecar: nil,
+            mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(plain.table[CellKey(row: a, column: rate)]?.format.number, .percent(decimals: 1),
+                       "a matched cell keeps its format")
+        let b = row(plain, labelled: "B")!
+        XCTAssertEqual(plain.table[CellKey(row: b, column: rate)]?.format.number, .percent(decimals: 0),
+                       "a new cell takes the one its text suggested")
+
+        let sidecar = ResearchTableSidecar(
+            headerRows: 1, totalRow: true,
+            formats: [.init(row: 1, column: 1, format: CellFormat(number: .number(decimals: 3, grouping: false)))],
+            columnWidths: [nil, 80])
+        let styled = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked, to: copy, sidecar: sidecar,
+            mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(styled.table[CellKey(row: a, column: rate)]?.format.number, .number(decimals: 3, grouping: false))
+        XCTAssertTrue(styled.table.hasTotalRow)
+        XCTAssertEqual(styled.table.columnWidths[rate], 80)
+    }
+
+    // MARK: - The helpers
+
+    func test_lcsAndLongestIncreasing() {
+        XCTAssertEqual(FigureReturnDiff.lcs(["a", "b", "c", "d"], ["b", "x", "d"]).map { [$0.0, $0.1] },
+                       [[1, 0], [3, 2]])
+        XCTAssertEqual(FigureReturnDiff.longestIncreasing([3, 0, 1, 4, 2]), [1, 2, 4])
+    }
+
+    /// A stream's files in append order: the legacy shared file, then per
+    /// stream its sealed segments by index and its tail last.
+    func test_appendOrderedPutsSegmentsBeforeTheTail() {
+        let dir = URL(fileURLWithPath: "/p/.maugham/ops")
+        let names = ["fig-a.dev1.jsonl", "fig-a.dev1.seg0010.mzseg", "fig-a.jsonl", "fig-a.dev1.seg0002.mzseg",
+                     "fig-a.dev0.jsonl"]
+        let ordered = OpLogFiles.appendOrdered(names.map { dir.appendingPathComponent($0) }, docId: "fig-a")
+        XCTAssertEqual(ordered.map(\.lastPathComponent),
+                       ["fig-a.jsonl", "fig-a.dev0.jsonl", "fig-a.dev1.seg0002.mzseg",
+                        "fig-a.dev1.seg0010.mzseg", "fig-a.dev1.jsonl"])
+    }
+
+    /// What a host checks before the first append: every change applies.
+    func test_everyChangeAppliesIsCheckedBeforeAnything() {
+        let parked = figure("A,1\nB,2\n")
+        let good = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: TableCSV.read("A,1\nB,3\nC,4\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops
+        XCTAssertTrue(FigureReturnDiff.everyChangeApplies(good, onto: parked))
+        let stray = FigureReturnDiff.Change(kind: .figureCellSet, payload: FigureOpPayload(
+            cell: CellKey(row: RowID("nowhere1"), column: parked.table.columns[0]), next: nil))
+        XCTAssertFalse(FigureReturnDiff.everyChangeApplies(good + [stray], onto: parked), "a change left waiting")
+        XCTAssertFalse(FigureReturnDiff.everyChangeApplies(
+            [FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload())], onto: parked), "an invalid payload")
+    }
+
+    // MARK: - Re-review round 2
+
+    /// N1: an op already waiting in the figure (held before the return began)
+    /// does not make a changed copy's return fail its check.
+    func test_anAlreadyHeldOpDoesNotRefuseAReturn() {
+        let parked = figure("A,1\nB,2\n")
+        var held = parked
+        FigureDeriver.fold(Op(opId: "zz-held", docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0),
+                              device: "macB", session: "s", kind: .figureCellSet, changes: [],
+                              figure: FigureOpPayload(cell: CellKey(row: RowID("unseen01"), column: parked.table.columns[0]),
+                                                      next: Cell(content: .value(.number(9))))), into: &held)
+        XCTAssertEqual(held.held.count, 1, "precondition: one op waits")
+        let changes = FigureReturnDiff.changes(
+            from: held, onto: held, to: TableCSV.read("A,1\nB,3\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(changes.ops.count, 1)
+        XCTAssertTrue(FigureReturnDiff.everyChangeApplies(changes.ops, onto: held))
+    }
+
+    /// N2: an edited row keeps its id even when a deleted empty row stands
+    /// ahead of it in the same gap.
+    func test_anEditedRowBeatsAnEmptyRowAheadOfIt() {
+        let parked = figure("Label,Value\nA,1\n,\nB,20\nC,3\n")
+        let b = row(parked, labelled: "B")!
+        let back = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nA,1\nB,25\nC,3\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(row(back, labelled: "B"), b, "B keeps its id")
+        XCTAssertEqual(back.table.rows.count, 4, "the empty row is gone")
+    }
+
+    /// N3: a header row with a blank corner keeps its id when a column is
+    /// retitled, and so do the columns.
+    func test_aHeaderRowWithABlankCornerKeepsItsId() {
+        let parked = figure(",Q1,Q2\nNorth,1,2\n")
+        XCTAssertEqual(parked.table.headerRows, 1)
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: TableCSV.read(",First,Q2\nNorth,1,2\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(changes.ops.map(\.kind), [.figureCellSet])
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(back.table.rows, parked.table.rows)
+        XCTAssertEqual(back.table.columns, parked.table.columns)
+    }
+
+    /// A figure renamed while parked whose old name another figure took since:
+    /// the copy's formula (written with the old name) now reads to the other
+    /// figure, but the return keeps the formula pointing where it pointed.
+    func test_aFormulaIsNotRePointedToAFigureThatTookARenamedOnesName() {
+        let x = FigureTable(rows: 1, columns: 1), y = FigureTable(rows: 1, columns: 1)
+        let atPark = FormulaNames(figures: [.init(id: "fig-xxxxxxx1", name: "cash", table: x)])
+        let now = FormulaNames(figures: [.init(id: "fig-xxxxxxx1", name: "money", table: x),
+                                         .init(id: "fig-yyyyyyy1", name: "cash", table: y)])
+        let parked = figure("Label,Value\nCash,=cash!A1*2\n", names: atPark)
+        let cash = row(parked, labelled: "Cash")!
+        let written = TableCSV.renderResearch(parked.table, locale: gb, names: atPark)
+        let read = TableCSV.read(written + "More,5\n", locale: gb, names: now)
+        XCTAssertEqual(read.problems, [], "the old name reads, to the other figure")
+        let recorded = atPark.cited(by: parked.table)
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: read.table, sidecar: nil, names: now,
+            namesAtPark: now.renaming(recorded), problems: read.problems,
+            mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertFalse(changes.ops.contains { $0.payload.cell?.row == cash }, "left pointing at the renamed figure")
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(value(back, cash, 1), value(parked, cash, 1))
+    }
+}

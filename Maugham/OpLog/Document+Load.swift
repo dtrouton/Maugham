@@ -323,6 +323,16 @@ extension Document {
         // resolve to a non-existent location, silently dropping ops.
         let projectURL = resolveProjectURL(for: url)
 
+        // A file outside its own book is neither read as an import nor written
+        // as a render: a synced manifest path such as `../outside.md` that
+        // reached a load is refused here, before `Bootstrap.run` could write
+        // its anchored `.md` there (tripwire 58).
+        guard Document.isInsideProject(url, root: projectURL) else {
+            throw ProjectStoreError.unsafeProjectPath(
+                relativePath: spelledProjectRelativePath(of: url),
+                reason: "the file is not inside its project")
+        }
+
         // Bootstrap detection. Per-device partitioning (ADR 0012) means a doc's
         // log may exist only as `<docId>.<slug>.jsonl` with no legacy
         // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
@@ -815,6 +825,23 @@ internal func resolveProjectURL(for url: URL) -> URL {
     }
     // Legacy fallback for tests that don't write a manifest: 2 levels up.
     return url.deletingLastPathComponent().deletingLastPathComponent()
+}
+
+/// `url` as the manifest spelled it — the part after the deepest folder on
+/// its SPELLED path that holds `project.maugham.json` (`../outside.md` for
+/// `…/Book/../outside.md`) — so a refusal names the path the writer's
+/// manifest gave, not the whole disk path. The whole path when no such folder.
+internal func spelledProjectRelativePath(of url: URL) -> String {
+    let components = url.pathComponents
+    let fm = FileManager.default
+    for split in stride(from: components.count - 1, to: 0, by: -1) {
+        let folder = NSString.path(withComponents: Array(components[..<split]))
+        guard !components[split - 1].hasPrefix("."),
+              fm.fileExists(atPath: (folder as NSString)
+                .appendingPathComponent(ProjectManifest.fileName)) else { continue }
+        return components[split...].joined(separator: "/")
+    }
+    return url.path
 }
 
 private func findItemByPath(_ path: String, in items: [StructureItem]) -> StructureItem? {

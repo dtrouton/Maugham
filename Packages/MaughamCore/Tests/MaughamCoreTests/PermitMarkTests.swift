@@ -73,7 +73,7 @@ final class PermitMarkTests: XCTestCase {
     private var slug: DeviceSlug { device.slug }
 
     private var tailURL: URL {
-        OpLogStore.opLogFileURL(forDocId: docId, deviceSlug: slug, in: projectURL)
+        try! OpLogStore.opLogFileURL(forDocId: docId, deviceSlug: slug, in: projectURL)
     }
 
     private func streamKey(of url: URL) throws -> String {
@@ -228,7 +228,7 @@ final class PermitMarkTests: XCTestCase {
 
         // The forgery: the same stream, index 0000, full of writing the root
         // never saw.
-        let forged = OpLogStore.segmentFileURL(
+        let forged = try OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: slug, index: 0, in: projectURL)
         try OpLogSegment.encode(jsonl: try encodedLines([op("06"), op("07")]))
             .write(to: forged)
@@ -382,11 +382,11 @@ final class PermitMarkTests: XCTestCase {
         let ops = projectURL.appendingPathComponent(".maugham/ops")
 
         XCTAssertEqual(
-            PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            PermitMark.streamKey(of: try OpLogStore.opLogFileURL(
                 forDocId: "d-one", deviceSlug: mac, in: projectURL)),
             "d-one.mac-a")
         XCTAssertEqual(
-            PermitMark.streamKey(of: OpLogStore.segmentFileURL(
+            PermitMark.streamKey(of: try OpLogStore.segmentFileURL(
                 forDocId: "d-one", deviceSlug: mac, index: 7, in: projectURL)),
             "d-one.mac-a",
             "a segment answers the same key as the tail it was rotated out of")
@@ -395,11 +395,11 @@ final class PermitMarkTests: XCTestCase {
             "d-one",
             "the legacy unsuffixed file belongs to no device, and has a key of its own")
         XCTAssertEqual(
-            PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            PermitMark.streamKey(of: try OpLogStore.opLogFileURL(
                 forDocId: "__project__", deviceSlug: mac, in: projectURL)),
             "__project__.mac-a")
         XCTAssertEqual(
-            PermitMark.streamKey(of: TranslationStore.fileURL(
+            PermitMark.streamKey(of: try TranslationStore.fileURL(
                 forDocId: "d-one", language: "es", deviceSlug: mac, in: projectURL)),
             "translation:d-one.es.mac-a")
         XCTAssertEqual(
@@ -410,9 +410,9 @@ final class PermitMarkTests: XCTestCase {
         // The prefixes are what keep the three families apart: a doc called
         // `d-one` on a device slugged `es` is not a translation of `d-one`.
         XCTAssertNotEqual(
-            PermitMark.streamKey(of: TranslationStore.fileURL(
+            PermitMark.streamKey(of: try TranslationStore.fileURL(
                 forDocId: "d-one", language: "es", deviceSlug: mac, in: projectURL)),
-            PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            PermitMark.streamKey(of: try OpLogStore.opLogFileURL(
                 forDocId: "d-one", deviceSlug: DeviceSlug.unsafeForTesting("es.mac-a"),
                 in: projectURL)))
 
@@ -436,7 +436,7 @@ final class PermitMarkTests: XCTestCase {
         let mark = try mark()
         XCTAssertEqual(Set(mark.streams.keys), [try streamKey(of: tailURL)])
 
-        let otherTail = OpLogStore.opLogFileURL(
+        let otherTail = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: other.slug, in: projectURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: otherTail.path),
                       "their file really is there — it is simply not marked")
@@ -458,7 +458,7 @@ final class PermitMarkTests: XCTestCase {
                changes: [.init(paragraphId: "bbbb", prior: nil, next: "task")],
                sequence: ["bbbb"]))
 
-        let projectTail = OpLogStore.opLogFileURL(
+        let projectTail = try OpLogStore.opLogFileURL(
             forDocId: "__project__", deviceSlug: slug, in: projectURL)
         let mark = try mark()
         XCTAssertNotNil(mark[try streamKey(of: projectTail)]?.line)

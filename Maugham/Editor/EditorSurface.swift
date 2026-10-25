@@ -101,12 +101,12 @@ struct EditorSurfaceConfiguration {
         /// amber (plan 3b Task 6, `PublishProblem.isError`). Asked at each
         /// check, never per keystroke. Wired by `EditorHost`; nil elsewhere.
         var projectProfile: (() -> ProjectProfile?)? = nil
-        /// Copies a picture into the document's research and returns the
-        /// figure path relative to the document (plan 3a Task 6,
-        /// `FigureIngest.importImage`). With it set on a surface that answers
+        /// Makes a picture an image figure of the document and returns the
+        /// figure path relative to the document (plan 3a Task 6, report plan
+        /// 6a Task 9, `FigureIngest.importImage`). With it set on a surface that answers
         /// the Insert menu, Insert Figure…, an image drop and an image paste
         /// make figures. Wired by `EditorHost`; nil elsewhere.
-        var figureImporter: (@MainActor (URL) async throws -> String)? = nil
+        var figureImporter: FigureIngest.Importer? = nil
         /// Where a command that could not finish is told (a sentence): a
         /// figure that could not be made, a table grid save refused.
         var commandFailureReporter: (@MainActor (String) -> Void)? = nil

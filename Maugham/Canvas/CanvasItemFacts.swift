@@ -131,6 +131,8 @@ enum CanvasItemKind: String, Equatable, Hashable, Sendable, CaseIterable {
     case pdf
     case audio
     case link
+    /// A Research table (`AssetKind.table`, report plan 6b): a CSV or TSV.
+    case table
     /// A research GROUP. It resolves rather than reading as deleted — it is in
     /// the project, and "no longer in the project" said over a folder the
     /// writer can see in the binder is a lie the canvas has no business telling.
@@ -158,6 +160,7 @@ enum CanvasItemKind: String, Equatable, Hashable, Sendable, CaseIterable {
         case .pdf:          return "doc.richtext"
         case .audio:        return "waveform"
         case .link:         return "link"
+        case .table:        return "tablecells"
         case .group:        return "folder"
         }
     }
@@ -318,6 +321,7 @@ struct CanvasItemIndex: Equatable, Sendable {
         case .pdf:      return .pdf
         case .audio:    return .audio
         case .link:     return .link
+        case .table:    return .table
         // `.document` and a nil kind alike. Nil is the legacy manifest's
         // spelling and `AssetKind`'s own forward-tolerance degrades an unknown
         // kind to `.document` (ADR 0015), so both land on the same noun the

@@ -83,8 +83,8 @@ final class CanvasStore {
 
     var hasPendingWrite: Bool { pendingPayload != nil }
 
-    private var sidecarURL: URL { projectRoot.appendingPathComponent(Self.sidecarRelativePath) }
-    private var scrapsURL: URL { projectRoot.appendingPathComponent(Self.scrapsRelativePath) }
+    private var sidecarURL: URL { projectRoot.appendingPathComponent(Self.sidecarRelativePath) } // local-path: a fixed constant
+    private var scrapsURL: URL { projectRoot.appendingPathComponent(Self.scrapsRelativePath) } // local-path: a fixed constant
 
     /// What the sidecar turned out to be — **and it is not decoration**.
     ///

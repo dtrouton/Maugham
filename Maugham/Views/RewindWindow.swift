@@ -469,6 +469,10 @@ struct RewindWindow: View {
         case .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return Color(red: 0.38, green: 0.76, blue: 0.45)
+        case .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
+            return Color(red: 0.40, green: 0.48, blue: 0.92)
         case .unknown:
             // Newer-build op kind (ADR 0015); neutral tick color.
             return .gray

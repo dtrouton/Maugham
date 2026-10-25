@@ -123,7 +123,7 @@ enum LetGoRecord {
             switch meta.subject {
             case .manuscriptItem, nil:
                 break
-            case .researchItem, .captureAsset, .internalArtifact, .priorVersion:
+            case .researchItem, .captureAsset, .internalArtifact, .priorVersion, .figure:
                 return []
             }
             if let item = try? JSONDecoder().decode(StructureItem.self, from: meta.itemMetadata) {

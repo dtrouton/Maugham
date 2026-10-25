@@ -50,7 +50,7 @@ extension CheckpointFlashDecision {
     @MainActor
     static func labelled(
         _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
-        device: String, session: String, activeDocument: Document?,
+        figureIds: [String], device: String, session: String, activeDocument: Document?,
         posture: @escaping @MainActor (String) async -> Posture,
         backups: BackupCoordinator,
         flash: () -> Void
@@ -60,6 +60,7 @@ extension CheckpointFlashDecision {
                 projectURL: projectURL,
                 activeDocId: activeDocId,
                 allDocIds: allDocIds,
+                figureIds: figureIds,
                 device: device,
                 session: session,
                 label: label,
@@ -113,6 +114,7 @@ struct CheckpointModifier: ViewModifier {
             .onKeyWindowCommand(.maughamSaveCheckpoint, window: window) { _ in
                 guard let store, let documentStore else { return }
                 let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
+                let figureIds = (store.manifest.figures ?? []).map(\.id)
                 let activeDoc = activeDocument(
                     selectedItemId: selectedItemId,
                     structure: store.manifest.structure,
@@ -126,6 +128,7 @@ struct CheckpointModifier: ViewModifier {
                             projectURL: store.url,
                             activeDocId: activeDocId,
                             allDocIds: allDocIds,
+                            figureIds: figureIds,
                             device: _checkpointDeviceId,
                             session: _checkpointSessionId,
                             label: nil,

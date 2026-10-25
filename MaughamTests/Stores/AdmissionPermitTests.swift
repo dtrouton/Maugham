@@ -228,7 +228,7 @@ final class AdmissionPermitTests: XCTestCase {
     /// `<docId>.ghostmac.jsonl`. Appends when the file exists, so a test can
     /// grow it after a narrowing.
     private func appendToUnsignedStream(docId: String, opIds: [String]) throws -> URL {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: DeviceSlug.unsafeForTesting("ghostmac"),
             in: projectURL)
         var bytes = (try? Data(contentsOf: url)) ?? Data()

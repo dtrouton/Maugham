@@ -2928,7 +2928,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         let before = try Data(contentsOf: sidecar) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -3001,7 +3001,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // all — the sharpest form of "a preview never persists", and the arm
         // that catches an un-gated `dismiss`, which would MINT the file here
         // out of a half-report.
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         XCTAssertFalse(
@@ -3420,7 +3420,7 @@ final class CompilerRunCommandTests: XCTestCase {
                      + "note is one the board would compare")
         XCTAssertNil(mint.context.round)
 
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         let json = try String(contentsOf: sidecar, encoding: .utf8)
@@ -4842,7 +4842,7 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(
             harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
 
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -4866,7 +4866,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict)
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -4896,7 +4896,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
         XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict,
                        "holds", "control: the finished run judged the draft")
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         let before = try Data(contentsOf: sidecar) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -4982,7 +4982,7 @@ final class CompilerRunCommandTests: XCTestCase {
                         "control: the run must have finished and filed a record")
         XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict)
 
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
         let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -5258,7 +5258,7 @@ final class CompilerRunCommandTests: XCTestCase {
     func test_theFreshEyesStampReachesTheSidecar() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
 
@@ -5705,7 +5705,7 @@ final class CompilerRunCommandTests: XCTestCase {
             "and none of it reached Author's pane \u{2014} a round leaves the "
             + "standing check exactly as the writer's own last \u{2318}R left it")
 
-        let sidecar = DiagnosticsStore.sidecarURL(
+        let sidecar = try DiagnosticsStore.sidecarURL(
             projectRoot: fx.root, docId: "ch-1",
             device: DeviceSlug.make(from: "test-mac"))
         // adr-0018-ok: diagnostics sidecar, derived, not manuscript

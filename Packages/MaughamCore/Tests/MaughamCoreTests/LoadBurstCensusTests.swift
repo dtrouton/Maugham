@@ -100,6 +100,22 @@ final class LoadBurstCensusTests: XCTestCase {
         XCTAssertEqual(report.unreadable, [])
     }
 
+    /// **A figure's stream is not a manuscript** (report plan 6a Task 7): it
+    /// holds table ops, never a burst, so the census does not read it at all.
+    func test_aFigureStreamIsNotRead() throws {
+        let p = try project("Book")
+        try writeTail(p, name: "fig-0a1b2c3d.assistant-1111222233334444-aaaabbbb.jsonl", lines: [
+            line(opId: "01", docId: "fig-0a1b2c3d",
+                 device: "assistant-1111222233334444-aaaabbbb", kind: "typing_burst"),
+        ])
+
+        let report = LoadBurstCensus.scan(projectURL: p)
+
+        XCTAssertEqual(report.hits, [])
+        XCTAssertEqual(report.filesRead, 0)
+        XCTAssertEqual(report.unreadable, [])
+    }
+
     /// **And inside a sealed segment**, which the first (Python) census of this
     /// shape skipped and the second had to decode by hand.
     func test_itDecodesSegmentsAsWellAsTails() throws {

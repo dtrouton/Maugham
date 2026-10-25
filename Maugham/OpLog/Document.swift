@@ -902,6 +902,27 @@ public final class Document {
         if let writeErr { throw writeErr }
     }
 
+    /// **Whether `url` names a place inside `root`** — `Document.load`'s guard
+    /// (tripwire 58): no `..` component, and its path below the root passes
+    /// `SafeRelativePath.resolve`. Lexical, so a writer's own symlinked chapter
+    /// or manuscript folder opens. Asked of the spelled URLs and of their
+    /// symlink-resolved forms, so `/var` against `/private/var` is not an
+    /// escape. A `Document`'s `url` never changes, so the load's answer holds
+    /// for every later autosave.
+    nonisolated static func isInsideProject(_ url: URL, root: URL) -> Bool {
+        guard !url.pathComponents.contains("..") else { return false }
+        let spellings = [(url.standardizedFileURL, root.standardizedFileURL),
+                         (url.resolvingSymlinksInPath(), root.resolvingSymlinksInPath())]
+        for (file, folder) in spellings {
+            var prefix = folder.path
+            if !prefix.hasSuffix("/") { prefix += "/" }
+            guard file.path.hasPrefix(prefix) else { continue }
+            let relative = String(file.path.dropFirst(prefix.count))
+            if (try? SafeRelativePath.resolve(relative, under: root)) != nil { return true }
+        }
+        return false
+    }
+
     /// Returns the current text of the paragraph with the given id, or nil
     /// if the id isn't in `sequence`. Read-only; mutation goes through
     /// `setParagraph(id:text:)`. Used by editor click handlers (e.g.,

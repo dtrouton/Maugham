@@ -55,15 +55,16 @@ struct ResearchNotePreviewPane: View {
     /// Exposed as `static` (rather than an instance method) so tests can drive
     /// the parse step directly, mirroring `GuideMarkdownView.parse`.
     static func parse(text: String, notePath: String, projectURL: URL) -> [Block] {
-        let noteDir = projectURL
-            .appendingPathComponent(notePath)
+        // A note path that leaves the project shows its text and no pictures
+        // (tripwire 58): the path is a synced manifest field.
+        let noteDir = (try? SafeRelativePath.resolve(notePath, under: projectURL))?
             .deletingLastPathComponent()
         return MarkdownBlockParser.parse(text).flatMap { expand($0, noteDir: noteDir) }
     }
 
     /// Maps one `MarkdownBlock` to zero or more `Block`s. `.paragraph` and
     /// `.list` are the cases that can expand to N blocks.
-    private static func expand(_ block: MarkdownBlock, noteDir: URL) -> [Block] {
+    private static func expand(_ block: MarkdownBlock, noteDir: URL?) -> [Block] {
         switch block {
         case .heading(let level, let text):
             return [.heading(level: level, text: text)]
@@ -100,7 +101,7 @@ struct ResearchNotePreviewPane: View {
     /// load (missing file) falls through and joins the paragraph buffer as
     /// plain text, same as any other line — `AttributedString(markdown:)`
     /// then renders only its alt text, not the raw source line.
-    private static func expandParagraph(_ lines: [String], noteDir: URL) -> [Block] {
+    private static func expandParagraph(_ lines: [String], noteDir: URL?) -> [Block] {
         var result: [Block] = []
         var buffer: [String] = []
         func flush() {
@@ -130,11 +131,15 @@ struct ResearchNotePreviewPane: View {
         MarkdownBlockParser.matchSoloImage(trimmed)?.path
     }
 
-    private static func loadImage(relativePath: String, noteDir: URL) -> NSImage? {
+    private static func loadImage(relativePath: String, noteDir: URL?) -> NSImage? {
         let trimmedRel = relativePath.hasPrefix("./")
             ? String(relativePath.dropFirst(2))
             : relativePath
-        let imageURL = noteDir.appendingPathComponent(trimmedRel)
+        // The reference is the note's own (synced) text: a picture outside
+        // the note's folder is not loaded.
+        guard let noteDir,
+              let imageURL = try? SafeRelativePath.resolve(trimmedRel, under: noteDir)
+        else { return nil }
         return NSImage(contentsOf: imageURL)
     }
 

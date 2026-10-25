@@ -2261,6 +2261,52 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: synchronous script.lines iteration must NOT fire.")
     }
 
+    /// **A figure's render is never read as truth** (report plan 6a Task 8):
+    /// `figures/<name>.csv` is derived from the figure's op log exactly as a
+    /// manuscript's `.md` is, so a production-shaped read of one with no
+    /// `// adr-0018-ok:` reason fires the census, in each read shape; a
+    /// deliberate import input that says so goes through; and with the
+    /// offending reads taken away the planted file is clean.
+    func test_manuscriptReadTripwireFiresOnAPlantedFigureRenderRead() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-adr0018-figure-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let reasoned = """
+        func importCSV(from research: URL) throws -> String {
+            try String(contentsOf: research, encoding: .utf8) // adr-0018-ok: a research CSV, the Import input — never a figure's render
+        }
+        """
+        let offending = """
+        func figureTable(_ projectURL: URL) throws -> String {
+            try String(contentsOf: projectURL.appendingPathComponent("figures/x.csv"), encoding: .utf8)
+        }
+        func figureBytes(_ projectURL: URL) -> Data? {
+            FileManager.default.contents(atPath: projectURL.appendingPathComponent("figures/x.csv").path)
+        }
+        """
+        let planted = tmp.appendingPathComponent("FigureReader.swift")
+        func offenders() throws -> [String] {
+            try grepSwift(
+                in: tmp,
+                patterns: Self.adr0018ReadPatterns,
+                excludeLine: Self.adr0018ExcludeLine,
+                extraOffender: Self.adr0018IsAsyncURLLinesRead)
+        }
+
+        try (reasoned + "\n" + offending).write(to: planted, atomically: true, encoding: .utf8)
+        let caught = try offenders()
+        XCTAssertEqual(caught.count, 2,
+            "Self-check: both unreasoned reads of figures/x.csv fire, the reasoned "
+            + "import does not. Caught:\n" + caught.joined(separator: "\n"))
+        XCTAssertTrue(caught.allSatisfy { $0.contains("figures/x.csv") })
+
+        try reasoned.write(to: planted, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try offenders(), [], "and taken away, the file is clean")
+    }
+
     // MARK: - Dev-only TestMCPToolCatalog registration tripwire
 
     /// Repo root, computed the same way `sourceDir` does (2x
@@ -9517,6 +9563,11 @@ final class TripwireGrepTests: XCTestCase {
     /// Every `device:` argument found inside a `Document.load(` call
     /// expression in `text`, by line number.
     ///
+    /// **Figures too** (report plan 6a Task 8): the needle is matched as a
+    /// SUFFIX, so `FigureDocument.load(` — a figure's one load door, which
+    /// must keep `Document.load`'s guarantees — is parsed by the same walk,
+    /// and so is any later `…Document.load(` host. Do not anchor the needle.
+    ///
     /// The scan is CALL-SHAPED rather than line-shaped because every
     /// production call site spans four or five lines: it walks the source with
     /// a paren counter, remembers the depth at which each `Document.load(`
@@ -9642,6 +9693,33 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the two planted `device:` arguments should be the ones "
             + "caught, and neither the actor call, the other constructors, the "
             + "`deviceId:` label, nor the comment. Caught lines: \(offenders)")
+    }
+
+    /// **The census reaches a figure's load** (report plan 6a Task 8):
+    /// `FigureDocument.load(` with a `device:` label is caught, on one line or
+    /// across several; the production call (an actor) and a comment naming
+    /// the forbidden argument are not. Taken away, the planted file is clean.
+    func test_theDocumentLoadActorCensusFiresOnAPlantedFigureLoad() throws {
+        let control = """
+        // A comment may say FigureDocument.load(figureId: f, device: "mcp").
+        let figure = try await FigureDocument.load(
+            figureId: figureId, projectURL: projectURL, actor: .author,
+            session: session, presenter: presenter, documentStore: self)
+        """
+        XCTAssertEqual(Self.deviceArgumentsAtDocumentLoad(in: control), [],
+            "Self-check: the actor call and the comment go through")
+
+        let planted = control + """
+
+        let bad = try await FigureDocument.load(
+            figureId: figureId, projectURL: projectURL,
+            device: "figure-import",
+            session: session, presenter: nil, documentStore: nil)
+        let alsoBad = try await FigureDocument.load(figureId: f, projectURL: p, device: d, session: s, presenter: nil, documentStore: nil)
+        """
+        XCTAssertEqual(Self.deviceArgumentsAtDocumentLoad(in: planted), [7, 9],
+            "Self-check: both planted `device:` arguments to FigureDocument.load "
+            + "are caught. Caught lines: \(Self.deviceArgumentsAtDocumentLoad(in: planted))")
     }
 
     // MARK: - The spawned session is the reader's own (spec 2026-09-09 §3)
@@ -10392,6 +10470,52 @@ final class TripwireGrepTests: XCTestCase {
             + "and is very likely restating. Add it to "
             + "`manuscriptClassifierCallers` with its reason, or take the "
             + "second opinion out. Found: \(callers.sorted())")
+    }
+
+    /// **A figure op is never words** (report plan 6a, ruling D-c): figure
+    /// kinds are `.manuscriptText` in `Permit.group`'s own switch, while
+    /// `Deriver.appliesToManuscript` answers false for them, so the figure
+    /// deriver has no business asking it — the census's named set already
+    /// keeps it out; this pins it by name. A planted `FigureDeriver.swift`
+    /// that asks is seen and fails the named set; taken away, the planted
+    /// tree has no asker.
+    func test_theFigureDeriverNeverAsksTheManuscriptClassifier() throws {
+        let fm = FileManager.default
+        let figureDeriver = repoRoot.appendingPathComponent(
+            "Packages/MaughamCore/Sources/MaughamCore/Table/FigureDeriver.swift")
+        let text = try String(contentsOf: figureDeriver, encoding: .utf8)
+        let asks = text.split(separator: "\n").map(String.init)
+            .filter { !Self.admissionExcludeLine($0) && $0.contains(Self.manuscriptClassifierPattern) }
+        XCTAssertEqual(asks, [], "FigureDeriver.swift asks Deriver.appliesToManuscript")
+        XCTAssertFalse(Self.manuscriptClassifierCallers.contains("FigureDeriver.swift"))
+
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-classifier-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        func callers() throws -> Set<String> {
+            Set(try grepSwift(
+                in: tmp, patterns: [Self.manuscriptClassifierPattern],
+                allowed: [], excludeLine: Self.admissionExcludeLine
+            ).map { String($0.prefix(while: { $0 != ":" })) })
+        }
+        let clean = """
+        // A comment may name Deriver.appliesToManuscript(kind) without asking it.
+        public static func fold(_ op: Op, into state: inout FigureState) {}
+        """
+        try (clean + "\nguard !Deriver.appliesToManuscript(op.kind) else { return }\n")
+            .write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                   atomically: true, encoding: .utf8)
+        let planted = try callers()
+        XCTAssertEqual(planted, ["FigureDeriver.swift"],
+            "Self-check: a FigureDeriver that asks is seen by name")
+        XCTAssertFalse(planted.isSubset(of: Self.manuscriptClassifierCallers),
+            "and fails the named set")
+
+        try clean.write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                        atomically: true, encoding: .utf8)
+        XCTAssertEqual(try callers(), [], "and taken away, nothing asks")
     }
 
     /// The spellings that would restate the permission table somewhere else.
@@ -12001,11 +12125,330 @@ final class TripwireGrepTests: XCTestCase {
     /// `test_everyGuardedDocumentMutatorIsClassified` derives the population
     /// from `Document`'s own `rejectMutationIfNotWritable`/`requireWritable`
     /// sites and fails on a new one nobody classified.
+    ///
+    /// **A figure's content is manuscript content** (report plan 6a, ruling
+    /// D-c: figure kinds are `.manuscriptText` in `Permit.group`), so its
+    /// writers join this census: `FigureDocument`'s guarded mutators
+    /// (`figureMutatorSpellings`), `createFigure(`, `createImageFigure(` and `useInDocument(` (a figure's birth, behind
+    /// its own posture question), `sendToResearch(` (a park, behind the
+    /// figure's door and its line's manuscript door), `bringBack(` (a return,
+    /// behind the figure's door), `refreshPins(` (a figure's research pins
+    /// re-read, behind its door, R-D2), and `figureOpMintSpelling` — every `Op(`
+    /// built with a `figure:` argument, which is where a figure op is born,
+    /// so a writer that appends one without a mutator (an inverse, a payload
+    /// copied off another op) is still a named site.
     static let manuscriptWriterPatterns = [
         "setFullText(", "applyRestore(", "restoreToOp(", "restoreToOpUndoable(",
         "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
         "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
+        "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
+        "reviveRow(", "reviveColumn(",
+        "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
+        "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
+        "useInDocument(", "parkInResearch(", "sendToResearch(",
+        "resumeFromResearch(", "bringBack(", "refreshPins(",
+        figureOpMintSpelling,
     ]
+
+    /// The key a figure op's minting is counted under: an `Op(`/`Op.init(`
+    /// (or an `opId:`-carrying bare `.init(`) with a `figure:` argument at its
+    /// own depth, however many lines it spans (`figureOpMintLines`). Not a
+    /// substring — the call is walked.
+    static let figureOpMintSpelling = "Op(…figure:"
+
+    /// **`FigureDocument`'s mutator spellings, counted only as an AWAITED
+    /// call.** The names are generic — plan 5's `FigureTable.setCell(`/
+    /// `insertRow(`/`moveRow(` in Core, `FigureStructureChange.insertRow(`,
+    /// the grid editor's `model.setCell(` — and every one of those is
+    /// synchronous, while `FigureDocument`'s are `async throws` and so are
+    /// always reached as `await <receiver>.setCell(` (or `await setCell(`
+    /// from inside). A spelling here counts only in that shape
+    /// (`awaitedCallLines`), so the census names the figure host's callers and
+    /// not every table helper in the codebase.
+    static let figureMutatorSpellings: Set<String> = [
+        "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
+        "reviveRow(", "reviveColumn(",
+        "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
+        "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
+        "refreshPins(",
+    ]
+
+    /// `text` with every comment and string literal blanked to spaces, its
+    /// newlines kept, so line numbers survive and nothing inside a literal —
+    /// a `"a//b"`, a `"(("`, a `figure:` in prose — can cut a line, skew a
+    /// paren depth or pose as a label. Lexes `//` and nested `/* */`
+    /// comments, `"…"` with escapes and `\(…)` interpolations (themselves
+    /// holding strings), multi-line `"""…"""`, and raw `#"…"#` of any number
+    /// of `#`s. SHARED by the figure scanners and their controls.
+    static func blankingCommentsAndStrings(_ text: String) -> String {
+        let c = Array(text)
+        var out = c
+        var i = 0
+        func blank(_ k: Int) { if c[k] != "\n" { out[k] = " " } }
+        func at(_ k: Int, _ s: String) -> Bool {
+            var n = k
+            for ch in s {
+                guard n < c.count, c[n] == ch else { return false }
+                n += 1
+            }
+            return true
+        }
+        // Blanks a string body from `k` (just past its opening delimiter)
+        // through its closing delimiter; answers the index after it.
+        func string(from k: Int, hashes: Int, multiline: Bool) -> Int {
+            var k = k
+            let close = (multiline ? "\"\"\"" : "\"") + String(repeating: "#", count: hashes)
+            let escape = "\\" + String(repeating: "#", count: hashes)
+            while k < c.count {
+                if !multiline, c[k] == "\n" { return k }
+                if at(k, escape) {
+                    let past = k + escape.count
+                    for j in k..<min(past, c.count) { blank(j) }
+                    if past < c.count, c[past] == "(" {
+                        // An interpolation: code (and strings) to its `)`.
+                        var depth = 0, j = past
+                        while j < c.count {
+                            if c[j] == "\"" {
+                                blank(j); j = string(from: j + 1, hashes: 0, multiline: false); continue
+                            }
+                            if c[j] == "(" { depth += 1 }
+                            if c[j] == ")" { depth -= 1 }
+                            blank(j); j += 1
+                            if depth == 0 { break }
+                        }
+                        k = j
+                    } else {
+                        if past < c.count { blank(past) }
+                        k = past + 1
+                    }
+                    continue
+                }
+                if at(k, close) {
+                    for j in k..<(k + close.count) { blank(j) }
+                    return k + close.count
+                }
+                blank(k); k += 1
+            }
+            return k
+        }
+        while i < c.count {
+            if c[i] != "/" && c[i] != "\"" && c[i] != "#" {
+                i += 1
+            } else if at(i, "//") {
+                while i < c.count, c[i] != "\n" { blank(i); i += 1 }
+            } else if at(i, "/*") {
+                var depth = 0
+                while i < c.count {
+                    if at(i, "/*") { depth += 1; blank(i); blank(i + 1); i += 2; continue }
+                    if at(i, "*/") { depth -= 1; blank(i); blank(i + 1); i += 2; if depth == 0 { break }; continue }
+                    blank(i); i += 1
+                }
+            } else if c[i] == "#" || c[i] == "\"" {
+                var hashes = 0
+                while i + hashes < c.count, c[i + hashes] == "#" { hashes += 1 }
+                let q = i + hashes
+                guard q < c.count, c[q] == "\"" else { i += max(hashes, 1); continue }
+                let multiline = at(q, "\"\"\"")
+                let open = q + (multiline ? 3 : 1)
+                for j in i..<open { blank(j) }
+                i = string(from: open, hashes: hashes, multiline: multiline)
+            } else {
+                i += 1
+            }
+        }
+        return String(out)
+    }
+
+    /// The 1-based line of every AWAITED call of `spelling` in `text`. Over
+    /// the blanked text (`blankingCommentsAndStrings`), an occurrence of the
+    /// name counts when it is
+    /// - a CALL: a member call, whose receiver ends in a name, `)`, `]`, `?`
+    ///   or `!` before the dot (whitespace and newlines allowed between —
+    ///   `d.setCell(`, `$0.setCell(`, `(await x).setCell(`,
+    ///   `store.openFigure(figureId: f).setCell(`, `figure` then `.setCell(`
+    ///   on the next line), or a bare call (`setCell(` from inside); not an
+    ///   implicit member like `structure: .insertRow(` or `case .insertRow(`,
+    ///   and not a `func`/`case` declaration; and
+    /// - AWAITED: its statement, read backwards to a `{`, `}` or `;` outside
+    ///   any parentheses, or to a line break that does not continue (the next
+    ///   line starts with `.`, or this one ends in `=`, `(`, `,`, `try` or
+    ///   `await`), says `await` or `async let` before it.
+    /// So one `await` covering several calls counts each. The line is the
+    /// NAME's line. Every sync table helper has no `await` in its statement;
+    /// a sync call sharing a statement with an `await` is counted — the safe
+    /// direction.
+    static func awaitedCallLines(of spelling: String, in text: String) -> [Int] {
+        awaitedCallLines(of: spelling, inBlanked: Array(blankingCommentsAndStrings(text)))
+    }
+
+    /// `awaitedCallLines` over text already blanked, so a file is lexed once.
+    static func awaitedCallLines(of spelling: String, inBlanked c: [Character]) -> [Int] {
+        let name = Array(spelling)
+        func isIdent(_ x: Character) -> Bool { x.isLetter || x.isNumber || x == "_" || x == "$" }
+        func lineText(endingAt k: Int) -> String {   // the line whose "\n" is at k
+            var j = k - 1
+            while j >= 0, c[j] != "\n" { j -= 1 }
+            return String(c[(j + 1)..<k])
+        }
+        func lineText(startingAfter k: Int) -> String {
+            var j = k + 1
+            while j < c.count, c[j] != "\n" { j += 1 }
+            return String(c[(k + 1)..<j])
+        }
+        func continues(at newline: Int) -> Bool {
+            let next = lineText(startingAfter: newline).trimmingCharacters(in: .whitespaces)
+            if next.hasPrefix(".") { return true }
+            let prev = lineText(endingAt: newline).trimmingCharacters(in: .whitespaces)
+            if prev.hasSuffix("=") || prev.hasSuffix("(") || prev.hasSuffix(",") { return true }
+            let last = prev.split(separator: " ").last.map(String.init) ?? ""
+            return ["try", "try?", "try!", "await"].contains(last)
+        }
+        let awaitRegex = try? NSRegularExpression(pattern: #"\bawait\b|\basync\s+let\b"#)
+        var lines: [Int] = []
+        var line = 1
+        var i = 0
+        while i < c.count {
+            if c[i] == "\n" { line += 1; i += 1; continue }
+            guard c[i] == name[0], i + name.count <= c.count,
+                  c[i..<(i + name.count)].elementsEqual(name),
+                  i == 0 || !isIdent(c[i - 1]) else { i += 1; continue }
+            // A member call, a bare call, or neither.
+            var j = i - 1
+            while j >= 0, c[j] == " " || c[j] == "\t" { j -= 1 }
+            var start = i
+            if j >= 0, c[j] == "." {
+                // Glued to its receiver, or leading its own line after one;
+                // a dot after a space mid-line is an implicit member.
+                var r = j - 1
+                if r >= 0, c[r] == " " || c[r] == "\t" {
+                    while r >= 0, c[r] == " " || c[r] == "\t" { r -= 1 }
+                    guard r >= 0, c[r] == "\n" else { i += 1; continue }
+                    while r >= 0, c[r].isWhitespace { r -= 1 }
+                } else if r >= 0, c[r] == "\n" {
+                    while r >= 0, c[r].isWhitespace { r -= 1 }
+                }
+                guard r >= 0, isIdent(c[r]) || ")]?!".contains(c[r]) else { i += 1; continue }
+                start = j
+            } else {
+                let before = String(c[max(0, i - 6)..<i])
+                if before.hasSuffix("func ") || before.hasSuffix("case ") { i += 1; continue }
+            }
+            // The statement, read backwards from the call.
+            var k = start - 1, depth = 0
+            while k >= 0 {
+                let x = c[k]
+                if x == ")" { depth += 1 } else if x == "(" { depth -= 1 }
+                if depth <= 0, x == "{" || x == "}" || x == ";" { break }
+                if depth == 0, x == "\n", !continues(at: k) { break }
+                k -= 1
+            }
+            let prefix = String(c[(k + 1)..<start])
+            if let awaitRegex,
+               awaitRegex.firstMatch(in: prefix, range: NSRange(prefix.startIndex..., in: prefix)) != nil {
+                lines.append(line)
+            }
+            i += name.count
+        }
+        return lines
+    }
+
+    /// The 1-based line of every `figure:` argument that mints an `Op` in
+    /// `text` — a CALL-SHAPED walk over the blanked text, since an op spans
+    /// several lines. The calls are `Op(`, `Op.init(` (neither the tail of a
+    /// longer name — `FigureOp(` is not one), and a bare `.init(` whose own
+    /// argument list also carries `opId:` (`Op.init`'s first, required label —
+    /// which keeps `ElementWords`' `.init(figure: "Figura", …)` out). The label
+    /// must sit at the call's own depth (a nested `Thing(figure:` is not the
+    /// op's) and not be the tail of a longer label. `Op.figure` is a `let`,
+    /// so an op's payload is set only at its construction.
+    static func figureOpMintLines(in text: String) -> [Int] {
+        figureOpMintLines(inBlanked: Array(blankingCommentsAndStrings(text)))
+    }
+
+    /// `figureOpMintLines` over text already blanked, so a file is lexed once.
+    static func figureOpMintLines(inBlanked c: [Character]) -> [Int] {
+        func isIdent(_ x: Character) -> Bool { x.isLetter || x.isNumber || x == "_" }
+        func ends(at k: Int, with s: String) -> Bool {
+            let a = Array(s)
+            let start = k + 1 - a.count
+            guard start >= 0, Array(c[start...k]) == a else { return false }
+            return start == 0 || !isIdent(c[start - 1])
+        }
+        func label(_ s: String, at k: Int) -> Bool {
+            let a = Array(s)
+            guard k + a.count <= c.count, Array(c[k..<(k + a.count)]) == a else { return false }
+            let prev: Character = k > 0 ? c[k - 1] : " "
+            return !(isIdent(prev) || prev == ".")
+        }
+        struct Open { let depth: Int; let needsOpId: Bool; var sawOpId = false; var figureLines: [Int] = [] }
+        var lines: [Int] = []
+        var line = 1, depth = 0
+        var open: [Open] = []
+        for k in c.indices {
+            switch c[k] {
+            case "\n":
+                line += 1
+            case "(":
+                depth += 1
+                if ends(at: k, with: "Op(") || ends(at: k, with: "Op.init(") {
+                    open.append(Open(depth: depth, needsOpId: false))
+                } else if k >= 5, String(c[(k - 5)...k]) == ".init(",
+                          k == 5 || !(isIdent(c[k - 6]) || c[k - 6] == ".") {
+                    open.append(Open(depth: depth, needsOpId: true))
+                }
+            case ")":
+                if let last = open.last, last.depth == depth {
+                    open.removeLast()
+                    if !last.needsOpId || last.sawOpId { lines += last.figureLines }
+                }
+                depth -= 1
+            default:
+                guard var last = open.last, last.depth == depth else { break }
+                if label("figure:", at: k) { last.figureLines.append(line) }
+                if label("opId:", at: k) { last.sawOpId = true }
+                open[open.count - 1] = last
+            }
+        }
+        return lines.sorted()
+    }
+
+    /// Every writer spelling in one file's `text`, per line: the substring
+    /// spellings line by line (`manuscriptWriterExcludeLine` skipping comments
+    /// and declarations), a figure mutator only as an awaited call, a figure
+    /// op only as an `Op(` with `figure:`. SHARED by the census and its
+    /// controls.
+    static func manuscriptWriterHits(
+        file: String, text: String
+    ) -> [(hit: SourceTree.Hit, value: [String: Int])] {
+        var out: [(hit: SourceTree.Hit, value: [String: Int])] = []
+        let plain = manuscriptWriterPatterns.filter {
+            !figureMutatorSpellings.contains($0) && $0 != figureOpMintSpelling
+        }
+        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let lineStr = String(line)
+            if manuscriptWriterExcludeLine(lineStr) { continue }
+            var spellings: [String: Int] = [:]
+            for spelling in plain where lineStr.contains(spelling) { spellings[spelling, default: 0] += 1 }
+            if !spellings.isEmpty { out.append((SourceTree.Hit(file: file, line: i + 1), spellings)) }
+        }
+        // The figure scanners lex the file once, and only a file that could
+        // hold a figure writer at all.
+        let mutators = figureMutatorSpellings.sorted().filter { text.contains($0) }
+        let mayMint = text.contains("figure:")
+        guard !mutators.isEmpty || mayMint else { return out }
+        let blanked = Array(blankingCommentsAndStrings(text))
+        for spelling in mutators {
+            for line in awaitedCallLines(of: spelling, inBlanked: blanked) {
+                out.append((SourceTree.Hit(file: file, line: line), [spelling: 1]))
+            }
+        }
+        if mayMint {
+            for line in figureOpMintLines(inBlanked: blanked) {
+                out.append((SourceTree.Hit(file: file, line: line), [figureOpMintSpelling: 1]))
+            }
+        }
+        return out
+    }
 
     /// **Every production call site, by file and by count** — count the array,
     /// never a number in prose. Each entry says where its posture question is
@@ -12023,10 +12466,15 @@ final class TripwireGrepTests: XCTestCase {
     ///   pieces and statements: `sweepMayWrite` (the settled posture) before any
     ///   load and the Document's stamp before the write; skipped and NAMED
     ///   (ruling AH).
-    /// - `ProjectStore+Search.swift` × 3 — `replaceMatch`/`replaceAll` →
-    ///   `replaceInManuscript` → `setFullText`: the settled posture before any
+    /// - `ProjectStore+Search.swift` × 5 — `replaceMatch`/`replaceAll` →
+    ///   `replaceInManuscript` → `setFullText`, and a figure rename's relabel
+    ///   or a send's removal of its line (`HeldFigureTextEdit.write`'s
+    ///   `setFullText`, and `unwrite`'s, which
+    ///   puts back what `write` wrote when one document refuses): each document is held
+    ///   through `openManuscriptForWriting` — the settled posture before any
     ///   load and the Document's stamp before the write; Replace All skips and
-    ///   names (ruling AI).
+    ///   names (ruling AI); a rename refuses whole, naming every piece, before
+    ///   anything is written (ruling P-3).
     /// - `ProjectSearchView.swift` × 2 — the two presses; per-match Replace and
     ///   Replace All are drawn only where the match's own document allows
     ///   `.writeText` (`ProjectSearchView.mayReplace`).
@@ -12070,6 +12518,36 @@ final class TripwireGrepTests: XCTestCase {
     ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
     ///   deliberately NOT gated, because it stands in for a keystroke and is
     ///   how a rig drives a burst the read side must then set aside.
+    /// - `FigureDocument.swift` — a figure's host (report plan 6a). Its one
+    ///   `Op(…, figure:)` is `commit`, reached only from a mutator after
+    ///   `requireWritable("…")` — which asks posture (the figure's own,
+    ///   `.editFigure`, through the window's door) and throws
+    ///   `FigureEditRefused` before any op — or from `registerFigureUndo`'s
+    ///   undo after `mayEditHere`. Its awaited mutator calls are the redo
+    ///   closures, each re-entering that doored mutator, a refusal said
+    ///   (`decline(.notPermitted)`).
+    /// - `ProjectStore+Figures.swift` × 1 — `figureOpMinter`, which mints
+    ///   `createFigure`'s `figureCreate` and row and column inserts (and, for
+    ///   a Research table's `useInDocument`, its cells and settings) and
+    ///   `createImageFigure`'s `figureCreate` and `figureImageSet`: each asks
+    ///   posture (`.editFigure` of the class the new figure will have,
+    ///   `requireNewFigurePermitted`) before it mints a line, and throws
+    ///   `FigureEditRefused`.
+    /// - `FigureIngest.swift` × 1 — `importImage`'s `createImageFigure(`, the
+    ///   editor's Insert Figure…, image drop and image paste (report plan 6a
+    ///   Task 9): reached only once the editor's membrane allows writing, and
+    ///   `createImageFigure` asks the figure's own posture before it copies
+    ///   or mints anything.
+    /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
+    ///   built (and judged) by one of the above, never a new figure write.
+    /// - `FigureReturnDiff.swift` × 1 — Core's simulated fold: each change the
+    ///   return makes folded onto a copy of the state, never appended. The
+    ///   changes are appended by `resumeFromResearch`, behind the door.
+    ///
+    /// `createFigure(`, `useInDocument(` (report plan 6b Task 6, a figure
+    /// made from a Research item behind the same door) and `sendToResearch(`
+    /// (Task 7) have no production caller yet: plans 7–8's surfaces add theirs here, each drawn and
+    /// pressed only where the posture allows `.editFigure`.
     ///
     /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
     /// file that swapped one writer for another — a Replace that began
@@ -12081,7 +12559,7 @@ final class TripwireGrepTests: XCTestCase {
         "StatementEditorHost.swift": ["setFullText(": 2],
         "ProjectStore+Statements.swift": ["setFullText(": 1],
         "ProjectStore+Structure.swift": ["setFullText(": 2],
-        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 1],
+        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 3],
         "ProjectSearchView.swift": ["replaceMatch(": 1, "replaceAll(": 1],
         "Document+Rewind.swift": ["applyRestore(": 1, "buildRestoreOp(": 1],
         "Document+RewindUndo.swift": ["restoreToOp(": 3, "restoreToOpUndoable(": 1],
@@ -12092,6 +12570,45 @@ final class TripwireGrepTests: XCTestCase {
         "type:RewindModifier": ["restoreToOpUndoable(": 1],
         "PartialRestorePicker.swift": ["buildRestoreOp(": 1],
         "TestEditTool.swift": ["setFullText(": 1],
+        // Figures (report plan 6a): each asks posture before it writes.
+        "FigureDocument.swift": [
+            figureOpMintSpelling: 1,
+            "setCell(": 1, "moveRow(": 1, "moveColumn(": 1,
+            "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1,
+            "setImage(": 1,
+            // A delete's redo; an undone insert's redo and a revive's own
+            // redo (report plan 6b Task 4).
+            "deleteRow(": 1, "deleteColumn(": 1, "reviveRow(": 2, "reviveColumn(": 2,
+            // A pin refresh's redo refreshes again, behind its own door
+            // (report plan 6b Task 9).
+            "refreshPins(": 1,
+        ],
+        // A rename's picture: `renameImageFile` through the figure's host,
+        // after `renameFigure` asked every door (report plan 6b Task 5).
+        "ProjectStore+Figures.swift": [figureOpMintSpelling: 1, "renameImageFile(": 1],
+        // A Research picture's *Use in document*: `createImageFigure`, which
+        // asks the new figure's door before it copies or mints (report plan
+        // 6b Task 6). *Send to Research*'s park, through the figure's host,
+        // after `sendToResearch` asked the figure's door and held its line's
+        // manuscripts through the door-checked route (Task 7).
+        // *Bring back*'s return, through the figure's host, after `bringBack`
+        // asked the figure's door; `useInDocument` routes a parked figure's
+        // copy to `bringBack` (Task 8) — when this Mac may edit that figure,
+        // else it makes a new one (final review M-5). `returnPins` folds the
+        // return's changes onto a COPY of the state through an op it never
+        // appends, to ask which formula cells take entry pins (final review
+        // I-1); the pins ride the return's own appends.
+        "ProjectStore+FigureResearch.swift": [
+            "createImageFigure(": 1, "parkInResearch(": 1, "resumeFromResearch(": 1, "bringBack(": 1,
+            figureOpMintSpelling: 1,
+        ],
+        "FigureIngest.swift": ["createImageFigure(": 1],
+        "Op.swift": [figureOpMintSpelling: 1],
+        // Core's return diff folds each change it makes onto a COPY of the
+        // state, through an op it never appends; what it yields is appended
+        // by `FigureDocument.resumeFromResearch`, behind the figure's door
+        // (report plan 6b Task 8).
+        "FigureReturnDiff.swift": [figureOpMintSpelling: 1],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.
@@ -12099,24 +12616,18 @@ final class TripwireGrepTests: XCTestCase {
         admissionExcludeLine(line) || line.contains("func ")
     }
 
-    /// Call sites under `roots`, per file and per SPELLING — every spelling a
-    /// line carries is counted (no production line carries two today).
+    /// Call sites under `roots`, per file and per SPELLING
+    /// (`manuscriptWriterHits` over each file).
     private func manuscriptWriterCallCounts(
         in roots: [URL]
     ) throws -> [(hit: SourceTree.Hit, value: [String: Int])] {
         var counts: [(hit: SourceTree.Hit, value: [String: Int])] = []
         for root in roots {
-            let hits = try grepSwift(
-                in: root,
-                patterns: Self.manuscriptWriterPatterns,
-                allowed: [],
-                excludeLine: Self.manuscriptWriterExcludeLine)
-            for hit in hits {
-                var spellings: [String: Int] = [:]
-                for spelling in Self.manuscriptWriterPatterns where hit.contains(spelling) {
-                    spellings[spelling, default: 0] += 1
-                }
-                counts.append((try XCTUnwrap(SourceTree.Hit(offender: hit)), spellings))
+            guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+            else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                counts += Self.manuscriptWriterHits(file: url.lastPathComponent, text: text)
             }
         }
         return counts
@@ -12161,6 +12672,19 @@ final class TripwireGrepTests: XCTestCase {
         "appendTaskOpInternal": "a task op — the task door",
         "appendTaskRewindCloser": "reached only after the doored restoreToOp",
         "applyMintedAnchors": "the load's own emission, the author's (tripwire 38), gated on mayAnchor",
+        // Figure writers (report plan 6a) — a figure's content is manuscript
+        // content (ruling D-c). Each is `FigureDocument`'s, opening with
+        // `requireWritable("…")`, which asks the FIGURE's posture
+        // (`.editFigure`) and throws `FigureEditRefused` before any op; each
+        // is spelled in `manuscriptWriterPatterns` AND in
+        // `figureMutatorSpellings` (counted only as an awaited call).
+        "setCell": "figure", "insertRow": "figure", "insertColumn": "figure",
+        "deleteRow": "figure", "deleteColumn": "figure", "moveRow": "figure",
+        "reviveRow": "figure", "reviveColumn": "figure",
+        "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
+        "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
+        "parkInResearch": "figure", "resumeFromResearch": "figure",
+        "refreshPins": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12184,19 +12708,48 @@ final class TripwireGrepTests: XCTestCase {
         return names
     }
 
+    /// What is wrong with `classified` against the guarded `names` found —
+    /// empty when every name is classified, every classification is still
+    /// found, every TEXT or FIGURE writer's spelling is in
+    /// `manuscriptWriterPatterns`, and every FIGURE writer's is also in
+    /// `figureMutatorSpellings` (so it is counted in its awaited shape).
+    /// SHARED by the census and its planted-offender controls.
+    static func guardedMutatorProblems(
+        names: Set<String>, classified: [String: String]
+    ) -> [String] {
+        var problems: [String] = []
+        for name in names.subtracting(classified.keys).sorted() {
+            problems.append("\(name): guarded but unclassified")
+        }
+        for name in Set(classified.keys).subtracting(names).sorted() {
+            problems.append("\(name): classified but no longer guarded")
+        }
+        for (name, kind) in classified.sorted(by: { $0.key < $1.key })
+        where kind == "text" || kind == "figure" {
+            if !manuscriptWriterPatterns.contains(where: { $0.hasPrefix(name + "(") }) {
+                problems.append("\(name): a \(kind) writer not in manuscriptWriterPatterns")
+            }
+            if kind == "figure", !figureMutatorSpellings.contains(name + "(") {
+                problems.append("\(name): a figure writer not in figureMutatorSpellings")
+            }
+        }
+        return problems
+    }
+
     func test_everyGuardedDocumentMutatorIsClassified() throws {
         let names = try guardedDocumentMutatorNames(in: sourceDir)
         XCTAssertFalse(names.isEmpty, "precondition: the guarded mutators were found")
-        XCTAssertEqual(names, Set(Self.guardedDocumentMutators.keys),
-            "A guarded Document mutator appeared or disappeared. Classify it in "
-            + "`guardedDocumentMutators`: a TEXT writer's spelling joins "
-            + "`manuscriptWriterPatterns` and its callers `manuscriptWriterCallSites`. "
-            + "Found: \(names.sorted())")
-        for (name, kind) in Self.guardedDocumentMutators where kind == "text" {
-            XCTAssertTrue(
-                Self.manuscriptWriterPatterns.contains { $0.hasPrefix(name + "(") },
-                "\(name) writes text and is not in manuscriptWriterPatterns")
-        }
+        XCTAssertTrue(
+            ["setCell", "setColumnWidth"].allSatisfy(names.contains),
+            "precondition: FigureDocument's guarded mutators are in the population")
+        let problems = Self.guardedMutatorProblems(
+            names: names, classified: Self.guardedDocumentMutators)
+        XCTAssertTrue(problems.isEmpty,
+            "A guarded Document or FigureDocument mutator appeared, disappeared "
+            + "or lost its spelling. Classify it in `guardedDocumentMutators`: a "
+            + "TEXT or FIGURE writer's spelling joins `manuscriptWriterPatterns` "
+            + "(a figure's also `figureMutatorSpellings`) and its callers "
+            + "`manuscriptWriterCallSites`. Problems:\n" + problems.joined(separator: "\n"))
     }
 
     /// **The classification census's control** (P3c plan 2 Task 9): a planted
@@ -12228,6 +12781,60 @@ final class TripwireGrepTests: XCTestCase {
         let production = try guardedDocumentMutatorNames(in: sourceDir)
         XCTAssertNotEqual(production.union(planted), Set(Self.guardedDocumentMutators.keys),
             "and a guarded mutator nobody classified fails the census")
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(
+                names: production.union(planted), classified: Self.guardedDocumentMutators),
+            ["appendSomewhereNew: guarded but unclassified",
+             "rewriteEverything: guarded but unclassified"],
+            "and the census's own check names each one")
+    }
+
+    /// **A figure mutator nobody classified fails the census** (report plan 6a
+    /// Task 8): a planted `FigureDocument`-shaped mutator behind
+    /// `requireWritable("…")` joins the derived population and is refused
+    /// until classified; classified as a figure writer but left out of the
+    /// spelling lists, it is refused again. Without the planted mutator, the
+    /// production population passes as it stands.
+    func test_theGuardedMutatorCensusFiresOnAPlantedFigureMutator() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-mutator-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        extension FigureDocument {
+            public func setCellFormat(_ format: CellFormat, at key: CellKey) async throws {
+                try await requireWritable("setCellFormat")
+                try await commit(.figureCellSet, FigureOpPayload(cell: key, next: nil, prior: nil))
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("FigureDocument+Format.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let production = try guardedDocumentMutatorNames(in: sourceDir)
+        let planted = try guardedDocumentMutatorNames(in: tmp)
+        XCTAssertEqual(planted, ["setCellFormat"], "Self-check: the planted guard is read")
+        let withPlanted = production.union(planted)
+
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(names: withPlanted, classified: Self.guardedDocumentMutators),
+            ["setCellFormat: guarded but unclassified"],
+            "an unclassified figure mutator fails the census")
+
+        var classified = Self.guardedDocumentMutators
+        classified["setCellFormat"] = "figure"
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(names: withPlanted, classified: classified),
+            ["setCellFormat: a figure writer not in manuscriptWriterPatterns",
+             "setCellFormat: a figure writer not in figureMutatorSpellings"],
+            "classified as a figure writer, it still fails until its spelling is listed")
+
+        XCTAssertTrue(
+            Self.guardedMutatorProblems(names: production, classified: Self.guardedDocumentMutators)
+                .isEmpty,
+            "and with the planted mutator taken away the census passes")
     }
 
     /// The census's control: it counts a planted call of each spelling, not the
@@ -12255,6 +12862,31 @@ final class TripwireGrepTests: XCTestCase {
         _ = doc.insertParagraph(after: last, text: orphan)
         doc.deleteParagraph(id: pid)
         doc.reorder(sequence: ids)
+        try await figure.setCell(cell, at: key)
+        _ = try await figure.insertRow(after: nil)
+        _ = try await self.figure?.insertColumn(after: nil)
+        try await figures[i].deleteRow(row)
+        try await figure.deleteColumn(column)
+        try await d.reviveRow(id, removed: slice, undoManager: undoManager)
+        try await d.reviveColumn(id, removed: slice, undoManager: undoManager)
+        await d.redoing { try await d.moveRow(id, after: after, undoManager: undoManager) }
+        try await figure.moveColumn(column, after: nil)
+        try await setHeaderRows(1)
+        try await figure.setTotalRow(true)
+        try await figure.setColumnWidth(column, 120)
+        try await figure.setImage(fromURL: picture)
+        try await host.renameImageFile(to: filename)
+        let record = try await store.createFigure(kind: .table, name: "Prices", piece: p)
+        let image = try await store.createImageFigure(fromURL: picture, piece: p)
+        try await store.renameFigure(id: record.id, to: "Costs")
+        let used = try await store.useInDocument(researchItemId: item.id, piece: p)
+        try await host.parkInResearch(path: p, hash: h, itemId: i, expecting: s, alongside: {})
+        let parked = try await store.sendToResearch(figureId: f, scope: .shared)
+        try await host.resumeFromResearch(changes: c, picture: nil, expecting: s)
+        let back = try await store.bringBack(researchItemId: i, piece: p)
+        try await reader.refreshPins(undoManager: um)
+        let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
+                    session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
                   atomically: true, encoding: .utf8)
 
@@ -12265,6 +12897,171 @@ final class TripwireGrepTests: XCTestCase {
             + "comment and the declaration are not. Counted: \(planted)")
         XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
             "and a file that is not on the list fails the census it feeds")
+    }
+
+    /// **A figure mutator's generic name counts only on FigureDocument's
+    /// receiver shape** (report plan 6a Task 8). Plan 5's `FigureTable`
+    /// mutators in Core, `FigureStructureChange`'s cases and the grid
+    /// editor's model share the names `setCell(`/`insertRow(`/`moveRow(`, and
+    /// all are synchronous: none is counted, so Core's `FigureDeriver.swift`
+    /// and `TableCSV.swift` are not writer sites. The awaited
+    /// `FigureDocument` call on the same file is, and taken away the file
+    /// leaves the census. The production census's own result is checked the
+    /// same way: no file that only holds a table helper is in it.
+    func test_theFigureWriterSpellingsCountOnlyTheFigureHostsCalls() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-writers-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let helpers = """
+        // A comment may say try await figure.setCell(cell, at: key).
+        state.table.setCell(p.next, at: key)
+        table.setCell(Cell(content: content, format: format), at: CellKey(row: r, column: c))
+        state.table.insertRow(id, after: after)
+        state.table.moveRow(id, after: after)
+        case let .insertRow(id, after):
+        Button("Move Up") { model.moveRow(at.row, by: -1) }
+        set: { model.setCell(row, column, to: $0) })
+        let op = try await commit(.figureStructure, structure: .insertRow(id, after: after))
+        try await commit(.figureStructure, FigureOpPayload(structure: .insertRow(id, after: after)))
+        public func setCell(_ cell: Cell?, at key: CellKey) async throws {
+        let payload = FigureOpPayload(cell: key, next: nil, prior: nil)
+        let words = ElementWords(figure: "Figure", table: "Table")
+        let wrapped = FigureOp(figure: payload)
+        let nested = Op(kind: k, provenance: Provenance(figure: p))
+        public init(opId: String, figure: FigureOpPayload? = nil) {}
+        """
+        try helpers.write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                          atomically: true, encoding: .utf8)
+        XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
+            "Self-check: no table helper, structure case, grid-model call, "
+            + "declaration, comment, bare payload or other `figure:` label is "
+            + "counted as a figure writer")
+
+        // Each awaited shape a caller may take counts once: a receiver that
+        // ends in a call, and a call split across lines.
+        try (helpers + """
+
+        try await documentStore.openFigure(figureId: f).setCell(cell, at: key)
+        _ = try await figure
+            .insertRow(after: nil)
+        """).write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                   atomically: true, encoding: .utf8)
+        let shapes = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(Self.byFile(shapes), ["FigureDeriver.swift": ["setCell(": 1, "insertRow(": 1]],
+            "Self-check: the chained and the split awaited calls each count")
+        XCTAssertEqual(Set(shapes.map(\.hit.line)), [17, 19],
+            "and each is counted on the line holding the mutator's name")
+
+        try (helpers + "\ntry await figure.setCell(cell, at: key)\n")
+            .write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
+                   atomically: true, encoding: .utf8)
+        let planted = Self.byFile(try manuscriptWriterCallCounts(in: [tmp]))
+        XCTAssertEqual(planted, ["FigureDeriver.swift": ["setCell(": 1]],
+            "the planted FigureDocument call is counted, and only it")
+        XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
+            "and a file off the list fails the census it feeds")
+
+        let production = Self.byFile(try manuscriptWriterCallCounts(in: admissionRoots))
+        for helperFile in ["FigureDeriver.swift", "TableCSV.swift", "FigureOp.swift",
+                           "FigureTable.swift", "TableGridEditor.swift"] {
+            XCTAssertNil(production[helperFile],
+                "\(helperFile) holds table helpers, not figure writers")
+        }
+    }
+
+    /// **A figure op is counted where the OP is born, not the payload**
+    /// (report plan 6a Task 8 fix round 1): a writer that appends an `Op(`
+    /// reusing another op's payload (`figure: someOp.figure`) — a restore, a
+    /// replay — builds no `FigureOpPayload(` and calls no mutator, and is
+    /// still caught, on the label's line, across a multi-line call. Taken
+    /// away, the planted file leaves the census.
+    func test_theFigureOpMintCensusFiresOnAReusedPayload() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-figure-mint-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let file = tmp.appendingPathComponent("FigureCheckpointRestore.swift")
+
+        let clean = """
+        // A restore may say Op(…, figure: someOp.figure) in a comment.
+        let ops = try await store.loadDiagnosed(docId: figureId).ops
+        """
+        try (clean + """
+
+        for someOp in ops {
+            try await opStore.append(Op(
+                opId: ULID.generate(), docId: figureId, at: Date(), device: device,
+                session: session, kind: someOp.kind, changes: [], figure: someOp.figure))
+        }
+        """).write(to: file, atomically: true, encoding: .utf8)
+        let planted = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(Self.byFile(planted),
+                       ["FigureCheckpointRestore.swift": [Self.figureOpMintSpelling: 1]],
+            "Self-check: the reused payload's op is counted once")
+        XCTAssertEqual(planted.map(\.hit.line), [6], "on the line holding `figure:`")
+        XCTAssertNotEqual(Self.byFile(planted), Self.manuscriptWriterCallSites,
+            "and a file off the list fails the census it feeds")
+
+        try clean.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
+            "and taken away, nothing is counted")
+    }
+
+    /// **The figure scanners read every call shape, and through strings**
+    /// (report plan 6a Task 8 fix round 2). Each planted shape below is
+    /// counted on its own line, and taken away the file leaves the census:
+    /// - awaited mutators: `async let`, a `$0.` receiver, `(await x).`, and
+    ///   one `await` covering two calls (each counted);
+    /// - op mints: `Op.init(`, a bare `.init(` carrying `opId:`, and an `Op(`
+    ///   whose earlier string arguments hold `//` and `((`;
+    /// - and NOT: a mutator or an `Op(…figure:` spelled inside a string
+    ///   (single-line, interpolated or multi-line), a bare `.init(figure:`
+    ///   without `opId:` (`ElementWords`' shape), or a `/* */` comment.
+    func test_theFigureScannersReadThroughStringsAndEveryCallShape() throws {
+        let quiet = #"""
+        let words: [String: ElementWords] = ["es": .init(figure: "Figura", table: "Tabla")]
+        let prose = "try await figure.setCell(x) and Op(opId: i, figure: p)"
+        let mixed = "\(name) says try await figure.setRow( \("Op(figure: q)") ("
+        let note = """
+            try await figure.setCell(cell, at: key)
+            Op(opId: a, figure: b)
+            """
+        /* try await figure.setCell(c, at: k); Op(opId: z, figure: y) */
+        """#
+        XCTAssertEqual(Self.manuscriptWriterHits(file: "Quiet.swift", text: quiet).count, 0,
+            "Self-check: nothing in a string, an ElementWords .init or a comment counts")
+
+        let loud = quiet + #"""
+
+        async let r = figure.setCell(cell, at: key)
+        try await cells.forEachAsync { try await $0.setHeaderRows(1) }
+        try await (await store.openFigure(figureId: f)).setTotalRow(true)
+        _ = try await (figure.moveRow(a, after: nil), other.moveRow(b, after: nil))
+        let one = Op.init(opId: i, docId: d, at: t, device: v, session: s,
+                          kind: k, changes: [], figure: p)
+        let two: Op = .init(opId: i, docId: d, at: t, device: v, session: s, kind: k, changes: [], figure: p)
+        let three = Op(opId: i, docId: d, at: t, device: "a//b", session: "((",
+                       kind: k, changes: [], figure: p)
+        let four = Op(opId: i, docId: d, at: t, device: v, session: s, kind: k, changes: [], figure: p)
+        """#
+        let hits = Self.manuscriptWriterHits(file: "Loud.swift", text: loud)
+        func linesOf(_ spelling: String) -> [Int] {
+            hits.filter { $0.value[spelling] != nil }.map(\.hit.line).sorted()
+        }
+        XCTAssertEqual(linesOf("setCell("), [9], "async let")
+        XCTAssertEqual(linesOf("setHeaderRows("), [10], "a $0. receiver")
+        XCTAssertEqual(linesOf("setTotalRow("), [11], "(await x).")
+        XCTAssertEqual(linesOf("moveRow("), [12, 12], "one await, two calls, each counted")
+        XCTAssertEqual(linesOf(Self.figureOpMintSpelling), [14, 15, 17, 18],
+            "Op.init(, a bare .init( with opId:, an Op( past \"a//b\" and \"((\", "
+            + "and the Op( after it — the depth is not skewed")
+        XCTAssertEqual(hits.count, 9, "and nothing else: \(hits)")
     }
 
     /// **A swap inside a listed file fails the census** (Task 9): the same
@@ -13344,6 +14141,9 @@ extension TripwireGrepTests {
         "ProjectStore+Structure.swift": ("a trashed structure item's metadata", [
             "let metadata = try JSONEncoder().encode(item)",
         ]),
+        "ProjectStore+Figures.swift": ("a removed figure's record, as its trash entry's metadata", [
+            "let metadata = try JSONEncoder().encode(record)",
+        ]),
         // MCP projections: response DTOs built FROM the manifest, never written to it.
         "ProjectTools.swift": ("MCP project/metadata/outline projections", nil),
         "FirstReaderTools.swift": ("MCP first-reader response", nil),
@@ -13469,5 +14269,430 @@ extension TripwireGrepTests {
         func b() throws { try Process.run(url, arguments: []) }
         """.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
         XCTAssertEqual(try processLaunchHits(in: tmp), ["Rogue.swift": 2])
+    }
+
+    // MARK: - A synced path reaches the disk only through SafeRelativePath (tripwire 58)
+
+    /// The checkers themselves: a type whose job is to decide whether a path
+    /// stays inside its folder joins the path to look at it. `PublishPath`
+    /// keeps its own rule for MCP input (report plan 6b Task 1 ruling), and
+    /// `PublishConfigValidator` checks the publish config's paths on disk.
+    static let syncedPathCheckers: Set<String> = [
+        "type:SafeRelativePath", "type:PublishPath", "type:PublishConfigValidator",
+    ]
+
+    /// The identifiers in a join's argument, with string-literal text dropped
+    /// and interpolations kept.
+    static func identifiers(inJoinArgument argument: String) -> [String] {
+        var code = ""
+        var index = argument.startIndex
+        var inString = false
+        while index < argument.endIndex {
+            let ch = argument[index]
+            if inString {
+                if ch == "\\" {
+                    let next = argument.index(after: index)
+                    if next < argument.endIndex, argument[next] == "(" {
+                        // An interpolation: its code is kept.
+                        var depth = 1
+                        var cursor = argument.index(after: next)
+                        code.append(" ")
+                        while cursor < argument.endIndex, depth > 0 {
+                            let c = argument[cursor]
+                            if c == "(" { depth += 1 } else if c == ")" { depth -= 1 }
+                            if depth > 0 { code.append(c) }
+                            cursor = argument.index(after: cursor)
+                        }
+                        code.append(" ")
+                        index = cursor
+                        continue
+                    }
+                    index = next < argument.endIndex ? argument.index(after: next) : next
+                    continue
+                }
+                if ch == "\"" { inString = false; code.append(" ") }
+                index = argument.index(after: index)
+                continue
+            }
+            if ch == "\"" { inString = true } else { code.append(ch) }
+            index = argument.index(after: index)
+        }
+        var names: [String] = []
+        var current = ""
+        func flush() {
+            if let first = current.first, first.isLetter || first == "_" { names.append(current) }
+            current = ""
+        }
+        for ch in code {
+            if ch.isLetter || ch.isNumber || ch == "_" { current.append(ch) } else { flush() }
+        }
+        flush()
+        return names
+    }
+
+    /// **The names a synced path goes by**: an identifier ending in
+    /// `path`/`Path`, `rel`/`Rel`, `filename`/`Filename` or `Id`/`ID`, or
+    /// `relative` or `id` — never `UUID`, which is minted where it is read.
+    /// That covers the synced fields — `.path`, `.filename`, `.relativePath`,
+    /// `docId`, `sourceFilename`, `originalRelativePath`, `parkedPath`, a
+    /// trash or export id — and the locals that carry them (`oldPath`,
+    /// `parentPath`, `noteRelPath`, `trashId`, …).
+    static func syncedPathNames(inJoinArgument argument: String) -> [String] {
+        let suffixes = ["path", "Path", "rel", "Rel", "filename", "Filename", "Id", "ID"]
+        return identifiers(inJoinArgument: argument).filter { name in
+            name != "UUID"
+                && (name == "relative" || name == "id" || suffixes.contains(where: { name.hasSuffix($0) }))
+        }
+    }
+
+    /// **Whether a line has gone through the checker, or says why it need
+    /// not**: `SafeRelativePath`, or the store's helper built on it
+    /// (`resolvedProjectPath…`), in its CODE — a comment that names them does
+    /// not count — or a `// local-path: <why>` comment with a reason after it.
+    static func syncedPathLineIsChecked(_ line: String) -> Bool {
+        let code = line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
+        if code.contains("SafeRelativePath") || code.contains("resolvedProjectPath") { return true }
+        return line.range(of: #"//.*local-path:\s*\S"#, options: .regularExpression) != nil
+    }
+
+    /// The nearest `let`/`var` of `name` at most 60 lines above `index`:
+    /// its index, its line and the text after its `=`, or nil.
+    static func syncedPathDefinition(
+        of name: String, in lines: [String], before index: Int
+    ) -> (index: Int, line: String, rhs: String)? {
+        guard let definition = try? NSRegularExpression(
+            pattern: #"\b(?:let|var)\s+"# + NSRegularExpression.escapedPattern(for: name)
+                + #"\b\s*(?::[^=]*)?=\s*(.*)$"#) else { return nil }
+        for j in stride(from: index - 1, through: max(0, index - 60), by: -1) {
+            let line = lines[j]
+            let range = NSRange(line.startIndex..., in: line)
+            guard let match = definition.firstMatch(in: line, range: range),
+                  let rhs = Range(match.range(at: 1), in: line) else { continue }
+            return (j, line, String(line[rhs]))
+        }
+        return nil
+    }
+
+    /// The synced path names an argument reaches: its own — less a name
+    /// whose nearest definition went through the checker (a checked value,
+    /// `let fileId = try SafeRelativePath.requireDocId(docId)`) — or, up to
+    /// `hops` definitions back, those of a local it reads
+    /// (`let base = "\(stem)-\(docId)"` then `appendingPathComponent(base)`),
+    /// looking at most 60 lines up. A checked definition ends the walk.
+    static func syncedPathNames(
+        inJoinArgument argument: String, lines: [String], before index: Int,
+        hops: Int, seen: inout Set<String>
+    ) -> [String] {
+        let direct = syncedPathNames(inJoinArgument: argument).filter { name in
+            guard let found = syncedPathDefinition(of: name, in: lines, before: index) else { return true }
+            return !syncedPathLineIsChecked(found.line)
+        }
+        guard direct.isEmpty, hops > 0 else { return direct }
+        for name in identifiers(inJoinArgument: argument) where seen.insert(name).inserted {
+            guard let found = syncedPathDefinition(of: name, in: lines, before: index) else { continue }
+            if syncedPathLineIsChecked(found.line) { continue }
+            let names = syncedPathNames(
+                inJoinArgument: found.rhs, lines: lines, before: found.index,
+                hops: hops - 1, seen: &seen)
+            if !names.isEmpty { return names }
+        }
+        return []
+    }
+
+    /// The text of the call's argument list from `start` (just past the open
+    /// parenthesis) to its matching close, or to the end of the line.
+    static func joinArgument(in line: String, from start: String.Index) -> String {
+        var depth = 1
+        var cursor = start
+        while cursor < line.endIndex {
+            let c = line[cursor]
+            if c == "(" { depth += 1 } else if c == ")" {
+                depth -= 1
+                if depth == 0 { return String(line[start..<cursor]) }
+            }
+            cursor = line.index(after: cursor)
+        }
+        return String(line[start...])
+    }
+
+    /// Every `appendingPathComponent(` / `appending(path:` in `text` whose
+    /// argument reaches a synced path name (`syncedPathNames`, following
+    /// locals) and whose line neither goes through the checker nor carries a
+    /// `// local-path:` reason (`syncedPathLineIsChecked`). A call whose
+    /// argument starts on the next line is read from there, and either line
+    /// may carry the checker or the reason. Comment lines are prose. Returns
+    /// `(1-based line, trimmed text)`.
+    static func syncedPathJoins(in text: String) -> [(line: Int, text: String)] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var hits: [(line: Int, text: String)] = []
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") { continue }
+            var searchFrom = line.startIndex
+            var offends = false
+            while let range = ["appendingPathComponent(", "appending(path:"]
+                .compactMap({ line.range(of: $0, range: searchFrom..<line.endIndex) })
+                .min(by: { $0.lowerBound < $1.lowerBound }) {
+                searchFrom = range.upperBound
+                var argument = joinArgument(in: line, from: range.upperBound)
+                var context = line
+                if argument.trimmingCharacters(in: .whitespaces).isEmpty, i + 1 < lines.count {
+                    let next = lines[i + 1]
+                    argument = joinArgument(in: next, from: next.startIndex)
+                    context += "\n" + next
+                }
+                var seen: Set<String> = []
+                if !context.split(separator: "\n").contains(where: { Self.syncedPathLineIsChecked(String($0)) }),
+                   !syncedPathNames(inJoinArgument: argument, lines: lines, before: i,
+                                    hops: 3, seen: &seen).isEmpty {
+                    offends = true
+                }
+            }
+            if offends { hits.append((i + 1, trimmed)) }
+        }
+        return hits
+    }
+
+    /// `syncedPathJoins` over every Swift file under `roots`, as
+    /// `"<basename>:<line>: <text>"`, less the lines inside a checker's own
+    /// declaration (`allowed`, type keys resolved across all the roots).
+    private func syncedPathJoinOffenders(
+        in roots: [URL], allowed: Set<String> = TripwireGrepTests.syncedPathCheckers
+    ) throws -> [String] {
+        let (allowance, unresolved) = SourceTree.expandingTypeKeys(allowed, in: roots)
+        var offenders = unresolved
+        let fm = FileManager.default
+        for root in roots {
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for hit in Self.syncedPathJoins(in: text)
+                where !allowance.allows(file: url.lastPathComponent, line: hit.line) {
+                    offenders.append("\(url.lastPathComponent):\(hit.line): \(hit.text)")
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Recurrence-tripper (report plan 6b Task 2; R-D3): a path or file name
+    /// that came from synced data — a manifest row, an op payload, a registry
+    /// or trash record, a sidecar, an inbox entry — is joined onto a folder
+    /// only through `SafeRelativePath` (`resolve`, `resolveFile`,
+    /// `requireDocId`, `isPlainFileName`, or a helper built on one such as
+    /// `ProjectStore.resolvedProjectPath`). A raw join let `../outside.md`
+    /// in a manifest, or a picture name in an op, write outside the project
+    /// (570d724a). The population is derived (`syncedPathJoins`); a name that
+    /// is minted locally says so on its line with `// local-path: <why>`.
+    func test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath() throws {
+        let offenders = try syncedPathJoinOffenders(in: admissionRoots)
+        XCTAssertTrue(offenders.isEmpty,
+            "A synced path is joined onto a folder without SafeRelativePath (tripwire 58). "
+            + "Resolve it through SafeRelativePath (or ProjectStore.resolvedProjectPath) "
+            + "before any read, write, move or delete; if the name is minted locally, say "
+            + "so on the line with `// local-path: <why>`. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: a planted file's raw joins of a synced path fire — a field,
+    /// an interpolated doc id, a local, a call whose argument is on the next
+    /// line, a local built from a doc id, a synced id, a line that names the
+    /// checker only in a comment, and a `// local-path:` with no reason —
+    /// while a checked line, a marked local name, a constant, a `.path` read
+    /// after the call, a comment, a value the checker returned, a `UUID` and a
+    /// checker's own declaration do not.
+    func test_syncedPathCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-synced-path-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try #"""
+        extension Rogue {
+            func f() throws {
+                let a = url.appendingPathComponent(item.path)
+                let b = dir.appendingPathComponent("\(docId).json")
+                let c = url.appendingPathComponent(
+                    oldRelPath)
+                let d = try SafeRelativePath.resolve(item.path, under: url)
+                let e = folder.appendingPathComponent(filename) // local-path: minted from the title
+                let g = url.appendingPathComponent("research", isDirectory: true)
+                let h = FileManager.default.fileExists(atPath: url.appendingPathComponent(name).path)
+                // url.appendingPathComponent(item.path) in prose
+                let i = dir.appendingPathComponent("\(try SafeRelativePath.requireDocId(docId)).json")
+                let base = "\(stem)-\(docId)-x"
+                let j = dir.appendingPathComponent(base)
+                let checked = try SafeRelativePath.requireDocId(docId)
+                let k = dir.appendingPathComponent("\(checked).json")
+                let l = trashRoot.appendingPathComponent(trashId) // SafeRelativePath checked it above
+                let m = dir.appendingPathComponent(filename) // local-path:
+                let n = trashRoot.appendingPathComponent(UUID().uuidString)
+            }
+        }
+        enum PublishPath {
+            static func check(_ relativePath: String) { _ = root.appendingPathComponent(relativePath) }
+        }
+        """#.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
+
+        let offenders = Self.dropping(
+            unplanted: ["type:SafeRelativePath", "type:PublishConfigValidator"],
+            from: try syncedPathJoinOffenders(in: [tmp]))
+        XCTAssertEqual(offenders, [
+            "Rogue.swift:3: let a = url.appendingPathComponent(item.path)",
+            #"Rogue.swift:4: let b = dir.appendingPathComponent("\(docId).json")"#,
+            "Rogue.swift:5: let c = url.appendingPathComponent(",
+            "Rogue.swift:14: let j = dir.appendingPathComponent(base)",
+            "Rogue.swift:17: let l = trashRoot.appendingPathComponent(trashId) // SafeRelativePath checked it above",
+            "Rogue.swift:18: let m = dir.appendingPathComponent(filename) // local-path:",
+        ])
+    }
+
+    // MARK: - A change takes the change form of the checker (tripwire 58, review round 2)
+
+    /// The file calls that CHANGE a path, and the argument labels that name
+    /// what they change (`_` for an unlabeled first argument). A copy's or a
+    /// move's SOURCE read is not a change, except a move's.
+    static let syncedPathChangeCalls: [(spelling: String, changes: Set<String>)] = [
+        ("write(", ["to"]), ("moveItem(", ["at", "to"]), ("copyItem(", ["to"]),
+        ("removeItem(", ["at"]), ("trashItem(", ["at"]), ("replaceItemAt(", ["_"]),
+        ("createFile(", ["atPath"]), ("createDirectory(", ["at", "atPath"]),
+        ("coordinatedWrite(", ["to"]), ("coordinatedMove(", ["from", "to"]),
+        ("executeCopy(", ["to"]), ("replaceFigureImage(", ["at"]),
+    ]
+
+    /// The READ form of the checker in a line's code: `SafeRelativePath.resolve(`
+    /// or a `resolvedProjectPath(` helper — lexical, so a folder linked out of
+    /// the project passes it. (`resolveForChange(`, `resolveFile(` and
+    /// `resolvedProjectPathToChange(` are the change forms and do not match.)
+    static func namesTheReadFormOfTheChecker(_ line: String) -> Bool {
+        let code = line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
+        return code.contains("SafeRelativePath.resolve(") || code.contains("resolvedProjectPath(")
+    }
+
+    /// A call's top-level arguments from just past its `(`: each label (`_`
+    /// for the unlabeled first, `?` for a later unlabeled one) and its text.
+    static func callArguments(in text: String, from start: String.Index) -> [(label: String, text: String)] {
+        var depth = 1
+        var parts: [String] = []
+        var current = ""
+        var cursor = start
+        while cursor < text.endIndex {
+            let c = text[cursor]
+            if "([{".contains(c) { depth += 1 }
+            if ")]}".contains(c) { depth -= 1; if depth == 0 { break } }
+            if c == ",", depth == 1 { parts.append(current); current = "" } else { current.append(c) }
+            cursor = text.index(after: cursor)
+        }
+        parts.append(current)
+        return parts.enumerated().map { index, part in
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let colon = trimmed.firstIndex(of: ":"),
+               trimmed[..<colon].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }),
+               !trimmed[..<colon].isEmpty,
+               trimmed[trimmed.index(after: colon)...].first != ":" {
+                return (String(trimmed[..<colon]), String(trimmed[trimmed.index(after: colon)...]))
+            }
+            return (index == 0 ? "_" : "?", trimmed)
+        }
+    }
+
+    /// Every change call in `text` whose changed argument reaches the checker's
+    /// READ form — inline, or through a local whose nearest definition (60
+    /// lines up) calls it. Comment lines are prose; a call's arguments are read
+    /// across up to four more lines. Returns `(1-based line, trimmed text)`.
+    static func readFormAtAChange(in text: String) -> [(line: Int, text: String)] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        func code(_ line: String) -> String {
+            line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
+        }
+        var hits: [(line: Int, text: String)] = []
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") { continue }
+            let lineCode = code(line)
+            let joined = lines[i..<min(lines.count, i + 5)].map(code).joined(separator: "\n")
+            var offends = false
+            for call in syncedPathChangeCalls {
+                var from = lineCode.startIndex
+                while let range = lineCode.range(of: call.spelling, range: from..<lineCode.endIndex) {
+                    from = range.upperBound
+                    if call.spelling == "write(", range.lowerBound > lineCode.startIndex,
+                       lineCode[lineCode.index(before: range.lowerBound)].isLetter { continue }
+                    let offset = lineCode.distance(from: lineCode.startIndex, to: range.upperBound)
+                    let start = joined.index(joined.startIndex, offsetBy: offset)
+                    for argument in callArguments(in: joined, from: start)
+                    where call.changes.contains(argument.label) {
+                        if namesTheReadFormOfTheChecker(argument.text) { offends = true; continue }
+                        for name in identifiers(inJoinArgument: argument.text) {
+                            if let found = syncedPathDefinition(of: name, in: lines, before: i),
+                               namesTheReadFormOfTheChecker(found.line) { offends = true }
+                        }
+                    }
+                }
+            }
+            if offends { hits.append((i + 1, trimmed)) }
+        }
+        return hits
+    }
+
+    private func readFormAtAChangeOffenders(in roots: [URL]) throws -> [String] {
+        var offenders: [String] = []
+        let fm = FileManager.default
+        for root in roots {
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for hit in Self.readFormAtAChange(in: text) {
+                    offenders.append("\(url.lastPathComponent):\(hit.line): \(hit.text)")
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Recurrence-tripper (report plan 6b Task 2, review round 2): a write,
+    /// copy destination, move, delete or directory creation takes its URL from
+    /// the checker's CHANGE form (`resolveForChange`, `resolveFile`,
+    /// `resolvedProjectPathToChange`), never from the lexical read form, which
+    /// lets a write through a folder linked out of the project. The `Document`
+    /// render and `Bootstrap` write to a URL handed in whole (lexical by ruling,
+    /// so a linked chapter opens and saves) and are not a join this reads.
+    func test_aChangeTakesTheChangeFormOfTheChecker() throws {
+        let offenders = try readFormAtAChangeOffenders(in: admissionRoots)
+        XCTAssertTrue(offenders.isEmpty,
+            "A write, move, copy destination or delete takes its URL from the checker's "
+            + "READ form (SafeRelativePath.resolve / resolvedProjectPath), which a folder "
+            + "linked out of the project passes (tripwire 58). Use resolveForChange / "
+            + "resolvedProjectPathToChange. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: a write, a move and a directory creation fed by the read form
+    /// fire, inline and through a local; a copy whose SOURCE is a read, the
+    /// change form, and a read of a read-form URL do not.
+    func test_theChangeFormCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-change-form-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try #"""
+        func f() throws {
+            let note = try store.resolvedProjectPath(path)
+            try text.write(to: note, atomically: true, encoding: .utf8)
+            try fm.moveItem(at: try SafeRelativePath.resolve(old, under: root),
+                            to: newURL)
+            try fm.createDirectory(at: try store.resolvedProjectPath(folder), withIntermediateDirectories: true)
+            let source = try store.resolvedProjectPath(src)
+            let dest = try store.resolvedProjectPathToChange(dst)
+            try fm.copyItem(at: source, to: dest)
+            let body = try String(contentsOf: note, encoding: .utf8)
+            try body.write(to: try store.resolvedProjectPathToChange(path), atomically: true, encoding: .utf8)
+        }
+        """#.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try readFormAtAChangeOffenders(in: [tmp]), [
+            "Rogue.swift:3: try text.write(to: note, atomically: true, encoding: .utf8)",
+            "Rogue.swift:4: try fm.moveItem(at: try SafeRelativePath.resolve(old, under: root),",
+            "Rogue.swift:6: try fm.createDirectory(at: try store.resolvedProjectPath(folder), withIntermediateDirectories: true)",
+        ])
     }
 }

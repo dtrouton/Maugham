@@ -33,6 +33,26 @@ final class FigureIngestTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, image.lastPathComponent, file: file, line: line)
     }
 
+    // Image figures live in the project's figures/ (report plan 6a Task 9),
+    // reached from every kind of document.
+
+    func test_aRootStoryReachesFiguresDirectly() throws {
+        try assertResolves(document: "story.md", research: "figures/chart.png",
+                           expected: "figures/chart.png")
+    }
+
+    func test_aManuscriptChapterClimbsOnceToFigures() throws {
+        try assertResolves(document: "manuscript/ch1.md", research: "figures/chart.png",
+                           expected: "../figures/chart.png")
+    }
+
+    func test_aCollectionPieceClimbsToTheProjectsFigures() throws {
+        try assertResolves(document: "pieces/01-one/one.md", research: "figures/chart.png",
+                           expected: "../../figures/chart.png")
+    }
+
+    // Research-backed lines written before keep their paths (spec §4.4).
+
     func test_aRootStoryReachesResearchDirectly() throws {
         try assertResolves(document: "story.md", research: "research/chart.png",
                            expected: "research/chart.png")

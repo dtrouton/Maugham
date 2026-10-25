@@ -67,7 +67,7 @@ final class ActorLoadTests: XCTestCase {
     }
 
     private func fileURL(for identity: DeviceIdentity) -> URL {
-        OpLogStore.opLogFileURL(
+        try! OpLogStore.opLogFileURL(
             forDocId: Self.docId, deviceSlug: identity.slug, in: projectURL)
     }
 
@@ -131,7 +131,7 @@ final class ActorLoadTests: XCTestCase {
                        "an op signs as the actor that wrote it")
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: OpLogStore.opLogFileURL(
+                atPath: try OpLogStore.opLogFileURL(
                     forDocId: Self.docId,
                     deviceSlug: DeviceSlug.make(from: "mcp"),
                     in: projectURL).path),
@@ -212,7 +212,7 @@ final class ActorLoadTests: XCTestCase {
         }
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: OpLogStore.opLogFileURL(
+                atPath: try OpLogStore.opLogFileURL(
                     forDocId: Self.docId,
                     deviceSlug: DeviceSlug.make(from: TaskDeriver.rebalanceSentinel),
                     in: projectURL).path),

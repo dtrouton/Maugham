@@ -12,7 +12,7 @@ public struct RestoreGeneration: Equatable, Sendable {
         self.builtAt = builtAt
     }
     /// The generation directory `<destination>/<id>`.
-    public var directory: URL { destination.appendingPathComponent(id) }
+    public var directory: URL { destination.appendingPathComponent(id) } // local-path: a generation folder the destination listing returned
 }
 
 public enum RestoreError: Error, Equatable {
@@ -28,7 +28,7 @@ public enum BackupRestore {
         for dest in destinations {
             let ids = (try? BackupWriter.generationIds(at: dest)) ?? []
             for id in ids {
-                let manifestURL = dest.appendingPathComponent(id)
+                let manifestURL = dest.appendingPathComponent(id) // local-path: a generation folder the destination listing returned
                     .appendingPathComponent(BackupWriter.manifestName)
                 let builtAt = (try? JSONDecoder().decode(
                     MerkleManifest.self, from: Data(contentsOf: manifestURL)))?.builtAt  // adr-0018-ok: backup Merkle manifest read, not manuscript

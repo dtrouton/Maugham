@@ -309,16 +309,45 @@ public enum Permit: Equatable, Hashable, Sendable {
     /// changes the manuscript on any device, and that refusal has nothing to
     /// do with whose piece it is. Manuscript TEXT only — a disposition, a
     /// checkpoint, a task in such a piece is not §4.5's question.
+    ///
+    /// **A figure of such a piece is the piece** (report plan 6b Task 10,
+    /// Denver's ruling R-D4, which closes R-6a-10): a figure's content is
+    /// signed on the manuscript-text rung (ruling D-c), so the shape reaches
+    /// it through `startersPiece(of:)` — and both askers, the partition and
+    /// `LocalWritePermit`, follow without a second spelling.
     public func startsAPieceNobodyHasClaimed(
         _ what: Written, in documentClass: DocumentClass, actor: DeviceActor?
     ) -> Bool {
         guard mayOpenAPieceOfTheirOwn(actor: actor),
               case let .author(scope) = self,
               case let .pieces(mine) = scope,
-              case let .piece(id) = documentClass, !mine.contains(id),
+              let id = Permit.startersPiece(of: documentClass), !mine.contains(id),
               Permit.group(of: what) == .manuscriptText
         else { return false }
         return true
+    }
+
+    /// **The piece whose recorded starter governs this class** (report plan
+    /// 6b Task 10, Denver's ruling R-D4: *a figure follows its piece's posture
+    /// exactly, starter yield included*) — the piece itself, or the piece a
+    /// figure belongs to; nil for every other class.
+    ///
+    /// The one spelling of *which piece the Option A facts are asked of*:
+    /// §4.5's shape above, the write side's starter arms
+    /// (`LocalWritePermitBuilder`) and the read side's starter and
+    /// `unowned` questions (`OpLogStore.permitContext`). A figure of the whole
+    /// book (`piece: nil`) has no starter and an unregistered figure has no
+    /// piece yet, so both answer nil — the older rule exactly. A piece's
+    /// statement and its translations are NOT here: their own classes take no
+    /// Option A arm (the statement pane asks its own posture).
+    public static func startersPiece(of documentClass: DocumentClass) -> String? {
+        switch documentClass {
+        case .piece(let id): return id
+        case .figure(_, let piece): return piece
+        case .pieceStatement, .translation, .projectStatement, .projectStream,
+             .inbox, .unplaceable, .unregisteredFigure:
+            return nil
+        }
     }
 
     /// **Does manuscript text written under this permit CLAIM an unclaimed
@@ -419,8 +448,9 @@ public enum Written: Equatable, Hashable, Sendable {
 ///
 /// Coarse on purpose. It is not a diagnosis, it is the noun in a sentence the
 /// writer reads — *Sam's Mac wrote 2 changes to the manuscript, which a
-/// reviewer can't* — so the arms are the six things §4.4 names, plus a last
-/// resort for a combination that never occurs in a book anybody wrote.
+/// reviewer can't* — so the arms are the things §4.4 names, a figure's content
+/// (report plan 6a), and a last resort for a combination that never occurs in
+/// a book anybody wrote.
 public enum RefusedWhat: String, Equatable, Hashable, Sendable, CaseIterable {
     /// Words in a manuscript document.
     case manuscriptText
@@ -441,6 +471,10 @@ public enum RefusedWhat: String, Equatable, Hashable, Sendable, CaseIterable {
     case task
     /// A translation record.
     case translation
+    /// A table's or an image's content — a figure's own stream (report plan
+    /// 6a). Its ops are the piece's content without being words, so *written
+    /// into the manuscript* would name the wrong thing.
+    case figure
     /// Anything else — a checkpoint bookmark, or a combination of kind and
     /// stream that no writer's Mac produces.
     case other
@@ -470,7 +504,9 @@ extension Permit {
     /// reader checking the ladder against the code should be able to ask which
     /// group a kind is in without reading the permission logic around it.
     public enum WrittenGroup: Equatable, Hashable, Sendable, CaseIterable {
-        /// Folds into the derived words. Exactly `Deriver.appliesToManuscript`.
+        /// Folds into the derived words — exactly `Deriver.appliesToManuscript` —
+        /// plus the figure kinds, which are the piece's content without being
+        /// words (ruling D-c).
         case manuscriptText
         /// Making a comment, a query, a suggestion or a craft note.
         case annotationCreation
@@ -550,6 +586,17 @@ extension Permit {
         case .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return .task
+        case .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
+            // Ruling D-c: a figure's content is the piece's content, so it is
+            // signed on the manuscript-text rung — the piece author's, or a
+            // whole-book author's, never a reviewer's or the assistant's —
+            // although `Deriver.appliesToManuscript` says no, because none of
+            // these folds into words. The one place the two disagree, and
+            // deliberately: the deriver's question is what becomes prose, this
+            // switch's is who may sign it.
+            return .manuscriptText
         case .unknown:
             return .unreadable
         }
@@ -620,6 +667,7 @@ extension Permit {
     /// One row of the ladder: what this permit may write, in this class.
     private func row(_ group: WrittenGroup, _ documentClass: DocumentClass) -> Allowed {
         if case .unplaceable = documentClass { return unplacedRow(group) }
+        if case .unregisteredFigure(let id) = documentClass { return unregisteredFigureRow(group, id) }
         switch group {
         case .annotationCreation, .ownAnnotation, .inboxRow:
             // **The reviewer row**, and therefore everybody's: the rungs above
@@ -687,12 +735,33 @@ extension Permit {
         }
     }
 
+    /// **The row for a figure whose registry record has not arrived**
+    /// (`DocumentClass.unregisteredFigure`, ruling R-6a-12) — `unplacedRow`'s
+    /// question asked of a figure: *could knowing the record's piece change
+    /// the answer?*
+    ///
+    /// The answer is first read as a figure of the whole book
+    /// (`.figure(id, piece: nil)`), the narrowest placement a record could
+    /// give. Where that is `.yes` — a book author, the reviewer row — no
+    /// record could take it away. Where it is a refusal for an author of some
+    /// pieces, the record could name one of hers, so the line is **held**
+    /// (`.cannotJudge`) and re-judged when the record lands: an older picture
+    /// of the manifest must not set aside what the arriving record would
+    /// apply. A reviewer's refusals do not turn on any piece and stand.
+    private func unregisteredFigureRow(_ group: WrittenGroup, _ id: String) -> Allowed {
+        let asTheBooks = row(group, .figure(id: id, piece: nil))
+        if case .author(.pieces) = self, case .no = asTheBooks { return .cannotJudge }
+        return asTheBooks
+    }
+
     /// **Whether this permit authors this class** — the scope test, asked once.
     ///
     /// A book author authors everything. An author of some pieces authors a
-    /// piece in her list, that piece's own statement and that piece's
-    /// translations — and nothing without a piece behind it, which is what
-    /// keeps her off the project's statements. A reviewer authors nothing.
+    /// piece in her list, that piece's own statement, that piece's
+    /// translations and the figures that belong to it — and nothing without a
+    /// piece behind it, which is what keeps her off the project's statements
+    /// and off a figure of the whole book (`.figure(_, piece: nil)`, Denver's
+    /// ruling of 2026-10-24). A reviewer authors nothing.
     public func authors(_ documentClass: DocumentClass) -> Bool {
         switch self {
         case .reviewer, .unjudgeable:
@@ -871,7 +940,10 @@ extension Permit {
              .annotationEdit, .annotationWithdraw, .annotationReopen,
              .annotationStet, .annotationTriage, .taskStatusChange,
              .taskPriorityChange, .taskParentChange, .taskBodyEdit,
-             .taskArchive, .unknown:
+             .taskArchive, .unknown,
+             .figureCreate, .figureParked, .figureResumed, .figureCellSet,
+             .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
             return false
         }
     }
@@ -913,19 +985,31 @@ extension Permit {
     /// its ops are `typingBurst`s like any other, so without this the writer
     /// would be told somebody wrote in their manuscript when what happened was
     /// an edit to the book's intent.
+    ///
+    /// A figure's stream makes one difference too: what is written there is a
+    /// table's or an image's content (`RefusedWhat.figure`), not words in the
+    /// manuscript. A note settled on a figure is still a disposition, and a
+    /// checkpoint there is still *something else*.
     static func refused(_ group: WrittenGroup, _ documentClass: DocumentClass) -> RefusedWhat {
         let onAStatement: Bool
+        let onAFigure: Bool
         switch documentClass {
         case .pieceStatement, .projectStatement, .unplaceable:
             // `.unplaceable` is a statement whose SUBJECT is unreadable, not a
             // stream of unknown kind: if it is refused at all, *a statement* is
             // the true word for what was refused.
             onAStatement = true
+            onAFigure = false
+        case .figure, .unregisteredFigure:
+            onAStatement = false
+            onAFigure = true
         case .piece, .projectStream, .translation, .inbox:
             onAStatement = false
+            onAFigure = false
         }
         switch group {
         case .manuscriptText:
+            if onAFigure { return .figure }
             return onAStatement ? .statement : .manuscriptText
         case .disposition:
             return onAStatement ? .statement : .disposition

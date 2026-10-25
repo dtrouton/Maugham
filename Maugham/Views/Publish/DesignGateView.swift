@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 import AppKit
 
 /// **What the writer looks at before they say yes** (publish-department P4 Task
@@ -44,8 +45,10 @@ enum DesignGate {
             let cause = error.trimmingCharacters(in: .whitespacesAndNewlines)
             return .failed(cause: cause.isEmpty ? noCauseGiven : error)
         case .pages(let path, _, _):
-            guard pagesExist else { return .missing(path: path) }
-            return .pages(pagesURL(path, in: projectURL))
+            guard pagesExist, let url = pagesURL(path, in: projectURL) else {
+                return .missing(path: path)
+            }
+            return .pages(url)
         }
     }
 
@@ -54,10 +57,11 @@ enum DesignGate {
     /// the gate and the book's preview cannot come to disagree about where a PDF
     /// is. (Not that function: it takes a `Publication`, and a sample is not
     /// one — it is never in the catalog and never has a version.)
-    static func pagesURL(_ path: String, in projectURL: URL) -> URL {
+    /// A relative path that leaves the project answers nil (tripwire 58).
+    static func pagesURL(_ path: String, in projectURL: URL) -> URL? {
         path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
-            : projectURL.appendingPathComponent(path)
+            : try? SafeRelativePath.resolve(path, under: projectURL)
     }
 
     /// **The base-templates caveat** (P4 Global Constraint 3), or `nil` for a
@@ -663,7 +667,10 @@ struct DesignGateView: View {
             pagesExist = true       // nothing to look for; the panel is `.notSampled`
             return
         }
-        let url = DesignGate.pagesURL(path, in: projectURL)
+        guard let url = DesignGate.pagesURL(path, in: projectURL) else {
+            pagesExist = false
+            return
+        }
         pagesExist = FileManager.default.fileExists(atPath: url.path)
     }
 }

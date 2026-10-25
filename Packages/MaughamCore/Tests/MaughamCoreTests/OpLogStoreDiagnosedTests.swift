@@ -46,7 +46,7 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
 
         // Manually append a truncated final line to the per-device file.
         let slug = DeviceSlug.make(from: "m")
-        let fileURL = OpLogStore.opLogFileURL(
+        let fileURL = try OpLogStore.opLogFileURL(
             forDocId: "doc-1", deviceSlug: slug, in: tmp)
         // Encode a full op line, CHAIN it onto the file's head — a crash
         // mid-append leaves a truncated line that already names its `prev`,
@@ -95,7 +95,7 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         // Two device files, each with one valid op + one garbage line.
         for (device, opId) in [("m", "01HZK01"), ("p", "01HZK02")] {
             let slug = DeviceSlug.make(from: device)
-            let fileURL = OpLogStore.opLogFileURL(
+            let fileURL = try OpLogStore.opLogFileURL(
                 forDocId: "doc-1", deviceSlug: slug, in: tmp)
             let op = Op(opId: opId, docId: "doc-1", at: Date(timeIntervalSince1970: 0),
                         device: device, session: "s", kind: .typingBurst,
@@ -134,7 +134,7 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
 
         let bad = DeviceSlug.unsafeForTesting("bad")
-        let badURL = OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
+        let badURL = try OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
         try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
 
         do {
@@ -150,7 +150,7 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         let store = OpLogStore(projectURL: tmp)
         try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
         let bad = DeviceSlug.unsafeForTesting("bad")
-        let badURL = OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
+        let badURL = try OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
         try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
 
         do {
@@ -176,7 +176,7 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         let store = OpLogStore(projectURL: tmp)
         try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
         let bad = DeviceSlug.unsafeForTesting("bad")
-        let badURL = OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
+        let badURL = try OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
         try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
 
         let result = await store.loadDiagnosedPartial(docId: "doc-1")

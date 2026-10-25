@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Shared `{title}-v{version}{label_suffix}.{ext}` interpolation for
 /// PDFCompiler, EPUBCompiler and DOCXCompiler.
@@ -148,9 +149,26 @@ enum OutputFilenameBuilder {
     /// Always-on sanitization: strip path separators, null bytes, and any
     /// leading dots. Other control chars are also stripped (Unicode
     /// categories `C` — formatting/control).
+    /// **Where an export lands**: `filename` (built from the synced publish
+    /// config) must be one plain file name (`SafeRelativePath.isPlainFileName`),
+    /// and `<outputsDirectory>/<filename>` must stay inside the project
+    /// (`SafeRelativePath.resolve`, tripwire 58). Lexical on purpose: an
+    /// Exports folder the writer linked to Dropbox is the writer's choice of
+    /// output and keeps working. Each compiler asks this before its run, so a
+    /// name that cannot land fails before tectonic, not after it.
+    static func destination(
+        filename: String, outputsDirectory: String, projectURL: URL
+    ) throws -> URL {
+        guard SafeRelativePath.isPlainFileName(filename) else {
+            throw SafeRelativePath.PathError.notAPlainFileName(filename)
+        }
+        return try SafeRelativePath.resolve("\(outputsDirectory)/\(filename)", under: projectURL)
+    }
+
     static func sanitizeForFilesystem(_ input: String) -> String {
         var s = input
             .replacingOccurrences(of: "/", with: "")
+            .replacingOccurrences(of: "\\", with: "")
             .replacingOccurrences(of: "\0", with: "")
         // Drop any leading dots so the file isn't hidden on macOS.
         while s.hasPrefix(".") { s.removeFirst() }

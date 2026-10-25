@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// The gate's three verbs: `approve` puts a staged design round onto the live
 /// publish tree, `revert` takes it back, and `finalize` accepts it for good.
@@ -95,7 +96,7 @@ enum ProposalPromotion {
         else { throw Error.noLivePublishTree(projectURL.path) }
 
         let store = DesignProposalStore(projectURL: projectURL)
-        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        let backupRoot = try backupDirectory(id: proposal.id, projectURL: projectURL)
         // A standing backup means the live templates are already held against
         // this proposal. Rebuilding it would capture the PROMOTED bytes as the
         // originals and lose the only way back.
@@ -125,7 +126,7 @@ enum ProposalPromotion {
                 backup.created.append(promotion.relativePath)
                 continue
             }
-            let held = backupFiles.appendingPathComponent(promotion.relativePath)
+            let held = try inside(backupFiles, promotion.relativePath)
             try fm.createDirectory(
                 at: held.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fm.copyItem(at: promotion.destination, to: held)
@@ -168,7 +169,7 @@ enum ProposalPromotion {
         try await refuseWhileCompiling(jobManager)
 
         let fm = FileManager.default
-        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        let backupRoot = try backupDirectory(id: proposal.id, projectURL: projectURL)
         guard let backup = readManifest(at: backupRoot) else {
             throw Error.noBackupToRestore(id: proposal.id)
         }
@@ -176,11 +177,11 @@ enum ProposalPromotion {
         let backupFiles = backupRoot.appendingPathComponent("files", isDirectory: true)
 
         for relativePath in backup.replaced {
-            let held = backupFiles.appendingPathComponent(relativePath)
+            let held = try inside(backupFiles, relativePath)
             guard fm.fileExists(atPath: held.path) else {
                 throw Error.backupFileMissing(relativePath)
             }
-            let live = livePublish.appendingPathComponent(relativePath)
+            let live = try inside(livePublish, relativePath)
             try fm.createDirectory(
                 at: live.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: live.path) { try fm.removeItem(at: live) }
@@ -188,7 +189,7 @@ enum ProposalPromotion {
         }
 
         for relativePath in backup.created {
-            let live = livePublish.appendingPathComponent(relativePath)
+            let live = try inside(livePublish, relativePath)
             // Absent is the expected case for a promotion that died before
             // reaching this file — there is nothing to undo about a write that
             // never happened.
@@ -236,7 +237,7 @@ enum ProposalPromotion {
         // proposal approved as its LAST step, so a caller holding the value it
         // passed to `approve` still reads `.pending`.
         let current = try store.load(id: proposal.id)
-        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        let backupRoot = try backupDirectory(id: proposal.id, projectURL: projectURL)
         guard FileManager.default.fileExists(atPath: backupRoot.path) else {
             throw Error.noBackupToFinalize(id: proposal.id)
         }
@@ -271,8 +272,8 @@ enum ProposalPromotion {
             .filter { $0 != excludedID }
             .sorted()
             .first {
-                fm.fileExists(
-                    atPath: backupDirectory(id: $0, projectURL: projectURL).path)
+                (try? backupDirectory(id: $0, projectURL: projectURL))
+                    .map { fm.fileExists(atPath: $0.path) } ?? false
             }
     }
 
@@ -295,8 +296,8 @@ enum ProposalPromotion {
         projectURL.appendingPathComponent(".maugham/publish", isDirectory: true)
     }
 
-    static func backupDirectory(id: String, projectURL: URL) -> URL {
-        DesignProposalStore(projectURL: projectURL).backupDir(id: id)
+    static func backupDirectory(id: String, projectURL: URL) throws -> URL {
+        try DesignProposalStore(projectURL: projectURL).backupDir(id: id)
     }
 
     private struct Promotion {
@@ -314,22 +315,31 @@ enum ProposalPromotion {
     /// one place a path that got past that guard would write outside the
     /// publish tree. `SampleCompiler.assembleScratch` keeps the same check for
     /// the same reason.
+    /// `relativePath` under `folder`, on disk (`SafeRelativePath.resolve`;
+    /// tripwire 58): a proposal's file list and a backup's manifest are synced
+    /// files, so each path is resolved inside its tree before any copy, write
+    /// or delete.
+    private static func inside(_ folder: URL, _ relativePath: String) throws -> URL {
+        do { return try SafeRelativePath.resolveForChange(relativePath, under: folder) } catch {
+            throw Error.stagedPathEscapesThePublishTree(relativePath)
+        }
+    }
+
     private static func resolve(
         proposal: DesignProposalStore.Proposal, projectURL: URL, livePublish: URL
     ) throws -> [Promotion] {
         let fm = FileManager.default
-        let stagedDirectory = DesignProposalStore(projectURL: projectURL)
+        let stagedDirectory = try DesignProposalStore(projectURL: projectURL)
             .proposalDir(id: proposal.id)
             .appendingPathComponent("files", isDirectory: true)
         let root = livePublish.standardizedFileURL.path
 
         return try proposal.filePaths.map { relativePath in
-            let destination = livePublish
-                .appendingPathComponent(relativePath).standardizedFileURL
+            let destination = try inside(livePublish, relativePath).standardizedFileURL
             guard destination.path.hasPrefix(root + "/") else {
                 throw Error.stagedPathEscapesThePublishTree(relativePath)
             }
-            let source = stagedDirectory.appendingPathComponent(relativePath)
+            let source = try inside(stagedDirectory, relativePath)
             guard fm.fileExists(atPath: source.path) else {
                 throw Error.stagedFileMissing(relativePath)
             }

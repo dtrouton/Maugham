@@ -138,7 +138,7 @@ extension ProjectStore {
         }
         do {
             let doc = try await Document.load(
-                url: url.appendingPathComponent(path),
+                url: try resolvedProjectPath(path),
                 actor: .author,
                 session: "restore-\(UUID().uuidString.prefix(8))",
                 presenter: documentStore?.presenter)

@@ -399,8 +399,32 @@ public final class OpLogStore {
         docId: String, amendmentPermits: AmendmentPermits? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
+        let loaded = try await loadDiagnosed(docId: docId, amendmentPermits: amendmentPermits, streams: false)
+        return (loaded.ops, loaded.diagnostics, loaded.provenance)
+    }
+
+    /// **`loadDiagnosed`, plus each device's own stream in APPEND order**
+    /// (report plan 6b Task 8): `streams[device]` is the op ids that device's
+    /// files hold, in the order its lines were appended — its sealed segments
+    /// by index, then its tail (`OpLogFiles.appendOrdered`) — where `ops` is
+    /// the merged, id-sorted history. What a reader had read of a stream is a
+    /// prefix of this order, not of the ids (a device's ids need not rise).
+    public func loadDiagnosedStreams(
+        docId: String, amendmentPermits: AmendmentPermits? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
+                       streams: [String: [String]])
+    {
+        try await loadDiagnosed(docId: docId, amendmentPermits: amendmentPermits, streams: true)
+    }
+
+    /// The one read behind both: `streams` built only when asked for.
+    private func loadDiagnosed(
+        docId: String, amendmentPermits: AmendmentPermits?, streams wantStreams: Bool
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
+                       streams: [String: [String]])
+    {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
-        guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance()) }
+        guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance(), [:]) }
         let table = try await trust()
         // **The permit partition's two document-level answers** (P3a Task 5).
         // One context for the whole document: its class is resolved at most
@@ -412,6 +436,7 @@ public final class OpLogStore {
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []
+        var orderByFile: [URL: [String]] = [:]
         // One watch for the whole document: a stream is a run of segments plus
         // a tail, and whether its remembered line is still anywhere in it can
         // only be asked once every file has been seen (P3a Task 9).
@@ -426,11 +451,21 @@ public final class OpLogStore {
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
+            if wantStreams { orderByFile[url] = result.appendOrder }
         }
         foreign.settle()
+        var streams: [String: [String]] = [:]
+        let deviceOf = wantStreams
+            ? Dictionary(merged.map { ($0.opId, $0.device) }, uniquingKeysWith: { a, _ in a }) : [:]
+        for url in wantStreams ? OpLogFiles.appendOrdered(urls, docId: docId) : [] {
+            for id in orderByFile[url] ?? [] {
+                if let device = deviceOf[id] { streams[device, default: []].append(id) }
+            }
+        }
         return (OpLogClassifier.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
-                OpLogProvenance(files: files, ownStreams: mine))
+                OpLogProvenance(files: files, ownStreams: mine),
+                streams)
     }
 
     /// **The lines one holder is waiting under, as the walk itself answers
@@ -793,15 +828,15 @@ public final class OpLogStore {
             opLogLoadLog.notice("""
                 An op naming a device that is not this device's was written \
                 unchained to \
-                \(Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: self.projectURL)
-                    .lastPathComponent, privacy: .public): \
+                \((try? Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: self.projectURL))?
+                    .lastPathComponent ?? op.docId, privacy: .public): \
                 its device (\(op.device, privacy: .public)) is not this one, so \
                 the file has more than one writer and must not be rewritten.
                 """)
             return
         }
 
-        let url = Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: projectURL)
+        let url = try Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: projectURL)
         let count = (linesSinceSeal[url] ?? 0) + 1
         linesSinceSeal[url] = count
         guard count >= Self.chainSealInterval else { return }
@@ -875,7 +910,7 @@ public final class OpLogStore {
     public func sealChain(docId: String) async throws -> Bool {
         var sealed = false
         for actor in identities.all {
-            let url = Self.opLogFileURL(
+            let url = try Self.opLogFileURL(
                 forDocId: docId, deviceSlug: actor.slug, in: projectURL)
             guard (linesSinceSeal[url] ?? 0) > 0 else { continue }
             if try await sealChain(docId: docId, by: actor) { sealed = true }
@@ -895,11 +930,12 @@ public final class OpLogStore {
     /// mints its key if this device has never used it, so the caller should
     /// name one it means.
     ///
-    /// Answers false — never throws — when the actor has no file here.
+    /// Answers false when the actor has no file here; throws for a doc id
+    /// that cannot name a file (`SafeRelativePath.requireDocId`).
     @discardableResult
     public func sealChain(docId: String, actor: DeviceActor) async throws -> Bool {
         let identity = identities[actor]
-        let url = Self.opLogFileURL(
+        let url = try Self.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
         let sealed = try await sealChain(docId: docId, by: identity)
@@ -922,7 +958,7 @@ public final class OpLogStore {
     /// actor that owns it. Nil signer is the plain, unchained store.
     private func store(
         forDocId docId: String, deviceSlug: DeviceSlug, signer: DeviceIdentity?
-    ) -> JSONLAppendStore<Op> {
+    ) throws -> JSONLAppendStore<Op> {
         // The WRITE path asks one question of the table and it is not a trust
         // question: which keys are this device's own. A stranger's line in MY
         // file is a quarantine whatever the registry says, because ADR 0012
@@ -930,7 +966,7 @@ public final class OpLogStore {
         // So the KEYLESS table — the registry is not read on a write path.
         let mine = TrustResolution.keyless(mine: identities)
         return JSONLAppendStore<Op>(
-            fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
+            fileURL: try Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
             sortedBy: { $0.opId < $1.opId },
@@ -977,7 +1013,7 @@ public final class OpLogStore {
 
     public nonisolated static func opLogFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, in projectURL: URL
-    ) -> URL { OpLogFiles.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL) }
+    ) throws -> URL { try OpLogFiles.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL) }
 
     public nonisolated static func docId(
         fromOpLogFilename name: String
@@ -993,7 +1029,7 @@ public final class OpLogStore {
 
     public nonisolated static func segmentFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, index: Int, in projectURL: URL
-    ) -> URL { OpLogFiles.segmentFileURL(
+    ) throws -> URL { try OpLogFiles.segmentFileURL(
         forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL) }
 
     public nonisolated static func segmentSignatureURL(
@@ -1012,9 +1048,10 @@ public final class OpLogStore {
         trust: TrustTable? = nil, permit: PermitContext? = nil,
         foreign: ForeignStreamWatch? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
-        try await OpLogClassifier.loadFileDiagnosed(
+        let read = try await OpLogClassifier.loadFileDiagnosed(
             url: url, presenter: presenter, identities: identities, state: state,
             trust: trust, permit: permit, foreign: foreign)
+        return (read.ops, read.diagnostics, read.provenance)
     }
 
     public nonisolated static func provenance(
@@ -1026,11 +1063,11 @@ public final class OpLogStore {
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL,
         identities: LocalIdentities? = .current, state: OpLogDeviceState? = .shared,
-        trust: TrustTable? = nil, statements: [Statement]? = nil,
+        trust: TrustTable? = nil, facts: DocumentClass.Facts? = nil,
         amendmentPermits: AmendmentPermits? = nil
     ) throws -> [Op] { try OpLogClassifier.loadSyncMerged(
         forDocId: docId, in: projectURL, identities: identities, state: state,
-        trust: trust, statements: statements, amendmentPermits: amendmentPermits) }
+        trust: trust, facts: facts, amendmentPermits: amendmentPermits) }
 
     nonisolated static func mergeSortedDedup(
         _ ops: [Op]

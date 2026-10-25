@@ -14,6 +14,8 @@ public enum SafeRelativePath {
         case absolutePath(String)
         case emptyComponent(String)
         case escapesRoot(String)
+        case notAPlainFileName(String)
+        case notADocId(String)
 
         public var errorDescription: String? {
             switch self {
@@ -25,6 +27,10 @@ public enum SafeRelativePath {
                 return "Path contains an empty component: \(path)"
             case .escapesRoot(let path):
                 return "Path escapes the project root: \(path)"
+            case .notAPlainFileName(let name):
+                return "Not one plain file name: \(name.debugDescription)"
+            case .notADocId(let id):
+                return "Not a document id that can name a file: \(id.debugDescription)"
             }
         }
     }
@@ -61,15 +67,10 @@ public enum SafeRelativePath {
     /// on disk, a symlink pointing outside `root` will pass this check, and
     /// a caller that then opens the returned URL for I/O can still be
     /// redirected outside `root` at open time. A caller for whom that
-    /// distinction matters should re-verify after resolving: call
-    /// `resolvingSymlinksInPath()` on the returned URL and re-check
-    /// containment immediately before the actual read/write/move. None of
-    /// its call sites need that (count them with a grep rather than trusting
-    /// a number here) — they
-    /// all operate within a project tree the user already has local write
-    /// access to, so planting such a symlink requires the same access this
-    /// check exists to withhold from an untrusted sidecar value. The A5
-    /// audit (2026-07-11) scored this gap Low and deferred it.
+    /// distinction matters asks `resolveForChange` instead. Reads, opens,
+    /// listings and previews stay lexical on purpose: a writer's own link to
+    /// a folder elsewhere (a research folder on Dropbox) keeps working, and a
+    /// read moves nothing (R-D3 covers writes, copies, moves and deletes).
     public static func resolve(_ relative: String, under root: URL) throws -> URL {
         guard !relative.isEmpty else { throw PathError.emptyPath }
         guard !relative.hasPrefix("/"), !relative.contains("\0") else {
@@ -92,5 +93,102 @@ public enum SafeRelativePath {
         }
 
         return root.appendingPathComponent(relative)
+    }
+
+    /// **Is `name` one plain file name** — non-empty, no `/`, `\` or NUL,
+    /// and not dot-leading (so never `.` or `..`, and never a hidden file)?
+    /// Such a name joined onto a folder stays in that folder. The one rule
+    /// for a name that arrives in synced data (an op payload, a manifest
+    /// record) and becomes a file name: `FigureImageRef.isAPlainFileName`
+    /// and `FigureRender.renderPath` ask it.
+    public static func isPlainFileName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix(".")
+            && !name.contains("/") && !name.contains("\\") && !name.contains("\0")
+    }
+
+    /// **`name`, when it is one plain file name** (`isPlainFileName`), for a
+    /// synced id or name joined onto a folder as one component — a trash
+    /// entry id, a sent copy's export id, a snapshot file. Throws
+    /// `.notAPlainFileName`.
+    @discardableResult
+    public static func requirePlainFileName(_ name: String) throws -> String {
+        guard isPlainFileName(name) else { throw PathError.notAPlainFileName(name) }
+        return name
+    }
+
+    /// **One plain file name inside one project-relative folder**:
+    /// `<root>/<folder>/<name>`. Throws `.notAPlainFileName` unless
+    /// `isPlainFileName(name)`, and whatever `resolve(_:under:)` throws for
+    /// `folder`. Unlike `resolve`, the folder is also checked on disk: its
+    /// deepest existing ancestor is resolved through any symlinks and the
+    /// rest of the folder appended, and a result outside `root` throws
+    /// `.escapesRoot` — so `figures` linked outside the root is refused even
+    /// when `figures/sub` does not exist yet, and a file written to the
+    /// returned URL lands inside the root. The returned URL is built from the
+    /// original `root`.
+    public static func resolveFile(
+        named name: String, in folder: String, under root: URL
+    ) throws -> URL {
+        guard isPlainFileName(name) else { throw PathError.notAPlainFileName(name) }
+        let folderURL = try resolve(folder, under: root)
+        var rootPrefix = root.resolvingSymlinksInPath().standardizedFileURL.path
+        if !rootPrefix.hasSuffix("/") { rootPrefix += "/" }
+        guard (canonicalPath(of: folderURL) + "/").hasPrefix(rootPrefix) else {
+            throw PathError.escapesRoot(folder)
+        }
+        return folderURL.appendingPathComponent(name)
+    }
+
+    /// **A path a write, copy, move, rename or delete will change**:
+    /// `resolve`'s answer, plus its FOLDER chain checked on disk — the parent's
+    /// deepest existing ancestor resolved through symlinks, the rest appended —
+    /// and a result outside `root` throws `.escapesRoot`. The leaf itself is
+    /// never followed: moving or trashing a link moves the link, and an atomic
+    /// write replaces it, so neither reaches the link's target. So a synced
+    /// path through a folder linked out of the project is refused, while a
+    /// link entry inside the project can be renamed, moved or trashed as a
+    /// link (tripwire 58).
+    public static func resolveForChange(_ relative: String, under root: URL) throws -> URL {
+        let resolved = try resolve(relative, under: root)
+        var rootPrefix = root.resolvingSymlinksInPath().standardizedFileURL.path
+        if !rootPrefix.hasSuffix("/") { rootPrefix += "/" }
+        let folder = resolved.standardizedFileURL.deletingLastPathComponent()
+        guard (canonicalPath(of: folder) + "/").hasPrefix(rootPrefix) else {
+            throw PathError.escapesRoot(relative)
+        }
+        return resolved
+    }
+
+    /// `url` with its deepest existing ancestor resolved through symlinks and
+    /// the not-yet-existing remainder appended. An entry counts as existing
+    /// when it is there itself, even a symlink whose target is missing
+    /// (`attributesOfItem` does not follow the last link).
+    private static func canonicalPath(of url: URL) -> String {
+        var existing = url.standardizedFileURL
+        var missing: [String] = []
+        let fm = FileManager.default
+        while (try? fm.attributesOfItem(atPath: existing.path)) == nil, existing.path != "/" {
+            missing.insert(existing.lastPathComponent, at: 0)
+            existing = existing.deletingLastPathComponent()
+        }
+        var resolved = existing.resolvingSymlinksInPath().standardizedFileURL
+        for component in missing { resolved.appendPathComponent(component) }
+        return resolved.standardizedFileURL.path
+    }
+
+    /// **`id`, when it becomes part of a file name**: today the op log's
+    /// `<docId>.<slug>.jsonl` and sealed segments (`OpLogFiles`) and a
+    /// quarantine record (`IntegrityQuarantine.record`). The rule of
+    /// `isPlainFileName` plus no `.` at all: a doc id comes from synced data
+    /// (a manifest record, an op, an MCP argument), one carrying a `/` or a
+    /// leading `..` would climb out of its folder, and the read side
+    /// (`OpLogFiles.docId(fromOpLogFilename:)`, which cuts at the first dot)
+    /// already assumes an id has no dot. Every id the apps mint passes
+    /// (`doc-<hex>`, `scene-<hex>`, `d_…`, `fig-…`, `stmt-…`, `res-…`,
+    /// `__project__`). Throws `.notADocId`.
+    @discardableResult
+    public static func requireDocId(_ id: String) throws -> String {
+        guard isPlainFileName(id), !id.contains(".") else { throw PathError.notADocId(id) }
+        return id
     }
 }

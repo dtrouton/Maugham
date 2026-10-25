@@ -65,8 +65,8 @@ final class TranslationChainTests: XCTestCase {
             state: state ?? myState, in: projectURL)
     }
 
-    private func fileURL(of identity: DeviceIdentity) -> URL {
-        TranslationStore.fileURL(forDocId: docId, language: "es",
+    private func fileURL(of identity: DeviceIdentity) throws -> URL {
+        try TranslationStore.fileURL(forDocId: docId, language: "es",
                                  deviceSlug: identity.slug, in: projectURL)
     }
 
@@ -85,7 +85,7 @@ final class TranslationChainTests: XCTestCase {
     private func walk(_ identity: DeviceIdentity,
                       trusting identities: LocalIdentities? = nil) throws
     -> OpLogChain.Verification {
-        let url = fileURL(of: identity)
+        let url = try fileURL(of: identity)
         let trusted = (identities ?? mine).fingerprints
         return OpLogChain.verify(
             bytes: try bytes(of: identity),
@@ -226,7 +226,7 @@ final class TranslationChainTests: XCTestCase {
     func test_underTheSignerAloneTheSameFileReadsAsAnotherDevices() async throws {
         try await write([record("aaaa", "Hola")], as: mine.translator)
 
-        let url = fileURL(of: mine.translator)
+        let url = try fileURL(of: mine.translator)
         let narrow = OpLogChain.verify(
             bytes: try bytes(of: mine.translator),
             trusted: { $0 == self.mine.author.fingerprint },
@@ -322,7 +322,7 @@ final class TranslationChainTests: XCTestCase {
         // Cut the file back to its first batch, then chain a line of somebody
         // else's onto that batch's seal: the head is now neither the head this
         // device remembers nor the one before it, which is the cut-short case.
-        let url = fileURL(of: mine.translator)
+        let url = try fileURL(of: mine.translator)
         let kept = Array(try lines(of: mine.translator).prefix(2))
         var rebuilt = Data()
         for line in kept {
@@ -352,7 +352,7 @@ final class TranslationChainTests: XCTestCase {
     func test_aForeignLineIsHeldBackAndRecordedUnderTheManuscriptsDocId() async throws {
         try await write([record("aaaa", "Hola")], as: mine.translator)
 
-        let url = fileURL(of: mine.translator)
+        let url = try fileURL(of: mine.translator)
         let intruder = try encoded(record("zzzz", "no soy yo"))
         let handle = try FileHandle(forWritingTo: url)
         try handle.seekToEnd()

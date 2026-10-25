@@ -174,7 +174,7 @@ final class PermitLoadTests: XCTestCase {
         bytes.append(seal)
         bytes.append(0x0A)
 
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId ?? self.docId, deviceSlug: identity.slug,
             in: projectURL)
         try bytes.write(to: url, options: .atomic)
@@ -202,7 +202,7 @@ final class PermitLoadTests: XCTestCase {
             bytes.append(0x0A)
             head = OpLogChain.lineHash(line)
         }
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -229,7 +229,7 @@ final class PermitLoadTests: XCTestCase {
             bytes.append(0x0A)
             head = OpLogChain.lineHash(line)
         }
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identity.slug, in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
@@ -1072,7 +1072,7 @@ final class PermitLoadTests: XCTestCase {
         // Sam's key, sealed by Sam — in a file named for somebody else's slug.
         let bytes = try fileBytes(by: sam.author, ops: [op("hers", by: sam.author)])
         try bytes.write(
-            to: OpLogStore.opLogFileURL(
+            to: try OpLogStore.opLogFileURL(
                 forDocId: docId, deviceSlug: root.assistant.slug, in: projectURL),
             options: .atomic)
 
@@ -1136,7 +1136,7 @@ final class PermitLoadTests: XCTestCase {
         try writeRootRecord()
         try admitSam()
         try samsFile([op("before", by: sam.author), op("after", by: sam.author)])
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         try writeEvent("a", kind: .roleChanged, role: Permit.reviewerRole,
                        mark: try mark(of: url, cuttingAfterLineAt: 0))
@@ -1442,7 +1442,7 @@ final class PermitLoadTests: XCTestCase {
     /// of its own at the end.
     @discardableResult
     private func appendToSamsFile(_ ops: [Op]) throws -> URL {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         var bytes = try Data(contentsOf: url)
         let existing = bytes
@@ -1832,7 +1832,7 @@ final class PermitLoadTests: XCTestCase {
         try await samsStore.append(op("02", by: sam.author))
 
         let mark = PermitMark(try await seenMark())
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
         let lines = try Data(contentsOf: url)
             .split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
@@ -1885,7 +1885,7 @@ final class PermitLoadTests: XCTestCase {
         try writeRootRecord()
         try declareSam()
         let url = try samsFile([op("01", by: sam.author)])
-        let elsewhere = OpLogStore.opLogFileURL(
+        let elsewhere = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: root.author.slug, in: projectURL)
         try Data().write(
             to: elsewhere.deletingLastPathComponent()
@@ -2590,9 +2590,10 @@ final class PermitLoadTests: XCTestCase {
 
     /// The op ids a Mac applies, through BOTH doors, which must agree.
     private func appliedOpIds(
-        on mac: Mac, carrier: AmendmentPermits? = nil,
+        on mac: Mac, carrier: AmendmentPermits? = nil, docId: String? = nil,
         file: StaticString = #filePath, line: UInt = #line
     ) async throws -> [String] {
+        let docId = docId ?? self.docId
         let coordinated = try await store(on: mac).loadDiagnosed(
             docId: docId, amendmentPermits: carrier)
         let sync = try OpLogStore.loadSyncMerged(
@@ -2605,7 +2606,9 @@ final class PermitLoadTests: XCTestCase {
 
     /// This document as a manifest item, starting where `startedBy` says —
     /// or, nil, a piece made before this build.
-    private func writeManifest(startedBy: String?) throws {
+    private func writeManifest(
+        startedBy: String?, figures: [FigureRecord]? = nil
+    ) throws {
         let manifest = ProjectManifest(
             type: .collection, title: "A book", author: "Denver",
             created: Date(timeIntervalSince1970: 0),
@@ -2615,7 +2618,8 @@ final class PermitLoadTests: XCTestCase {
                     id: docId, title: "Hers", type: .document,
                     path: "pieces/hers.md", startedBy: startedBy),
             ],
-            research: [])
+            research: [],
+            figures: figures)
         try ProjectManifest.makeEncoder().encode(manifest).write(
             to: projectURL.appendingPathComponent(ProjectManifest.fileName),
             options: .atomic)
@@ -2654,9 +2658,10 @@ final class PermitLoadTests: XCTestCase {
             signedBy: root.author, in: projectURL)
     }
 
-    private func permit(on mac: Mac) -> LocalWritePermit {
-        store(on: mac).localWritePermit {
-            OpLogStore.documentClass(forDocId: self.docId, in: self.projectURL)
+    private func permit(on mac: Mac, docId: String? = nil) -> LocalWritePermit {
+        let docId = docId ?? self.docId
+        return store(on: mac).localWritePermit {
+            OpLogStore.documentClass(forDocId: docId, in: self.projectURL)
         }
     }
 
@@ -3140,6 +3145,205 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(adas.allows(.op(.typingBurst)), .yes, "premise: the whole book")
         XCTAssertEqual(adas.unsettledStarter,
                        .init(deviceId: sam.author.deviceId, name: "Sam"))
+    }
+
+    // MARK: - Ruling R-D4 (report plan 6b Task 10): a figure follows its piece
+
+    /// A figure of this document's piece, and one of the whole book.
+    private let figureId = "fig-0000000a"
+    private let bookFigureId = "fig-0000000b"
+    private var figures: [FigureRecord] {
+        [FigureRecord(id: figureId, name: "cashflow", kind: .table,
+                      piece: docId, path: "figures/cashflow.csv"),
+         FigureRecord(id: bookFigureId, name: "map", kind: .table,
+                      piece: nil, path: "figures/map.csv")]
+    }
+
+    /// Sam's figure edit, in her own figure stream.
+    @discardableResult
+    private func samsFigureEdit(_ opId: String, in figure: String? = nil) throws -> URL {
+        let figure = figure ?? figureId
+        return try writeFile(
+            by: sam.author,
+            ops: [op(opId, by: sam.author, kind: .figureCellSet, docId: figure)],
+            docId: figure)
+    }
+
+    /// **Her figure in a piece she started follows the piece, on both Macs**
+    /// — Denver's ruling R-D4, closing R-6a-10. On her own Mac she may edit
+    /// it and is waiting for the claim, and her figure line is applied; on
+    /// the root's Mac the line is held and the root asked, and the root's
+    /// hand yields to her there exactly as on the piece's text. Write side
+    /// and read side agree on both Macs.
+    func test_herFigureInAPieceSheStartedFollowsThePieceOnBothMacs() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId, figures: figures)
+        try samsFile([op("herOpening", by: sam.author)])
+        try samsFigureEdit("herCell")
+        let samsMac = mac(sam, "sam-mac")
+
+        let herCarrier = AmendmentPermits()
+        let onHers = try await appliedOpIds(on: samsMac, carrier: herCarrier, docId: figureId)
+        XCTAssertEqual(onHers, ["herCell"], "her figure, on her own Mac")
+        XCTAssertTrue(herCarrier.whoStartedAPiece.isEmpty)
+        let rootsCarrier = AmendmentPermits()
+        let onRoots = try await appliedOpIds(on: rootsMac, carrier: rootsCarrier, docId: figureId)
+        XCTAssertEqual(onRoots, [], "held on the root's Mac until it answers")
+        XCTAssertEqual(rootsCarrier.whoStartedAPiece, [samPerson], "and the root is asked")
+        XCTAssertTrue(OpLogQuarantine.records(forDocId: figureId, in: projectURL)
+            .filter { $0.kind == .lines }.isEmpty, "held, never set aside")
+
+        let hers = permit(on: samsMac, docId: figureId)
+        XCTAssertEqual(hers.allows(.op(.figureCellSet)), .yes)
+        XCTAssertTrue(hers.writesAsItsStarter)
+        XCTAssertTrue(hers.isWaitingToBeClaimed)
+        XCTAssertNil(hers.startedHere, "a figure has no opening to mint")
+        let herPosture = PostureDoor.posture(
+            forDocId: figureId, in: projectURL, using: store(on: samsMac))
+        XCTAssertEqual(herPosture.reason, .waitingToBeClaimed)
+        XCTAssertTrue(herPosture.allows(.editFigure))
+
+        let roots = permit(on: rootsMac, docId: figureId)
+        XCTAssertEqual(roots.unsettledStarter,
+                       .init(deviceId: sam.author.deviceId, name: "Sam"),
+                       "the starter's yield reaches her figure")
+        let yielded = PostureDoor.postureYieldingToItsStarter(
+            forDocId: figureId, in: projectURL, using: store(on: rootsMac))
+        XCTAssertEqual(yielded.reason, .yieldingToItsStarter("Sam"))
+        XCTAssertFalse(yielded.allows(.editFigure), "a stray cell edit cannot claim it")
+        XCTAssertTrue(PostureDoor.posture(permit: roots).allows(.editFigure),
+                      "Edit Anyway: the book author's hand, unrestricted")
+    }
+
+    /// **The same posture as the piece, in every Option A fixture, for every
+    /// actor** — her Mac in a piece she started, the root's Mac over it, a
+    /// piece with no starter, a piece somebody else started — asked through
+    /// both of Core's posture entries. And a figure of the whole book takes
+    /// none of it: there is no piece, so no starter.
+    func test_aFiguresPostureIsItsPiecesAcrossTheOptionAFixtures() throws {
+        try samIsAnAuthorOfSomePieces()
+        let ada = try admitAda()
+        let samsMac = mac(sam, "sam-mac")
+        let fixtures: [(String, String?, Mac)] = [
+            ("her Mac, a piece she started", sam.author.deviceId, samsMac),
+            ("the root's Mac, a piece she started", sam.author.deviceId, rootsMac),
+            ("a piece with no starter", nil, samsMac),
+            ("a piece somebody else started", ada.author.deviceId, samsMac),
+        ]
+        for (name, starter, onMac) in fixtures {
+            try writeManifest(startedBy: starter, figures: figures)
+            for actor in DeviceActor.allCases {
+                let entries: [(String, (String) -> Posture)] = [
+                    ("posture", { PostureDoor.posture(
+                        forDocId: $0, in: self.projectURL, as: actor,
+                        using: self.store(on: onMac)) }),
+                    ("yielding", { PostureDoor.postureYieldingToItsStarter(
+                        forDocId: $0, in: self.projectURL, as: actor,
+                        using: self.store(on: onMac)) }),
+                ]
+                for (entry, ask) in entries {
+                    let piece = ask(docId)
+                    let figure = ask(figureId)
+                    for verb in Posture.Verb.allCases {
+                        XCTAssertEqual(figure.allows(verb), piece.allows(verb),
+                                       "\(name), \(actor), \(entry): \(verb)")
+                    }
+                    XCTAssertEqual(figure.reason, piece.reason, "\(name), \(actor), \(entry)")
+                }
+            }
+        }
+        try writeManifest(startedBy: sam.author.deviceId, figures: figures)
+        XCTAssertFalse(permit(on: samsMac, docId: bookFigureId).writesAsItsStarter)
+        XCTAssertEqual(permit(on: samsMac, docId: bookFigureId).allows(.op(.figureCellSet)),
+                       .no(.figure), "a figure of the whole book is no piece of hers")
+        XCTAssertNil(permit(on: rootsMac, docId: bookFigureId).unsettledStarter,
+                     "and nobody started it, so nobody is yielded to")
+    }
+
+    /// **A claim closes the figure's arms with the piece's** — a book author's
+    /// text in the piece. Her figure door shuts and her figure line is set
+    /// aside by the same read that sets her words aside; the root's yield on
+    /// the figure lifts. Write side and read side agree after the claim too.
+    func test_aClaimOnThePieceClosesItsFiguresArms() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId, figures: figures)
+        try samsFile([op("herOpening", by: sam.author)])
+        try samsFigureEdit("herCell")
+        let samsMac = mac(sam, "sam-mac")
+        XCTAssertTrue(permit(on: samsMac, docId: figureId).writesAsItsStarter, "premise")
+
+        try writeFile(by: root.author, ops: [op("rootsText", by: root.author)])
+
+        let hers = permit(on: samsMac, docId: figureId)
+        XCTAssertFalse(hers.writesAsItsStarter)
+        XCTAssertEqual(hers.allows(.op(.figureCellSet)), .no(.figure))
+        let onHers = try await appliedOpIds(on: samsMac, docId: figureId)
+        XCTAssertEqual(onHers, [], "the claim sets her figure line aside, as her words")
+        XCTAssertNil(permit(on: rootsMac, docId: figureId).unsettledStarter,
+                     "the root has claimed it: there is nothing left to protect")
+    }
+
+    /// **A book author's figure edit claims the piece as her text would**
+    /// (Denver's revised ruling R-D4, final fix wave): the root, after *Edit
+    /// Anyway*, edits only the piece's figure — no word of its text. The piece
+    /// is claimed: the starter's held lines are set aside, her arms close on
+    /// the piece and its figure, and the root's yield lifts. Read side and
+    /// write side agree, both asking the same `unownedPiece`.
+    func test_aBookAuthorsFigureEditClaimsThePieceAsATextEditWould() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId, figures: figures)
+        try samsFile([op("herOpening", by: sam.author)])
+        try samsFigureEdit("herCell")
+        let samsMac = mac(sam, "sam-mac")
+        XCTAssertTrue(permit(on: samsMac).writesAsItsStarter, "premise: unclaimed")
+        XCTAssertNotNil(permit(on: rootsMac).unsettledStarter, "premise: the root yields")
+
+        try writeFile(
+            by: root.author,
+            ops: [op("rootsCell", by: root.author, kind: .figureCellSet, docId: figureId)],
+            docId: figureId)
+
+        XCTAssertFalse(permit(on: samsMac).writesAsItsStarter, "the piece is claimed")
+        XCTAssertFalse(permit(on: samsMac, docId: figureId).writesAsItsStarter)
+        let onHers = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(onHers, [], "her words are set aside, as a text claim would")
+        let herFigure = try await appliedOpIds(on: samsMac, docId: figureId)
+        XCTAssertEqual(herFigure, ["rootsCell"], "her figure line too; the root's stands")
+        XCTAssertNil(permit(on: rootsMac).unsettledStarter, "nothing left to yield to")
+        XCTAssertNil(permit(on: rootsMac, docId: figureId).unsettledStarter)
+    }
+
+    /// **Somebody else started the piece, so her figure line there is refused,
+    /// unasked, on every Mac** — the closing smoke's F1 (*refuse, don't
+    /// ask*), reached through the figure's piece's starter.
+    func test_herFigureLineInAPieceSomebodyElseStartedIsRefusedOnEveryMac()
+        async throws
+    {
+        try samIsAnAuthorOfSomePieces()
+        let ada = try admitAda()
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: ada.author.fingerprint, name: "Ada’s Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: ada.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 8)),
+            signedBy: ada.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(ada.author.fingerprint).a", kind: .admitted,
+                subject: ada.author.fingerprint, role: Permit.authorRole,
+                scope: Permit.bookScope, pieces: [], mark: [:],
+                at: Date(timeIntervalSince1970: 42), by: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeManifest(startedBy: ada.author.deviceId, figures: figures)
+        try samsFigureEdit("herCell")
+
+        for onMac in [mac(sam, "sam-mac"), rootsMac] {
+            let carrier = AmendmentPermits()
+            let applied = try await appliedOpIds(on: onMac, carrier: carrier, docId: figureId)
+            XCTAssertEqual(applied, [])
+            XCTAssertTrue(carrier.whoStartedAPiece.isEmpty, "nobody is asked")
+        }
+        XCTAssertFalse(permit(on: mac(sam, "sam-mac"), docId: figureId).writesAsItsStarter)
     }
 
     // MARK: - One manifest decode per ask (P3 plan 3 Task 6)

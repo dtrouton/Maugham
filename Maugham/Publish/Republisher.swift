@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - Errors
 
@@ -531,11 +532,12 @@ public struct Republisher {
 
         // Move output from stage to real project's Exports/.
         let stageOutputURL = URL(fileURLWithPath: outputPath)
-        let exports = projectURL.appendingPathComponent(
-            snap.config.outputs.directory, isDirectory: true)
+        let dest = try OutputFilenameBuilder.destination(
+            filename: stageOutputURL.lastPathComponent,
+            outputsDirectory: snap.config.outputs.directory, projectURL: projectURL)
+        let exports = dest.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: exports, withIntermediateDirectories: true)
-        let dest = exports.appendingPathComponent(stageOutputURL.lastPathComponent)
         if FileManager.default.fileExists(atPath: dest.path) {
             // The minted version is unique against the catalog, so nothing this
             // republish knows about should be here — which is exactly why the

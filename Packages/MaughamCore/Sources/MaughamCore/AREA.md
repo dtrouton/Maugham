@@ -62,7 +62,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The register an
 
 ### Permits and posture
 Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The permit", "The load seam", "The unsigned door, scope and a piece of her own"); read them before editing here.
-- `Permit.swift` — the rungs, `Permit.allows` (the one table over `OpKind`), load-emission and judging-actor rules (tripwires 44, 48).
+- `Permit.swift` — the rungs, `Permit.allows` (the one table over `OpKind`), load-emission and judging-actor rules, and `startersPiece(of:)`, the piece whose starter a piece's or figure's class asks (tripwires 44, 48).
 - `PermitEvent.swift` — the signed registry record of a permit change, with its mark and snapshot.
 - `PermitMark.swift` — where a permit changed, as chain positions every device can check.
 - `PermitTimeline.swift` — one person's permits in order; the check reads this, never the record's fields (tripwire 43).
@@ -139,7 +139,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ProjectTargets.swift` — optional word, deadline and page targets.
 - `StructureItem.swift` — a binder node (group or document), including `startedBy` and pass states.
 - `TreeNode.swift` — the id-keyed tree protocol and the generic `TreeWalk` walkers.
-- `ResearchItem.swift` — a research tree node and its identity-bearing `ResearchRole`.
+- `ResearchItem.swift` — a research tree node, its identity-bearing `ResearchRole` and its `AssetKind` (a CSV or TSV is `.table`).
 - `CitationInfo.swift` — a research item's citation details and `CitationKey`, which validates and suggests `[@key]` keys.
 - `CitationStyle.swift` — `CitationLibrary` (a research tree's citable sources) and `CitationStyle`, the author–date in-text label and References entry.
 - `PieceKind.swift` — a Collection piece: loose document or reference to another project.
@@ -159,6 +159,36 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `TranslationDeriver.swift` — source hash, fresh/stale/missing status and the translated document view.
 - `TranslationConstructSkeleton.swift` — structural fingerprint that warns when a translation drops Markdown constructs.
 
+### Tables and formulas
+- `TableIDs.swift` — row and column ids, the cell key and the 8-character id minter.
+- `CellValue.swift` — a cell's value, formula error codes and cell content.
+- `CellFormat.swift` — number, date and negative formats and cell alignment.
+- `FigureTable.swift` — a table's rows and columns as ordered id slots with tombstones, its cells, header/total rows; the model the op log derives.
+- `Formula.swift` — a cell's formula syntax tree; refs stored by row and column id, research refs by position, figures and research items by id.
+- `FormulaNames.swift` — the names a formula is typed and shown with: figure name and research title to id when read, id to current name when shown.
+- `A1.swift` — A1 notation: column letters, `$` absolute markers.
+- `FormulaParser.swift` — parses formula text (Excel precedence), renders it as A1 by live position (a deleted range edge shrinks inward), shifts it for fill.
+- `FormulaEvaluator.swift` — evaluates a formula over an environment of cell and range readers: Excel's coercion, comparison and error rules.
+- `FormulaFunctions.swift` — the function table (totals, rounding, IF/IFERROR, the …IF criteria with wildcards), one dictionary per group.
+- `ExcelRounding.swift` — ROUND, ROUNDUP and ROUNDDOWN on the value's 15-significant-digit decimal form.
+- `FinanceFunctions.swift` — NPV, IRR, MIRR, PV, FV, PMT, NPER, RATE and CAGR to Excel's values; IRR and RATE fall back to bisection where Newton fails.
+- `DateSerial.swift` — Excel's 1900 date serials as integer calendar arithmetic: serial and components, ISO strings, month addition clamped to month end.
+- `DateFunctions.swift` — YEAR, MONTH, EDATE, XNPV and XIRR; XIRR shares the finance solver.
+- `DependencyGraph.swift` — the workbook cell address and which formula cells read which cells: transitive dependents, cycle-finding components in evaluation order, all iterative.
+- `Workbook.swift` — a document's tables evaluated together: live refs between tables, research refs read through a pin source, recalculation of only what reads a change, cycles as `#CIRC!`, the NPV first-flow note.
+- `TableLocale.swift` — the book's language for a table: separators, currency symbol, day-first order, financial-year start month; region from the tag, else a fallback.
+- `CellDisplay.swift` — a value and its format as the string the writer sees: Excel-rounded first, number, percent, currency, compact and date styles in the locale, financial-year labels.
+- `CellInput.swift` — typed or pasted cell text read in the book's language: formulas, text escapes, numbers, percentages, currency and dates, with the format Excel would suggest.
+- `TableCSV.swift` — a table as CSV: the clean values render, research copies that keep formulas, RFC 4180 reading with separator detection, and import with formulas resolved to ids and unreadable ones reported.
+- `ResearchTableSidecar.swift` — what a Research table's CSV cannot hold, at `.maugham/research-tables/<item id>.json`: the parked figure it copies, its name, caption, header and total rows, and formats and widths by position; tolerant.
+- `FigureOp.swift` — a figure op's content on the shared envelope (`Op.figure`): the figure kind, cell, structure, settings, image and research-pin changes, and which fields each figure op kind needs.
+- `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
+- `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed.
+- `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed, each figure's research pins indexed for the workbook.
+- `PinStatus.swift` — research pins: what a figure reads through one (a Research table, a parked figure), each source's status (current, changed, missing, unpinned), Compare's old and new values, the pins a refresh or a formula's entry writes, and `FigurePinChoice`, the one rule for which pin counts and wins.
+- `FigureReturnDiff.swift` — a changed working copy's return to its parked figure: kept ids, three-way against what the parker read; `FigureReturnMatch.swift` matches its rows and columns.
+- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin), and a visit's inverses as one all-or-nothing undo.
+
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.
 - `InboxManifest.swift` — the per-device inbox manifest path builder.
@@ -176,7 +206,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ULID.swift` — monotonic sortable 26-character ids.
 - `StableHash.swift` — launch-stable FNV-1a hashing for on-disk ids; never `hashValue`.
 - `ISO8601Fast.swift` — hand parser for the two ISO 8601 shapes Maugham writes.
-- `SafeRelativePath.swift` — resolves an untrusted project-relative path, refusing escapes from the root.
+- `SafeRelativePath.swift` — the one path checker for synced paths: resolves an untrusted project-relative path, refusing escapes from the root (lexical, to read); `resolveForChange` also checks the folder chain on disk (to write, move or delete); also a plain file name, one file in a folder, a doc id in a file name. Tripwire 58.
+- `ContentHash.swift` — a file's SHA-256 prefix, the name a figure image carries.
 - `DotfileScan.swift` — name-based dotfile test for scans that must ignore the BSD hidden flag.
 - `TestWorkspace.swift` — dev-only throwaway root that fences mutating test MCP tools.
 - `IntegrityChecks.swift` — pure consistency checks over already-loaded ops, checkpoints and filenames.
@@ -217,6 +248,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - The unsigned door's decisions each have one home (tripwire 49, `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly` and its siblings); a `Posture` is built only in `PostureDoor` (tripwire 51, `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`).
 - The held-line and schema call sites in `OpLogDeviceState.swift` (`acknowledgedLosses`, `expectedStreams(`) and `StreamCensus` are counted per file (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`): a new call site updates `countedLists`.
 - The person key's doors are counted in `PersonKeyCensusTests` (tripwire 53).
+- A path or file name from synced data reaches a file call only through `SafeRelativePath`, or a line marked `// local-path:` with its reason (tripwire 58, `TripwireGrepTests.test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath`).
 - Run `./scripts/test.sh core` after any change here, then both app schemes; tests build under `TestTemp`.
 - Every manifest written to disk goes through `ProjectManifest.encodeForDisk`, which stamps the content floor so an older build refuses rather than strips v10 content; narrowing raises only to `narrowingSchemaVersion` (`TripwireGrepTests.test_manifestBytesForDiskComeFromOneFunction`).
 
@@ -266,7 +298,7 @@ Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the
 - `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files (see the first Rules bullet), and the op log's behaviour.
 - ADR 0032 (signed op log), ADR 0015 (schema evolution), ADR 0019 (clean derived .md), ADR 0022 (grammar ledger)
 - `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share and why it lives here.
-- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51 and 53–56: the tripwires the Rules above cite.
+- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51, 53–56 and 58: the tripwires the Rules above cite.
 - Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). Worth knowing: `DocBudgetTests` (this map's census), `SchemaEvolutionToleranceTests`, `FountainTokenizerDifferentialTests` (the parser against its frozen reference), `MarkdownBlockParserTests`, `OpLogChainTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; the app-side censuses are in `MaughamTests/TripwireGrepTests.swift` and `MaughamTests/PersonKeyCensusTests.swift`.
 - Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md` (the phone's consumers).
 - No history file: this guide was written in the template and nothing has been moved out of it.

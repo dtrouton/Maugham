@@ -9,7 +9,9 @@ public enum IntegrityQuarantine {
     /// `.maugham/conflicts/quarantine/<docId>.<contentHash>.<stamp>.jsonl`. Returns
     /// the file URL, or nil if there was nothing to quarantine **or an identical
     /// record was already quarantined for this doc**. `stamp` is injected (no
-    /// wall-clock in core) so the file name is deterministic in tests.
+    /// wall-clock in core) so the file name is deterministic in tests. Throws
+    /// `SafeRelativePath.PathError.notADocId` for a doc id that fails
+    /// `SafeRelativePath.requireDocId`, writing nothing.
     ///
     /// **Content dedup (audit N1):** the same op-log line stays torn forever (the
     /// log is append-only and never repaired), so this is called on *every* load of
@@ -27,6 +29,9 @@ public enum IntegrityQuarantine {
         stamp: String
     ) throws -> URL? {
         guard !skipped.isEmpty else { return nil }
+        // The id becomes part of the file name: one that could climb out of
+        // the quarantine folder is refused (the caller logs it).
+        let fileId = try SafeRelativePath.requireDocId(docId)
         let dir = projectURL.appendingPathComponent(".maugham/conflicts/quarantine", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let body = skipped.map { line in
@@ -36,7 +41,7 @@ public enum IntegrityQuarantine {
         // Content-addressed prefix so repeated loads of the same persistent tear
         // collapse onto one file instead of accumulating.
         let contentHash = StableHash.fnv1a64Hex(body)
-        let prefix = "\(docId).\(contentHash)."
+        let prefix = "\(fileId).\(contentHash)."
         let fm = FileManager.default
         if let existing = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
            existing.contains(where: { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "jsonl" }) {

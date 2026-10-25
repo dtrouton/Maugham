@@ -111,12 +111,12 @@ struct ProjectPractice: Equatable, Sendable {
 
         let documents: [Document]
         let isScreenplay: Bool
-        /// The manifest's statements, for the permit partition's own question
-        /// about where each stream sits (P3a Task 5). Carried here for the
+        /// The manifest's statements and figures, for the permit partition's
+        /// own question about where each stream sits (P3a Task 5). Carried here for the
         /// reason everything else in this type is: a walk over thirty closed
         /// documents must not decode the manifest thirty times, and this walk
         /// already holds one.
-        var statements: [Statement] = []
+        var facts: DocumentClass.Facts = .empty
     }
 
     // MARK: - Derivation
@@ -159,7 +159,7 @@ struct ProjectPractice: Equatable, Sendable {
             // silent: the id goes into `unreadableDocIds`.
             guard let ops = try? OpLogStore.loadSyncMerged(
                 forDocId: item.id, in: projectURL, trust: trust,
-                statements: plan.statements)
+                facts: plan.facts)
             else {
                 unreadable.append(item.id)
                 continue
@@ -326,6 +326,6 @@ extension ProjectPractice.Plan {
                 Document(id: $0.id, title: $0.title, path: $0.path)
             },
             isScreenplay: store.manifest.type.primaryFormat.isScreenplay,
-            statements: store.manifest.statements)
+            facts: DocumentClass.Facts(store.manifest))
     }
 }

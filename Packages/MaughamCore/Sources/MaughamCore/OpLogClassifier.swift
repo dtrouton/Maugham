@@ -17,6 +17,13 @@ public enum OpLogClassifier {
     /// beside a segment) — so the coordinated reader and the synchronous one
     /// can call the same function and cannot disagree about which ops a
     /// document is made of. Only the coordinated one performs the side effects.
+    /// A file's ops: deduplicated and sorted by id, as every reader takes
+    /// them, with the order the file held them in (`appendOrder`).
+    static func parseOps(_ bytes: Data) -> (elements: [Op], diagnostics: ParseDiagnostics, order: [String]) {
+        let parsed = JSONLAppendStore<Op>.parse(bytes: bytes, dedupKey: { $0.opId })
+        return (parsed.elements.sorted { $0.opId < $1.opId }, parsed.diagnostics, parsed.elements.map(\.opId))
+    }
+
     struct FileClassification {
         let ops: [Op]
         let diagnostics: ParseDiagnostics
@@ -57,6 +64,16 @@ public enum OpLogClassifier {
         /// disagreement between them is a stream the memory expects and the
         /// mark can never name, which is a root's verb refusing for ever.
         let wholeSegmentDigest: String?
+        /// **The applied ops' ids in the order the file holds them** — its
+        /// append order, where `ops` is sorted by id (report plan 6b Task 8:
+        /// what a reader had read of a stream is a prefix of this).
+        var appendOrder: [String] = []
+
+        func ordered(_ order: [String]) -> FileClassification {
+            var copy = self
+            copy.appendOrder = order
+            return copy
+        }
     }
 
     /// `permit` is the P3a partition's two document-level answers (spec §4.1,
@@ -202,9 +219,7 @@ public enum OpLogClassifier {
         let settled = partitioningByPermit(
             readmitted, url: url, trust: trust, permit: permit)
 
-        let parsed = JSONLAppendStore<Op>.parse(
-            bytes: JSONLAppendStore<Op>.applied(settled, whole: bytes),
-            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        let parsed = parseOps(JSONLAppendStore<Op>.applied(settled, whole: bytes))
 
         return FileClassification(
             ops: parsed.elements,
@@ -216,7 +231,7 @@ public enum OpLogClassifier {
             adoptedHead: adopted,
             verifiedSegmentDigest: nil,
             // A live tail is not a segment and carries no digest at all.
-            wholeSegmentDigest: nil)
+            wholeSegmentDigest: nil).ordered(parsed.order)
     }
 
     /// **What a revocation keeps** — `RevocationSplit`'s answer applied to a
@@ -357,8 +372,7 @@ public enum OpLogClassifier {
         // no memory at all.
         if settled, mayJudge, attributable == nil { settled = false }
 
-        let parsedAll = JSONLAppendStore<Op>.parse(
-            bytes: jsonl, dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        let parsedAll = parseOps(jsonl)
         if settled {
             // Per-line skips inside a segment only matter when the container
             // itself verified (otherwise the container record covers it) — and
@@ -389,9 +403,7 @@ public enum OpLogClassifier {
                     built.verification, url: url, trust: trust, permit: permit,
                     fileSegmentDigest: digest, settledByKey: built.key)
                 if partitioned != built.verification {
-                    let read = JSONLAppendStore<Op>.parse(
-                        bytes: JSONLAppendStore<Op>.applied(partitioned, whole: jsonl),
-                        dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+                    let read = parseOps(JSONLAppendStore<Op>.applied(partitioned, whole: jsonl))
                     return FileClassification(
                         ops: read.elements,
                         diagnostics: ParseDiagnostics(skipped: skipped),
@@ -401,7 +413,7 @@ public enum OpLogClassifier {
                             trust: trust),
                         verification: partitioned,
                         adoptedHead: nil, verifiedSegmentDigest: toRemember,
-                        wholeSegmentDigest: digest)
+                        wholeSegmentDigest: digest).ordered(read.order)
                 }
             }
             let lines = nonEmptyLineCount(jsonl)
@@ -417,7 +429,7 @@ public enum OpLogClassifier {
                 // whether by its own signature or by this device's memory of
                 // its digest, which is the SAME claim one load later. Under
                 // the mark sweep, which passes no state, the two coincide.
-                wholeSegmentDigest: digest)
+                wholeSegmentDigest: digest).ordered(parsedAll.order)
         }
 
         // **The fallback walk judges by the TABLE too** (P2b Task 10).
@@ -449,9 +461,7 @@ public enum OpLogClassifier {
         let verification = partitioningByPermit(
             readmitted, url: url, trust: trust, permit: permit,
             fileSegmentDigest: digest)
-        let read = JSONLAppendStore<Op>.parse(
-            bytes: JSONLAppendStore<Op>.applied(verification, whole: jsonl),
-            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        let read = parseOps(JSONLAppendStore<Op>.applied(verification, whole: jsonl))
         if decoded.isVerified {
             skipped.append(contentsOf: read.diagnostics.skipped)
         }
@@ -469,7 +479,7 @@ public enum OpLogClassifier {
             wholeSegmentDigest: digest.flatMap {
                 !verification.lines.isEmpty && verification.lines.allSatisfy(StreamPositions.wasSeen)
                     ? $0 : nil
-            })
+            }).ordered(read.order)
     }
 
     /// How many non-blank lines these bytes hold — counted, never SPLIT.
@@ -591,12 +601,12 @@ public enum OpLogClassifier {
         identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil,
         trust: TrustTable? = nil, permit: PermitContext? = nil,
         foreign: ForeignStreamWatch? = nil
-    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance, appendOrder: [String]) {
         loadFileObserverForTesting?()
         guard let bytes = try OpLogStore.readCoordinated(url: url, presenter: presenter) else {
             return ([], ParseDiagnostics(),
                     FileProvenance(name: url.lastPathComponent,
-                                   isSealedSegment: url.pathExtension == OpLogSegment.fileExtension))
+                                   isSealedSegment: url.pathExtension == OpLogSegment.fileExtension), [])
         }
         let classified = classify(
             url: url, bytes: bytes, state: state, trust: trust, permit: permit)
@@ -649,7 +659,7 @@ public enum OpLogClassifier {
                     """)
             }
         }
-        return (classified.ops, classified.diagnostics, classified.provenance)
+        return (classified.ops, classified.diagnostics, classified.provenance, classified.appendOrder)
     }
 
     /// The project root a `.maugham/ops/<file>` URL sits under.
@@ -787,7 +797,7 @@ public enum OpLogClassifier {
     /// function called twice, and `OpLogVerifiedLoadTests` pins it anyway,
     /// because this is the reader MCP's `read_document` and the Practice walk
     /// see a closed manuscript through.
-    /// `statements` is the manifest's, for a caller LOOPING over a book: the
+    /// `facts` is the manifest's, for a caller LOOPING over a book: the
     /// permit partition resolves a `DocumentClass` per document, and a caller
     /// that already holds a manifest must not make this decode one per chapter
     /// (P3a Task 5). Nil reads it off disk, lazily, and only where some line's
@@ -797,7 +807,7 @@ public enum OpLogClassifier {
         identities: LocalIdentities? = .current,
         state: OpLogDeviceState? = .shared,
         trust: TrustTable? = nil,
-        statements: [Statement]? = nil,
+        facts: DocumentClass.Facts? = nil,
         amendmentPermits: AmendmentPermits? = nil
     ) throws -> [Op] {
         // Resolved here when the caller did not hand one over, so this reader
@@ -811,7 +821,7 @@ public enum OpLogClassifier {
         // context for the document, so its class is resolved at most once
         // however many files its history is spread over.
         let permit = OpLogStore.permitContext(
-            forDocId: docId, in: projectURL, trust: table, statements: statements,
+            forDocId: docId, in: projectURL, trust: table, facts: facts,
             amendments: amendmentPermits)
         var ops: [Op] = []
         for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {

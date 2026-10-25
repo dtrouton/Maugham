@@ -41,7 +41,7 @@ public enum ReadPreviewPageTool: MCPTool {
         let entry = try resolveProject(params.projectID, in: registry)
         let projectURL = entry.url
 
-        let previewDir = projectURL.appendingPathComponent(
+        let previewDir = projectURL.appendingPathComponent( // local-path: PreviewCompiler's fixed folder
             PreviewCompiler.previewSubpath, isDirectory: true)
         let fm = FileManager.default
 

@@ -227,7 +227,7 @@ final class ClosedHeldLinesTests: XCTestCase {
         XCTAssertNil(store.heldLinesByDevice()[stranger.fingerprint])
 
         try await writeStrangerFile(opIds: ["02", "03"])
-        store.presenterDidChangeSubitem(at: OpLogStore.opLogFileURL(
+        store.presenterDidChangeSubitem(at: try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
         await store.flushPendingAnnounceForTesting()
         await settle(store)
@@ -308,6 +308,98 @@ final class ClosedHeldLinesTests: XCTestCase {
 
         XCTAssertNil(store.heldLinesByDevice()[stranger.fingerprint])
         XCTAssertNil(store.closedProvenance[docId])
+        await store.close()
+    }
+
+    // MARK: - Figures (report plan 6a final review, I-3)
+
+    /// **A stranger's lines in a figure's stream are counted** — swept while
+    /// the figure is closed (the manifest's `figures` are swept streams), the
+    /// open figure's own provenance while a window holds it, and kept in the
+    /// closed map when it closes again.
+    func test_aStrangersFigureLinesAreCountedClosedOpenAndClosedAgain() async throws {
+        try await bootstrapTheBookAndCloseIt()
+        let created = try await ProjectStore.load(from: projectURL)
+        let record = try await created.createFigure(kind: .table, name: "t", piece: nil)
+        let read = try await FigureDocument.load(
+            figureId: record.id, projectURL: projectURL, actor: .author, session: "s",
+            presenter: nil, documentStore: nil)
+        let key = CellKey(row: try XCTUnwrap(read.state.table.rows.first),
+                          column: try XCTUnwrap(read.state.table.columns.first))
+        await read.close()
+
+        let theirs = OpLogStore(projectURL: projectURL, identity: stranger, state: strangerState)
+        try await theirs.append(Op(
+            opId: ULID.generate(), docId: record.id, at: Date(), device: stranger.deviceId,
+            session: "s", kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: key, next: Cell(content: .value(.text("x"))), prior: nil)))
+        let sealed = try await theirs.sealChain(docId: record.id)
+        XCTAssertTrue(sealed)
+
+        let (_, store) = try await openWindow()
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "a closed figure's held line is swept like a chapter's")
+        XCTAssertNotNil(store.closedProvenance[record.id])
+
+        let open = try await store.openFigure(figureId: record.id)
+        XCTAssertNil(store.closedProvenance[record.id], "an open figure answers for itself")
+        XCTAssertGreaterThan(open.provenance?.pendingLines ?? 0, 0)
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "counted once, from the open figure")
+
+        await store.closeFigure(figureId: record.id)
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "closed again: its provenance moved into the closed map")
+        XCTAssertTrue(DocumentStore.sweptDocIds(in: created.manifest).contains(record.id))
+        await store.close()
+    }
+
+    /// **Residual N-2**: a closed figure whose stream arrived before its
+    /// record is re-swept when the record is adopted. While unlisted, the
+    /// open sweep skips the stream; adopting the record queues a closed pass
+    /// over it, so the stranger's line is counted without waiting for a
+    /// reopen, a trust change or another line.
+    func test_aClosedFiguresHeldLinesAreCountedWhenItsRecordIsAdopted() async throws {
+        try await bootstrapTheBookAndCloseIt()
+        let created = try await ProjectStore.load(from: projectURL)
+        let record = try await created.createFigure(kind: .table, name: "t", piece: nil)
+        let read = try await FigureDocument.load(
+            figureId: record.id, projectURL: projectURL, actor: .author, session: "s",
+            presenter: nil, documentStore: nil)
+        let key = CellKey(row: try XCTUnwrap(read.state.table.rows.first),
+                          column: try XCTUnwrap(read.state.table.columns.first))
+        await read.close()
+
+        let theirs = OpLogStore(projectURL: projectURL, identity: stranger, state: strangerState)
+        try await theirs.append(Op(
+            opId: ULID.generate(), docId: record.id, at: Date(), device: stranger.deviceId,
+            session: "s", kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: key, next: Cell(content: .value(.text("x"))), prior: nil)))
+        let sealed = try await theirs.sealChain(docId: record.id)
+        XCTAssertTrue(sealed)
+
+        // The stream is here; the record is not.
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        let withRecord = manifest
+        manifest.figures = []
+        try ProjectManifest.encodeForDisk(manifest).write(to: manifestURL)
+
+        let (project, store) = try await openWindow()
+        XCTAssertNil(store.heldLinesByDevice()[stranger.fingerprint],
+                     "precondition: an unlisted figure is not swept")
+
+        // The record arrives: another Mac's manifest, adopted by this window.
+        try ProjectManifest.encodeForDisk(withRecord).write(to: manifestURL)
+        store.presenterDidChangeSubitem(at: manifestURL)
+        XCTAssertEqual(project.manifest.figures?.map(\.id), [record.id],
+                       "precondition: the window adopted the record")
+        await settle(store)
+
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 1,
+                       "the closed figure was re-swept when its record landed")
+        XCTAssertNotNil(store.closedProvenance[record.id])
         await store.close()
     }
 }

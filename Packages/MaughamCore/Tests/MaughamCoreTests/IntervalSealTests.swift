@@ -33,7 +33,7 @@ final class IntervalSealTests: XCTestCase {
     }
 
     private func lastLineIsSeal() throws -> Bool {
-        let url = OpLogStore.opLogFileURL(
+        let url = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: identities.author.slug, in: projectURL)
         let last = try Data(contentsOf: url)
             .split(separator: 0x0A, omittingEmptySubsequences: true).last

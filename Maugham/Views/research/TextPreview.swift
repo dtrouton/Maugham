@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Read-only markdown preview for a research-note file. Loads the file
 /// from disk and delegates rendering to ResearchNotePreviewPane — the
@@ -15,7 +16,10 @@ struct TextPreview: View {
             projectURL: projectURL,
             noteText: text)
         .task(id: notePath) {
-            let url = projectURL.appendingPathComponent(notePath)
+            guard let url = try? SafeRelativePath.resolve(notePath, under: projectURL) else {
+                text = ""
+                return
+            }
             text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: research text-preview read, not manuscript
         }
     }

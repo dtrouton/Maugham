@@ -97,7 +97,7 @@ public enum ReadPaletteCardTool: MCPTool {
                     + card.imagePaths.joined(separator: ", "))
             }
             return try ImageResponseBuilder.encodeEnvelope(
-                at: entry.url.appendingPathComponent(imagePath),
+                at: try ProjectStore.resolvedProjectPath(imagePath, under: entry.url),
                 region: params.region,
                 maxDimension: params.max_dimension,
                 quality: params.quality)
@@ -105,7 +105,7 @@ public enum ReadPaletteCardTool: MCPTool {
 
         // Overview path: text block (full markdown) + thumbnails.
         let markdown = (try? String(
-            contentsOf: entry.url.appendingPathComponent(rel),
+            contentsOf: ProjectStore.resolvedProjectPath(rel, under: entry.url),
             encoding: .utf8)) ?? "" // adr-0018-ok: palette card read, not manuscript
 
         // Thumbnails are budgeted TWICE: by count (`maxThumbnails`) and by a
@@ -123,7 +123,10 @@ public enum ReadPaletteCardTool: MCPTool {
                 omitted.append(path)
                 continue
             }
-            let url = entry.url.appendingPathComponent(path)
+            guard let url = try? ProjectStore.resolvedProjectPath(path, under: entry.url) else {
+                omitted.append(path)
+                continue
+            }
             // A thumbnail render failure skips that image; it never fails the
             // call and (unlike a budget omission) isn't listed — the caller can
             // still reach it by path via the `image` parameter.

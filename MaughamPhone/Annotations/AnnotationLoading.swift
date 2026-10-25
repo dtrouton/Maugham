@@ -146,13 +146,17 @@ enum AnnotationLoading {
     ///
     /// docId → chapter is `StructureItem.id == docId` (the same id the op-log
     /// filename carries). A docId not in `structure` falls back to the `research`
-    /// tree ("Research" header); a docId in neither is surfaced under "Other"
-    /// with a docId-stub title (never dropped — fail-visible). Mapped chapters
-    /// sort by binder pre-order; unmapped/Other sort last.
+    /// tree ("Research" header), then to the manifest's `figures` registry — a
+    /// figure's own stream, titled "Table: <name>" or "Figure: <name>" under a
+    /// "Figures" header (report plan 6a); a docId in none is surfaced under
+    /// "Other" with a docId-stub title (never dropped — fail-visible). Mapped
+    /// chapters sort by binder pre-order, then research, then figures;
+    /// unmapped/Other sort last.
     static func groupByChapter(
         _ annotations: [LoadedAnnotation],
         structure: [StructureItem],
-        research: [ResearchItem]
+        research: [ResearchItem],
+        figures: [FigureRecord]
     ) -> [ChapterAnnotations] {
         // 1. docId -> (title, parentGroupTitle) + a binder-order index.
         var meta: [String: (title: String, group: String?)] = [:]
@@ -178,6 +182,13 @@ enum AnnotationLoading {
         for item in TreeWalk.leaves(in: research) where meta[item.id] == nil {
             meta[item.id] = (item.title, "Research")
             order[item.id] = counter; counter += 1
+        }
+
+        // Figures last among the mapped: a note on a table is the table's,
+        // named as the writer named it.
+        for figure in figures where meta[figure.id] == nil {
+            meta[figure.id] = (figure.listTitle, FigureRecord.listGroupTitle)
+            order[figure.id] = counter; counter += 1
         }
 
         // 2. Bucket by docId.

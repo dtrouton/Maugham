@@ -143,9 +143,10 @@ public struct DOCXCompiler {
 
         let filename = OutputFilenameBuilder.make(config: context.reportTitled(config), format: .docx, label: label,
                                                   language: identity)
-        let exports = projectURL.appendingPathComponent(config.outputs.directory, isDirectory: true)
-        try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
-        let dest = exports.appendingPathComponent(filename)
+        let dest = try OutputFilenameBuilder.destination(
+            filename: filename, outputsDirectory: config.outputs.directory, projectURL: projectURL)
+        try FileManager.default.createDirectory(
+            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: dest.path) {
             guard replacesExistingOutput else {
                 let diag = OutputFilenameBuilder.occupiedDestinationRefusal(destination: dest,

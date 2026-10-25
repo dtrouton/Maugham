@@ -33,7 +33,7 @@ public enum BackupRunner {
     public static func latestRootHash(at destination: URL) throws -> String? {
         guard let id = try BackupWriter.generationIds(at: destination).last else { return nil }
         let manifestURL = destination
-            .appendingPathComponent(id)
+            .appendingPathComponent(id) // local-path: a generation folder the destination listing returned
             .appendingPathComponent(BackupWriter.manifestName)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else { return nil }
         let manifest = try JSONDecoder().decode(
@@ -79,7 +79,7 @@ public enum BackupRunner {
                 // compare against it. (Excluded from the generation's own manifest
                 // and from future signatures.)
                 try Data(signature.utf8).write(
-                    to: dest.url.appendingPathComponent(generationId)
+                    to: dest.url.appendingPathComponent(generationId) // local-path: the ULID this run minted
                         .appendingPathComponent(BackupSignature.signatureName),
                     options: .atomic)
                 try BackupWriter.prune(destination: dest.url, keeping: dest.retention)
@@ -120,7 +120,7 @@ public enum BackupRunner {
         guard let id = try BackupWriter.generationIds(at: destination).last else { return nil }
         guard ((try? BackupWriter.verifyGeneration(id: id, at: destination)) ?? ["<unverifiable>"]).isEmpty
         else { return nil }
-        let url = destination.appendingPathComponent(id)
+        let url = destination.appendingPathComponent(id) // local-path: a generation folder the destination listing returned
             .appendingPathComponent(BackupSignature.signatureName)
         guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth
         return String(data: data, encoding: .utf8)

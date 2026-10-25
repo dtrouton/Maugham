@@ -98,6 +98,12 @@ public enum ProjectStoreError: Error, Equatable {
     /// written to a *corrected* path is a file the manifest row would then
     /// point at by luck.
     case statementPathUnsafe(relativePath: String, reason: String)
+    /// A path that came from synced data — a manifest row's `path`, a moved
+    /// note's new path — did not resolve inside the project
+    /// (`SafeRelativePath`; tripwire 58). The verb refuses before any file
+    /// call, so nothing outside the project is read, written, moved or
+    /// deleted. Thrown by `resolvedProjectPath(_:)`.
+    case unsafeProjectPath(relativePath: String, reason: String)
     /// The project carries a profile a newer Maugham wrote (`ProjectProfile
     /// .unknown`, kept verbatim). Refused rather than overwritten: this build
     /// cannot say what it would be replacing. Carries the raw profile.
@@ -152,7 +158,8 @@ extension ProjectStoreError: LocalizedError {
             return "The role “\(id)” could not be found."
         case .languageTagInvalid(let tag):
             return "“\(tag)” isn’t a language tag. Use a code like “es” or “pt-br”."
-        case .statementPathUnsafe(let relativePath, let reason):
+        case .statementPathUnsafe(let relativePath, let reason),
+             .unsafeProjectPath(let relativePath, let reason):
             return "“\(relativePath)” isn’t a place inside this project: \(reason)"
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
@@ -505,9 +512,66 @@ public final class ProjectStore {
         return FileManager.default.fileExists(atPath: placeholder.path)
     }
 
+    /// **A synced project-relative path as a URL inside this project, to
+    /// read** — the way a verb turns a manifest row's `path` (or a path derived
+    /// from one) into a URL it reads, opens or lists (tripwire 58). Lexical
+    /// (`SafeRelativePath.resolve`), so a writer's own symlinked chapter or
+    /// research folder still opens. Throws `.unsafeProjectPath` for an
+    /// absolute or empty path, one netting outside, and any `.` or `..`
+    /// component at all: the apps never mint one, and a verb that takes the
+    /// path's last component (a rename's old file name) must not be handed `..`.
+    /// A path the verb will WRITE, copy, move, rename or delete asks
+    /// `resolvedProjectPathToChange(_:)`.
+    nonisolated func resolvedProjectPath(_ relative: String, isDirectory: Bool = false) throws -> URL {
+        try Self.resolvedProjectPath(relative, under: url, isDirectory: isDirectory)
+    }
+
+    /// `resolvedProjectPath(_:)`, plus its folder chain checked on disk
+    /// (`SafeRelativePath.resolveForChange`): the URL a write, copy, move,
+    /// rename or delete changes. A folder linked out of the project is
+    /// refused; the leaf is never followed, so a link entry renames, moves
+    /// and trashes as a link.
+    nonisolated func resolvedProjectPathToChange(_ relative: String, isDirectory: Bool = false) throws -> URL {
+        try Self.resolvedProjectPathToChange(relative, under: url, isDirectory: isDirectory)
+    }
+
+    /// `resolvedProjectPath(_:)` for a caller holding only the root.
+    nonisolated static func resolvedProjectPath(
+        _ relative: String, under root: URL, isDirectory: Bool = false
+    ) throws -> URL {
+        try checked(relative, isDirectory: isDirectory) {
+            try SafeRelativePath.resolve(relative, under: root)
+        }
+    }
+
+    /// `resolvedProjectPathToChange(_:)` for a caller holding only the root.
+    nonisolated static func resolvedProjectPathToChange(
+        _ relative: String, under root: URL, isDirectory: Bool = false
+    ) throws -> URL {
+        try checked(relative, isDirectory: isDirectory) {
+            try SafeRelativePath.resolveForChange(relative, under: root)
+        }
+    }
+
+    private nonisolated static func checked(
+        _ relative: String, isDirectory: Bool, _ resolve: () throws -> URL
+    ) throws -> URL {
+        do {
+            if relative.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) {
+                throw SafeRelativePath.PathError.escapesRoot(relative)
+            }
+            let resolved = try resolve()
+            return isDirectory
+                ? URL(fileURLWithPath: resolved.path, isDirectory: true) : resolved
+        } catch let error as SafeRelativePath.PathError {
+            throw ProjectStoreError.unsafeProjectPath(
+                relativePath: relative, reason: error.localizedDescription)
+        }
+    }
+
     /// Load a project from disk by URL.
     public static func load(from url: URL) async throws -> ProjectStore {
-        let manifestURL = url.appendingPathComponent(manifestFilename)
+        let manifestURL = url.appendingPathComponent(manifestFilename) // local-path: the manifest's own fixed name
         let fm = FileManager.default
 
         // **A MISSING manifest comes back from its safety copy** (#92, Denver's

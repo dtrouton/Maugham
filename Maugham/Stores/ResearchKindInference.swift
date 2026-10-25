@@ -12,6 +12,9 @@ public enum ResearchKindInference {
         if ext == "pdf" { return .pdf }
         if Self.documentExts.contains(ext) { return .document }
         if Self.audioExts.contains(ext) { return .audio }
+        // A Research table (report plan 6b, ruling P-4): a formula may read
+        // it, and Use in document makes it a figure.
+        if Self.tableExts.contains(ext) { return .table }
         return nil
     }
 
@@ -19,6 +22,7 @@ public enum ResearchKindInference {
         "jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "tiff", "bmp"
     ]
     private static let documentExts: Set<String> = ["txt", "md", "markdown", "rtf"]
+    private static let tableExts: Set<String> = ["csv", "tsv"]
     private static let audioExts: Set<String> = [
         "mp3", "m4a", "wav", "aac", "flac", "aiff", "ogg"
     ]

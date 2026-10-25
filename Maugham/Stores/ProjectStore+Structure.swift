@@ -26,7 +26,7 @@ extension ProjectStore {
         }
 
         // 2. Make sure the parent folder exists on disk
-        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+        let parentURL = try resolvedProjectPathToChange(parentPath, isDirectory: true)
         let fm = FileManager.default
         if !fm.fileExists(atPath: parentURL.path) {
             try fm.createDirectory(at: parentURL, withIntermediateDirectories: true)
@@ -43,14 +43,14 @@ extension ProjectStore {
             filename = FileNaming.nextGroupFolderName(
                 title: title, siblingFilenames: siblingNames)
         }
-        let newURL = parentURL.appendingPathComponent(filename)
+        let newURL = parentURL.appendingPathComponent(filename) // local-path: FileNaming mints it from the title
         let relativePath = "\(parentPath)/\(filename)"
 
         // 4. Create file or folder on disk
         do {
             switch kind {
             case .document:
-                try Data().write(to: newURL)
+                try Data().write(to: newURL, options: .withoutOverwriting) // a link already there (even a dangling one) refuses rather than being followed
             case .group:
                 try fm.createDirectory(at: newURL, withIntermediateDirectories: false)
             }
@@ -345,7 +345,10 @@ extension ProjectStore {
         let nn = String(oldFilename.prefix(2))
 
         let parentPath = (oldPath as NSString).deletingLastPathComponent
-        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+        // The manifest's path is synced: resolved inside the project before
+        // any file call (tripwire 58), and the parent follows from it.
+        let oldDocURL = try resolvedProjectPathToChange(oldPath)
+        let parentURL = oldDocURL.deletingLastPathComponent()
 
         let fm = FileManager.default
         let siblingNames = ((try? fm.contentsOfDirectory(atPath: parentURL.path)) ?? [])
@@ -369,14 +372,13 @@ extension ProjectStore {
         }
 
         let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"
-        let newURL = url.appendingPathComponent(newPath)
+        let newURL = try resolvedProjectPathToChange(newPath)
 
         // Move on disk through the typed user-content mover. It runs the
         // close-before-FS-surgery discipline (close+unregister the open
         // Document at oldPath so its 750ms autosave can't re-create a phantom
         // at the pre-rename name; flush the research-note debounce) INTERNALLY
         // before the coordinated move (tripwire 14, enforce-by-construction).
-        let oldDocURL = url.appendingPathComponent(oldPath)
         do {
             if let ds = documentStore {
                 try await ds.relocateUserContent(affectedPaths: [oldPath]) {
@@ -516,7 +518,12 @@ extension ProjectStore {
             // open, else a transient load. The wiki link appears identically
             // in display form (it isn't an anchor), so we compute the rewrite
             // on `displayText`.
-            let docURL = url.appendingPathComponent(path)
+            let docURL: URL
+            do { docURL = try resolvedProjectPath(path) } catch {
+                projectStoreLog.error(
+                    "Wiki-rename: piece path \(path, privacy: .public) refused: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let openDoc = documentStore?.document(for: path)
             let isTransient = (openDoc == nil)
 
@@ -714,7 +721,12 @@ extension ProjectStore {
         for item in TreeWalk.collect(in: manifest.research,
                                      where: { $0.kind == .document }) {
             guard let path = item.path else { continue }
-            let noteURL = url.appendingPathComponent(path)
+            let noteURL: URL
+            do { noteURL = try resolvedProjectPathToChange(path) } catch {
+                projectStoreLog.error(
+                    "Wiki-rename: research note \(path, privacy: .public) refused: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             // Absent and unreadable are not the same answer, and a bare `try?`
             // cannot tell them apart (`PromotionPerformer.readBody` makes the
             // same distinction, and for the same reason). No file is a note
@@ -764,7 +776,7 @@ extension ProjectStore {
     /// path, one saying "bootstrap it" and one saying "this is not an unused
     /// mint", are one rule that RULING-8 says must not be able to disagree.
     func statementFileHasBytes(_ statement: Statement) -> Bool {
-        let path = url.appendingPathComponent(statement.path).path
+        guard let path = try? resolvedProjectPath(statement.path).path else { return false }
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         return ((attributes?[.size] as? Int) ?? 0) > 0
     }
@@ -830,7 +842,7 @@ extension ProjectStore {
         }
         let newTitle = "Copy of " + source.title
 
-        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+        let parentURL = try resolvedProjectPath(parentPath, isDirectory: true)
         let siblingNames = (try? FileManager.default
             .contentsOfDirectory(atPath: parentURL.path)) ?? []
         let newFilename: String
@@ -844,8 +856,8 @@ extension ProjectStore {
                 title: newTitle, siblingFilenames: siblingNames)
         }
         let newPath = "\(parentPath)/\(newFilename)"
-        let sourceFullURL = url.appendingPathComponent(sourcePath)
-        let newFullURL = url.appendingPathComponent(newPath)
+        let sourceFullURL = try resolvedProjectPath(sourcePath)
+        let newFullURL = try resolvedProjectPathToChange(newPath)
 
         try await documentStore.executeCopy(from: sourceFullURL, to: newFullURL)
 
@@ -893,7 +905,7 @@ extension ProjectStore {
             guard let path = document.path else { continue }
             do {
                 let loaded = try await Document.load(
-                    url: url.appendingPathComponent(path),
+                    url: try resolvedProjectPath(path),
                     actor: .author,
                     session: "created-\(UUID().uuidString.prefix(8))",
                     presenter: documentStore?.presenter)

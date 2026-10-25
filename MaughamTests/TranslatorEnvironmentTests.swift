@@ -1433,7 +1433,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
         // A second ACTOR's file for the same (document, language) — the P1b
         // shape — squatted by a directory so it is present and unreadable.
-        let squat = TranslationStore.fileURL(
+        let squat = try TranslationStore.fileURL(
             forDocId: harness.doc.docId, language: "es",
             deviceSlug: DeviceSlug.make(from: "bad"), in: harness.projectURL)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)

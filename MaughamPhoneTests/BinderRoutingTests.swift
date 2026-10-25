@@ -32,6 +32,23 @@ final class BinderRoutingTests: XCTestCase {
         XCTAssertEqual(url, root.appendingPathComponent("Chapters/ch1.md"))
     }
 
+    /// A synced path that climbs out of the project names no file
+    /// (tripwire 58): the row has nothing to open.
+    func test_documentURL_nilForAPathThatLeavesTheProject() {
+        XCTAssertNil(BinderRouting.documentURL(for: document(path: "../outside.md"),
+                                               projectRoot: root))
+        XCTAssertNil(BinderRouting.documentURL(for: document(path: "/etc/hosts"),
+                                               projectRoot: root))
+    }
+
+    /// The palette card and its pictures refuse the same way.
+    func test_paletteCardFileURL_nilForAPathThatLeavesTheProject() {
+        XCTAssertNil(PaletteCardView.fileURL("../outside.md", in: root))
+        XCTAssertNil(PaletteCardView.fileURL(nil, in: root))
+        XCTAssertEqual(PaletteCardView.fileURL("research/palette/card.md", in: root),
+                       root.appendingPathComponent("research/palette/card.md"))
+    }
+
     func test_documentURL_nilForGroup() {
         XCTAssertNil(BinderRouting.documentURL(for: group(), projectRoot: root))
     }

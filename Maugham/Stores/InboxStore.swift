@@ -695,7 +695,7 @@ final class InboxStore {
             created = try await projectStore.createResearchNote(
                 scope: scope, title: promotionTitle(for: entry))
             if let path = created.path {
-                let dest = projectStore.url.appendingPathComponent(path)
+                let dest = try projectStore.resolvedProjectPathToChange(path)
                 // `try`, not `try?`: a failed body write used to leave an EMPTY
                 // note reported as a successful promotion, the capture's words
                 // surviving only in the promoted-hidden manifest history.
@@ -776,8 +776,8 @@ final class InboxStore {
             if let card = projectStore.loadPaletteCards()
                 .first(where: { $0.researchItemId == cardId }),
                let lastPath = card.imagePaths.last,
-               let existing = try? Data(contentsOf: // adr-0018-ok: palette image bytes for retry dedup, not manuscript
-                    projectStore.url.appendingPathComponent(lastPath)),
+               let lastURL = try? projectStore.resolvedProjectPath(lastPath),
+               let existing = try? Data(contentsOf: lastURL), // adr-0018-ok: palette image bytes for retry dedup, not manuscript
                let incoming = try? Data(contentsOf: asset), // adr-0018-ok: inbox asset bytes for retry dedup, not manuscript
                existing == incoming {
                 result = card

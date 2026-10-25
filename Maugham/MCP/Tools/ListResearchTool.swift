@@ -25,7 +25,7 @@ public enum ListResearchTool: MCPTool {
         public let id: String
         public let title: String
         public let type: String    // "group" or "asset"
-        public let kind: String?   // "document"/"image"/"pdf"/"audio"/"link"; nil for groups
+        public let kind: String?   // "document"/"image"/"pdf"/"audio"/"link"/"table"; nil for groups
         public let path: String?
         public let url: String?
         public let children: [Item]?
@@ -81,6 +81,7 @@ public enum ListResearchTool: MCPTool {
         case .pdf:      return "pdf"
         case .audio:    return "audio"
         case .link:     return "link"
+        case .table:    return "table"
         }
     }
 }

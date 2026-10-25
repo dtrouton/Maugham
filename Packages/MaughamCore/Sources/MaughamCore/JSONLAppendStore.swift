@@ -594,6 +594,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         case .statement: clause = "written into this book's own statements"
         case .task: clause = "a task written"
         case .translation: clause = "a translation written"
+        case .figure: clause = "a table or figure changed"
         case .other: clause = "written"
         }
         return afterMark

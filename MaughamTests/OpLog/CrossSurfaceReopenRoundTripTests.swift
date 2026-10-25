@@ -117,7 +117,7 @@ final class CrossSurfaceReopenRoundTripTests: XCTestCase {
         // Per-device partitioning (ADR 0012): the phone's reopen landed in ITS
         // OWN file, not the Mac's — the Mac's `load` glob merges the two.
         let slug = DeviceSlug.make(from: "phone:TEST")
-        let phoneFileURL = OpLogStore.opLogFileURL(
+        let phoneFileURL = try OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: slug, in: projectURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: phoneFileURL.path))
 

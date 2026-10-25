@@ -36,7 +36,7 @@ public enum MerkleBuilder {
     public static func build(root: URL, relativePaths: [String], at builtAt: Date) throws -> MerkleManifest {
         var entries: [MerkleManifest.Entry] = []
         for rel in relativePaths.sorted() {
-            let data = try Data(contentsOf: root.appendingPathComponent(rel))  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth
+            let data = try Data(contentsOf: root.appendingPathComponent(rel))  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth; local-path: the caller's own listing of the files it backs up
             entries.append(.init(relativePath: rel, sha256: sha256Hex(data), byteCount: data.count))
         }
         let rootLines = entries.map { "\($0.relativePath)\t\($0.sha256)" }.joined(separator: "\n")
@@ -47,7 +47,9 @@ public enum MerkleBuilder {
     /// (mismatched hash, or missing/unreadable). Empty == intact.
     public static func verify(manifest: MerkleManifest, root: URL) -> [String] {
         manifest.entries.compactMap { entry in
-            guard let data = try? Data(contentsOf: root.appendingPathComponent(entry.relativePath))  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth
+            // A path from the stored manifest that leaves `root` is a mismatch.
+            guard let url = try? SafeRelativePath.resolve(entry.relativePath, under: root),
+                  let data = try? Data(contentsOf: url)  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth
             else { return entry.relativePath }
             return sha256Hex(data) == entry.sha256 ? nil : entry.relativePath
         }

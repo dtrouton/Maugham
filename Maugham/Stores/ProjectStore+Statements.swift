@@ -257,7 +257,7 @@ extension ProjectStore {
 
         let fileURL: URL
         do {
-            fileURL = try SafeRelativePath.resolve(relativePath, under: url)
+            fileURL = try SafeRelativePath.resolveForChange(relativePath, under: url)
         } catch let error as SafeRelativePath.PathError {
             throw ProjectStoreError.statementPathUnsafe(
                 relativePath: relativePath,
@@ -270,7 +270,7 @@ extension ProjectStore {
             // (`addStructureItem`, `addResearchTextNote`): a brand-new file with
             // no second writer for NSFileCoordinator to arbitrate. Content
             // arrives through the op log from here on.
-            try Data().write(to: fileURL)
+            try Data().write(to: fileURL, options: .withoutOverwriting) // a link already there (even a dangling one) refuses rather than being followed
         } catch {
             throw ProjectStoreError.fileSystemError(error.localizedDescription)
         }
@@ -304,7 +304,10 @@ extension ProjectStore {
     /// Sub-directories do not count either — the saver makes none, so anything
     /// that is not a regular file is not something this ingest put there.
     func statementWellHoldsAnything(_ statement: Statement) -> Bool {
-        let well = ImagePasteHandler.wellURL(forNoteAt: statement.path, in: url)
+        // A path that leaves the project is a well this verb cannot see into:
+        // answered as holding something, so nothing is rolled back over it.
+        guard let well = try? ImagePasteHandler.wellURL(forNoteAt: statement.path, in: url)
+        else { return true }
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: well, includingPropertiesForKeys: [.isRegularFileKey], options: []
         ) else { return false }
@@ -402,7 +405,14 @@ extension ProjectStore {
         else { return false }
 
         // Kept for `removeItem` below; the size question is the shared helper's.
-        let fileURL = url.appendingPathComponent(statement.path)
+        // A synced path that leaves the project is refused here, before the
+        // row goes: nothing outside is deleted (tripwire 58).
+        let fileURL: URL
+        do { fileURL = try resolvedProjectPathToChange(statement.path) } catch {
+            projectStoreLog.error(
+                "Statement rollback refused: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
         // `propagateWikiLinkRename`'s own `stat`, inverted: the same question
         // about the same path, so the two cannot come to different conclusions
         // about whether this file holds anything (RULING-8).
@@ -634,7 +644,7 @@ extension ProjectStore {
             return
         }
         let document = try await Document.load(
-            url: url.appendingPathComponent(statement.path),
+            url: try resolvedProjectPath(statement.path),
             actor: .author,
             session: session,
             presenter: documentStore?.presenter)
@@ -700,9 +710,11 @@ extension ProjectStore {
         let root = url
         let free = Self.dedupedName(ns.deletingPathExtension) { stem in
             let relative = stem + suffix
+            // `attributesOfItem`, not `fileExists`: a link there — even a
+            // dangling one — occupies the path rather than reading as vacant.
             return claimed.contains(relative)
-                || FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(relative).path)
+                || (try? FileManager.default.attributesOfItem(
+                    atPath: root.appendingPathComponent(relative).path)) != nil // local-path: StatementConvention mints the candidate; createStatement resolves the one chosen
         }
         return free + suffix
     }

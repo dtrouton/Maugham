@@ -268,6 +268,7 @@ struct ProjectWindow: View {
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
                     let projectURL = store.url
                     let allDocIds: [String] = Self.documentIds(in: store.manifest.structure)
+                    let figureIds: [String] = (store.manifest.figures ?? []).map(\.id)
                     CheckpointLabelPromptSheet(
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
@@ -277,7 +278,7 @@ struct ProjectWindow: View {
                                 await CheckpointFlashDecision.labelled(
                                     label, projectURL: projectURL,
                                     activeDocId: activeDocId, allDocIds: allDocIds,
-                                    device: _checkpointDeviceId,
+                                    figureIds: figureIds, device: _checkpointDeviceId,
                                     session: _checkpointSessionId,
                                     activeDocument: activeDoc,
                                     posture: { await documentStore.settledPosture(forDocId: $0) },
@@ -2161,11 +2162,11 @@ struct ProjectWindow: View {
     static func promotionDestinationBody(of itemID: String,
                                          in store: ProjectStore) -> String? {
         if let item = TreeWalk.find(id: itemID, in: store.manifest.research),
-           let path = item.path {
+           let path = item.path,
+           let noteURL = try? store.resolvedProjectPath(path) {
             // The annotation sits ON the read's own line: the ADR 0018 grep
             // matches per line and a marker one line above is not seen.
-            return try? String(contentsOf: // adr-0018-ok: a research note is not manuscript
-                                store.url.appendingPathComponent(path), encoding: .utf8)
+            return try? String(contentsOf: noteURL, encoding: .utf8) // adr-0018-ok: a research note is not manuscript
         }
         // RULING-54 lenient, reason recorded: this feeds a marker-position
         // heuristic; an unreadable statement yields nil (no marker) and the

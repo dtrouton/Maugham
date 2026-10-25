@@ -338,7 +338,7 @@ final class PublishContextTests: XCTestCase {
             id: "p-ctx", designerName: "Tschichold", round: 1, language: nil,
             created: Date(), status: .pending, specMarkdown: "", filePaths: [],
             sampleResult: nil, revertNote: nil)
-        let scratch = SampleCompiler.scratchURL(proposal: proposal, projectURL: store.url)
+        let scratch = try SampleCompiler.scratchURL(proposal: proposal, projectURL: store.url)
 
         let plan = try BodyPlan.make(
             set: try LanguageSet(language: nil, languages: nil, sourceTag: "en"),

@@ -87,6 +87,7 @@ struct ResearchLinkPickerSheet: View {
         case .pdf:      return "doc.richtext"
         case .audio:    return "waveform"
         case .link:     return "link"
+        case .table:    return "tablecells"
         case .none:     return "folder"
         }
     }

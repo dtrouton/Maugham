@@ -83,7 +83,7 @@ public enum BackupSignature {
             if excludedStems.contains(where: {
                 PartitionedJSONLFile.matches(relativePath: rel, stemPath: $0)
             }) { continue }
-            let fileURL = projectURL.appendingPathComponent(rel)
+            let fileURL = projectURL.appendingPathComponent(rel) // local-path: a name BackupWriter's own listing of the folder returned
 
             if rel.hasPrefix(".maugham/ops/") {
                 // Op log: contribute only the non-checkpoint op ids, so the per-save

@@ -40,7 +40,7 @@ final class TranslationStoreTests: XCTestCase {
     /// Every non-blank line of one actor's file.
     private func lines(of identity: DeviceIdentity, docId: String = "doc1",
                        language: String = "es") throws -> [Data] {
-        let url = TranslationStore.fileURL(
+        let url = try TranslationStore.fileURL(
             forDocId: docId, language: language, deviceSlug: identity.slug, in: projectURL)
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         return try Data(contentsOf: url)
@@ -61,8 +61,8 @@ final class TranslationStoreTests: XCTestCase {
             .filter { !OpLogChain.isSealLine($0) }
     }
 
-    func test_filename_template() {
-        let url = TranslationStore.fileURL(
+    func test_filename_template() throws {
+        let url = try TranslationStore.fileURL(
             forDocId: "d_chapter-01", language: "es",
             deviceSlug: DeviceSlug.unsafeForTesting("maca-1234"), in: projectURL)
         XCTAssertEqual(url.path,
@@ -144,7 +144,7 @@ final class TranslationStoreTests: XCTestCase {
                                                    state: myState, in: projectURL)
             XCTFail("a blocked directory must throw")
         } catch {}
-        let url = TranslationStore.fileURL(forDocId: "doc1", language: "es",
+        let url = try TranslationStore.fileURL(forDocId: "doc1", language: "es",
                                            deviceSlug: mine.translator.slug, in: projectURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
@@ -164,7 +164,7 @@ final class TranslationStoreTests: XCTestCase {
                                                identity: mine.translator, identities: mine,
                                                state: myState, in: projectURL)
 
-        let url = TranslationStore.fileURL(forDocId: "doc1", language: "es",
+        let url = try TranslationStore.fileURL(forDocId: "doc1", language: "es",
                                            deviceSlug: mine.translator.slug, in: projectURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path),
                        "a delete-only batch must not mint the file")
@@ -206,7 +206,7 @@ final class TranslationStoreTests: XCTestCase {
             identities: mine, state: myState, in: projectURL)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath:
-            TranslationStore.fileURL(forDocId: "doc1", language: "es",
+            try TranslationStore.fileURL(forDocId: "doc1", language: "es",
                                      deviceSlug: mine.translator.slug, in: projectURL).path))
         XCTAssertTrue(TranslationStore.latestByParagraph(try merged()).isEmpty,
                       "the sibling device's translation is removed")
@@ -405,7 +405,7 @@ final class TranslationStoreTests: XCTestCase {
                                     at: Date(timeIntervalSince1970: 1_753_000_000))
         try await TranslationStore.append(rec, forDocId: "doc1", identity: mine.translator,
                                           identities: mine, state: myState, in: projectURL)
-        let url = TranslationStore.fileURL(
+        let url = try TranslationStore.fileURL(
             forDocId: "doc1", language: "es",
             deviceSlug: mine.translator.slug, in: projectURL)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
@@ -468,7 +468,7 @@ final class TranslationStoreTests: XCTestCase {
                               sourceHash: "deadbeefdeadbeef"),
             forDocId: "doc1", identity: mine.translator,
             identities: mine, state: myState, in: projectURL)
-        let url = TranslationStore.fileURL(
+        let url = try TranslationStore.fileURL(
             forDocId: "doc1", language: "es",
             deviceSlug: mine.translator.slug, in: projectURL)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)

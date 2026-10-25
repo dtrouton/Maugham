@@ -390,7 +390,7 @@ final class StatementStoreTests: XCTestCase {
         XCTAssertEqual(try store.statementText(of: minted), "",
                        "control: the ref has NOT been appended — every other refusal "
                        + "says roll back, which is what makes the well the only witness")
-        let well = ImagePasteHandler.wellURL(forNoteAt: minted.path, in: url)
+        let well = try ImagePasteHandler.wellURL(forNoteAt: minted.path, in: url)
         XCTAssertEqual(files(in: well).count, 1, "control: the picture is in the well")
 
         let rolled = await store.rollbackUnusedStatement(minted)
@@ -431,7 +431,7 @@ final class StatementStoreTests: XCTestCase {
         store.documentStore = documentStore
         defer { store.documentStore = nil }
         let minted = try await store.createStatement(kind: .visualLanguage, scope: .project)
-        let well = ImagePasteHandler.wellURL(forNoteAt: minted.path, in: url)
+        let well = try ImagePasteHandler.wellURL(forNoteAt: minted.path, in: url)
         let bytes = try pngBytes()
         let stampBefore = store.manifest.modified
 
@@ -488,21 +488,21 @@ final class StatementStoreTests: XCTestCase {
 
         let noWell = try await store.createStatement(kind: .intent, scope: .project)
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: ImagePasteHandler.wellURL(forNoteAt: noWell.path, in: url).path),
+            atPath: try ImagePasteHandler.wellURL(forNoteAt: noWell.path, in: url).path),
             "control: no well was ever made")
         let rolledWithNoWell = await store.rollbackUnusedStatement(noWell)
         XCTAssertTrue(rolledWithNoWell,
                       "a mint with no well behind it rolls back as it always did")
 
         let emptyWell = try await store.createStatement(kind: .intent, scope: .project)
-        let well = ImagePasteHandler.wellURL(forNoteAt: emptyWell.path, in: url)
+        let well = try ImagePasteHandler.wellURL(forNoteAt: emptyWell.path, in: url)
         try FileManager.default.createDirectory(at: well, withIntermediateDirectories: true)
         let rolledWithEmptyWell = await store.rollbackUnusedStatement(emptyWell)
         XCTAssertTrue(rolledWithEmptyWell,
                       "an empty well is the failed-copy residue, not a deposit")
 
         let finderWell = try await store.createStatement(kind: .intent, scope: .project)
-        let strayed = ImagePasteHandler.wellURL(forNoteAt: finderWell.path, in: url)
+        let strayed = try ImagePasteHandler.wellURL(forNoteAt: finderWell.path, in: url)
         try FileManager.default.createDirectory(at: strayed, withIntermediateDirectories: true)
         try Data("Finder".utf8).write(to: strayed.appendingPathComponent(".DS_Store"))
         XCTAssertFalse(store.statementWellHoldsAnything(finderWell),

@@ -119,7 +119,7 @@ public struct PublishProblem: Sendable, Hashable {
         case .malformedLabel(let raw):
             return "{#\(raw)} is not a valid label; write {#fig:name}, {#tbl:name} or {#sec:name}."
         case .figurePathNotLocal(let path):
-            return "The figure image \(path) is not inside a research folder of this project."
+            return "The figure image \(path) is not inside this project’s figures folder or a research folder."
         case .imageUnreadable(let reason):
             // The reason may end in a system message's own full stop: one
             // sentence ends once (final review M8).

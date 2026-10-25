@@ -63,10 +63,10 @@ final class DiagnosticsStoreTests: XCTestCase {
             category: nil, runId: runId, kind: .continuity)
     }
 
-    func test_sidecarFilename_isPerDevice_andTakesDeviceSlug() {
+    func test_sidecarFilename_isPerDevice_andTakesDeviceSlug() throws {
         let project = URL(fileURLWithPath: "/tmp/project")
         let slug = DeviceSlug.make(from: "Denvers-Mac.local")
-        let url = DiagnosticsStore.sidecarURL(
+        let url = try DiagnosticsStore.sidecarURL(
             projectRoot: project, docId: "doc123", device: slug)
         XCTAssertEqual(
             url.path,
@@ -207,7 +207,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docLegacy"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -236,7 +236,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docV1"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Exactly what v1 wrote: no kind, no refs, no clauseQuote.
@@ -263,7 +263,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docE"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data([0xFF, 0x00, 0x13, 0x37]).write(to: url)
@@ -438,7 +438,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docNoLetter"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Run written before letter existed (no letter field at all).
@@ -467,7 +467,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docNoKind"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // A run written before the field existed, in a lane: no `kind` key at
@@ -493,7 +493,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docNoKindNoLane"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -576,7 +576,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         DiagnosticsStore(projectRoot: project, device: device)
             .replace(run: run, diagnostics: [], docId: docId)
 
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         let raw = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(raw.contains("\"strong_default\""),
                       "the raw value is what reaches the file; got \(raw)")
@@ -594,7 +594,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docLetterNoPosition"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -618,7 +618,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docNoTruncated"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Run written before truncatedReader existed (no truncatedReader field)
@@ -732,7 +732,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docLegacyHistory"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -755,7 +755,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docV2NoRing"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -1310,7 +1310,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docLegacyCheck"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -1344,7 +1344,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docLegacyRound"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -1382,7 +1382,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")
         let docId = "docLegacyCoach"
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("""
@@ -1434,7 +1434,7 @@ final class DiagnosticsStoreTests: XCTestCase {
             bundle.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")
                 ?? bundle.url(forResource: name, withExtension: "json"),
             "Fixture \(name).json not found in the test bundle")
-        let url = DiagnosticsStore.sidecarURL(
+        let url = try DiagnosticsStore.sidecarURL(
             projectRoot: projectRoot, docId: docId, device: device)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1683,7 +1683,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         store.preview(run: streaming, diagnostics: [], docId: docId)
         store.dismiss(note.id, docId: docId)
 
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         let onDisk = try String(contentsOf: url, encoding: .utf8)
         XCTAssertFalse(onDisk.contains(streaming.id),
                        "the streaming round's half-report reached the sidecar")
@@ -1722,7 +1722,7 @@ final class DiagnosticsStoreTests: XCTestCase {
                        "the round's own notes are still what the next round is "
                        + "briefed against")
 
-        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         let keys = try XCTUnwrap(
             JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
         XCTAssertEqual(Set(keys.keys), ["check", "round", "clauseHistory", "rounds"],

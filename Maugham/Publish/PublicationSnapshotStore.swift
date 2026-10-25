@@ -18,8 +18,10 @@ public actor PublicationSnapshotStore {
         projectURL.appendingPathComponent(".maugham/publications", isDirectory: true)
     }
 
-    nonisolated public func snapshotURL(id: String) -> URL {
-        snapshotsDir.appendingPathComponent("\(id).json")
+    /// Throws for an id whose file name is not one plain file name
+    /// (tripwire 58); `validate(snapshotID:)` is the stricter rule callers ask first.
+    nonisolated public func snapshotURL(id: String) throws -> URL {
+        snapshotsDir.appendingPathComponent(try SafeRelativePath.requirePlainFileName("\(id).json"))
     }
 
     /// Rejects snapshot IDs that could escape `snapshotsDir` (path separators,
@@ -63,7 +65,7 @@ public actor PublicationSnapshotStore {
         try Self.validate(snapshotID: snap.snapshotID)
         try FileManager.default.createDirectory(
             at: snapshotsDir, withIntermediateDirectories: true)
-        let url = snapshotURL(id: snap.snapshotID)
+        let url = try snapshotURL(id: snap.snapshotID)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
@@ -72,7 +74,7 @@ public actor PublicationSnapshotStore {
 
     nonisolated public func load(id: String) throws -> PublicationSnapshot {
         try Self.validate(snapshotID: id)
-        let url = snapshotURL(id: id)
+        let url = try snapshotURL(id: id)
         let data = try Data(contentsOf: url)  // adr-0018-ok: publication snapshot JSON read, not manuscript
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -101,8 +103,9 @@ public actor PublicationSnapshotStore {
             {
                 throw Error.pathTraversal(relativePath: rel)
             }
-            let dst = destination.appendingPathComponent(rel).standardizedFileURL
-            guard dst.path.hasPrefix(destPrefix) else {
+            guard let dst = try? SafeRelativePath.resolveForChange(rel, under: destination)
+                    .standardizedFileURL,
+                  dst.path.hasPrefix(destPrefix) else {
                 throw Error.pathTraversal(relativePath: rel)
             }
             try FileManager.default.createDirectory(

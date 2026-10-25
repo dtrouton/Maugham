@@ -63,8 +63,8 @@ final class ProposalPromotionTests: XCTestCase {
         projectURL.appendingPathComponent(".maugham/publish", isDirectory: true)
     }
 
-    private func backupDir(_ projectURL: URL, _ id: String) -> URL {
-        DesignProposalStore(projectURL: projectURL)
+    private func backupDir(_ projectURL: URL, _ id: String) throws -> URL {
+        try DesignProposalStore(projectURL: projectURL)
             .proposalDir(id: id)
             .appendingPathComponent("backup", isDirectory: true)
     }
@@ -92,7 +92,7 @@ final class ProposalPromotionTests: XCTestCase {
     private func readBackupManifest(
         _ projectURL: URL, _ id: String
     ) throws -> ProposalPromotion.Backup {
-        let url = backupDir(projectURL, id).appendingPathComponent("manifest.json")
+        let url = try backupDir(projectURL, id).appendingPathComponent("manifest.json")
         return try JSONDecoder().decode(
             ProposalPromotion.Backup.self,
             from: Data(contentsOf: url))  // adr-0018-ok: promotion backup manifest, not manuscript
@@ -122,7 +122,7 @@ final class ProposalPromotionTests: XCTestCase {
         XCTAssertEqual(try text(live.appendingPathComponent("partials/dropcaps.tex")), "FRESH")
 
         // The replaced file's ORIGINAL bytes are held.
-        let held = backupDir(project, proposal.id).appendingPathComponent("files")
+        let held = try backupDir(project, proposal.id).appendingPathComponent("files")
         XCTAssertEqual(try text(held.appendingPathComponent("template.tex")), "LIVE ORIGINAL")
         // The new file has no original to hold — nothing is stored for it.
         XCTAssertFalse(FileManager.default.fileExists(
@@ -173,7 +173,7 @@ final class ProposalPromotionTests: XCTestCase {
             XCTAssertEqual(error, .stagedPathEscapesThePublishTree("../../escape.tex"))
         }
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: backupDir(project, "prop-forged").path),
+            atPath: try backupDir(project, "prop-forged").path),
             "a refusal before the first write leaves no half-made backup")
     }
 
@@ -194,7 +194,7 @@ final class ProposalPromotionTests: XCTestCase {
             XCTAssertEqual(error, .backupAlreadyStands(id: proposal.id))
         }
 
-        let held = backupDir(project, proposal.id).appendingPathComponent("files/template.tex")
+        let held = try backupDir(project, proposal.id).appendingPathComponent("files/template.tex")
         XCTAssertEqual(try text(held), "LIVE ORIGINAL",
                        "the original bytes must survive the second ask")
     }
@@ -242,7 +242,7 @@ final class ProposalPromotionTests: XCTestCase {
         XCTAssertEqual(
             try text(livePublishDir(project).appendingPathComponent("template.tex")),
             "DESIGN A", "a refused promotion moves no live byte")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, b.id).path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try backupDir(project, b.id).path),
                        "and makes no second backup to layer over the first")
 
         // And the way back still reaches the originals.
@@ -264,7 +264,7 @@ final class ProposalPromotionTests: XCTestCase {
 
         try ProposalPromotion.finalize(proposal: a, projectURL: project)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, a.id).path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try backupDir(project, a.id).path),
                        "finalize discards the backup — that is what makes it permanent")
         XCTAssertEqual(
             try DesignProposalStore(projectURL: project).load(id: a.id).status, .approved,
@@ -277,7 +277,7 @@ final class ProposalPromotionTests: XCTestCase {
             "DESIGN B", "the slot is free and the next round promotes")
         // …and B's backup holds what B actually replaced, honestly.
         XCTAssertEqual(
-            try text(backupDir(project, b.id).appendingPathComponent("files/template.tex")),
+            try text(try backupDir(project, b.id).appendingPathComponent("files/template.tex")),
             "DESIGN A")
     }
 
@@ -316,7 +316,7 @@ final class ProposalPromotionTests: XCTestCase {
             XCTAssertEqual(error as? ProposalPromotion.Error,
                            .notApprovedToFinalize(id: proposal.id, status: "pending"))
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: backupDir(project, proposal.id).path),
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try backupDir(project, proposal.id).path),
                       "the only way back is still standing")
     }
 
@@ -332,7 +332,7 @@ final class ProposalPromotionTests: XCTestCase {
             proposal: stale, projectURL: project, jobManager: CompileJobManager())
 
         try ProposalPromotion.finalize(proposal: stale, projectURL: project)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, stale.id).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try backupDir(project, stale.id).path))
     }
 
     // MARK: - revert
@@ -376,7 +376,7 @@ final class ProposalPromotionTests: XCTestCase {
         XCTAssertEqual(reloaded.status, .rejected)
         XCTAssertNotNil(reloaded.revertNote, "a reverted proposal says why it is rejected")
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, proposal.id).path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try backupDir(project, proposal.id).path),
                        "a spent backup is not left to refuse the next promotion")
     }
 
@@ -440,7 +440,7 @@ final class ProposalPromotionTests: XCTestCase {
         XCTAssertEqual(
             try text(livePublishDir(project).appendingPathComponent("template.tex")),
             "LIVE ORIGINAL", "a refused promotion moves no live byte")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, proposal.id).path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try backupDir(project, proposal.id).path),
                        "and makes no backup either")
         XCTAssertEqual(
             try DesignProposalStore(projectURL: project).load(id: proposal.id).status, .pending)
@@ -538,7 +538,7 @@ final class ProposalPromotionTests: XCTestCase {
 
         // The backup is WHOLE — both originals, both recorded — because it was
         // finished before the first live byte moved.
-        let held = backupDir(project, proposal.id).appendingPathComponent("files")
+        let held = try backupDir(project, proposal.id).appendingPathComponent("files")
         XCTAssertEqual(try text(held.appendingPathComponent("template.tex")), "LIVE ORIGINAL")
         XCTAssertEqual(try text(held.appendingPathComponent("locked/style.tex")), "LOCKED ORIGINAL")
         let manifest = try readBackupManifest(project, proposal.id)

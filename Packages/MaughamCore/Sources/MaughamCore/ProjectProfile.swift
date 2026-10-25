@@ -78,15 +78,24 @@ extension ProjectManifest {
 
     /// The lowest schema this manifest's CONTENT needs: 10 when it carries a
     /// profile, switches, or any research item (groups' children included)
-    /// with citation details; otherwise 0. `encodeForDisk` raises to it.
+    /// with citation details or of kind `.table` (report plan 6b), or any
+    /// figure record (report plan 6a); otherwise 0. `encodeForDisk` raises to it.
     public var contentSchemaFloor: Int {
         // 10 is the schema that INTRODUCED this content, fixed for ever; never
         // `currentSchemaVersion`, or every later bump would raise these books.
         if profile != nil || switches != nil { return 10 }
-        return Self.anyCitation(in: research) ? 10 : 0
+        // A figure's stream is invisible to a build without the figure kinds,
+        // and it would re-save the manifest without the registry: refuse it.
+        if figures?.isEmpty == false { return 10 }
+        return Self.anyV10Research(in: research) ? 10 : 0
     }
 
-    private static func anyCitation(in items: [ResearchItem]) -> Bool {
-        items.contains { $0.citation != nil || anyCitation(in: $0.children ?? []) }
+    /// A citation, or a Research table (report plan 6b, ruling P-4): an older
+    /// build reads `.table` as `.document` and would re-save it so, and the
+    /// item would never again be a table.
+    private static func anyV10Research(in items: [ResearchItem]) -> Bool {
+        items.contains {
+            $0.citation != nil || $0.kind == .table || anyV10Research(in: $0.children ?? [])
+        }
     }
 }
