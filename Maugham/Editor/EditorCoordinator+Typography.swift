@@ -187,8 +187,10 @@ extension EditorCoordinator {
             // Whole-doc paint: every non-typing caller (attach, applyExternalText,
             // theme/typography/focus changes) repaints the entire document.
             burstBaselineText = nil
-            // Every figure line takes its current room from this paint.
+            // Every figure line takes its current room from this paint, the
+            // trailing one included.
             figureRoomsWaitForTheSettle = false
+            trailingFigureRoomMemo = nil
             applyModeTypography(in: storage, tokens: tokens, restyleWindow: nil)
             applyFocusDim(in: textView)
             // Re-baseline the live (screenplay) windowed path against the freshly

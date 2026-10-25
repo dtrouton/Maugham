@@ -25,15 +25,13 @@ import MaughamCore
 /// never a host opened for it), then rebuilds every card, since a formula can
 /// carry one figure's change into another's values.
 ///
-/// **What changed** is a drain: each fill that changes anything bumps
-/// `version` once (`onVersionChange` fires) and adds to the set
-/// `takeChanged()` hands back and clears — the ids whose card or whose
-/// registry record differ from the last fill, including a figure that
-/// appeared or left. The editor does not need it to re-lay out: on a new
-/// version it asks each figure line its room again and restyles only the
-/// lines whose room moved (`EditorCoordinator.refreshFigureRooms`). The
-/// first fill always bumps, even with nothing in it: lines that named no
-/// figure stop being cache misses then.
+/// **What changed** is only a version: each fill whose cards or registry
+/// records differ from the last fill's (a figure that appeared or left
+/// included) bumps `version` once and `onVersionChange` fires. The editor
+/// then asks each figure line its room again and restyles only the lines
+/// whose room moved (`EditorCoordinator.refreshFigureRooms`). The first
+/// fill always bumps, even with nothing in it: lines that named no figure
+/// stop being cache misses then.
 ///
 /// **Closing.** `attach(nil)` (the host's teardown) drops every card and
 /// bumps the generation, so a fill still in flight lands nowhere.
@@ -62,7 +60,6 @@ final class FigureCardCache {
     /// what a line shows moves only with `version`.
     private var records: [FigureRecord] = []
     private var hasFilled = false
-    private var changed = Set<String>()
     private var dirty = false
     private var filling: Task<Void, Never>?
     /// The fill `attach` last cut loose, kept only so `idle()` can wait it out.
@@ -84,7 +81,6 @@ final class FigureCardCache {
         dirty = false
         models.removeAll()
         records.removeAll()
-        changed.removeAll()
         hasFilled = false
         guard source != nil else { return }
         invalidate()
@@ -126,12 +122,6 @@ final class FigureCardCache {
         }
     }
 
-    /// The figure ids changed since the last call, and clears them.
-    func takeChanged() -> Set<String> {
-        defer { changed.removeAll() }
-        return changed
-    }
-
     /// Returns once no fill is pending or running, an abandoned one included
     /// (tests; a host never waits).
     func idle() async {
@@ -166,15 +156,12 @@ final class FigureCardCache {
         }
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var moved = Set<String>()
-        for id in Set(next.keys).union(models.keys) where next[id] != models[id] { moved.insert(id) }
-        for id in Set(after.keys).union(before.keys) where after[id] != before[id] { moved.insert(id) }
+        let moved = next != models || after != before
         let first = !hasFilled
         models = next
         records = inputs.records
         hasFilled = true
-        guard first || !moved.isEmpty else { return }
-        changed.formUnion(moved)
+        guard first || moved else { return }
         version += 1
         onVersionChange?(version)
     }

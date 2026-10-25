@@ -701,12 +701,21 @@ extension EditorCoordinator {
     /// retokenize (whole-branch review I1).
     ///
     /// The room is the line's own (`figureRoom(forLinePath:)`), so a table
-    /// card on the last line keeps room for every row it grows to.
+    /// card on the last line keeps room for every row it grows to. It is
+    /// memoised by path (`trailingFigureRoomMemo`): the keystroke path pays a
+    /// string compare, and asks the cards again only when the path itself
+    /// changes. A card version moves it only through `refreshFigureRooms`,
+    /// so it moves at the same edge as every other figure line — never
+    /// mid-burst.
     var figureTrailingRoom: CGFloat {
         guard showsFigureThumbnails, let textView,
               let path = FigureThumbnailLayout.trailingFigurePath(textView.string as NSString)
         else { return 0 }
-        return figureRoom(forLinePath: path)
+        if let memo = trailingFigureRoomMemo, memo.path == path { return memo.room }
+        trailingFigureRoomLookupCount += 1
+        let room = figureRoom(forLinePath: path)
+        trailingFigureRoomMemo = (path, room)
+        return room
     }
 
     /// **The figure cards changed: re-lay out the lines whose room moved**
@@ -722,10 +731,11 @@ extension EditorCoordinator {
     /// Callers: `setFigureCardVersion` outside a burst, the settle paint
     /// after one. Never on the keystroke.
     func refreshFigureRooms() {
-        figureRoomsWaitForTheSettle = false
         guard !isDetached, showsFigureThumbnails, !tokensDescribeAnEarlierText,
               let prose = mode as? ProseMode,
               let textView, let storage = textView.textStorage else { return }
+        figureRoomsWaitForTheSettle = false
+        trailingFigureRoomMemo = nil   // the trailing card is asked again, here only
         let touched = prose.refreshFigureRooms(
             in: storage, theme: theme, typography: typography,
             lines: figureThumbnailMarks, figureRoom: figureRoom(forLinePath:))

@@ -308,9 +308,22 @@ final class FigureRoomRefreshTests: XCTestCase {
 
     private final class Box { var text: String; init(_ t: String) { text = t } }
 
-    func test_aTrailingTableKeepsItsRoomAsItGrowsAndGivesItBackAsItShrinks() {
-        let cards = Cards()
-        cards.byPath["figures/t0.csv"] = Self.table(rows: 3)
+    private struct Trailing {
+        let window: NSWindow
+        let textView: MaughamTextView
+        let coordinator: EditorCoordinator
+        /// The frame height a trailing room of `room` needs.
+        func needed(_ room: CGFloat) -> CGFloat {
+            let lm = textView.layoutManager!
+            let last = lm.glyphIndexForCharacter(at: (textView.string as NSString).length - 1)
+            return lm.lineFragmentUsedRect(forGlyphAt: last, effectiveRange: nil).maxY
+                + textView.textContainerOrigin.y + room + textView.textContainerInset.height
+        }
+        func layout() { textView.layoutManager?.ensureLayout(for: textView.textContainer!) }
+    }
+
+    /// A real `MaughamTextView` whose text ends on a table figure line.
+    private func mountTrailing(cards: Cards) -> Trailing {
         let text = (0..<12).map { "Paragraph \($0) of plain prose." }.joined(separator: "\n\n")
             + "\n\n![Last](figures/t0.csv){#tbl:t0}"
         let tv = MaughamTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
@@ -324,7 +337,7 @@ final class FigureRoomRefreshTests: XCTestCase {
         scroll.documentView = tv
         let window = TestWindow.make(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                                      contentView: scroll, present: .unshown)
-        defer { window.close() }
+        addTeardownBlock { @MainActor in window.close() }
         let box = Box(text)
         let coordinator = EditorCoordinator(
             text: .init(get: { box.text }, set: { box.text = $0 }),
@@ -338,13 +351,15 @@ final class FigureRoomRefreshTests: XCTestCase {
         coordinator.attach(to: tv)
         tv.layoutManager?.ensureLayout(for: tv.textContainer!)
         tv.sizeToFit()
+        return Trailing(window: window, textView: tv, coordinator: coordinator)
+    }
 
-        func needed(_ room: CGFloat) -> CGFloat {
-            let lm = tv.layoutManager!
-            let last = lm.glyphIndexForCharacter(at: (tv.string as NSString).length - 1)
-            return lm.lineFragmentUsedRect(forGlyphAt: last, effectiveRange: nil).maxY
-                + tv.textContainerOrigin.y + room + tv.textContainerInset.height
-        }
+    func test_aTrailingTableKeepsItsRoomAsItGrowsAndGivesItBackAsItShrinks() {
+        let cards = Cards()
+        cards.byPath["figures/t0.csv"] = Self.table(rows: 3)
+        let t = mountTrailing(cards: cards)
+        let tv = t.textView, coordinator = t.coordinator
+        func needed(_ room: CGFloat) -> CGFloat { t.needed(room) }
         XCTAssertEqual(coordinator.figureTrailingRoom, Self.room(Self.table(rows: 3)),
                        "the trailing room is the card's own")
         XCTAssertGreaterThanOrEqual(tv.frame.height, needed(Self.room(Self.table(rows: 3))))
@@ -361,5 +376,54 @@ final class FigureRoomRefreshTests: XCTestCase {
         tv.layoutManager?.ensureLayout(for: tv.textContainer!)
         XCTAssertGreaterThanOrEqual(tv.frame.height, needed(Self.room(Self.table(rows: 3))))
         XCTAssertLessThan(tv.frame.height, needed(grown), "the shrunk card gives its room back")
+    }
+
+    /// I1: a fill landing mid-burst moves the trailing room at the settle,
+    /// like every other figure line — grown or shrunk, the frame holds until
+    /// then — and the keystrokes never ask the cards for it.
+    func test_aTrailingCardChangeMidBurstWaitsForTheSettle() async {
+        let cards = Cards()
+        cards.byPath["figures/t0.csv"] = Self.table(rows: 3)
+        let t = mountTrailing(cards: cards)
+        let tv = t.textView, coordinator = t.coordinator
+        coordinator.restyleSettleDelayMs = 0   // the settle runs on the next main-actor turn
+        let small = Self.room(Self.table(rows: 3)), grown = Self.room(Self.table(rows: 40))
+        func type(_ s: String) {
+            for c in s { tv.insertText(String(c), replacementRange: tv.selectedRange()) }
+        }
+        tv.setSelectedRange(NSRange(location: NSMaxRange((tv.string as NSString)
+            .range(of: "Paragraph 0 of plain prose")), length: 0))
+
+        // Grow mid-burst.
+        let lookups = coordinator.trailingFigureRoomLookupCount
+        type(" a")
+        XCTAssertTrue(coordinator.isInTypingBurst, "precondition: the burst is in flight")
+        cards.byPath["figures/t0.csv"] = Self.table(rows: 40)
+        coordinator.setFigureCardVersion(1)
+        type("bc")
+        t.layout()
+        XCTAssertEqual(coordinator.figureTrailingRoom, small, "mid-burst the room holds")
+        XCTAssertLessThan(tv.frame.height, t.needed(grown), "the frame has not grown mid-burst")
+        XCTAssertEqual(coordinator.trailingFigureRoomLookupCount, lookups,
+                       "no keystroke asked the cards for the trailing room")
+        await coordinator.deferredRestyleTask?.value   // the settle edge
+        t.layout()
+        XCTAssertEqual(coordinator.figureTrailingRoom, grown)
+        XCTAssertGreaterThanOrEqual(tv.frame.height, t.needed(grown), "grown at the settle")
+        XCTAssertEqual(coordinator.trailingFigureRoomLookupCount, lookups + 1, "asked once, at the settle")
+
+        // Shrink mid-burst.
+        type(" d")
+        cards.byPath["figures/t0.csv"] = Self.table(rows: 3)
+        coordinator.setFigureCardVersion(2)
+        type("e")
+        t.layout()
+        XCTAssertEqual(coordinator.figureTrailingRoom, grown, "mid-burst the room holds")
+        XCTAssertGreaterThanOrEqual(tv.frame.height, t.needed(grown), "the frame has not shrunk mid-burst")
+        await coordinator.deferredRestyleTask?.value
+        t.layout()
+        XCTAssertEqual(coordinator.figureTrailingRoom, small)
+        XCTAssertLessThan(tv.frame.height, t.needed(grown), "shrunk at the settle")
+        XCTAssertGreaterThanOrEqual(tv.frame.height, t.needed(small))
     }
 }

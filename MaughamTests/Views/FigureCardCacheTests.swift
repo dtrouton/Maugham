@@ -64,7 +64,7 @@ final class FigureCardCacheTests: XCTestCase {
     // MARK: - Coalescing
 
     /// **Several triggers in one turn make one fill and one version bump**,
-    /// and the drain names every figure that changed.
+    /// and a fill that changes nothing does not bump.
     func test_severalTriggersInOneTurnMakeOneFillAndOneBump() async {
         let cash = record("fig-0a1b2c3d", "cash"), debt = record("fig-1a1b2c3d", "debt")
         let fake = FakeSource(inputs([(cash, table([1])), (debt, table([2]))]))
@@ -75,7 +75,6 @@ final class FigureCardCacheTests: XCTestCase {
         await cache.idle()
         XCTAssertEqual(fake.reads, 1)
         XCTAssertEqual(cache.version, 1, "the first fill bumps")
-        XCTAssertEqual(cache.takeChanged(), [cash.id, debt.id])
         XCTAssertEqual(cache.model(forFigureId: cash.id)?.bodyRows, [["1"]])
 
         fake.inputs = inputs([(cash, table([10])), (debt, table([20, 30]))])
@@ -86,15 +85,12 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(fake.reads, 2, "three triggers in one turn: one fill")
         XCTAssertEqual(cache.version, 2, "and one bump")
         XCTAssertEqual(bumps, [1, 2])
-        XCTAssertEqual(cache.takeChanged(), [cash.id, debt.id])
-        XCTAssertEqual(cache.takeChanged(), [], "the drain clears")
         XCTAssertEqual(cache.model(forFigureId: debt.id)?.bodyRows, [["20"], ["30"]])
 
         cache.invalidate()
         await cache.idle()
         XCTAssertEqual(fake.reads, 3)
         XCTAssertEqual(cache.version, 2, "a fill that changes nothing does not bump")
-        XCTAssertEqual(cache.takeChanged(), [])
     }
 
     /// **A trigger during a fill makes one more fill after it**, never a
@@ -180,14 +176,14 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(cache.model(forLinePath: line, documentPath: doc)?.kind, .table)
         XCTAssertEqual(cache.model(forLinePath: "../research/photo.png", documentPath: doc)?.kind, .image,
                        "a line outside figures/ is today's thumbnail")
-        _ = cache.takeChanged()
+        let version = cache.version
 
         fake.inputs = inputs([])
         cache.invalidate()
         await cache.idle()
         XCTAssertEqual(cache.model(forLinePath: line, documentPath: doc), .placeholder(.removed))
         XCTAssertNil(cache.model(forFigureId: cash.id))
-        XCTAssertEqual(cache.takeChanged(), [cash.id], "the line to re-lay out is named")
+        XCTAssertEqual(cache.version, version + 1, "the removal bumps the version")
 
         let twin = FigureRecord(id: "fig-1a1b2c3d", name: "cash2", kind: .table, piece: nil, path: "figures/Cash.csv")
         fake.inputs = inputs([(cash, table([1])), (twin, table([2]))])
@@ -264,7 +260,6 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(cache.model(forFigureId: record.id)?.kind, .table)
         XCTAssertEqual(cache.model(forFigureId: record.id)?.shownRowCount, 3)
         XCTAssertTrue(store.openFigures.isEmpty, "a fill opens no figure host")
-        _ = cache.takeChanged()
         let version = cache.version
 
         let doc = try await store.openFigure(figureId: record.id)
@@ -273,7 +268,6 @@ final class FigureCardCacheTests: XCTestCase {
         await cache.idle()
         XCTAssertEqual(cache.model(forFigureId: record.id)?.bodyRows[1].first, "42")
         XCTAssertEqual(cache.version, version + 1)
-        XCTAssertEqual(cache.takeChanged(), [record.id])
         await store.closeFigure(figureId: record.id)
         withExtendedLifetime(projectStore) {}
     }

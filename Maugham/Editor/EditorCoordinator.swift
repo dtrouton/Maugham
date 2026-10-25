@@ -356,6 +356,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var figureRoomsWaitForTheSettle = false
     /// How many figure lines `refreshFigureRooms` has re-laid out (tests read it).
     var figureRoomRefreshCount = 0
+    /// The trailing figure's path and the room its card gave it, as of the
+    /// last `refreshFigureRooms` or whole-document paint (`figureTrailingRoom`).
+    var trailingFigureRoomMemo: (path: String, room: CGFloat)?
+    /// How many times `figureTrailingRoom` asked the cards (tests read it).
+    var trailingFigureRoomLookupCount = 0
 
     // MARK: Labels and problem marks (plan 3b Task 6, `ReferenceLabelOverlay.swift`, `ManuscriptChecks.swift`)
 
@@ -1307,7 +1312,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     /// A typing burst is in flight: its settle paint is pending, its baseline
-    /// is held, or a character edit has not yet been retokenized.
+    /// is held, or a character edit has not yet been retokenized. A baseline
+    /// held for an edit that never landed parks the work until the next
+    /// settle or whole-document paint, which runs or covers it.
     var isInTypingBurst: Bool {
         deferredRestyleTask != nil || burstBaselineText != nil || tokensDescribeAnEarlierText
     }
