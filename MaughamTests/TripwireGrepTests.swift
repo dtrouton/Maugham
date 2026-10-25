@@ -12392,9 +12392,14 @@ final class TripwireGrepTests: XCTestCase {
         // manuscripts through the door-checked route (Task 7).
         // *Bring back*'s return, through the figure's host, after `bringBack`
         // asked the figure's door; `useInDocument` routes a parked figure's
-        // copy to `bringBack` (Task 8).
+        // copy to `bringBack` (Task 8) — when this Mac may edit that figure,
+        // else it makes a new one (final review M-5). `returnPins` folds the
+        // return's changes onto a COPY of the state through an op it never
+        // appends, to ask which formula cells take entry pins (final review
+        // I-1); the pins ride the return's own appends.
         "ProjectStore+FigureResearch.swift": [
             "createImageFigure(": 1, "parkInResearch(": 1, "resumeFromResearch(": 1, "bringBack(": 1,
+            figureOpMintSpelling: 1,
         ],
         "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],

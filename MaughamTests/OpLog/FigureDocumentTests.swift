@@ -736,10 +736,11 @@ final class FigureDocumentTests: XCTestCase {
     /// **The partition sees `.figure`**: a cell written into a figure of piece
     /// A by a device whose author is narrowed to piece B is set aside on a book
     /// author's Mac once piece A is claimed; the same device's write into a
-    /// figure of piece B applies. Before the claim the figure follows its
-    /// piece exactly (Denver's ruling R-D4): piece A was started by nobody on
-    /// record and nobody has written its text, so his line there is HELD, as
-    /// his words in piece A would be — never set aside.
+    /// figure of piece B applies. The figure follows its piece exactly
+    /// (Denver's ruling R-D4), and a book author's figure ops claim the piece
+    /// as her text would (the revised ruling, final fix wave): the root MADE
+    /// piece A's figure, its `figureCreate` and inserts, so piece A is claimed
+    /// before Sam writes, and his line there is set aside, never held.
     func test_aFigureLineFromAPieceBOnlyDeviceIsSetAside() async throws {
         // This device is the book's root.
         try writeThisDevicesRecord()
@@ -788,21 +789,12 @@ final class FigureDocumentTests: XCTestCase {
             _ = try await samsStore.sealChain(docId: id)
         }
 
-        let unclaimed = try await load(ofA.id)
-        XCTAssertNil(unclaimed.state.table[keyA], "not applied on the root's Mac")
-        XCTAssertEqual(unclaimed.provenance?.quarantinedLines, 0,
-                       "piece A is nobody's yet: his line is held, as his words there would be")
-        XCTAssertGreaterThan(unclaimed.provenance?.pendingLines ?? 0, 0)
-        await unclaimed.close()
-
-        // The root opens piece A: its bootstrap is a book author's text, which
-        // claims the piece — and with it the piece's figure.
-        let pieceA = try await Document.load(
-            url: projectURL.appendingPathComponent("manuscript/a.md"),
-            actor: .author, session: "s", presenter: nil)
-        await pieceA.close()
-
+        // No word of piece A's text was written: the root's figure ops alone
+        // claimed it.
+        XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: Self.pieceA, in: projectURL).isEmpty,
+                      "premise: piece A's text has no stream")
         let a = try await load(ofA.id)
+        XCTAssertEqual(a.provenance?.pendingLines, 0, "claimed, so not held")
         XCTAssertNil(a.state.table[keyA], "Sam's line in piece A's figure is set aside")
         XCTAssertGreaterThan(a.provenance?.quarantinedLines ?? 0, 0, "and counted as set aside")
         XCTAssertEqual(a.state.table.rows.count, 3, "the book author's own lines stand")

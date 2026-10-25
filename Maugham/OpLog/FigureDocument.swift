@@ -376,13 +376,13 @@ public final class FigureDocument {
         let prior = state.table[key]
         guard prior != cell else { return }
         var entryPins: [PinWrite] = []
-        if case .formula(let f)? = cell?.content,
-           !FigurePins.reads(of: f, in: state.table, parked: [:]).isEmpty, let documentStore {
+        // The cheap gate is syntactic (`FigurePins.readsResearch`): it needs
+        // no parked set or book; the entry itself reads the real ones.
+        if case .formula(let f)? = cell?.content, FigurePins.readsResearch(f), let documentStore {
             var probe = state
             probe.table.setCell(cell, at: key)
             do {
-                let sources = try await documentStore.pinSources(for: probe)
-                entryPins = FigurePins.entry(of: f, in: key, state: state, sources: sources, at: Date())
+                entryPins = try await documentStore.entryPins(for: probe, cells: [key])
             } catch {
                 documentLog.error(
                     "figure \(self.figureId, privacy: .public): a formula's Research sources did not read, so it takes no pins: \(error.localizedDescription, privacy: .public)")
@@ -819,7 +819,7 @@ public final class FigureDocument {
     /// - **It records what this host had read** (`parkedFrontier`: per device,
     ///   the last op of its own stream in append order), so the return can tell the state
     ///   the copy was written from from an edit that sorts before the park but
-    ///   arrived after it (`FigureReturnDiff.base(of:frontier:)`).
+    ///   arrived after it (`FigureReturnDiff.base(of:streams:frontier:)`).
     /// - Not registered for ⌘Z (ruling P-8): a park is undone by bringing the
     ///   figure back. From here on every mutator refuses
     ///   (`FigureParkedRefused`).
@@ -965,13 +965,18 @@ public final class FigureDocument {
         var applied = 0
         var resumed = false
         do {
-            try await commit(.figureResumed, FigureOpPayload(), provenance: reason, render: false)
+            let resume = try await commit(.figureResumed, FigureOpPayload(), provenance: reason, render: false)
             resumed = true
+            // Each names its resume (`returnOf`, final review M-2): a return
+            // whose resume another Mac's beat folds none of its ops.
             for change in changes {
-                try await commit(change.kind, change.payload, provenance: reason, render: false)
+                var payload = change.payload
+                payload.returnOf = resume.opId
+                try await commit(change.kind, payload, provenance: reason, render: false)
                 applied += 1
             }
-            if let newImage {
+            if var newImage {
+                newImage.returnOf = resume.opId
                 try await commit(.figureImageSet, newImage, provenance: reason, render: false)
             }
         } catch {

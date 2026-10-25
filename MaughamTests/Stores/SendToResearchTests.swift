@@ -541,4 +541,25 @@ final class SendToResearchTests: XCTestCase {
         try ImagePasteHandler.encodePNG(image).write(to: url)
         return url
     }
+
+    // MARK: - Final review M-3
+
+    /// **A second send takes a vacant Research title** (final review M-3):
+    /// the first send's copy stays in Research, so the second is `cash_2`,
+    /// and `research:cash` still names one table.
+    func test_aSecondSendTakesAVacantResearchTitle() async throws {
+        let (store, projectStore) = try await openBook()
+        defer { withExtendedLifetime(store) {} }
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let first = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+        _ = try await projectStore.bringBack(researchItemId: first.id, piece: nil)
+
+        let second = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+
+        XCTAssertEqual(first.title, "cash")
+        XCTAssertEqual(second.title, "cash_2", "a title no Research table answers to")
+        let names = try await store.formulaNamesForUse()
+        XCTAssertEqual(names.research(named: "cash"), .found(first.id), "research:cash names one table")
+        XCTAssertEqual(names.research(named: "CASH_2"), .found(second.id))
+    }
 }

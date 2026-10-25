@@ -217,6 +217,9 @@ final class BringBackTests: XCTestCase {
         XCTAssertEqual(after.diagnostics, before.diagnostics, "every op the return appended applied")
 
         let appended = try appendedByTheReturn(record.id, after: park)
+        let resume = try XCTUnwrap(appended.first)
+        XCTAssertTrue(appended.dropFirst().allSatisfy { $0.figure?.returnOf == resume.opId },
+                      "every op names its resume (final review M-2)")
         XCTAssertEqual(appended.filter { $0.kind == .figureStructure }.count, 3, "one delete, one move, one insert")
         XCTAssertEqual(appended.filter { $0.kind == .figureCellSet }.count, 3, "Rent's amount and Phone's two cells")
         XCTAssertEqual(appended.map(\.opId), appended.map(\.opId).sorted(), "each after the one before")

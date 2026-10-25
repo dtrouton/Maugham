@@ -42,7 +42,9 @@ extension ProjectStore {
     /// 1. **A working copy of a parked figure goes back to its own log**: an
     ///    item whose sidecar (`ResearchTableSidecar`) names a figure the
     ///    registry lists, parked in Research, is handed to `bringBack` (Task 8)
-    ///    and nothing is made here. Only then is the registry resolved.
+    ///    and nothing is made here — when this Mac may edit that figure. One
+    ///    that may not makes a new figure from the copy, as from any Research
+    ///    table (final review M-5). Only then is the registry resolved.
     /// 2. **A Research table** (`AssetKind.table`) is read through
     ///    `TableCSV.read` with the book's language (the publish config's
     ///    `metadata.language`) and name directory
@@ -74,7 +76,14 @@ extension ProjectStore {
         }
         let sidecar = researchTableSidecar(of: item)
         if let figureId = sidecar?.figureId, try await documentStore.figureIsParked(figureId) {
-            return try await bringBack(researchItemId: item.id, piece: piece)
+            // Final review M-5 (Denver's ruling): whoever may edit that figure
+            // brings it back; anyone else makes a new, independent figure from
+            // the copy's data below — the sidecar's figure id is not followed,
+            // and its formats apply only to the bytes they were written for.
+            let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
+            if !posture.isSettling, posture.allows(.editFigure) {
+                return try await bringBack(researchItemId: item.id, piece: piece)
+            }
         }
         switch item.kind {
         case .table?:
@@ -132,7 +141,7 @@ extension ProjectStore {
     ///    `FigureReturnDiff` brings back its differences, three-way: from the
     ///    state the copy was written from — the parked state when it still
     ///    renders to the park's hash, else the stream as far as the parker had
-    ///    read (`FigureReturnDiff.base(of:frontier:)`) — onto the parked
+    ///    read (`FigureReturnDiff.base(of:streams:frontier:)`) — onto the parked
     ///    state. The sidecar's formats apply when it was written for the
     ///    parked bytes.
     /// 5. **A changed picture** replaces the figure's file, one `figureImageSet`.
@@ -222,12 +231,45 @@ extension ProjectStore {
                 problems: read.problems,
                 mintRow: { let id = TableID.mint(excluding: used); used.insert(id); return RowID(id) },
                 mintColumn: { let id = TableID.mint(excluding: used); used.insert(id); return ColumnID(id) })
-            return (changes, nil, current)
+            var withPins = changes
+            withPins.ops += await returnPins(for: changes.ops, onto: current).map {
+                FigureReturnDiff.Change(kind: .figurePinSet, payload: FigureOpPayload(cell: $0.cell, pin: $0.pin))
+            }
+            return (withPins, nil, current)
         case .image:
             let hash = try await Task.detached { try ContentHash.ofFile(file) }.value
             return (none, hash == parked.hash ? nil : (url: file, hash: hash), host.state)
         case .unknown:
             throw FigureEditInvalid(reason: "this build cannot bring back a figure of this kind")
+        }
+    }
+
+    /// **The entry pins the cells a return sets take** (final review I-1):
+    /// `DocumentStore.entryPins` over the figure as the return leaves it,
+    /// limited to the cells its cell sets write — a formula brought back from
+    /// the copy that reads a Research table pins it, as one typed in would.
+    /// Sources that will not read take none (logged; the status says
+    /// `unpinned`).
+    private func returnPins(
+        for changes: [FigureReturnDiff.Change], onto current: FigureState
+    ) async -> [PinWrite] {
+        guard let documentStore else { return [] }
+        var resulting = current
+        resulting.parked = nil
+        var cells = Set<CellKey>()
+        for change in changes {
+            FigureDeriver.fold(Op(
+                opId: ULID.generate(), docId: "return", at: Date(), device: "return", session: "return",
+                kind: change.kind, changes: [], figure: change.payload), into: &resulting)
+            if change.kind == .figureCellSet, let cell = change.payload.cell { cells.insert(cell) }
+        }
+        guard !cells.isEmpty else { return [] }
+        do {
+            return try await documentStore.entryPins(for: resulting, cells: cells)
+        } catch {
+            projectStoreLog.error(
+                "bringBack: the copy's Research sources did not read, so its formulas take no pins: \(error.localizedDescription, privacy: .public)")
+            return []
         }
     }
 
@@ -357,8 +399,13 @@ extension ProjectStore {
             let locale = TableLocale(languageTag: await bookLanguageTag())
             let csv = TableCSV.renderResearch(state.table, locale: locale, names: names)
             let folder = try FigureIngest.makeTemporaryFolder()
-            let file = folder.appendingPathComponent( // local-path: a temporary folder minted here; figurePath makes the name a plain file
-                (Self.figurePath(name: record.name, kind: .table) as NSString).lastPathComponent)
+            // The file's stem is the copy's Research title: a vacant one, so a
+            // second send never makes `research:<title>` name two tables
+            // (final review M-3).
+            let stem = vacantResearchTableTitle(
+                basedOn: ((Self.figurePath(name: record.name, kind: .table) as NSString)
+                    .lastPathComponent as NSString).deletingPathExtension)
+            let file = folder.appendingPathComponent("\(stem).csv") // local-path: a temporary folder minted here; figurePath makes the stem a plain file name
             defer { FigureIngest.removeTemporary(file) }
             try Data(csv.utf8).write(to: file)
             item = try await createResearchAsset(scope: scope, fromURL: file)
@@ -396,6 +443,19 @@ extension ProjectStore {
             await removeWorkingCopy(item)
             throw error
         }
+    }
+
+    /// `base`, or `base_2`, `base_3`… — the first title no Research table
+    /// answers to, folded as `FormulaNames` folds a `research:` name
+    /// (`lowercased()`), so a formula naming it is never ambiguous.
+    private func vacantResearchTableTitle(basedOn base: String) -> String {
+        let taken = Set(TreeWalk.collect(in: manifest.research, where: {
+            $0.type == .asset && $0.kind == .table
+        }).map { $0.title.lowercased() })
+        guard taken.contains(base.lowercased()) else { return base }
+        var n = 2
+        while taken.contains("\(base)_\(n)".lowercased()) { n += 1 }
+        return "\(base)_\(n)"
     }
 
     /// A working copy a failed send leaves behind, taken back out: its file

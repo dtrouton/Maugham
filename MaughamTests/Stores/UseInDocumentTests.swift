@@ -324,4 +324,49 @@ final class UseInDocumentTests: XCTestCase {
         }
         XCTAssertEqual(projectStore.manifest.figures ?? [], [])
     }
+
+    // MARK: - Final review M-5: a parked copy, used by someone who may not edit it
+
+    /// **Use in document on a parked figure's copy by a Mac that may not edit
+    /// that figure makes a new, independent figure** (final review M-5,
+    /// Denver's ruling): the parked figure stays parked and untouched, the
+    /// new figure holds the copy's data and none of its id, and the sidecar's
+    /// formats apply because they were written for these bytes. Once this
+    /// Mac may edit the figure again (Edit Anyway), the same copy brings it
+    /// back.
+    func test_aParkedCopyUsedByAMacThatMayNotEditTheFigureMakesANewFigure() async throws {
+        let (store, projectStore) = try await openBook()
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: "doc-a", rows: 2, columns: 1)
+        let host = try await store.openFigure(figureId: cash.id)
+        try await host.setCell(Cell(content: .value(.number(5)), format: CellFormat(number: .percent(decimals: 1))),
+                               at: CellKey(row: host.state.table.rows[1], column: host.state.table.columns[0]))
+        await store.closeFigure(figureId: cash.id)
+        let copy = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+        let parkedOps = try OpLogStore.loadSyncMerged(forDocId: cash.id, in: projectURL, facts: .empty).count
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["doc-a"])))
+        await store.postureSettled()
+        XCTAssertFalse(store.posture(forDocId: cash.id).allows(.editFigure), "precondition: this Mac yields on A")
+
+        let result = try await projectStore.useInDocument(researchItemId: copy.id, piece: nil)
+
+        XCTAssertNotEqual(result.record.id, cash.id, "a new figure, not the parked one")
+        XCTAssertEqual(result.record.name, "cash_2")
+        XCTAssertEqual(projectStore.manifest.figures?.count, 2)
+        let made = try await state(result.record.id)
+        XCTAssertEqual(made.source?.researchItemId, copy.id)
+        let five = made.table[CellKey(row: made.table.rows[1], column: made.table.columns[0])]
+        XCTAssertEqual(five?.content, .value(.number(5)), "the copy's data")
+        XCTAssertEqual(five?.format, CellFormat(number: .percent(decimals: 1)), "the sidecar's formats, for these bytes")
+        let still = try await state(cash.id)
+        XCTAssertNotNil(still.parked, "the parked figure stays parked")
+        XCTAssertEqual(try OpLogStore.loadSyncMerged(forDocId: cash.id, in: projectURL, facts: .empty).count,
+                       parkedOps, "and nothing was appended to it")
+
+        store.overrideYield(docId: "doc-a")
+        let back = try await projectStore.useInDocument(researchItemId: copy.id, piece: nil)
+        XCTAssertEqual(back.record.id, cash.id, "a Mac that may edit it brings it back")
+    }
 }

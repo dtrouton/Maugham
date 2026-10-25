@@ -84,6 +84,11 @@ extension ProjectStore {
         var ops = [op(.figureCreate, FigureOpPayload(kind: kind, source: source))]
         if kind == .table, let table {
             ops += Self.openingPayloads(of: table).map { op($0.kind, $0.payload) }
+            // A formula reading a Research table pins what it reads, as one
+            // typed in would (final review I-1).
+            ops += await openingPins(of: table).map {
+                op(.figurePinSet, FigureOpPayload(cell: $0.cell, pin: $0.pin))
+            }
         }
         // The stream first, the record second: a failure part-way leaves a
         // stream no registry names — invisible, resolving to a whole-book
@@ -106,6 +111,21 @@ extension ProjectStore {
         // through the window's coordinated door (report plan 6a Task 7).
         await documentStore?.renderFigures(changed: [figureId])
         return placed
+    }
+
+    /// **The entry pins a new table's formulas take** (final review I-1):
+    /// `DocumentStore.entryPins` over the table as it will stand. Sources that
+    /// will not read take none (logged): those cells show `#REF!` and the
+    /// figure's pin status says `unpinned` until a refresh.
+    private func openingPins(of table: FigureTable) async -> [PinWrite] {
+        guard let documentStore else { return [] }
+        do {
+            return try await documentStore.entryPins(for: FigureState(kind: .table, table: table))
+        } catch {
+            projectStoreLog.error(
+                "a new table's Research sources did not read, so its formulas take no pins: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
     }
 
     /// The ops that build `table` on an empty stream, after its
@@ -281,14 +301,19 @@ extension ProjectStore {
     /// 3. **Every manuscript that holds its line or a cross-reference to its
     ///    label** (`{#tbl:old}`, `@tbl:old`) is held through the door-checked
     ///    manuscript route (`holdManuscriptsForFigureText`); one refusing
-    ///    refuses the rename, naming each piece.
+    ///    refuses the rename, naming each piece. **So is every translation
+    ///    record holding one** (`holdTranslationsForRelabel`, final review
+    ///    I-2): one that will not read, or a translation door that refuses,
+    ///    refuses the rename, naming the languages. A parked figure is
+    ///    refused before any of this (`FigureRenameRefused.inResearch`).
     /// 4. Then: an image's file is moved and a `figureImageSet` with the same
     ///    hash and the new file name appended (`FigureDocument.renameImageFile`);
     ///    the record's name and path through `saveManifest`; a table's render
     ///    moved to its new file and rendered there (with any figure that
     ///    shared its old file, so a rename that separates two renders both);
-    ///    and the text relabelled. Formulas store the figure's id, so they
-    ///    show the new name with nothing written (R-D1).
+    ///    the text relabelled, then its fresh translations (stamped against
+    ///    the relabelled text, so they stay fresh). Formulas store the
+    ///    figure's id, so they show the new name with nothing written (R-D1).
     ///
     /// Needs the window's `DocumentStore` (the typed mover, the renders).
     @discardableResult
@@ -303,6 +328,11 @@ extension ProjectStore {
             throw FigureEditInvalid(reason: "this figure is not in the book's list of figures")
         }
         guard newName != record.name else { return record }
+        // One rule for both kinds, up front (final review M-4, Denver's
+        // ruling): a parked figure is renamed once it is brought back.
+        if try await documentStore.figureIsParked(id) {
+            throw FigureRenameRefused(reason: .inResearch(record.kind))
+        }
         let newPath = try renamedFigurePath(of: record, to: newName)
         try await requireFigurePermitted(figureId: id, site: "renameFigure", documentStore: documentStore)
 
@@ -310,11 +340,18 @@ extension ProjectStore {
             ManuscriptLabel(reference: "\($0.rawValue):\(record.name)")
         }
         var relabel: HeldFigureTextEdit?
+        var translations: HeldTranslationRelabel?
         if let label {
-            relabel = try await holdManuscriptsForFigureText(.relabel(FigureLabelChange(
+            let change = FigureLabelChange(
                 old: label, newName: newName,
                 oldFile: (record.path as NSString).lastPathComponent,
-                newFile: (newPath as NSString).lastPathComponent)))
+                newFile: (newPath as NSString).lastPathComponent)
+            relabel = try await holdManuscriptsForFigureText(.relabel(change))
+            // Its translations too, all or nothing (final review I-2).
+            do { translations = try holdTranslationsForRelabel(change) } catch {
+                await relabel?.release()
+                throw error
+            }
         }
         // Every door has answered yes. Anything after this that fails puts
         // back what it did and releases the held manuscripts unwritten.
@@ -343,11 +380,27 @@ extension ProjectStore {
         // the documents: all of them or none (`HeldFigureTextEdit.write`). A
         // document that stopped being writable since it was held refuses the
         // whole rename, and the record and the picture go back too.
+        // Then the translations of what was written, re-stamped against it;
+        // a batch that fails puts the text back too.
         if let relabel {
             if let hook = Self.beforeFigureRelabelWriteForTesting { await hook(relabel) }
+            var written: HeldFigureTextEdit.Written = []
             do {
-                _ = try relabel.write()
+                written = try relabel.write()
+                if let translations {
+                    try await writeTranslationRelabel(
+                        translations, after: relabel.manuscripts.map(\.manuscript.doc))
+                }
             } catch {
+                HeldFigureTextEdit.unwrite(written)
+                var error = error
+                if let incomplete = error as? TranslationRelabelIncomplete, let translations {
+                    // The source is back, so what landed is put back against it.
+                    await putBackTranslationRelabel(
+                        translations, landed: incomplete.landed,
+                        after: relabel.manuscripts.map(\.manuscript.doc))
+                    error = incomplete.underlying
+                }
                 do { try await replaceFigureRecord(record) } catch {
                     projectStoreLog.error(
                         "renameFigure: the record could not be put back after a refused relabel: \(error.localizedDescription, privacy: .public)")
@@ -370,12 +423,22 @@ extension ProjectStore {
 
     /// **Remove a figure** — a structural verb behind the figure's own door
     /// (its `.editFigure` posture; a refusal throws `FigureEditRefused`).
-    /// Its record leaves the registry and its file (a table's render, an
-    /// image's picture) goes to the project Trash through the typed mover,
-    /// carrying the record, so restoring it brings the figure back
-    /// (`restoreRemovedFigure`). Its stream stays (append-only). Its line and
-    /// references in the text are left; they read as broken references. The
-    /// tables reading it re-render.
+    /// Its record leaves the registry and **always** goes to the project
+    /// Trash (final review I-3, Denver's ruling), so restoring the entry
+    /// brings the figure back (`restoreRemovedFigure`):
+    /// - its file (a table's render, an image's picture), where it is on disk
+    ///   and no other record names it, through the typed mover;
+    /// - a table whose render is not there (parked in Research, never
+    ///   written, evicted by iCloud): a CSV rendered fresh from its op state
+    ///   (`DocumentStore.figureRenderText`);
+    /// - otherwise — a picture whose file is missing, a file another record
+    ///   shares, a table whose stream will not read — an entry holding the
+    ///   record only; restored, the figure comes back and its picture shows
+    ///   missing as before.
+    ///
+    /// Its stream stays (append-only). Its line and references in the text
+    /// are left; they read as broken references. The tables reading it
+    /// re-render.
     public func removeFigure(id: String) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let documentStore else {
@@ -385,16 +448,22 @@ extension ProjectStore {
             throw FigureEditInvalid(reason: "this figure is not in the book's list of figures")
         }
         try await requireFigurePermitted(figureId: id, site: "removeFigure", documentStore: documentStore)
-        await documentStore.closeFigure(figureId: id)
 
         // Its file goes to the Trash unless another record names it too.
         let shared = (manifest.figures ?? []).contains {
             $0.id != id && $0.path.lowercased() == record.path.lowercased()
         }
-        var trashed: TrashEntry?
-        if !shared, let file = try? resolvedProjectPathToChange(record.path),
-           FileManager.default.fileExists(atPath: file.path) {
+        let onDisk = (try? resolvedProjectPathToChange(record.path))
+            .map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        // Rendered before its host closes, from the freshest state.
+        let rendered = !shared && !onDisk ? await documentStore.figureRenderText(for: record) : nil
+        await documentStore.closeFigure(figureId: id)
+        let movedTheFile = !shared && onDisk
+        let trashed: TrashEntry
+        if movedTheFile {
             trashed = try await trashFigureFile(of: record, at: record.path, documentStore: documentStore)
+        } else {
+            trashed = try await trashFigureRecord(record, render: rendered)
         }
         manifest.figures = (manifest.figures ?? []).filter { $0.id != id }
         manifest.modified = Date()
@@ -402,7 +471,12 @@ extension ProjectStore {
             try await saveManifest()
         } catch {
             manifest.figures = (manifest.figures ?? []) + [record]
-            if let trashed { _ = try? await trashStore.restore(trashId: trashed.id) }
+            if movedTheFile {
+                _ = try? await trashStore.restore(trashId: trashed.id)
+            } else {
+                // Nothing of the book's was moved: the entry just goes.
+                try? await trashStore.permanentlyDelete(trashId: trashed.id)
+            }
             throw error
         }
         trashEntries = (try? await trashStore.list()) ?? trashEntries
@@ -469,6 +543,13 @@ extension ProjectStore {
             throw notLanded
         }
         manifest.figures = (manifest.figures ?? []) + [restored]
+        // A table removed while parked comes back parked: the CSV its entry
+        // carried is not a render it has, so it goes to the Trash as send's
+        // stale render does.
+        if restored.kind == .table, entry.restoredRelativePath != nil,
+           (try? await documentStore?.figureIsParked(restored.id)) == true {
+            await trashStrayFigureFile(at: restored.path)
+        }
         await documentStore?.renderFigures(changed: [restored.id])
     }
 
@@ -481,6 +562,25 @@ extension ProjectStore {
         return try await documentStore.trash(
             relativePath: relativePath, using: trashStore,
             itemMetadata: metadata,
+            originalParentId: nil, originalIndex: 0,
+            displayTitle: record.listTitle, subject: .figure)
+    }
+
+    /// **A removed figure's Trash entry when its file is not moved there**
+    /// (final review I-3): `render` — a table's CSV rendered fresh — as the
+    /// entry's file, named as the render would be (`FigureRender.renderPath`,
+    /// one plain file name), so a restore lands it at the record's path; else
+    /// the record alone (`carriesFile: false`).
+    private func trashFigureRecord(_ record: FigureRecord, render: String?) async throws -> TrashEntry {
+        let metadata = try JSONEncoder().encode(record)
+        if let render, let path = FigureRender.renderPath(of: record) {
+            return try await trashStore.recordTextEntry(
+                text: render, filename: (path as NSString).lastPathComponent,
+                originalRelativePath: path, itemMetadata: metadata,
+                displayTitle: record.listTitle, subject: .figure)
+        }
+        return try await trashStore.recordManifestOnlyTrash(
+            originalRelativePath: record.path, itemMetadata: metadata,
             originalParentId: nil, originalIndex: 0,
             displayTitle: record.listTitle, subject: .figure)
     }
@@ -730,6 +830,12 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
         /// These pieces hold the figure's line or a reference to it, and
         /// this Mac may not change their text.
         case piecesNotWritable([String])
+        /// The figure is parked in Research (final review M-4).
+        case inResearch(FigureKind)
+        /// The text holds the figure, and these languages' translations of
+        /// it can't be read or this Mac may not change them (final review
+        /// I-2), so they would keep the old label.
+        case translationsNotWritable([String])
     }
 
     public let reason: Reason
@@ -752,6 +858,14 @@ public struct FigureRenameRefused: LocalizedError, Equatable {
         case .piecesNotWritable(let titles):
             return "Not renamed — this Mac may not change the text of "
                 + titles.joined(separator: ", ") + ", which refers to this figure."
+        case .inResearch(let kind):
+            return kind == .image
+                ? "This picture is in Research; bring it back to rename it."
+                : "This table is in Research; bring it back to rename it."
+        case .translationsNotWritable(let languages):
+            return "Not renamed — the "
+                + languages.joined(separator: ", ")
+                + " translation can't be changed here, and it refers to this figure."
         }
     }
 }

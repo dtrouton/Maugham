@@ -324,6 +324,50 @@ extension DocumentStore {
         return sources
     }
 
+    /// **The entry pins `state`'s formula cells take** (spec §4.3; report plan
+    /// 6b final review I-1) — the ONE helper every path that lands a formula
+    /// asks: a cell typed (`FigureDocument.setCell`), a figure made by *Use in
+    /// document* (`ProjectStore.createFigureStream`) and the cells a return
+    /// brings back (`ProjectStore.bringBack`). Each formula cell in `cells`
+    /// (every one, when nil) that names a Research table and holds no pin on
+    /// what it reads takes one (`FigurePins.entry(state:cells:sources:at:)`).
+    /// Nothing is gathered when no such cell names Research
+    /// (`FigurePins.readsResearch`, a syntactic test). Throws when the sources
+    /// will not read (`pinSources(for:)`); the caller then lands the formula
+    /// unpinned, which `FigurePins.status` reports as `unpinned`.
+    func entryPins(for state: FigureState, cells: Set<CellKey>? = nil) async throws -> [PinWrite] {
+        let readsResearch = state.table.cells.contains { key, cell in
+            guard cells?.contains(key) ?? true, case .formula(let f) = cell.content else { return false }
+            return FigurePins.readsResearch(f)
+        }
+        guard readsResearch else { return [] }
+        let sources = try await pinSources(for: state)
+        return FigurePins.entry(state: state, cells: cells, sources: sources, at: Date())
+    }
+
+    /// **The CSV `record` renders to from its op state, parked or not** —
+    /// what a removed table's Trash entry carries when its render is not on
+    /// disk (final review I-3): `FigureRender.csv` over the open host's state,
+    /// else the cache's read, with the park lifted so a parked table renders
+    /// its parked values. Nil for a picture, or when the registry or the
+    /// stream will not read.
+    func figureRenderText(for record: FigureRecord) async -> String? {
+        guard record.kind == .table, let manifest = projectStore?.manifest,
+              let trust = try? await figureTrust() else { return nil }
+        var state: FigureState
+        if let open = openFigure(forId: record.id) {
+            state = open.state
+        } else {
+            guard let read = try? figureCache.state(
+                forFigureId: record.id, in: projectURL, trust: trust, facts: DocumentClass.Facts(manifest))
+            else { return nil }
+            state = read
+        }
+        state.parked = nil
+        return FigureRender.csv(
+            record: record, state: state, workbook: assembledFigures(manifest: manifest, trust: trust).workbook)
+    }
+
     /// **Is figure `figureId` parked in Research?** Asked of its open host,
     /// else its stream (the registry resolved only then), whatever its kind.
     /// False for an id the registry does not list. Throws when the stream or

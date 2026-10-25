@@ -322,4 +322,87 @@ final class FigurePinTests: XCTestCase {
         XCTAssertEqual(try rendered(total).first?.first, "14", "the kept value stands")
         await store.closeFigure(figureId: total.id)
     }
+
+    // MARK: - Final review I-1: every path that lands a formula pins it
+
+    /// **Use in document on a CSV whose formula reads another Research table
+    /// pins what it reads** (final review I-1): the figure renders the value,
+    /// not `#REF!`, and its source is current.
+    func test_useInDocumentPinsAResearchFormula_rendersItsValue_andIsCurrent() async throws {
+        let (store, projectStore) = try await openBook()
+        let model = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("summary.csv", "Total\n=research:model!B2*2\n"))
+
+        let made = try await projectStore.useInDocument(researchItemId: summary.id, piece: nil).record
+        await store.awaitOpenFigureRenderForTesting()
+
+        XCTAssertEqual(try rendered(made).last, ["20"], "the value, not #REF!")
+        let host = try await store.openFigure(figureId: made.id)
+        let pin = try XCTUnwrap(host.state.pins.values.first?.first, "the formula took its pin")
+        XCTAssertEqual([pin.research, "\(pin.row)", "\(pin.column)"], [model.id, "1", "1"])
+        let status = await host.pinStatus()
+        XCTAssertEqual(status, [model.id: .current])
+        XCTAssertEqual(try ops(of: made.id).filter { $0.kind == .figurePinSet }.count, 1,
+                       "the pin is in the figure's opening stream")
+        await store.closeFigure(figureId: made.id)
+    }
+
+    /// **A return that brings back a formula reading Research pins it**
+    /// (final review I-1): the copy gains `=research:model!B2*3`; back in the
+    /// book it reads 30, its pin carries the return's reason, and the source
+    /// is current.
+    func test_aReturnThatBringsBackAResearchFormulaPinsIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let model = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil, rows: 1, columns: 1)
+        let copy = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+        try rewrite(try XCTUnwrap(copy.path), "=research:model!B2*3\n")
+
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+        await store.awaitOpenFigureRenderForTesting()
+
+        XCTAssertEqual(try rendered(cash), [["30"]], "the value, not #REF!")
+        let pinOps = try ops(of: cash.id).filter { $0.kind == .figurePinSet }
+        XCTAssertEqual(pinOps.count, 1)
+        XCTAssertEqual(pinOps.first?.provenance?.synthesisSource, .broughtBackFromResearch)
+        XCTAssertEqual(pinOps.first?.figure?.pin?.research, model.id)
+        let host = try await store.openFigure(figureId: cash.id)
+        let status = await host.pinStatus()
+        XCTAssertEqual(status, [model.id: .current])
+        await store.closeFigure(figureId: cash.id)
+    }
+
+    /// **A Research read with no pin says it needs a refresh** (final review
+    /// I-1): a formula cell written to the stream by hand, with no pin, shows
+    /// `#REF!` and reports `unpinned`; a refresh pins it.
+    func test_aHandMadeUnpinnedResearchReadReportsUnpinned() async throws {
+        let (store, projectStore) = try await openBook()
+        let model = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        guard case .success(let f) = FormulaParser.parse(
+            "research:model!B2", in: host.state.table, names: FormulaNames(research: [(model.id, model.title)]))
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        await store.closeFigure(figureId: summary.id)
+        let opStore = Document.makeLoadOpStore(projectURL: projectURL, presenter: nil)
+        try await opStore.append(Op(
+            opId: ULID.generate(), docId: summary.id, at: Date(),
+            device: Document.loadIdentities[.author].deviceId, session: "hand",
+            kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: a1, next: Cell(content: .formula(f)))))
+        _ = try await opStore.sealChain(docId: summary.id, actor: .author)
+        store.figureCache.invalidate(figureId: summary.id)
+
+        let reopened = try await store.openFigure(figureId: summary.id)
+        let path = try XCTUnwrap(model.path)
+        let status = await reopened.pinStatus()
+        XCTAssertEqual(status, [model.id: .unpinned(new: try ContentHash.ofFile(file(path)))])
+        try await reopened.refreshPins()
+        let after = await reopened.pinStatus()
+        XCTAssertEqual(after, [model.id: .current])
+        XCTAssertEqual(reopened.state.pins[a1]?.first?.value, .number(10))
+        await store.closeFigure(figureId: summary.id)
+    }
 }
