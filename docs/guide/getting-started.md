@@ -47,7 +47,7 @@ Plan (⌘1) puts a **canvas** where the editor usually sits — a place to think
 
 On the canvas itself (these work while the canvas holds the keyboard):
 
-- **↩** with nothing selected makes a scrap at the centre of the view; with a scrap selected it starts typing in it; with a region selected it renames the region.
+- **↩** with nothing selected makes a scrap at the centre of the view (not while a research item or group is selected in the binder); with a scrap selected it starts typing in it; with a region selected it renames the region.
 - **⇥** or **⌘↩** with a scrap or an item card selected makes a joined or a below scrap.
 - **The arrow keys** move the selection to the nearest card in that direction. Select a card first (click it, or make one): with nothing selected they do nothing on the canvas.
 - With a chapter selected in the binder, a card left selected from another chapter (dimmed) counts as nothing selected: **↩** makes a new scrap for your chapter instead of opening that card, and **⇥** and **⌘↩** act as if nothing were selected. The arrow keys still move from it.

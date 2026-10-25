@@ -66,7 +66,7 @@
 - ✓ **Ship a real ebook** — standard EPUB with cover, styles, and structure intact. *(EPUB pipeline)*
 - ✓ **Assemble the pieces into a collection** — stories written separately become one deliverable book. *(collection project type, mixed content)*
 - ✓ **Reach readers in another language** — a translated edition, produced without ever touching the original words, reviewable read-only before it ships. *(parallel translation layer via Claude MCP tools, editor Translation Review mode + ⌘⌥L pane, blocking coverage gate on compile)*
-- • **Submit in the format the market demands** — Shunn standard manuscript, Word output. *(unserved — both open)*
+- • **Submit in the format the market demands** — Shunn standard manuscript, Word output. *(Word half served: DOCX publishing, `docs/guide/publishing.md`, merged and unreleased; Shunn markdown export still open)*
 - • **Know where every story stands in the submission cycle** — what's out, where, since when. *(unserved — submission tracker is speculative)*
 
 ## Sustaining the practice

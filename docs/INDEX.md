@@ -25,7 +25,7 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 
 - [docs/superpowers/specs/](superpowers/specs/) — design specs, one per milestone.
 - [docs/superpowers/plans/](superpowers/plans/) — implementation plans.
-- [docs/superpowers/notes/](superpowers/notes/) — audits, diagnoses, handoffs. The newest audit is `docs/superpowers/notes/2026-10-17-foundations-audit.md`.
+- [docs/superpowers/notes/](superpowers/notes/) — audits (`*-audit.md`, `*-sweep.md`, `*-maintainability-review.md`), diagnoses, handoffs.
 - [`docs/history/README.md`](history/README.md) — narrative, provenance and rejected alternatives moved out of the `AREA.md` guides. Not required reading.
 
 ## The code, area by area

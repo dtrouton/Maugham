@@ -216,6 +216,38 @@ final class CanvasCanvasKeyTests: XCTestCase {
         model.endGesture()
     }
 
+    /// #118: Return with nothing selected makes a scrap only where it would
+    /// not be born dimmed. A research item and a group dim the board and bind
+    /// nothing, so there the key is used (no beep) and makes nothing; under a
+    /// chapter the scrap binds and is lit.
+    func test_returnWithNothingSelectedMakesNoDimmedOrphan() throws {
+        let viewSize = CGSize(width: 1000, height: 700)
+        for subject in [CanvasSubject.research("r-9"), .group(["p1", "p2"]), .group([])] {
+            let model = populatedModel()
+            var f = fixture(model, selecting: nil)
+            f.subject = subject
+            let before = ids(model)
+
+            XCTAssertTrue(f.key(.returnKey, viewSize: viewSize), "\(subject): the key was not used")
+
+            assertUntouched(f, before: before, selection: nil, "Return under \(subject)")
+        }
+
+        let model = populatedModel()
+        var f = fixture(model, selecting: nil)
+        f.subject = .piece("p1")
+        let before = ids(model)
+
+        XCTAssertTrue(f.key(.returnKey, viewSize: viewSize))
+
+        let made = try XCTUnwrap(ids(model).subtracting(before).first,
+                                 "Return under a chapter made no scrap")
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(made)).boundPieceID, "p1")
+        XCTAssertFalse(CanvasHighlight.resolve(subject: f.subject, in: model.scene).isDimmed(node: made),
+                       "the chapter's new scrap was born dimmed")
+        model.endGesture()
+    }
+
     /// Under a camera that is panned AND zoomed, so the view's centre is a
     /// different content point from the identity camera's.
     func test_returnOnAnEmptyCanvasMakesAScrapAtTheViewCentreClearOfCards() throws {
