@@ -18,6 +18,12 @@ import MaughamCore
 ///
 /// Every one must compile, and the PDF's text (PDFKit) must read "Figure 1",
 /// "Table 1", "References" and the author–date text, and never "??".
+///
+/// Report plan 7a final review I2/I3: the fixture also holds a table figure
+/// (`figures/cash.csv`, labelled `tbl:cash`, on disk), so every compile runs
+/// its kernel `table` float through tectonic, the versioned compile's gate
+/// lets a Report with a table figure through, and `@tbl:cash` reads
+/// "Table 3".
 @MainActor
 final class ReportPDFCompileTests: XCTestCase {
 
@@ -64,6 +70,10 @@ final class ReportPDFCompileTests: XCTestCase {
         let research = url.appendingPathComponent("research")
         try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
         try Self.png().write(to: research.appendingPathComponent("revenue-chart.png"))
+        let figures = url.appendingPathComponent("figures")
+        try FileManager.default.createDirectory(at: figures, withIntermediateDirectories: true)
+        try "Year,Cash\n2026,100\n".write(to: figures.appendingPathComponent("cash.csv"),
+                                          atomically: true, encoding: .utf8)
 
         let chapters = store.manifest.structure.filter { $0.path != nil }
         let first = try XCTUnwrap(chapters.first?.path, "premise: the novel has a chapter")
@@ -86,6 +96,10 @@ final class ReportPDFCompileTests: XCTestCase {
             | [note] | b |
             |---|---|
             | *star* | z |
+
+            ![Programme cash](\(up)figures/cash.csv){#tbl:cash}
+
+            The cash flows are in @tbl:cash.
 
             - [draft] first item
             - second item
@@ -149,12 +163,19 @@ final class ReportPDFCompileTests: XCTestCase {
                          // I1/m4: rows, a header and a list item opening with `[`.
                          "[draft] x", "[@ghost] y", "[note] b", "star z", "[draft] first item",
                          // R-S9: the uncaptioned table still prints its number.
-                         "Table 2"] {
+                         "Table 2",
+                         // Report plan 7a I3: the table figure's float and its reference.
+                         "Table 3: Programme cash", "The cash flows are in Table 3"] {
             XCTAssertTrue(text.contains(expected), "missing \(expected) in:\n\(text)", file: file, line: line)
         }
         // `[@ghost]` is an unknown key and prints literally; no known key does.
+        // The table figure prints its own source line until plan 9 emits its
+        // cells, so that one line is set aside before the check.
+        let tableFigureSource = "{#tbl:cash}"
+        XCTAssertTrue(text.contains(tableFigureSource), "premise: the literal source line", file: file, line: line)
+        let checked = text.replacingOccurrences(of: tableFigureSource, with: "")
         for forbidden in ["??", "[@smith", "@fig", "@tbl", "@sec", "[^", "{#"] {
-            XCTAssertFalse(text.contains(forbidden), "printed \(forbidden) in:\n\(text)", file: file, line: line)
+            XCTAssertFalse(checked.contains(forbidden), "printed \(forbidden) in:\n\(text)", file: file, line: line)
         }
     }
 
@@ -168,7 +189,7 @@ final class ReportPDFCompileTests: XCTestCase {
         let result = try await compile(label: "novel")
         let text = try text(of: result)
         XCTAssertTrue(text.contains("[@ghost] y") && text.contains("[draft] x"), text)
-        XCTAssertTrue(text.contains("Table 1") && text.contains("Table 2"), text)
+        XCTAssertTrue(text.contains("Table 1") && text.contains("Table 2") && text.contains("Table 3"), text)
     }
 
     func test_theCurrentStarter_rendersTheReport() async throws {
@@ -179,6 +200,15 @@ final class ReportPDFCompileTests: XCTestCase {
         let text = try text(of: result)
         assertReportText(text)
         XCTAssertTrue(text.contains("List of Figures") && text.contains("List of Tables"), text)
+        XCTAssertGreaterThanOrEqual(text.components(separatedBy: "Programme cash").count - 1, 3,
+                                    "the list of tables, the caption and the literal source: \(text)")
+        // I2: the door's own resolution for a PDF raises no image problem for
+        // the table figure (the fixture's `[@ghost]` is the gate's only error).
+        let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
+        let bodies = try PDFCompiler.resolve(bodies: [BodyPlan.Body(
+            tag: nil, displayTag: "en", source: ProjectStoreASTSource(projectStore: store), config: config)])
+        XCTAssertEqual(bodies[0].resolution.problems.filter { $0.isError(profile: .report) }.map(\.kind),
+                       [.unknownCitationKey("ghost")], "the table figure is no unreadable image")
         XCTAssertTrue(try embedsAnImage(result), "the figure's image is in the PDF")
         let metadata = try String(contentsOf: publish.appendingPathComponent("build/metadata.tex"),
                                   encoding: .utf8)

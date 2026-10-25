@@ -12,6 +12,7 @@ import AppKit
 final class FigureRestoreTests: XCTestCase {
 
     private var projectURL: URL!
+    private var heldFigurePass: DebounceScheduler<Int>?
     private static let pieceB = "doc-b"
     private static let checkpoint = "ckpt-restore"
 
@@ -32,6 +33,8 @@ final class FigureRestoreTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        heldFigurePass?.cancel()
+        heldFigurePass = nil
         FigureDocument.beforeCommitAppendForTesting = nil
         FigureDocument.betweenRestoreOpsForTesting = nil
         Document.localIdentitiesForTesting = nil
@@ -59,6 +62,7 @@ final class FigureRestoreTests: XCTestCase {
         enc.dateEncodingStrategy = .iso8601
         try enc.encode(manifest).write(to: file(ProjectManifest.fileName))
         let store = try await DocumentStore.open(url: projectURL)
+        holdTheFigurePass(of: store)
         for slug in ["a", "b"] {
             let doc = try await Document.load(
                 url: file("manuscript/\(slug).md"), actor: .author, session: "boot", presenter: nil)
@@ -71,6 +75,20 @@ final class FigureRestoreTests: XCTestCase {
     }
 
     private func file(_ relative: String) -> URL { projectURL.appendingPathComponent(relative) }
+
+    /// **The store's figure pass never runs on its own here** (final review
+    /// of report plan 7a: Review Focus 1 failed once under load). Admitting
+    /// another Mac (`figureTrustChanged`) and another device's coordinated
+    /// append (the presenter's `figureStreamChanged`) each schedule a pass
+    /// 300 ms out that reloads the open host; under load it landed inside a
+    /// restore, which rightly stopped `.changedElsewhere`. Every test here
+    /// reloads its host by hand where it means another device's change to be
+    /// read, so the pass is held for the whole test and cancelled after it.
+    private func holdTheFigurePass(of store: DocumentStore) {
+        let held = DebounceScheduler<Int>(delay: .seconds(86_400)) { _ in }
+        store._figureChangeScheduler = held
+        heldFigurePass = held
+    }
 
     /// Every op in every file of the figure's stream, seals excluded, by id.
     private func ops(of figureId: String) throws -> [Op] {

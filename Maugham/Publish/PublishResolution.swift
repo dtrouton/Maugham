@@ -264,15 +264,16 @@ private struct Pass {
                 if label == nil, let caption { checkMalformed(caption, piece: piece, paragraph: paragraph) }
             case .figure(let caption, let path, let label)
                 where ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) == .tbl:
-                // R7a-1: a table figure's line labelled `tbl:` numbers as a
-                // table. Its emission is unchanged until plan 9 emits figure
-                // tables: the image door still judges the path.
+                // R7a-1: a table figure's line, labelled `tbl:` or
+                // unlabelled, numbers as a table. It is no image, so only the
+                // lexical path rule judges its path (final review I2): the
+                // image door would refuse a `.csv` and stop a Report compile.
                 let number = tables.count + 1
                 tableNumbers[piece, default: [:]][index] = number
                 let t = target("\(words.table) \(number)")
                 tables.append((number, caption, t))
                 register(label, expected: .tbl, target: t, piece: piece, paragraph: paragraph)
-                resolveImage(path, piece: piece, index: index, paragraph: paragraph)
+                judgeTableFigurePath(path, piece: piece, paragraph: paragraph)
             case .figure(let caption, let path, let label):
                 let number = figures.count + 1
                 figureNumbers[piece, default: [:]][index] = number
@@ -321,6 +322,16 @@ private struct Pass {
               let open = last.range(of: "{#", options: .backwards) else { return }
         let raw = String(last[open.upperBound..<last.index(before: last.endIndex)])
         report(.malformedLabel(raw), piece: piece, paragraph: paragraph)
+    }
+
+    /// A table figure's path is judged by `FigurePathRule.lexical` alone:
+    /// nothing is read from disk, since only its number and literal source
+    /// ship until plan 9 emits its cells. Asked only where an image would be.
+    private mutating func judgeTableFigurePath(_ path: String, piece: String, paragraph: String?) {
+        guard context.projectURL != nil, let piecePath = context.piecePaths[piece] else { return }
+        if case .notLocal = FigurePathRule.lexical(path, piecePath: piecePath) {
+            report(.figurePathNotLocal(path), piece: piece, paragraph: paragraph)
+        }
     }
 
     private mutating func resolveImage(_ path: String, piece: String, index: Int, paragraph: String?) {

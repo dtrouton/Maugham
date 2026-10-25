@@ -205,11 +205,14 @@ public final class DocumentStore {
 
     var _figureChangeScheduler: DebounceScheduler<Int>?
 
-    /// **The window's figure cards** (report plan 7a Task 3): `EditorHost`
-    /// owns the cache and sets this while it is attached; the figure
-    /// triggers in `DocumentStore+Figures.swift` tell it to fill. Weak: the
-    /// store never keeps a host's cache alive.
-    @ObservationIgnored weak var figureCardCache: FigureCardCache?
+    /// **Every window's figure cards** (report plan 7a Task 3; final review
+    /// I1): each `EditorHost` on this project owns a cache and adds it here
+    /// while attached (`attachFigureCardCache`), since every window on a
+    /// project shares this store; the figure triggers in
+    /// `DocumentStore+Figures.swift` tell all of them to fill
+    /// (`invalidateFigureCards`). Weak: the store never keeps a host's cache
+    /// alive, and one window closing leaves the others refreshing.
+    @ObservationIgnored let figureCardCaches = NSHashTable<FigureCardCache>.weakObjects()
 
     /// The deferred render of every table figure at window open (R-6a-11);
     /// cancelled by `close()`.

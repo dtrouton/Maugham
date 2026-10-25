@@ -218,24 +218,26 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.tableNumbers, ["a": [1: 1]], "the table is still numbered")
     }
 
-    /// R7a-1 (Review Focus 4): a table figure's line labelled `tbl:` numbers
-    /// as a table and is a valid `@tbl:` target, with no wrong-element
-    /// problem; a pipe table, a table figure and an image figure read Table 1,
-    /// Table 2, Figure 1 (the same document in `ReferenceIndexTests`).
+    /// R7a-1 (Review Focus 4): a table figure's line, labelled `tbl:` or
+    /// unlabelled, numbers as a table; labelled, it is a valid `@tbl:` target,
+    /// with no wrong-element problem. A pipe table, an unlabelled table
+    /// figure, a labelled table figure and an image figure read Table 1,
+    /// Table 2, Table 3, Figure 1 (the same document in `ReferenceIndexTests`).
     func test_aTableFigureLine_numbersAsATable() throws {
         let book = Book(pieces: [("a", [
             ("a1b2", "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}"),
+            ("j9k8", "![Unlabelled](figures/plain.csv)"),
             ("c3d4", "![Programme cash flows](figures/cash.csv){#tbl:cash}"),
             ("e5f6", "![Sites](figures/sites.png){#fig:sites}"),
             ("g7h8", "See @tbl:cash."),
         ])], context: context())
         let r = try resolve(book)
-        XCTAssertEqual(r.tableNumbers, ["a": [0: 1, 1: 2]])
-        XCTAssertEqual(r.figureNumbers, ["a": [2: 1]])
+        XCTAssertEqual(r.tableNumbers, ["a": [0: 1, 1: 2, 2: 3]])
+        XCTAssertEqual(r.figureNumbers, ["a": [3: 1]])
         XCTAssertEqual(r.targets[label("tbl:cash")],
-                       .init(pieceID: "a", paragraphID: "c3d4", text: "Table 2"))
+                       .init(pieceID: "a", paragraphID: "c3d4", text: "Table 3"))
         XCTAssertEqual(r.targets[label("fig:sites")]?.text, "Figure 1")
-        XCTAssertEqual(r.listOfTables.map(\.number), [1, 2])
+        XCTAssertEqual(r.listOfTables.map(\.number), [1, 2, 3])
         XCTAssertEqual(r.problems, [])
     }
 
@@ -464,6 +466,32 @@ final class PublishResolutionTests: XCTestCase {
         XCTAssertEqual(r.problems[1].message,
                        "The figure image can't be used: there is no file at ../research/missing.png.")
         XCTAssertEqual(r.figureNumbers["a"], [0: 1, 1: 2, 2: 3, 3: 4], "every figure is numbered")
+    }
+
+    /// Final review I2: a table figure's line is no image, so in a real
+    /// Report project its `.csv` on disk raises no problem (the image door
+    /// would call it unreadable and refuse a versioned compile); only the
+    /// lexical path rule judges it, so a path out of the project still is.
+    func test_aTableFigureLine_inARealReport_isJudgedByThePathRuleAlone() throws {
+        let project = TestTemp.root.appendingPathComponent("Resolution-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: project.appendingPathComponent("figures"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+        try "a,b\n1,2\n".write(to: project.appendingPathComponent("figures/cash.csv"),
+                               atomically: true, encoding: .utf8)
+
+        let book = Book(pieces: [("a", [
+            ("a1b2", "![Cash](../figures/cash.csv){#tbl:cash}"),
+            ("c3d4", "![Plain](../figures/cash.csv)"),
+            ("e5f6", "![Out](/etc/cash.csv)"),
+            ("g7h8", "See @tbl:cash."),
+        ])], context: context(projectURL: project, piecePaths: ["a": "manuscript/ch1.md"]))
+        let r = try resolve(book)
+
+        XCTAssertEqual(r.tableNumbers["a"], [0: 1, 1: 2, 2: 3])
+        XCTAssertEqual(r.figureFiles, [:], "a table figure stages no image")
+        XCTAssertEqual(r.problems.map(\.kind), [.figurePathNotLocal("/etc/cash.csv")])
+        XCTAssertEqual(r.problems.map(\.paragraphID), ["e5f6"])
     }
 
     func test_withNoProjectContext_figureImagesAreNotChecked() throws {

@@ -245,7 +245,7 @@ final class FigureCardCacheTests: XCTestCase {
 
     /// Attached the way `EditorHost` attaches it.
     private func attach(_ cache: FigureCardCache, to store: DocumentStore) {
-        store.figureCardCache = cache
+        store.attachFigureCardCache(cache)
         cache.attach(FigureCardCache.Source(read: { [weak store] in await store?.figureCardInputs() }))
     }
 
@@ -268,6 +268,40 @@ final class FigureCardCacheTests: XCTestCase {
         await cache.idle()
         XCTAssertEqual(cache.model(forFigureId: record.id)?.bodyRows[1].first, "42")
         XCTAssertEqual(cache.version, version + 1)
+        await store.closeFigure(figureId: record.id)
+        withExtendedLifetime(projectStore) {}
+    }
+
+    /// **Two windows on one project** (final review I1): both windows' caches
+    /// hear an edit, and one window closing leaves the other refreshing.
+    func test_twoWindowsOnOneProjectBothRefill_andClosingOneLeavesTheOther() async throws {
+        let (store, projectStore) = try await openWindow()
+        let record = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let first = FigureCardCache()
+        let second = FigureCardCache()
+        attach(first, to: store)
+        attach(second, to: store)
+        await first.idle()
+        await second.idle()
+
+        let doc = try await store.openFigure(figureId: record.id)
+        let key = CellKey(row: doc.state.table.rows[1], column: doc.state.table.columns[0])
+        try await doc.setCell(Cell(content: .value(.number(42))), at: key)
+        await first.idle()
+        await second.idle()
+        XCTAssertEqual(first.model(forFigureId: record.id)?.bodyRows[1].first, "42")
+        XCTAssertEqual(second.model(forFigureId: record.id)?.bodyRows[1].first, "42",
+                       "the second window does not take the first window's place")
+
+        // The second window closes, the way `EditorHost.detachFigureCards` does.
+        second.attach(nil)
+        store.detachFigureCardCache(second)
+        let version = first.version
+        try await doc.setCell(Cell(content: .value(.number(7))), at: key)
+        await first.idle()
+        XCTAssertEqual(first.model(forFigureId: record.id)?.bodyRows[1].first, "7",
+                       "the window still open keeps refreshing")
+        XCTAssertEqual(first.version, version + 1)
         await store.closeFigure(figureId: record.id)
         withExtendedLifetime(projectStore) {}
     }

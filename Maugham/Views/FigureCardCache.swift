@@ -15,7 +15,7 @@ import MaughamCore
 ///
 /// **What fills it** (`invalidate()`): the host appearing (`attach`), the
 /// registry changing (`EditorHost`'s manifest watch), and `DocumentStore`'s
-/// figure triggers through `DocumentStore.figureCardCache` — an open host
+/// figure triggers through `DocumentStore.figureCardCaches` — an open host
 /// appending an op (`figureHostAppended`), the presenter's figure pass
 /// (`applyPendingFigureChanges`, which a registry adoption also feeds) and a
 /// trust change. Every trigger in one main-actor turn makes ONE fill, and a

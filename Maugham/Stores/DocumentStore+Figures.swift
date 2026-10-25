@@ -147,6 +147,21 @@ extension DocumentStore {
     }
 
     /// The open figure for `figureId`, if this window holds one.
+    /// A window's figure cards start hearing this store's figure triggers.
+    func attachFigureCardCache(_ cache: FigureCardCache) {
+        figureCardCaches.add(cache)
+    }
+
+    /// A window's figure cards stop hearing them; every other window's keep on.
+    func detachFigureCardCache(_ cache: FigureCardCache) {
+        figureCardCaches.remove(cache)
+    }
+
+    /// Every attached window's figure cards refill (final review I1).
+    func invalidateFigureCards() {
+        for cache in figureCardCaches.allObjects { cache.invalidate() }
+    }
+
     func openFigure(forId figureId: String) -> FigureDocument? {
         openFigures[figureId].flatMap { $0.isClosed ? nil : $0 }
     }
@@ -155,7 +170,7 @@ extension DocumentStore {
     /// and every table whose formulas name it follow.
     func figureHostAppended(_ figureId: String) async {
         figureCache.invalidate(figureId: figureId)
-        figureCardCache?.invalidate()
+        invalidateFigureCards()
         await renderFigures(changed: [figureId])
     }
 
@@ -233,7 +248,7 @@ extension DocumentStore {
                     "figure \(id, privacy: .public) did not re-read after a change on disk: \(error.localizedDescription, privacy: .public)")
             }
         }
-        figureCardCache?.invalidate()
+        invalidateFigureCards()
         await renderFigures(changed: changed)
     }
 
@@ -273,7 +288,7 @@ extension DocumentStore {
     /// re-read and re-render through the figure pass.
     func figureTrustChanged() {
         figureCache.invalidateAll()
-        figureCardCache?.invalidate()
+        invalidateFigureCards()
         let open = openFigures.values.filter { !$0.isClosed }
         guard !open.isEmpty else { return }
         for doc in open {

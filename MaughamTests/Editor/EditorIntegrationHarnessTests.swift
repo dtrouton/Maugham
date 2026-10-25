@@ -298,6 +298,10 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         let clip = rig.scrollView.contentView
         clip.scroll(to: NSPoint(x: 0, y: rig.lineTop(of: "Paragraph 2 of prose")))
         rig.scrollView.reflectScrolledClipView(clip)
+        // The origin is read once every pending layout and display pass has
+        // run, so none can move it later (final review I5).
+        rig.textView.layoutManager!.ensureLayout(for: rig.textView.textContainer!)
+        rig.window.displayIfNeeded()
         let origin = clip.bounds.origin
         XCTAssertGreaterThan(origin.y, 0, "precondition: scrolled down")
         let refreshes = coordinator.figureRoomRefreshCount
@@ -324,7 +328,11 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         // The settle: one last key with no delay, then its deferred paint.
         coordinator.restyleSettleDelayMs = 0
         rig.assertNoApplyExternalText { rig.type(".") }
-        await coordinator.deferredRestyleTask?.value
+        // The settle this key scheduled, held before any await (final review I5).
+        guard let settle = coordinator.deferredRestyleTask else {
+            return XCTFail("precondition: the last key scheduled the settle")
+        }
+        await settle.value
         let grown = Self.room(book.cache.model(forFigureId: figure17))
         XCTAssertGreaterThan(grown, small, "precondition: forty rows need more room than three")
         XCTAssertEqual(rig.spacing(at: target), body + grown, "the line takes its new room at the settle")

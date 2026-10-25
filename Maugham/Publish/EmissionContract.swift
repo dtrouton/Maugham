@@ -246,8 +246,9 @@ public enum EmissionContract {
     `\\relax`. A row opening with `[` or `*` starts with `\\relax`, so `\\\\` \
     never reads it as an argument.
 
-    A table figure's line (`![caption](figures/<name>.csv){#tbl:name}`) \
-    numbers as a table, but its cells are not emitted yet: it prints as a \
+    A table figure's line (`![caption](figures/<name>.csv)`, labelled \
+    `{#tbl:name}` or unlabelled) numbers as a table, but its cells are not \
+    emitted yet: it prints as a \
     kernel `table` float holding its anchor, its caption ("Table n", listed \
     in the list of tables) and its literal source line.
 

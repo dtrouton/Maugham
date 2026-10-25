@@ -775,16 +775,16 @@ struct EditorHost: View {
     private func attachFigureCards() {
         let control = control
         figureCards.onVersionChange = { control.figureCardVersion = $0 }
-        documentStore.figureCardCache = figureCards
+        documentStore.attachFigureCardCache(figureCards)
         figureCards.attach(FigureCardCache.Source(
             read: { [weak documentStore] in await documentStore?.figureCardInputs() }))
     }
 
     /// The host is going: no fill lands, and the store stops telling this
-    /// cache (unless a newer host has already taken its place).
+    /// cache; every other window's cards on the project keep refreshing.
     private func detachFigureCards() {
         figureCards.attach(nil)
-        if documentStore.figureCardCache === figureCards { documentStore.figureCardCache = nil }
+        documentStore.detachFigureCardCache(figureCards)
     }
 
     /// Build the EditorSurface configuration wall in a dedicated function so the

@@ -137,6 +137,7 @@ final class EditRecordingLayoutManager: NSLayoutManager {
     @MainActor
     static func install(on textView: NSTextView) -> EditRecordingLayoutManager {
         let layout = EditRecordingLayoutManager()
+        layout.backgroundLayoutEnabled = false   // no layout between turns (final review I5)
         let container = textView.textContainer!
         container.replaceLayoutManager(layout)
         container.size = NSSize(width: container.size.width, height: .greatestFiniteMagnitude)

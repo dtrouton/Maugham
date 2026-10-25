@@ -171,7 +171,7 @@ struct ReferenceIndex: Equatable, Sendable {
                     elements.append(.table(caption: caption, label: label))
                     if let label { labels.insert(label) }
                 case .figure(let caption, let path, let label):
-                    // R7a-1: a table figure's line labelled `tbl:` is a table.
+                    // R7a-1: a table figure's line is a table unless labelled `fig:`.
                     switch ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) {
                     case .tbl: elements.append(.table(caption: caption, label: label))
                     case .fig, .sec: elements.append(.figure(caption: caption, label: label))

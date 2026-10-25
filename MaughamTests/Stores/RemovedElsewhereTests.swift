@@ -199,11 +199,19 @@ final class RemovedElsewhereTests: XCTestCase {
             fromFileName: "manifest-doc-1234-diverged-2026-09-24T10-11-12.345Z.md"))
     }
 
-    func test_theCaptionSaysWhen() {
-        let now = Date()
-        XCTAssertEqual(RemovedElsewhereDisclosure.caption(for: now, now: now), "Left the binder today")
-        XCTAssertEqual(RemovedElsewhereDisclosure.caption(
-            for: now.addingTimeInterval(-86_400), now: now), "Left the binder yesterday")
+    /// On a fixed calendar and clock, the morning after the clocks went back
+    /// (a 25-hour day, where "now less 86,400 s" is still today): yesterday
+    /// is built by calendar arithmetic, never by seconds.
+    func test_theCaptionSaysWhen() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/London"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026, month: 10, day: 26, hour: 0, minute: 30)))
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: now))
+        XCTAssertEqual(RemovedElsewhereDisclosure.caption(for: now, now: now, calendar: calendar),
+                       "Left the binder today")
+        XCTAssertEqual(RemovedElsewhereDisclosure.caption(for: yesterday, now: now, calendar: calendar),
+                       "Left the binder yesterday")
     }
 
     // MARK: - Against a book on disk

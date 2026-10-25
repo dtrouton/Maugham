@@ -59,6 +59,7 @@ final class EditorIntegrationHarness {
         tv.isEditable = true
         tv.isRichText = false
         tv.allowsUndo = true
+        Self.quietAsynchronousAppKitWork(tv, layout)
 
         let sv = NSScrollView(
             frame: NSRect(x: 0, y: 0, width: 600, height: 600))
@@ -98,6 +99,24 @@ final class EditorIntegrationHarness {
         }
     }
 
+    /// Nothing AppKit does on its own between turns may touch the text or
+    /// its layout while a test awaits (report plan 7a final review I5): no
+    /// background layout, no spelling or grammar checking, no automatic
+    /// correction, replacement, substitution or data detection. What a test
+    /// measures is then only what the editor itself did.
+    static func quietAsynchronousAppKitWork(_ tv: NSTextView, _ layout: NSLayoutManager) {
+        layout.backgroundLayoutEnabled = false
+        tv.isContinuousSpellCheckingEnabled = false
+        tv.isGrammarCheckingEnabled = false
+        tv.isAutomaticSpellingCorrectionEnabled = false
+        tv.isAutomaticTextReplacementEnabled = false
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.isAutomaticDataDetectionEnabled = false
+        tv.isAutomaticLinkDetectionEnabled = false
+        tv.isAutomaticTextCompletionEnabled = false
+    }
+
     /// Secondary initializer for the real-Document harness variant. Accepts a
     /// pre-built `Binding<String>` so the caller can wire the production-
     /// equivalent setter (including `recordEditorTextWrite` side-effects) before
@@ -128,6 +147,7 @@ final class EditorIntegrationHarness {
         tv.isEditable = true
         tv.isRichText = false
         tv.allowsUndo = true
+        Self.quietAsynchronousAppKitWork(tv, layout)
 
         let sv = NSScrollView(
             frame: NSRect(x: 0, y: 0, width: 600, height: 600))

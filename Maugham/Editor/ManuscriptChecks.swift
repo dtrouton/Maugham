@@ -317,7 +317,7 @@ enum ManuscriptChecks {
 
     /// Which kind of element the line holding `location` is, as a label
     /// must name it: a heading (`sec`), a table caption (`tbl`) or a figure
-    /// line (`fig`, or `tbl` for a table figure's line labelled `tbl:`, the
+    /// line (`fig`, or `tbl` for a table figure's line not labelled `fig:`, the
     /// shared rule `ManuscriptLabel.Kind.ofFigureLine`); nil for any other line.
     static func elementKind(ofLineAt location: Int, in text: NSString) -> ManuscriptLabel.Kind? {
         let line = text.substring(with: text.lineRange(for: NSRange(location: location, length: 0)))

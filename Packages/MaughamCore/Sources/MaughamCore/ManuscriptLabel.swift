@@ -42,16 +42,17 @@ public struct ManuscriptLabel: Hashable, Sendable {
 
 public extension ManuscriptLabel.Kind {
     /// **Which list a figure line numbers in, and so which label kind it
-    /// takes** (report plan 7a ruling R7a-1): a table figure's line labelled
-    /// `tbl:` is a table (numbered in the Tables list, a `@tbl:` target);
-    /// every other figure line is a figure. A table figure's line is the one
-    /// whose path names a `.csv` (`figures/<name>.csv`, any case), read off
-    /// the line alone, no registry. An image line labelled `tbl:` or a table
-    /// figure labelled `fig:` is a kind mismatch that keeps the figure answer
-    /// here (diagnosed in plan 7b). The one rule the editor's index, its live
-    /// checks, `ManuscriptIndex` and Publish's numbering share, so they agree.
+    /// takes** (report plan 7a ruling R7a-1): a table figure's line,
+    /// labelled `tbl:` or unlabelled, is a table (numbered in the Tables
+    /// list; a `@tbl:` target when labelled); every other figure line is a
+    /// figure. A table figure's line is the one whose path names a `.csv`
+    /// (`figures/<name>.csv`, any case), read off the line alone, no
+    /// registry. An image line labelled `tbl:` or a table figure labelled
+    /// `fig:` is a kind mismatch that keeps the figure answer here (diagnosed
+    /// in plan 7b). The one rule the editor's index, its live checks,
+    /// `ManuscriptIndex` and Publish's numbering share, so they agree.
     static func ofFigureLine(path: String, label: ManuscriptLabel?) -> Self {
-        label?.kind == .tbl && isTableFigurePath(path) ? .tbl : .fig
+        isTableFigurePath(path) && label?.kind != .fig ? .tbl : .fig
     }
 
     /// Whether a figure line's path names a table figure's render (`.csv`,
