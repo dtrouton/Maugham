@@ -53,14 +53,14 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ScreenplayScriptSource.swift` — the parsed script the left column shows when no editor is mounted to parse it.
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
-- `ProjectRowLabel.swift` — the label every project row draws.
+- `ProjectRowLabel.swift` — every project row's label.
 - `BinderTreeSections.swift` — the Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.
 - `TreeSectionDerivation.swift` — pure derivations: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
 - `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (the `route…Drop` family).
 - `DropIntent.swift` — top/middle/bottom drop position → structural action.
-- `DropClassification.swift` — one dropped `NSItemProvider`: file URL over image data.
+- `DropClassification.swift` — one dropped `NSItemProvider`: file URL over image data; `ProviderDropRoute.swift`, a whole drop by type.
 - `ResearchTree.swift` — the recursive research node (`ResearchTreeNode`, `ResearchTreeActions`, `ResearchSelectionSync`).
 - `ResearchPasteImporter.swift` — ⌘V into research (`TreePasteRouting`).
 - `ResearchLinkPickerSheet.swift` — "Link Research…" on a document row.
@@ -266,8 +266,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Every row acts through the one `BinderTreeVerbs` value**, including a fold's; `perform` surfaces a store failure in the shared alert, never `try?`.
 - **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`); `refuseDrop` returns `false` and logs why.
 - **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**: it answers the row the tree can now show (the shared row, or the owning piece's row for a piece-scoped note).
-- **Arrival is visible**: every tree host calls `consumingTreeScrollRequests` right after the `ScrollViewReader` wrapping its `List`, with both triggers (`.onChange` and `.task`): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
-- **A piece fold's rows carry no `.id`**: a linked fold draws a tag twice in one `List`, and `scrollTo` over two identical ids is ambiguous.
+- **Arrival is visible**: every tree host calls `consumingTreeScrollRequests` after the `ScrollViewReader` wrapping its `List`, with both triggers (`.onChange` and `.task`): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
+- **A piece fold's rows carry no `.id`**: a linked fold draws a tag twice, and `scrollTo` over two identical ids is ambiguous.
 - **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`): its rows are shared items drawn twice, and two rename fields race tripwire 16's focus claim.
 - **New Group at a piece's root has no store API** (`ResearchScope` routes note / asset / link only); a `+` menu on a fold row must not offer it until one exists.
 - **A drop is classified by LOOKUP in the manifest, never by the shape of an id**, and an unknown id refuses loudly (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`). Every mounted drop target calls the classifier (`TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
