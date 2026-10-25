@@ -415,6 +415,78 @@ final class FigureThumbnailTests: XCTestCase {
         XCTAssertEqual(overlay.lastVisibleFigureCount, 1)
     }
 
+    // MARK: - The table card (report plan 7a Task 6)
+
+    private func mountedCards(_ text: String,
+                              _ cards: @escaping (String) -> FigureCardModel?) -> EditorIntegrationHarness {
+        let harness = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true), initialText: text, cursorLocation: 0)
+        harness.coordinator.figureImageResolver = { _ in .notLocal }
+        harness.coordinator.figureCardModel = cards
+        harness.coordinator.attach(to: harness.textView)
+        harness.textView.scrollToBeginningOfDocument(nil)
+        return harness
+    }
+
+    /// A table line no longer shows "Image not found": before its card is
+    /// filled it shows nothing (and the store never looks for a picture), and
+    /// once filled it draws its card. The image line beside it, the control,
+    /// still goes to the store and gets its box.
+    func test_mounted_aTableLineDrawsItsCardNeverImageNotFound() async throws {
+        let text = "![Cash](figures/cash.csv){#tbl:cash}\n\n![Logo](figures/logo.png)\n\nAfter."
+        final class Flag { var filled = false }
+        let flag = Flag()
+        let card = FigureCardModel(kind: .table, headerRows: [["Year", "Cash"]],
+                                   bodyRows: [["2024", "1"]], columnAlignments: [.left, .right])
+        let harness = mountedCards(text) { path in
+            guard flag.filled else { return nil }
+            return path == "figures/cash.csv" ? card : .placeholder(.image)
+        }
+        let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
+        let store = try XCTUnwrap(harness.coordinator.figureThumbnailStore)
+        overlay.display()
+        await store.pendingWork(for: "figures/cash.csv")?.value
+        await store.pendingWork(for: "figures/logo.png")?.value
+        overlay.display()
+        XCTAssertEqual(overlay.lastDrawn, [.box(FigureThumbnailStore.notFoundMessage)],
+                       "the unfilled table line draws nothing; the missing image its box")
+
+        flag.filled = true
+        overlay.display()
+        XCTAssertEqual(overlay.lastDrawn, [.card(.table), .box(FigureThumbnailStore.notFoundMessage)])
+    }
+
+    /// The labelled cards (R7a-3) draw as cards, not as a missing image.
+    func test_mounted_aRemovedFigureDrawsItsLabelledCard() throws {
+        let harness = mountedCards("![Gone](figures/gone.csv)\n\nAfter.") { _ in .placeholder(.removed) }
+        let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
+        overlay.display()
+        XCTAssertEqual(overlay.lastDrawn, [.card(.removed)])
+    }
+
+    /// The room the mounted layout leaves under a table line holds the card
+    /// the overlay draws there: the gap the line's last fragment carries below
+    /// its used rect is the card's room plus the body's own paragraph spacing.
+    func test_mounted_theLayoutLeavesTheCardsRoom() throws {
+        let card = FigureCardModel(kind: .table, headerRows: [["A"]],
+                                   bodyRows: (0..<5).map { ["\($0)"] }, moreRows: 9)
+        let harness = mountedCards("Opening\n\n![Cash](figures/cash.csv)\n\nAfter.") { _ in card }
+        let tv = harness.textView
+        let lm = try XCTUnwrap(tv.layoutManager)
+        let ns = tv.string as NSString
+        func gap(at needle: String) -> CGFloat {
+            let line = ns.range(of: needle)
+            let glyph = lm.glyphIndexForCharacter(at: NSMaxRange(line) - 1)
+            return lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).maxY
+                - lm.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil).maxY
+        }
+        let room = FigureCardMetrics.room(for: card, typography: harness.coordinator.typography)
+        XCTAssertEqual(gap(at: "![Cash](figures/cash.csv)") - gap(at: "Opening"), room, accuracy: 0.5)
+        let overlay = try XCTUnwrap(harness.coordinator.figureThumbnailOverlay)
+        overlay.display()
+        XCTAssertEqual(overlay.lastDrawn, [.card(.table)])
+    }
+
     // MARK: - A figure on the last line (fix round 1, I1)
     //
     // TextKit 1 lays out no `paragraphSpacing` after a final paragraph with no

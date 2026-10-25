@@ -213,6 +213,15 @@ enum FigureCardMetrics {
             rowHeight: row, moreLineHeight: row, verticalPadding: verticalPadding,
             placeholderHeight: FigureThumbnailLayout.reservedHeight)
     }
+
+    /// The tallest room any figure line reserves: a capped card and its
+    /// "more" line, or the thumbnail's. How far above the view the overlay
+    /// looks for a line whose card hangs into it.
+    static func maxRoom(typography: TypographySettings) -> CGFloat {
+        let row = rowHeight(for: typography)
+        return max(FigureThumbnailLayout.reservedHeight,
+                   CGFloat(FigureCardModel.maxShownRows + 1) * row + 2 * verticalPadding)
+    }
 }
 
 // MARK: - The cache
@@ -301,6 +310,12 @@ final class FigureThumbnailStore {
     ]
     private static let knownLimit = 64
 
+    /// Whether `path` names a table figure's render (`figures/<name>.csv`):
+    /// the store never resolves or decodes one (report plan 7a Task 6).
+    nonisolated static func isTableRender(_ path: String) -> Bool {
+        (path as NSString).pathExtension.lowercased() == "csv"
+    }
+
     var onUpdate: (() -> Void)?
     /// How many decodes ran (tests: one file under two spellings decodes once).
     private(set) var decodeCount = 0
@@ -326,6 +341,9 @@ final class FigureThumbnailStore {
     ///   - columnWidth: the column a thumbnail is fitted to.
     ///   - backingScale: the screen's, so the decode is sharp and no larger.
     func thumbnail(for path: String, columnWidth: CGFloat, backingScale: CGFloat) -> Thumbnail? {
+        // A table's render is not a picture: its card draws it, and until the
+        // card is filled the line shows nothing, never "Image not found".
+        guard !Self.isTableRender(path) else { return nil }
         let entry = known[path]
         let bucket = FigureThumbnailKey.bucket(columnWidth: columnWidth, backingScale: backingScale)
         let stale = entry.map {
@@ -498,7 +516,8 @@ final class FigureThumbnailStore {
 
 /// Transparent, click-through overlay over the text view (installed as its
 /// subview, like `AnnotationMarkRenderer`) that draws each visible figure
-/// line's thumbnail into the gap its paragraph spacing left. It reads only
+/// line's thumbnail, or its table card (`FigureCardDrawing`, report plan 7a
+/// Task 6), into the gap its paragraph spacing left. It reads only
 /// cached data per draw: the coordinator's figure marks and the store's
 /// answers (tripwire 4).
 final class FigureThumbnailOverlay: NSView {
@@ -507,6 +526,26 @@ final class FigureThumbnailOverlay: NSView {
     /// How many figure lines the last draw found in view (the mounted test's
     /// reading; nothing is drawn for none).
     private(set) var lastVisibleFigureCount = 0
+
+    /// What the last draw put under each figure line in view, in document
+    /// order (the mounted tests' reading).
+    enum Drawn: Equatable {
+        case card(FigureCardModel.Kind)
+        case thumbnail
+        case box(String)
+    }
+    private(set) var lastDrawn: [Drawn] = []
+
+    /// Each card's plan at the origin, kept while its model, the column and
+    /// the font are unchanged, so a scroll measures no text (tripwire 4).
+    private var cardPlans: [String: CardPlanEntry] = [:]
+    private struct CardPlanEntry {
+        let model: FigureCardModel
+        let columnWidth: CGFloat
+        let fontSize: CGFloat
+        let plan: FigureCardDrawing.Plan
+    }
+    private static let cardPlanLimit = 64
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }  // never intercept clicks
@@ -559,6 +598,7 @@ final class FigureThumbnailOverlay: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         lastVisibleFigureCount = 0
+        lastDrawn = []
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
@@ -568,12 +608,15 @@ final class FigureThumbnailOverlay: NSView {
         let marks = coordinator.figureThumbnailMarks
         guard !marks.isEmpty else { return }
 
-        // The thumbnail hangs BELOW its line, so a line just above the view
-        // can still show one: look a reserved gap higher than the view's top.
+        // The thumbnail or card hangs BELOW its line, so a line just above
+        // the view can still show one: look the tallest room higher than the
+        // view's top.
+        let typography = coordinator.typography
+        let reach = FigureCardMetrics.maxRoom(typography: typography)
         let origin = textView.textContainerOrigin
         var probe = textView.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
-        probe.origin.y -= FigureThumbnailLayout.reservedHeight
-        probe.size.height += FigureThumbnailLayout.reservedHeight
+        probe.origin.y -= reach
+        probe.size.height += reach
         let glyphs = layoutManager.glyphRange(forBoundingRect: probe, in: container)
         let chars = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         let visible = FigureThumbnailLayout.marks(marks, intersecting: chars)
@@ -584,31 +627,89 @@ final class FigureThumbnailOverlay: NSView {
         let columnX = origin.x + padding
         let columnWidth = max(0, container.size.width - 2 * padding)
         let backingScale = window?.backingScaleFactor ?? 2
+        let cardFont = FigureCardMetrics.font(for: typography)
+        let rowHeight = FigureCardMetrics.rowHeight(for: typography)
 
         for mark in visible {
-            guard mark.lineRange.length > 0, NSMaxRange(mark.lineRange) <= storage.length,
-                  let thumbnail = store.thumbnail(for: mark.path, columnWidth: columnWidth,
-                                                  backingScale: backingScale)
-            else { continue }
+            guard mark.lineRange.length > 0, NSMaxRange(mark.lineRange) <= storage.length else { continue }
             let lastGlyph = layoutManager.glyphIndexForCharacter(at: NSMaxRange(mark.lineRange) - 1)
             let used = layoutManager.lineFragmentUsedRect(forGlyphAt: lastGlyph, effectiveRange: nil)
             let lineBottom = used.maxY + origin.y
             // The paragraph's alpha, so focus dimming dims the picture too.
             let alpha = (storage.attribute(.foregroundColor, at: mark.lineRange.location,
                                            effectiveRange: nil) as? NSColor)?.alphaComponent ?? 1
+
+            if let model = coordinator.figureCardModel?(mark.path),
+               let plan = cardPlan(for: mark.path, model: model, columnWidth: columnWidth,
+                                   font: cardFont, rowHeight: rowHeight) {
+                lastDrawn.append(.card(model.kind))
+                // The room the layout holds now: the fragment's paragraph
+                // spacing, or the text view's own height for a trailing
+                // figure. A card that grew mid-burst is clipped to its old
+                // room until its line re-lays out at the settle.
+                let room: CGFloat = NSMaxRange(mark.lineRange) == storage.length
+                    ? bounds.maxY - lineBottom
+                    : layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil).maxY
+                        + origin.y - lineBottom
+                let frame = plan.card.offsetBy(dx: columnX, dy: lineBottom)
+                if frame.intersects(dirtyRect) {
+                    drawCard(plan, at: CGPoint(x: columnX, y: lineBottom),
+                             clip: CGRect(x: frame.minX - 1, y: lineBottom,
+                                          width: frame.width + 2, height: max(0, room)),
+                             font: cardFont, alpha: alpha)
+                }
+                continue
+            }
+            guard let thumbnail = store.thumbnail(for: mark.path, columnWidth: columnWidth,
+                                                  backingScale: backingScale) else { continue }
             switch thumbnail {
             case .image(let image, let natural):
+                lastDrawn.append(.thumbnail)
                 let frame = FigureThumbnailLayout.frame(
                     for: .image(natural: natural), lineBottom: lineBottom,
                     columnX: columnX, columnWidth: columnWidth)
                 if frame.intersects(dirtyRect) { draw(image, in: frame, alpha: alpha) }
             case .unshowable(let message):
+                lastDrawn.append(.box(message))
                 let frame = FigureThumbnailLayout.frame(
                     for: .placeholder, lineBottom: lineBottom,
                     columnX: columnX, columnWidth: columnWidth)
                 if frame.intersects(dirtyRect) { drawBox(message, in: frame, alpha: alpha) }
             }
         }
+    }
+
+    /// The card plan for the line written `path`, at the origin; nil for an
+    /// image (the thumbnail draws it). Measured once per (model, column, font).
+    private func cardPlan(for path: String, model: FigureCardModel, columnWidth: CGFloat,
+                          font: NSFont, rowHeight: CGFloat) -> FigureCardDrawing.Plan? {
+        guard model.kind != .image else { return nil }
+        if let entry = cardPlans[path], entry.model == model, entry.columnWidth == columnWidth,
+           entry.fontSize == font.pointSize {
+            return entry.plan
+        }
+        let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        guard let plan = FigureCardDrawing.plan(
+            for: model, lineBottom: 0, columnX: 0, columnWidth: columnWidth, rowHeight: rowHeight,
+            measure: { text, isBold in
+                (text as NSString).size(withAttributes: [.font: isBold ? bold : font]).width
+            }) else { return nil }
+        if cardPlans.count >= Self.cardPlanLimit { cardPlans.removeAll() }
+        cardPlans[path] = CardPlanEntry(model: model, columnWidth: columnWidth,
+                                        fontSize: font.pointSize, plan: plan)
+        return plan
+    }
+
+    /// Paint `plan` shifted to `offset`, clipped to the room the layout holds.
+    private func drawCard(_ plan: FigureCardDrawing.Plan, at offset: CGPoint, clip: CGRect,
+                          font: NSFont, alpha: CGFloat) {
+        NSGraphicsContext.saveGraphicsState()
+        clip.clip()
+        let shift = NSAffineTransform()
+        shift.translateX(by: offset.x, yBy: offset.y)
+        shift.concat()
+        FigureCardDrawing.draw(plan, font: font, alpha: alpha)
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func draw(_ image: CGImage, in frame: CGRect, alpha: CGFloat) {
