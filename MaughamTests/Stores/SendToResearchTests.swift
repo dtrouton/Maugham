@@ -374,7 +374,7 @@ final class SendToResearchTests: XCTestCase {
         let (cash, _, a2) = try await cashAndTotal(store, projectStore)
         let host = try await store.openFigure(figureId: cash.id)
         // Lands while the copy is written: the first await after the snapshot.
-        ProjectStore.beforeSendParksForTesting = { try await host.setCell(Cell(content: .value(.number(6))), at: a2) }
+        ProjectStore.beforeSendParksForTesting = { _ in try await host.setCell(Cell(content: .value(.number(6))), at: a2) }
         defer { ProjectStore.beforeSendParksForTesting = nil }
 
         do {
@@ -397,6 +397,40 @@ final class SendToResearchTests: XCTestCase {
 
     // MARK: - Review Focus 2: two hosts
 
+    /// **The text door closing during the park step** (review Minor 7): B's
+    /// held document stops being writable after the hold, so `held.write()`
+    /// throws inside the park's synchronous step. Nothing changes: no park
+    /// op, B's line intact, the copy and its sidecar taken back out.
+    func test_aTextDoorClosingDuringTheParkChangesNothing() async throws {
+        let (store, projectStore) = try await openBook(a: "Words.\n", b: "\(cashLine)\n")
+        let (cash, _, _) = try await cashAndTotal(store, projectStore)
+        let streamBefore = try ops(of: cash.id)
+        ProjectStore.beforeSendParksForTesting = { held in
+            if let b = held?.manuscripts.first(where: { $0.title == "B" }) { await b.manuscript.doc.close() }
+        }
+        defer { ProjectStore.beforeSendParksForTesting = nil }
+
+        do {
+            _ = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+            XCTFail("the send was not refused")
+        } catch let refused as FigureSendRefused {
+            XCTAssertEqual(refused.reason, .piecesNotWritable(["B"]))
+        }
+        ProjectStore.beforeSendParksForTesting = nil
+        XCTAssertEqual(try ops(of: cash.id), streamBefore, "no park op")
+        let s = try await state(cash.id)
+        XCTAssertNil(s.parked)
+        XCTAssertEqual(projectStore.manifest.research, [], "the copy was taken back out")
+        let research = (try? FileManager.default.contentsOfDirectory(atPath: file("research").path)) ?? []
+        XCTAssertEqual(research, [], "its file too")
+        let sidecars = (try? FileManager.default.contentsOfDirectory(atPath: file(ResearchTableSidecar.folder).path)) ?? []
+        XCTAssertEqual(sidecars, [], "and its sidecar")
+        XCTAssertTrue(exists("figures/cash.csv"), "its render stands")
+        let b = try await text("b")
+        XCTAssertEqual(b, cashLine, "B's line is intact")
+        XCTAssertNil(store.openFigure(forId: cash.id), "no host was left open")
+    }
+
     /// **Review Focus 2.** Two hosts on one figure: the window's sends it to
     /// Research while another, opened before the send, edits a cell. The
     /// edit is ordered after the park, so it is dropped from the view —
@@ -404,7 +438,7 @@ final class SendToResearchTests: XCTestCase {
     /// the working copy holds the parker's state; nothing crashes.
     func test_twoHosts_anEditOrderedAfterTheParkIsDroppedAndKeptInHistory() async throws {
         let (store, projectStore) = try await openBook(a: "\(cashLine)\n")
-        let (cash, _, a2) = try await cashAndTotal(store, projectStore)
+        let (cash, total, a2) = try await cashAndTotal(store, projectStore)
         let other = try await FigureDocument.load(
             figureId: cash.id, projectURL: projectURL, actor: .author,
             session: "other", presenter: nil, documentStore: nil)
@@ -434,6 +468,11 @@ final class SendToResearchTests: XCTestCase {
         XCTAssertEqual(other.state, fresh)
         XCTAssertEqual(window.state, fresh)
         XCTAssertEqual(try csvRows(try XCTUnwrap(item.path))[1].first, "5", "the working copy holds the parker's state")
+
+        // The figure reading it ignores the dropped edit too (review Minor 4).
+        await store.renderFigures(changed: [cash.id])
+        await store.awaitOpenFigureRenderForTesting()
+        XCTAssertEqual(try csvRows(total.path).first?.first, "10", "total still reads cash's parked 5")
 
         // Now that it has read the park, the other host refuses.
         do {

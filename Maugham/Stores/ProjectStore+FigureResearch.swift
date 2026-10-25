@@ -20,9 +20,9 @@ public struct UseInDocumentResult: Equatable {
 extension ProjectStore {
 
     /// Test seam: runs in `sendToResearch` after the working copy is written
-    /// and before the park — where an edit landing meanwhile is put. Nil in
-    /// production.
-    static var beforeSendParksForTesting: (@MainActor () async throws -> Void)?
+    /// and before the park, handed the held manuscripts — where an edit
+    /// landing meanwhile, or a door closing, is put. Nil in production.
+    static var beforeSendParksForTesting: (@MainActor (HeldFigureTextEdit?) async throws -> Void)?
 
     /// **Make a figure from a Research item** and answer it with the cells
     /// that could not be read. No line is placed in the text: the surface that
@@ -194,7 +194,7 @@ extension ProjectStore {
         }
         var written: HeldFigureTextEdit.Written = []
         do {
-            try await Self.beforeSendParksForTesting?()
+            try await Self.beforeSendParksForTesting?(holding)
             try await host.parkInResearch(
                 path: copy.path, hash: copy.hash, itemId: copy.item.id, expecting: snapshot
             ) {
@@ -276,11 +276,11 @@ extension ProjectStore {
     }
 
     /// A working copy a failed send leaves behind, taken back out: its file
-    /// to the Trash through the typed mover (Maugham's own artifact), its
-    /// sidecar removed, its item out of Research. Best-effort, logged.
+    /// to the Trash (`trashUnsentWorkingCopy`), its sidecar removed, its item
+    /// out of Research. Best-effort, logged.
     private func removeWorkingCopy(_ item: ResearchItem) async {
         beginStructuralVerb(); defer { endStructuralVerb() }
-        if let path = item.path { await trashStrayFigureFile(at: path) }
+        if let path = item.path { await trashUnsentWorkingCopy(item, at: path) }
         if let sidecar = try? ResearchTableSidecar.fileURL(forItem: item.id, in: url),
            FileManager.default.fileExists(atPath: sidecar.path) {
             do { try FileManager.default.removeItem(at: sidecar) } catch {
@@ -293,6 +293,24 @@ extension ProjectStore {
         do { try await saveManifest() } catch {
             projectStoreLog.error(
                 "sendToResearch: a failed send's Research item was not taken out: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// **A failed send's working copy, to the project Trash** through the
+    /// typed mover — a file Maugham wrote into Research moments ago and the
+    /// writer never saw, so it is Maugham's own artifact (`.internalArtifact`),
+    /// labelled as the unsent copy it is. Best-effort: a failure is logged.
+    private func trashUnsentWorkingCopy(_ item: ResearchItem, at relativePath: String) async {
+        guard let documentStore, let file = try? resolvedProjectPathToChange(relativePath),
+              FileManager.default.fileExists(atPath: file.path) else { return }
+        do {
+            _ = try await documentStore.trash(
+                relativePath: relativePath, using: trashStore,
+                itemMetadata: Data("{}".utf8), originalParentId: nil, originalIndex: 0,
+                displayTitle: "Unsent Research copy: \(item.title)", subject: .internalArtifact)
+        } catch {
+            projectStoreLog.error(
+                "sendToResearch: a failed send's working copy at \(relativePath, privacy: .public) could not go to the Trash: \(error.localizedDescription, privacy: .public)")
         }
     }
 
