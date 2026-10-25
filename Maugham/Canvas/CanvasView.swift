@@ -585,12 +585,12 @@ struct CanvasView: View {
         // provider `.onDrop`, a Finder PNG was answered "no operation" at hover
         // (nothing fired) and a browser image was taken by its page-URL text
         // and refused as an unknown id; both slid back. So one provider
-        // `.onDrop` takes every drag, and `CanvasDropRoute` sends it by type:
+        // `.onDrop` takes every drag, and `ProviderDropRoute` sends it by type:
         // a file or an image to the external route, text alone to the id
         // route. The two-modifier history is in docs/history/canvas.md.
         // `TripwireGrepTests.test_theCanvasHasOneDropModifierAndItIsTheProviderRoute`
         // pins it, because no test can drive a drag session.
-        .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { providers, viewPoint in
+        .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { providers, viewPoint in
             dropHandler.handleDrop(providers: providers, at: viewPoint)
         }
         .onGeometryChange(for: CGSize.self, of: { $0.size }) { canvasSize = $0 }

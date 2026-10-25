@@ -25,6 +25,9 @@ final class BinderTreeDropRoutingTests: XCTestCase {
     private var windows: [NSWindow] = []
     private var documentStores: [DocumentStore] = []
     private var states: [ObjectIdentifier: BinderTreeSectionsState] = [:]
+    /// A uniquely named pasteboard for the `draggedId(on:)` tests, released in
+    /// teardown so nothing is left on the pasteboard server.
+    private var pasteboard: NSPasteboard?
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -37,6 +40,8 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         for ds in documentStores { await ds.close() }
         documentStores.removeAll()
         states.removeAll()
+        pasteboard?.releaseGlobally()
+        pasteboard = nil
         temp.cleanup()
         temp = nil
     }
@@ -562,6 +567,104 @@ final class BinderTreeDropRoutingTests: XCTestCase {
                           + "a sweep that never ran")
     }
 
+    // MARK: - The Research section header's one provider drop (#109)
+
+    /// **A Finder file dropped on the Research HEADER lands in shared
+    /// research.** #109: the header mounted a String destination in front of its
+    /// file drop, AppKit offered the drag to that one alone, and a Finder PNG
+    /// sprang back. The header now takes every drag through one provider
+    /// `.onDrop` routed by `ProviderDropRoute`; this is that route, asked with
+    /// the type list a real file provider registers.
+    func test_aFileDroppedOnTheResearchHeaderLandsInSharedResearch() async throws {
+        let store = try await novel(notes: [])
+        let file = try makeFile(named: "harbour.md", contents: "# Harbour")
+        let item = provider(for: file)
+
+        let accepted = sections(store).sharedSectionHeaderDrop(
+            typeIdentifiers: item.registeredTypeIdentifiers, providers: [item],
+            draggedId: {
+                XCTFail("a file drag is routed by its type, never by a dragged id")
+                return nil
+            })
+
+        XCTAssertTrue(accepted)
+        await settle(store) { self.research(named: "harbour", in: store) != nil }
+        XCTAssertEqual(research(named: "harbour", in: store)?.path, "research/harbour.md",
+                       "the header is the shared section, so the file lands at its root")
+    }
+
+    /// **A note dragged onto the header leaves its chapter's fold**, by the id
+    /// read off the drag pasteboard: the same answer `sharedSectionDrop` gives.
+    func test_aLinkedNoteDroppedOnTheResearchHeaderLeavesTheChapter() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(research(named: "Ships", in: store))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        try await store.linkResearch(researchId: note.id, toDocumentId: chapter.id)
+
+        let accepted = sections(store).sharedSectionHeaderDrop(
+            typeIdentifiers: ["public.utf8-plain-text"], providers: [],
+            draggedId: { note.id })
+
+        XCTAssertTrue(accepted)
+        await settle(store) { store.linkedResearchIds(forDocumentId: chapter.id).isEmpty }
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id), [])
+    }
+
+    /// The id route refuses what `sharedSectionDrop` refuses, and refuses when
+    /// no id can be read at all — a refusal is what springs the drag back.
+    func test_theResearchHeaderRefusesAnIdTheSectionRefusesAndAMissingOne() async throws {
+        let store = try await novel(notes: [])
+        let header = sections(store)
+        let text = ["public.utf8-plain-text"]
+
+        XCTAssertFalse(header.sharedSectionDrop(["canvas-node-1"]),
+                       "control: the section itself refuses an id from elsewhere")
+        XCTAssertFalse(header.sharedSectionHeaderDrop(
+            typeIdentifiers: text, providers: [], draggedId: { "canvas-node-1" }),
+            "the header gives the section's answer, not one of its own")
+        XCTAssertFalse(header.sharedSectionHeaderDrop(
+            typeIdentifiers: text, providers: [], draggedId: { nil }),
+            "a text drag whose id cannot be read is refused, never accepted blind")
+    }
+
+    /// A type the route does not know is refused without asking for an id.
+    func test_theResearchHeaderRefusesATypeItCannotTake() async throws {
+        let store = try await novel(notes: [])
+        XCTAssertFalse(sections(store).sharedSectionHeaderDrop(
+            typeIdentifiers: ["com.adobe.pdf"], providers: [],
+            draggedId: {
+                XCTFail("a refused type never reaches the id route")
+                return nil
+            }))
+    }
+
+    /// `draggedId(on:)` reads `.draggable(String)`'s text, trimmed, and gives
+    /// nil for a blank or missing string.
+    func test_theDraggedIdIsTheTrimmedStringOnThePasteboard() {
+        let board = NSPasteboard(name: NSPasteboard.Name("maugham-test-drag-\(UUID().uuidString)"))
+        pasteboard = board
+
+        board.clearContents()
+        XCTAssertNil(BinderTreeSections.draggedId(on: board), "no string: no id")
+
+        board.clearContents()
+        board.setString("note-123", forType: .string)
+        XCTAssertEqual(BinderTreeSections.draggedId(on: board), "note-123")
+
+        board.clearContents()
+        board.setString("  note-123\n", forType: .string)
+        XCTAssertEqual(BinderTreeSections.draggedId(on: board), "note-123",
+                       "surrounding whitespace is trimmed")
+
+        board.clearContents()
+        board.setString("   ", forType: .string)
+        XCTAssertNil(BinderTreeSections.draggedId(on: board), "a blank string is no id")
+
+        board.clearContents()
+        board.setString("", forType: .string)
+        XCTAssertNil(BinderTreeSections.draggedId(on: board), "an empty string is no id")
+    }
+
     // MARK: - Fixtures
 
     /// The verbs as a row holds them, over ONE state object per test — so a
@@ -570,6 +673,12 @@ final class BinderTreeDropRoutingTests: XCTestCase {
     private func verbs(_ store: ProjectStore) -> BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: state(for: store),
                         selectedSubject: .constant(nil))
+    }
+
+    /// The section over the same state, so `settle` sees a store refusal.
+    private func sections(_ store: ProjectStore) -> BinderTreeSections {
+        BinderTreeSections(store: store, state: state(for: store),
+                           selectedSubject: .constant(nil))
     }
 
     private func state(for store: ProjectStore) -> BinderTreeSectionsState {

@@ -2,7 +2,7 @@ import MaughamCore
 import SwiftUI
 
 /// `CanvasView`'s drops: one entry point, `handleDrop(providers:at:)`, which
-/// `CanvasDropRoute` sends either to a research row or an inbox capture
+/// `ProviderDropRoute` sends either to a research row or an inbox capture
 /// (`handleDrop`) or to a photograph from the Finder or a browser
 /// (`handleExternalDrop`) — over bindings to the view's own `camera`,
 /// `revision` and `dropError`. Each returns whether the drop was taken; the
@@ -233,7 +233,7 @@ struct CanvasDropHandler {
     }
 
     /// Every drag dropped on the canvas arrives here, from the canvas's one
-    /// `.onDrop` (spec §4). `CanvasDropRoute` decides by type, over every
+    /// `.onDrop` (spec §4). `ProviderDropRoute` decides by type, over every
     /// provider's types, and a file or an image always wins over text.
     ///
     /// **An internal payload is taken before its string is read**, because
@@ -248,7 +248,7 @@ struct CanvasDropHandler {
     /// let go even if the camera moved meanwhile.
     func handleDrop(providers: [NSItemProvider], at viewPoint: CGPoint) -> Bool {
         let types = providers.flatMap(\.registeredTypeIdentifiers)
-        switch CanvasDropRoute.route(typeIdentifiers: types) {
+        switch ProviderDropRoute.route(typeIdentifiers: types) {
         case .external:
             return handleExternalDrop(providers, at: viewPoint)
         case .refuse:
