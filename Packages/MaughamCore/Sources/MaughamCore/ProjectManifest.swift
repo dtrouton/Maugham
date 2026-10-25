@@ -172,7 +172,13 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// added, under the same 10, the structure words `revive_row` and
     /// `revive_column` and the payload field `removed` — what a row or column
     /// delete took, so its undo revives it in place (rulings P-1, P-2;
-    /// `FigureOpTests` pins them).
+    /// `FigureOpTests` pins them). And, under the same 10, the research kind
+    /// `table` (`AssetKind.table`, ruling P-4: a `.csv`/`.tsv` in Research,
+    /// which an older build reads as `.document`; a manifest holding one is
+    /// raised to 10 by `contentSchemaFloor`), the `figureCreate` payload
+    /// field `source` (`FigureSource`: the Research item a figure was made
+    /// from, its path and content hash), and the Research table sidecar
+    /// `.maugham/research-tables/<item id>.json` (`ResearchTableSidecar`).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

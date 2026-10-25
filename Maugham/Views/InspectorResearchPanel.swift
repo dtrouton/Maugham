@@ -93,6 +93,7 @@ struct InspectorResearchPanel: View {
         case .document: return "Document"
         case .audio: return "Audio"
         case .link:  return "Link"
+        case .table: return "Table"
         case .none:  return "Item"
         }
     }

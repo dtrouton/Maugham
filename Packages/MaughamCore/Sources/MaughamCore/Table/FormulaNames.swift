@@ -12,7 +12,8 @@ import Foundation
 ///   against; a figure with no table here (an image, an unreadable stream) is refused
 ///   by a parse and `name!#REF!` to a render.
 /// - A research item's name is its `ResearchItem.title`, matched without regard to
-///   case.
+///   case. Only Research tables (`AssetKind.table`) answer: a note or a picture
+///   sharing a table's title is no collision.
 /// - Two figures, or two items, answering to one name refuse the parse rather than guess.
 /// - An id the directory cannot name renders `#REF!`, as a missing table did.
 public struct FormulaNames: Sendable {
@@ -56,11 +57,12 @@ public struct FormulaNames: Sendable {
     }
 
     /// The book's directory: every registry record with its table from `tables`
-    /// (keyed by figure id — `Workbook.tables`), and every research asset in the tree.
+    /// (keyed by figure id — `Workbook.tables`), and every Research table in the tree.
     public init(records: [FigureRecord], tables: [String: FigureTable], research: [ResearchItem]) {
         self.init(
             figures: records.map { Figure(id: $0.id, name: $0.name, table: tables[$0.id]) },
-            research: TreeWalk.collect(in: research, where: { $0.type == .asset }).map { ($0.id, $0.title) })
+            research: TreeWalk.collect(in: research, where: { $0.type == .asset && $0.kind == .table })
+                .map { ($0.id, $0.title) })
     }
 
     /// The table figure `id` reads, when there is one.

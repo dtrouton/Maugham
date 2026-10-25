@@ -25,7 +25,9 @@ struct ResearchPreview: View {
             } else {
                 emptyState
             }
-        case .document:
+        // A Research table shows its CSV as text, read-only, until the
+        // Research grid exists (report plan 6b, P-9: no new UI).
+        case .document, .table:
             if let path = item.path, fileURL != nil {
                 TextPreview(notePath: path, projectURL: projectURL)
             } else {

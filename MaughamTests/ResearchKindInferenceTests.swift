@@ -33,6 +33,13 @@ final class ResearchKindInferenceTests: XCTestCase {
         }
     }
 
+    /// Report plan 6b Task 6 (ruling P-4): a CSV or TSV is a Research table.
+    func test_tableExtensions() {
+        for ext in ["csv", "CSV", "tsv"] {
+            XCTAssertEqual(ResearchKindInference.kind(forFilename: "x.\(ext)"), .table, ".\(ext)")
+        }
+    }
+
     func test_unknownExtension_returnsNil() {
         XCTAssertNil(ResearchKindInference.kind(forFilename: "x.exe"))
         XCTAssertNil(ResearchKindInference.kind(forFilename: "x.unknown"))

@@ -19,4 +19,10 @@ public enum ContentHash {
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined().prefix(16).description
     }
+
+    /// Bytes already read — the same answer `ofFile` gives for a file holding
+    /// them, for a caller that hashes exactly the bytes it read.
+    public static func of(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined().prefix(16).description
+    }
 }

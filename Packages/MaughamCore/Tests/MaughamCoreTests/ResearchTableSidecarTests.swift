@@ -1,0 +1,79 @@
+import XCTest
+@testable import MaughamCore
+
+/// Report plan 6b Task 6 (ruling P-4): a Research table's sidecar — its shape,
+/// its tolerance, and where it lives.
+final class ResearchTableSidecarTests: XCTestCase {
+
+    private let full = ResearchTableSidecar(
+        figureId: "fig-cash0001", name: "cash", caption: "Cash, 2026",
+        headerRows: 1, totalRow: true,
+        formats: [.init(row: 1, column: 2, format: CellFormat(number: .percent(decimals: 1)),
+                        alignment: .right)],
+        columnWidths: [80, nil, 120])
+
+    func test_roundTripsThroughDisk_atTheItemsIdUnderTheResearchTablesFolder() throws {
+        let root = TestTemp.root
+        try ResearchTableSidecar.write(full, forItem: "res-1a2b3c4d", in: root)
+        let file = root.appendingPathComponent(".maugham/research-tables/res-1a2b3c4d.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(try ResearchTableSidecar.read(forItem: "res-1a2b3c4d", in: root), full)
+        XCTAssertNil(try ResearchTableSidecar.read(forItem: "res-none0000", in: root),
+                     "no file is no sidecar")
+    }
+
+    func test_theWireWords() throws {
+        let json = try XCTUnwrap(String(data: try JSONEncoder().encode(full), encoding: .utf8))
+        for key in ["\"figure_id\"", "\"header_rows\"", "\"total_row\"", "\"column_widths\"",
+                    "\"formats\"", "\"caption\"", "\"name\""] {
+            XCTAssertTrue(json.contains(key), "\(key) in \(json)")
+        }
+    }
+
+    /// Missing fields take their defaults; a field of the wrong type takes its
+    /// default; one unreadable style drops only that style; an unknown key is
+    /// ignored.
+    func test_decodesTolerantly() throws {
+        let empty = try JSONDecoder().decode(ResearchTableSidecar.self, from: Data("{}".utf8))
+        XCTAssertEqual(empty, ResearchTableSidecar())
+
+        let odd = Data("""
+        {"figure_id": 7, "name": "cash", "header_rows": "one", "total_row": true,
+         "formats": [{"row": 0, "column": 0, "alignment": "right"}, {"row": "x"},
+                     {"row": 2, "column": 1, "alignment": "sideways"}],
+         "column_widths": [40, null], "from_a_later_build": {"x": 1}}
+        """.utf8)
+        let s = try JSONDecoder().decode(ResearchTableSidecar.self, from: odd)
+        XCTAssertNil(s.figureId, "a figure id of the wrong type is no figure id")
+        XCTAssertEqual(s.name, "cash")
+        XCTAssertEqual(s.headerRows, 0)
+        XCTAssertTrue(s.totalRow)
+        XCTAssertEqual(s.formats, [.init(row: 0, column: 0, alignment: .right),
+                                   .init(row: 2, column: 1, alignment: .automatic)])
+        XCTAssertEqual(s.columnWidths, [40, nil])
+    }
+
+    /// The item id comes from the synced manifest: one that could leave the
+    /// folder, or carries a dot, never names a file (tripwire 58).
+    func test_anItemIdThatCannotNameAFileIsRefused() {
+        let root = TestTemp.root
+        for bad in ["../escape", "a/b", "res.x", "", ".hidden"] {
+            XCTAssertThrowsError(try ResearchTableSidecar.fileURL(forItem: bad, in: root), bad)
+            XCTAssertThrowsError(try ResearchTableSidecar.write(full, forItem: bad, in: root), bad)
+        }
+    }
+
+    /// A `.maugham/research-tables` linked out of the project is refused, so a
+    /// write never lands outside it.
+    func test_aFolderLinkedOutOfTheProjectIsRefused() throws {
+        let root = TestTemp.root.appendingPathComponent("book")
+        let outside = TestTemp.root.appendingPathComponent("elsewhere")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".maugham"),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(".maugham/research-tables"), withDestinationURL: outside)
+        XCTAssertThrowsError(try ResearchTableSidecar.write(full, forItem: "res-1a2b3c4d", in: root))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outside.path), [])
+    }
+}

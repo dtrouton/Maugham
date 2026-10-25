@@ -661,7 +661,7 @@ extension CompilerOrchestrator.Environment {
             return .text(text)
         case .link:
             return .link(url: item.url ?? "")
-        case .image, .pdf, .audio:
+        case .image, .pdf, .audio, .table:
             return .unreadable
         case .none:
             return nil

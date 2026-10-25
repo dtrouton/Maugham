@@ -139,4 +139,14 @@ final class MaughamSidecarPathTests: XCTestCase {
             .letGo(relativePath: ".maugham/let-go/let-go.other-mac.jsonl")
         )
     }
+
+    /// A Research table's sidecar (report plan 6b Task 6) has a case of its
+    /// own, so it is never mistaken for an unknown sidecar.
+    func testClassifies_researchTableSidecar() throws {
+        let url = try ResearchTableSidecar.fileURL(forItem: "res-1a2b3c4d", in: projectURL)
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .researchTable(relativePath: ".maugham/research-tables/res-1a2b3c4d.json")
+        )
+    }
 }

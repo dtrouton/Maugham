@@ -242,6 +242,51 @@ extension DocumentStore {
         figureChangeScheduler.schedule(0)
     }
 
+    // MARK: - Reading the book's figures
+
+    /// The trust table figure reads judge lines by, resolved off the main actor.
+    private func figureTrust() async throws -> TrustTable {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let registryCache = Document.loadRegistryCache
+        return try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities, cache: registryCache)
+        }.value
+    }
+
+    /// **The book as a figure made from Research reads it** (report plan 6b
+    /// Task 6): the name directory a Research CSV's formulas resolve through
+    /// (`FormulaNames(records:tables:research:)` — every figure with its table,
+    /// an open host's fold laid over its read, and the Research tables), and
+    /// whether figure `candidate`, when given, is parked in Research — asked of
+    /// its open host, else its stream, whatever its kind. Throws when the
+    /// registry will not read: a parked figure can't be told apart, so nothing
+    /// should be made.
+    func figureBookForUse(
+        checkingParked candidate: String?
+    ) async throws -> (names: FormulaNames, candidateIsParked: Bool) {
+        guard let manifest = projectStore?.manifest else { return (.empty, false) }
+        let trust = try await figureTrust()
+        var assembled = FigureWorkbook.assemble(
+            for: manifest, cache: figureCache, projectURL: projectURL,
+            trust: trust, pins: FigureRender.noResearchPins)
+        let records = manifest.figures ?? []
+        let tableIds = Set(records.filter { $0.kind == .table }.map(\.id))
+        for (id, doc) in openFigures where !doc.isClosed && tableIds.contains(id) {
+            assembled.overlay(doc.state, id: id)
+        }
+        let names = FormulaNames(
+            records: records, tables: assembled.workbook.tables, research: manifest.research)
+        guard let candidate, records.contains(where: { $0.id == candidate }) else {
+            return (names, false)
+        }
+        if let open = openFigure(forId: candidate) { return (names, open.state.parked != nil) }
+        let state = try figureCache.state(
+            forFigureId: candidate, in: projectURL, trust: trust, facts: DocumentClass.Facts(manifest))
+        return (names, state.parked != nil)
+    }
+
     // MARK: - Rendering
 
     /// **Render `changed` and every table whose formulas name one of them.**
@@ -263,14 +308,9 @@ extension DocumentStore {
             return
         }
         let projectURL = self.projectURL
-        let identities = Document.loadIdentities
-        let registryCache = Document.loadRegistryCache
         let trust: TrustTable
         do {
-            trust = try await Task.detached(priority: .userInitiated) {
-                try TrustResolution.resolve(
-                    projectURL: projectURL, identities: identities, cache: registryCache)
-            }.value
+            trust = try await figureTrust()
         } catch {
             documentLog.error(
                 "figures were not rendered: the registry would not read: \(error.localizedDescription, privacy: .public)")

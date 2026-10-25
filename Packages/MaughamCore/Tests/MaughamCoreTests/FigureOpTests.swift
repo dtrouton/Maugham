@@ -43,6 +43,8 @@ final class FigureOpTests: XCTestCase {
         return [
             (.figureCreate, FigureOpPayload(kind: .table)),
             (.figureCreate, FigureOpPayload(kind: .image)),
+            (.figureCreate, FigureOpPayload(kind: .table, source: FigureSource(
+                researchItemId: "res-model", path: "research/model.csv", contentHash: "0123456789abcdef"))),
             (.figureParked, FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h9")),
             (.figureResumed, FigureOpPayload()),
             (.figureCellSet, FigureOpPayload(cell: key, next: cell, prior: nil)),
@@ -132,6 +134,22 @@ final class FigureOpTests: XCTestCase {
                        "a delete without a slice carries no removed key")
         XCTAssertFalse(FigureOpPayload.validate(kind: .figureStructure, payload: FigureOpPayload(structure: .reviveRow(r1))),
                        "a revive carries a slice")
+    }
+
+    /// Report plan 6b Task 6 (spec §4.1, schema 10): a figure made from a
+    /// Research item records where it came from on its `figureCreate`, and the
+    /// deriver keeps it.
+    func test_theSourceWireShapeIsPinned_andTheDeriverKeepsIt() throws {
+        let source = FigureSource(researchItemId: "res-model", path: "research/model.csv",
+                                  contentHash: "0123456789abcdef")
+        XCTAssertEqual(String(data: try encoder().encode(FigureOpPayload(kind: .table, source: source)),
+                              encoding: .utf8),
+            #"{"kind":"table","source":{"content_hash":"0123456789abcdef","path":"research\/model.csv","research_item_id":"res-model"}}"#)
+        XCTAssertEqual(String(data: try encoder().encode(FigureOpPayload(kind: .table)), encoding: .utf8),
+                       #"{"kind":"table"}"#, "a figure made in the book carries no source key")
+        let state = FigureDeriver.derive([figureOp("01S1", .figureCreate, FigureOpPayload(kind: .table, source: source))])
+        XCTAssertEqual(state.source, source)
+        XCTAssertNil(FigureDeriver.derive([figureOp("01S2", .figureCreate, FigureOpPayload(kind: .table))]).source)
     }
 
     // MARK: - Existing bytes

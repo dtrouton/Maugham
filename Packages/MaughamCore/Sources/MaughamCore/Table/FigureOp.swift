@@ -53,7 +53,8 @@ public enum FigureKind: Codable, Equatable, Hashable, Sendable {
 /// rides here and never in `changes`.
 ///
 /// Every field is optional; which ones a kind needs is `validate(kind:payload:)`:
-/// - `figureCreate` — a `kind` this build knows (never `.unknown`).
+/// - `figureCreate` — a `kind` this build knows (never `.unknown`). A figure
+///   made from a Research item by *Use in document* also carries `source`.
 /// - `figureParked` — `parkedPath` and `parkedHash` (where the stream's figure
 ///   went in Research, and that file's content hash).
 /// - `figureResumed` — nothing.
@@ -87,6 +88,9 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     /// with nothing to put back offers no undo; an empty slice is a row or
     /// column that held nothing (an insert's undo).
     public var removed: FigureRemovedSlice?
+    /// **The Research item a figure was made from** (spec §4.1, report plan
+    /// 6b Task 6), on its `figureCreate`: nil for a figure made in the book.
+    public var source: FigureSource?
 
     enum CodingKeys: String, CodingKey {
         case kind, cell, next, prior, structure, settings, image
@@ -95,6 +99,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case parkedPath = "parked_path"
         case parkedHash = "parked_hash"
         case removed
+        case source
     }
 
     public init(
@@ -105,7 +110,8 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         image: FigureImageRef? = nil, priorImage: FigureImageRef? = nil,
         pin: FigureResearchPin? = nil,
         parkedPath: String? = nil, parkedHash: String? = nil,
-        removed: FigureRemovedSlice? = nil
+        removed: FigureRemovedSlice? = nil,
+        source: FigureSource? = nil
     ) {
         self.kind = kind
         self.cell = cell
@@ -119,6 +125,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         self.parkedPath = parkedPath
         self.parkedHash = parkedHash
         self.removed = removed
+        self.source = source
     }
 
     /// The nine figure op kinds, in the order `OpKind` declares them.
@@ -364,6 +371,35 @@ extension FigureSettingsChange: Codable {
             try c.encodeIfPresent(width, forKey: .width)
             try c.encodeIfPresent(prior, forKey: .priorWidth)
         }
+    }
+}
+
+/// **Where a figure made by *Use in document* came from** (spec §4.1, report
+/// plan 6b Task 6, schema 10): the Research item's id, its project-relative
+/// path, and the content hash (`ContentHash.ofFile`) of its file at the moment
+/// it was copied. A snapshot's record, so a later surface can say when the
+/// source has changed (§4.3).
+///
+/// `path` arrives from other devices: it is never joined onto a folder to
+/// write. A reader resolves it through `SafeRelativePath` (tripwire 58).
+///
+/// On the wire: `{"research_item_id": "res-…", "path": "research/x.csv",
+/// "content_hash": "0123456789abcdef"}`.
+public struct FigureSource: Codable, Equatable, Hashable, Sendable {
+    public var researchItemId: String
+    public var path: String
+    public var contentHash: String
+
+    enum CodingKeys: String, CodingKey {
+        case researchItemId = "research_item_id"
+        case path
+        case contentHash = "content_hash"
+    }
+
+    public init(researchItemId: String, path: String, contentHash: String) {
+        self.researchItemId = researchItemId
+        self.path = path
+        self.contentHash = contentHash
     }
 }
 

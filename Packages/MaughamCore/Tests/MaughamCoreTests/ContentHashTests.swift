@@ -29,6 +29,13 @@ final class ContentHashTests: XCTestCase {
         XCTAssertEqual(try ContentHash.ofFile(url), "e3b0c44298fc1c14")
     }
 
+    /// Bytes in hand hash to the same pinned names (report plan 6b Task 6).
+    func test_bytesInHandHashLikeTheirFile() {
+        XCTAssertEqual(ContentHash.of(Data("Maugham figure fixture\n".utf8)), "23fbb79b71ed07dd")
+        XCTAssertEqual(ContentHash.of(Data((0..<((1 << 20) + 4097)).map { UInt8($0 % 251) })), "50d9f7d75b88270d")
+        XCTAssertEqual(ContentHash.of(Data()), "e3b0c44298fc1c14")
+    }
+
     func test_aMissingFileThrows() {
         XCTAssertThrowsError(
             try ContentHash.ofFile(TestTemp.root.appendingPathComponent("absent.bin")))

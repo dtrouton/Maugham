@@ -33,7 +33,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+WikiLink.swift` — `[[…]]` title resolution (`WikiLinkProject` conformance).
 - `ProjectStore+Search.swift` — project search and Replace (`performSearch`, `replaceMatch`, `replaceAll`, `replaceInManuscript`). Tripwire 52.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
-- `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: asks the window's posture for the new figure first, mints `fig-` ids, writes `figureCreate` and its rows and columns (or copies the picture into `figures/` and writes its hash), then the de-duplicated record through `saveManifest`. `renameFigure` asks every door first, then relabels the text (ruling P-3); `removeFigure` trashes the file. Tripwire 52.
+- `ProjectStore+Figures.swift` — `createFigure`, `createImageFigure` and `useInDocument` (from a Research table, picture or PDF, recording its source): the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` asks every door first, then relabels the text (ruling P-3); `removeFigure` trashes the file. Tripwire 52.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54), so a count says unknown rather than a short number. Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
@@ -94,6 +94,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent: export.docx and sent.json; the id is `draft<N>-yyyyMMdd-HHmmss-<slug>`, chosen before packaging and carried in the file; backed up (R-S9) |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
+| `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |

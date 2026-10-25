@@ -26,6 +26,7 @@ enum ReadIcons {
         case .pdf: return "doc.richtext"
         case .audio: return "waveform"
         case .link: return "link"
+        case .table: return "tablecells"
         case nil: return "doc"
         }
     }
@@ -68,7 +69,7 @@ enum ReadIcons {
         guard let path = item.path, !path.isEmpty else { return false }
         switch item.kind {
         case .document, .none: return true
-        case .image, .pdf, .audio, .link: return false
+        case .image, .pdf, .audio, .link, .table: return false
         }
     }
 }

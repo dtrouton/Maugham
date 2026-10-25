@@ -111,6 +111,13 @@ internal enum MaughamSidecarPath: Equatable {
     /// `SentCopyStore.directory(in:)` and never spelled here.
     case exports(relativePath: String)
 
+    /// A Research table's sidecar (`ResearchTableSidecar`,
+    /// `.maugham/research-tables/<item id>.json`, report plan 6b): what its
+    /// CSV cannot hold. Routing intent: ignore — it is read when the table is
+    /// used, never reactively. The folder is asked of
+    /// `ResearchTableSidecar.folder` and never spelled here.
+    case researchTable(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
@@ -250,6 +257,10 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath.hasPrefix(".maugham/publications/") {
             return .publicationSnapshot(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(ResearchTableSidecar.folder + "/") {
+            return .researchTable(relativePath: relativePath)
         }
 
         if relativePath.hasPrefix(".maugham/inbox/") {

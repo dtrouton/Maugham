@@ -354,7 +354,7 @@ final class FormulaParserTests: XCTestCase {
         let records = [FigureRecord(id: "fig-rev00001", name: "revenue", kind: .table, piece: nil, path: "figures/revenue.csv"),
                        FigureRecord(id: "fig-pic00001", name: "map", kind: .image, piece: nil, path: "figures/map.png")]
         let research = [ResearchItem(id: "grp-1", title: "model", type: .group, children: [
-            ResearchItem(id: "res-deep", title: "Model", type: .asset, kind: .document, path: "research/model.csv")])]
+            ResearchItem(id: "res-deep", title: "Model", type: .asset, kind: .table, path: "research/model.csv")])]
         let book = FormulaNames(records: records, tables: ["fig-rev00001": revenue], research: research)
         XCTAssertEqual(try FormulaParser.parse("revenue!A1+research:model!A1", in: table, names: book).get().expr,
                        .binary(.add,
@@ -367,6 +367,26 @@ final class FormulaParserTests: XCTestCase {
             return XCTFail("a figure with no table can't be read on entry")
         }
         XCTAssertEqual(e.message, "There is no table named map")
+    }
+
+    /// Only Research tables answer to a research name (report plan 6b Task 6, carried
+    /// from Task 3's review M-1): a note and a picture sharing a table's title are no
+    /// collision, and neither can be read by a formula.
+    func test_onlyResearchTablesAnswerToAResearchName() throws {
+        let research = [
+            ResearchItem(id: "res-tab00001", title: "Model", type: .asset, kind: .table, path: "research/model.csv"),
+            ResearchItem(id: "res-note0001", title: "model", type: .asset, kind: .document, path: "research/model.md"),
+            ResearchItem(id: "res-pict0001", title: "MODEL", type: .asset, kind: .image, path: "research/model.png"),
+            ResearchItem(id: "res-note0002", title: "notes", type: .asset, kind: .document, path: "research/notes.md"),
+        ]
+        let book = FormulaNames(records: [], tables: [:], research: research)
+        XCTAssertEqual(try FormulaParser.parse("research:model!A1", in: table, names: book).get().expr,
+                       .ref(FormulaRef(target: .research(id: "res-tab00001"), anchor: .position(row: 0, column: 0))))
+        XCTAssertNil(book.researchTitle(id: "res-note0001"))
+        guard case .failure(let e) = FormulaParser.parse("research:notes!A1", in: table, names: book) else {
+            return XCTFail("a note is not a Research table")
+        }
+        XCTAssertEqual(e.message, "There is no Research item called notes")
     }
 
     func test_liveSlotsBetween_isTheSharedRangeDefinition() {

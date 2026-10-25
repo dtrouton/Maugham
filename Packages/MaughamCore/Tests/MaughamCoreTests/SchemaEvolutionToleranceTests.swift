@@ -95,6 +95,33 @@ final class SchemaEvolutionToleranceTests: XCTestCase {
         XCTAssertEqual(item.kind, .document)
     }
 
+    /// Report plan 6b Task 6 (ruling P-4, schema 10): a Research table's
+    /// `"table"` kind. This build reads it as `.table`; a build from before
+    /// it — the five words and the same tolerant init, modelled here — reads
+    /// it as `.document`, and the manifest still opens. A manifest holding
+    /// one is raised to 10, so no such build re-saves it as a document.
+    func testResearchTableKind_readsAsTableHere_andAsDocumentOnAnOlderBuild() throws {
+        enum OlderAssetKind: String, Decodable {
+            case image, document, pdf, audio, link
+            init(from decoder: Decoder) throws {
+                let raw = try decoder.singleValueContainer().decode(String.self)
+                self = OlderAssetKind(rawValue: raw) ?? .document
+            }
+        }
+        struct OlderItem: Decodable { let kind: OlderAssetKind? }
+        let json = Data(#"{"id":"res-1","title":"Model","type":"asset","kind":"table","path":"research/model.csv"}"#.utf8)
+        let item = try JSONDecoder().decode(ResearchItem.self, from: json)
+        XCTAssertEqual(item.kind, .table)
+        XCTAssertEqual(try JSONDecoder().decode(OlderItem.self, from: json).kind, .document)
+
+        let manifest = ProjectManifest(
+            schemaVersion: 9, type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [],
+            research: [ResearchItem(id: "grp-1", title: "Data", type: .group, children: [item])])
+        XCTAssertEqual(manifest.contentSchemaFloor, 10, "a Research table, even nested, is v10 content")
+    }
+
     func testUnknownPieceKindDegradesToLoose() throws {
         let json = Data(#""embedded_app""#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(PieceKind.self, from: json), .loose)

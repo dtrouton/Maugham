@@ -11928,7 +11928,7 @@ final class TripwireGrepTests: XCTestCase {
     /// **A figure's content is manuscript content** (report plan 6a, ruling
     /// D-c: figure kinds are `.manuscriptText` in `Permit.group`), so its
     /// writers join this census: `FigureDocument`'s guarded mutators
-    /// (`figureMutatorSpellings`), `createFigure(` and `createImageFigure(` (a figure's birth, behind
+    /// (`figureMutatorSpellings`), `createFigure(`, `createImageFigure(` and `useInDocument(` (a figure's birth, behind
     /// its own posture question), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
@@ -11941,6 +11941,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
+        "useInDocument(",
         figureOpMintSpelling,
     ]
 
@@ -12319,7 +12320,8 @@ final class TripwireGrepTests: XCTestCase {
     ///   closures, each re-entering that doored mutator, a refusal said
     ///   (`decline(.notPermitted)`).
     /// - `ProjectStore+Figures.swift` × 1 — `figureOpMinter`, which mints
-    ///   `createFigure`'s `figureCreate` and row and column inserts and
+    ///   `createFigure`'s `figureCreate` and row and column inserts (and, for
+    ///   a Research table's `useInDocument`, its cells and settings) and
     ///   `createImageFigure`'s `figureCreate` and `figureImageSet`: each asks
     ///   posture (`.editFigure` of the class the new figure will have,
     ///   `requireNewFigurePermitted`) before it mints a line, and throws
@@ -12332,9 +12334,10 @@ final class TripwireGrepTests: XCTestCase {
     /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
     ///   built (and judged) by one of the above, never a new figure write.
     ///
-    /// `createFigure(` has no production caller yet: plan 7's surfaces add
-    /// theirs here, each drawn and pressed only where the posture allows
-    /// `.editFigure`.
+    /// `createFigure(` and `useInDocument(` (report plan 6b Task 6, a figure
+    /// made from a Research item behind the same door) have no production
+    /// caller yet: plans 7–8's surfaces add theirs here, each drawn and
+    /// pressed only where the posture allows `.editFigure`.
     ///
     /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
     /// file that swapped one writer for another — a Replace that began
@@ -12368,8 +12371,12 @@ final class TripwireGrepTests: XCTestCase {
             "deleteRow(": 1, "deleteColumn(": 1, "reviveRow(": 2, "reviveColumn(": 2,
         ],
         // A rename's picture: `renameImageFile` through the figure's host,
-        // after `renameFigure` asked every door (report plan 6b Task 5).
-        "ProjectStore+Figures.swift": [figureOpMintSpelling: 1, "renameImageFile(": 1],
+        // after `renameFigure` asked every door (report plan 6b Task 5). A
+        // Research picture's *Use in document*: `createImageFigure`, which asks
+        // the new figure's door before it copies or mints (report plan 6b Task 6).
+        "ProjectStore+Figures.swift": [
+            figureOpMintSpelling: 1, "renameImageFile(": 1, "createImageFigure(": 1,
+        ],
         "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
     ]
@@ -12640,6 +12647,7 @@ final class TripwireGrepTests: XCTestCase {
         let record = try await store.createFigure(kind: .table, name: "Prices", piece: p)
         let image = try await store.createImageFigure(fromURL: picture, piece: p)
         try await store.renameFigure(id: record.id, to: "Costs")
+        let used = try await store.useInDocument(researchItemId: item.id, piece: p)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

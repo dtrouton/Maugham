@@ -124,6 +124,7 @@ struct ResearchRow: View {
         case .document: return "doc.text"
         case .audio:    return "speaker.wave.2"
         case .link:     return "link"
+        case .table:    return "tablecells"
         case .none:     return "questionmark.circle"
         }
     }

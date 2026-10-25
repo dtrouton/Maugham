@@ -22,6 +22,9 @@ public struct FigureState: Equatable, Sendable {
     public var parked: FigureParking?
     /// The device of the first `figureCreate`.
     public var createdBy: String?
+    /// The Research item the first `figureCreate` was made from, when it was
+    /// (*Use in document*, spec §4.1).
+    public var source: FigureSource?
     /// One line per op that could not apply, naming its op id. The op stays in
     /// the log; only the view drops it.
     public var diagnostics: [String]
@@ -37,7 +40,8 @@ public struct FigureState: Equatable, Sendable {
     public init(
         kind: FigureKind? = nil, table: FigureTable = FigureTable(rows: 0, columns: 0),
         image: FigureImageRef? = nil, pins: [CellKey: [FigureResearchPin]] = [:],
-        parked: FigureParking? = nil, createdBy: String? = nil, diagnostics: [String] = []
+        parked: FigureParking? = nil, createdBy: String? = nil, diagnostics: [String] = [],
+        source: FigureSource? = nil
     ) {
         self.held = []
         self.kind = kind
@@ -47,6 +51,7 @@ public struct FigureState: Equatable, Sendable {
         self.parked = parked
         self.createdBy = createdBy
         self.diagnostics = diagnostics
+        self.source = source
     }
 }
 
@@ -110,6 +115,7 @@ public enum FigureDeriver {
             }
             state.kind = p.kind
             state.createdBy = op.device
+            state.source = p.source
 
         case .figureParked:
             if let path = p.parkedPath, let hash = p.parkedHash {

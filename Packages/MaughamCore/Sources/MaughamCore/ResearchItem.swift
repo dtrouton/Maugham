@@ -51,7 +51,7 @@ public enum ResearchRole: Codable, Equatable, Sendable {
 }
 
 /// A node in a project's research tree.
-/// Either a `group` (with `children`) or an `asset` (image, document, pdf, audio, link).
+/// Either a `group` (with `children`) or an `asset` (image, document, pdf, audio, link, table).
 public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode {
     public enum ItemType: String, Codable, Sendable {
         case group, asset
@@ -70,6 +70,12 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
 
     public enum AssetKind: String, Codable, CaseIterable, Sendable {
         case image, document, pdf, audio, link
+        /// **A `.csv` / `.tsv` file** (report plan 6b, ruling P-4, schema 10):
+        /// a Research table a formula may read (`research:<title>!B9`) and
+        /// *Use in document* turns into a figure. An older build decodes the
+        /// word as `.document` (below); a manifest holding one is raised to
+        /// schema 10 (`contentSchemaFloor`), so no older build re-saves it so.
+        case table
 
         /// Cross-version forward-tolerance (ADR 0015): an unknown asset `kind`
         /// from a newer build decodes to `.document` (a generic, previewable
