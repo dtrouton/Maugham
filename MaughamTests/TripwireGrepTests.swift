@@ -12438,7 +12438,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   built (and judged) by one of the above, never a new figure write.
     /// - `FigureReturnDiff.swift` × 1 — Core's simulated fold: each change the
     ///   return makes folded onto a copy of the state, never appended. The
-    ///   changes are appended by `resumeFromResearch`, behind the door.
+    ///   changes are appended by `resumeFromResearch`, behind the door. Its
+    ///   `Simulation` also folds `FigureRestoreDiff`'s changes (report plan
+    ///   6c Task 1), which mints no op of its own.
     ///
     /// `createFigure(`, `useInDocument(` (report plan 6b Task 6, a figure
     /// made from a Research item behind the same door) and `sendToResearch(`
