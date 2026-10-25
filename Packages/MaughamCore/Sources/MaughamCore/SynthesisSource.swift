@@ -64,6 +64,13 @@ public enum SynthesisSource: String, Codable, Equatable, Hashable, Sendable {
     /// Same non-judgment as `pendingRecovery` above, for the same reason.
     case anchorSplice = "anchor_splice"
 
+    /// **A figure brought back from Research** (report plan 6b Task 8, ruling
+    /// P-7, schema 10): the `figureResumed` and every op the return appends —
+    /// the differences between the working copy and the parked figure. Signed
+    /// by whoever brings it back: bringing it back is their acceptance of what
+    /// happened on the workbench. Provenance only, like the causes above.
+    case broughtBackFromResearch = "brought_back_from_research"
+
     /// Cross-version forward-tolerance (ADR 0015): a synthesis source written
     /// by a newer build decodes to `.unknown` rather than throwing — which
     /// would quarantine the whole `Op` and silently drop the edits it carries.

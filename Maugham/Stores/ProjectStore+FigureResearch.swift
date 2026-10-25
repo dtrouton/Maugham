@@ -9,12 +9,23 @@ import MaughamCore
 // are `ProjectStore+Figures`'s (`createFigureStream`, `createImageFigure`).
 
 /// **What *Use in document* made** (report plan 6b Task 6): the new figure's
-/// record, and the cells of a Research table it could not read as the writer
-/// meant — each a formula that would not parse, kept as text holding its
-/// `=…` (spec §4.1). Empty for a picture or a clean table.
+/// record — or the parked figure brought back (Task 8) — and the cells of a
+/// Research table it could not read as the writer meant — each a formula that
+/// would not parse, kept as text holding its `=…` (spec §4.1). Empty for a
+/// picture or a clean table.
 public struct UseInDocumentResult: Equatable {
     public let record: FigureRecord
     public let problems: [CSVReadProblem]
+    /// **Cells the copy's change replaced a late edit in** (a return only):
+    /// edited after the working copy was written, by a device the parker had
+    /// not read, and changed in the copy too — the copy won (Task 8).
+    public let overwritten: [CellKey]
+
+    public init(record: FigureRecord, problems: [CSVReadProblem], overwritten: [CellKey] = []) {
+        self.record = record
+        self.problems = problems
+        self.overwritten = overwritten
+    }
 }
 
 extension ProjectStore {
@@ -63,8 +74,7 @@ extension ProjectStore {
         }
         let sidecar = researchTableSidecar(of: item)
         if let figureId = sidecar?.figureId, try await documentStore.figureIsParked(figureId) {
-            return UseInDocumentResult(
-                record: try await bringBack(researchItemId: item.id, piece: piece), problems: [])
+            return try await bringBack(researchItemId: item.id, piece: piece)
         }
         switch item.kind {
         case .table?:
@@ -101,14 +111,122 @@ extension ProjectStore {
         }
     }
 
-    /// **Report plan 6b Task 8's seam: bring a parked figure back** from its
-    /// working copy in Research. `useInDocument` routes here when the item's
-    /// sidecar names a parked figure. Until Task 8 replaces this body with
-    /// the return (resume, or the diff, then `figureResumed`), it refuses
-    /// with `FigureReturnPending` and changes nothing.
+    // MARK: - Coming back (report plan 6b Task 8, spec §4.2, ruling P-7)
+
+    /// **Bring a parked figure back from its working copy in Research** and
+    /// answer it, with what the copy's read could not parse and the late edits
+    /// the copy's changes replaced. `useInDocument` routes here when the
+    /// item's sidecar names a parked figure. The figure keeps its record —
+    /// name, piece, path — so every reference to it reconnects with no op;
+    /// `piece` is not asked. The working copy stays in Research.
+    ///
+    /// 1. **Only the parked copy**: the item's sidecar names the figure, the
+    ///    registry lists it, it is parked, and its park names THIS item
+    ///    (`FigureParking.itemId`) — a copy whose park was dropped (a second
+    ///    park while parked) is an orphan. Else `FigureReturnRefused`.
+    /// 2. **The figure's door** (`.editFigure`), then its host.
+    /// 3. **Unchanged** (the copy's content hash is the park's): `figureResumed`
+    ///    alone — history, ids, formats and anchors return as they were.
+    /// 4. **A changed table** is read as *Use in document* reads one (the
+    ///    book's language and names, the cell ceiling), and
+    ///    `FigureReturnDiff` brings back its differences, three-way: from the
+    ///    state the copy was written from — the parked state when it still
+    ///    renders to the park's hash, else the stream as far as the parker had
+    ///    read (`FigureReturnDiff.base(of:frontier:)`) — onto the parked
+    ///    state. The sidecar's formats apply when it was written for the
+    ///    parked bytes.
+    /// 5. **A changed picture** replaces the figure's file, one `figureImageSet`.
+    /// 6. `FigureDocument.resumeFromResearch` appends it all, the resume first,
+    ///    signed by this Mac's author key with `broughtBackFromResearch`.
+    ///
+    /// Needs the window's `DocumentStore`.
     @discardableResult
-    public func bringBack(researchItemId: String, piece: String?) async throws -> FigureRecord {
-        throw FigureReturnPending(researchItemId: researchItemId)
+    public func bringBack(researchItemId: String, piece: String?) async throws -> UseInDocumentResult {
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        guard let item = findResearchItem(id: researchItemId, in: manifest.research),
+              item.type == .asset else {
+            throw UseInDocumentRefused(reason: .notInResearch)
+        }
+        guard let figureId = researchTableSidecar(of: item)?.figureId,
+              let record = manifest.figures?.first(where: { $0.id == figureId }) else {
+            throw FigureReturnRefused(reason: .notAParkedCopy)
+        }
+        try await requireFigurePermitted(figureId: figureId, site: "bringBack", documentStore: documentStore)
+        let wasOpen = documentStore.openFigure(forId: figureId) != nil
+        let host = try await documentStore.openFigure(figureId: figureId)
+        let result: UseInDocumentResult
+        do {
+            let plan = try await returnPlan(for: item, record: record, host: host)
+            try await host.resumeFromResearch(
+                changes: plan.changes.ops, picture: plan.picture, expecting: plan.expecting)
+            for problem in plan.changes.problems {
+                projectStoreLog.info(
+                    "bringBack: \(item.title, privacy: .public) row \(problem.row + 1, privacy: .public), column \(problem.column + 1, privacy: .public) kept as text: \(problem.message, privacy: .public)")
+            }
+            result = UseInDocumentResult(
+                record: record, problems: plan.changes.problems, overwritten: plan.changes.overwritten)
+        } catch {
+            if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
+            throw error
+        }
+        if !wasOpen { await documentStore.closeFigure(figureId: figureId) }
+        await documentStore.renderFigures(changed: [figureId])
+        return result
+    }
+
+    /// What a return appends, made against `host`'s state (`expecting`): a
+    /// changed table's differences, or a changed picture's file and hash —
+    /// neither for a copy whose content hash is still the park's.
+    private func returnPlan(
+        for item: ResearchItem, record: FigureRecord, host: FigureDocument
+    ) async throws -> (changes: FigureReturnDiff.Changes, picture: (url: URL, hash: String)?, expecting: FigureState) {
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        guard let parked = host.state.parked else { throw FigureReturnRefused(reason: .notParked) }
+        guard parked.itemId == item.id else { throw FigureReturnRefused(reason: .notThisCopy) }
+        let (_, file) = try researchFile(of: item)
+        let none = FigureReturnDiff.Changes.none
+
+        switch record.kind {
+        case .table:
+            let (text, hash) = try await Task.detached { try Self.readResearchTable(file) }.value
+            guard hash != parked.hash else { return (none, nil, host.state) }
+            let cells = TableCSV.nonEmptyCellCount(text)
+            guard cells <= TableCSV.figureCellLimit else {
+                throw UseInDocumentRefused(reason: .tooLarge(cells: cells))
+            }
+            let names = try await documentStore.formulaNamesForUse()
+            let locale = TableLocale(languageTag: await bookLanguageTag())
+            let read = TableCSV.read(text, locale: locale, names: names)
+            let current = host.state
+            // The state the copy was written from: the parked state while it
+            // still renders to the park's bytes (two-way is exact), else the
+            // stream as far as the parker had read.
+            let base: FigureState
+            let rendered = TableCSV.renderResearch(current.table, locale: locale, names: names)
+            if ContentHash.of(Data(rendered.utf8)) != parked.hash, let frontier = parked.frontier {
+                base = FigureReturnDiff.base(of: host._ops, frontier: frontier)
+            } else {
+                base = current
+            }
+            let sidecar = researchTableSidecar(of: item)
+            var used = Set(current.table.rowSlots.map(\.id.raw)).union(current.table.columnSlots.map(\.id.raw))
+            let changes = FigureReturnDiff.changes(
+                from: base, onto: current, to: read.table,
+                sidecar: sidecar?.contentHash == parked.hash ? sidecar : nil,
+                names: names, problems: read.problems,
+                mintRow: { let id = TableID.mint(excluding: used); used.insert(id); return RowID(id) },
+                mintColumn: { let id = TableID.mint(excluding: used); used.insert(id); return ColumnID(id) })
+            return (changes, nil, current)
+        case .image:
+            let hash = try await Task.detached { try ContentHash.ofFile(file) }.value
+            return (none, hash == parked.hash ? nil : (url: file, hash: hash), host.state)
+        case .unknown:
+            throw FigureEditInvalid(reason: "this build cannot bring back a figure of this kind")
+        }
     }
 
     // MARK: - Send to Research (report plan 6b Task 7, spec §4.2, ruling P-5)
@@ -261,13 +379,14 @@ extension ProjectStore {
             }
             let written = try resolvedProjectPath(path)
             let hash = try await Task.detached { try ContentHash.ofFile(written) }.value
-            if record.kind == .table {
-                try ResearchTableSidecar.write(
-                    ResearchTableSidecar(
-                        figureId: record.id, contentHash: hash, name: record.name,
-                        caption: caption, table: state.table),
-                    forItem: item.id, in: url)
-            }
+            // A picture's sidecar holds only who it is: the return recognises
+            // a working copy by its sidecar's figure id, whatever its kind.
+            let sidecar = record.kind == .table
+                ? ResearchTableSidecar(
+                    figureId: record.id, contentHash: hash, name: record.name,
+                    caption: caption, table: state.table)
+                : ResearchTableSidecar(figureId: record.id, contentHash: hash, name: record.name, caption: caption)
+            try ResearchTableSidecar.write(sidecar, forItem: item.id, in: url)
             return (item, path, hash)
         } catch {
             await removeWorkingCopy(item)
@@ -429,12 +548,29 @@ public struct FigureSendRefused: LocalizedError, Equatable {
     }
 }
 
-/// **Report plan 6b Task 8's seam**: `bringBack` until Task 8 builds it. The
-/// item is the working copy of a parked figure, which comes back to its own
-/// log rather than as a new figure. Task 8 deletes this type.
-public struct FigureReturnPending: LocalizedError, Equatable {
-    public let researchItemId: String
+/// **A Research item that cannot bring a parked figure back** (report plan
+/// 6b Task 8): nothing was changed.
+public struct FigureReturnRefused: LocalizedError, Equatable {
+    public enum Reason: Equatable {
+        /// The item's sidecar names no figure the book lists.
+        case notAParkedCopy
+        /// The figure it names is not in Research.
+        case notParked
+        /// The figure is in Research, but its park names another item: this
+        /// one is a copy whose park never took (a second send while parked).
+        case notThisCopy
+    }
+
+    public let reason: Reason
+
     public var errorDescription: String? {
-        "This table is a parked figure's copy; bringing it back is not built yet."
+        switch reason {
+        case .notAParkedCopy:
+            return "This item is not a figure's copy in Research."
+        case .notParked:
+            return "That figure is not in Research."
+        case .notThisCopy:
+            return "This is not the copy that figure was sent to Research as, so it can't bring it back."
+        }
     }
 }

@@ -11930,7 +11930,8 @@ final class TripwireGrepTests: XCTestCase {
     /// writers join this census: `FigureDocument`'s guarded mutators
     /// (`figureMutatorSpellings`), `createFigure(`, `createImageFigure(` and `useInDocument(` (a figure's birth, behind
     /// its own posture question), `sendToResearch(` (a park, behind the
-    /// figure's door and its line's manuscript door), and `figureOpMintSpelling` — every `Op(`
+    /// figure's door and its line's manuscript door), `bringBack(` (a return,
+    /// behind the figure's door), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
     /// copied off another op) is still a named site.
@@ -11943,6 +11944,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
+        "resumeFromResearch(", "bringBack(",
         figureOpMintSpelling,
     ]
 
@@ -11965,7 +11967,7 @@ final class TripwireGrepTests: XCTestCase {
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
-        "setImage(", "renameImageFile(", "parkInResearch(",
+        "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12335,6 +12337,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   or mints anything.
     /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
     ///   built (and judged) by one of the above, never a new figure write.
+    /// - `FigureReturnDiff.swift` × 1 — Core's simulated fold: each change the
+    ///   return makes folded onto a copy of the state, never appended. The
+    ///   changes are appended by `resumeFromResearch`, behind the door.
     ///
     /// `createFigure(`, `useInDocument(` (report plan 6b Task 6, a figure
     /// made from a Research item behind the same door) and `sendToResearch(`
@@ -12380,9 +12385,19 @@ final class TripwireGrepTests: XCTestCase {
         // 6b Task 6). *Send to Research*'s park, through the figure's host,
         // after `sendToResearch` asked the figure's door and held its line's
         // manuscripts through the door-checked route (Task 7).
-        "ProjectStore+FigureResearch.swift": ["createImageFigure(": 1, "parkInResearch(": 1],
+        // *Bring back*'s return, through the figure's host, after `bringBack`
+        // asked the figure's door; `useInDocument` routes a parked figure's
+        // copy to `bringBack` (Task 8).
+        "ProjectStore+FigureResearch.swift": [
+            "createImageFigure(": 1, "parkInResearch(": 1, "resumeFromResearch(": 1, "bringBack(": 1,
+        ],
         "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
+        // Core's return diff folds each change it makes onto a COPY of the
+        // state, through an op it never appends; what it yields is appended
+        // by `FigureDocument.resumeFromResearch`, behind the figure's door
+        // (report plan 6b Task 8).
+        "FigureReturnDiff.swift": [figureOpMintSpelling: 1],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.
@@ -12457,7 +12472,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow": "figure", "reviveColumn": "figure",
         "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
         "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
-        "parkInResearch": "figure",
+        "parkInResearch": "figure", "resumeFromResearch": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12655,6 +12670,8 @@ final class TripwireGrepTests: XCTestCase {
         let used = try await store.useInDocument(researchItemId: item.id, piece: p)
         try await host.parkInResearch(path: p, hash: h, itemId: i, expecting: s, alongside: {})
         let parked = try await store.sendToResearch(figureId: f, scope: .shared)
+        try await host.resumeFromResearch(changes: c, picture: nil, expecting: s)
+        let back = try await store.bringBack(researchItemId: i, piece: p)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

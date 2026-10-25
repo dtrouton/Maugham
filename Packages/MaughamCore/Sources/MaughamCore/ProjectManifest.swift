@@ -182,7 +182,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// And, under the same 10, the `figureParked` payload field
     /// `parked_item_id` (the Research item a park wrote its working copy as)
     /// and its fold: content ordered while parked folds nothing (ruling P-5;
-    /// `FigureOpTests` and `FigureDeriverTests` pin them).
+    /// `FigureOpTests` and `FigureDeriverTests` pin them). And, under the same
+    /// 10, the `figureParked` field `parked_frontier` (what the parker had
+    /// read) and the synthesis source `brought_back_from_research` (ruling
+    /// P-7), which the ops a return appends carry.
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

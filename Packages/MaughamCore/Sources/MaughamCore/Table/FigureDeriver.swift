@@ -2,15 +2,20 @@ import Foundation
 
 /// Where a parked figure went: its file in Research, that file's content
 /// hash and, when the park recorded it, the Research item holding it
-/// (`figureParked`'s `parkedPath` / `parkedHash` / `parkedItemId`).
+/// (`figureParked`'s `parkedPath` / `parkedHash` / `parkedItemId`), and what
+/// the parker had read (`parkedFrontier`).
 public struct FigureParking: Equatable, Sendable {
     public var path: String
     public var hash: String
     public var itemId: String?
-    public init(path: String, hash: String, itemId: String? = nil) {
+    /// Per device stream, the last op id the parking host had folded; nil
+    /// for a park that did not record it.
+    public var frontier: [String: String]?
+    public init(path: String, hash: String, itemId: String? = nil, frontier: [String: String]? = nil) {
         self.path = path
         self.hash = hash
         self.itemId = itemId
+        self.frontier = frontier
     }
 }
 
@@ -138,7 +143,8 @@ public enum FigureDeriver {
                 return drop("a second figure_parked while parked, ignored")
             }
             if let path = p.parkedPath, let hash = p.parkedHash {
-                state.parked = FigureParking(path: path, hash: hash, itemId: p.parkedItemId)
+                state.parked = FigureParking(
+                    path: path, hash: hash, itemId: p.parkedItemId, frontier: p.parkedFrontier)
             }
 
         case .figureResumed:

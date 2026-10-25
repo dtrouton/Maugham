@@ -310,8 +310,12 @@ public final class FigureDocument {
         try refuseIfParked(site)
     }
 
+    /// **The one verb that runs on a parked figure**: its return
+    /// (`resumeFromResearch`), whose own guard asks that it IS parked.
+    private static let mayRunWhileParked: Set<String> = ["resumeFromResearch"]
+
     private func refuseIfParked(_ site: StaticString) throws {
-        guard state.parked != nil else { return }
+        guard state.parked != nil, !Self.mayRunWhileParked.contains("\(site)") else { return }
         documentLog.error(
             "\(site, privacy: .public) refused on \(self.figureId, privacy: .public): the figure is parked in Research")
         throw FigureParkedRefused(site: "\(site)", kind: state.kind)
@@ -729,6 +733,10 @@ public final class FigureDocument {
     /// - **The op sorts after every op this host has read** (`commit`'s
     ///   `after:`), so an edit the copy holds, from a device whose clock ran
     ///   ahead, still folds before the park rather than being dropped by it.
+    /// - **It records what this host had read** (`parkedFrontier`: per device
+    ///   stream, the last op id folded here), so the return can tell the state
+    ///   the copy was written from from an edit that sorts before the park but
+    ///   arrived after it (`FigureReturnDiff.base(of:frontier:)`).
     /// - Not registered for ⌘Z (ruling P-8): a park is undone by bringing the
     ///   figure back. From here on every mutator refuses
     ///   (`FigureParkedRefused`).
@@ -741,9 +749,108 @@ public final class FigureDocument {
             throw FigureEditInvalid(reason: "the figure changed while it was being sent to Research")
         }
         try alongside()
+        let frontier = Dictionary(_ops.map { ($0.device, $0.opId) }, uniquingKeysWith: max)
         try await commit(
-            .figureParked, FigureOpPayload(parkedPath: path, parkedHash: hash, parkedItemId: itemId),
+            .figureParked,
+            FigureOpPayload(parkedPath: path, parkedHash: hash, parkedItemId: itemId, parkedFrontier: frontier),
             after: _ops.map(\.opId).max())
+    }
+
+    /// **Bring this figure back from Research** (spec §4.2 "Coming back",
+    /// ruling P-7) — `ProjectStore.bringBack`'s op: a `figureResumed`, then
+    /// `changes` (`FigureReturnDiff`'s, for a table whose copy changed), then,
+    /// for a picture whose copy changed, the copy in place of its file and one
+    /// `figureImageSet`.
+    ///
+    /// - **The resume comes first**: content ordered between the park and the
+    ///   resume folds nothing (ruling P-5), so every op here is minted after
+    ///   the one before it, the resume after every op this host has read
+    ///   (`commit`'s `after:`) — a park minted ahead of this Mac's clock still
+    ///   sorts before it.
+    /// - **Signed by whoever brings it back** (this host's actor) and carrying
+    ///   `SynthesisSource.broughtBackFromResearch`, every one.
+    /// - **Refused unless the figure is parked and still `expecting`**, the
+    ///   state the changes were made against: nothing is appended.
+    /// - The picture is replaced before anything is appended and put back if
+    ///   the resume or its op fails. A change failing after the resume leaves
+    ///   the figure resumed with the changes before it, and throws.
+    /// - Not registered for ⌘Z (ruling P-8): a return is undone by sending the
+    ///   figure to Research again. The render follows once, at the end.
+    func resumeFromResearch(
+        changes: [FigureReturnDiff.Change], picture: (url: URL, hash: String)?, expecting: FigureState
+    ) async throws {
+        try await requireWritable("resumeFromResearch")
+        guard state.parked != nil else {
+            throw FigureEditInvalid(reason: "this figure is not in Research")
+        }
+        guard state == expecting else {
+            throw FigureEditInvalid(reason: "the figure changed while it was being brought back")
+        }
+        let reason = Op.Provenance(synthesisSource: .broughtBackFromResearch)
+        var newImage: FigureOpPayload?
+        var putPictureBack: (() async -> Void)?
+        if let picture {
+            (newImage, putPictureBack) = try await placeReturningPicture(picture)
+        }
+        var floor: String
+        do {
+            floor = try await commit(
+                .figureResumed, FigureOpPayload(), after: _ops.map(\.opId).max(),
+                provenance: reason, render: false).opId
+            for change in changes {
+                floor = try await commit(change.kind, change.payload, after: floor, provenance: reason, render: false).opId
+            }
+            if let newImage {
+                try await commit(.figureImageSet, newImage, after: floor, provenance: reason, render: false)
+            }
+        } catch {
+            // The picture op is the last: unless it landed, the file goes back
+            // to the picture the op log still names.
+            if let newImage, state.image != newImage.image { await putPictureBack?() }
+            await documentStore?.figureHostAppended(figureId)
+            throw error
+        }
+        await documentStore?.figureHostAppended(figureId)
+    }
+
+    /// A returning picture's copy in place of this figure's file, kept name
+    /// and all, and its `figureImageSet` payload — with how to put the old
+    /// picture back. Through the window's coordinated door.
+    private func placeReturningPicture(
+        _ picture: (url: URL, hash: String)
+    ) async throws -> (FigureOpPayload, () async -> Void) {
+        guard state.kind == .image, let prior = state.image else {
+            throw FigureEditInvalid(reason: "this figure has no picture to bring back over")
+        }
+        guard let documentStore else {
+            throw FigureEditInvalid(reason: "a picture is brought back only in a window that holds the figure")
+        }
+        let current = (prior.filename as NSString).pathExtension.lowercased()
+        let ext = picture.url.pathExtension.lowercased()
+        guard Self.sameImageFormat(current, ext) else {
+            throw FigureEditInvalid(
+                reason: "this figure's picture is a .\(current) file; a .\(ext) picture can't replace it")
+        }
+        let destination: URL
+        do {
+            destination = try SafeRelativePath.resolveFile(
+                named: prior.filename, in: ProjectStore.figuresFolder, under: projectURL)
+        } catch {
+            throw FigureEditInvalid(reason: "this figure's file name is not a file in figures/")
+        }
+        let kept = try? keepForUndo(destination, hash: prior.contentHash)
+        try await documentStore.replaceFigureImage(at: destination, withCopyOf: picture.url)
+        let figureId = self.figureId
+        return (
+            FigureOpPayload(image: FigureImageRef(filename: prior.filename, contentHash: picture.hash),
+                            priorImage: prior),
+            { [weak documentStore] in
+                guard let kept, let documentStore else { return }
+                do { try await documentStore.replaceFigureImage(at: destination, withCopyOf: kept) } catch {
+                    documentLog.error(
+                        "figure \(figureId, privacy: .public): the picture could not be put back after a failed return: \(error.localizedDescription, privacy: .public)")
+                }
+            })
     }
 
     /// `jpg` and `jpeg` are one format; every other extension is its own.
@@ -894,8 +1001,14 @@ public final class FigureDocument {
     /// reads the new state), then append; a failed append takes it back out.
     /// With `after`, the op's id sorts strictly after that one even when this
     /// Mac's clock is behind the device that wrote it (`ULID.generate(atMillis:)`).
+    ///
+    /// `provenance` rides the op (a return's reason, ruling P-7). With
+    /// `render: false` the caller renders once itself, after a run of ops.
     @discardableResult
-    private func commit(_ kind: OpKind, _ payload: FigureOpPayload, after floor: String? = nil) async throws -> Op {
+    private func commit(
+        _ kind: OpKind, _ payload: FigureOpPayload, after floor: String? = nil,
+        provenance: Op.Provenance? = nil, render: Bool = true
+    ) async throws -> Op {
         guard !isClosed else { throw DocumentNotWritableError(site: "commit") }
         var opId = ULID.generate()
         if let floor, opId <= floor, let millis = ULID.timestampMillis(of: floor) {
@@ -903,7 +1016,7 @@ public final class FigureDocument {
         }
         let op = Op(
             opId: opId, docId: figureId, at: Date(), device: device,
-            session: session, kind: kind, changes: [], figure: payload)
+            session: session, kind: kind, changes: [], provenance: provenance, figure: payload)
         _ops.append(op)
         unconfirmedLocalOpIds.insert(op.opId)
         FigureDeriver.fold(op, into: &state)
@@ -922,7 +1035,7 @@ public final class FigureDocument {
         // The render follows every op this host appends (report plan 6a
         // Task 7): `figures/<name>.csv` and every table reading this one.
         // Windowless, there is no coordinated door to write through.
-        await documentStore?.figureHostAppended(figureId)
+        if render { await documentStore?.figureHostAppended(figureId) }
         return op
     }
 

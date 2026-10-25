@@ -279,4 +279,21 @@ extension ManifestRaisingTests {
             current,
             "raised as far as this build may claim, and no further")
     }
+
+    /// Report plan 6b Task 8, ruling P-7: the ops a figure's return from
+    /// Research appends say so, under schema 10.
+    func test_aReturnFromResearchHasItsOwnCause() throws {
+        XCTAssertEqual(SynthesisSource.broughtBackFromResearch.rawValue, "brought_back_from_research")
+        let op = Op(
+            opId: "01", docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0),
+            device: "author-aaaaaaaaaaaaaaaa-bbbbbbbb", session: "s", kind: .figureResumed, changes: [],
+            provenance: Op.Provenance(synthesisSource: .broughtBackFromResearch), figure: FigureOpPayload())
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let back = try decoder.decode(Op.self, from: encoder.encode(op))
+        XCTAssertEqual(back.provenance?.synthesisSource, .broughtBackFromResearch)
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 10, "it rides the unreleased 10")
+    }
 }

@@ -201,33 +201,33 @@ final class UseInDocumentTests: XCTestCase {
 
     // MARK: - A parked figure's working copy (Task 8's seam)
 
-    /// An item whose sidecar names a PARKED figure goes to `bringBack` — today
-    /// `FigureReturnPending`, nothing made. A sidecar naming a figure that is
-    /// not parked, or not in the book, is used as a fresh table. Task 8
-    /// replaces the first half with the return itself.
+    /// An item whose sidecar names a PARKED figure goes to `bringBack` (Task
+    /// 8): the copy, unchanged, resumes that figure and nothing is made. A
+    /// sidecar naming a figure that is live, or one not in the book, makes a
+    /// fresh figure.
     func test_aParkedFiguresWorkingCopyRoutesToTheReturn() async throws {
         let (store, projectStore) = try await openBook()
         let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
         let live = try await projectStore.createFigure(kind: .table, name: "live", piece: nil)
+        let copy = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("cash.csv", Data("1,2\n".utf8)))
         let opStore = Document.makeLoadOpStore(projectURL: projectURL, presenter: nil)
         try await opStore.append(Op(
             opId: ULID.generate(), docId: cash.id, at: Date(),
             device: Document.loadIdentities[.author].deviceId, session: "park",
             kind: .figureParked, changes: [],
-            figure: FigureOpPayload(parkedPath: "research/cash.csv", parkedHash: "0123456789abcdef")))
+            figure: FigureOpPayload(
+                parkedPath: try XCTUnwrap(copy.path),
+                parkedHash: try ContentHash.ofFile(file(try XCTUnwrap(copy.path))), parkedItemId: copy.id)))
         _ = try await opStore.sealChain(docId: cash.id, actor: .author)
         store.figureCache.invalidate(figureId: cash.id)
-
-        let copy = try await projectStore.addResearchAsset(
-            parentId: nil, fromURL: try external("cash.csv", Data("1,2\n".utf8)))
         try ResearchTableSidecar.write(
             ResearchTableSidecar(figureId: cash.id, name: "cash"), forItem: copy.id, in: projectURL)
-        do {
-            _ = try await projectStore.useInDocument(researchItemId: copy.id, piece: nil)
-            XCTFail("a parked figure's copy goes back to its own log")
-        } catch let pending as FigureReturnPending {
-            XCTAssertEqual(pending.researchItemId, copy.id)
-        }
+
+        let back = try await projectStore.useInDocument(researchItemId: copy.id, piece: nil)
+        XCTAssertEqual(back.record.id, cash.id, "a parked figure's copy goes back to its own log")
+        let resumed = try await state(cash.id)
+        XCTAssertNil(resumed.parked, "resumed")
         XCTAssertEqual(projectStore.manifest.figures?.map(\.id), [cash.id, live.id], "nothing was made")
 
         // Not parked, or not in the book: a fresh figure.

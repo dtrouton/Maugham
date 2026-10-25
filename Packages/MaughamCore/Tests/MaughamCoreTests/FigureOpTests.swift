@@ -48,6 +48,9 @@ final class FigureOpTests: XCTestCase {
             (.figureParked, FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h9")),
             (.figureParked, FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h9",
                                             parkedItemId: "res-cash0001")),
+            (.figureParked, FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h9",
+                                            parkedItemId: "res-cash0001",
+                                            parkedFrontier: ["macA": "01A", "macB": "01B"])),
             (.figureResumed, FigureOpPayload()),
             (.figureCellSet, FigureOpPayload(cell: key, next: cell, prior: nil)),
             (.figureCellSet, FigureOpPayload(cell: key, next: nil, prior: formula)),
@@ -120,6 +123,16 @@ final class FigureOpTests: XCTestCase {
             parkedPath: "research/cash.csv", parkedHash: "q", parkedItemId: "res-1")), encoding: .utf8)
         XCTAssertEqual(parked,
                        #"{"parked_hash":"q","parked_item_id":"res-1","parked_path":"research\/cash.csv"}"#)
+        // Report plan 6b Task 8: what the parker had read, per device stream.
+        let frontier = String(data: try enc.encode(FigureOpPayload(
+            parkedPath: "p", parkedHash: "q", parkedFrontier: ["macA": "01A"])), encoding: .utf8)
+        XCTAssertEqual(frontier, #"{"parked_frontier":{"macA":"01A"},"parked_hash":"q","parked_path":"p"}"#)
+        var state = FigureState()
+        FigureDeriver.fold(Op(opId: "01", docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0),
+                              device: "macA", session: "s", kind: .figureParked, changes: [],
+                              figure: FigureOpPayload(parkedPath: "p", parkedHash: "q",
+                                                      parkedFrontier: ["macA": "01A"])), into: &state)
+        XCTAssertEqual(state.parked?.frontier, ["macA": "01A"], "the fold keeps it")
     }
 
     /// **The revive words and the removed slice** (report plan 6b Task 4,
