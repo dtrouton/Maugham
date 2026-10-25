@@ -2320,3 +2320,7 @@ To make room for plan 6c's figure restore, `withFigureHost` and the promotion's 
 - The remembered head is written before the line because deferring or coalescing the head persist would turn a crash into a set-aside of the writer's own words.
 - `handleExternalLogChange` flushes the writer's un-bursted words first, which is what makes a shrinking reload safe.
 - The crash window between a segment write and the tail delete is safe because `mergeSortedDedup` dedupes.
+
+## Restored to the guide by report plan 6c's final fix wave (2026-10-25)
+
+The final review found rules among the clauses Task 6 moved here. Back in the guide: `declareActorOnce` runs on the store's own actor (the reason, a detached hop reordering what `append`'s callers observe, stays here); where the refused displacing record is about this device, its key is recorded as a claimant.

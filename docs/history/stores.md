@@ -548,3 +548,10 @@ To make room for plan 6c's figure restore, `withFigureHost` and the promotion's 
 - `heldLines()` carries stream slugs because only the file a holder wrote in says which of a device's four writers a key is; a key that is not a person's is never offered as one.
 - `handleExternalLogChange` re-stamps above the echo guard because a held line produces no op, so below the guard the pending count would stay at the open-time value; assigning only on change keeps an invalidation off every keystroke's echo.
 - A closed-document held-lines pass: nothing lands if the epoch moved, a fresher entry wins, and ids the manifest dropped go.
+
+## Restored to the guide by report plan 6c's final fix wave (2026-10-25)
+
+The final review found rules among the clauses Task 6 moved here. Back in the guide: a key that is not a person's is never offered as one; the closed held-lines pass lands nothing if the epoch moved, a fresher entry wins, ids the manifest dropped go; the single-item `moveResearchItem` routes through the same plan builder; `afterStaging:` cannot throw; a derive-only read of a promoted piece answers "" until something opens it; the three live `[weak self]` instances, by name. Moved here to pay for them:
+
+- `withFigureHost`'s callers are the picker's restore, `bringBack`, `sendToResearch` and an image rename.
+- The promotion's figure notice is said in a Promote to Project alert (the `PiecePromotion` Map row names `figureNotice`); a moved parked figure's Trash entry: `bringBack` refuses there and its pins read `sourceMissing`.
