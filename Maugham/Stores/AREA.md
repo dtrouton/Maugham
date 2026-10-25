@@ -34,8 +34,8 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Search.swift` — project search and Replace (`performSearch`, `replaceMatch`, `replaceAll`, `replaceInManuscript`). Tripwire 52.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
 - `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` asks every door first, then relabels the text (ruling P-3); `removeFigure` trashes the file. Tripwire 52.
-- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source; a parked figure's copy goes to `bringBack`.
-- `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54), so a count says unknown rather than a short number. Tripwire 49.
+- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack`; `sendToResearch` parks one.
+- `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54). Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
 - `ProjectStore+Statements.swift` — statements: lookup, `createStatement`, `withStatementDocument`, `mutateStatementText`, `appendToStatement`, `statementText(of:)`, the open registry and gate. Tripwires 20, 52.

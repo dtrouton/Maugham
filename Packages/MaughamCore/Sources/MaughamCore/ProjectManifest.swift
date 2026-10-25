@@ -179,6 +179,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// field `source` (`FigureSource`: the Research item a figure was made
     /// from, its path and content hash), and the Research table sidecar
     /// `.maugham/research-tables/<item id>.json` (`ResearchTableSidecar`).
+    /// And, under the same 10, the `figureParked` payload field
+    /// `parked_item_id` (the Research item a park wrote its working copy as)
+    /// and its fold: content ordered while parked folds nothing (ruling P-5;
+    /// `FigureOpTests` and `FigureDeriverTests` pin them).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

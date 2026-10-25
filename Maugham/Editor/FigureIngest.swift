@@ -310,7 +310,10 @@ enum FigureIngest {
     /// `removeTemporary` deletes.
     static let temporaryFolderPrefix = "maugham-figure-"
 
-    private static func makeTemporaryFolder() throws -> URL {
+    /// A new temporary folder of this type's (`removeTemporary` deletes it);
+    /// also where *Send to Research* writes a working copy before the copy
+    /// into Research (`ProjectStore.sendToResearch`).
+    static func makeTemporaryFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(temporaryFolderPrefix)\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

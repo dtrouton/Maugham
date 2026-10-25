@@ -312,7 +312,7 @@ extension ProjectStore {
         return held
     }
 
-    // MARK: - A figure's label, relabelled (report plan 6b Task 5, ruling P-3)
+    // MARK: - A figure's line in the text, changed (report plan 6b Tasks 5 and 7)
 
     /// **What a figure rename changes in the text**: its line's label
     /// (`{#tbl:old}` → `{#tbl:new}`), that line's file name when it names the
@@ -325,23 +325,55 @@ extension ProjectStore {
         let newFile: String
     }
 
-    /// **The manuscripts a figure rename relabels, each held for writing**
-    /// through `openManuscriptForWriting` — phase one of ruling P-3's all or
-    /// nothing. `write()` relabels every one or none; `release()` lets them go.
-    struct HeldFigureRelabel {
-        let change: FigureLabelChange
+    /// **What a verb on a figure changes in the text**: a rename relabels it
+    /// (ruling P-3); *Send to Research* removes its line, leaving every
+    /// cross-reference to it (spec §4.2: they read "This table is in Research
+    /// now").
+    enum FigureTextChange: Equatable {
+        case relabel(FigureLabelChange)
+        case removeLine(ManuscriptLabel)
+
+        var label: ManuscriptLabel {
+            switch self {
+            case .relabel(let change): return change.old
+            case .removeLine(let label): return label
+            }
+        }
+
+        /// The verb's refusal naming `titles`: pieces this Mac may not write.
+        func notWritable(_ titles: [String]) -> Error {
+            switch self {
+            case .relabel: return FigureRenameRefused(reason: .piecesNotWritable(titles))
+            case .removeLine: return FigureSendRefused(reason: .piecesNotWritable(titles))
+            }
+        }
+
+        /// The verb's refusal naming `titles`: pieces whose text won't read.
+        func unreadable(_ titles: [String]) -> Error {
+            switch self {
+            case .relabel: return FigureRenameRefused(reason: .unreadable(titles))
+            case .removeLine: return FigureSendRefused(reason: .unreadable(titles))
+            }
+        }
+    }
+
+    /// **The manuscripts a figure verb changes, each held for writing**
+    /// through `openManuscriptForWriting` — phase one of all or nothing.
+    /// `write()` changes every one or none; `release()` lets them go.
+    struct HeldFigureTextEdit {
+        let change: FigureTextChange
         let manuscripts: [(title: String, manuscript: WritableManuscript)]
 
         /// What a written manuscript said before, so `unwrite` can put it back.
         typealias Written = [(doc: Document, before: String)]
 
-        /// **Relabel every held manuscript, or none**, re-finding the sites in
+        /// **Change every held manuscript, or none**, re-finding the sites in
         /// each one's CURRENT text. `setFullText` writes nothing where the
         /// document stopped being writable since it was held (a yield or a
         /// permit that landed meanwhile): then every manuscript already written
-        /// is put back and `FigureRenameRefused(.piecesNotWritable)` names the
-        /// ones that refused. Synchronous: nothing can land between the
-        /// documents.
+        /// is put back and the verb's refusal (`FigureTextChange.notWritable`)
+        /// names the ones that refused. Synchronous: nothing can land between
+        /// the documents.
         @MainActor func write() throws -> Written {
             var written: Written = []
             var refused: [String] = []
@@ -353,7 +385,7 @@ extension ProjectStore {
                     continue
                 }
                 let before = held.doc.displayText
-                guard let text = ProjectStore.relabelled(before, change) else { continue }
+                guard let text = ProjectStore.edited(before, change) else { continue }
                 held.doc.setFullText(text)
                 if held.doc.displayText != before {
                     written.append((held.doc, before))
@@ -363,7 +395,7 @@ extension ProjectStore {
             }
             guard refused.isEmpty else {
                 Self.unwrite(written)
-                throw FigureRenameRefused(reason: .piecesNotWritable(refused))
+                throw change.notWritable(refused)
             }
             return written
         }
@@ -373,26 +405,31 @@ extension ProjectStore {
             for each in written.reversed() { each.doc.setFullText(each.before) }
         }
 
-        /// Release every held manuscript (closing one loaded for this rename,
+        /// Release every held manuscript (closing one loaded for this verb,
         /// which persists whatever it holds).
         @MainActor func release() async {
             for each in manuscripts { await each.manuscript.release() }
         }
     }
 
-    /// **Phase one of a figure rename's relabel**: every manuscript whose
-    /// text holds the figure's line or a cross-reference to its label is
-    /// found (its live text where a window has it open, else derived from
-    /// its op log — never the `.md`; one whose text cannot be derived
-    /// refuses the rename, named, since its references cannot be checked),
-    /// and each is held through the door-checked
-    /// route. **Any refusal releases them all and throws**
-    /// `FigureRenameRefused` naming every piece that refused, so nothing is
-    /// written anywhere. Only when the text holds the figure is a new name
-    /// that is not a valid label name, or a label the text already defines,
-    /// refused too.
-    func holdManuscriptsForFigureRelabel(_ change: FigureLabelChange) async throws -> HeldFigureRelabel {
-        let newLabel = ManuscriptLabel(reference: "\(change.old.kind.rawValue):\(change.newName)")
+    /// **Phase one of a figure verb's text change**: every manuscript whose
+    /// text holds a site of `change` — for a rename the figure's line or a
+    /// cross-reference to its label, for a send its line — is found (its live
+    /// text where a window has it open, else derived from its op log — never
+    /// the `.md`; one whose text cannot be derived refuses the verb, named,
+    /// since its sites cannot be checked), and each is held through the
+    /// door-checked route. **Any refusal releases them all and throws** the
+    /// verb's refusal naming every piece that refused, so nothing is written
+    /// anywhere. For a rename, only when the text holds the figure is a new
+    /// name that is not a valid label name, or a label the text already
+    /// defines, refused too.
+    func holdManuscriptsForFigureText(_ change: FigureTextChange) async throws -> HeldFigureTextEdit {
+        var newLabel: ManuscriptLabel?
+        var newName = ""
+        if case .relabel(let relabel) = change {
+            newName = relabel.newName
+            newLabel = ManuscriptLabel(reference: "\(relabel.old.kind.rawValue):\(relabel.newName)")
+        }
         var candidates: [(title: String, path: String)] = []
         var labelTaken = false
         var unreadable: [String] = []
@@ -402,50 +439,57 @@ extension ProjectStore {
                 : documentStore?.document(for: path)?.displayText
                     ?? (try? derivedCache.displayText(forDocId: item.id, in: url))
             guard let text else {
-                // All or nothing: a piece whose references cannot be checked
-                // refuses the rename rather than be left unrelabelled.
+                // All or nothing: a piece whose sites cannot be checked
+                // refuses the verb rather than be left unchanged.
                 unreadable.append(item.title)
                 continue
             }
-            if let newLabel, change.old != newLabel, Self.definesLabel(text, newLabel) { labelTaken = true }
-            if !Self.figureRelabelEdits(in: text, change).isEmpty {
+            if let newLabel, change.label != newLabel, Self.definesLabel(text, newLabel) { labelTaken = true }
+            if !Self.figureTextEdits(in: text, change).isEmpty {
                 candidates.append((item.title, path))
             }
         }
-        guard unreadable.isEmpty else { throw FigureRenameRefused(reason: .unreadable(unreadable)) }
-        guard !candidates.isEmpty else { return HeldFigureRelabel(change: change, manuscripts: []) }
-        guard let newLabel else {
-            throw FigureRenameRefused(reason: .notALabelName(change.newName))
+        guard unreadable.isEmpty else { throw change.unreadable(unreadable) }
+        guard !candidates.isEmpty else { return HeldFigureTextEdit(change: change, manuscripts: []) }
+        if case .relabel = change {
+            guard let newLabel else {
+                throw FigureRenameRefused(reason: .notALabelName(newName))
+            }
+            guard !labelTaken else { throw FigureRenameRefused(reason: .labelTaken(newLabel.reference)) }
         }
-        guard !labelTaken else { throw FigureRenameRefused(reason: .labelTaken(newLabel.reference)) }
         var held: [(title: String, manuscript: WritableManuscript)] = []
         var refused: [String] = []
         for candidate in candidates {
             do {
                 held.append((candidate.title, try await openManuscriptForWriting(
-                    path: candidate.path, title: candidate.title, session: "figure-rename")))
+                    path: candidate.path, title: candidate.title, session: "figure-text")))
             } catch is ManuscriptReplaceRefused {
                 refused.append(candidate.title)
             } catch {
-                await HeldFigureRelabel(change: change, manuscripts: held).release()
+                await HeldFigureTextEdit(change: change, manuscripts: held).release()
                 throw error
             }
         }
         guard refused.isEmpty else {
-            await HeldFigureRelabel(change: change, manuscripts: held).release()
-            throw FigureRenameRefused(reason: .piecesNotWritable(refused))
+            await HeldFigureTextEdit(change: change, manuscripts: held).release()
+            throw change.notWritable(refused)
         }
-        return HeldFigureRelabel(change: change, manuscripts: held)
+        return HeldFigureTextEdit(change: change, manuscripts: held)
     }
 
-    /// Test seam: documents whose text `holdManuscriptsForFigureRelabel`
+    /// Test seam: documents whose text `holdManuscriptsForFigureText`
     /// reads as underivable (an op log that will not read). Empty in
     /// production.
     static var figureRelabelReadFailsForTesting: Set<String> = []
 
-    /// `text` with `change` made, or nil when it holds nothing to change.
+    /// `text` relabelled by `change`, or nil when it holds nothing to change.
     nonisolated static func relabelled(_ text: String, _ change: FigureLabelChange) -> String? {
-        let edits = figureRelabelEdits(in: text, change)
+        edited(text, .relabel(change))
+    }
+
+    /// `text` with `change` made, or nil when it holds nothing to change.
+    nonisolated static func edited(_ text: String, _ change: FigureTextChange) -> String? {
+        let edits = figureTextEdits(in: text, change)
         guard !edits.isEmpty else { return nil }
         let ns = NSMutableString(string: text)
         for edit in edits.sorted(by: { $0.range.location > $1.range.location }) {
@@ -454,7 +498,56 @@ extension ProjectStore {
         return ns as String
     }
 
-    /// **Every site `change` rewrites in `text`**, as UTF-16 ranges: the
+    /// **Every site `change` rewrites in `text`**, as UTF-16 ranges: a
+    /// relabel's (`figureRelabelEdits`), or each figure line a send removes
+    /// (`figureLineRemovalEdits`).
+    nonisolated static func figureTextEdits(
+        in text: String, _ change: FigureTextChange
+    ) -> [(range: NSRange, replacement: String)] {
+        switch change {
+        case .relabel(let relabel): return figureRelabelEdits(in: text, relabel)
+        case .removeLine(let label): return figureLineRemovalEdits(in: text, label)
+        }
+    }
+
+    /// **The figure lines labelled `label`, removed** — each line with its
+    /// line break, and with it one blank line beside it when the line stood
+    /// alone between blank lines, so the paragraphs around it keep one blank
+    /// line between them. Nothing inside a code fence is a site.
+    nonisolated static func figureLineRemovalEdits(
+        in text: String, _ label: ManuscriptLabel
+    ) -> [(range: NSRange, replacement: String)] {
+        let lines = text.components(separatedBy: "\n")
+        var starts: [Int] = []
+        var offset = 0
+        for line in lines {
+            starts.append(offset)
+            offset += (line as NSString).length + 1
+        }
+        let length = (text as NSString).length
+        func isBlank(_ i: Int) -> Bool {
+            lines.indices.contains(i) && lines[i].trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        var edits: [(range: NSRange, replacement: String)] = []
+        for (block, range) in ManuscriptBlocks.parse(text) {
+            guard case .figure(_, _, let l) = block, l == label else { continue }
+            var first = range.lowerBound
+            var last = range.upperBound - 1
+            // A blank line on each side: take the one after (or, at the end
+            // of the text, the one before) with the line.
+            if isBlank(first - 1), isBlank(last + 1), last + 1 < lines.count - 1 {
+                last += 1
+            } else if isBlank(first - 1), last + 1 >= lines.count - 1 {
+                first -= 1
+            }
+            let start = starts[first]
+            let end = min(last + 1 < lines.count ? starts[last + 1] : length, length)
+            edits.append((NSRange(location: start, length: end - start), ""))
+        }
+        return edits
+    }
+
+    /// **Every site a relabel rewrites in `text`**, as UTF-16 ranges: the
     /// figure line's label name and (when it names `oldFile`, in any case)
     /// its file name, and each cross-reference's name. Nothing inside a code
     /// fence or code span is a site.

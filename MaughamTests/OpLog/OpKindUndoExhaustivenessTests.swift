@@ -195,10 +195,15 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // (the record leaves, its file goes to the Trash), never an op.
             return .nonUndoable(reason: "a created figure is removed by ProjectStore.removeFigure")
 
-        case .figureParked, .figureResumed, .figurePinSet, .figurePinClear:
-            // Send to Research, bringing a figure back and research pins are
-            // plan 6b's acts; their undo story is decided there.
-            return .nonUndoable(reason: "send-to-Research, resume and research pins are written by report plan 6b, which decides their undo")
+        case .figureParked:
+            // Ruling P-8: a park is undone by the opposite verb, bringing the
+            // figure back (`ProjectStore.bringBack`), never by ⌘Z.
+            return .nonUndoable(reason: "a park is undone by bringing the figure back from Research (ruling P-8)")
+
+        case .figureResumed, .figurePinSet, .figurePinClear:
+            // Bringing a figure back and research pins are plan 6b's later
+            // acts; their undo story is decided there.
+            return .nonUndoable(reason: "resume and research pins are written by report plan 6b, which decides their undo")
 
         case .unknown:
             // Forward-tolerance decode fallback for an op kind written by a

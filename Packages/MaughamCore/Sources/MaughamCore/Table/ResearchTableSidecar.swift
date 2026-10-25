@@ -80,6 +80,29 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
         return out
     }
 
+    /// **What a park writes beside `table`'s CSV** (spec §4.2, report plan 6b
+    /// Task 7) — `applied(to:)`'s inverse: the figure's id, name and caption,
+    /// the CSV's `contentHash`, the header and total rows, every cell's
+    /// non-default format or alignment by position, and each column's width
+    /// by position (all nil when no column has one, written as none).
+    public init(figureId: String, contentHash: String, name: String, caption: String?,
+                table: FigureTable) {
+        let rows = table.rows, columns = table.columns
+        var styles: [CellStyle] = []
+        for (r, row) in rows.enumerated() {
+            for (c, column) in columns.enumerated() {
+                guard let cell = table[CellKey(row: row, column: column)],
+                      cell.format != CellFormat() || cell.alignment != .automatic else { continue }
+                styles.append(CellStyle(row: r, column: c, format: cell.format, alignment: cell.alignment))
+            }
+        }
+        let widths = columns.map { table.columnWidths[$0] }
+        self.init(
+            figureId: figureId, contentHash: contentHash, name: name, caption: caption,
+            headerRows: table.headerRows, totalRow: table.hasTotalRow, formats: styles,
+            columnWidths: widths.contains { $0 != nil } ? widths : [])
+    }
+
     public init(
         figureId: String? = nil, contentHash: String? = nil, name: String? = nil, caption: String? = nil,
         headerRows: Int = 0, totalRow: Bool = false,

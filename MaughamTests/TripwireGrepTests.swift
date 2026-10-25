@@ -11929,7 +11929,8 @@ final class TripwireGrepTests: XCTestCase {
     /// D-c: figure kinds are `.manuscriptText` in `Permit.group`), so its
     /// writers join this census: `FigureDocument`'s guarded mutators
     /// (`figureMutatorSpellings`), `createFigure(`, `createImageFigure(` and `useInDocument(` (a figure's birth, behind
-    /// its own posture question), and `figureOpMintSpelling` — every `Op(`
+    /// its own posture question), `sendToResearch(` (a park, behind the
+    /// figure's door and its line's manuscript door), and `figureOpMintSpelling` — every `Op(`
     /// built with a `figure:` argument, which is where a figure op is born,
     /// so a writer that appends one without a mutator (an inverse, a payload
     /// copied off another op) is still a named site.
@@ -11941,7 +11942,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
-        "useInDocument(",
+        "useInDocument(", "parkInResearch(", "sendToResearch(",
         figureOpMintSpelling,
     ]
 
@@ -11964,7 +11965,7 @@ final class TripwireGrepTests: XCTestCase {
         "setCell(", "insertRow(", "insertColumn(", "deleteRow(", "deleteColumn(",
         "reviveRow(", "reviveColumn(",
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
-        "setImage(", "renameImageFile(",
+        "setImage(", "renameImageFile(", "parkInResearch(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12262,7 +12263,8 @@ final class TripwireGrepTests: XCTestCase {
     ///   (ruling AH).
     /// - `ProjectStore+Search.swift` × 5 — `replaceMatch`/`replaceAll` →
     ///   `replaceInManuscript` → `setFullText`, and a figure rename's relabel
-    ///   (`HeldFigureRelabel.write`'s `setFullText`, and `unwrite`'s, which
+    ///   or a send's removal of its line (`HeldFigureTextEdit.write`'s
+    ///   `setFullText`, and `unwrite`'s, which
     ///   puts back what `write` wrote when one document refuses): each document is held
     ///   through `openManuscriptForWriting` — the settled posture before any
     ///   load and the Document's stamp before the write; Replace All skips and
@@ -12334,9 +12336,9 @@ final class TripwireGrepTests: XCTestCase {
     /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
     ///   built (and judged) by one of the above, never a new figure write.
     ///
-    /// `createFigure(` and `useInDocument(` (report plan 6b Task 6, a figure
-    /// made from a Research item behind the same door) have no production
-    /// caller yet: plans 7–8's surfaces add theirs here, each drawn and
+    /// `createFigure(`, `useInDocument(` (report plan 6b Task 6, a figure
+    /// made from a Research item behind the same door) and `sendToResearch(`
+    /// (Task 7) have no production caller yet: plans 7–8's surfaces add theirs here, each drawn and
     /// pressed only where the posture allows `.editFigure`.
     ///
     /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
@@ -12375,8 +12377,10 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectStore+Figures.swift": [figureOpMintSpelling: 1, "renameImageFile(": 1],
         // A Research picture's *Use in document*: `createImageFigure`, which
         // asks the new figure's door before it copies or mints (report plan
-        // 6b Task 6).
-        "ProjectStore+FigureResearch.swift": ["createImageFigure(": 1],
+        // 6b Task 6). *Send to Research*'s park, through the figure's host,
+        // after `sendToResearch` asked the figure's door and held its line's
+        // manuscripts through the door-checked route (Task 7).
+        "ProjectStore+FigureResearch.swift": ["createImageFigure(": 1, "parkInResearch(": 1],
         "FigureIngest.swift": ["createImageFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
     ]
@@ -12453,6 +12457,7 @@ final class TripwireGrepTests: XCTestCase {
         "reviveRow": "figure", "reviveColumn": "figure",
         "moveColumn": "figure", "setHeaderRows": "figure", "setTotalRow": "figure",
         "setColumnWidth": "figure", "setImage": "figure", "renameImageFile": "figure",
+        "parkInResearch": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12648,6 +12653,8 @@ final class TripwireGrepTests: XCTestCase {
         let image = try await store.createImageFigure(fromURL: picture, piece: p)
         try await store.renameFigure(id: record.id, to: "Costs")
         let used = try await store.useInDocument(researchItemId: item.id, piece: p)
+        try await host.parkInResearch(path: p, hash: h, itemId: i, expecting: s, alongside: {})
+        let parked = try await store.sendToResearch(figureId: f, scope: .shared)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

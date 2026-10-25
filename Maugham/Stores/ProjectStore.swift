@@ -317,7 +317,6 @@ public final class ProjectStore {
     public let trashStore: TrashStore
     public internal(set) var trashEntries: [TrashEntry] = []
 
-
     /// The trash entries ONE delete gesture made — a batch of fifty or a single
     /// row — in the order they were made. "Restore Last Deletion" (⌘⌥Z) is
     /// scoped to this action: it returns the whole of it or refuses and says

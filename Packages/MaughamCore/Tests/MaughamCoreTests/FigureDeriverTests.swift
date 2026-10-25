@@ -126,6 +126,7 @@ final class FigureDeriverTests: XCTestCase {
             op(.figureParked, FigureOpPayload(parkedPath: "research/cash.csv", parkedHash: "h9")),
         ])
         XCTAssertEqual(s.parked, FigureParking(path: "research/cash.csv", hash: "h9"))
+        XCTAssertNil(s.parked?.itemId, "a park that recorded no item")
         s = FigureDeriver.derive(base() + [
             op(.figureParked, FigureOpPayload(parkedPath: "research/cash.csv", parkedHash: "h9")),
             op(.figureResumed, FigureOpPayload()),
@@ -133,13 +134,95 @@ final class FigureDeriverTests: XCTestCase {
         XCTAssertNil(s.parked)
     }
 
-    func test_contentWhileParked_stillFolds() {
-        let s = FigureDeriver.derive(base() + [
-            op(.figureParked, FigureOpPayload(parkedPath: "research/cash.csv", parkedHash: "h9")),
-            set(key(r1, c1), num(7)),
+    // MARK: - Parked folds nothing (ruling P-5, report plan 6b Task 7)
+
+    private func park(item: String? = "res-cash") -> Op {
+        op(.figureParked, FigureOpPayload(parkedPath: "research/cash.csv", parkedHash: "h9", parkedItemId: item))
+    }
+
+    /// Every content op ordered after the park and before a resume is dropped
+    /// from the view with a diagnostic naming it; the parked values stand.
+    func test_everyContentOpWhileParked_isDroppedWithADiagnostic() {
+        let pin = FigureResearchPin(research: "res-a", row: 0, column: 0, value: .number(1),
+                                    sourceHash: "h", at: Date(timeIntervalSince1970: 5_000))
+        let before = base() + [set(key(r1, c1), num(5))]
+        let parked = park()
+        let late: [Op] = [
+            set(key(r1, c1), num(7), prior: num(5), device: "macB"),
+            op(.figureStructure, FigureOpPayload(structure: .insertRow(r3, after: r2)), device: "macB"),
+            op(.figureStructure, FigureOpPayload(structure: .deleteColumn(c2)), device: "macB"),
+            op(.figureSettings, FigureOpPayload(settings: .headerRows(1, prior: 0)), device: "macB"),
+            op(.figureSettings, FigureOpPayload(settings: .columnWidth(c1, 90, prior: nil)), device: "macB"),
+            op(.figurePinSet, FigureOpPayload(cell: key(r1, c1), pin: pin), device: "macB"),
+            op(.figurePinClear, FigureOpPayload(cell: key(r1, c1)), device: "macB"),
+            op(.figureImageSet, FigureOpPayload(image: FigureImageRef(filename: "a.png", contentHash: "h")), device: "macB"),
+        ]
+        let s = FigureDeriver.derive(before + [parked] + late)
+        XCTAssertEqual(s.parked, FigureParking(path: "research/cash.csv", hash: "h9", itemId: "res-cash"))
+        var expected = FigureDeriver.derive(before)
+        expected.parked = s.parked
+        XCTAssertEqual(s.table, expected.table, "the table is exactly as it was parked")
+        XCTAssertEqual(s.pins, [:])
+        XCTAssertNil(s.image)
+        XCTAssertEqual(s.held, [], "a dropped op never waits to replay")
+        XCTAssertEqual(s.diagnostics, late.map {
+            "\($0.opId): \($0.kind.rawValue) while the figure is parked in Research, not applied"
+        })
+    }
+
+    /// After a resume the stream folds again; what was dropped while parked
+    /// stays dropped.
+    func test_aResumeFoldsAgain_andTheParkedEditStaysDropped() {
+        let dropped = set(key(r1, c1), num(7))
+        let s = FigureDeriver.derive(base() + [park(), dropped, op(.figureResumed, FigureOpPayload()),
+                                               set(key(r2, c2), num(9))])
+        XCTAssertNil(s.parked)
+        XCTAssertNil(s.table[key(r1, c1)], "the edit ordered while parked never applies")
+        XCTAssertEqual(s.table[key(r2, c2)], num(9), "an edit after the resume does")
+        XCTAssertEqual(s.diagnostics.count, 1)
+        XCTAssertTrue(s.diagnostics.first?.hasPrefix(dropped.opId) == true)
+    }
+
+    /// A second park while parked is dropped: the stream keeps pointing at the
+    /// first working copy. A resume while not parked is dropped too.
+    func test_aSecondPark_andAResumeWhileNotParked_areDropped() {
+        let second = op(.figureParked, FigureOpPayload(parkedPath: "research/other.csv", parkedHash: "h2"))
+        let stray = op(.figureResumed, FigureOpPayload())
+        let s = FigureDeriver.derive(base() + [stray, park(), second])
+        XCTAssertEqual(s.parked, FigureParking(path: "research/cash.csv", hash: "h9", itemId: "res-cash"))
+        XCTAssertEqual(s.diagnostics, [
+            "\(stray.opId): figure_resumed while not parked, ignored",
+            "\(second.opId): a second figure_parked while parked, ignored",
         ])
-        XCTAssertNotNil(s.parked)
-        XCTAssertEqual(s.table[key(r1, c1)], num(7))
+    }
+
+    /// An edit held for an insert it sorted before, whose insert is ordered
+    /// after the park, never replays: the insert itself is dropped.
+    func test_anEditWaitingForAnInsertOrderedWhileParked_neverApplies() {
+        let early = set(key(r3, c1), num(1))
+        let insert = op(.figureStructure, FigureOpPayload(structure: .insertRow(r3, after: r2)))
+        let s = FigureDeriver.derive(base() + [early, park(), insert])
+        XCTAssertNil(s.table.rowSlotIndex(of: r3))
+        XCTAssertEqual(s.diagnostics, [
+            "\(insert.opId): figure_structure while the figure is parked in Research, not applied",
+            "\(early.opId): names a row or column no insert ever created, never applied",
+        ])
+    }
+
+    /// **Review Focus 2, the pure half**: two devices' lines, whichever file a
+    /// reader meets first, merge into one order (by op id) and fold to one
+    /// state — the edit ordered after the park dropped in both.
+    func test_theParkAndALaterEditConverge_whicheverArrivesFirst() {
+        let before = base() + [set(key(r1, c1), num(5))]
+        let parked = park()
+        let edit = set(key(r1, c1), num(7), prior: num(5), device: "macB")
+        let parkerFirst = OpLogStore.mergeSortedDedup(before + [parked] + [edit])
+        let editorFirst = OpLogStore.mergeSortedDedup([edit] + before + [parked])
+        let a = FigureDeriver.derive(parkerFirst)
+        let b = FigureDeriver.derive(editorFirst)
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(a.table[key(r1, c1)], num(5), "the parker's value stands")
+        XCTAssertEqual(a.diagnostics, ["\(edit.opId): figure_cell_set while the figure is parked in Research, not applied"])
     }
 
     func test_pins_setReplaceAndClear() {

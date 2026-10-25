@@ -506,3 +506,9 @@ To make room for the `ProjectStore+FigureResearch.swift` Map row under the 8,000
 
 - The posture refresh bumps the epoch WITHOUT clearing because the first bump already cleared; clearing again would make every redraw a miss.
 - Restoring a piece removed elsewhere re-renders through `Document.load`, which backs a stale file up as `-diverged-`; a missing file is not a divergence.
+
+## Moved from the guide by report plan 6b Task 7 (2026-10-25)
+
+To make room for `sendToResearch` in the `ProjectStore+FigureResearch.swift` Map row under the 8,000-word cap:
+
+- `ProjectStore+Annotations.swift` returns an unreadable closed doc's id in `unreadableDocIds` so a count says unknown rather than a short number.

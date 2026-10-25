@@ -23,6 +23,24 @@ public struct FigureEditRefused: LocalizedError, Equatable {
     }
 }
 
+/// **A figure parked in Research refuses every edit** (ruling P-5, report
+/// plan 6b Task 7): its content lives in the Research working copy until it
+/// is brought back, and its stream folds nothing meanwhile. Thrown before
+/// anything is written.
+public struct FigureParkedRefused: LocalizedError, Equatable {
+    /// The refusing verb, as its guard spells it.
+    public let site: String
+    public let kind: FigureKind?
+
+    public var errorDescription: String? { Self.notice(for: kind) }
+
+    /// What the writer is told: "This table is in Research." (a picture's
+    /// own word for a picture).
+    static func notice(for kind: FigureKind?) -> String {
+        kind == .image ? "This picture is in Research." : "This table is in Research."
+    }
+}
+
 /// **An edit that names something the figure does not have** — a row or
 /// column that is not live, a table edit on an image. Nothing is written.
 public struct FigureEditInvalid: LocalizedError, Equatable {
@@ -272,19 +290,31 @@ public final class FigureDocument {
 
     /// The guard every mutator opens with — the spelling tripwire 52's
     /// population is derived from. A closed document throws
-    /// `DocumentNotWritableError`; a posture that refuses throws
-    /// `FigureEditRefused` (`RefusedWhat.figure`).
+    /// `DocumentNotWritableError`; a figure parked in Research throws
+    /// `FigureParkedRefused` (ruling P-5), asked again after the posture's
+    /// await; a posture that refuses throws `FigureEditRefused`
+    /// (`RefusedWhat.figure`).
     func requireWritable(_ site: StaticString) async throws {
         if isClosed {
             documentLog.error(
                 "\(site, privacy: .public) called on a closed FigureDocument \(self.figureId, privacy: .public); no-op")
             throw DocumentNotWritableError(site: "\(site)")
         }
+        try refuseIfParked(site)
         guard await mayEditHere() else {
             documentLog.error(
                 "\(site, privacy: .public) refused on \(self.figureId, privacy: .public): this device may not change this figure")
             throw FigureEditRefused(site: "\(site)")
         }
+        // A park that landed during the posture's await closes the door too.
+        try refuseIfParked(site)
+    }
+
+    private func refuseIfParked(_ site: StaticString) throws {
+        guard state.parked != nil else { return }
+        documentLog.error(
+            "\(site, privacy: .public) refused on \(self.figureId, privacy: .public): the figure is parked in Research")
+        throw FigureParkedRefused(site: "\(site)", kind: state.kind)
     }
 
     // MARK: - Mutators
@@ -685,6 +715,37 @@ public final class FigureDocument {
         }
     }
 
+    /// **Park this figure in Research** (spec §4.2, ruling P-5) — *Send to
+    /// Research*'s op (`ProjectStore.sendToResearch`): one `figureParked`
+    /// carrying the working copy's path, content hash and Research item.
+    ///
+    /// - **Refused when the figure changed since the copy was made**
+    ///   (`expecting`, the state the caller wrote the copy from): the copy
+    ///   must hold exactly what is parked, so nothing is appended and
+    ///   `FigureEditInvalid` says so.
+    /// - **`alongside` runs synchronously, after every check and before the
+    ///   op folds**, so nothing can land between them — the send removes the
+    ///   figure's line from its manuscript there. It throwing appends nothing.
+    /// - **The op sorts after every op this host has read** (`commit`'s
+    ///   `after:`), so an edit the copy holds, from a device whose clock ran
+    ///   ahead, still folds before the park rather than being dropped by it.
+    /// - Not registered for ⌘Z (ruling P-8): a park is undone by bringing the
+    ///   figure back. From here on every mutator refuses
+    ///   (`FigureParkedRefused`).
+    func parkInResearch(
+        path: String, hash: String, itemId: String, expecting: FigureState,
+        alongside: @MainActor () throws -> Void
+    ) async throws {
+        try await requireWritable("parkInResearch")
+        guard state == expecting else {
+            throw FigureEditInvalid(reason: "the figure changed while it was being sent to Research")
+        }
+        try alongside()
+        try await commit(
+            .figureParked, FigureOpPayload(parkedPath: path, parkedHash: hash, parkedItemId: itemId),
+            after: _ops.map(\.opId).max())
+    }
+
     /// `jpg` and `jpeg` are one format; every other extension is its own.
     private static func sameImageFormat(_ a: String, _ b: String) -> Bool {
         let jpeg: Set<String> = ["jpg", "jpeg"]
@@ -725,6 +786,8 @@ public final class FigureDocument {
         /// a row or column gone, a picture no longer kept) — said as that,
         /// never as a failed save (residual N-4).
         case cannotRedo(String)
+        /// The figure is parked in Research (ruling P-5); its notice.
+        case parked(FigureKind?)
 
         var sentence: String {
             switch self {
@@ -738,6 +801,8 @@ public final class FigureDocument {
                 "Couldn't change the figure — the change could not be saved."
             case .cannotRedo(let reason):
                 "Couldn't redo the change to the figure — \(reason)."
+            case .parked(let kind):
+                FigureParkedRefused.notice(for: kind)
             }
         }
     }
@@ -753,6 +818,8 @@ public final class FigureDocument {
     private func redoing(_ body: () async throws -> Void) async {
         do { try await body() } catch is FigureEditRefused {
             decline(.notPermitted)
+        } catch let parked as FigureParkedRefused {
+            decline(.parked(parked.kind))
         } catch let invalid as FigureEditInvalid {
             decline(.cannotRedo(invalid.reason))
         } catch {
@@ -794,7 +861,8 @@ public final class FigureDocument {
                 guard !d.isClosed else { return }
                 guard await d.mayEditHere() else { return d.decline(.notPermitted) }
                 // After the door's await, so nothing lands between the check
-                // and the append.
+                // and the append. A parked figure folds nothing (ruling P-5).
+                guard d.state.parked == nil else { return d.decline(.parked(d.state.kind)) }
                 guard stillAsWritten(d) else { return d.decline(.drifted) }
                 do { try await restoring?(d) } catch {
                     documentLog.error("figure undo could not restore \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -824,11 +892,17 @@ public final class FigureDocument {
 
     /// Fold the op into `state` first (so a second press in the same turn
     /// reads the new state), then append; a failed append takes it back out.
+    /// With `after`, the op's id sorts strictly after that one even when this
+    /// Mac's clock is behind the device that wrote it (`ULID.generate(atMillis:)`).
     @discardableResult
-    private func commit(_ kind: OpKind, _ payload: FigureOpPayload) async throws -> Op {
+    private func commit(_ kind: OpKind, _ payload: FigureOpPayload, after floor: String? = nil) async throws -> Op {
         guard !isClosed else { throw DocumentNotWritableError(site: "commit") }
+        var opId = ULID.generate()
+        if let floor, opId <= floor, let millis = ULID.timestampMillis(of: floor) {
+            opId = ULID.generate(atMillis: millis + 1)
+        }
         let op = Op(
-            opId: ULID.generate(), docId: figureId, at: Date(), device: device,
+            opId: opId, docId: figureId, at: Date(), device: device,
             session: session, kind: kind, changes: [], figure: payload)
         _ops.append(op)
         unconfirmedLocalOpIds.insert(op.opId)

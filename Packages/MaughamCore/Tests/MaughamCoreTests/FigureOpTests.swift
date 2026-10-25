@@ -46,6 +46,8 @@ final class FigureOpTests: XCTestCase {
             (.figureCreate, FigureOpPayload(kind: .table, source: FigureSource(
                 researchItemId: "res-model", path: "research/model.csv", contentHash: "0123456789abcdef"))),
             (.figureParked, FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h9")),
+            (.figureParked, FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h9",
+                                            parkedItemId: "res-cash0001")),
             (.figureResumed, FigureOpPayload()),
             (.figureCellSet, FigureOpPayload(cell: key, next: cell, prior: nil)),
             (.figureCellSet, FigureOpPayload(cell: key, next: nil, prior: formula)),
@@ -113,6 +115,11 @@ final class FigureOpTests: XCTestCase {
             priorImage: nil, parkedPath: "p", parkedHash: "q")), encoding: .utf8)
         XCTAssertEqual(payload,
                        #"{"image":{"content_hash":"h","filename":"a.png"},"parked_hash":"q","parked_path":"p"}"#)
+        // Report plan 6b Task 7: the Research item a park wrote, schema 10.
+        let parked = String(data: try enc.encode(FigureOpPayload(
+            parkedPath: "research/cash.csv", parkedHash: "q", parkedItemId: "res-1")), encoding: .utf8)
+        XCTAssertEqual(parked,
+                       #"{"parked_hash":"q","parked_item_id":"res-1","parked_path":"research\/cash.csv"}"#)
     }
 
     /// **The revive words and the removed slice** (report plan 6b Task 4,

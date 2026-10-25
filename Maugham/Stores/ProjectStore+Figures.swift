@@ -20,7 +20,7 @@ extension ProjectStore {
     /// Test seam: runs in `renameFigure` after the record is saved and before
     /// the held manuscripts are relabelled — where a door closing meanwhile
     /// is put. Nil in production.
-    static var beforeFigureRelabelWriteForTesting: (@MainActor (HeldFigureRelabel) async -> Void)?
+    static var beforeFigureRelabelWriteForTesting: (@MainActor (HeldFigureTextEdit) async -> Void)?
 
     /// Test seam: runs in `restoreRemovedFigure` after its path was found
     /// free and before the Trash restores the file there — where a file
@@ -280,7 +280,7 @@ extension ProjectStore {
     ///    `FigureEditRefused`.
     /// 3. **Every manuscript that holds its line or a cross-reference to its
     ///    label** (`{#tbl:old}`, `@tbl:old`) is held through the door-checked
-    ///    manuscript route (`holdManuscriptsForFigureRelabel`); one refusing
+    ///    manuscript route (`holdManuscriptsForFigureText`); one refusing
     ///    refuses the rename, naming each piece.
     /// 4. Then: an image's file is moved and a `figureImageSet` with the same
     ///    hash and the new file name appended (`FigureDocument.renameImageFile`);
@@ -309,12 +309,12 @@ extension ProjectStore {
         let label = Self.labelKind(of: record.kind).flatMap {
             ManuscriptLabel(reference: "\($0.rawValue):\(record.name)")
         }
-        var relabel: HeldFigureRelabel?
+        var relabel: HeldFigureTextEdit?
         if let label {
-            relabel = try await holdManuscriptsForFigureRelabel(FigureLabelChange(
+            relabel = try await holdManuscriptsForFigureText(.relabel(FigureLabelChange(
                 old: label, newName: newName,
                 oldFile: (record.path as NSString).lastPathComponent,
-                newFile: (newPath as NSString).lastPathComponent))
+                newFile: (newPath as NSString).lastPathComponent)))
         }
         // Every door has answered yes. Anything after this that fails puts
         // back what it did and releases the held manuscripts unwritten.
@@ -340,7 +340,7 @@ extension ProjectStore {
             throw error
         }
         // The text straight after the record, with nothing awaited between
-        // the documents: all of them or none (`HeldFigureRelabel.write`). A
+        // the documents: all of them or none (`HeldFigureTextEdit.write`). A
         // document that stopped being writable since it was held refuses the
         // whole rename, and the record and the picture go back too.
         if let relabel {
@@ -501,7 +501,7 @@ extension ProjectStore {
     /// stray file is never overwritten or set beside unlisted. It is
     /// Maugham's safety copy of a file it is about to write over
     /// (`.internalArtifact`). Best-effort: a failure is logged.
-    private func trashStrayFigureFile(at relativePath: String) async {
+    func trashStrayFigureFile(at relativePath: String) async {
         guard let documentStore, let file = try? resolvedProjectPathToChange(relativePath),
               FileManager.default.fileExists(atPath: file.path) else { return }
         do {
@@ -558,7 +558,7 @@ extension ProjectStore {
 
     /// The label kind a figure of `kind` takes in the text: `tbl:` for a
     /// table, `fig:` for an image; none for a kind this build does not know.
-    private static func labelKind(of kind: FigureKind) -> ManuscriptLabel.Kind? {
+    static func labelKind(of kind: FigureKind) -> ManuscriptLabel.Kind? {
         switch kind {
         case .table: return .tbl
         case .image: return .fig
@@ -619,7 +619,7 @@ extension ProjectStore {
     /// `.editFigure` posture — the window's acting answer, yields and *Edit
     /// Anyway* included (R-6a-8). A refusal or a `.settling` answer throws
     /// `FigureEditRefused`.
-    private func requireFigurePermitted(
+    func requireFigurePermitted(
         figureId: String, site: StaticString, documentStore: DocumentStore
     ) async throws {
         let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)

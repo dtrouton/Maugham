@@ -56,7 +56,8 @@ public enum FigureKind: Codable, Equatable, Hashable, Sendable {
 /// - `figureCreate` — a `kind` this build knows (never `.unknown`). A figure
 ///   made from a Research item by *Use in document* also carries `source`.
 /// - `figureParked` — `parkedPath` and `parkedHash` (where the stream's figure
-///   went in Research, and that file's content hash).
+///   went in Research, and that file's content hash); `parkedItemId`, the
+///   Research item holding that file, when known (report plan 6b Task 7).
 /// - `figureResumed` — nothing.
 /// - `figureCellSet` — `cell`; `next` is the new cell (nil = cleared) and
 ///   `prior` the cell it replaced (nil = was empty).
@@ -82,6 +83,11 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     public var pin: FigureResearchPin?
     public var parkedPath: String?
     public var parkedHash: String?
+    /// **The Research item a park wrote its working copy as** (spec §4.2,
+    /// report plan 6b Task 7): its `ResearchItem.id`, which survives the typed
+    /// mover's renames and moves where `parkedPath` does not. Optional on the
+    /// wire; `validate` does not ask for it.
+    public var parkedItemId: String?
     /// **What a row or column delete took, or what a revive puts back**
     /// (ruling P-2). The host fills it at delete time so `FigureInverse`
     /// stays payload-only. Nil on a delete that did not record it — a delete
@@ -98,6 +104,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case pin
         case parkedPath = "parked_path"
         case parkedHash = "parked_hash"
+        case parkedItemId = "parked_item_id"
         case removed
         case source
     }
@@ -110,6 +117,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         image: FigureImageRef? = nil, priorImage: FigureImageRef? = nil,
         pin: FigureResearchPin? = nil,
         parkedPath: String? = nil, parkedHash: String? = nil,
+        parkedItemId: String? = nil,
         removed: FigureRemovedSlice? = nil,
         source: FigureSource? = nil
     ) {
@@ -124,6 +132,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         self.pin = pin
         self.parkedPath = parkedPath
         self.parkedHash = parkedHash
+        self.parkedItemId = parkedItemId
         self.removed = removed
         self.source = source
     }

@@ -1,11 +1,17 @@
 import Foundation
 
-/// Where a parked figure went: its file in Research and that file's content
-/// hash (`figureParked`'s `parkedPath` / `parkedHash`).
+/// Where a parked figure went: its file in Research, that file's content
+/// hash and, when the park recorded it, the Research item holding it
+/// (`figureParked`'s `parkedPath` / `parkedHash` / `parkedItemId`).
 public struct FigureParking: Equatable, Sendable {
     public var path: String
     public var hash: String
-    public init(path: String, hash: String) { self.path = path; self.hash = hash }
+    public var itemId: String?
+    public init(path: String, hash: String, itemId: String? = nil) {
+        self.path = path
+        self.hash = hash
+        self.itemId = itemId
+    }
 }
 
 /// **A figure as its op stream says it is** — content and lifecycle (ruling
@@ -76,8 +82,12 @@ public struct FigureState: Equatable, Sendable {
 ///   `FigureTable.insertRow(_:after:)` by id, so two inserts after one row both
 ///   land after it, the later-folded first.
 /// - The first `figureCreate` sets the kind; a later one is diagnosed and ignored.
-/// - `figureParked` sets `parked`, `figureResumed` clears it; content ops while
-///   parked still fold.
+/// - **Parked folds nothing** (ruling P-5): `figureParked` sets `parked` and
+///   `figureResumed` clears it; a content op ordered between them — a cell,
+///   structure, settings, image or pin op — is dropped from the view and
+///   diagnosed, and stays in the log (like a delete beating an edit). A second
+///   park while parked is dropped the same way: the first one's working copy
+///   is the one the stream points at. A resume while not parked is dropped.
 ///
 /// This is not the manuscript deriver, and never asks `Deriver.appliesToManuscript`
 /// (tripwire 44+1): a figure op is never manuscript text.
@@ -103,6 +113,12 @@ public enum FigureDeriver {
         }
         func drop(_ why: String) { state.diagnostics.append("\(op.opId): \(why)") }
 
+        // Parked folds nothing (ruling P-5) — asked before the wait for an
+        // unseen id, so an op ordered while parked never waits to replay.
+        if state.parked != nil, isContent(op.kind) {
+            return drop("\(op.kind.rawValue) while the figure is parked in Research, not applied")
+        }
+
         if namesAnUnseenID(op.kind, p, in: state.table) {
             state.held.append(op)
             return
@@ -118,11 +134,17 @@ public enum FigureDeriver {
             state.source = p.source
 
         case .figureParked:
+            guard state.parked == nil else {
+                return drop("a second figure_parked while parked, ignored")
+            }
             if let path = p.parkedPath, let hash = p.parkedHash {
-                state.parked = FigureParking(path: path, hash: hash)
+                state.parked = FigureParking(path: path, hash: hash, itemId: p.parkedItemId)
             }
 
         case .figureResumed:
+            guard state.parked != nil else {
+                return drop("figure_resumed while not parked, ignored")
+            }
             state.parked = nil
 
         case .figureCellSet:
@@ -283,6 +305,18 @@ public enum FigureDeriver {
             case let .deleteColumn(c)?, let .moveColumn(c, _, _)?, let .reviveColumn(c)?: return unseen(c)
             default: return false
             }
+        default:
+            return false
+        }
+    }
+
+    /// The kinds that change a figure's content — everything but its
+    /// lifecycle (create, park, resume). What a park stops folding.
+    private static func isContent(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .figureCellSet, .figureStructure, .figureSettings, .figureImageSet,
+             .figurePinSet, .figurePinClear:
+            return true
         default:
             return false
         }
