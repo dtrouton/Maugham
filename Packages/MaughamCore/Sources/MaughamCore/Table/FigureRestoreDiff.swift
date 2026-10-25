@@ -46,7 +46,7 @@ public enum FigureRestoreDiff {
     /// The ops, in order, that bring `current` to `target`'s content; empty
     /// when they already agree. `parks` is the book's park cycle of each
     /// figure parked now (figure id → `FigureParking.cycle`), what
-    /// `FigurePinChoice.isLive` reads (`PinSources.parks`); required, so a
+    /// `FigurePinChoice.isLive` reads (`FigureWorkbook.parkCycles`); required, so a
     /// caller cannot drop the ruling by leaving it out — empty, every pin counts.
     public static func changes(
         from current: FigureState, to target: FigureState, parks: [String: String]

@@ -76,8 +76,21 @@ public enum FigureRestoreOutcome: Equatable, Sendable {
     /// bring it back first").
     case skippedParked
     /// The checkpoint's picture (`hash`) is no longer on disk: the rest was
-    /// restored, the picture left as it is.
-    case skippedPicture(hash: String)
+    /// restored (`opCount` ops), the picture left as it is.
+    case skippedPicture(hash: String, opCount: Int)
+    /// The restore stopped after `opCount` of its ops landed (`why`). What
+    /// landed stays; restoring again is safe and does only what is left.
+    case partlyRestored(opCount: Int, why: Stop)
+
+    /// Why a restore stopped part way.
+    public enum Stop: Equatable, Sendable {
+        /// Another device's lines were read into the figure meanwhile: the
+        /// rest was worked out against what it was before, so it stopped.
+        case changedElsewhere
+        /// An op could not be written to the figure's history (the error's
+        /// description).
+        case notRecorded(String)
+    }
 }
 
 /// **The open figure on the Mac** (report plan 6a, ruling D-d): a table's or
@@ -1039,10 +1052,10 @@ public final class FigureDocument {
     ///   `FigureEditRefused` before any op. A figure parked in Research is
     ///   skipped (`.skippedParked`) with nothing appended: its content lives in
     ///   the working copy until it comes back.
-    /// - **A pin live now is never replaced by one inert now**: the book's
-    ///   current park cycles (`PinSources.parks`, for what this figure's
-    ///   formulas read now and at the checkpoint) go to the diff. With no
-    ///   window there are none to read, and every pin counts.
+    /// - **A pin live now is never replaced by one inert now**: the current
+    ///   park cycle of every figure the pins name, now or then, goes to the
+    ///   diff (`DocumentStore.parkCycles`). With no window there are none to
+    ///   read, and every pin counts.
     /// - **Every change is checked to apply before anything is appended**
     ///   (`FigureReturnDiff.everyChangeApplies`).
     /// - **A picture comes back only when its bytes still exist** — a file in
@@ -1050,9 +1063,16 @@ public final class FigureDocument {
     ///   content hash, of the figure's own format — written under the
     ///   figure's current file name through the window's door. Otherwise the
     ///   rest is restored and the outcome names the picture
-    ///   (`.skippedPicture`). A checkpoint with no picture takes none away.
+    ///   (`.skippedPicture`, with what did restore). A checkpoint with no
+    ///   picture takes none away.
+    /// - **It stops part way rather than write against a fold that moved**:
+    ///   another device's lines read in meanwhile (a `reload`) stop it before
+    ///   the next op, and an op that will not write stops it too; either way
+    ///   what landed stays and the answer is `.partlyRestored` with the count.
+    ///   **Restoring again is safe**: the diff is worked out afresh from the
+    ///   figure as it then stands, so it does only what is left. An op that
+    ///   fails before any landed throws.
     /// - Not registered for ⌘Z (ruling Q-2), like the text's partial restore.
-    ///   An append that fails part way leaves what landed and throws.
     func restoreToCheckpoint(_ checkpointId: String, target: FigureState) async throws -> FigureRestoreOutcome {
         do { try await requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
         let parks = try await currentParks(reading: target)
@@ -1069,40 +1089,57 @@ public final class FigureDocument {
         let pictureChange = changes.first { $0.kind == .figureImageSet }?.payload.image
         let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
         let reason = Op.Provenance(sourceCheckpoint: checkpointId)
+        // Every change was worked out against this fold: a reload replaces it.
+        let generation = reloadGeneration
         var appended = 0
+        var stop: FigureRestoreOutcome.Stop?
         do {
             for change in tableChanges {
+                if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
+                guard reloadGeneration == generation else { stop = .changedElsewhere; break }
                 try await commit(change.kind, change.payload, provenance: reason, render: false)
                 appended += 1
             }
-            if restoresPicture, let picture {
-                let (payload, putBack) = try await placeReturningPicture(picture)
-                do {
-                    try await commit(.figureImageSet, payload, provenance: reason, render: false)
-                } catch {
-                    await putBack()
-                    throw error
+            if stop == nil, restoresPicture, let picture {
+                if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
+                if reloadGeneration != generation {
+                    stop = .changedElsewhere
+                } else {
+                    let (payload, putBack) = try await placeReturningPicture(picture)
+                    do {
+                        try await commit(.figureImageSet, payload, provenance: reason, render: false)
+                    } catch {
+                        await putBack()
+                        throw error
+                    }
+                    appended += 1
                 }
-                appended += 1
             }
         } catch {
-            if appended > 0 { await documentStore?.figureHostAppended(figureId) }
-            throw error
+            guard appended > 0 else { throw error }
+            stop = .notRecorded(error.localizedDescription)
         }
         if appended > 0 { await documentStore?.figureHostAppended(figureId) }
-        if let pictureChange, !restoresPicture { return .skippedPicture(hash: pictureChange.contentHash) }
+        if let stop { return .partlyRestored(opCount: appended, why: stop) }
+        if let pictureChange, !restoresPicture {
+            return .skippedPicture(hash: pictureChange.contentHash, opCount: appended)
+        }
         return appended == 0 ? .unchanged : .restored(opCount: appended)
     }
 
-    /// The book's park cycle of each figure parked now that this figure's
-    /// pins read, now or in `target` (`PinSources.parks`). Empty with no
-    /// window, or when neither holds a pin. Throws when the sources will not
-    /// read: nothing has been written yet.
+    /// Test seam: runs in `restoreToCheckpoint` between one landed op and the
+    /// next — where another device's reload is put. Nil in production.
+    static var betweenRestoreOpsForTesting: (@MainActor (FigureDocument) async -> Void)?
+
+    /// The current park cycle of each figure this figure's pins name, now or
+    /// in `target` — whether or not a formula reads it
+    /// (`DocumentStore.parkCycles`, one assembly). Empty with no window, or
+    /// when neither holds a pin. Throws when the registry will not read:
+    /// nothing has been written yet.
     private func currentParks(reading target: FigureState) async throws -> [String: String] {
-        guard let documentStore, !(state.pins.isEmpty && target.pins.isEmpty) else { return [:] }
-        let now = try await documentStore.pinSources(for: state).parks
-        let then = try await documentStore.pinSources(for: target).parks
-        return now.merging(then) { current, _ in current }
+        let sources = Set([state.pins, target.pins].flatMap { $0.values.joined() }.map(\.research))
+        guard let documentStore, !sources.isEmpty else { return [:] }
+        return try await documentStore.parkCycles(of: sources)
     }
 
     /// A file holding picture `wanted`'s bytes that may go in place of this

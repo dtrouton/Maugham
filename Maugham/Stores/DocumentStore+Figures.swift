@@ -324,6 +324,16 @@ extension DocumentStore {
         return sources
     }
 
+    /// **The current park cycle of each of `sources` parked now** (report
+    /// plan 6c Task 2): one assembly's `FigureWorkbook.parkCycles`, an open
+    /// host's park laid over its read — what a figure restore's pins are
+    /// judged by (`FigurePinChoice.isLive`), whether or not a formula reads
+    /// the source. Empty for no sources. Throws when the registry will not read.
+    func parkCycles(of sources: Set<String>) async throws -> [String: String] {
+        guard !sources.isEmpty, let assembled = try await assembledFigures() else { return [:] }
+        return assembled.parkCycles.filter { sources.contains($0.key) }
+    }
+
     /// **The entry pins `state`'s formula cells take** (spec §4.3; report plan
     /// 6b final review I-1) — the ONE helper every path that lands a formula
     /// asks: a cell typed (`FigureDocument.setCell`), a figure made by *Use in

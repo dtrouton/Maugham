@@ -33,6 +33,7 @@ final class FigureRestoreTests: XCTestCase {
 
     override func tearDown() async throws {
         FigureDocument.beforeCommitAppendForTesting = nil
+        FigureDocument.betweenRestoreOpsForTesting = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -324,7 +325,7 @@ final class FigureRestoreTests: XCTestCase {
         let before = try mark(record.id)
         let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
 
-        XCTAssertEqual(outcome, .skippedPicture(hash: redHash))
+        XCTAssertEqual(outcome, .skippedPicture(hash: redHash, opCount: 1))
         XCTAssertEqual(host.state.table.rows, [], "the rest was restored")
         XCTAssertEqual(try Data(contentsOf: file("figures/chart.png")), blueBytes, "the file is untouched")
         XCTAssertNotEqual(host.state.image?.contentHash, redHash)
@@ -377,5 +378,122 @@ final class FigureRestoreTests: XCTestCase {
         XCTAssertEqual(outcome, .unchanged)
         XCTAssertEqual(totalDoc.state.pins[t1], live, "the pin that counts stays")
         await store.closeFigure(figureId: total.id)
+    }
+
+    /// **A stale pin is judged by the book's park too**: neither the figure's
+    /// cell now nor at the checkpoint holds a formula reading `cash`, yet the
+    /// cell's pin from cash's current park counts, so the checkpoint's pin
+    /// from an earlier park does not replace it.
+    func test_aStalePinOnAParkedFigureNoFormulaReadsIsNotSwapped() async throws {
+        let (store, projectStore) = try await openBook()
+        let cash = try await projectStore.createFigure(kind: .table, name: "cash", piece: nil)
+        let total = try await projectStore.createFigure(kind: .table, name: "total", piece: nil)
+        let cashDoc = try await store.openFigure(figureId: cash.id)
+        let a2 = CellKey(row: cashDoc.state.table.rows[1], column: cashDoc.state.table.columns[0])
+        try await cashDoc.setCell(Cell(content: .value(.number(5))), at: a2)
+        let totalDoc = try await store.openFigure(figureId: total.id)
+        let t1 = CellKey(row: totalDoc.state.table.rows[0], column: totalDoc.state.table.columns[0])
+        let names = FormulaNames(figures: [.init(id: cash.id, name: "cash", table: cashDoc.state.table)])
+        guard case .success(let f) = FormulaParser.parse("cash!A2*2", in: totalDoc.state.table, names: names)
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        let formula = Cell(content: .formula(f))
+        try await totalDoc.setCell(formula, at: t1)
+        await store.closeFigure(figureId: cash.id)
+
+        let first = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+        try Data(",,\n7,,\n,,\n".utf8).write(to: file(try XCTUnwrap(first.path)))
+        try await totalDoc.refreshPins()
+        try await totalDoc.setCell(text("typed over"), at: t1)
+        XCTAssertEqual(totalDoc.state.pins[t1]?.map(\.park), [first.id], "precondition: a stale pin, first park")
+        let pointer = try XCTUnwrap(totalDoc._ops.map(\.opId).max())
+        let then = target(totalDoc, through: pointer)
+
+        try Data(",,\n5,,\n,,\n".utf8).write(to: file(try XCTUnwrap(first.path)))
+        _ = try await projectStore.bringBack(researchItemId: first.id, piece: nil)
+        let second = try await projectStore.sendToResearch(figureId: cash.id, scope: .shared)
+        try Data(",,\n9,,\n,,\n".utf8).write(to: file(try XCTUnwrap(second.path)))
+        try await totalDoc.setCell(formula, at: t1)
+        try await totalDoc.refreshPins()
+        try await totalDoc.setCell(text("typed over"), at: t1)
+        let live = try XCTUnwrap(totalDoc.state.pins[t1])
+        XCTAssertEqual(live.map(\.park), [second.id], "precondition: a stale pin, second park")
+        XCTAssertFalse(FigureRestoreDiff.changes(from: totalDoc.state, to: then, parks: [:]).isEmpty,
+                       "precondition: without the book's parks the checkpoint's pin would come back")
+
+        let outcome = try await totalDoc.restoreToCheckpoint(Self.checkpoint, target: then)
+
+        XCTAssertEqual(outcome, .unchanged)
+        XCTAssertEqual(totalDoc.state.pins[t1], live, "the pin that counts stays")
+        await store.closeFigure(figureId: total.id)
+    }
+
+    // MARK: - Part way (plan 6c Task 2 review)
+
+    /// Review Focus 1's figure, ready to restore: two ops to go.
+    private func twoOpsToGo() async throws -> (DocumentStore, FigureRecord, FigureDocument, FigureState) {
+        let (store, projectStore) = try await openBook()
+        let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let rows = host.state.table.rows, columns = host.state.table.columns
+        try await host.setCell(text("Lodging"), at: CellKey(row: rows[1], column: columns[0]))
+        let then = target(host, through: try XCTUnwrap(host._ops.map(\.opId).max()))
+        try await host.deleteRow(rows[1])
+        _ = try await host.insertColumn(after: columns[2])
+        return (store, record, host, then)
+    }
+
+    /// **An op that will not write stops the restore and says how far it
+    /// got**; restoring again does only what is left.
+    func test_aFailedAppendPartWayAnswersPartlyRestored_andARetryFinishes() async throws {
+        struct Refused: Error {}
+        let (store, record, host, then) = try await twoOpsToGo()
+        var commits = 0
+        FigureDocument.beforeCommitAppendForTesting = { _ in
+            commits += 1
+            if commits == 2 { throw Refused() }
+        }
+        let before = try mark(record.id)
+
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+
+        guard case .partlyRestored(1, .notRecorded) = outcome else {
+            return XCTFail("expected partly restored after one op, got \(outcome)")
+        }
+        try assertStamped(after: before, record.id, host, count: 1)
+        FigureDocument.beforeCommitAppendForTesting = nil
+        let retry = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        XCTAssertEqual(retry, .restored(opCount: 1), "only what is left")
+        XCTAssertEqual(host.state.table.rows, then.table.rows)
+        XCTAssertEqual(host.state.table.columns, then.table.columns)
+        XCTAssertEqual(host.state.table.cells, then.table.cells)
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **Another device's lines read in mid-restore stop it before the next
+    /// op**: the rest was worked out against the fold before; restoring again
+    /// works it out afresh — their cell, too, goes back to the checkpoint.
+    func test_aReloadMidRestoreStopsIt_andARetryFinishes() async throws {
+        let (store, record, host, then) = try await twoOpsToGo()
+        let other = try await admitAnotherMac(store)
+        let theirKey = CellKey(row: then.table.rows[2], column: then.table.columns[1])
+        FigureDocument.betweenRestoreOpsForTesting = { [self] doc in
+            FigureDocument.betweenRestoreOpsForTesting = nil
+            try? await theirOp(other, record.id, .figureCellSet, FigureOpPayload(
+                cell: theirKey, next: text("theirs"), prior: nil))
+            try? await doc.reload()
+        }
+        let before = try mark(record.id)
+
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+
+        XCTAssertEqual(outcome, .partlyRestored(opCount: 1, why: .changedElsewhere))
+        let ours = try ops(of: record.id).filter { $0.opId > before && $0.device == host.device }
+        XCTAssertEqual(ours.map(\.provenance?.sourceCheckpoint), [Self.checkpoint], "one op landed, stamped")
+        let retry = try await host.restoreToCheckpoint(Self.checkpoint, target: then)
+        XCTAssertEqual(retry, .restored(opCount: 2), "the row's revive, and their cell set back")
+        XCTAssertEqual(host.state.table.rows, then.table.rows)
+        XCTAssertEqual(host.state.table.columns, then.table.columns)
+        XCTAssertEqual(host.state.table.cells, then.table.cells)
+        await store.closeFigure(figureId: record.id)
     }
 }

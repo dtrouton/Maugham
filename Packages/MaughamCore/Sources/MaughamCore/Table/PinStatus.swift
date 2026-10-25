@@ -100,7 +100,7 @@ public struct PinSources: Sendable {
 
     var parkedTables: [String: FigureTable] { parked.mapValues(\.table) }
     /// Each parked figure's current park cycle (`FigureParking.cycle`).
-    public var parks: [String: String] { parked.mapValues(\.parking.cycle) }
+    var parks: [String: String] { parked.mapValues(\.parking.cycle) }
 }
 
 extension FigureParking {
