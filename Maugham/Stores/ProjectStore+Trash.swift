@@ -673,7 +673,7 @@ extension ProjectStore {
         if let kept = trashStore.entryFileURL(trashId: entry.id) {
             try FileManager.default.copyItem(
                 at: kept,
-                to: try SafeRelativePath.resolve(relativePath, under: url))
+                to: try SafeRelativePath.resolveForChange(relativePath, under: url))
         }
         trashEntries = (try? await trashStore.list()) ?? trashEntries
         return entry

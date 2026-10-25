@@ -70,7 +70,7 @@ enum FigureRender {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // `renderPath` spelled it; the disk is asked too, so a `figures/`
         // linked out of the book is refused (tripwire 58).
-        guard let destination = try? SafeRelativePath.resolve(
+        guard let destination = try? SafeRelativePath.resolveForChange(
             path, under: documentStore.projectURL) else {
             throw FigureRenderPathRefused(name: record.name, path: record.path)
         }

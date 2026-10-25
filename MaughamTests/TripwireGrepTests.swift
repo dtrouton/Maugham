@@ -14066,51 +14066,70 @@ extension TripwireGrepTests {
     }
 
     /// **The names a synced path goes by**: an identifier ending in
-    /// `path`/`Path`, `rel`/`Rel`, `filename`/`Filename` or `docId`/`DocId`,
-    /// or `relative`. That covers the synced fields — `.path`, `.filename`,
-    /// `.relativePath`, `docId`, `sourceFilename`, `originalRelativePath`,
-    /// `parkedPath` — and the locals that carry them (`oldPath`,
-    /// `parentPath`, `noteRelPath`, …).
+    /// `path`/`Path`, `rel`/`Rel`, `filename`/`Filename` or `Id`/`ID`, or
+    /// `relative` or `id` — never `UUID`, which is minted where it is read.
+    /// That covers the synced fields — `.path`, `.filename`, `.relativePath`,
+    /// `docId`, `sourceFilename`, `originalRelativePath`, `parkedPath`, a
+    /// trash or export id — and the locals that carry them (`oldPath`,
+    /// `parentPath`, `noteRelPath`, `trashId`, …).
     static func syncedPathNames(inJoinArgument argument: String) -> [String] {
-        let suffixes = ["path", "Path", "rel", "Rel", "filename", "Filename", "docId", "DocId"]
+        let suffixes = ["path", "Path", "rel", "Rel", "filename", "Filename", "Id", "ID"]
         return identifiers(inJoinArgument: argument).filter { name in
-            name == "relative" || suffixes.contains(where: { name.hasSuffix($0) })
+            name != "UUID"
+                && (name == "relative" || name == "id" || suffixes.contains(where: { name.hasSuffix($0) }))
         }
     }
 
-    /// A line that names one of these has gone through the checker (or says
-    /// why it need not): `SafeRelativePath` itself, the store's helper built
-    /// on it, or a `// local-path: <why>` reason.
-    static let syncedPathCheckedSpellings = ["SafeRelativePath", "resolvedProjectPath", "local-path:"]
+    /// **Whether a line has gone through the checker, or says why it need
+    /// not**: `SafeRelativePath`, or the store's helper built on it
+    /// (`resolvedProjectPath…`), in its CODE — a comment that names them does
+    /// not count — or a `// local-path: <why>` comment with a reason after it.
+    static func syncedPathLineIsChecked(_ line: String) -> Bool {
+        let code = line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
+        if code.contains("SafeRelativePath") || code.contains("resolvedProjectPath") { return true }
+        return line.range(of: #"//.*local-path:\s*\S"#, options: .regularExpression) != nil
+    }
 
-    /// The synced path names an argument reaches: its own, or — up to `hops`
-    /// definitions back — those of a local it reads (`let base = "\(stem)-\(docId)"`
-    /// then `appendingPathComponent(base)`), looking at most 60 lines up for
-    /// the nearest `let`/`var` of that name. A definition whose line goes
-    /// through the checker (`syncedPathCheckedSpellings`) is a checked value
-    /// and ends the walk.
+    /// The nearest `let`/`var` of `name` at most 60 lines above `index`:
+    /// its index, its line and the text after its `=`, or nil.
+    static func syncedPathDefinition(
+        of name: String, in lines: [String], before index: Int
+    ) -> (index: Int, line: String, rhs: String)? {
+        guard let definition = try? NSRegularExpression(
+            pattern: #"\b(?:let|var)\s+"# + NSRegularExpression.escapedPattern(for: name)
+                + #"\b\s*(?::[^=]*)?=\s*(.*)$"#) else { return nil }
+        for j in stride(from: index - 1, through: max(0, index - 60), by: -1) {
+            let line = lines[j]
+            let range = NSRange(line.startIndex..., in: line)
+            guard let match = definition.firstMatch(in: line, range: range),
+                  let rhs = Range(match.range(at: 1), in: line) else { continue }
+            return (j, line, String(line[rhs]))
+        }
+        return nil
+    }
+
+    /// The synced path names an argument reaches: its own — less a name
+    /// whose nearest definition went through the checker (a checked value,
+    /// `let fileId = try SafeRelativePath.requireDocId(docId)`) — or, up to
+    /// `hops` definitions back, those of a local it reads
+    /// (`let base = "\(stem)-\(docId)"` then `appendingPathComponent(base)`),
+    /// looking at most 60 lines up. A checked definition ends the walk.
     static func syncedPathNames(
         inJoinArgument argument: String, lines: [String], before index: Int,
         hops: Int, seen: inout Set<String>
     ) -> [String] {
-        let direct = syncedPathNames(inJoinArgument: argument)
+        let direct = syncedPathNames(inJoinArgument: argument).filter { name in
+            guard let found = syncedPathDefinition(of: name, in: lines, before: index) else { return true }
+            return !syncedPathLineIsChecked(found.line)
+        }
         guard direct.isEmpty, hops > 0 else { return direct }
         for name in identifiers(inJoinArgument: argument) where seen.insert(name).inserted {
-            guard let definition = try? NSRegularExpression(
-                pattern: #"\b(?:let|var)\s+"# + NSRegularExpression.escapedPattern(for: name)
-                    + #"\b\s*(?::[^=]*)?=\s*(.*)$"#) else { continue }
-            for j in stride(from: index - 1, through: max(0, index - 60), by: -1) {
-                let line = lines[j]
-                let range = NSRange(line.startIndex..., in: line)
-                guard let match = definition.firstMatch(in: line, range: range),
-                      let rhs = Range(match.range(at: 1), in: line) else { continue }
-                if syncedPathCheckedSpellings.contains(where: line.contains) { break }
-                let found = syncedPathNames(
-                    inJoinArgument: String(line[rhs]), lines: lines, before: j,
-                    hops: hops - 1, seen: &seen)
-                if !found.isEmpty { return found }
-                break
-            }
+            guard let found = syncedPathDefinition(of: name, in: lines, before: index) else { continue }
+            if syncedPathLineIsChecked(found.line) { continue }
+            let names = syncedPathNames(
+                inJoinArgument: found.rhs, lines: lines, before: found.index,
+                hops: hops - 1, seen: &seen)
+            if !names.isEmpty { return names }
         }
         return []
     }
@@ -14134,7 +14153,7 @@ extension TripwireGrepTests {
     /// Every `appendingPathComponent(` / `appending(path:` in `text` whose
     /// argument reaches a synced path name (`syncedPathNames`, following
     /// locals) and whose line neither goes through the checker nor carries a
-    /// `// local-path:` reason (`syncedPathCheckedSpellings`). A call whose
+    /// `// local-path:` reason (`syncedPathLineIsChecked`). A call whose
     /// argument starts on the next line is read from there, and either line
     /// may carry the checker or the reason. Comment lines are prose. Returns
     /// `(1-based line, trimmed text)`.
@@ -14158,7 +14177,7 @@ extension TripwireGrepTests {
                     context += "\n" + next
                 }
                 var seen: Set<String> = []
-                if !Self.syncedPathCheckedSpellings.contains(where: context.contains),
+                if !context.split(separator: "\n").contains(where: { Self.syncedPathLineIsChecked(String($0)) }),
                    !syncedPathNames(inJoinArgument: argument, lines: lines, before: i,
                                     hops: 3, seen: &seen).isEmpty {
                     offends = true
@@ -14212,9 +14231,11 @@ extension TripwireGrepTests {
 
     /// CONTROL: a planted file's raw joins of a synced path fire — a field,
     /// an interpolated doc id, a local, a call whose argument is on the next
-    /// line, and a local built from a doc id — while a checked line, a marked
-    /// local name, a constant, a `.path` read after the call, a comment, a
-    /// value the checker returned and a checker's own declaration do not.
+    /// line, a local built from a doc id, a synced id, a line that names the
+    /// checker only in a comment, and a `// local-path:` with no reason —
+    /// while a checked line, a marked local name, a constant, a `.path` read
+    /// after the call, a comment, a value the checker returned, a `UUID` and a
+    /// checker's own declaration do not.
     func test_syncedPathCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
@@ -14238,6 +14259,9 @@ extension TripwireGrepTests {
                 let j = dir.appendingPathComponent(base)
                 let checked = try SafeRelativePath.requireDocId(docId)
                 let k = dir.appendingPathComponent("\(checked).json")
+                let l = trashRoot.appendingPathComponent(trashId) // SafeRelativePath checked it above
+                let m = dir.appendingPathComponent(filename) // local-path:
+                let n = trashRoot.appendingPathComponent(UUID().uuidString)
             }
         }
         enum PublishPath {
@@ -14253,6 +14277,8 @@ extension TripwireGrepTests {
             #"Rogue.swift:4: let b = dir.appendingPathComponent("\(docId).json")"#,
             "Rogue.swift:5: let c = url.appendingPathComponent(",
             "Rogue.swift:14: let j = dir.appendingPathComponent(base)",
+            "Rogue.swift:17: let l = trashRoot.appendingPathComponent(trashId) // SafeRelativePath checked it above",
+            "Rogue.swift:18: let m = dir.appendingPathComponent(filename) // local-path:",
         ])
     }
 }

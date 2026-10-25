@@ -325,7 +325,7 @@ final class DesignGateTests: XCTestCase {
         let store = DesignProposalStore(projectURL: temp.url)
         let staged = try store.stage(report: Self.report(), round: 1,
                                      designerName: "Tschichold", language: nil)
-        try Self.rewrite(proposalAt: store.proposalDir(id: staged.id)) { json in
+        try Self.rewrite(proposalAt: try store.proposalDir(id: staged.id)) { json in
             var json = json
             json["sampleResult"] = ["pages": ["path": "scratch/sample.pdf"]]
             return json
@@ -367,7 +367,7 @@ final class DesignGateTests: XCTestCase {
         let store = DesignProposalStore(projectURL: temp.url)
         let staged = try store.stage(report: Self.report(), round: 1,
                                      designerName: "Tschichold", language: "es")
-        try Self.rewrite(proposalAt: store.proposalDir(id: staged.id)) { json in
+        try Self.rewrite(proposalAt: try store.proposalDir(id: staged.id)) { json in
             var json = json
             json.removeValue(forKey: "language")
             return json
@@ -944,13 +944,13 @@ final class DesignGateTests: XCTestCase {
         _ = await DesignGatePromotion.approve(staged, projectURL: project,
                                               jobManager: CompileJobManager())
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: store.backupDir(id: staged.id).path))
+            atPath: try store.backupDir(id: staged.id).path))
 
         let outcome = DesignGatePromotion.finalize(staged, projectURL: project)
 
         XCTAssertEqual(try Self.settled(outcome).status, .approved)
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: store.backupDir(id: staged.id).path),
+            atPath: try store.backupDir(id: staged.id).path),
             "the displaced templates are gone — that is the whole verb")
         guard case .done(_, let sentence) = outcome else {
             return XCTFail("finalize should have answered .done")
@@ -1131,7 +1131,7 @@ final class DesignGateTests: XCTestCase {
         let approved = try Self.settled(
             await DesignGatePromotion.approve(staged, projectURL: project,
                                               jobManager: CompileJobManager()))
-        let backup = store.proposalDir(id: approved.id)
+        let backup = try store.proposalDir(id: approved.id)
             .appendingPathComponent("backup", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path),
                       "premise: the promotion stands and its backup holds the "
@@ -1171,7 +1171,7 @@ final class DesignGateTests: XCTestCase {
         let approved = try Self.settled(
             await DesignGatePromotion.approve(staged, projectURL: project,
                                               jobManager: CompileJobManager()))
-        let backup = store.proposalDir(id: approved.id)
+        let backup = try store.proposalDir(id: approved.id)
             .appendingPathComponent("backup", isDirectory: true)
 
         var announcements = 0

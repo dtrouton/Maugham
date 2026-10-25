@@ -259,7 +259,7 @@ extension ProjectStore {
             // match; rewrite the note's ./<stem>_assets/ image refs.
             for pending in pendings {
                 guard let (oldStem, newStem, noteRelPath) = pending.refRewrite,
-                      let noteURL = try? resolvedProjectPath(noteRelPath) else { continue }
+                      let noteURL = try? resolvedProjectPathToChange(noteRelPath) else { continue }
                 await Self.rewriteAssetRefsBestEffort(
                     oldStem: oldStem, newStem: newStem,
                     noteURL: noteURL,

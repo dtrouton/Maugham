@@ -23,14 +23,11 @@ public enum TranslationStore {
     /// into a file name (tripwire 58).
     public static func fileURL(forDocId docId: String, language: String,
                                deviceSlug: DeviceSlug, in projectURL: URL) throws -> URL {
-        guard SafeRelativePath.isPlainFileName(docId) else {
-            throw SafeRelativePath.PathError.notADocId(docId)
-        }
         guard SafeRelativePath.isPlainFileName(language), !language.contains(".") else {
             throw SafeRelativePath.PathError.notAPlainFileName(language)
         }
-        return directoryURL(in: projectURL)
-            .appendingPathComponent("\(docId).\(language).\(deviceSlug.raw).jsonl") // both names passed SafeRelativePath.isPlainFileName above
+        return directoryURL(in: projectURL).appendingPathComponent(
+            try SafeRelativePath.requirePlainFileName("\(docId).\(language).\(deviceSlug.raw).jsonl"))
     }
 
     /// One sidecar filename, parsed back into the three things that built it:

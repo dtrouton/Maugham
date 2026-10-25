@@ -47,11 +47,6 @@ public final class Document {
     /// lost; only the derived render is withheld.
     public private(set) var rendersToDisk = true
 
-    /// Whether `url` is inside the book this document belongs to (tripwire
-    /// 58): nil until the first autosave asks, then that answer for good —
-    /// `url` never changes. See `rendersInsideTheProject()`.
-    @ObservationIgnored private var rendersInsideProject: Bool?
-
     /// Stop rendering the `.md` for good. See `rendersToDisk`.
     public func stopRendering() {
         rendersToDisk = false
@@ -886,7 +881,6 @@ public final class Document {
         // A piece another device moved or trashed has no file at `url` any
         // more, and writing one would be a phantom (see `rendersToDisk`).
         guard rendersToDisk else { return }
-        guard rendersInsideTheProject() else { return }
 
         // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
         // anchors). The op log + in-memory NSTextStorage keep the anchors.
@@ -908,27 +902,13 @@ public final class Document {
         if let writeErr { throw writeErr }
     }
 
-    /// **The derived render lands only inside the project** (tripwire 58).
-    /// A `Document` whose `url` leaves its book — a synced manifest path such
-    /// as `../outside.md` that reached a load — keeps its op log and pending
-    /// mirror, and every autosave's `.md` is refused; the refusal is logged
-    /// once, at the first autosave, not on every keystroke.
-    private func rendersInsideTheProject() -> Bool {
-        if let known = rendersInsideProject { return known }
-        let inside = Self.isInsideProject(url, root: opStore.projectURL)
-        rendersInsideProject = inside
-        if !inside {
-            documentLog.error(
-                "doc \(self.docId, privacy: .public): its file \(self.url.path, privacy: .public) is not inside the project; its render is refused (the op log keeps every word)")
-        }
-        return inside
-    }
-
-    /// Whether `url` names a place inside `root`: no `..` component, and its
-    /// path below the root passes `SafeRelativePath.resolve` (on disk, so a
-    /// symlinked folder out of the root fails). Asked of the spelled URLs and
-    /// of their symlink-resolved forms, so `/var` against `/private/var` is
-    /// not an escape.
+    /// **Whether `url` names a place inside `root`** — `Document.load`'s guard
+    /// (tripwire 58): no `..` component, and its path below the root passes
+    /// `SafeRelativePath.resolve`. Lexical, so a writer's own symlinked chapter
+    /// or manuscript folder opens. Asked of the spelled URLs and of their
+    /// symlink-resolved forms, so `/var` against `/private/var` is not an
+    /// escape. A `Document`'s `url` never changes, so the load's answer holds
+    /// for every later autosave.
     nonisolated static func isInsideProject(_ url: URL, root: URL) -> Bool {
         guard !url.pathComponents.contains("..") else { return false }
         let spellings = [(url.standardizedFileURL, root.standardizedFileURL),

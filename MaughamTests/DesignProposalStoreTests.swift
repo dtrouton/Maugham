@@ -277,7 +277,7 @@ final class DesignProposalStoreTests: XCTestCase {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
         let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
-        let held = store.backupDir(id: staged.id).appendingPathComponent("files")
+        let held = try store.backupDir(id: staged.id).appendingPathComponent("files")
         try FileManager.default.createDirectory(at: held, withIntermediateDirectories: true)
         try "LIVE ORIGINAL".write(
             to: held.appendingPathComponent("template.tex"), atomically: true, encoding: .utf8)
@@ -298,7 +298,7 @@ final class DesignProposalStoreTests: XCTestCase {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
         let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
-        let backup = store.backupDir(id: staged.id)
+        let backup = try store.backupDir(id: staged.id)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
         XCTAssertThrowsError(try store.delete(id: staged.id), "fixture: the guard is live")
 

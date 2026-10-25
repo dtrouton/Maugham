@@ -230,8 +230,11 @@ struct DesignProposalStore {
         designDir.appendingPathComponent("proposals", isDirectory: true)
     }
 
-    func proposalDir(id: String) -> URL {
-        proposalsDir.appendingPathComponent(id, isDirectory: true)
+    /// Throws for an id that is not one plain file name (tripwire 58): an
+    /// id comes back from a synced `proposal.json`.
+    func proposalDir(id: String) throws -> URL {
+        proposalsDir.appendingPathComponent(
+            try SafeRelativePath.requirePlainFileName(id), isDirectory: true)
     }
 
     /// Where `ProposalPromotion` holds the live templates a promotion of this
@@ -239,8 +242,8 @@ struct DesignProposalStore {
     /// promotion that writes it: this store owns the proposal directory's
     /// layout, and `delete` below has to know about the backup, because while
     /// one stands this directory is not merely derived.
-    func backupDir(id: String) -> URL {
-        proposalDir(id: id).appendingPathComponent("backup", isDirectory: true)
+    func backupDir(id: String) throws -> URL {
+        try proposalDir(id: id).appendingPathComponent("backup", isDirectory: true)
     }
 
     // MARK: - Staging
@@ -268,7 +271,7 @@ struct DesignProposalStore {
         }
 
         let id = ProjectStore.newId(prefix: "prop")
-        let dir = proposalDir(id: id)
+        let dir = try proposalDir(id: id)
         let filesDir = dir.appendingPathComponent("files", isDirectory: true)
         let fm = FileManager.default
         try fm.createDirectory(at: filesDir, withIntermediateDirectories: true)
@@ -279,7 +282,7 @@ struct DesignProposalStore {
         for file in report.files {
             // Gated at parse (`DesignerReport.isSafePath`) and again here, on
             // disk, so a staged file lands inside `files/` (tripwire 58).
-            let dest = try SafeRelativePath.resolve(file.path, under: filesDir)
+            let dest = try SafeRelativePath.resolveForChange(file.path, under: filesDir)
             try fm.createDirectory(
                 at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.content.write(to: dest, atomically: true, encoding: .utf8)
@@ -363,11 +366,11 @@ struct DesignProposalStore {
     /// The way out is `ProposalPromotion.revert` (take the promotion back) or
     /// `.finalize` (keep it, and let the originals go on purpose).
     func delete(id: String) throws {
-        let dir = proposalDir(id: id)
+        let dir = try proposalDir(id: id)
         guard FileManager.default.fileExists(atPath: dir.path) else {
             throw StoreError.notFound(id: id)
         }
-        guard !FileManager.default.fileExists(atPath: backupDir(id: id).path) else {
+        guard !FileManager.default.fileExists(atPath: try backupDir(id: id).path) else {
             throw StoreError.promotionBackupStands(id: id)
         }
         try FileManager.default.removeItem(at: dir)
@@ -376,7 +379,7 @@ struct DesignProposalStore {
     // MARK: - private
 
     private func readProposal(id: String) throws -> Proposal {
-        let url = proposalDir(id: id).appendingPathComponent("proposal.json")
+        let url = try proposalDir(id: id).appendingPathComponent("proposal.json")
         guard let data = try? Data(contentsOf: url)  // adr-0018-ok: design proposal metadata, not manuscript
         else { throw StoreError.notFound(id: id) }
         let decoder = JSONDecoder()
@@ -385,7 +388,7 @@ struct DesignProposalStore {
     }
 
     private func write(_ proposal: Proposal) throws {
-        let dir = proposalDir(id: proposal.id)
+        let dir = try proposalDir(id: proposal.id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]

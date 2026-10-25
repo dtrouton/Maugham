@@ -216,7 +216,7 @@ extension ProjectStore {
         guard !joined.isEmpty else { return }
 
         let statement = try await createStatement(kind: .intent, scope: scope)
-        let fileURL = try resolvedProjectPath(statement.path)
+        let fileURL = try resolvedProjectPathToChange(statement.path)
         try Data((joined + "\n").utf8).write(to: fileURL, options: .atomic)
 
         // **The third opener takes the gate too** (whole-branch review, I2).

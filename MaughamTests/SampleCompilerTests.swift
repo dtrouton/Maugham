@@ -279,7 +279,7 @@ final class SampleCompilerTests: XCTestCase {
                        "the cause rides the result — \(excerpt)")
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: SampleCompiler.scratchURL(
+                atPath: try SampleCompiler.scratchURL(
                     proposal: proposal, projectURL: projectURL).path),
             "and it refuses before assembling anything")
     }
@@ -358,7 +358,7 @@ final class SampleCompilerTests: XCTestCase {
         XCTAssertEqual(demonstrates, selection(["p1"]).demonstrates,
                        "the selection's writer-facing lines ride the outcome")
 
-        let scratch = SampleCompiler.scratchURL(proposal: proposal, projectURL: projectURL)
+        let scratch = try SampleCompiler.scratchURL(proposal: proposal, projectURL: projectURL)
         XCTAssertTrue(path.hasPrefix(scratch.standardizedFileURL.path),
                       "the PDF is written inside the scratch, never the live tree: \(path)")
 
@@ -473,7 +473,7 @@ final class SampleCompilerTests: XCTestCase {
     private func sampleBodyTeX(
         _ proposal: DesignProposalStore.Proposal, in projectURL: URL
     ) throws -> String {
-        let build = SampleCompiler.scratchURL(proposal: proposal, projectURL: projectURL)
+        let build = try SampleCompiler.scratchURL(proposal: proposal, projectURL: projectURL)
             .appendingPathComponent(".maugham/publish/build", isDirectory: true)
         let names = try FileManager.default.contentsOfDirectory(atPath: build.path)
             .filter { $0.hasPrefix("body.") && $0.hasSuffix(".tex") && $0 != "body.tex" }

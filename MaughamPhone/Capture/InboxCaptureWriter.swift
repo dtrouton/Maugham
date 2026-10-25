@@ -148,7 +148,7 @@ struct InboxCaptureWriter: Sendable {
         let entry = buildEntry(kind: .image, title: title)
         let assetName = "\(entry.id).\(ext)"
         try io.ensureDirectory(at: imagesDir)
-        let assetURL = imagesDir.appendingPathComponent(assetName)
+        let assetURL = imagesDir.appendingPathComponent(assetName) // local-path: a ULID this writer just minted
         try io.coordinatedWrite(at: assetURL) { url in
             try data.write(to: url)
         }
@@ -182,7 +182,7 @@ struct InboxCaptureWriter: Sendable {
         )
         let assetName = "\(entry.id).m4a"
         try io.ensureDirectory(at: audioDir)
-        let destURL = audioDir.appendingPathComponent(assetName)
+        let destURL = audioDir.appendingPathComponent(assetName) // local-path: a ULID this writer just minted
         // Read the temp recording and write it into the coordinated destination.
         // Reading first (outside coordination) is fine: the temp file is the
         // phone's own scratch, not a shared iCloud path.

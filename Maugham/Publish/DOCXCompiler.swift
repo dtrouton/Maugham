@@ -143,11 +143,8 @@ public struct DOCXCompiler {
 
         let filename = OutputFilenameBuilder.make(config: context.reportTitled(config), format: .docx, label: label,
                                                   language: identity)
-        // The folder and the name both come from the synced publish config:
-        // one plain file name inside a folder inside the project, on disk
-        // (tripwire 58).
-        let dest = try SafeRelativePath.resolveFile(
-            named: filename, in: config.outputs.directory, under: projectURL)
+        let dest = try OutputFilenameBuilder.destination(
+            filename: filename, outputsDirectory: config.outputs.directory, projectURL: projectURL)
         try FileManager.default.createDirectory(
             at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: dest.path) {

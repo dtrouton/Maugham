@@ -532,11 +532,9 @@ public struct Republisher {
 
         // Move output from stage to real project's Exports/.
         let stageOutputURL = URL(fileURLWithPath: outputPath)
-        // The folder comes from the synced publish config: one plain file name
-        // inside a folder inside the project, on disk (tripwire 58).
-        let dest = try SafeRelativePath.resolveFile(
-            named: stageOutputURL.lastPathComponent,
-            in: snap.config.outputs.directory, under: projectURL)
+        let dest = try OutputFilenameBuilder.destination(
+            filename: stageOutputURL.lastPathComponent,
+            outputsDirectory: snap.config.outputs.directory, projectURL: projectURL)
         let exports = dest.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: exports, withIntermediateDirectories: true)

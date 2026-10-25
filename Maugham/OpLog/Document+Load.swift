@@ -329,7 +329,8 @@ extension Document {
         // its anchored `.md` there (tripwire 58).
         guard Document.isInsideProject(url, root: projectURL) else {
             throw ProjectStoreError.unsafeProjectPath(
-                relativePath: url.path, reason: "the file is not inside its project")
+                relativePath: spelledProjectRelativePath(of: url),
+                reason: "the file is not inside its project")
         }
 
         // Bootstrap detection. Per-device partitioning (ADR 0012) means a doc's
@@ -824,6 +825,23 @@ internal func resolveProjectURL(for url: URL) -> URL {
     }
     // Legacy fallback for tests that don't write a manifest: 2 levels up.
     return url.deletingLastPathComponent().deletingLastPathComponent()
+}
+
+/// `url` as the manifest spelled it — the part after the deepest folder on
+/// its SPELLED path that holds `project.maugham.json` (`../outside.md` for
+/// `…/Book/../outside.md`) — so a refusal names the path the writer's
+/// manifest gave, not the whole disk path. The whole path when no such folder.
+internal func spelledProjectRelativePath(of url: URL) -> String {
+    let components = url.pathComponents
+    let fm = FileManager.default
+    for split in stride(from: components.count - 1, to: 0, by: -1) {
+        let folder = NSString.path(withComponents: Array(components[..<split]))
+        guard !components[split - 1].hasPrefix("."),
+              fm.fileExists(atPath: (folder as NSString)
+                .appendingPathComponent(ProjectManifest.fileName)) else { continue }
+        return components[split...].joined(separator: "/")
+    }
+    return url.path
 }
 
 private func findItemByPath(_ path: String, in items: [StructureItem]) -> StructureItem? {

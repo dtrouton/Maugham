@@ -26,7 +26,7 @@ extension ProjectStore {
         }
 
         // 2. Make sure the parent folder exists on disk
-        let parentURL = try resolvedProjectPath(parentPath, isDirectory: true)
+        let parentURL = try resolvedProjectPathToChange(parentPath, isDirectory: true)
         let fm = FileManager.default
         if !fm.fileExists(atPath: parentURL.path) {
             try fm.createDirectory(at: parentURL, withIntermediateDirectories: true)
@@ -347,7 +347,7 @@ extension ProjectStore {
         let parentPath = (oldPath as NSString).deletingLastPathComponent
         // The manifest's path is synced: resolved inside the project before
         // any file call (tripwire 58), and the parent follows from it.
-        let oldDocURL = try resolvedProjectPath(oldPath)
+        let oldDocURL = try resolvedProjectPathToChange(oldPath)
         let parentURL = oldDocURL.deletingLastPathComponent()
 
         let fm = FileManager.default
@@ -372,7 +372,7 @@ extension ProjectStore {
         }
 
         let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"
-        let newURL = try resolvedProjectPath(newPath)
+        let newURL = try resolvedProjectPathToChange(newPath)
 
         // Move on disk through the typed user-content mover. It runs the
         // close-before-FS-surgery discipline (close+unregister the open
@@ -722,7 +722,7 @@ extension ProjectStore {
                                      where: { $0.kind == .document }) {
             guard let path = item.path else { continue }
             let noteURL: URL
-            do { noteURL = try resolvedProjectPath(path) } catch {
+            do { noteURL = try resolvedProjectPathToChange(path) } catch {
                 projectStoreLog.error(
                     "Wiki-rename: research note \(path, privacy: .public) refused: \(error.localizedDescription, privacy: .public)")
                 continue
@@ -857,7 +857,7 @@ extension ProjectStore {
         }
         let newPath = "\(parentPath)/\(newFilename)"
         let sourceFullURL = try resolvedProjectPath(sourcePath)
-        let newFullURL = try resolvedProjectPath(newPath)
+        let newFullURL = try resolvedProjectPathToChange(newPath)
 
         try await documentStore.executeCopy(from: sourceFullURL, to: newFullURL)
 

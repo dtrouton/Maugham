@@ -257,7 +257,7 @@ extension ProjectStore {
 
         let fileURL: URL
         do {
-            fileURL = try SafeRelativePath.resolve(relativePath, under: url)
+            fileURL = try SafeRelativePath.resolveForChange(relativePath, under: url)
         } catch let error as SafeRelativePath.PathError {
             throw ProjectStoreError.statementPathUnsafe(
                 relativePath: relativePath,
@@ -408,7 +408,7 @@ extension ProjectStore {
         // A synced path that leaves the project is refused here, before the
         // row goes: nothing outside is deleted (tripwire 58).
         let fileURL: URL
-        do { fileURL = try resolvedProjectPath(statement.path) } catch {
+        do { fileURL = try resolvedProjectPathToChange(statement.path) } catch {
             projectStoreLog.error(
                 "Statement rollback refused: \(error.localizedDescription, privacy: .public)")
             return false

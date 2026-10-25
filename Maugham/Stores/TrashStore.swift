@@ -209,7 +209,7 @@ public struct TrashStore {
     /// stay on disk, as they always have. Every permanent deletion from Trash
     /// passes here or through `sweep()`.
     public func permanentlyDelete(trashId: String) async throws {
-        let entryFolder = trashRoot.appendingPathComponent(trashId)
+        let entryFolder = trashRoot.appendingPathComponent(try SafeRelativePath.requirePlainFileName(trashId))
         let lettingGo = LetGoRecord.ids(inTrashEntryFolder: entryFolder)
         try FileManager.default.removeItem(at: entryFolder)
         await LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
@@ -229,7 +229,7 @@ public struct TrashStore {
     @discardableResult
     public func restore(trashId: String, to preferredRelativePath: String? = nil) async throws -> TrashEntry {
         let fm = FileManager.default
-        let entryFolder = trashRoot.appendingPathComponent(trashId)
+        let entryFolder = trashRoot.appendingPathComponent(try SafeRelativePath.requirePlainFileName(trashId))
         let metaURL = entryFolder.appendingPathComponent("meta.json")
         let meta: TrashMeta
         do {
@@ -290,7 +290,7 @@ public struct TrashStore {
         let requested = preferredRelativePath ?? meta.originalRelativePath
         let target: URL
         do {
-            target = try SafeRelativePath.resolve(requested, under: projectURL)
+            target = try SafeRelativePath.resolveForChange(requested, under: projectURL)
         } catch {
             throw TrashError.unsafeRelativePath(requested, underlying: error)
         }
@@ -322,7 +322,10 @@ public struct TrashStore {
     /// mover's flush discipline and then copies it straight back so the live
     /// file never stops existing. Restoring would undo the move it just made.
     func entryFileURL(trashId: String) -> URL? {
-        Self.fileURL(inEntryFolder: trashRoot.appendingPathComponent(trashId))
+        // A trash id is a folder name read back from the synced trash: one
+        // that could climb out of `.trash/` names no entry (tripwire 58).
+        guard let name = try? SafeRelativePath.requirePlainFileName(trashId) else { return nil }
+        return Self.fileURL(inEntryFolder: trashRoot.appendingPathComponent(name))
     }
 
     /// `dest` itself when nothing is there, else the same name with a numeric
@@ -375,7 +378,7 @@ public struct TrashStore {
         // inside the project root before touching the filesystem (A5).
         let source: URL
         do {
-            source = try SafeRelativePath.resolve(fileRelativePath, under: projectURL)
+            source = try SafeRelativePath.resolveForChange(fileRelativePath, under: projectURL)
         } catch {
             throw TrashError.unsafeRelativePath(fileRelativePath, underlying: error)
         }
@@ -510,13 +513,16 @@ public struct TrashStore {
     ) throws -> (id: String, folder: URL) {
         // Extract id from item metadata for folder naming (best-effort).
         struct IdProbe: Decodable { let id: String? }
-        let originalId = ((try? JSONDecoder().decode(IdProbe.self, from: itemMetadata))?.id) ?? "x"
+        // The id is the manifest's (synced): one that is not a plain file name
+        // names the folder "x" rather than climbing out of `.trash/`.
+        let probedId = ((try? JSONDecoder().decode(IdProbe.self, from: itemMetadata))?.id) ?? "x"
+        let originalId = SafeRelativePath.isPlainFileName(probedId) ? probedId : "x"
         let stem = "\(Self.timestampPrefix(for: now))-\(originalId)"
         let fm = FileManager.default
         try fm.createDirectory(at: trashRoot, withIntermediateDirectories: true)
 
         func claim(_ entryId: String) throws -> (id: String, folder: URL)? {
-            let folder = trashRoot.appendingPathComponent(entryId)
+            let folder = trashRoot.appendingPathComponent(try SafeRelativePath.requirePlainFileName(entryId))
             do {
                 try fm.createDirectory(at: folder, withIntermediateDirectories: false)
                 return (entryId, folder)

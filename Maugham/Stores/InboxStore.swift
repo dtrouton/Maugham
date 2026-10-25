@@ -695,7 +695,7 @@ final class InboxStore {
             created = try await projectStore.createResearchNote(
                 scope: scope, title: promotionTitle(for: entry))
             if let path = created.path {
-                let dest = try projectStore.resolvedProjectPath(path)
+                let dest = try projectStore.resolvedProjectPathToChange(path)
                 // `try`, not `try?`: a failed body write used to leave an EMPTY
                 // note reported as a successful promotion, the capture's words
                 // surviving only in the promoted-hidden manifest history.

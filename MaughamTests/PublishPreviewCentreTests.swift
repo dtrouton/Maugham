@@ -1359,7 +1359,7 @@ final class PublishPreviewCentreTests: XCTestCase {
                       "premise: the receiver has a live window")
         box.selectedProposal = staged
 
-        try FileManager.default.removeItem(at: store.proposalDir(id: staged.id))
+        try FileManager.default.removeItem(at: try store.proposalDir(id: staged.id))
         MaughamEvent.postDesignProposalsChanged(projectURL: project)
         await pumpUntil(deadline: 5) { box.selectedProposal == nil }
 

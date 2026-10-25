@@ -47,8 +47,8 @@ public enum BackupWriter {
     ) throws -> BackupGeneration {
         let fm = FileManager.default
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-        let partial = destination.appendingPathComponent(".partial-\(generationId)")
-        let final = destination.appendingPathComponent(generationId)
+        let partial = destination.appendingPathComponent(".partial-\(generationId)") // local-path: the ULID the caller minted
+        let final = destination.appendingPathComponent(generationId) // local-path: the ULID the caller minted
 
         // Generations are immutable — refuse to overwrite an existing one (a ULID
         // collision means a caller bug). Fail fast before the expensive copy.
@@ -160,7 +160,7 @@ public enum BackupWriter {
         let toRemove = ids.filter { !keptSet.contains($0) }
         let fm = FileManager.default
         for id in toRemove {
-            try fm.removeItem(at: destination.appendingPathComponent(id))
+            try fm.removeItem(at: destination.appendingPathComponent(id)) // local-path: a generation folder the destination listing returned
         }
         return toRemove
     }
@@ -169,7 +169,7 @@ public enum BackupWriter {
     /// the relative paths that mismatch or are missing (empty == intact). Throws if
     /// the generation or its manifest can't be read.
     public static func verifyGeneration(id: String, at destination: URL) throws -> [String] {
-        let genDir = destination.appendingPathComponent(id)
+        let genDir = destination.appendingPathComponent(id) // local-path: a generation folder the destination listing returned
         let manifestURL = genDir.appendingPathComponent(manifestName)
         let manifest = try JSONDecoder().decode(
             MerkleManifest.self, from: Data(contentsOf: manifestURL))  // adr-0018-ok: backup Merkle manifest read, not manuscript

@@ -156,7 +156,7 @@ public enum ImagePasteHandler {
     /// Throws `ProjectStoreError.unsafeProjectPath` for a note path that
     /// leaves the project (tripwire 58): the path is a synced manifest field.
     static func wellURL(forNoteAt notePath: String, in projectURL: URL) throws -> URL {
-        let noteURL = try ProjectStore.resolvedProjectPath(notePath, under: projectURL)
+        let noteURL = try ProjectStore.resolvedProjectPathToChange(notePath, under: projectURL)
         let noteSlug = noteURL.deletingPathExtension().lastPathComponent
         return noteURL
             .deletingLastPathComponent()

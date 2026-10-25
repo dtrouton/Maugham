@@ -96,7 +96,7 @@ enum ProposalPromotion {
         else { throw Error.noLivePublishTree(projectURL.path) }
 
         let store = DesignProposalStore(projectURL: projectURL)
-        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        let backupRoot = try backupDirectory(id: proposal.id, projectURL: projectURL)
         // A standing backup means the live templates are already held against
         // this proposal. Rebuilding it would capture the PROMOTED bytes as the
         // originals and lose the only way back.
@@ -169,7 +169,7 @@ enum ProposalPromotion {
         try await refuseWhileCompiling(jobManager)
 
         let fm = FileManager.default
-        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        let backupRoot = try backupDirectory(id: proposal.id, projectURL: projectURL)
         guard let backup = readManifest(at: backupRoot) else {
             throw Error.noBackupToRestore(id: proposal.id)
         }
@@ -237,7 +237,7 @@ enum ProposalPromotion {
         // proposal approved as its LAST step, so a caller holding the value it
         // passed to `approve` still reads `.pending`.
         let current = try store.load(id: proposal.id)
-        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        let backupRoot = try backupDirectory(id: proposal.id, projectURL: projectURL)
         guard FileManager.default.fileExists(atPath: backupRoot.path) else {
             throw Error.noBackupToFinalize(id: proposal.id)
         }
@@ -272,8 +272,8 @@ enum ProposalPromotion {
             .filter { $0 != excludedID }
             .sorted()
             .first {
-                fm.fileExists(
-                    atPath: backupDirectory(id: $0, projectURL: projectURL).path)
+                (try? backupDirectory(id: $0, projectURL: projectURL))
+                    .map { fm.fileExists(atPath: $0.path) } ?? false
             }
     }
 
@@ -296,8 +296,8 @@ enum ProposalPromotion {
         projectURL.appendingPathComponent(".maugham/publish", isDirectory: true)
     }
 
-    static func backupDirectory(id: String, projectURL: URL) -> URL {
-        DesignProposalStore(projectURL: projectURL).backupDir(id: id)
+    static func backupDirectory(id: String, projectURL: URL) throws -> URL {
+        try DesignProposalStore(projectURL: projectURL).backupDir(id: id)
     }
 
     private struct Promotion {
@@ -320,7 +320,7 @@ enum ProposalPromotion {
     /// files, so each path is resolved inside its tree before any copy, write
     /// or delete.
     private static func inside(_ folder: URL, _ relativePath: String) throws -> URL {
-        do { return try SafeRelativePath.resolve(relativePath, under: folder) } catch {
+        do { return try SafeRelativePath.resolveForChange(relativePath, under: folder) } catch {
             throw Error.stagedPathEscapesThePublishTree(relativePath)
         }
     }
@@ -329,7 +329,7 @@ enum ProposalPromotion {
         proposal: DesignProposalStore.Proposal, projectURL: URL, livePublish: URL
     ) throws -> [Promotion] {
         let fm = FileManager.default
-        let stagedDirectory = DesignProposalStore(projectURL: projectURL)
+        let stagedDirectory = try DesignProposalStore(projectURL: projectURL)
             .proposalDir(id: proposal.id)
             .appendingPathComponent("files", isDirectory: true)
         let root = livePublish.standardizedFileURL.path

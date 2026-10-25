@@ -253,22 +253,35 @@ final class SafeRelativePathTests: XCTestCase {
         XCTAssertEqual(url, link.appendingPathComponent("figures/map.png"))
     }
 
-    // MARK: - resolve checks the disk (report plan 6b Task 2)
+    // MARK: - resolveForChange checks the folder chain on disk (report plan 6b Task 2)
 
-    /// A cleanly spelled path whose folder is, on disk, a symlink out of the
-    /// root: refused, whether the file under it exists or not.
-    func test_resolve_refusesAPathThroughASymlinkedFolderThatEscapes() throws {
+    private func linkedProject() throws -> (base: URL, root: URL, outside: URL) {
         let base = tempRoot()
-        defer { try? FileManager.default.removeItem(at: base) }
         let root = base.appendingPathComponent("project")
         let outside = base.appendingPathComponent("outside")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(
             at: root.appendingPathComponent("research"), withDestinationURL: outside)
+        return (base, root, outside)
+    }
 
+    /// Reads stay lexical: a writer's own link to a folder elsewhere reads.
+    func test_resolve_staysLexical_soALinkedFolderReads() throws {
+        let (base, root, _) = try linkedProject()
+        defer { try? FileManager.default.removeItem(at: base) }
+        XCTAssertEqual(try SafeRelativePath.resolve("research/note.md", under: root),
+                       root.appendingPathComponent("research/note.md"))
+    }
+
+    /// A change through a folder linked out of the root is refused, whether
+    /// the file under it exists or not.
+    func test_resolveForChange_refusesAPathThroughAFolderLinkedOutside() throws {
+        let (base, root, _) = try linkedProject()
+        defer { try? FileManager.default.removeItem(at: base) }
         for relative in ["research/note.md", "research/new/deeper.md"] {
-            XCTAssertThrowsError(try SafeRelativePath.resolve(relative, under: root), relative) { error in
+            XCTAssertThrowsError(try SafeRelativePath.resolveForChange(relative, under: root),
+                                 relative) { error in
                 guard case SafeRelativePath.PathError.escapesRoot = error else {
                     return XCTFail("expected .escapesRoot, got \(error)")
                 }
@@ -276,32 +289,27 @@ final class SafeRelativePathTests: XCTestCase {
         }
     }
 
-    /// The leaf itself a symlink out of the root: refused (a read, or a
-    /// non-atomic write, would follow it).
-    func test_resolve_refusesALeafSymlinkThatEscapes() throws {
-        let base = tempRoot()
+    /// The link entry itself is not followed: renaming or trashing it moves
+    /// the link, so it is a change inside the root.
+    func test_resolveForChange_acceptsTheLinkEntryItself() throws {
+        let (base, root, _) = try linkedProject()
         defer { try? FileManager.default.removeItem(at: base) }
-        let root = base.appendingPathComponent("project")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let outsideFile = base.appendingPathComponent("outside.md")
-        try "x".write(to: outsideFile, atomically: true, encoding: .utf8)
-        try FileManager.default.createSymbolicLink(
-            at: root.appendingPathComponent("note.md"), withDestinationURL: outsideFile)
-
-        XCTAssertThrowsError(try SafeRelativePath.resolve("note.md", under: root))
+        XCTAssertEqual(try SafeRelativePath.resolveForChange("research", under: root),
+                       root.appendingPathComponent("research"))
     }
 
-    /// A symlink that stays inside the root is not an escape.
-    func test_resolve_acceptsASymlinkInsideTheRoot() throws {
+    /// A link that stays inside the root is not an escape, and the lexical
+    /// rules still hold.
+    func test_resolveForChange_acceptsALinkInsideTheRoot_andRefusesAClimb() throws {
         let root = tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let real = root.appendingPathComponent("real")
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(
             at: root.appendingPathComponent("research"), withDestinationURL: real)
-
-        XCTAssertEqual(try SafeRelativePath.resolve("research/note.md", under: root),
+        XCTAssertEqual(try SafeRelativePath.resolveForChange("research/note.md", under: root),
                        root.appendingPathComponent("research/note.md"))
+        XCTAssertThrowsError(try SafeRelativePath.resolveForChange("../x.md", under: root))
     }
 
     // MARK: - requireDocId

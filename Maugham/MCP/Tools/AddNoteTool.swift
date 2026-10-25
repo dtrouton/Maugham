@@ -56,7 +56,7 @@ public enum AddNoteTool: MCPTool {
 
         // Write the supplied body to the freshly-created file.
         if let path = created.path {
-            let absURL = try ProjectStore.resolvedProjectPath(path, under: entry.url)
+            let absURL = try ProjectStore.resolvedProjectPathToChange(path, under: entry.url)
             try params.body.write(to: absURL, atomically: true, encoding: .utf8)
         }
 

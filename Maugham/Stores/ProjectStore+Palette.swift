@@ -179,7 +179,7 @@ extension ProjectStore {
             return
         }
         try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts (documentStore == nil)
-            to: try resolvedProjectPath(path), atomically: true, encoding: .utf8)
+            to: try resolvedProjectPathToChange(path), atomically: true, encoding: .utf8)
     }
 
     /// Locate a palette card item and its parsed model, or throw `structureMissing`.

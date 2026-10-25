@@ -512,27 +512,55 @@ public final class ProjectStore {
         return FileManager.default.fileExists(atPath: placeholder.path)
     }
 
-    /// **A synced project-relative path as a URL inside this project** —
-    /// the one way a verb turns a manifest row's `path` (or a path derived
-    /// from one) into a URL it reads, writes, moves or deletes (tripwire 58).
-    /// Throws `.unsafeProjectPath` for a path `SafeRelativePath.resolve`
-    /// refuses — absolute, empty, `..` netting outside, or through a symlink
-    /// that leaves the project — and for any `.` or `..` component at all:
-    /// the apps never mint one, and a verb that takes the path's last
-    /// component (a rename's old file name) must not be handed `..`.
+    /// **A synced project-relative path as a URL inside this project, to
+    /// read** — the way a verb turns a manifest row's `path` (or a path derived
+    /// from one) into a URL it reads, opens or lists (tripwire 58). Lexical
+    /// (`SafeRelativePath.resolve`), so a writer's own symlinked chapter or
+    /// research folder still opens. Throws `.unsafeProjectPath` for an
+    /// absolute or empty path, one netting outside, and any `.` or `..`
+    /// component at all: the apps never mint one, and a verb that takes the
+    /// path's last component (a rename's old file name) must not be handed `..`.
+    /// A path the verb will WRITE, copy, move, rename or delete asks
+    /// `resolvedProjectPathToChange(_:)`.
     nonisolated func resolvedProjectPath(_ relative: String, isDirectory: Bool = false) throws -> URL {
         try Self.resolvedProjectPath(relative, under: url, isDirectory: isDirectory)
+    }
+
+    /// `resolvedProjectPath(_:)`, plus its folder chain checked on disk
+    /// (`SafeRelativePath.resolveForChange`): the URL a write, copy, move,
+    /// rename or delete changes. A folder linked out of the project is
+    /// refused; the leaf is never followed, so a link entry renames, moves
+    /// and trashes as a link.
+    nonisolated func resolvedProjectPathToChange(_ relative: String, isDirectory: Bool = false) throws -> URL {
+        try Self.resolvedProjectPathToChange(relative, under: url, isDirectory: isDirectory)
     }
 
     /// `resolvedProjectPath(_:)` for a caller holding only the root.
     nonisolated static func resolvedProjectPath(
         _ relative: String, under root: URL, isDirectory: Bool = false
     ) throws -> URL {
+        try checked(relative, isDirectory: isDirectory) {
+            try SafeRelativePath.resolve(relative, under: root)
+        }
+    }
+
+    /// `resolvedProjectPathToChange(_:)` for a caller holding only the root.
+    nonisolated static func resolvedProjectPathToChange(
+        _ relative: String, under root: URL, isDirectory: Bool = false
+    ) throws -> URL {
+        try checked(relative, isDirectory: isDirectory) {
+            try SafeRelativePath.resolveForChange(relative, under: root)
+        }
+    }
+
+    private nonisolated static func checked(
+        _ relative: String, isDirectory: Bool, _ resolve: () throws -> URL
+    ) throws -> URL {
         do {
             if relative.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) {
                 throw SafeRelativePath.PathError.escapesRoot(relative)
             }
-            let resolved = try SafeRelativePath.resolve(relative, under: root)
+            let resolved = try resolve()
             return isDirectory
                 ? URL(fileURLWithPath: resolved.path, isDirectory: true) : resolved
         } catch let error as SafeRelativePath.PathError {

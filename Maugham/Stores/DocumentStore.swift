@@ -787,12 +787,18 @@ public final class DocumentStore {
         try ProjectStore.resolvedProjectPath(relative, under: projectURL)
     }
 
+    /// The URL a write, copy, move, rename or delete changes
+    /// (`ProjectStore.resolvedProjectPathToChange(_:under:)`).
+    nonisolated func resolvedProjectPathToChange(_ relative: String) throws -> URL {
+        try ProjectStore.resolvedProjectPathToChange(relative, under: projectURL)
+    }
+
     /// `internal` (not `private`) so `ProjectStore+Palette.swift`'s
     /// `paletteCoordinatedWrite(_:to:)` funnel can call it directly for
     /// immediate (non-debounced) coordinated writes — palette card saves
     /// are await-and-done, unlike `scheduleFileSave`'s 750ms debounce.
     func performFileSave(path: String, text: String) async throws {
-        let url = try resolvedProjectPath(path)
+        let url = try resolvedProjectPathToChange(path)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var saveError: Error?
@@ -1245,7 +1251,7 @@ public final class DocumentStore {
         var resolved: [String: URL] = [:]
         for step in plan.steps {
             for relative in [step.oldRelativePath, step.newRelativePath] {
-                resolved[relative] = try resolvedProjectPath(relative)
+                resolved[relative] = try resolvedProjectPathToChange(relative)
             }
         }
 

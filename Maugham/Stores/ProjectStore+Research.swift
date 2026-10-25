@@ -43,7 +43,7 @@ extension ProjectStore {
             let parentPath = researchParentPath(parentId: parentId)
             let slug = Slugifier.slug(from:title)
             let folderPath = "\(parentPath)/\(slug)"
-            let folderURL = try resolvedProjectPath(folderPath, isDirectory: true)
+            let folderURL = try resolvedProjectPathToChange(folderPath, isDirectory: true)
             try FileManager.default.createDirectory(
                 at: folderURL, withIntermediateDirectories: true)
             _ = documentStore
@@ -88,14 +88,14 @@ extension ProjectStore {
         let ext = (filename as NSString).pathExtension.lowercased()
         let slug = Slugifier.slug(from:stem)
         var targetFilename = "\(slug).\(ext)"
-        let parentURL = try resolvedProjectPath(parentPath, isDirectory: true)
+        let parentURL = try resolvedProjectPathToChange(parentPath, isDirectory: true)
         try? FileManager.default.createDirectory(
             at: parentURL, withIntermediateDirectories: true)
         let existing = (try? FileManager.default
             .contentsOfDirectory(atPath: parentURL.path)) ?? []
         targetFilename = Self.researchDedupedFilename(targetFilename, existing: existing)
         let relativePath = "\(parentPath)/\(targetFilename)"
-        let targetURL = try resolvedProjectPath(relativePath)
+        let targetURL = try resolvedProjectPathToChange(relativePath)
 
         try await documentStore.executeCopy(from: externalURL, to: targetURL)
 
@@ -155,7 +155,7 @@ extension ProjectStore {
            let parent = findResearchItem(id: parentId, in: manifest.research),
            parent.type == .group {
             let groupSlug = Slugifier.slug(from:parent.title)
-            parentFolder = researchRoot.appendingPathComponent(groupSlug)
+            parentFolder = researchRoot.appendingPathComponent(groupSlug) // local-path: a slug of the group's title
             try FileManager.default.createDirectory(
                 at: parentFolder, withIntermediateDirectories: true)
         } else {
@@ -432,7 +432,7 @@ extension ProjectStore {
             let newPath = "\(parentPath)/\(newLeaf)"
             try await documentStore.executeCopy(
                 from: try resolvedProjectPath(sourcePath),
-                to: try resolvedProjectPath(newPath))
+                to: try resolvedProjectPathToChange(newPath))
             copy.path = newPath
             // Rewrite descendant paths if group.
             if let children = copy.children {
@@ -725,7 +725,7 @@ extension ProjectStore {
         via ds: DocumentStore?
     ) async throws -> (newPath: String, childPathRewrites: [(String, String)])? {
         guard let oldRelPath = item.path else { return nil }
-        let oldURL = try resolvedProjectPath(oldRelPath)
+        let oldURL = try resolvedProjectPathToChange(oldRelPath)
         let oldSlug = Slugifier.slug(from:oldTitle)
         let newSlug = Slugifier.slug(from:newTitle)
         guard oldSlug != newSlug else { return nil }

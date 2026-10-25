@@ -243,8 +243,13 @@ struct PaletteCardView: View {
 
     /// The card's file, when its synced path stays inside the project
     /// (tripwire 58).
-    private var cardURL: URL? {
-        item.path.flatMap { try? SafeRelativePath.resolve($0, under: project.url) }
+    private var cardURL: URL? { Self.fileURL(item.path, in: project.url) }
+
+    /// A card's file or one of its pictures, when the synced path stays
+    /// inside the project (tripwire 58); nil otherwise — the card says so and
+    /// a picture shows its placeholder.
+    static func fileURL(_ path: String?, in projectURL: URL) -> URL? {
+        path.flatMap { try? SafeRelativePath.resolve($0, under: projectURL) }
     }
 
     /// Directory of the card file, project-relative — the base for resolving the
@@ -311,7 +316,7 @@ struct PaletteCardView: View {
     /// record a nil entry so the cell shows a placeholder — never an error screen.
     private func loadImages(_ card: PaletteCard) async {
         for path in card.imagePaths {
-            guard let url = try? SafeRelativePath.resolve(path, under: project.url) else {
+            guard let url = Self.fileURL(path, in: project.url) else {
                 await MainActor.run { images[path] = .some(nil) }
                 continue
             }

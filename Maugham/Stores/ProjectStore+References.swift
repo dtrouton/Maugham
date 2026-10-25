@@ -62,7 +62,7 @@ extension ProjectStore {
         manifest.structure[idx].linkedProjectPath = newURL.path
         manifest.structure[idx].linkedProjectBookmark = bookmarkData
 
-        let linkURL = try resolvedProjectPath(relPath)
+        let linkURL = try resolvedProjectPathToChange(relPath)
         let linkFile = CollectionLinkFile(
             version: 1,
             title: manifest.structure[idx].title,

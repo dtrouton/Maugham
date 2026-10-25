@@ -997,7 +997,7 @@ struct PromotionPerformer {
             try await ds.performFileSave(path: path, text: text)
             return
         }
-        try text.write(to: try store.resolvedProjectPath(path),
+        try text.write(to: try store.resolvedProjectPathToChange(path),
                        atomically: true, encoding: .utf8)
     }
 
