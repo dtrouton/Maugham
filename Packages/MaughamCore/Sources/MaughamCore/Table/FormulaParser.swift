@@ -15,36 +15,40 @@ public struct FormulaParseError: Error, Equatable, Sendable {
 /// writes it back as A1 text by current positions, and shifts it for fill/copy.
 /// A hand-written recursive-descent parser: total over every input string.
 public enum FormulaParser {
-    /// `text` is what follows the "=". `table` resolves unqualified refs to ids; `figures` resolves `name!B2`.
-    public static func parse(_ text: String, in table: FigureTable, figures: [String: FigureTable] = [:]) -> Result<Formula, FormulaParseError> {
-        run(text, mode: .entry(table, figures))
+    /// `text` is what follows the "=". `table` resolves unqualified refs to ids; `names` turns
+    /// `name!B2` into that figure's id and its cell's ids, and `research:name!B2` into the
+    /// research item's id (R-D1). An unknown or shared name refuses the formula.
+    public static func parse(_ text: String, in table: FigureTable, names: FormulaNames = .empty) -> Result<Formula, FormulaParseError> {
+        run(text, mode: .entry(table), names: names)
     }
 
-    /// Positional parse for a CSV: every ref is `.position`, no table needed.
-    public static func parsePositional(_ text: String) -> Result<Formula, FormulaParseError> {
-        run(text, mode: .positional)
+    /// Positional parse for a CSV: every ref is `.position`, no table needed. Names still
+    /// become ids through `names`, under `parse`'s rules (an unknown name refuses).
+    public static func parsePositional(_ text: String, names: FormulaNames) -> Result<Formula, FormulaParseError> {
+        run(text, mode: .positional, names: names)
     }
 
-    /// The formula as A1 text (no leading "="), by current positions.
-    public static func render(_ formula: Formula, in table: FigureTable, figures: [String: FigureTable] = [:]) -> String {
-        Renderer(table: table, figures: figures).text(formula.expr)
+    /// The formula as A1 text (no leading "="), by current positions, each figure and
+    /// research item under the name `names` gives it now; one it cannot name is `#REF!`.
+    public static func render(_ formula: Formula, in table: FigureTable, names: FormulaNames = .empty) -> String {
+        Renderer(table: table, names: names).text(formula.expr)
     }
 
     /// Fill/copy: relative parts shift by the live-position delta from `from` to `to`;
     /// `$` parts stay. A ref (or either edge of a range) that leaves its live grid becomes
-    /// `.error(.ref)`. Refs into a figure shift against that figure's grid in `figures`;
-    /// research refs shift arithmetically and fall off below row/column 0. No default for `figures`:
+    /// `.error(.ref)`. Refs into a figure shift against that figure's grid in `names`;
+    /// research refs shift arithmetically and fall off below row/column 0. No default for `names`:
     /// a figure missing from it turns every relative ref into it into `#REF!`.
     public static func translate(_ formula: Formula, from: CellKey, to: CellKey, in table: FigureTable,
-                                 figures: [String: FigureTable]) -> Formula {
+                                 names: FormulaNames) -> Formula {
         guard let fr = table.rowIndex(of: from.row), let fc = table.columnIndex(of: from.column),
               let tr = table.rowIndex(of: to.row), let tc = table.columnIndex(of: to.column) else { return formula }
-        let t = Translator(table: table, figures: figures, dRow: tr - fr, dColumn: tc - fc)
+        let t = Translator(table: table, names: names, dRow: tr - fr, dColumn: tc - fc)
         return Formula(t.map(formula.expr))
     }
 
-    private static func run(_ text: String, mode: Parser.Mode) -> Result<Formula, FormulaParseError> {
-        var p = Parser(chars: Array(text), mode: mode)
+    private static func run(_ text: String, mode: Parser.Mode, names: FormulaNames) -> Result<Formula, FormulaParseError> {
+        var p = Parser(chars: Array(text), mode: mode, names: names)
         do {
             return .success(Formula(try p.parseFormula()))
         } catch let e as FormulaParseError {
@@ -94,10 +98,10 @@ public enum FormulaParser {
                             columnAbsolute: columnsInOrder ? e.columnAbsolute : s.columnAbsolute))
     }
 
-    static func grid(_ target: RefTarget, table: FigureTable, figures: [String: FigureTable]) -> FigureTable? {
+    static func grid(_ target: RefTarget, table: FigureTable, names: FormulaNames) -> FigureTable? {
         switch target {
         case .this: return table
-        case .figure(let name): return figures[name]
+        case .figure(let id): return names.table(id: id)
         case .research: return nil
         }
     }
@@ -126,7 +130,7 @@ public enum FormulaParser {
 
 private struct Parser {
     enum Mode {
-        case entry(FigureTable, [String: FigureTable])
+        case entry(FigureTable)
         case positional
     }
 
@@ -134,6 +138,7 @@ private struct Parser {
 
     let chars: [Character]
     let mode: Mode
+    let names: FormulaNames
     var i = 0
     /// Recursion now open: parentheses, calls' arguments and pending right operands.
     var nesting = 0
@@ -144,9 +149,10 @@ private struct Parser {
 
     typealias Node = (expr: FormulaExpr, depth: Int)
 
-    init(chars: [Character], mode: Mode) {
+    init(chars: [Character], mode: Mode, names: FormulaNames) {
         self.chars = chars
         self.mode = mode
+        self.names = names
     }
 
     func fail(_ message: String, at offset: Int? = nil) -> FormulaParseError {
@@ -308,7 +314,7 @@ private struct Parser {
         case "'":
             let name = try parseQuotedName(what: "table")
             guard match("!") else { throw fail("Expected “!” after the table name") }
-            return .value(try parseAfterFigureQualifier(name))
+            return .value(try parseAfterFigureQualifier(name, at: start))
         default:
             break
         }
@@ -325,15 +331,16 @@ private struct Parser {
                 throw fail("A table named like a cell needs quotes, as in '\(name)'!B2", at: start)
             }
             i = f + 1
-            return .value(try parseAfterFigureQualifier(name))
+            return .value(try parseAfterFigureQualifier(name, at: start))
         }
         var j = i
         while j < chars.count, chars[j].isASCII, chars[j].isLetter || chars[j].isNumber || chars[j] == "_" || chars[j] == "." { j += 1 }
         let word = String(chars[i..<j])
         if word.lowercased() == "research", j < chars.count, chars[j] == ":" {
             i = j + 1
+            let nameStart = i
             let name = try parseResearchName()
-            return .value(try parseRefOrRange(target: .research(name: name)))
+            return .value(try parseRefOrRange(target: .research(id: try researchId(name, at: nameStart))))
         }
         var k = j
         while k < chars.count, chars[k].isWhitespace { k += 1 }
@@ -353,9 +360,31 @@ private struct Parser {
     }
 
     /// After `name!`: `#REF!` (a figure ref that fell off its grid) or a cell or range.
-    mutating func parseAfterFigureQualifier(_ name: String) throws -> FormulaExpr {
+    mutating func parseAfterFigureQualifier(_ name: String, at start: Int) throws -> FormulaExpr {
         if peek == "#" { return .error(try parseErrorLiteral()) }
-        return try parseRefOrRange(target: .figure(name: name))
+        return try parseRefOrRange(target: .figure(id: try figureId(name, at: start)))
+    }
+
+    /// The id of the figure typed as `name` (R-D1). On entry the figure must have a table
+    /// to resolve against; a CSV's positional read only needs the id.
+    func figureId(_ name: String, at start: Int) throws -> String {
+        switch names.figure(named: name) {
+        case .found(let id):
+            if case .entry = mode, names.table(id: id) == nil { break }
+            return id
+        case .ambiguous: throw fail("Two tables are called \(name); rename one.", at: start)
+        case .unknown: break
+        }
+        throw fail("There is no table named \(name)", at: start)
+    }
+
+    /// The id of the research item typed as `name`: its title, any case (R-D1).
+    func researchId(_ name: String, at start: Int) throws -> String {
+        switch names.research(named: name) {
+        case .found(let id): return id
+        case .ambiguous: throw fail("Two Research items are called \(name); rename one.", at: start)
+        case .unknown: throw fail("There is no Research item called \(name)", at: start)
+        }
     }
 
     /// A '…'-quoted name ('' is a quote), starting at the opening quote.
@@ -528,7 +557,7 @@ private struct Parser {
             FormulaRef(target: target, anchor: .position(row: a.row, column: a.column),
                        rowAbsolute: a.rowAbsolute, columnAbsolute: a.columnAbsolute)
         }
-        guard case .entry(let table, let figures) = mode else { return positional() }
+        guard case .entry(let table) = mode else { return positional() }
         let grid: FigureTable
         let outside: String
         let shown = A1.render(row: a.row, column: a.column, rowAbsolute: false, columnAbsolute: false)
@@ -538,10 +567,11 @@ private struct Parser {
         case .this:
             grid = table
             outside = "\(shown) is outside this table"
-        case .figure(let name):
-            guard let g = figures[name] else { throw fail("There is no table named \(name)", at: offset) }
+        case .figure(let id):
+            // `figureId` only answers an id with a table on entry.
+            guard let g = names.table(id: id) else { throw fail("There is no table named \(names.figureName(id: id) ?? id)", at: offset) }
             grid = g
-            outside = "\(shown) is outside the table named \(name)"
+            outside = "\(shown) is outside the table named \(names.figureName(id: id) ?? id)"
         }
         let rows = grid.rows, columns = grid.columns
         guard a.row < rows.count, a.column < columns.count else { throw fail(outside, at: offset) }
@@ -554,7 +584,7 @@ private struct Parser {
 
 private struct Renderer {
     let table: FigureTable
-    let figures: [String: FigureTable]
+    let names: FormulaNames
 
     /// Binding strength, loosest 1 … tightest 7 (the grammar's levels).
     static func level(_ e: FormulaExpr) -> Int {
@@ -600,7 +630,9 @@ private struct Renderer {
         case .bool(let b): return b ? "TRUE" : "FALSE"
         case .missing: return ""
         case .error(let err): return err.rawValue
-        case .ref(let r): return prefix(r.target) + (cell(r) ?? FormulaError.ref.rawValue)
+        case .ref(let r):
+            guard let p = prefix(r.target) else { return FormulaError.ref.rawValue }
+            return p + (cell(r) ?? FormulaError.ref.rawValue)
         case .range(let g): return rangeText(g)
         case .call(let name, let arguments): return name + "(" + arguments.map(text).joined(separator: ",") + ")"
         case .unary(let op, let operand):
@@ -615,11 +647,15 @@ private struct Renderer {
         }
     }
 
-    func prefix(_ target: RefTarget) -> String {
+    /// `name!` under the target's current name, or nil when `names` cannot name it (`#REF!`).
+    func prefix(_ target: RefTarget) -> String? {
         switch target {
         case .this: return ""
-        case .figure(let name): return (FormulaParser.isBareFigureName(name) ? name : Self.quoted(name)) + "!"
-        case .research(let name):
+        case .figure(let id):
+            guard let name = names.figureName(id: id) else { return nil }
+            return (FormulaParser.isBareFigureName(name) ? name : Self.quoted(name)) + "!"
+        case .research(let id):
+            guard let name = names.researchTitle(id: id) else { return nil }
             let bare = !name.isEmpty && !name.contains(" ") && !name.contains("'")
                 && name.trimmingCharacters(in: .whitespaces) == name
             return "research:" + (bare ? name : Self.quoted(name)) + "!"
@@ -635,21 +671,21 @@ private struct Renderer {
         case .position(let row, let column):
             return A1.render(row: row, column: column, rowAbsolute: r.rowAbsolute, columnAbsolute: r.columnAbsolute)
         case .id(let rowID, let columnID):
-            guard let grid = FormulaParser.grid(r.target, table: table, figures: figures),
+            guard let grid = FormulaParser.grid(r.target, table: table, names: names),
                   let row = grid.rowIndex(of: rowID), let column = grid.columnIndex(of: columnID) else { return nil }
             return A1.render(row: row, column: column, rowAbsolute: r.rowAbsolute, columnAbsolute: r.columnAbsolute)
         }
     }
 
     func rangeText(_ g: FormulaRange) -> String {
-        let p = prefix(g.start.target)
+        guard let p = prefix(g.start.target) else { return FormulaError.ref.rawValue }
         let s = g.start, e = g.end
         switch (s.anchor, e.anchor) {
         case (.position(let r0, let c0), .position(let r1, let c1)):
             return p + A1.render(row: r0, column: c0, rowAbsolute: s.rowAbsolute, columnAbsolute: s.columnAbsolute)
                 + ":" + A1.render(row: r1, column: c1, rowAbsolute: e.rowAbsolute, columnAbsolute: e.columnAbsolute)
         case (.id, .id):
-            guard let grid = FormulaParser.grid(s.target, table: table, figures: figures),
+            guard let grid = FormulaParser.grid(s.target, table: table, names: names),
                   let live = FormulaParser.liveRange(g, in: grid),
                   let a = cell(live.start), let b = cell(live.end)
             else { return p + FormulaError.ref.rawValue }
@@ -664,7 +700,7 @@ private struct Renderer {
 
 private struct Translator {
     let table: FigureTable
-    let figures: [String: FigureTable]
+    let names: FormulaNames
     let dRow: Int
     let dColumn: Int
 
@@ -688,7 +724,7 @@ private struct Translator {
             guard newRow >= 0, newColumn >= 0 else { return nil }
             out.anchor = .position(row: newRow, column: newColumn)
         case .id(let rowID, let columnID):
-            guard let grid = FormulaParser.grid(r.target, table: table, figures: figures) else {
+            guard let grid = FormulaParser.grid(r.target, table: table, names: names) else {
                 return r.rowAbsolute && r.columnAbsolute ? r : nil
             }
             guard let ri = grid.rowIndex(of: rowID), let ci = grid.columnIndex(of: columnID) else { return nil }
@@ -706,7 +742,7 @@ private struct Translator {
         var grid: FigureTable?
         if case .id = g.start.anchor {
             // Shift the range as it now stands: a tombstoned edge has already shrunk inward.
-            guard let found = FormulaParser.grid(g.start.target, table: table, figures: figures) else {
+            guard let found = FormulaParser.grid(g.start.target, table: table, names: names) else {
                 // A figure that isn't here: as for a single ref, only a wholly absolute range survives.
                 let pinned = [g.start, g.end].allSatisfy { $0.rowAbsolute && $0.columnAbsolute }
                 return pinned ? g : nil

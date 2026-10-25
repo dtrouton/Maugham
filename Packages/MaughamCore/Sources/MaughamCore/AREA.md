@@ -164,7 +164,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `CellValue.swift` — a cell's value, formula error codes and cell content.
 - `CellFormat.swift` — number, date and negative formats and cell alignment.
 - `FigureTable.swift` — a table's rows and columns as ordered id slots with tombstones, its cells, header/total rows; the model the op log derives.
-- `Formula.swift` — a cell's formula syntax tree; refs stored by row and column id, research refs by position.
+- `Formula.swift` — a cell's formula syntax tree; refs stored by row and column id, research refs by position, figures and research items by id.
+- `FormulaNames.swift` — the names a formula is typed and shown with: figure name and research title to id when read, id to current name when shown.
 - `A1.swift` — A1 notation: column letters, `$` absolute markers.
 - `FormulaParser.swift` — parses formula text (Excel precedence), renders it as A1 by live position (a deleted range edge shrinks inward), shifts it for fill.
 - `FormulaEvaluator.swift` — evaluates a formula over an environment of cell and range readers: Excel's coercion, comparison and error rules.
@@ -182,7 +183,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureOp.swift` — a figure op's content on the shared envelope (`Op.figure`): the figure kind, cell, structure, settings, image and research-pin changes, and which fields each figure op kind needs.
 - `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
 - `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked and resumed.
-- `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure name, parked figures left out.
+- `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed.
 - `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, move, setting, image), and a visit's inverses as one all-or-nothing undo.
 
 ### Inbox and capture

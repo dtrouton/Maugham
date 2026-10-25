@@ -2,7 +2,7 @@ import XCTest
 @testable import MaughamCore
 
 private struct NoPins: ResearchPinSource {
-    func pinnedValue(research name: String, row: Int, column: Int) -> CellValue? { nil }
+    func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? { nil }
 }
 
 final class TableCSVTests: XCTestCase {
@@ -15,7 +15,7 @@ final class TableCSVTests: XCTestCase {
 
     private func workbookValues(_ t: FigureTable) -> Workbook {
         var wb = Workbook(pins: NoPins())
-        wb.setTable(t, named: "t")
+        wb.setTable(t, id: "t")
         return wb
     }
 
@@ -74,7 +74,7 @@ final class TableCSVTests: XCTestCase {
     // MARK: read
 
     func test_read_semicolonFileReadsCommaDecimals() {
-        let (t, problems) = TableCSV.read("Item;Cost\nTea;1,5\nCake;2.250,75\n", locale: gb, figures: [:])
+        let (t, problems) = TableCSV.read("Item;Cost\nTea;1,5\nCake;2.250,75\n", locale: gb, names: .empty)
         XCTAssertTrue(problems.isEmpty)
         XCTAssertEqual(t.headerRows, 1)
         XCTAssertEqual(t[key(t, "B2")]?.content, .value(.number(1.5)))
@@ -82,7 +82,7 @@ final class TableCSVTests: XCTestCase {
     }
 
     func test_read_unknownFunctionStaysAFormulaAndIsNameError() {
-        let (t, problems) = TableCSV.read("1,2\n3,4\n\"=VLOOKUP(A1,B1:C3,2)\",\n", locale: gb, figures: [:])
+        let (t, problems) = TableCSV.read("1,2\n3,4\n\"=VLOOKUP(A1,B1:C3,2)\",\n", locale: gb, names: .empty)
         XCTAssertTrue(problems.isEmpty)
         guard case .formula = t[key(t, "A3")]?.content else { return XCTFail("expected a formula") }
         let wb = workbookValues(t)
@@ -90,7 +90,7 @@ final class TableCSVTests: XCTestCase {
     }
 
     func test_read_wholeColumnBecomesTextAndOneProblem() {
-        let (t, problems) = TableCSV.read("1,\"=SUM(B:B)\"\n", locale: gb, figures: [:])
+        let (t, problems) = TableCSV.read("1,\"=SUM(B:B)\"\n", locale: gb, names: .empty)
         XCTAssertEqual(t[key(t, "B1")]?.content, .value(.text("=SUM(B:B)")))
         XCTAssertEqual(problems.count, 1)
         XCTAssertEqual(problems.first?.row, 0)
@@ -98,25 +98,25 @@ final class TableCSVTests: XCTestCase {
     }
 
     func test_read_headerHeuristicBothWays() {
-        XCTAssertEqual(TableCSV.read("Name,Qty\nTea,3\n", locale: gb, figures: [:]).table.headerRows, 1)
-        XCTAssertEqual(TableCSV.read("1,2\n3,4\n", locale: gb, figures: [:]).table.headerRows, 0)
-        XCTAssertEqual(TableCSV.read("Name,Qty\nTea,many\n", locale: gb, figures: [:]).table.headerRows, 0)   // no number below
-        XCTAssertEqual(TableCSV.read("Name,2\nTea,3\n", locale: gb, figures: [:]).table.headerRows, 0)        // a number in row one
+        XCTAssertEqual(TableCSV.read("Name,Qty\nTea,3\n", locale: gb, names: .empty).table.headerRows, 1)
+        XCTAssertEqual(TableCSV.read("1,2\n3,4\n", locale: gb, names: .empty).table.headerRows, 0)
+        XCTAssertEqual(TableCSV.read("Name,Qty\nTea,many\n", locale: gb, names: .empty).table.headerRows, 0)   // no number below
+        XCTAssertEqual(TableCSV.read("Name,2\nTea,3\n", locale: gb, names: .empty).table.headerRows, 0)        // a number in row one
     }
 
     func test_read_raggedRowsArePaddedAndEmptyInputIsEmptyTable() {
-        let (t, _) = TableCSV.read("a,b,c\n1\n1,2,3,4\n", locale: gb, figures: [:])
+        let (t, _) = TableCSV.read("a,b,c\n1\n1,2,3,4\n", locale: gb, names: .empty)
         XCTAssertEqual(t.rows.count, 3)
         XCTAssertEqual(t.columns.count, 4)
         XCTAssertNil(t[key(t, "C2")])
-        let empty = TableCSV.read("", locale: gb, figures: [:])
+        let empty = TableCSV.read("", locale: gb, names: .empty)
         XCTAssertEqual(empty.table.rows.count, 0)
         XCTAssertEqual(empty.table.columns.count, 0)
         XCTAssertTrue(empty.problems.isEmpty)
     }
 
     func test_read_positionalRefsResolveByBounds() {
-        let (t, _) = TableCSV.read("1,2,\"=SUM(A1:B1)\",\"=Z9\",\"=SUM(A1:Z9)\"\n", locale: gb, figures: [:])
+        let (t, _) = TableCSV.read("1,2,\"=SUM(A1:B1)\",\"=Z9\",\"=SUM(A1:Z9)\"\n", locale: gb, names: .empty)
         guard case .formula(let f) = t[key(t, "C1")]?.content, case .call(_, let args) = f.expr,
               case .range(let g) = args[0], case .id = g.start.anchor else { return XCTFail("range should resolve to ids") }
         XCTAssertEqual(FormulaParser.render(f, in: t), "SUM(A1:B1)")
@@ -142,9 +142,9 @@ final class TableCSVTests: XCTestCase {
             guard case .success(let f) = FormulaParser.parse(text, in: t) else { return XCTFail(text) }
             set(a1, .formula(f))
         }
-        let csv = TableCSV.renderResearch(t, locale: gb, figures: [:])
+        let csv = TableCSV.renderResearch(t, locale: gb, names: .empty)
         XCTAssertTrue(csv.contains("=SUM(B2:B3)"))
-        let (back, problems) = TableCSV.read(csv, locale: gb, figures: [:])
+        let (back, problems) = TableCSV.read(csv, locale: gb, names: .empty)
         XCTAssertTrue(problems.isEmpty)
         XCTAssertEqual(back.headerRows, 1)
         let a = workbookValues(t), b = workbookValues(back)
@@ -175,8 +175,8 @@ final class TableCSVTests: XCTestCase {
         }
         lines.append("Total,\"=SUM(B2:B20)\",\"=B2+C2\",TRUE,50%")
         let x = lines.joined(separator: "\n")
-        let once = render(TableCSV.read(x, locale: gb, figures: [:]).table)
-        let twice = render(TableCSV.read(once, locale: gb, figures: [:]).table)
+        let once = render(TableCSV.read(x, locale: gb, names: .empty).table)
+        let twice = render(TableCSV.read(once, locale: gb, names: .empty).table)
         XCTAssertEqual(once, twice)
         XCTAssertEqual(once.split(separator: "\n").count, 21)
     }
@@ -197,9 +197,9 @@ final class TableCSVTests: XCTestCase {
         let odd = ["007", "TRUE", "2026-10-24", "50%", " padded ", " =x", "=x", "'quoted", " 'x", "1.5E+20", "12", "-3"]
         let plain = ["Tea", "hello world", "Q4 plan"]
         let t = textTable([odd + plain])
-        let csv = TableCSV.renderResearch(t, locale: gb, figures: [:])
+        let csv = TableCSV.renderResearch(t, locale: gb, names: .empty)
         for v in plain { XCTAssertFalse(csv.contains("'" + v), v) }
-        let (back, problems) = TableCSV.read(csv, locale: gb, figures: [:])
+        let (back, problems) = TableCSV.read(csv, locale: gb, names: .empty)
         XCTAssertTrue(problems.isEmpty)
         for (c, v) in (odd + plain).enumerated() {
             XCTAssertEqual(back[CellKey(row: back.rows[0], column: back.columns[c])]?.content, .value(.text(v)), v)
@@ -209,7 +209,7 @@ final class TableCSVTests: XCTestCase {
     func test_writer_quotesSemicolonsAndTabs_soSniffingCannotMisfire() {
         for rows in [[["a; b; c"], ["x\ty\tz"]], [["a; b; c,d", "e"], ["1", "2"]]] {
             let t = textTable(rows)
-            let (back, _) = TableCSV.read(TableCSV.renderResearch(t, locale: gb, figures: [:]), locale: gb, figures: [:])
+            let (back, _) = TableCSV.read(TableCSV.renderResearch(t, locale: gb, names: .empty), locale: gb, names: .empty)
             XCTAssertEqual(back.rows.count, rows.count)
             XCTAssertEqual(back.columns.count, rows[0].count)
             XCTAssertEqual(back[CellKey(row: back.rows[0], column: back.columns[0])]?.content, .value(.text(rows[0][0])))
@@ -220,17 +220,17 @@ final class TableCSVTests: XCTestCase {
         for tag in ["de-DE", "es-ES"] {
             let l = TableLocale(languageTag: tag)
             for sep in [",", "\t"] {
-                let (t, _) = TableCSV.read("1.234\(sep)1.5\n", locale: l, figures: [:])
+                let (t, _) = TableCSV.read("1.234\(sep)1.5\n", locale: l, names: .empty)
                 XCTAssertEqual(t[key(t, "A1")]?.content, .value(.number(1.234)), tag)
                 XCTAssertEqual(t[key(t, "B1")]?.content, .value(.number(1.5)), tag)
             }
-            let (semi, _) = TableCSV.read("1,5;1.234,5;2;3\n", locale: l, figures: [:])
+            let (semi, _) = TableCSV.read("1,5;1.234,5;2;3\n", locale: l, names: .empty)
             XCTAssertEqual(semi[key(semi, "A1")]?.content, .value(.number(1.5)), tag)
             XCTAssertEqual(semi[key(semi, "B1")]?.content, .value(.number(1234.5)), tag)
             // The writer's own output survives a round trip.
             var t = FigureTable(rows: 1, columns: 1)
             t.setCell(Cell(content: .value(.number(1.234))), at: key(t, "A1"))
-            let back = TableCSV.read(render(t), locale: l, figures: [:]).table
+            let back = TableCSV.read(render(t), locale: l, names: .empty).table
             XCTAssertEqual(back[key(back, "A1")]?.content, .value(.number(1.234)), tag)
         }
     }
@@ -239,7 +239,7 @@ final class TableCSVTests: XCTestCase {
         var t = FigureTable(rows: 1, columns: 2)
         t.setCell(Cell(content: .value(.number(1.5e20))), at: key(t, "A1"))
         t.setCell(Cell(content: .value(.number(1e-7))), at: key(t, "B1"))
-        let back = TableCSV.read(render(t), locale: gb, figures: [:]).table
+        let back = TableCSV.read(render(t), locale: gb, names: .empty).table
         XCTAssertEqual(back[key(back, "A1")]?.content, .value(.number(1.5e20)))
         XCTAssertEqual(back[key(back, "B1")]?.content, .value(.number(1e-7)))
     }
@@ -258,9 +258,9 @@ final class TableCSVTests: XCTestCase {
                 guard case .value(.date, _) = CellInput.parse(v, locale: l) else { return XCTFail("\(v) should read as a date in \(tag)") }
             }
             let t = textTable([texts])
-            let csv = TableCSV.renderResearch(t, locale: l, figures: [:])
+            let csv = TableCSV.renderResearch(t, locale: l, names: .empty)
             for v in texts { XCTAssertTrue(csv.contains("'" + v), "\(tag): \(v) escaped") }
-            let (back, problems) = TableCSV.read(csv, locale: l, figures: [:])
+            let (back, problems) = TableCSV.read(csv, locale: l, names: .empty)
             XCTAssertTrue(problems.isEmpty)
             for (c, v) in texts.enumerated() {
                 XCTAssertEqual(back[CellKey(row: back.rows[0], column: back.columns[c])]?.content, .value(.text(v)), "\(tag): \(v)")
@@ -273,27 +273,52 @@ final class TableCSVTests: XCTestCase {
         for r in 0..<10 {
             revenue.setCell(Cell(content: .value(.number(Double(r + 1) * 100))), at: CellKey(row: revenue.rows[r], column: revenue.columns[1]))
         }
+        let names = FormulaNames(figures: [.init(id: "fig-rev00001", name: "revenue", table: revenue)])
         let (t, problems) = TableCSV.read("\"=revenue!B9\",\"=SUM(revenue!B1:B2)\",\"=revenue!B11\",\"=nowhere!A1\"\n",
-                                          locale: gb, figures: ["revenue": revenue])
-        XCTAssertTrue(problems.isEmpty)
+                                          locale: gb, names: names)
+        XCTAssertEqual(problems, [CSVReadProblem(row: 0, column: 3, message: "There is no table named nowhere")],
+                       "a name no figure answers to has no id to store")
         func expr(_ a1: String) -> FormulaExpr { extract(t[key(t, a1)]!.content) }
         guard case .ref(let b9) = expr("A1"), case .id(let row, let column) = b9.anchor else { return XCTFail("revenue!B9 should be an id ref") }
         XCTAssertEqual(row, revenue.rows[8]); XCTAssertEqual(column, revenue.columns[1])
+        XCTAssertEqual(b9.target, .figure(id: "fig-rev00001"), "the name became the figure's id")
         guard case .call(_, let args) = expr("B1"), case .range(let g) = args[0], case .id = g.start.anchor, case .id = g.end.anchor
         else { return XCTFail("a figure range should resolve to ids") }
         guard case .ref(let off) = expr("C1"), case .position = off.anchor else { return XCTFail("off the figure: positional") }
-        guard case .ref(let unknown) = expr("D1"), case .position = unknown.anchor else { return XCTFail("unknown figure: positional") }
+        XCTAssertEqual(t[key(t, "D1")]?.content, .value(.text("=nowhere!A1")), "kept as the text it was")
 
         var wb = Workbook(pins: NoPins())
-        wb.setTable(revenue, named: "revenue")
-        wb.setTable(t, named: "t")
+        wb.setTable(revenue, id: "fig-rev00001")
+        wb.setTable(t, id: "t")
         let a1 = CellAddress(table: "t", key: key(t, "A1"))
         XCTAssertEqual(wb.value(at: a1), .number(900))
         var grown = revenue
         grown.insertRow(after: nil)
-        wb.setTable(grown, named: "revenue")
+        wb.setTable(grown, id: "fig-rev00001")
         XCTAssertEqual(wb.value(at: a1), .number(900), "still the same cell after a row is inserted above it")
-        XCTAssertEqual(FormulaParser.render(Formula(expr("A1")), in: t, figures: ["revenue": grown]), "revenue!B10")
+        let grownNames = FormulaNames(figures: [.init(id: "fig-rev00001", name: "revenue", table: grown)])
+        XCTAssertEqual(FormulaParser.render(Formula(expr("A1")), in: t, names: grownNames), "revenue!B10")
+    }
+
+    /// A research copy is written with each figure's and research item's CURRENT name, and reads
+    /// back to the same ids (R-D1); a title two items share is a problem, the cell kept as text.
+    func test_researchCopy_writesCurrentNames_andReadsThemBackToIds() throws {
+        let revenue = FigureTable(rows: 2, columns: 2)
+        let research = [(id: "res-model1", title: "model")]
+        let before = FormulaNames(figures: [.init(id: "fig-rev00001", name: "revenue", table: revenue)], research: research)
+        let (t, problems) = TableCSV.read("\"=revenue!B2+research:model!C3\"\n", locale: gb, names: before)
+        XCTAssertTrue(problems.isEmpty)
+        let renamed = FormulaNames(figures: [.init(id: "fig-rev00001", name: "income", table: revenue)],
+                                   research: [(id: "res-model1", title: "Forecast")])
+        let csv = TableCSV.renderResearch(t, locale: gb, names: renamed)
+        XCTAssertEqual(csv, "=income!B2+research:Forecast!C3\n")
+        let (back, again) = TableCSV.read(csv, locale: gb, names: renamed)
+        XCTAssertTrue(again.isEmpty)
+        XCTAssertEqual(extract(try XCTUnwrap(back[key(back, "A1")]).content), extract(try XCTUnwrap(t[key(t, "A1")]).content))
+
+        let twins = FormulaNames(research: [(id: "res-a", title: "Forecast"), (id: "res-b", title: "forecast")])
+        let (_, refused) = TableCSV.read("=research:forecast!A1\n", locale: gb, names: twins)
+        XCTAssertEqual(refused, [CSVReadProblem(row: 0, column: 0, message: "Two Research items are called forecast; rename one.")])
     }
 
 }

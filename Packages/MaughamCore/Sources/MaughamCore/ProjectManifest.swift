@@ -164,7 +164,11 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// had not shipped when they joined it, so they take no bump of their own —
     /// `OpKind`'s SCHEMA CONTRACT is met by the number they ship under. A book
     /// with any figure is raised to 10 by `contentSchemaFloor`, through the
-    /// manifest's figure registry.
+    /// manifest's figure registry. Report plan 6b changed one of their payload
+    /// words under the same 10, before it shipped: a formula's ref to another
+    /// figure or a research item is stored by id (`{"figure":{"id":…}}`,
+    /// `{"research":{"id":…}}`, Denver's ruling R-D1), no longer by name, so
+    /// a rename rewrites no formula (`TableWireFormatTests` pins it).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

@@ -25,14 +25,14 @@ public enum TableCSV {
 
     /// A research copy: formulas as "=" + their A1 text, values as in `render`. A text value that
     /// would not read back as exactly that text (a number, date, TRUE, a formula, padding) under the
-    /// book's `locale` or POSIX gets the "'" escape. `figures` names every figure a formula reads:
-    /// a figure missing from it renders as `#REF!` in the file, so it has no default.
-    public static func renderResearch(_ table: FigureTable, locale: TableLocale, figures: [String: FigureTable]) -> String {
+    /// book's `locale` or POSIX gets the "'" escape. `names` gives every figure and research item a
+    /// formula reads its current name: one missing from it renders as `#REF!` in the file, so it has no default.
+    public static func renderResearch(_ table: FigureTable, locale: TableLocale, names: FormulaNames) -> String {
         let readers = [posix, locale, locale.readingDecimalPoint()]
         return write(table) { key in
             guard let cell = table[key] else { return "" }
             switch cell.content {
-            case .formula(let f): return "=" + FormulaParser.render(f, in: table, figures: figures)
+            case .formula(let f): return "=" + FormulaParser.render(f, in: table, names: names)
             case .value(.text(let s)): return readsBackVerbatim(s, under: readers) ? s : "'" + s
             case .value(let v): return text(v)
             }
@@ -141,13 +141,14 @@ public enum TableCSV {
     // MARK: Reading a table
 
     /// Reads a CSV into a new table. Cells go through `CellInput` with `locale` (a ";" file reads
-    /// decimals with ","); "=" cells go through `FormulaParser.parsePositional`, then refs inside the
-    /// new table, and `name!B2` refs inside a figure in `figures` (by its live positions), become id
-    /// refs, so later inserts and deletes never re-point them. A ref to an unknown figure or off a
-    /// grid stays positional (`#REF!` while off it). An unparseable formula becomes text holding
-    /// its "=…" and a problem. `headerRows` is 1 when the first row is text only and a later row holds a number.
+    /// decimals with ","); "=" cells go through `FormulaParser.parsePositional`, which turns each
+    /// figure and research name into its id through `names` (R-D1); then refs inside the new table,
+    /// and `name!B2` refs inside a figure with a table in `names` (by its live positions), become id
+    /// refs, so later inserts and deletes never re-point them. A ref off a grid stays positional
+    /// (`#REF!` while off it). An unparseable formula — an unknown or shared name included —
+    /// becomes text holding its "=…" and a problem. `headerRows` is 1 when the first row is text only and a later row holds a number.
     public static func read(_ text: String, locale: TableLocale,
-                            figures: [String: FigureTable]) -> (table: FigureTable, problems: [CSVReadProblem]) {
+                            names: FormulaNames) -> (table: FigureTable, problems: [CSVReadProblem]) {
         let (parsed, separator) = rows(text)
         let width = parsed.map(\.count).max() ?? 0
         var table = FigureTable(rows: parsed.count, columns: width)
@@ -172,9 +173,9 @@ public enum TableCSV {
                     content = .value(v)
                     if let suggested { format.number = suggested }
                 case .formula(let rest):
-                    switch FormulaParser.parsePositional(rest) {
+                    switch FormulaParser.parsePositional(rest, names: names) {
                     case .success(let f):
-                        content = .formula(Formula(resolve(f.expr, this: ids, figures: figures)))
+                        content = .formula(Formula(resolve(f.expr, this: ids, names: names)))
                     case .failure(let e):
                         let t = field.trimmingCharacters(in: .whitespacesAndNewlines)
                         content = .value(.text(t))
@@ -210,12 +211,12 @@ public enum TableCSV {
     // MARK: Resolving positions
 
     private static func resolve(_ e: FormulaExpr, this: (rows: [RowID], columns: [ColumnID]),
-                                figures: [String: FigureTable]) -> FormulaExpr {
+                                names: FormulaNames) -> FormulaExpr {
         /// The live ids of the grid `r` reads, when `r` is positional and that grid is known.
         func axes(_ r: FormulaRef) -> (rows: [RowID], columns: [ColumnID])? {
             switch r.target {
             case .this: return this
-            case .figure(let name): return figures[name].map { ($0.rows, $0.columns) }
+            case .figure(let id): return names.table(id: id).map { ($0.rows, $0.columns) }
             case .research: return nil
             }
         }

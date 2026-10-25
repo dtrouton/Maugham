@@ -36,17 +36,19 @@ final class TableWireFormatTests: XCTestCase {
             #"{"expr":{"binary":{"_0":"notEqual","_1":{"ref":{"_0":{"anchor":{"id":{"column":"cccc0002","row":"rrrr0001"}},"columnAbsolute":false,"rowAbsolute":true,"target":{"this":{}}}}},"_2":{"number":{"_0":2.5}}}}}"#)
     }
 
+    // Refs to a figure and a research item carry its id, never its name (R-D1). Changed on
+    // purpose by report plan 6b Task 3, before schema 10 shipped (ProjectManifest's history).
     func test_formula_callOverAFigureRangeAndAMissingArgument() throws {
-        let g = FormulaRange(start: FormulaRef(target: .figure(name: "cash-flow"), anchor: .id(row: r1, column: c1)),
-                             end: FormulaRef(target: .figure(name: "cash-flow"), anchor: .id(row: r3, column: c2), columnAbsolute: true))
+        let g = FormulaRange(start: FormulaRef(target: .figure(id: "fig-cash0001"), anchor: .id(row: r1, column: c1)),
+                             end: FormulaRef(target: .figure(id: "fig-cash0001"), anchor: .id(row: r3, column: c2), columnAbsolute: true))
         try assertGolden(Formula(.call(name: "PV", arguments: [.range(g), .missing])),
-            #"{"expr":{"call":{"arguments":[{"range":{"_0":{"end":{"anchor":{"id":{"column":"cccc0002","row":"rrrr0003"}},"columnAbsolute":true,"rowAbsolute":false,"target":{"figure":{"name":"cash-flow"}}},"start":{"anchor":{"id":{"column":"cccc0001","row":"rrrr0001"}},"columnAbsolute":false,"rowAbsolute":false,"target":{"figure":{"name":"cash-flow"}}}}}},{"missing":{}}],"name":"PV"}}}"#)
+            #"{"expr":{"call":{"arguments":[{"range":{"_0":{"end":{"anchor":{"id":{"column":"cccc0002","row":"rrrr0003"}},"columnAbsolute":true,"rowAbsolute":false,"target":{"figure":{"id":"fig-cash0001"}}},"start":{"anchor":{"id":{"column":"cccc0001","row":"rrrr0001"}},"columnAbsolute":false,"rowAbsolute":false,"target":{"figure":{"id":"fig-cash0001"}}}}}},{"missing":{}}],"name":"PV"}}}"#)
     }
 
     func test_formula_unaryTextBoolErrorAndAResearchPosition() throws {
-        let research = FormulaRef(target: .research(name: "m v"), anchor: .position(row: 8, column: 1))
+        let research = FormulaRef(target: .research(id: "res-mv0001"), anchor: .position(row: 8, column: 1))
         try assertGolden(Formula(.call(name: "IF", arguments: [.bool(true), .unary(.percent, .text("x")), .error(.ref), .ref(research)])),
-            ##"{"expr":{"call":{"arguments":[{"bool":{"_0":true}},{"unary":{"_0":"percent","_1":{"text":{"_0":"x"}}}},{"error":{"_0":"#REF!"}},{"ref":{"_0":{"anchor":{"position":{"column":1,"row":8}},"columnAbsolute":false,"rowAbsolute":false,"target":{"research":{"name":"m v"}}}}}],"name":"IF"}}}"##)
+            ##"{"expr":{"call":{"arguments":[{"bool":{"_0":true}},{"unary":{"_0":"percent","_1":{"text":{"_0":"x"}}}},{"error":{"_0":"#REF!"}},{"ref":{"_0":{"anchor":{"position":{"column":1,"row":8}},"columnAbsolute":false,"rowAbsolute":false,"target":{"research":{"id":"res-mv0001"}}}}}],"name":"IF"}}}"##)
     }
 
     func test_formula_everyOperatorNameIsPinned() throws {
@@ -113,8 +115,8 @@ final class TableWireFormatTests: XCTestCase {
 
     /// Calls nested around a figure range, `depth` nodes deep: the costliest shape to decode.
     private func nestedCalls(depth: Int) -> Formula {
-        var e = FormulaExpr.range(FormulaRange(start: FormulaRef(target: .figure(name: "cash-flow"), anchor: .id(row: r1, column: c1)),
-                                               end: FormulaRef(target: .figure(name: "cash-flow"), anchor: .id(row: r3, column: c2))))
+        var e = FormulaExpr.range(FormulaRange(start: FormulaRef(target: .figure(id: "fig-cash0001"), anchor: .id(row: r1, column: c1)),
+                                               end: FormulaRef(target: .figure(id: "fig-cash0001"), anchor: .id(row: r3, column: c2))))
         for _ in 1..<depth { e = .call(name: "SUM", arguments: [e]) }
         return Formula(e)
     }

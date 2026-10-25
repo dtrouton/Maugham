@@ -65,13 +65,17 @@ public final class FigureCache {
     public func invalidateAll() { lines.removeAll() }
 }
 
-/// **A book's figures as one `Workbook`**, keyed by each record's NAME (the
-/// name a formula writes). Holds every table figure whose state is not parked;
-/// a parked figure is absent, so a reference to it is `#REF!`. A figure whose
-/// stream cannot be read (RULING-54) is absent too, but is LISTED in
-/// `unreadable`, never silently conflated with a parked one.
+/// **A book's figures as one `Workbook`**, keyed by each record's id (what a
+/// formula stores, R-D1; `FormulaNames(records:tables:research:)` over its
+/// `workbook.tables` gives each its current name). Holds every table
+/// figure, a parked one from its parked state — the last values the figures
+/// reading it keep while it sits in Research (R-D2) — and listed in `parked`, so
+/// its readers can be flagged. A figure whose stream cannot be read (RULING-54)
+/// is absent, so a reference to it is `#REF!`, and is LISTED in `unreadable`.
 public struct FigureWorkbook: Sendable {
     public var workbook: Workbook
+    /// The ids of the figures assembled from a parked state.
+    public var parked: Set<String>
     public var unreadable: [(name: String, error: String)]
 
     @MainActor
@@ -80,6 +84,7 @@ public struct FigureWorkbook: Sendable {
         trust: TrustTable? = nil, pins: ResearchPinSource
     ) -> FigureWorkbook {
         var book = Workbook(pins: pins)
+        var parked = Set<String>()
         var unreadable: [(name: String, error: String)] = []
         let facts = DocumentClass.Facts(manifest)
         cache.evict(except: Set(facts.figures.map(\.id)))
@@ -87,12 +92,12 @@ public struct FigureWorkbook: Sendable {
             do {
                 let state = try cache.state(
                     forFigureId: record.id, in: projectURL, trust: trust, facts: facts)
-                guard state.parked == nil else { continue }
-                book.setTable(state.table, named: record.name)
+                if state.parked != nil { parked.insert(record.id) }
+                book.setTable(state.table, id: record.id)
             } catch {
                 unreadable.append((record.name, String(describing: error)))
             }
         }
-        return FigureWorkbook(workbook: book, unreadable: unreadable)
+        return FigureWorkbook(workbook: book, parked: parked, unreadable: unreadable)
     }
 }

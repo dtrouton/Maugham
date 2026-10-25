@@ -5,24 +5,30 @@ final class FormulaParserTests: XCTestCase {
     private var table = FigureTable(rows: 4, columns: 3)
     private var revenue = FigureTable(rows: 2, columns: 2)
     private var cashFlow = FigureTable(rows: 3, columns: 3)
-    private var figures: [String: FigureTable] { ["revenue": revenue, "cash-flow": cashFlow, "A1": revenue] }
+    /// Ids deliberately unlike the names, so a test passes only when the parse stores the id.
+    private var names: FormulaNames {
+        FormulaNames(figures: [.init(id: "fig-rev00001", name: "revenue", table: revenue),
+                               .init(id: "fig-cash0001", name: "cash-flow", table: cashFlow),
+                               .init(id: "fig-a1a10001", name: "A1", table: revenue)],
+                     research: [("res-mv3", "model v3"), ("res-mv3h", "model-v3"), ("res-m", "m"), ("res-mv", "m v")])
+    }
 
     private func n(_ x: Double) -> FormulaExpr { .number(x) }
 
     private func parse(_ text: String, file: StaticString = #filePath, line: UInt = #line) -> Formula? {
-        switch FormulaParser.parse(text, in: table, figures: figures) {
+        switch FormulaParser.parse(text, in: table, names: names) {
         case .success(let f): return f
         case .failure(let e): XCTFail("\(text): \(e.message) at \(e.offset)", file: file, line: line); return nil
         }
     }
 
     private func parseError(_ text: String) -> FormulaParseError? {
-        if case .failure(let e) = FormulaParser.parse(text, in: table, figures: figures) { return e }
+        if case .failure(let e) = FormulaParser.parse(text, in: table, names: names) { return e }
         return nil
     }
 
     private func render(_ f: Formula?) -> String? {
-        f.map { FormulaParser.render($0, in: table, figures: figures) }
+        f.map { FormulaParser.render($0, in: table, names: names) }
     }
 
     private func this(_ r: Int, _ c: Int, rowAbs: Bool = false, colAbs: Bool = false) -> FormulaRef {
@@ -105,22 +111,22 @@ final class FormulaParserTests: XCTestCase {
 
     func test_figureRef_resolvesAgainstThatFigure() {
         XCTAssertEqual(parse("revenue!B2")?.expr,
-                       .ref(FormulaRef(target: .figure(name: "revenue"), anchor: .id(row: revenue.rows[1], column: revenue.columns[1]))))
+                       .ref(FormulaRef(target: .figure(id: "fig-rev00001"), anchor: .id(row: revenue.rows[1], column: revenue.columns[1]))))
     }
 
     func test_researchRef_isPositional_quotedName() {
         XCTAssertEqual(parse("research:'model v3'!B2")?.expr,
-                       .ref(FormulaRef(target: .research(name: "model v3"), anchor: .position(row: 1, column: 1))))
+                       .ref(FormulaRef(target: .research(id: "res-mv3"), anchor: .position(row: 1, column: 1))))
         XCTAssertEqual(parse("research:model-v3!Z99")?.expr,
-                       .ref(FormulaRef(target: .research(name: "model-v3"), anchor: .position(row: 98, column: 25))),
+                       .ref(FormulaRef(target: .research(id: "res-mv3h"), anchor: .position(row: 98, column: 25))),
                        "a research ref is never bounds-checked")
     }
 
     func test_parsePositional_needsNoTable() throws {
-        let f = try FormulaParser.parsePositional("A1+fig!$B2").get()
+        let f = try FormulaParser.parsePositional("A1+revenue!$B2", names: names).get()
         XCTAssertEqual(f.expr, .binary(.add,
             .ref(FormulaRef(target: .this, anchor: .position(row: 0, column: 0))),
-            .ref(FormulaRef(target: .figure(name: "fig"), anchor: .position(row: 1, column: 1), columnAbsolute: true))))
+            .ref(FormulaRef(target: .figure(id: "fig-rev00001"), anchor: .position(row: 1, column: 1), columnAbsolute: true))))
     }
 
     func test_malformed_failsWithWriterFacingMessages() {
@@ -142,17 +148,17 @@ final class FormulaParserTests: XCTestCase {
     }
 
     func test_parse_isTotal_onArbitraryInput_onA512KBThread() {
-        let table = self.table, figures = self.figures
+        let table = self.table, names = self.names
         onSmallStack {
             var generator = SplitMix(seed: 42)
             let alphabet = Array("AB$1:2!(),\"'#%^*/+-=<> .eE_research REF?é\n")
             for _ in 0..<5_000 {
                 let length = Int(generator.next() % 24)
                 let text = String((0..<length).map { _ in alphabet[Int(generator.next() % UInt64(alphabet.count))] })
-                if case .success(let f) = FormulaParser.parse(text, in: table, figures: figures) {
-                    _ = FormulaParser.render(f, in: table, figures: figures)
+                if case .success(let f) = FormulaParser.parse(text, in: table, names: names) {
+                    _ = FormulaParser.render(f, in: table, names: names)
                 }
-                _ = FormulaParser.parsePositional(text)
+                _ = FormulaParser.parsePositional(text, names: names)
             }
             let message = "This formula is too long or too deeply nested — try SUM or split it"
             // Shapes that pile pending operators onto every nesting level, inside the length cap.
@@ -165,11 +171,11 @@ final class FormulaParserTests: XCTestCase {
                 "1" + String(repeating: "+1", count: 4_000),
             ]
             for text in hostile {
-                guard case .failure(let e) = FormulaParser.parse(text, in: table, figures: figures) else {
+                guard case .failure(let e) = FormulaParser.parse(text, in: table, names: names) else {
                     XCTFail("accepted: \(text.prefix(30))…"); continue
                 }
                 XCTAssertEqual(e.message, message)
-                if case .success = FormulaParser.parsePositional(text) { XCTFail("positional accepted: \(text.prefix(30))…") }
+                if case .success = FormulaParser.parsePositional(text, names: names) { XCTFail("positional accepted: \(text.prefix(30))…") }
             }
         }
     }
@@ -239,9 +245,81 @@ final class FormulaParserTests: XCTestCase {
         XCTAssertEqual(render(f), "B3")
     }
 
-    func test_render_missingFigure_isNamedREF() throws {
+    func test_render_missingFigure_isREF() throws {
         let f = try XCTUnwrap(parse("revenue!A1+SUM(revenue!A1:B2)"))
-        XCTAssertEqual(FormulaParser.render(f, in: table), "revenue!#REF!+SUM(revenue!#REF!)")
+        XCTAssertEqual(FormulaParser.render(f, in: table), "#REF!+SUM(#REF!)", "an id nothing names is #REF!, name and all")
+        let tableless = FormulaNames(figures: [.init(id: "fig-rev00001", name: "revenue", table: nil)])
+        XCTAssertEqual(FormulaParser.render(f, in: table, names: tableless), "revenue!#REF!+SUM(revenue!#REF!)",
+                       "a figure named but with no table keeps its name, as before ids")
+    }
+
+    // MARK: refs by id (ruling R-D1)
+
+    func test_figureRef_storesTheId_andShowsTheCurrentName() throws {
+        let f = try XCTUnwrap(parse("revenue!B2+SUM(revenue!A1:B2)"))
+        guard case .binary(_, .ref(let r), _) = f.expr else { return XCTFail("\(f.expr)") }
+        XCTAssertEqual(r.target, .figure(id: "fig-rev00001"), "the hidden id is stored, never the name")
+        // The registry renames the figure; the stored formula is the same value, untouched.
+        let renamed = FormulaNames(figures: [.init(id: "fig-rev00001", name: "income 2026", table: revenue)])
+        XCTAssertEqual(FormulaParser.render(f, in: table, names: renamed), "'income 2026'!B2+SUM('income 2026'!A1:B2)")
+        let bare = FormulaNames(figures: [.init(id: "fig-rev00001", name: "income", table: revenue)])
+        XCTAssertEqual(FormulaParser.render(f, in: table, names: bare), "income!B2+SUM(income!A1:B2)")
+        XCTAssertEqual(try FormulaParser.parse("income!B2+SUM(income!A1:B2)", in: table, names: bare).get(), f,
+                       "the new name reads back to the same formula")
+        guard case .failure(let e) = FormulaParser.parse("revenue!B2", in: table, names: bare) else {
+            return XCTFail("the old name no longer reads")
+        }
+        XCTAssertEqual(e.message, "There is no table named revenue")
+    }
+
+    func test_researchRef_storesTheId_andShowsTheCurrentTitle() throws {
+        let f = try XCTUnwrap(parse("research:'MODEL V3'!B2"))
+        XCTAssertEqual(f.expr, .ref(FormulaRef(target: .research(id: "res-mv3"), anchor: .position(row: 1, column: 1))),
+                       "a research title matches in any case")
+        let retitled = FormulaNames(research: [("res-mv3", "forecast")])
+        XCTAssertEqual(FormulaParser.render(f, in: table, names: retitled), "research:forecast!B2")
+        XCTAssertEqual(FormulaParser.render(f, in: table), "#REF!", "a research item no longer in the tree")
+    }
+
+    func test_researchTitleCollision_isRefused() {
+        let twins = FormulaNames(research: [("res-a", "Model"), ("res-b", "model")])
+        guard case .failure(let e) = FormulaParser.parse("research:model!A1", in: table, names: twins) else {
+            return XCTFail("two items answering to one title must refuse")
+        }
+        XCTAssertEqual(e.message, "Two Research items are called model; rename one.")
+        guard case .failure(let p) = FormulaParser.parsePositional("research:Model!A1", names: twins) else {
+            return XCTFail("a CSV's read refuses too")
+        }
+        XCTAssertEqual(p.message, "Two Research items are called Model; rename one.")
+    }
+
+    func test_unknownResearchItem_andSharedFigureName_areRefused() {
+        XCTAssertEqual(parseError("research:nothing!A1")?.message, "There is no Research item called nothing")
+        let twins = FormulaNames(figures: [.init(id: "fig-aaaa0001", name: "cash", table: revenue),
+                                           .init(id: "fig-bbbb0001", name: "cash", table: cashFlow)])
+        guard case .failure(let e) = FormulaParser.parse("cash!A1", in: table, names: twins) else {
+            return XCTFail("two records answering to one name must refuse, never pick the first")
+        }
+        XCTAssertEqual(e.message, "Two tables are called cash; rename one.")
+    }
+
+    func test_formulaNames_fromTheRegistryAndTheResearchTree() throws {
+        let records = [FigureRecord(id: "fig-rev00001", name: "revenue", kind: .table, piece: nil, path: "figures/revenue.csv"),
+                       FigureRecord(id: "fig-pic00001", name: "map", kind: .image, piece: nil, path: "figures/map.png")]
+        let research = [ResearchItem(id: "grp-1", title: "model", type: .group, children: [
+            ResearchItem(id: "res-deep", title: "Model", type: .asset, kind: .document, path: "research/model.csv")])]
+        let book = FormulaNames(records: records, tables: ["fig-rev00001": revenue], research: research)
+        XCTAssertEqual(try FormulaParser.parse("revenue!A1+research:model!A1", in: table, names: book).get().expr,
+                       .binary(.add,
+                               .ref(FormulaRef(target: .figure(id: "fig-rev00001"), anchor: .id(row: revenue.rows[0], column: revenue.columns[0]))),
+                               .ref(FormulaRef(target: .research(id: "res-deep"), anchor: .position(row: 0, column: 0)))),
+                       "a nested asset answers; a group of the same title is not a research table")
+        XCTAssertEqual(book.figureName(id: "fig-pic00001"), "map")
+        XCTAssertNil(book.table(id: "fig-pic00001"))
+        guard case .failure(let e) = FormulaParser.parse("map!A1", in: table, names: book) else {
+            return XCTFail("a figure with no table can't be read on entry")
+        }
+        XCTAssertEqual(e.message, "There is no table named map")
     }
 
     func test_liveSlotsBetween_isTheSharedRangeDefinition() {
@@ -257,7 +335,7 @@ final class FormulaParserTests: XCTestCase {
 
     private func translated(_ text: String, from: CellKey, to: CellKey) -> String? {
         parse(text).map {
-            FormulaParser.render(FormulaParser.translate($0, from: from, to: to, in: table, figures: figures), in: table, figures: figures)
+            FormulaParser.render(FormulaParser.translate($0, from: from, to: to, in: table, names: names), in: table, names: names)
         }
     }
 
@@ -271,7 +349,7 @@ final class FormulaParserTests: XCTestCase {
         XCTAssertEqual(translated("A1", from: key(1, 2), to: key(0, 2)), "#REF!")
         XCTAssertEqual(translated("SUM(A3:A4)", from: key(0, 2), to: key(1, 2)), "SUM(#REF!)")
         let f = try XCTUnwrap(parse("A4+1"))
-        XCTAssertEqual(FormulaParser.translate(f, from: key(0, 2), to: key(1, 2), in: table, figures: figures).expr,
+        XCTAssertEqual(FormulaParser.translate(f, from: key(0, 2), to: key(1, 2), in: table, names: names).expr,
                        .binary(.add, .error(.ref), n(1)))
     }
 
@@ -285,15 +363,15 @@ final class FormulaParserTests: XCTestCase {
     func test_translate_shiftsAShrunkRange() {
         let f = parse("SUM(A1:A3)")!
         table.deleteRow(table.rows[2])     // A1:A3 now shows A1:A2
-        let t = FormulaParser.translate(f, from: key(0, 1), to: key(1, 1), in: table, figures: figures)
+        let t = FormulaParser.translate(f, from: key(0, 1), to: key(1, 1), in: table, names: names)
         XCTAssertEqual(FormulaParser.render(t, in: table), "SUM(A2:A3)")
     }
 
     func test_translate_absoluteEdgePassedByItsPartner_keepsEachFlagOnItsEdge() throws {
         let f = try XCTUnwrap(parse("SUM(A$3:A3)"))
-        let up = FormulaParser.translate(f, from: key(2, 1), to: key(0, 1), in: table, figures: figures)
+        let up = FormulaParser.translate(f, from: key(2, 1), to: key(0, 1), in: table, names: names)
         XCTAssertEqual(render(up), "SUM(A1:A$3)")
-        let down = FormulaParser.translate(up, from: key(0, 1), to: key(1, 1), in: table, figures: figures)
+        let down = FormulaParser.translate(up, from: key(0, 1), to: key(1, 1), in: table, names: names)
         XCTAssertEqual(render(down), "SUM(A2:A$3)", "the absolute row stays row 3")
         XCTAssertEqual(translated("SUM($C1:C1)", from: key(0, 2), to: key(0, 0)), "SUM(A1:$C1)")
         XCTAssertEqual(translated("SUM(research:m!A$3:A3)", from: key(2, 1), to: key(0, 1)), "SUM(research:m!A1:A$3)")
@@ -303,12 +381,12 @@ final class FormulaParserTests: XCTestCase {
 
     func test_hyphenAfterAnUnquotedToken_isSubtraction() {
         XCTAssertEqual(parse("A1-revenue!B2")?.expr, .binary(.subtract, .ref(this(0, 0)),
-            .ref(FormulaRef(target: .figure(name: "revenue"), anchor: .id(row: revenue.rows[1], column: revenue.columns[1])))))
+            .ref(FormulaRef(target: .figure(id: "fig-rev00001"), anchor: .id(row: revenue.rows[1], column: revenue.columns[1])))))
     }
 
     func test_quotedFigureName_resolves() {
         XCTAssertEqual(parse("'cash-flow'!B2")?.expr,
-                       .ref(FormulaRef(target: .figure(name: "cash-flow"), anchor: .id(row: cashFlow.rows[1], column: cashFlow.columns[1]))))
+                       .ref(FormulaRef(target: .figure(id: "fig-cash0001"), anchor: .id(row: cashFlow.rows[1], column: cashFlow.columns[1]))))
     }
 
     func test_render_quotesFigureNamesThatNeedIt_andRoundTrips() {
@@ -347,10 +425,10 @@ final class FormulaParserTests: XCTestCase {
             String(repeating: "-", count: n - 1) + "1",                                    // prefix chain
             String(repeating: "(", count: n - 1) + "1" + String(repeating: ")", count: n - 1),
         ]
-        let table = self.table, figures = self.figures
+        let table = self.table, names = self.names
         onSmallStack {
             for text in texts {
-                guard case .success(let f) = FormulaParser.parse(text, in: table, figures: figures) else {
+                guard case .success(let f) = FormulaParser.parse(text, in: table, names: names) else {
                     XCTFail("refused at the bound: \(text.prefix(40))…"); continue
                 }
                 do {
@@ -359,10 +437,10 @@ final class FormulaParserTests: XCTestCase {
                 } catch {
                     XCTFail("codable round trip failed: \(error)")
                 }
-                let rendered = FormulaParser.render(f, in: table, figures: figures)
-                XCTAssertEqual(try? FormulaParser.parse(rendered, in: table, figures: figures).get(), f)
+                let rendered = FormulaParser.render(f, in: table, names: names)
+                XCTAssertEqual(try? FormulaParser.parse(rendered, in: table, names: names).get(), f)
                 _ = FormulaParser.translate(f, from: CellKey(row: table.rows[0], column: table.columns[0]),
-                                            to: CellKey(row: table.rows[1], column: table.columns[0]), in: table, figures: figures)
+                                            to: CellKey(row: table.rows[1], column: table.columns[0]), in: table, names: names)
             }
         }
     }

@@ -77,8 +77,8 @@ final class FigureRenderTests: XCTestCase {
 
     private func number(_ x: Double) -> Cell { Cell(content: .value(.number(x))) }
 
-    private func formula(_ text: String, in table: FigureTable, figures: [String: FigureTable] = [:]) throws -> Cell {
-        switch FormulaParser.parse(text, in: table, figures: figures) {
+    private func formula(_ text: String, in table: FigureTable, names: FormulaNames = .empty) throws -> Cell {
+        switch FormulaParser.parse(text, in: table, names: names) {
         case .success(let f): return Cell(content: .formula(f))
         case .failure(let e): throw FigureEditInvalid(reason: e.message)
         }
@@ -204,7 +204,8 @@ final class FigureRenderTests: XCTestCase {
         try await srcDoc.setCell(number(5), at: a1)
         let totalDoc = try await store.openFigure(figureId: total.id)
         try await totalDoc.setCell(
-            try formula("src!A1*2", in: totalDoc.state.table, figures: ["src": srcDoc.state.table]),
+            try formula("src!A1*2", in: totalDoc.state.table,
+                        names: FormulaNames(figures: [.init(id: src.id, name: "src", table: srcDoc.state.table)])),
             at: key(totalDoc.state.table, row: 0, column: 0))
         XCTAssertEqual(try csv(total), "10,,\n,,\n,,\n")
         await store.closeFigure(figureId: total.id)
@@ -234,6 +235,43 @@ final class FigureRenderTests: XCTestCase {
         XCTAssertEqual(srcDoc.state.table[a1], number(7), "the open figure re-read its stream")
         XCTAssertEqual(try csv(src), "7,,\n,,\n,,\n")
         XCTAssertEqual(try csv(total), "14,,\n,,\n,,\n", "the table reading it re-rendered")
+        await store.closeFigure(figureId: src.id)
+    }
+
+    /// **A registry rename rewrites no formula** (R-D1): the reading table's
+    /// formula holds the figure's id, so after `src` is renamed in the
+    /// registry nothing is appended to `total`, an edit to the renamed figure
+    /// still re-renders `total`, and the formula shows the new name.
+    func test_aRenamedFigureStillFeedsItsReaders_andNoFormulaIsRewritten() async throws {
+        let (store, projectStore) = try await openWindow()
+        let src = try await projectStore.createFigure(kind: .table, name: "src", piece: nil)
+        let total = try await projectStore.createFigure(kind: .table, name: "total", piece: nil)
+        let srcDoc = try await store.openFigure(figureId: src.id)
+        let a1 = key(srcDoc.state.table, row: 0, column: 0)
+        try await srcDoc.setCell(number(5), at: a1)
+        let totalDoc = try await store.openFigure(figureId: total.id)
+        let t1 = key(totalDoc.state.table, row: 0, column: 0)
+        try await totalDoc.setCell(
+            try formula("src!A1*2", in: totalDoc.state.table,
+                        names: FormulaNames(figures: [.init(id: src.id, name: "src", table: srcDoc.state.table)])),
+            at: t1)
+        XCTAssertEqual(try csv(total), "10,,\n,,\n,,\n")
+        let totalOps = try OpLogStore.loadSyncMerged(forDocId: total.id, in: projectURL, facts: .empty).count
+
+        let index = try XCTUnwrap(projectStore.manifest.figures?.firstIndex { $0.id == src.id })
+        projectStore.manifest.figures?[index].name = "source"
+        try await projectStore.saveManifest()
+        try await srcDoc.setCell(number(8), at: a1)
+        await store.flushFigureChangesForTesting()
+
+        XCTAssertEqual(try csv(total), "16,,\n,,\n,,\n", "the renamed figure still feeds its reader")
+        XCTAssertEqual(try OpLogStore.loadSyncMerged(forDocId: total.id, in: projectURL, facts: .empty).count, totalOps,
+                       "the rename appended nothing to the table reading it")
+        guard case .formula(let f)? = totalDoc.state.table[t1]?.content else { return XCTFail("the formula is still there") }
+        let names = FormulaNames(records: projectStore.manifest.figures ?? [],
+                                 tables: [src.id: srcDoc.state.table], research: projectStore.manifest.research)
+        XCTAssertEqual(FormulaParser.render(f, in: totalDoc.state.table, names: names), "source!A1*2")
+        await store.closeFigure(figureId: total.id)
         await store.closeFigure(figureId: src.id)
     }
 

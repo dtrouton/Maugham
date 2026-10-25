@@ -1,11 +1,12 @@
 import Foundation
 
-/// Which grid a reference reads: this table, another figure in the document by name,
-/// or a pinned research CSV by name.
+/// Which grid a reference reads: this table, another figure in the document, or a pinned
+/// research CSV — each by its hidden id (Denver's ruling R-D1). The writer types and reads
+/// names; `FormulaNames` turns one into the other, so a rename rewrites no formula.
 public enum RefTarget: Hashable, Codable, Sendable {
     case this
-    case figure(name: String)
-    case research(name: String)
+    case figure(id: String)       // the figure's `FigureRecord.id`
+    case research(id: String)     // the research item's `ResearchItem.id`
 }
 
 /// Where a reference points. A ref into this table or a figure is stored by id, so

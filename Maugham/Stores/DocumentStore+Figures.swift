@@ -227,7 +227,8 @@ extension DocumentStore {
     ///
     /// The book's tables are assembled into one `Workbook` from the cache
     /// (`FigureWorkbook.assemble`), with each open figure's own state laid
-    /// over its read — the host holds the freshest fold. Figures the assembly
+    /// over its read — the host holds the freshest fold, a parked one's too
+    /// (its readers keep its parked values, R-D2). Figures the assembly
     /// could not read (R-6a-7) are logged, one line each, and kept on
     /// `lastUnreadableFigures`; their renders are left as they were. A
     /// failure to write one render is logged and the others still write.
@@ -260,15 +261,14 @@ extension DocumentStore {
         var book = assembled.workbook
         let byId = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for (id, doc) in openFigures where !doc.isClosed {
-            guard let record = byId[id], record.kind == .table, doc.state.parked == nil else { continue }
-            book.setTable(doc.state.table, named: record.name)
+            guard let record = byId[id], record.kind == .table else { continue }
+            book.setTable(doc.state.table, id: record.id)
         }
 
-        var names = Set<String>()
-        for id in changed {
-            guard let record = byId[id] else { continue }
-            names.insert(record.name)
-            names.formUnion(book.tablesReading(record.name))
+        var due = Set<String>()
+        for id in changed where byId[id] != nil {
+            due.insert(id)
+            due.formUnion(book.tablesReading(id))
         }
         // Two records naming one file (two devices made "cash" before either
         // saw the other's) would overwrite each other on every pass: neither
@@ -277,7 +277,7 @@ extension DocumentStore {
         for record in records { byPath[record.path.lowercased(), default: []].append(record) }
         let shared = Set(byPath.values.filter { $0.count > 1 }.flatMap { $0.map(\.id) })
         let facts = DocumentClass.Facts(manifest)
-        for record in records where record.kind == .table && names.contains(record.name) {
+        for record in records where record.kind == .table && due.contains(record.id) {
             if shared.contains(record.id) {
                 documentLog.error(
                     "figure \(record.name, privacy: .public) was not rendered: another figure names the same file, \(record.path, privacy: .public)")

@@ -2,11 +2,11 @@ import XCTest
 @testable import MaughamCore
 
 private struct NoPins: ResearchPinSource {
-    func pinnedValue(research name: String, row: Int, column: Int) -> CellValue? { nil }
+    func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? { nil }
 }
 
 /// Report plan 6a Task 4: the mtime-keyed figure cache and the document
-/// workbook keyed by figure name.
+/// workbook, keyed by figure id since report plan 6b Task 3 (R-D1).
 @MainActor
 final class FigureCacheTests: XCTestCase {
 
@@ -87,7 +87,8 @@ final class FigureCacheTests: XCTestCase {
                    docId: "fig-cash0001", to: root)
         let cash = FigureDeriver.derive(try OpLogStore.loadSyncMerged(
             forDocId: "fig-cash0001", in: root, facts: .empty)).table
-        guard case .success(let f) = FormulaParser.parse("cashflow!A1", in: cash, figures: ["cashflow": cash]) else {
+        guard case .success(let f) = FormulaParser.parse(
+            "cashflow!A1", in: cash, names: FormulaNames(figures: [.init(id: "fig-cash0001", name: "cashflow", table: cash)])) else {
             XCTFail("unparseable"); throw CancellationError()
         }
         try append(skeleton("fig-summ0001") + [setCell("fig-summ0001", Cell(content: .formula(f)))],
@@ -96,26 +97,50 @@ final class FigureCacheTests: XCTestCase {
         return (root, manifest, cash)
     }
 
-    func test_workbookEvaluatesACrossFigureReferenceByName() throws {
+    func test_workbookEvaluatesACrossFigureReferenceById() throws {
         let (root, manifest, _) = try twoFigureBook()
         let cache = FigureCache()
-        let wb = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins()).workbook
-        XCTAssertEqual(Set(wb.tables.keys), ["cashflow", "summary"])
-        let t = try XCTUnwrap(wb.tables["summary"])
-        XCTAssertEqual(wb.value(at: CellAddress(table: "summary", key: CellKey(row: t.rows[0], column: t.columns[0]))),
+        let r = FigureWorkbook.assemble(for: manifest, cache: cache, projectURL: root, pins: NoPins())
+        let wb = r.workbook
+        XCTAssertEqual(Set(wb.tables.keys), ["fig-cash0001", "fig-summ0001"])
+        XCTAssertEqual(r.parked, [])
+        let t = try XCTUnwrap(wb.tables["fig-summ0001"])
+        XCTAssertEqual(wb.value(at: CellAddress(table: "fig-summ0001", key: CellKey(row: t.rows[0], column: t.columns[0]))),
                        .number(100))
     }
 
-    func test_aParkedFigureIsAbsent_andAReferenceToItIsREF() throws {
+    /// R-D1: the registry renames the figure a formula reads; no op is appended to either
+    /// stream, the value still flows, and the formula shows the new name.
+    func test_aRegistryRename_rewritesNoFormula_andTheFormulaShowsTheNewName() throws {
+        let (root, manifest, _) = try twoFigureBook()
+        let opsBefore = try OpLogStore.loadSyncMerged(forDocId: "fig-summ0001", in: root, facts: .empty).count
+        var renamed = manifest
+        renamed.figures?[0].name = "cash flow 2026"
+        let cache = FigureCache()
+        let wb = FigureWorkbook.assemble(for: renamed, cache: cache, projectURL: root, pins: NoPins()).workbook
+        let t = try XCTUnwrap(wb.tables["fig-summ0001"])
+        let a1 = CellKey(row: t.rows[0], column: t.columns[0])
+        XCTAssertEqual(wb.value(at: CellAddress(table: "fig-summ0001", key: a1)), .number(100))
+        guard case .formula(let f)? = t[a1]?.content else { return XCTFail("the formula is still there") }
+        let names = FormulaNames(records: renamed.figures ?? [], tables: wb.tables, research: renamed.research)
+        XCTAssertEqual(FormulaParser.render(f, in: t, names: names), "'cash flow 2026'!A1")
+        XCTAssertEqual(try OpLogStore.loadSyncMerged(forDocId: "fig-summ0001", in: root, facts: .empty).count, opsBefore,
+                       "nothing was appended")
+    }
+
+    /// A parked figure is assembled from its parked state, so its readers keep its values
+    /// (R-D2), and it is listed so they can be flagged (plan 6b Task 9).
+    func test_aParkedFigureIsAssembledFromItsParkedState_andListed() throws {
         let (root, manifest, _) = try twoFigureBook()
         try append([op("fig-cash0001", .figureParked,
                        FigureOpPayload(parkedPath: "research/cashflow.csv", parkedHash: "h1"))],
                    docId: "fig-cash0001", to: root)
-        let wb = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins()).workbook
-        XCTAssertNil(wb.tables["cashflow"])
-        let t = try XCTUnwrap(wb.tables["summary"])
-        XCTAssertEqual(wb.value(at: CellAddress(table: "summary", key: CellKey(row: t.rows[0], column: t.columns[0]))),
-                       .error(.ref))
+        let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        XCTAssertEqual(r.parked, ["fig-cash0001"])
+        XCTAssertNotNil(r.workbook.tables["fig-cash0001"])
+        let t = try XCTUnwrap(r.workbook.tables["fig-summ0001"])
+        XCTAssertEqual(r.workbook.value(at: CellAddress(table: "fig-summ0001", key: CellKey(row: t.rows[0], column: t.columns[0]))),
+                       .number(100), "the reader keeps the parked figure's last value")
     }
 
     func test_aRecordAppearingOrItsPieceChanging_missesTheCacheByItself() throws {
@@ -142,9 +167,10 @@ final class FigureCacheTests: XCTestCase {
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
         let r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
         XCTAssertEqual(r.unreadable.map(\.name), ["cashflow"])
-        XCTAssertNil(r.workbook.tables["cashflow"])
-        let t = try XCTUnwrap(r.workbook.tables["summary"])
-        XCTAssertEqual(r.workbook.value(at: CellAddress(table: "summary", key: CellKey(row: t.rows[0], column: t.columns[0]))),
+        XCTAssertNil(r.workbook.tables["fig-cash0001"])
+        XCTAssertEqual(r.parked, [], "unreadable is never conflated with parked")
+        let t = try XCTUnwrap(r.workbook.tables["fig-summ0001"])
+        XCTAssertEqual(r.workbook.value(at: CellAddress(table: "fig-summ0001", key: CellKey(row: t.rows[0], column: t.columns[0]))),
                        .error(.ref))
     }
 

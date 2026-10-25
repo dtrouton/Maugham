@@ -16,27 +16,27 @@ import MaughamCore
 /// - **An image figure, a parked table and a figure whose kind this build
 ///   does not know render nothing**: the image's file is its own, a parked
 ///   table lives in Research (plan 6b), and an unknown kind has no CSV shape.
-/// - Research references read no pins until plan 6b wires them
+/// - Research references read no pins until plan 6b Task 9 wires them
 ///   (`noResearchPins`): such a cell renders `#REF!`.
 @MainActor
 enum FigureRender {
 
-    /// The pin source until plan 6b: every research reference is `#REF!`.
+    /// The pin source until plan 6b Task 9: every research reference is `#REF!`.
     struct NoResearchPins: ResearchPinSource {
-        func pinnedValue(research name: String, row: Int, column: Int) -> CellValue? { nil }
+        func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue? { nil }
     }
     static let noResearchPins = NoResearchPins()
 
     /// The CSV `record` renders to, or nil when it renders nothing (an image,
     /// a parked or unknown-kind figure). The table is set into a copy of
-    /// `workbook` under the record's name first, so the values are this
+    /// `workbook` under the record's id first, so the values are this
     /// `state`'s even when the workbook was assembled from an older read.
     static func csv(record: FigureRecord, state: FigureState, workbook: Workbook) -> String? {
         guard record.kind == .table, state.kind == .table, state.parked == nil else { return nil }
         var book = workbook
-        book.setTable(state.table, named: record.name)
+        book.setTable(state.table, id: record.id)
         return TableCSV.render(state.table) {
-            book.value(at: CellAddress(table: record.name, key: $0))
+            book.value(at: CellAddress(table: record.id, key: $0))
         }
     }
 

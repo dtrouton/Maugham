@@ -1,9 +1,12 @@
 import Foundation
 
-/// Where research refs read: the value pinned for one research cell.
+/// Where research refs read: the value one figure pinned for one research cell. Pins are
+/// per reading figure (`FigureState.pins`), so two figures pinned at different times to
+/// the same research cell each read their own value.
 public protocol ResearchPinSource: Sendable {
-    /// The pinned value of a research cell (0-based position), or nil when no pin exists (→ #REF!).
-    func pinnedValue(research name: String, row: Int, column: Int) -> CellValue?
+    /// The value figure `home` (a figure id) pinned for research item `research` (its id)
+    /// at a 0-based position, or nil when that figure holds no such pin (→ #REF!).
+    func pinnedValue(home: String, research: String, row: Int, column: Int) -> CellValue?
 }
 
 /// A note the editor shows beside a formula without changing its value.
@@ -12,8 +15,8 @@ public enum FormulaNote: Hashable, Sendable {
     case npvFirstFlowDiscounted(CellAddress)
 }
 
-/// A document's figure tables evaluated together: refs between tables are live, research
-/// refs read pins, and an edit recalculates only the cells that read what changed, in
+/// A document's figure tables evaluated together, keyed by figure id (a `CellAddress`'s
+/// `table` is that id): refs between tables are live, research refs read the reading table's pins, and an edit recalculates only the cells that read what changed, in
 /// dependency order. A reference cycle is `#CIRC!` on every cell in it; a cell that reads
 /// it sees that error as any other (IFERROR catches it). Dependencies are static (both branches of an `IF` count), as in Excel.
 public struct Workbook: Sendable {
@@ -25,7 +28,7 @@ public struct Workbook: Sendable {
     private var formulas: [CellAddress: Formula] = [:]
     private var values: [CellAddress: CellValue] = [:]          // formula cells' results
     private var graph = DependencyGraph()
-    private var tablesRead: [CellAddress: Set<String>] = [:]     // formula → table names it names
+    private var tablesRead: [CellAddress: Set<String>] = [:]     // formula → figure ids it names
     private var tableReaders: [String: Set<CellAddress>] = [:]
     private var researchRead: [CellAddress: Set<String>] = [:]   // formula → research items it reads directly
     private var researchReadersIndex: [String: Set<CellAddress>] = [:]
@@ -42,20 +45,20 @@ public struct Workbook: Sendable {
         return v
     }
 
-    /// Adds, replaces or (nil) removes a table, recalculating what changed. Returns every address whose VALUE changed.
+    /// Adds, replaces or (nil) removes figure `id`'s table, recalculating what changed. Returns every address whose VALUE changed.
     @discardableResult
-    public mutating func setTable(_ table: FigureTable?, named name: String) -> Set<CellAddress> {
-        let old = tables[name]
+    public mutating func setTable(_ table: FigureTable?, id: String) -> Set<CellAddress> {
+        let old = tables[id]
         let oldCells = old?.cells ?? [:], newCells = table?.cells ?? [:]
         var changed = [CellAddress]()
-        for (k, c) in oldCells where newCells[k]?.content != c.content { changed.append(CellAddress(table: name, key: k)) }
-        for k in newCells.keys where oldCells[k] == nil { changed.append(CellAddress(table: name, key: k)) }
+        for (k, c) in oldCells where newCells[k]?.content != c.content { changed.append(CellAddress(table: id, key: k)) }
+        for k in newCells.keys where oldCells[k] == nil { changed.append(CellAddress(table: id, key: k)) }
         let structural = old?.rowSlots != table?.rowSlots || old?.columnSlots != table?.columnSlots
 
         var before = [CellAddress: CellValue]()
         for a in changed { before[a] = value(at: a) }
 
-        tables[name] = table
+        tables[id] = table
 
         var resolve = Set<CellAddress>()
         for a in changed {
@@ -66,36 +69,39 @@ public struct Workbook: Sendable {
             }
         }
         // Rows or columns moved, came or went: re-resolve everything that names this table.
-        if structural { resolve.formUnion(tableReaders[name] ?? []) }
+        if structural { resolve.formUnion(tableReaders[id] ?? []) }
         for a in resolve { self.resolve(a) }
 
         return recalculate(seeds: Set(changed).union(resolve), before: &before)
     }
 
-    /// After plan 6 refreshes pins: recalculates every cell that reads the named research item.
+    /// After figure `home`'s pins for research item `research` change (both ids): recalculates
+    /// the cells of `home` that read that item, and everything reading them. Another figure's
+    /// cells reading the same item keep their own pins' values.
     @discardableResult
-    public mutating func pinsChanged(research name: String) -> Set<CellAddress> {
+    public mutating func pinsChanged(home: String, research: String) -> Set<CellAddress> {
         var before = [CellAddress: CellValue]()
-        return recalculate(seeds: researchReadersIndex[name] ?? [], before: &before)
+        let seeds = (researchReadersIndex[research] ?? []).filter { $0.table == home }
+        return recalculate(seeds: seeds, before: &before)
     }
 
-    /// Which cells read which research items, directly or through another table (spec §4.3's markers).
+    /// Which cells read which research items (by id), directly or through another table (spec §4.3's markers).
     public func researchReaders() -> [CellAddress: Set<String>] {
         var out = [CellAddress: Set<String>]()
-        for (name, direct) in researchReadersIndex {
-            for a in graph.closure(from: direct) where formulas[a] != nil { out[a, default: []].insert(name) }
+        for (item, direct) in researchReadersIndex {
+            for a in graph.closure(from: direct) where formulas[a] != nil { out[a, default: []].insert(item) }
         }
         return out
     }
 
-    /// Every table whose formulas read `name`, directly or through another table, never
-    /// `name` itself: what must re-render when `name` changes. A table naming a figure not
+    /// Every table (figure id) whose formulas read figure `id`, directly or through another table, never
+    /// `id` itself: what must re-render when `id` changes. A table naming a figure not
     /// (yet) in the workbook counts, so it re-renders when that figure arrives.
-    public func tablesReading(_ name: String) -> Set<String> {
+    public func tablesReading(_ id: String) -> Set<String> {
         var found = Set<String>()
-        var queue = [name]
+        var queue = [id]
         while let next = queue.popLast() {
-            for reader in tableReaders[next] ?? [] where reader.table != name && !found.contains(reader.table) {
+            for reader in tableReaders[next] ?? [] where reader.table != id && !found.contains(reader.table) {
                 found.insert(reader.table)
                 queue.append(reader.table)
             }
@@ -177,12 +183,13 @@ public struct Workbook: Sendable {
             guard let cell = tables[a.table]?[a.key], case .value(let v) = cell.content else { return .empty }
             return v
         }
-        @Sendable func pinned(_ name: String, _ rows: ClosedRange<Int>, _ columns: ClosedRange<Int>) -> [[CellValue]]? {
+        // A research ref reads the pins of the table it is written in, `home`.
+        @Sendable func pinned(_ item: String, _ rows: ClosedRange<Int>, _ columns: ClosedRange<Int>) -> [[CellValue]]? {
             var out = [[CellValue]]()
             for r in rows {
                 var line = [CellValue]()
                 for c in columns {
-                    guard let v = pins.pinnedValue(research: name, row: r, column: c) else { return nil }
+                    guard let v = pins.pinnedValue(home: home, research: item, row: r, column: c) else { return nil }
                     line.append(v)
                 }
                 out.append(line)
@@ -191,23 +198,23 @@ public struct Workbook: Sendable {
         }
         return FormulaEnvironment(
             cell: { ref in
-                if case .research(let name) = ref.target {
+                if case .research(let item) = ref.target {
                     guard case .position(let r, let c) = ref.anchor else { return .error(.ref) }
-                    return pins.pinnedValue(research: name, row: r, column: c) ?? .error(.ref)
+                    return pins.pinnedValue(home: home, research: item, row: r, column: c) ?? .error(.ref)
                 }
                 return resolver.address(ref).map(read) ?? .error(.ref)
             },
             range: { g in
-                if case .research(let name) = g.start.target {
+                if case .research(let item) = g.start.target {
                     guard let (rows, columns) = WorkbookResolver.positions(g) else { return nil }
-                    return pinned(name, rows, columns)
+                    return pinned(item, rows, columns)
                 }
                 return resolver.cells(g)?.map { $0.map(read) }
             },
             resized: { g, rowCount, columnCount in
-                if case .research(let name) = g.start.target {
+                if case .research(let item) = g.start.target {
                     guard rowCount > 0, columnCount > 0, let (rows, columns) = WorkbookResolver.positions(g) else { return nil }
-                    return pinned(name, rows.lowerBound...(rows.lowerBound + rowCount - 1),
+                    return pinned(item, rows.lowerBound...(rows.lowerBound + rowCount - 1),
                                   columns.lowerBound...(columns.lowerBound + columnCount - 1))
                 }
                 return resolver.block(g, rows: rowCount, columns: columnCount)?.map { $0.map(read) }
@@ -251,7 +258,7 @@ public struct Workbook: Sendable {
 
 // MARK: - Resolution
 
-/// What a formula reads: cells (for the dependency graph), table names (re-resolved on a
+/// What a formula reads: cells (for the dependency graph), figure ids (re-resolved on a
 /// structural change or when the table comes or goes) and research items.
 private struct References {
     var cells = Set<CellAddress>()
@@ -269,7 +276,7 @@ private struct WorkbookResolver: Sendable {
     func tableName(_ target: RefTarget) -> String? {
         switch target {
         case .this: return home
-        case .figure(let name): return name
+        case .figure(let id): return id
         case .research: return nil
         }
     }
@@ -350,7 +357,7 @@ private struct WorkbookResolver: Sendable {
     }
 
     private func collect(_ g: FormulaRange, single: Bool, into reads: inout References) {
-        if case .research(let name) = g.start.target { reads.research.insert(name); return }
+        if case .research(let item) = g.start.target { reads.research.insert(item); return }
         guard let name = tableName(g.start.target) else { return }
         reads.tables.insert(name)
         if single {

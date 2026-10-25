@@ -30,7 +30,7 @@ struct FormulaTestGrid {
     }
 
     func eval(_ text: String, file: StaticString = #filePath, line: UInt = #line) -> CellValue {
-        guard case .success(let f) = FormulaParser.parsePositional(text) else {
+        guard case .success(let f) = FormulaParser.parsePositional(text, names: .empty) else {
             XCTFail("unparseable: \(text)", file: file, line: line); return .error(.value)
         }
         return FormulaEvaluator.evaluate(f, in: environment)
@@ -140,7 +140,7 @@ final class FormulaEvaluatorTests: XCTestCase {
 
     func test_aRefRange_isRefError() {
         let env = FormulaEnvironment(cell: { _ in .number(1) }, range: { _ in nil })
-        let f = try! FormulaParser.parsePositional("SUM(A1:A3)").get()
+        let f = try! FormulaParser.parsePositional("SUM(A1:A3)", names: .empty).get()
         XCTAssertEqual(FormulaEvaluator.evaluate(f, in: env), .error(.ref))
     }
 
@@ -180,7 +180,7 @@ final class FormulaEvaluatorTests: XCTestCase {
             "1" + String(repeating: "+1", count: n - 1),
             String(repeating: "-", count: n - 1) + "1",
         ]
-        let formulas = texts.map { try! FormulaParser.parsePositional($0).get() }
+        let formulas = texts.map { try! FormulaParser.parsePositional($0, names: .empty).get() }
         let env = FormulaTestGrid(["A1": .number(1), "B2": .number(2)]).environment
         let done = expectation(description: "512 KB thread")
         let results = FormulaResultBox<[CellValue]>([])

@@ -219,7 +219,7 @@ final class FormulaFunctionsTests: XCTestCase {
             asked.set([rows, columns])
             return [[.number(7)], [.number(8)]]
         })
-        let f = try! FormulaParser.parsePositional("SUMIF(A1:A2,1,Z9)").get()
+        let f = try! FormulaParser.parsePositional("SUMIF(A1:A2,1,Z9)", names: .empty).get()
         XCTAssertEqual(FormulaEvaluator.evaluate(f, in: env), .number(15))
         XCTAssertEqual(asked.get(), [2, 1])
         let refused = FormulaEnvironment(cell: base.cell, range: base.range, resized: { _, _, _ in nil })
