@@ -45,7 +45,7 @@ public enum FigureCarry {
             case .table(_, _, _, _, let label?):
                 out.labels.insert(label.reference)
             case .figure(_, let path, let label):
-                out.paths.insert(path)
+                out.paths.insert(normalised(path))
                 if let label { out.labels.insert(label.reference) }
             case .other(.fence):
                 continue
@@ -57,6 +57,21 @@ public enum FigureCarry {
             }
         }
         return out
+    }
+
+    /// A figure line's path as the registry spells it: percent-decoded,
+    /// without a leading `./` (`./figures/x%20y.png` → `figures/x y.png`).
+    static func normalised(_ path: String) -> String {
+        var p = path.removingPercentEncoding ?? path
+        while p.hasPrefix("./") { p.removeFirst(2) }
+        return p
+    }
+
+    /// **Can this build re-create `record`?** Only a kind it knows — the
+    /// state's (its `figureCreate`'s), else the record's — can be created
+    /// (`FigureOpPayload.validate`).
+    public static func canRecreate(_ record: FigureRecord, state: FigureState?) -> Bool {
+        FigureKind.known.contains(state?.kind ?? record.kind)
     }
 
     /// The label a figure of `record`'s kind and name takes in the text:
@@ -118,8 +133,8 @@ public enum FigureCarry {
     public static func openingOps(
         for record: FigureRecord, state: FigureState, parks: [String: String] = [:]
     ) -> [(kind: OpKind, payload: FigureOpPayload)] {
+        guard canRecreate(record, state: state) else { return [] }
         let kind = state.kind ?? record.kind
-        guard FigureKind.known.contains(kind) else { return [] }
         var out: [(kind: OpKind, payload: FigureOpPayload)] = [
             (.figureCreate, FigureOpPayload(kind: kind, source: state.source)),
         ]
@@ -287,9 +302,10 @@ public enum FigureCarry {
 }
 
 /// **A read a promoted figure makes of something left in the Collection**
-/// (Q-5): which figure, which cell (nil for a parked figure's working copy),
-/// the source's id (a Research item's, or a parked copy's path when the park
-/// named no item) and how it reads it.
+/// (Q-5), or a figure the promotion could not carry whole: which figure,
+/// which cell (nil for anything but a formula or a pin), the source (a
+/// Research item's id, a parked copy's path when the park named no item, a
+/// kind's word or a picture's file name) and which problem it is.
 public struct FigureCarryProblem: Hashable, Sendable {
     public enum Read: String, Sendable {
         /// A formula names the Research item.
@@ -298,6 +314,15 @@ public struct FigureCarryProblem: Hashable, Sendable {
         case pin
         /// The figure is parked, and this is its working copy.
         case parkedCopy
+        /// A copied figure of a kind this build cannot create, left out
+        /// (`source` is the kind's word): it stays in the Collection.
+        case unknownKind
+        /// The picture's file (`source`) is not in `figures/`: the new
+        /// book's stream names a picture it does not have.
+        case pictureMissing
+        /// The picture's file (`source`) is not the bytes its stream names
+        /// (a newer picture not yet synced): copied as it is, and listed.
+        case pictureChanged
     }
 
     public let figureId: String

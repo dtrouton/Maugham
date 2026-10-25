@@ -159,6 +159,48 @@ final class FigureCarryTests: XCTestCase {
         XCTAssertEqual(carry.copied.map(\.id), [cash.id, sites.id])
     }
 
+    /// The closure starts from the piece's own figures too: a whole-book
+    /// figure no text names, read only by a moved figure's formula, and one
+    /// read only by that one, are copied.
+    func test_aMovedFiguresFormulaCarriesWhatItReads_transitively() {
+        let own = record("fig-00000001", "own", piece: "doc-p")
+        let first = record("fig-00000002", "first", piece: nil)
+        let second = record("fig-00000003", "second", piece: "doc-q")
+        let unread = record("fig-00000004", "unread", piece: nil)
+        let carry = FigureCarry.figures(
+            forPiece: "doc-p", records: [own, first, second, unread], referencedLabels: [],
+            states: [own.id: reading([.figure(id: first.id)]), first.id: reading([.figure(id: second.id)])])
+        XCTAssertEqual(carry.moved.map(\.id), [own.id])
+        XCTAssertEqual(carry.copied.map(\.id), [first.id, second.id])
+    }
+
+    /// A figure line's path is read as the registry spells it: no leading
+    /// `./`, percent-decoded.
+    func test_aFigureLinesPathIsNormalised() {
+        let refs = FigureCarry.references(inText: """
+            ![A](./figures/site%20map.png)
+
+            ![B](figures/b.png)
+            """)
+        XCTAssertEqual(refs.paths, ["figures/site map.png", "figures/b.png"])
+        let map = FigureRecord(id: "fig-00000001", name: "site map", kind: .image, piece: nil,
+                               path: "figures/site map.png")
+        XCTAssertEqual(FigureCarry.figures(
+            forPiece: "doc-p", records: [map], referencedLabels: [], referencedPaths: refs.paths, states: [:]
+        ).copied.map(\.id), [map.id])
+    }
+
+    /// Only a kind this build knows can be re-created — the stream's kind,
+    /// else the record's.
+    func test_canRecreateAsksTheKnownKinds() {
+        let chart = record("fig-00000001", "c", .unknown("chart"), piece: nil)
+        XCTAssertFalse(FigureCarry.canRecreate(chart, state: nil))
+        XCTAssertFalse(FigureCarry.canRecreate(chart, state: FigureState()))
+        XCTAssertTrue(FigureCarry.canRecreate(record("fig-00000002", "t", piece: nil), state: nil))
+        XCTAssertFalse(FigureCarry.canRecreate(
+            record("fig-00000003", "t", piece: nil), state: FigureState(kind: .unknown("chart"))))
+    }
+
     // MARK: - The opening ops, per kind
 
     /// A table with formulas and formats, a moved row, a deleted row and

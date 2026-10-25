@@ -215,6 +215,75 @@ final class PromoteFigureCarryTests: XCTestCase {
         let plan = try await projectStore.figureCarryPlan(forPiece: piece.id, carriedResearch: [])
         XCTAssertEqual(plan.copied.map(\.id), [], "the .md's label is not the text: \(cited.id) stays")
     }
+
+    // MARK: - What cannot carry whole (plan 6c Task 4 review)
+
+    /// A record of a kind this build does not know, as a newer Mac would
+    /// leave in the registry (its stream unreadable here or absent).
+    private func newerFigure(_ store: ProjectStore, piece: String?) -> FigureRecord {
+        let chart = FigureRecord(id: "fig-c4a7b2e9", name: "chart", kind: .unknown("chart"), piece: piece,
+                                 path: "figures/chart.chart")
+        store.manifest.figures = (store.manifest.figures ?? []) + [chart]
+        return chart
+    }
+
+    /// The piece's own figure of an unknown kind refuses the promotion before
+    /// anything is written, naming it: moving it would trash it in the
+    /// Collection with no copy in the new book.
+    func test_thePiecesOwnFigureOfAnUnknownKindRefusesUpFront() async throws {
+        let (projectStore, _, piece) = try await openCollection(text: "Words.\n")
+        _ = newerFigure(projectStore, piece: piece.id)
+        do {
+            _ = try await projectStore.figureCarryPlan(forPiece: piece.id, carriedResearch: [])
+            XCTFail("a figure this build cannot re-create was planned")
+        } catch let refused as FigureEditInvalid {
+            XCTAssertTrue(refused.reason.contains("chart"), refused.reason)
+            XCTAssertTrue(refused.reason.contains("newer Maugham"), refused.reason)
+        }
+    }
+
+    /// Another figure of an unknown kind the text names is left out and
+    /// listed: it stays in the Collection, nothing is lost.
+    func test_aCopiedFigureOfAnUnknownKindIsSkippedAndListed() async throws {
+        let (projectStore, _, piece) = try await openCollection(text: "![A chart](./figures/chart.chart)\n")
+        let chart = newerFigure(projectStore, piece: nil)
+        let plan = try await projectStore.figureCarryPlan(forPiece: piece.id, carriedResearch: [])
+        XCTAssertEqual(plan.carried.map(\.id), [])
+        XCTAssertEqual(plan.problems, [
+            FigureCarryProblem(figureId: chart.id, cell: nil, source: "chart", read: .unknownKind),
+        ])
+    }
+
+    /// A picture whose bytes are not the ones its stream names is copied as
+    /// it is and listed; one missing from `figures/` is listed. The streams
+    /// are written either way.
+    func test_aChangedPictureIsCopiedAndListed_aMissingOneIsListed() async throws {
+        // The window is held for the whole test: the project store's link to it is weak.
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { _ = store }
+        let changed = try await projectStore.createImageFigure(fromURL: try png("changed.png"), piece: piece.id)
+        let missing = try await projectStore.createImageFigure(fromURL: try png("missing.png"), piece: piece.id)
+        let stale = Data("an older picture".utf8)
+        try stale.write(to: projectStore.url.appendingPathComponent(changed.path))
+        try FileManager.default.removeItem(at: projectStore.url.appendingPathComponent(missing.path))
+
+        let plan = try await projectStore.figureCarryPlan(forPiece: piece.id, carriedResearch: [])
+        let staging = root.appendingPathComponent(".maugham-staging-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let problems = try await projectStore.writeCarriedFigureStreams(
+            plan.carried, states: plan.states, parks: plan.parks, into: staging)
+
+        let changedName = try XCTUnwrap(plan.states[changed.id]?.image?.filename)
+        let missingName = try XCTUnwrap(plan.states[missing.id]?.image?.filename)
+        XCTAssertEqual(problems, [
+            FigureCarryProblem(figureId: changed.id, cell: nil, source: changedName, read: .pictureChanged),
+            FigureCarryProblem(figureId: missing.id, cell: nil, source: missingName, read: .pictureMissing),
+        ])
+        XCTAssertEqual(try Data(contentsOf: staging.appendingPathComponent("figures/\(changedName)")), stale,
+                       "the bytes there are carried, so nothing is lost")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.appendingPathComponent("figures/\(missingName)").path))
+        XCTAssertFalse(try stream(missing.id, in: staging).ops.isEmpty, "its stream is written all the same")
+    }
 }
 
 private extension Array {

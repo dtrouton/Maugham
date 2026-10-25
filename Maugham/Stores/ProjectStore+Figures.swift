@@ -752,9 +752,11 @@ extension ProjectStore {
     /// `carriedResearch`, the Research item ids the promotion carries. Read
     /// before the promotion closes the window.
     ///
-    /// Throws when the piece's text will not derive, or when a figure it
-    /// carries will not read: a promotion never re-creates a figure it could
-    /// not see. A figure it does not carry may be unreadable.
+    /// Throws when the piece's text will not derive, when a figure it
+    /// carries will not read — a promotion never re-creates a figure it could
+    /// not see; one it does not carry may be unreadable — or when one of the
+    /// piece's own figures is of a kind this build cannot create. Another
+    /// figure of such a kind is left out and listed (`.unknownKind`).
     func figureCarryPlan(forPiece pieceId: String, carriedResearch: Set<String>) async throws -> FigureCarryPlan {
         let records = manifest.figures ?? []
         guard !records.isEmpty else { return FigureCarryPlan() }
@@ -792,13 +794,29 @@ extension ProjectStore {
             throw FigureEditInvalid(reason: "These figures could not be read, so the piece was not promoted: "
                 + unseen.map { "\($0.name) (\(unreadable[$0.id] ?? ""))" }.joined(separator: ", "))
         }
-        let carriedIds = Set(carried.map(\.id))
+        // A kind this build cannot create (ruling, plan 6c Task 4 review):
+        // the piece's own refuses the promotion before anything is written —
+        // moving it would trash it in the Collection with no copy here — and
+        // another's is left out, listed, and stays in the Collection.
+        let newer = carry.moved.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
+        guard newer.isEmpty else {
+            throw FigureEditInvalid(reason: "A newer Maugham made "
+                + newer.map(\.name).joined(separator: ", ")
+                + ", so this piece can't be promoted until this Mac is updated.")
+        }
+        let skipped = carry.copied.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
+        let copied = carry.copied.filter { FigureCarry.canRecreate($0, state: states[$0.id]) }
+        let kept = carry.moved + copied
+        let keptIds = Set(kept.map(\.id))
         let parks = FigureCarry.parks(of: states)
-        let carriedStates = states.filter { carriedIds.contains($0.key) }
+        let carriedStates = states.filter { keptIds.contains($0.key) }
         return FigureCarryPlan(
-            moved: carry.moved, copied: carry.copied, states: carriedStates, parks: parks,
+            moved: carry.moved, copied: copied, states: carriedStates, parks: parks,
             problems: FigureCarry.leftBehindReads(
-                carried: carried, states: carriedStates, carriedResearch: carriedResearch, parks: parks))
+                carried: kept, states: carriedStates, carriedResearch: carriedResearch, parks: parks)
+                + skipped.map {
+                    FigureCarryProblem(figureId: $0.id, cell: nil, source: $0.kind.rawValue, read: .unknownKind)
+                })
     }
 
     /// **Write `records`' re-created streams into the staged project at
@@ -814,17 +832,22 @@ extension ProjectStore {
     ///
     /// A picture is copied from `figures/` into the staged `figures/` under
     /// its own file name, each side through `SafeRelativePath` (tripwire 58):
-    /// the read form here, the change form there. One whose bytes are not in
-    /// `figures/` is logged and left: its stream still names it, as the
-    /// Collection's did. Nothing in the Collection changes.
+    /// the read form here, the change form there. Answers what did not carry
+    /// whole: a picture not in `figures/` (`.pictureMissing` — its stream
+    /// still names it, as the Collection's did), and one whose bytes are not
+    /// the content hash its stream names (`.pictureChanged` — copied as it
+    /// is, so nothing is lost). Nothing in the Collection changes.
     ///
-    /// Throws for a record with no state, a kind this build cannot create, a
-    /// refused door or a failed append; what it wrote before is in `staging`,
-    /// which the promotion's rollback removes.
+    /// Throws for a record with no state, a kind this build cannot create (a
+    /// backstop: `figureCarryPlan` decides those first), a refused door or a
+    /// failed append; what it wrote before is in `staging`, which the
+    /// promotion's rollback removes.
+    @discardableResult
     func writeCarriedFigureStreams(
         _ records: [FigureRecord], states: [String: FigureState], parks: [String: String],
         into staging: URL
-    ) async throws {
+    ) async throws -> [FigureCarryProblem] {
+        var problems: [FigureCarryProblem] = []
         let opStore = Document.makeLoadOpStore(projectURL: staging, presenter: nil)
         for record in records {
             guard let state = states[record.id] else {
@@ -841,26 +864,36 @@ extension ProjectStore {
             let ops = FigureCarry.minted(opening, by: figureOpMinter(figureId: record.id))
             try await appendNewFigureStream(ops, figureId: record.id, opStore: opStore)
             if let image = state.image {
-                try copyCarriedPicture(image.filename, into: staging)
+                if let problem = try copyCarriedPicture(image, of: record.id, into: staging) {
+                    problems.append(problem)
+                }
             }
         }
+        return problems
     }
 
-    /// `figures/<filename>` copied into `staging`'s `figures/`, unless it is
-    /// not on disk here (logged) or is there already.
-    private func copyCarriedPicture(_ filename: String, into staging: URL) throws {
-        let relative = "\(Self.figuresFolder)/\(filename)"
+    /// `figures/<image.filename>` copied into `staging`'s `figures/` (unless
+    /// it is there already), answering `.pictureMissing` when it is not on
+    /// disk here and `.pictureChanged` when its bytes are not `image`'s
+    /// content hash (copied all the same).
+    private func copyCarriedPicture(
+        _ image: FigureImageRef, of figureId: String, into staging: URL
+    ) throws -> FigureCarryProblem? {
+        let relative = "\(Self.figuresFolder)/\(image.filename)"
         let source = try resolvedProjectPath(relative)
         guard FileManager.default.fileExists(atPath: source.path) else {
-            projectStoreLog.error(
-                "a carried picture is not in figures/, so it was not copied: \(filename, privacy: .public)")
-            return
+            return FigureCarryProblem(figureId: figureId, cell: nil, source: image.filename, read: .pictureMissing)
         }
         let destination = try Self.resolvedProjectPathToChange(relative, under: staging)
-        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
-        try FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: source, to: destination)
+        if !FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: source, to: destination)
+        }
+        guard (try? ContentHash.ofFile(source)) == image.contentHash else {
+            return FigureCarryProblem(figureId: figureId, cell: nil, source: image.filename, read: .pictureChanged)
+        }
+        return nil
     }
 
     /// `base`, trimmed, or `base_2`, `base_3`… — the first that neither a
@@ -978,7 +1011,8 @@ public struct FigureRestoreRefused: LocalizedError, Equatable {
 /// 4): `ProjectStore.figureCarryPlan`'s answer. `moved` are the piece's own,
 /// `copied` the others it names or reads (both in registry order); `states`
 /// holds each carried figure's state by id; `parks` every parked figure's
-/// cycle (`FigureCarry.parks`); `problems` what they read that stays behind.
+/// cycle (`FigureCarry.parks`); `problems` what they read that stays behind,
+/// and each copied figure left out for its kind.
 struct FigureCarryPlan: Sendable {
     var moved: [FigureRecord] = []
     var copied: [FigureRecord] = []
