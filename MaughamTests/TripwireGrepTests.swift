@@ -14752,18 +14752,23 @@ extension TripwireGrepTests {
                 }
                 let spot = "\(name):\(i + 1): \(raw[i].trimmingCharacters(in: .whitespaces))"
                 if line.contains("NSTextAttachment") { out.append(spot) }
-                if line.contains("paragraphSpacing"), !line.contains("paragraphSpacingBefore") {
-                    let next = i + 1 < blanked.count ? blanked[i + 1] : ""
-                    let compound = line.range(
-                        of: #"paragraphSpacing\s*[-+*/]="#, options: .regularExpression) != nil
-                    let plain = line.range(
-                        of: #"paragraphSpacing\s*=[^=]"#, options: .regularExpression) != nil
-                    // The baseline's value is the typography multiplier, maybe on the next line.
-                    let baseline = raw[i].contains("paragraphSpacingMultiplier")
-                        || (i + 1 < raw.count && raw[i + 1].contains("paragraphSpacingMultiplier")
-                            && next.range(of: #"^\s*\S"#, options: .regularExpression) != nil)
-                    if compound, editorSpacingWriteHomes[name] != currentFunc { out.append(spot) }
-                    else if plain, !baseline { out.append(spot) }
+                if let write = line.range(
+                    of: #"paragraphSpacing(?!Before|Multiplier)\s*([-+*/]?)=(?!=)"#, options: .regularExpression) {
+                    let isCompound = ["+=", "-=", "*=", "/="].contains { line[write].contains($0) }
+                    // The assigned expression, on the blanked text: the rest of
+                    // the line, and the next line when this one ends at the `=`.
+                    var value = String(line[write.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if value.isEmpty, i + 1 < blanked.count {
+                        value = blanked[i + 1].trimmingCharacters(in: .whitespaces)
+                    }
+                    let baseline = value.range(
+                        of: #"\*\s*CGFloat\(\s*typography\.paragraphSpacingMultiplier\s*\)$"#,
+                        options: .regularExpression) != nil
+                    if isCompound {
+                        if editorSpacingWriteHomes[name] != currentFunc { out.append(spot) }
+                    } else if !baseline {
+                        out.append(spot)
+                    }
                 }
                 // U+FFFC: a code line (strings count; a whole-line comment does not).
                 let trimmed = raw[i].trimmingCharacters(in: .whitespaces)
@@ -14805,12 +14810,20 @@ extension TripwireGrepTests {
         func other(_ s: NSMutableParagraphStyle) {
             s.paragraphSpacing += 10
             s.paragraphSpacing = 4
+            s.paragraphSpacing =
+                room
+            s.paragraphSpacing = room // paragraphSpacingMultiplier
+            s.paragraphSpacing = size * CGFloat(typography.paragraphSpacingMultiplier)
         }
         """#.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
         try "let d = \"\u{FFFC}\"\nlet e = scalar.value == 0xFFFC\nlet f = NSAttachmentCharacter\n".write(
             to: dir.appendingPathComponent("Raw.swift"), atomically: true, encoding: .utf8)
         try "private static func hasWords(_ t: String) -> Bool { t.unicodeScalars.contains { $0.value != 0xFFFC } }\n"
             .write(to: dir.appendingPathComponent("FigureIngest.swift"), atomically: true, encoding: .utf8)
+        let ingest = dir.appendingPathComponent("FigureIngest.swift")
+        try ((try String(contentsOf: ingest, encoding: .utf8))
+            + "private static func other() -> UInt32 { 0xFFFC }\n")
+            .write(to: ingest, atomically: true, encoding: .utf8)
         try #"""
         func baseline(_ p: NSMutableParagraphStyle) {
             p.paragraphSpacing =
@@ -14823,7 +14836,7 @@ extension TripwireGrepTests {
 
         let found = try Self.editorDecorationOffenders(in: dir)
         XCTAssertEqual(found.map { $0.prefix { $0 != ":" } + ":" + $0.split(separator: ":")[1] }.sorted(), [
-            "Planted.swift:3", "Planted.swift:4", "Planted.swift:6", "Planted.swift:7", "Raw.swift:1", "Raw.swift:2", "Raw.swift:3",
-        ], found.joined(separator: "\n"))
+            "Planted.swift:3", "Planted.swift:4", "Planted.swift:6", "Planted.swift:7", "Planted.swift:8", "Planted.swift:10", "FigureIngest.swift:2", "Raw.swift:1", "Raw.swift:2", "Raw.swift:3",
+        ].sorted(), found.joined(separator: "\n"))
     }
 }
