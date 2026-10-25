@@ -82,10 +82,12 @@ public enum FigureReturnDiff {
     public static func everyChangeApplies(_ changes: [Change], onto state: FigureState) -> Bool {
         var sim = Simulation(state: state)
         for change in changes {
-            let before = sim.state.diagnostics.count
+            // Against what each change found: an op already waiting (held
+            // before the return began) is no fault of the return's.
+            let diagnosed = sim.state.diagnostics.count, held = sim.state.held.count
             guard FigureOpPayload.validate(kind: change.kind, payload: change.payload) else { return false }
             sim.emit(change.kind, change.payload)
-            guard sim.state.diagnostics.count == before, sim.state.held.isEmpty else { return false }
+            guard sim.state.diagnostics.count == diagnosed, sim.state.held.count <= held else { return false }
         }
         return true
     }
@@ -259,7 +261,8 @@ public enum FigureReturnDiff {
     }
 
     /// Did the copy leave this content as the base had it? By value; a formula
-    /// by id, then by its text at the copy's positions. A formula the copy
+    /// by its text under the park-time names (`namesAtPark`: the copy's text
+    /// as written), by id, then by its text at the copy's positions. A formula the copy
     /// read as `=…` text (`TableCSV.read`'s unreadable formula: a name it does
     /// not know) is unchanged when that text is exactly the base formula
     /// written with the names of park time (`namesAtPark`) — a figure renamed
@@ -272,6 +275,11 @@ public enum FigureReturnDiff {
         case let (.value(a), .value(b)):
             return valueKey(a) == valueKey(b)
         case let (.formula(a), .formula(b)):
+            // The text the copy was written with first: a figure renamed while
+            // parked whose old name another figure has since taken reads to
+            // that other figure now, and must not be re-pointed to it.
+            if let namesAtPark, FormulaParser.render(a, in: copy, names: names)
+                == FormulaParser.render(toCopy.formula(b), in: copy, names: namesAtPark) { return true }
             if toResult.formula(a) == b { return true }
             return FormulaParser.render(a, in: copy, names: names)
                 == FormulaParser.render(toCopy.formula(b), in: copy, names: names)

@@ -40,13 +40,22 @@ extension FigureReturnDiff {
     /// order (`movedPairs`), edited rows between two of those (`editedInGaps`),
     /// then edited rows anywhere (`editedAnywhere`).
     static func matchRows(base: FigureTable, copy: FigureTable, columns: [(Int, Int)]) -> [(Int, Int)] {
-        let bk = rowKeys(base, columns: columns.map(\.0)), ck = rowKeys(copy, columns: columns.map(\.1))
+        var bk = rowKeys(base, columns: columns.map(\.0)), ck = rowKeys(copy, columns: columns.map(\.1))
+        // The header row is the header row, by position, whatever its titles
+        // now say (a retitled column, a blank corner cell).
+        if base.headerRows == 1, !bk.isEmpty, !ck.isEmpty {
+            bk[0] = [Self.headerRowKey]
+            ck[0] = [Self.headerRowKey]
+        }
         let anchors = lcs(bk, ck)
         var pairs = anchors + movedPairs(bk, ck, already: anchors, blank: { $0.allSatisfy(\.isEmpty) })
         pairs += editedInGaps(bk, ck, anchors: anchors, already: pairs)
         pairs += editedAnywhere(bk, ck, already: pairs)
         return pairs.sorted { $0.1 < $1.1 }
     }
+
+    /// What both header rows match as: one key no cell's can be.
+    static let headerRowKey = "\u{2}header row"
 
     /// Each row's cells over `columns` (live column indices), as match keys.
     static func rowKeys(_ t: FigureTable, columns: [Int]) -> [[String]] {
@@ -58,8 +67,9 @@ extension FigureReturnDiff {
 
     /// Between two in-order anchors, an unmatched copy row takes the first
     /// unmatched base row after the last one taken there that is alike
-    /// enough (`likeness`) — or that was empty, and the copy filled in (as a
-    /// return that stopped part way leaves its new rows).
+    /// enough (`likeness`) — or, only when none is, the first that was empty
+    /// and the copy filled in (as a return that stopped part way leaves its
+    /// new rows).
     static func editedInGaps(
         _ bk: [[String]], _ ck: [[String]], anchors: [(Int, Int)], already: [(Int, Int)]
     ) -> [(Int, Int)] {
@@ -70,10 +80,9 @@ extension FigureReturnDiff {
             let (b0, c0) = fences[k - 1], (b1, c1) = fences[k]
             var next = b0 + 1
             for j in (c0 + 1)..<max(c1, c0 + 1) where !copyTaken.contains(j) {
-                guard let i = (next..<max(b1, next)).first(where: {
-                    !baseTaken.contains($0)
-                        && (likeness(bk[$0], ck[j]) != nil || bk[$0].allSatisfy(\.isEmpty))
-                }) else { continue }
+                let open = (next..<max(b1, next)).filter { !baseTaken.contains($0) }
+                guard let i = open.first(where: { likeness(bk[$0], ck[j]) != nil })
+                    ?? open.first(where: { bk[$0].allSatisfy(\.isEmpty) }) else { continue }
                 out.append((i, j))
                 baseTaken.insert(i); copyTaken.insert(j)
                 next = i + 1

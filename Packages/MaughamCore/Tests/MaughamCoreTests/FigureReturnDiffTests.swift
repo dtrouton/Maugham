@@ -481,4 +481,73 @@ final class FigureReturnDiffTests: XCTestCase {
         XCTAssertFalse(FigureReturnDiff.everyChangeApplies(
             [FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload())], onto: parked), "an invalid payload")
     }
+
+    // MARK: - Re-review round 2
+
+    /// N1: an op already waiting in the figure (held before the return began)
+    /// does not make a changed copy's return fail its check.
+    func test_anAlreadyHeldOpDoesNotRefuseAReturn() {
+        let parked = figure("A,1\nB,2\n")
+        var held = parked
+        FigureDeriver.fold(Op(opId: "zz-held", docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0),
+                              device: "macB", session: "s", kind: .figureCellSet, changes: [],
+                              figure: FigureOpPayload(cell: CellKey(row: RowID("unseen01"), column: parked.table.columns[0]),
+                                                      next: Cell(content: .value(.number(9))))), into: &held)
+        XCTAssertEqual(held.held.count, 1, "precondition: one op waits")
+        let changes = FigureReturnDiff.changes(
+            from: held, onto: held, to: TableCSV.read("A,1\nB,3\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(changes.ops.count, 1)
+        XCTAssertTrue(FigureReturnDiff.everyChangeApplies(changes.ops, onto: held))
+    }
+
+    /// N2: an edited row keeps its id even when a deleted empty row stands
+    /// ahead of it in the same gap.
+    func test_anEditedRowBeatsAnEmptyRowAheadOfIt() {
+        let parked = figure("Label,Value\nA,1\n,\nB,20\nC,3\n")
+        let b = row(parked, labelled: "B")!
+        let back = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked,
+            to: TableCSV.read("Label,Value\nA,1\nB,25\nC,3\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(row(back, labelled: "B"), b, "B keeps its id")
+        XCTAssertEqual(back.table.rows.count, 4, "the empty row is gone")
+    }
+
+    /// N3: a header row with a blank corner keeps its id when a column is
+    /// retitled, and so do the columns.
+    func test_aHeaderRowWithABlankCornerKeepsItsId() {
+        let parked = figure(",Q1,Q2\nNorth,1,2\n")
+        XCTAssertEqual(parked.table.headerRows, 1)
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: TableCSV.read(",First,Q2\nNorth,1,2\n", locale: gb, names: .empty).table,
+            sidecar: nil, mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertEqual(changes.ops.map(\.kind), [.figureCellSet])
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(back.table.rows, parked.table.rows)
+        XCTAssertEqual(back.table.columns, parked.table.columns)
+    }
+
+    /// A figure renamed while parked whose old name another figure took since:
+    /// the copy's formula (written with the old name) now reads to the other
+    /// figure, but the return keeps the formula pointing where it pointed.
+    func test_aFormulaIsNotRePointedToAFigureThatTookARenamedOnesName() {
+        let x = FigureTable(rows: 1, columns: 1), y = FigureTable(rows: 1, columns: 1)
+        let atPark = FormulaNames(figures: [.init(id: "fig-xxxxxxx1", name: "cash", table: x)])
+        let now = FormulaNames(figures: [.init(id: "fig-xxxxxxx1", name: "money", table: x),
+                                         .init(id: "fig-yyyyyyy1", name: "cash", table: y)])
+        let parked = figure("Label,Value\nCash,=cash!A1*2\n", names: atPark)
+        let cash = row(parked, labelled: "Cash")!
+        let written = TableCSV.renderResearch(parked.table, locale: gb, names: atPark)
+        let read = TableCSV.read(written + "More,5\n", locale: gb, names: now)
+        XCTAssertEqual(read.problems, [], "the old name reads, to the other figure")
+        let recorded = atPark.cited(by: parked.table)
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: read.table, sidecar: nil, names: now,
+            namesAtPark: now.renaming(recorded), problems: read.problems,
+            mintRow: mintRow, mintColumn: mintColumn)
+        XCTAssertFalse(changes.ops.contains { $0.payload.cell?.row == cash }, "left pointing at the renamed figure")
+        let back = applied(changes.ops, to: parked)
+        XCTAssertEqual(value(back, cash, 1), value(parked, cash, 1))
+    }
 }

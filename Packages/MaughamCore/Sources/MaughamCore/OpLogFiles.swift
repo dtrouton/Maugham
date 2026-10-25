@@ -128,12 +128,8 @@ public enum OpLogFiles {
         func key(_ url: URL) -> (stream: String, rank: Int) {
             let name = url.lastPathComponent
             if name == "\(docId).jsonl" { return ("", -1) }
-            let rest = name.dropFirst(docId.count + 1)
-            if name.hasSuffix(".\(OpLogSegment.fileExtension)"), let r = rest.range(of: ".seg", options: .backwards),
-               let index = Int(rest[r.upperBound...].dropLast(OpLogSegment.fileExtension.count + 1)) {
-                return (String(rest[..<r.lowerBound]), index)
-            }
-            return (String(rest.dropLast(".jsonl".count)), Int.max)
+            if let segment = segmentParts(fromFilename: name, docId: docId) { return segment }
+            return (String(name.dropFirst(docId.count + 1).dropLast(".jsonl".count)), Int.max)
         }
         return urls.sorted { a, b in
             let ka = key(a), kb = key(b)
@@ -147,11 +143,23 @@ public enum OpLogFiles {
     nonisolated static func segmentIndex(
         fromFilename name: String, docId: String, deviceSlug: DeviceSlug
     ) -> Int? {
-        let prefix = "\(docId).\(deviceSlug.raw).seg"
+        guard let parts = segmentParts(fromFilename: name, docId: docId), parts.stream == deviceSlug.raw else {
+            return nil
+        }
+        return parts.rank
+    }
+
+    /// **The one reader of a segment's name**: `<docId>.<slug>.seg<NNNN>.mzseg`
+    /// → its stream's slug (as the filename spells it — never made into a
+    /// `DeviceSlug`, tripwire 24) and NNNN; nil for any other name.
+    nonisolated static func segmentParts(fromFilename name: String, docId: String) -> (stream: String, rank: Int)? {
+        let prefix = "\(docId)."
         let suffix = ".\(OpLogSegment.fileExtension)"
         guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
-        let digits = name.dropFirst(prefix.count).dropLast(suffix.count)
-        guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return nil }
-        return Int(digits)
+        let middle = name.dropFirst(prefix.count).dropLast(suffix.count)
+        guard let marker = middle.range(of: ".seg", options: .backwards) else { return nil }
+        let digits = middle[marker.upperBound...]
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber), let index = Int(digits) else { return nil }
+        return (String(middle[..<marker.lowerBound]), index)
     }
 }

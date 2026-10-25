@@ -399,7 +399,7 @@ public final class OpLogStore {
         docId: String, amendmentPermits: AmendmentPermits? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
-        let loaded = try await loadDiagnosedStreams(docId: docId, amendmentPermits: amendmentPermits)
+        let loaded = try await loadDiagnosed(docId: docId, amendmentPermits: amendmentPermits, streams: false)
         return (loaded.ops, loaded.diagnostics, loaded.provenance)
     }
 
@@ -411,6 +411,15 @@ public final class OpLogStore {
     /// prefix of this order, not of the ids (a device's ids need not rise).
     public func loadDiagnosedStreams(
         docId: String, amendmentPermits: AmendmentPermits? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
+                       streams: [String: [String]])
+    {
+        try await loadDiagnosed(docId: docId, amendmentPermits: amendmentPermits, streams: true)
+    }
+
+    /// The one read behind both: `streams` built only when asked for.
+    private func loadDiagnosed(
+        docId: String, amendmentPermits: AmendmentPermits?, streams wantStreams: Bool
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
                        streams: [String: [String]])
     {
@@ -442,12 +451,13 @@ public final class OpLogStore {
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
-            orderByFile[url] = result.appendOrder
+            if wantStreams { orderByFile[url] = result.appendOrder }
         }
         foreign.settle()
         var streams: [String: [String]] = [:]
-        let deviceOf = Dictionary(merged.map { ($0.opId, $0.device) }, uniquingKeysWith: { a, _ in a })
-        for url in OpLogFiles.appendOrdered(urls, docId: docId) {
+        let deviceOf = wantStreams
+            ? Dictionary(merged.map { ($0.opId, $0.device) }, uniquingKeysWith: { a, _ in a }) : [:]
+        for url in wantStreams ? OpLogFiles.appendOrdered(urls, docId: docId) : [] {
             for id in orderByFile[url] ?? [] {
                 if let device = deviceOf[id] { streams[device, default: []].append(id) }
             }
