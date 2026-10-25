@@ -246,7 +246,7 @@ enum FigureIngest {
     /// Anything but whitespace and the attachment character.
     private static func hasWords(_ text: String) -> Bool {
         text.unicodeScalars.contains {
-            !CharacterSet.whitespacesAndNewlines.contains($0) && $0 != "\u{FFFC}"
+            !CharacterSet.whitespacesAndNewlines.contains($0) && $0.value != 0xFFFC
         }
     }
 

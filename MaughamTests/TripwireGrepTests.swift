@@ -14708,3 +14708,110 @@ extension TripwireGrepTests {
         ])
     }
 }
+
+// MARK: - The editor's figure cards are decorations, never attachments (report plan 7a, Task 8)
+
+/// **Nothing under `Maugham/Editor/` makes a figure card a character.** A card
+/// is drawn over the text and its room is the figure line's `paragraphSpacing`
+/// (Editor guide, "A figure's thumbnail is a decoration, never an attachment";
+/// tripwires 1, 26). Three rules, read from the code lines of every Editor
+/// file: no `NSTextAttachment`; no `U+FFFC` (a literal or a `\u{FFFC}` escape;
+/// AppKit's `NSAttachmentCharacter` is how a reader names it); and room is
+/// added to a `paragraphSpacing` only in `ProseMode.figureLineStyle`, the one
+/// spelling both paints use. A plain `=` is the typography baseline and may
+/// stay only when its value comes from `paragraphSpacingMultiplier`.
+extension TripwireGrepTests {
+    /// The one function that may add to a `paragraphSpacing`, by file.
+    static let editorSpacingWriteHomes: [String: String] = [
+        "ProseMode.swift": "figureLineStyle",
+    ]
+
+    static func editorDecorationOffenders(in editorDir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: editorDir, includingPropertiesForKeys: nil) else { return [] }
+        let files = (walker.allObjects as? [URL] ?? [])
+            .filter { $0.pathExtension == "swift" }
+            .sorted { $0.path < $1.path }
+        var out: [String] = []
+        for file in files {
+            let name = file.lastPathComponent
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let raw = text.components(separatedBy: "\n")
+            let blanked = blankingCommentsAndStrings(text).components(separatedBy: "\n")
+            var currentFunc = ""
+            for (i, line) in blanked.enumerated() {
+                if let r = line.range(of: #"\bfunc\s+(\w+)"#, options: .regularExpression) {
+                    currentFunc = String(line[r]).replacingOccurrences(of: "func", with: "")
+                        .trimmingCharacters(in: .whitespaces)
+                }
+                let spot = "\(name):\(i + 1): \(raw[i].trimmingCharacters(in: .whitespaces))"
+                if line.contains("NSTextAttachment") { out.append(spot) }
+                if line.contains("paragraphSpacing"), !line.contains("paragraphSpacingBefore") {
+                    let next = i + 1 < blanked.count ? blanked[i + 1] : ""
+                    let compound = line.range(
+                        of: #"paragraphSpacing\s*[-+*/]="#, options: .regularExpression) != nil
+                    let plain = line.range(
+                        of: #"paragraphSpacing\s*=[^=]"#, options: .regularExpression) != nil
+                    // The baseline's value is the typography multiplier, maybe on the next line.
+                    let baseline = raw[i].contains("paragraphSpacingMultiplier")
+                        || (i + 1 < raw.count && raw[i + 1].contains("paragraphSpacingMultiplier")
+                            && next.range(of: #"^\s*\S"#, options: .regularExpression) != nil)
+                    if compound, editorSpacingWriteHomes[name] != currentFunc { out.append(spot) }
+                    else if plain, !baseline { out.append(spot) }
+                }
+                // U+FFFC: a code line (strings count; a whole-line comment does not).
+                let trimmed = raw[i].trimmingCharacters(in: .whitespaces)
+                if !trimmed.hasPrefix("//") {
+                    let code = raw[i].components(separatedBy: " // ").first ?? raw[i]
+                    if code.contains("\u{FFFC}") || code.lowercased().contains("\\u{fffc}") {
+                        out.append(spot)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    func test_theEditorsFigureCardsAreDecorationsNeverAttachments() throws {
+        let editor = SourceTree.repoRoot.appendingPathComponent("Maugham/Editor", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: editor.path))
+        let offenders = try Self.editorDecorationOffenders(in: editor)
+        XCTAssertEqual(offenders, [],
+            "a figure card is drawn over the text, never a character in it (tripwires 1, 26): no "
+            + "NSTextAttachment, no U+FFFC, and room is added to paragraphSpacing only in "
+            + "ProseMode.figureLineStyle:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: each rule fires on its own planted line, and the lookalikes
+    /// (a comment, the baseline write, the home function) do not.
+    func test_theEditorDecorationCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root.appendingPathComponent("editor-decoration-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try #"""
+        import AppKit
+        // NSTextAttachment and \u{FFFC} in a comment are prose
+        let a = NSTextAttachment()
+        let b = "\u{FFFC}"
+        func other(_ s: NSMutableParagraphStyle) {
+            s.paragraphSpacing += 10
+            s.paragraphSpacing = 4
+        }
+        """#.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        try "let d = \"\u{FFFC}\"\n".write(
+            to: dir.appendingPathComponent("Raw.swift"), atomically: true, encoding: .utf8)
+        try #"""
+        func baseline(_ p: NSMutableParagraphStyle) {
+            p.paragraphSpacing =
+                size * CGFloat(typography.paragraphSpacingMultiplier)
+        }
+        private static func figureLineStyle(room: CGFloat) {
+            style.paragraphSpacing += room
+        }
+        """#.write(to: dir.appendingPathComponent("ProseMode.swift"), atomically: true, encoding: .utf8)
+
+        let found = try Self.editorDecorationOffenders(in: dir)
+        XCTAssertEqual(found.map { $0.prefix { $0 != ":" } + ":" + $0.split(separator: ":")[1] }.sorted(), [
+            "Planted.swift:3", "Planted.swift:4", "Planted.swift:6", "Planted.swift:7", "Raw.swift:1",
+        ], found.joined(separator: "\n"))
+    }
+}
