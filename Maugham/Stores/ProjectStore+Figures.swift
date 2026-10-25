@@ -761,8 +761,10 @@ extension ProjectStore {
     /// Throws when a piece's text will not derive, when a carried figure will
     /// not read, when one of the piece's own figures is of a kind this build
     /// cannot create, when a figure that stays is parked on a working copy in
-    /// `carriedResearch`, or when a moved one is parked on a copy outside it
-    /// (final review I2: it would arrive parked for good). Another figure of
+    /// `carriedResearch`, or when one of the piece's own (moved or kept) is
+    /// parked on a copy outside it (final review I2: it would arrive parked
+    /// for good). Another document's text that will not derive refuses
+    /// naming it. Another figure of
     /// an unknown kind is left out and listed (`.unknownKind`).
     func figureCarryPlan(forPiece pieceId: String, carriedResearch: Set<String>) async throws -> FigureCarryPlan {
         let records = manifest.figures ?? []
@@ -799,8 +801,15 @@ extension ProjectStore {
         for doc in Self.collectDocuments(in: manifest.structure)
         where doc.id != pieceId && doc.pieceKind != .reference {
             guard let docPath = doc.path else { continue }
-            otherText.append((doc.title, FigureCarry.references(
-                inText: try figureReadingText(docId: doc.id, path: docPath))))
+            let text: String
+            do {
+                guard !Self.figureCarryReadFailsForTesting.contains(doc.id) else { throw CocoaError(.fileReadCorruptFile) }
+                text = try figureReadingText(docId: doc.id, path: docPath)
+            } catch {
+                throw FigureEditInvalid(
+                    reason: "\(doc.title) can\u{2019}t be read, so what it cites can\u{2019}t be checked.")
+            }
+            otherText.append((doc.title, FigureCarry.references(inText: text)))
         }
         let readers = FigureCarry.readByWhatStays(
             moved: found.moved, records: records, states: states, otherText: otherText, parks: parks)
@@ -838,10 +847,11 @@ extension ProjectStore {
             throw FigureEditInvalid(
                 reason: "\(first.name) is parked in this piece\u{2019}s Research; bring it back before promoting.")
         }
-        // A moved figure parked on a working copy that does not go with the
-        // piece would arrive parked on an item the new book lacks, for good
-        // (controller ruling, final review I2).
-        if let first = carry.moved.first(where: { record in
+        // The piece's own figure — moved, or copied because something
+        // staying reads it — parked on a working copy that does not go with
+        // the piece would arrive parked on an item the new book lacks, for
+        // good (controller ruling, final review I2; re-review N1).
+        if let first = found.moved.first(where: { record in
             states[record.id]?.parked.map { !carriedResearch.contains($0.itemId ?? "") } == true
         }) {
             throw FigureEditInvalid(
@@ -869,6 +879,10 @@ extension ProjectStore {
                 + FigureCarry.stayingReadsOfCarriedResearch(
                     staying: staying, states: states, carriedResearch: carriedResearch, parks: parks))
     }
+
+    /// Test seam: documents whose text `figureCarryPlan` reads as
+    /// underivable (an op log that will not read). Empty in production.
+    static var figureCarryReadFailsForTesting: Set<String> = []
 
     /// A document's text for reading which figures it names: its open
     /// `Document`'s, else derived from its op log, never its `.md` (tripwire

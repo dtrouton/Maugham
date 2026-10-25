@@ -1290,4 +1290,47 @@ final class PromotePieceFigureTests: XCTestCase {
             XCTAssertEqual(try? Data(contentsOf: url), bytes, url.lastPathComponent)
         }
     }
+
+    /// **The piece's own figure kept as a copy, parked outside the piece,
+    /// refuses too** (re-review N1): piece B cites it, so it would be copied,
+    /// and it would arrive parked on an item the new book lacks.
+    func test_aKeptOwnFigureParkedOutsideThePieceRefusesThePromotion() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        let storyB = try await projectStore.addLoosePiece(title: "Story B", format: .markdown)
+        try await write("See @tbl:own.\n", into: storyB, of: projectStore)
+        let own = try await projectStore.createFigure(kind: .table, name: "own", piece: piece.id)
+        _ = try await projectStore.sendToResearch(figureId: own.id, scope: .shared)
+        let destination = root.appendingPathComponent("Promoted Story A")
+
+        do {
+            _ = try await projectStore.promotePieceToProject(pieceId: piece.id, destination: destination)
+            XCTFail("the promotion was not refused")
+        } catch let refused as FigureEditInvalid {
+            XCTAssertEqual(refused.reason, "own is in Research outside this piece; bring it back before promoting.")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertEqual(stagingTrees(in: root), [])
+    }
+
+    /// **Another piece whose text will not derive refuses the promotion,
+    /// naming it** (re-review N2), before anything moves.
+    func test_anotherPieceThatWillNotReadRefusesNamingIt() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        let storyB = try await projectStore.addLoosePiece(title: "Story B", format: .markdown)
+        _ = try await projectStore.createFigure(kind: .table, name: "own", piece: piece.id)
+        ProjectStore.figureCarryReadFailsForTesting = [storyB.id]
+        defer { ProjectStore.figureCarryReadFailsForTesting = [] }
+        let destination = root.appendingPathComponent("Promoted Story A")
+
+        do {
+            _ = try await projectStore.promotePieceToProject(pieceId: piece.id, destination: destination)
+            XCTFail("the promotion was not refused")
+        } catch let refused as FigureEditInvalid {
+            XCTAssertEqual(refused.reason, "Story B can\u{2019}t be read, so what it cites can\u{2019}t be checked.")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertEqual(stagingTrees(in: root), [])
+    }
 }
