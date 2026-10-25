@@ -1,6 +1,6 @@
 # Stores — area guide
 
-The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores (recents, sessions, trash, debounce, staging); and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52 and 53. The why behind every rule below, and its history, is in `docs/history/stores.md`.
+The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores (recents, sessions, trash, debounce, staging); and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
 
 ## Map
 
@@ -33,7 +33,8 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+WikiLink.swift` — `[[…]]` title resolution (`WikiLinkProject` conformance).
 - `ProjectStore+Search.swift` — project search and Replace (`performSearch`, `replaceMatch`, `replaceAll`, `replaceInManuscript`). Tripwire 52.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
-- `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` asks every door first, then relabels the text (ruling P-3); `removeFigure` trashes the file with its record, and restoring it re-registers the figure. Tripwire 52.
+- `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` refuses a parked figure, asks every door first, then relabels the text; `removeFigure` always trashes the record (with its file, a fresh render, or alone), and restoring it re-registers the figure. Tripwire 52.
+- `ProjectStore+FigureTranslations.swift` — a rename's fresh translation records: read and door-checked first, relabelled after the text, all or nothing.
 - `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack` (unchanged: resumed; changed: three-way); `sendToResearch` parks one; `pinSourceRead` reads a pin's source.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54). Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
@@ -103,7 +104,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 
 Two things deliberately live elsewhere:
 - **The Trash is `<project>/.trash/`** (`TrashStore.trashRoot`), not under `.maugham/`.
-- **This device's key material** is in `DeviceState.directory` (`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`): one key blob and token per `DeviceActor` (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the others) and one op-log-state.json. It must never sync: a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account. Under XCTest the path gains an `xctest-worker-<pid>` leaf, so parallel workers never share a key or a head.
+- **This device's key material** is in `DeviceState.directory` (`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`): one key blob and token per `DeviceActor` (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the others) and one op-log-state.json. It must never sync (tripwire 17). Under XCTest the path gains an `xctest-worker-<pid>` leaf, so parallel workers never share a key or a head.
 
 ## Rules
 
@@ -401,7 +402,7 @@ Checks: `StatementOpenGateTests`, `test_theStatementOpenGateIsTakenByExactlyThes
 ## Pointers
 - `docs/history/stores.md`: the old guide word for word, with every rule's why and the defects behind them.
 - ADR 0006 (trash and undo, with the rulings amendment), ADR 0008 (id prefixes), ADR 0009 (Collection references), ADR 0010 (typed seams), ADR 0012 (per-device JSONL), ADR 0015 (schema evolution), ADR 0018 and 0019 (reads derive from the op log; clean `.md`), ADR 0021 (scoped events), ADR 0030 (the cast), ADR 0032 (the signed op log: admission, posture, Option A, the person key).
-- `docs/tripwires.md` rows 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53.
+- `docs/tripwires.md` rows 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53, 58.
 - `register/reconciliation/Trash.*`, `register/reconciliation/Inbox.*`.
 - Neighbouring guides: `Maugham/OpLog/AREA.md` (the op log, `Document.load`, the person key), `Maugham/Views/AREA.md` (the panes), `Maugham/Canvas/AREA.md` (`CanvasCapture`), `Maugham/Compiler/AREA.md` (the designer loop, the pipeline), `MaughamPhone/AREA.md` (the phone's inbox writer).
 - Cross-document search (⌘⌥F): `Maugham/Views/ProjectSearchView.swift`, `ProjectWindow.applyCloseFind`. `InboxPane` is ⌘⌥B.

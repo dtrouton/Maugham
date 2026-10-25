@@ -525,3 +525,9 @@ To make room for the figure rows (pins, the return, restore), the figure posture
 - Routing one canvas-ingest case through the other twin would leave half the pair with no caller.
 - `InboxTranscriptionWorker` is poked on every inbox change because an `.m4a` and its manifest row arrive in either order.
 - `ProjectStore` is large only because the project is the central aggregate.
+
+## Moved from the guide by report plan 6b final fix wave (2026-10-25)
+
+To make room for the `ProjectStore+FigureTranslations.swift` Map row, the figure rows' parked-rename refusal and always-a-Trash-entry removal, and tripwire 58 in the header list, under the 8,000-word cap:
+
+- This device's key material must never sync because a copied token would make two machines one device id on one per-device file (tripwire 17), and the remembered chain heads are this device's private account.

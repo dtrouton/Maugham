@@ -2300,3 +2300,9 @@ To make room for the Figures rules (a figure follows its piece's posture, parked
 - An ambiguous bigram tie mints fresh because reusing could inherit a deleted sibling's id (the identity-corruption hazard).
 - MCP and phone tails never rotate into segments in practice, and that is accepted.
 - `performAutosave` bailing after close is data-safety-critical: a stray tail would write an empty render over the manuscript.
+
+## Moved from the guide by report plan 6b final fix wave (2026-10-25)
+
+To make room for the return's `returnOf` and a figure edit claiming its piece (revised ruling R-D4) in the Figures rules, under the 8,000-word cap:
+
+- A figure op is minted after the newest op its host folded so a park minted ahead of the clock never sorts a later op before it.
