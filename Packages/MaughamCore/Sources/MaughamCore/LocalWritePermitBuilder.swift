@@ -35,6 +35,7 @@ public enum LocalWritePermitBuilder {
             as: actor,
             documentClass: { placement.documentClass },
             startedBy: { placement.startedBy(ofPiece: $0) },
+            figuresOfPiece: { placement.figureIds(ofPiece: $0) },
             table: table, in: projectURL)
     }
 
@@ -62,6 +63,7 @@ public enum LocalWritePermitBuilder {
         as actor: DeviceActor,
         documentClass: () -> DocumentClass,
         startedBy: ((String) -> String?)?,
+        figuresOfPiece: ((String) -> [String])? = nil,
         table: TrustTable?,
         in projectURL: URL
     ) -> LocalWritePermit {
@@ -88,10 +90,11 @@ public enum LocalWritePermitBuilder {
         // yield — reach it exactly as they reach the piece's text
         // (`Permit.startersPiece(of:)`).
         let cls = documentClass()
+        // The disk's answers, where the caller handed none, from ONE
+        // manifest read for both (the starter, the piece's figures).
+        let onDisk = Permit.startersPiece(of: cls).map { ManifestPlacement(docId: $0, in: projectURL) }
         guard let piece = Permit.startersPiece(of: cls),
-              let starterId = (startedBy ?? {
-                  LocalWritePermitBuilder.startedBy(ofPiece: $0, in: projectURL)
-              })(piece)
+              let starterId = (startedBy ?? { onDisk?.startedBy(ofPiece: $0) })(piece)
         else {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }
@@ -104,6 +107,9 @@ public enum LocalWritePermitBuilder {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }
         let starter = table.starter(ofPieceStartedBy: starterId)
+        // A figure edit claims the piece as a text edit does (ruling R-D4):
+        // `unownedPiece` reads the piece's figure streams too.
+        let pieceFigures = { (figuresOfPiece ?? { onDisk?.figureIds(ofPiece: $0) ?? [] })(piece) }
         // **Option A's arm** — the same three facts the partition's own arm
         // asks (`PermitPartition.appliesOnItsWritersOwnMac`), on the write
         // side: her own device started it, it was not taken from her, and no
@@ -115,7 +121,8 @@ public enum LocalWritePermitBuilder {
                 .op(.typingBurst), in: cls, actor: actor)
             && !table.myTimeline.wasTakenFromThem(piece: piece)
             && unownedPiece(
-                forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
+                forDocId: piece, in: projectURL, trust: table, startedBy: starterId,
+                figures: pieceFigures())
                 == .nobodyHasWrittenItsText
         // **The same fact from the other side** (fix wave, Ruling U): a book
         // author's hand in a piece somebody else started and nobody has
@@ -127,7 +134,8 @@ public enum LocalWritePermitBuilder {
            permit.claimsAPieceByWritingItsText(actor: actor),
            !table.starterAuthors(starterId, cls),
            unownedPiece(
-               forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
+               forDocId: piece, in: projectURL, trust: table, startedBy: starterId,
+               figures: pieceFigures())
                == .nobodyHasWrittenItsText {
             unsettled = .init(
                 deviceId: starterId,
@@ -223,19 +231,28 @@ public enum LocalWritePermitBuilder {
         forDocId docId: String, in projectURL: URL, trust: TrustTable?
     ) -> PermitPartition.UnownedPiece {
         guard let trust else { return .nobodyHasWrittenItsText }
+        let placement = ManifestPlacement(docId: docId, in: projectURL)
         return unownedPiece(
             forDocId: docId, in: projectURL, trust: trust,
-            startedBy: startedBy(ofPiece: docId, in: projectURL))
+            startedBy: placement.startedBy(ofPiece: docId),
+            figures: placement.figureIds(ofPiece: docId))
     }
 
     /// The same question, for a caller that already holds the piece's
     /// recorded starter (ruling G: a book author's `bootstrap` claims the
-    /// piece unless somebody else started it).
+    /// piece unless somebody else started it) and the figures the registry
+    /// gives it. **A figure's lines count as the piece's text** (Denver's
+    /// revised ruling R-D4): a figure belongs to its piece and its ops sit on
+    /// the manuscript-text rung (ruling D-c), so a book author who edits only
+    /// a figure claims the piece exactly as a keystroke in its text would —
+    /// and the read side, which asks this same function, sets the starter's
+    /// held lines aside at the same moment.
     nonisolated public static func unownedPiece(
         forDocId docId: String, in projectURL: URL, trust: TrustTable,
-        startedBy: String?
+        startedBy: String?, figures: [String] = []
     ) -> PermitPartition.UnownedPiece {
-        for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
+        let urls = ([docId] + figures).flatMap { OpLogStore.opLogFileURLs(forDocId: $0, in: projectURL) }
+        for url in urls {
             guard let bytes = (try? OpLogStore.readCoordinated(url: url, presenter: nil)) ?? nil,
                   let stream = PermitMark.stream(of: url)
             else { continue }

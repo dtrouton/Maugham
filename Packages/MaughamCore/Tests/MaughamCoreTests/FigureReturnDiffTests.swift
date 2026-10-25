@@ -233,8 +233,93 @@ final class FigureReturnDiffTests: XCTestCase {
         let back = applied(changes.ops, to: current)
         XCTAssertEqual(back.table[south]?.content, .value(.number(30)), "the unread edit survives")
         XCTAssertEqual(changes.overwritten, [])
-        // A device the parker never read, or whose recorded op is gone, gives none.
-        XCTAssertNil(FigureReturnDiff.base(of: merged, streams: streams, frontier: ["macA": "zz"]).kind)
+        // A device the parker never read gives none.
+        XCTAssertNil(FigureReturnDiff.base(of: merged, streams: streams, frontier: ["macC": "a01"]).kind)
+    }
+
+    /// **A frontier op this Mac can't find** (final review M-1): the device's
+    /// ops at or below the recorded id stand in for its append-order prefix,
+    /// so the rows the parker read are in the base and the copy's copies of
+    /// them match — never inserted a second time.
+    func test_aFrontierOpNotInItsStreamFallsBackToTheOpsAtOrBelowIt() {
+        let parked = figure("Name,Q1\nNorth,1\nSouth,2\n")
+        var ops: [Op] = []
+        func add(_ id: String, _ device: String, _ kind: OpKind, _ p: FigureOpPayload) {
+            ops.append(Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: device,
+                          session: "s", kind: kind, changes: [], figure: p))
+        }
+        add("a0", "macA", .figureCreate, FigureOpPayload(kind: .table))
+        add("a1", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[0], after: nil)))
+        add("a2", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[1], after: parked.table.columns[0])))
+        // macB inserted every row and wrote every cell; its last op ("b9")
+        // is the parker's frontier, but it is not in macB's stream here.
+        var after: RowID?
+        for (i, r) in parked.table.rows.enumerated() {
+            add("b\(i)", "macB", .figureStructure, FigureOpPayload(structure: .insertRow(r, after: after)))
+            after = r
+        }
+        var n = 5
+        for (k, c) in parked.table.cells.sorted(by: { $0.key.row.raw + $0.key.column.raw < $1.key.row.raw + $1.key.column.raw }) {
+            add("b\(n)", "macB", .figureCellSet, FigureOpPayload(cell: k, next: c)); n += 1
+        }
+        let streams = ["macA": ["a0", "a1", "a2"], "macB": ops.filter { $0.device == "macB" }.map(\.opId)]
+        let frontier = ["macA": "a2", "macB": "b99"]
+        XCTAssertFalse(streams["macB"]!.contains("b99"), "premise: the recorded op is not here")
+
+        let base = FigureReturnDiff.base(of: ops, streams: streams, frontier: frontier)
+        XCTAssertEqual(base.table.rows, parked.table.rows, "macB's rows are in the base")
+        let current = FigureDeriver.derive(ops)
+        let copy = TableCSV.read("Name,Q1\nNorth,1\nSouth,2\nWest,3\n", locale: gb, names: .empty).table
+        let changes = FigureReturnDiff.changes(from: base, onto: current, to: copy, sidecar: nil,
+                                               mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: current)
+        XCTAssertEqual(back.table.rows.count, 4, "North, South and the header once each, and West")
+    }
+
+    /// **Two Macs bringing one figure back at once** (final review M-2): the
+    /// second resume is dropped, and so is every content op naming it
+    /// (`returnOf`), so each new row appears once. The base leaves the
+    /// dropped return out too.
+    func test_aDuplicateConcurrentReturnAddsItsRowsOnce() {
+        let parked = figure("Name,Q1\nNorth,1\n")
+        let copy = TableCSV.read("Name,Q1\nNorth,1\nSouth,2\n", locale: gb, names: .empty).table
+        var ops: [Op] = []
+        func add(_ id: String, _ device: String, _ kind: OpKind, _ p: FigureOpPayload, reason: Bool = false) {
+            ops.append(Op(opId: id, docId: "fig-k3m9q2zt", at: Date(timeIntervalSince1970: 0), device: device,
+                          session: "s", kind: kind, changes: [],
+                          provenance: reason ? Op.Provenance(synthesisSource: .broughtBackFromResearch) : nil,
+                          figure: p))
+        }
+        add("a0", "macA", .figureCreate, FigureOpPayload(kind: .table))
+        add("a1", "macA", .figureStructure, FigureOpPayload(structure: .insertRow(parked.table.rows[0], after: nil)))
+        add("a2", "macA", .figureStructure, FigureOpPayload(structure: .insertRow(parked.table.rows[1], after: parked.table.rows[0])))
+        add("a3", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[0], after: nil)))
+        add("a4", "macA", .figureStructure, FigureOpPayload(structure: .insertColumn(parked.table.columns[1], after: parked.table.columns[0])))
+        var i = 5
+        for (k, c) in parked.table.cells { add("a\(i)", "macA", .figureCellSet, FigureOpPayload(cell: k, next: c)); i += 1 }
+        add("b0", "macA", .figureParked, FigureOpPayload(parkedPath: "p", parkedHash: "h"))
+        // Each Mac's own return, each with its own fresh ids.
+        for (device, resume, prefix) in [("macA", "c0", "c"), ("macB", "d0", "d")] {
+            let changes = FigureReturnDiff.changes(from: parked, onto: parked, to: copy, sidecar: nil,
+                                                   mintRow: mintRow, mintColumn: mintColumn)
+            add(resume, device, .figureResumed, FigureOpPayload(), reason: true)
+            for (j, c) in changes.ops.enumerated() {
+                var p = c.payload
+                p.returnOf = resume
+                add("\(prefix)\(j + 1)", device, c.kind, p, reason: true)
+            }
+        }
+        let merged = ops.sorted { $0.opId < $1.opId }
+        let state = FigureDeriver.derive(merged)
+        XCTAssertNil(state.parked)
+        XCTAssertEqual(state.table.rows.count, 3, "South once, not twice")
+        XCTAssertEqual(state.abandonedReturns, ["d0"])
+        XCTAssertTrue(state.diagnostics.contains { $0.hasPrefix("d1:") }, "the dropped return's ops are diagnosed")
+
+        let streams = ["macA": merged.filter { $0.device == "macA" }.map(\.opId),
+                       "macB": merged.filter { $0.device == "macB" }.map(\.opId)]
+        let base = FigureReturnDiff.base(of: merged, streams: streams, frontier: ["macA": "a\(i - 1)"])
+        XCTAssertEqual(base.table.rows.count, 3, "the base has the landed return, not the dropped one")
     }
 
     /// A return that stopped part way and was parked again: its ops count as

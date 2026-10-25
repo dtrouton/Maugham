@@ -47,6 +47,12 @@ public struct FigureState: Equatable, Sendable {
     /// on the state so `FigureDeriver.fold` carries it across calls; `derive`
     /// diagnoses whatever is still held when the stream ends.
     public internal(set) var held: [Op]
+    /// **Returns this stream drops whole** (report plan 6b final review M-2):
+    /// the op ids of `figureResumed` ops that came while the figure was not
+    /// parked — a second Mac bringing the same figure back at once. Every
+    /// content op naming one of them (`FigureOpPayload.returnOf`) is dropped
+    /// and diagnosed, so the second return's rows are not added twice.
+    public internal(set) var abandonedReturns: Set<String> = []
 
     public init(
         kind: FigureKind? = nil, table: FigureTable = FigureTable(rows: 0, columns: 0),
@@ -92,7 +98,9 @@ public struct FigureState: Equatable, Sendable {
 ///   structure, settings, image or pin op — is dropped from the view and
 ///   diagnosed, and stays in the log (like a delete beating an edit). A second
 ///   park while parked is dropped the same way: the first one's working copy
-///   is the one the stream points at. A resume while not parked is dropped.
+///   is the one the stream points at. A resume while not parked is dropped,
+///   and so is every content op of that return (its `returnOf`): two Macs
+///   bringing one figure back at once add its rows once.
 ///
 /// This is not the manuscript deriver, and never asks `Deriver.appliesToManuscript`
 /// (tripwire 44+1): a figure op is never manuscript text.
@@ -123,6 +131,9 @@ public enum FigureDeriver {
         if state.parked != nil, isContent(op.kind) {
             return drop("\(op.kind.rawValue) while the figure is parked in Research, not applied")
         }
+        if let resume = p.returnOf, state.abandonedReturns.contains(resume) {
+            return drop("\(op.kind.rawValue) of a return whose resume was dropped, not applied")
+        }
 
         if namesAnUnseenID(op.kind, p, in: state.table) {
             state.held.append(op)
@@ -149,6 +160,7 @@ public enum FigureDeriver {
 
         case .figureResumed:
             guard state.parked != nil else {
+                state.abandonedReturns.insert(op.opId)
                 return drop("figure_resumed while not parked, ignored")
             }
             state.parked = nil

@@ -337,4 +337,62 @@ final class PinStatusTests: XCTestCase {
         XCTAssertEqual(read.value(row: 0, column: 1), .number(12))
         XCTAssertNil(read.value(row: 1, column: 0), "off the grid")
     }
+
+    // MARK: - Final review I-1: a Research read with no pin
+
+    /// **A Research read no pin holds says it needs a refresh** (final review
+    /// I-1): a formula that came in without its entry pin shows `#REF!`, so
+    /// its source is `unpinned` — never `current` — and a refresh pins it.
+    func test_anUnpinnedResearchReadNeedsARefresh() throws {
+        var state = FigureState(kind: .table, table: FigureTable(rows: 1, columns: 1))
+        let a1 = key(state.table, "A1")
+        let f = try formula("research:model!B2", in: state.table)
+        state.table.setCell(Cell(content: .formula(f)), at: a1)
+        let sources = PinSources(research: [research: source("h1", [[0, 0], [0, 7]])])
+        XCTAssertEqual(value(state, "A1"), .error(.ref), "never read live")
+        XCTAssertEqual(FigurePins.status(of: state, sources: sources), [research: .unpinned(new: "h1")])
+        let writes = FigurePins.refresh(state: state, sources: sources, at: t0)
+        XCTAssertEqual(writes.map(\.pin.value), [.number(7)], "a refresh pins it")
+        fold(writes, into: &state)
+        XCTAssertEqual(FigurePins.status(of: state, sources: sources), [research: .current])
+        XCTAssertEqual(value(state, "A1"), .number(7))
+    }
+
+    /// **The whole table's entry pins** (final review I-1): every formula cell
+    /// reading Research takes its pins, two cells reading one source cell
+    /// read one value, a ref into a parked figure takes none, and `cells`
+    /// limits it.
+    func test_theWholeTablesEntryPins() throws {
+        var state = FigureState(kind: .table, table: FigureTable(rows: 2, columns: 2))
+        let a1 = key(state.table, "A1"), b1 = key(state.table, "B1"), a2 = key(state.table, "A2")
+        state.table.setCell(Cell(content: .formula(try formula("research:model!B2*2", in: state.table))), at: a1)
+        state.table.setCell(Cell(content: .formula(try formula("research:model!B2+1", in: state.table))), at: b1)
+        state.table.setCell(Cell(content: .formula(try formula("A1+1", in: state.table))), at: a2)
+        let sources = PinSources(research: [research: source("h1", [[0, 0], [0, 5]])])
+        let all = FigurePins.entry(state: state, sources: sources, at: t0)
+        XCTAssertEqual(all.map(\.cell), [a1, b1].sorted { ($0.row.raw, $0.column.raw) < ($1.row.raw, $1.column.raw) })
+        XCTAssertEqual(all.first?.pin, all.last?.pin, "one source cell, one pin value")
+        fold(all, into: &state)
+        XCTAssertEqual(value(state, "A2"), .number(11))
+        XCTAssertEqual(FigurePins.status(of: state, sources: sources), [research: .current])
+        XCTAssertEqual(FigurePins.entry(state: state, sources: sources, at: t1), [], "nothing left to pin")
+        var fresh = state
+        fresh.pins = [:]
+        XCTAssertEqual(FigurePins.entry(state: fresh, cells: [b1], sources: sources, at: t0).map(\.cell), [b1])
+    }
+
+    /// **The cheap gate**: a formula names Research anywhere — a ref, a range,
+    /// SUMIF's sum block — or it does not; no parked set or book is needed to
+    /// know (`setCell`'s gate used to pass `parked: [:]`). A ref only into
+    /// another figure, live or parked, takes no entry pin, so it does not count.
+    func test_readsResearchIsSyntactic() throws {
+        let t = FigureTable(rows: 1, columns: 1)
+        let other = FigureTable(rows: 3, columns: 1)
+        XCTAssertTrue(FigurePins.readsResearch(try formula("research:model!A1", in: t)))
+        XCTAssertTrue(FigurePins.readsResearch(try formula("SUM(research:model!A1:B2)", in: t)))
+        let sumif = try formula("SUMIF(other!A1:A3,\">0\",research:model!B1)", in: t, figures: ["other": other])
+        XCTAssertTrue(FigurePins.readsResearch(sumif))
+        XCTAssertFalse(FigurePins.readsResearch(try formula("other!A1*2", in: t, figures: ["other": other])))
+        XCTAssertFalse(FigurePins.readsResearch(try formula("1+2", in: t)))
+    }
 }

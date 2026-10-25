@@ -8,10 +8,16 @@ import Foundation
 ///   for a parked figure read without a pin, the one its park recorded.
 /// - `sourceMissing`: the Research item, or the parked figure's working copy,
 ///   is gone. The kept values stay; nothing is cleared.
+/// - `unpinned`: a formula reads a Research table at a position no pin holds
+///   (one that came in with *Use in document* or a return before it could be
+///   pinned, or whose pin was never written), so that cell shows `#REF!`; a
+///   refresh pins it from `new`, the table's content hash now. Reported only
+///   where no pin is stale (`sourceChanged` says the same, and more).
 public enum PinStatus: Equatable, Sendable {
     case current
     case sourceChanged(old: String, new: String)
     case sourceMissing
+    case unpinned(new: String)
 }
 
 /// One source cell a formula reads: a Research item's, or a parked figure's,
@@ -230,6 +236,10 @@ public enum FigurePins {
                 guard let now = sources.research[source] else { out[source] = .sourceMissing; continue }
                 if let stale = pins.first(where: { $0.sourceHash != now.hash }) {
                     out[source] = .sourceChanged(old: stale.sourceHash, new: now.hash)
+                } else if read.contains(where: { $0.source == source && pinned[$0] == nil }) {
+                    // Never read live (spec §4.3): an unpinned position is
+                    // `#REF!` until a refresh, as the parked branch says.
+                    out[source] = .unpinned(new: now.hash)
                 } else {
                     out[source] = .current
                 }
@@ -339,6 +349,52 @@ public enum FigurePins {
             }
         }
         return out.sorted { order(read($0.pin), read($1.pin)) }
+    }
+
+    /// **The entry pins every formula cell of `state` takes** (report plan 6b
+    /// final review I-1) — what a figure made by *Use in document*, or the
+    /// cells a return brings back, take, as `setCell` takes one cell's: each
+    /// cell's `entry`, in cell order, each laid onto the state before the
+    /// next is asked, so two cells reading one source cell read one value.
+    /// `cells` limits it to those cells; nil asks every formula cell.
+    public static func entry(
+        state: FigureState, cells: Set<CellKey>? = nil, sources: PinSources, at now: Date
+    ) -> [PinWrite] {
+        var working = state
+        var out: [PinWrite] = []
+        let keys = working.table.cells.keys
+            .filter { cells?.contains($0) ?? true }
+            .sorted(by: before)
+        for key in keys {
+            guard case .formula(let f)? = working.table[key]?.content, readsResearch(f) else { continue }
+            for w in entry(of: f, in: key, state: working, sources: sources, at: now) {
+                working.pins[w.cell, default: []].append(w.pin)
+                out.append(w)
+            }
+        }
+        return out
+    }
+
+    /// **Can `formula` read a Research table at all?** — whether it names
+    /// one anywhere (a ref, a range, SUMIF's sum block). A syntactic test,
+    /// no book needed: the cheap gate before a host gathers `PinSources`.
+    /// A ref into a parked figure takes no entry pin, so it does not count.
+    public static func readsResearch(_ formula: Formula) -> Bool {
+        func walk(_ e: FormulaExpr) -> Bool {
+            switch e {
+            case .number, .text, .bool, .missing, .error: return false
+            case .ref(let r): return isResearch(r.target)
+            case .range(let g): return isResearch(g.start.target) || isResearch(g.end.target)
+            case .unary(_, let x): return walk(x)
+            case .binary(_, let l, let r): return walk(l) || walk(r)
+            case .call(_, let arguments): return arguments.contains(where: walk)
+            }
+        }
+        func isResearch(_ t: RefTarget) -> Bool {
+            if case .research = t { return true }
+            return false
+        }
+        return walk(formula.expr)
     }
 
     // MARK: - Helpers

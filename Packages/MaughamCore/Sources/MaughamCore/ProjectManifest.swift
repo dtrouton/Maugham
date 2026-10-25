@@ -189,6 +189,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// the `figurePinSet` payload field `prior_pin` (the pin a set replaced,
     /// so a pin refresh undoes from its payload, ruling P-8) and the pin
     /// field `park` (the park cycle a pin on a parked figure was taken in).
+    /// And, under the same 10, the payload field `return_of` (the resume a
+    /// return's content op belongs to): a return whose resume is dropped —
+    /// two Macs bringing one figure back at once — folds none of its ops
+    /// (final review M-2; `FigureReturnDiffTests` pins it).
     ///
     /// The narrowing gate stays where it was: it raises a book to
     /// `narrowingSchemaVersion` (9), never to this number, so narrowing a book

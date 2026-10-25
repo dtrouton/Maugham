@@ -100,7 +100,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     /// host had folded. The return folds the stream limited to it to find the
     /// state the working copy was written from, so an edit that sorts before
     /// the park but that the parker never saw (a skewed clock) survives a
-    /// changed copy coming back (`FigureReturnDiff.base(of:frontier:)`).
+    /// changed copy coming back (`FigureReturnDiff.base(of:streams:frontier:)`).
     /// Optional on the wire; `validate` does not ask for it.
     public var parkedFrontier: [String: String]?
     /// **What a row or column delete took, or what a revive puts back**
@@ -112,6 +112,12 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
     /// **The Research item a figure was made from** (spec §4.1, report plan
     /// 6b Task 6), on its `figureCreate`: nil for a figure made in the book.
     public var source: FigureSource?
+    /// **The resume a return's content op belongs to** (report plan 6b final
+    /// review M-2): the op id of the `figureResumed` it follows. A return
+    /// whose resume the stream drops (a second Mac brought the same figure
+    /// back at once) folds none of its content ops (`FigureDeriver`). Optional
+    /// on the wire; `validate` does not ask for it.
+    public var returnOf: String?
 
     enum CodingKeys: String, CodingKey {
         case kind, cell, next, prior, structure, settings, image
@@ -124,6 +130,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case parkedFrontier = "parked_frontier"
         case removed
         case source
+        case returnOf = "return_of"
     }
 
     public init(
@@ -137,7 +144,8 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         parkedItemId: String? = nil,
         parkedFrontier: [String: String]? = nil,
         removed: FigureRemovedSlice? = nil,
-        source: FigureSource? = nil
+        source: FigureSource? = nil,
+        returnOf: String? = nil
     ) {
         self.kind = kind
         self.cell = cell
@@ -155,6 +163,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         self.parkedFrontier = parkedFrontier
         self.removed = removed
         self.source = source
+        self.returnOf = returnOf
     }
 
     /// The nine figure op kinds, in the order `OpKind` declares them.

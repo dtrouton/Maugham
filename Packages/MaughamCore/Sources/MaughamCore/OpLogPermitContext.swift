@@ -544,7 +544,8 @@ extension OpLogStore {
                     let piece = startersPiece()
                     return LocalWritePermitBuilder.unownedPiece(
                         forDocId: piece, in: projectURL, trust: trust,
-                        startedBy: placement.startedBy(ofPiece: piece))
+                        startedBy: placement.startedBy(ofPiece: piece),
+                        figures: placement.figureIds(ofPiece: piece))
                 }
             },
             amendments: amendments,
@@ -607,5 +608,13 @@ public final class ManifestPlacement: @unchecked Sendable {
     /// nobody, names no such item, or will not read.
     public func startedBy(ofPiece piece: String) -> String? {
         manifest?.startedBy(ofPiece: piece)
+    }
+
+    /// The figures the registry gives `piece`, from the same manifest — the
+    /// streams `unownedPiece` reads beside the piece's text (ruling R-D4: a
+    /// figure edit claims the piece as a text edit does). None where it
+    /// lists none or will not read.
+    public func figureIds(ofPiece piece: String) -> [String] {
+        (manifest?.figures ?? []).filter { $0.piece == piece }.map(\.id)
     }
 }

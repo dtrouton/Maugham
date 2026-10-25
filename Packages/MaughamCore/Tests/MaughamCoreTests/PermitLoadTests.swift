@@ -3283,6 +3283,36 @@ final class PermitLoadTests: XCTestCase {
                      "the root has claimed it: there is nothing left to protect")
     }
 
+    /// **A book author's figure edit claims the piece as her text would**
+    /// (Denver's revised ruling R-D4, final fix wave): the root, after *Edit
+    /// Anyway*, edits only the piece's figure — no word of its text. The piece
+    /// is claimed: the starter's held lines are set aside, her arms close on
+    /// the piece and its figure, and the root's yield lifts. Read side and
+    /// write side agree, both asking the same `unownedPiece`.
+    func test_aBookAuthorsFigureEditClaimsThePieceAsATextEditWould() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId, figures: figures)
+        try samsFile([op("herOpening", by: sam.author)])
+        try samsFigureEdit("herCell")
+        let samsMac = mac(sam, "sam-mac")
+        XCTAssertTrue(permit(on: samsMac).writesAsItsStarter, "premise: unclaimed")
+        XCTAssertNotNil(permit(on: rootsMac).unsettledStarter, "premise: the root yields")
+
+        try writeFile(
+            by: root.author,
+            ops: [op("rootsCell", by: root.author, kind: .figureCellSet, docId: figureId)],
+            docId: figureId)
+
+        XCTAssertFalse(permit(on: samsMac).writesAsItsStarter, "the piece is claimed")
+        XCTAssertFalse(permit(on: samsMac, docId: figureId).writesAsItsStarter)
+        let onHers = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(onHers, [], "her words are set aside, as a text claim would")
+        let herFigure = try await appliedOpIds(on: samsMac, docId: figureId)
+        XCTAssertEqual(herFigure, ["rootsCell"], "her figure line too; the root's stands")
+        XCTAssertNil(permit(on: rootsMac).unsettledStarter, "nothing left to yield to")
+        XCTAssertNil(permit(on: rootsMac, docId: figureId).unsettledStarter)
+    }
+
     /// **Somebody else started the piece, so her figure line there is refused,
     /// unasked, on every Mac** — the closing smoke's F1 (*refuse, don't
     /// ask*), reached through the figure's piece's starter.

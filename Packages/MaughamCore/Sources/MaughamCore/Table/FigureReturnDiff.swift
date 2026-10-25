@@ -36,6 +36,10 @@ public enum FigureReturnDiff {
     public struct Change: Equatable, Sendable {
         public let kind: OpKind
         public let payload: FigureOpPayload
+        public init(kind: OpKind, payload: FigureOpPayload) {
+            self.kind = kind
+            self.payload = payload
+        }
     }
 
     /// What the return appends, and what it says.
@@ -55,22 +59,38 @@ public enum FigureReturnDiff {
     /// prefix of its own stream, in append order (`streams`, from
     /// `OpLogStore.loadDiagnosedStreams`), up to and including the last op the
     /// parker had folded from it (`FigureParking.frontier`). A device the
-    /// parker had not read, or whose recorded op is no longer in its stream,
-    /// contributes none: its ops surface as late edits rather than vanish.
+    /// parker had not read contributes none: its ops surface as late edits.
+    /// **A recorded op this Mac cannot find in that device's stream** — held
+    /// here by a permit partition the parker's Mac did not hold, or in a
+    /// later segment that synced before an earlier one — falls back to that
+    /// device's ops whose id is at or below the recorded one (final review
+    /// M-1): append order is lost for that device, but the rows the parker
+    /// read stay in the base, so the copy's copies of them match rather than
+    /// come back a second time.
     /// Ops a return already appended (`broughtBackFromResearch` — a return
     /// that stopped part way and was parked again) count as written from: a
-    /// retry brings back only what is left. Never parked.
+    /// retry brings back only what is left; a return the stream itself drops
+    /// (its resume was a duplicate, `FigureState.abandonedReturns`) does not.
+    /// Never parked: the lifecycle ops are left out of the fold.
     public static func base(
         of ops: [Op], streams: [String: [String]], frontier: [String: String]
     ) -> FigureState {
         var read: Set<String> = []
         for (device, last) in frontier {
-            guard let stream = streams[device], let end = stream.firstIndex(of: last) else { continue }
-            read.formUnion(stream[...end])
+            guard let stream = streams[device] else { continue }
+            if let end = stream.firstIndex(of: last) {
+                read.formUnion(stream[...end])
+            } else {
+                read.formUnion(stream.filter { $0 <= last })
+            }
         }
+        let abandoned = FigureDeriver.derive(ops.filter { FigureOpPayload.kinds.contains($0.kind) })
+            .abandonedReturns
         var state = FigureDeriver.derive(ops.filter { op in
-            FigureOpPayload.kinds.contains(op.kind)
-                && (read.contains(op.opId) || op.provenance?.synthesisSource == .broughtBackFromResearch)
+            guard FigureOpPayload.kinds.contains(op.kind),
+                  op.kind != .figureParked, op.kind != .figureResumed else { return false }
+            if let resume = op.figure?.returnOf, abandoned.contains(resume) { return false }
+            return read.contains(op.opId) || op.provenance?.synthesisSource == .broughtBackFromResearch
         })
         state.parked = nil
         return state
