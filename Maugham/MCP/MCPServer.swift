@@ -275,6 +275,16 @@ public final class MCPServer {
             let resp = MCPResponse.failure(
                 id: req.id, code: -32601, message: "Method not found: \(method)")
             return encodeLine(resp, method: req.method)
+        } catch let MCPError.toolError(payload) {
+            // A tool's structured error keeps its whole payload on the direct
+            // path too (hint and fields, as `tools/call` returns it), and a
+            // tool's own `enforce` answers with the line backstop's code.
+            let code = payload.error == "payload_too_large"
+                ? MCPError.payloadTooLargeCode : MCPError.toolError(payload: payload).code
+            let resp = MCPResponse.failure(
+                id: req.id, code: code,
+                message: String(decoding: payload.encodedJSON(), as: UTF8.self))
+            return encodeLine(resp, method: req.method)
         } catch let e as MCPError {
             let resp = MCPResponse.failure(
                 id: req.id, code: e.code, message: e.message)
@@ -311,8 +321,16 @@ public final class MCPServer {
     /// a JSON-RPC error (`MCPError.payloadTooLargeCode`, the payload as its
     /// message) on a direct method. A tool's own `MCPResponseBudget.enforce`
     /// fires first with a better hint; this is the backstop no tool can skip.
+    ///
+    /// A response that will not encode (a handler returned invalid JSON) is
+    /// answered with a hand-built -32603 line for the same id, never silence.
     nonisolated static func encodeLine(_ resp: MCPResponse, method: String?) -> Data {
-        guard let line = try? JSONEncoder().encode(resp) else { return Data() }
+        func unencodable() -> Data {
+            let id = resp.id.flatMap { try? JSONEncoder().encode($0) }
+                .map { String(decoding: $0, as: UTF8.self) } ?? "null"
+            return Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32603,"message":"Internal error: the response could not be encoded."}}"#.utf8)
+        }
+        guard let line = try? JSONEncoder().encode(resp) else { return unencodable() }
         guard line.count > MCPResponseBudget.maxLineBytes else { return line }
         let payload = MCPResponseBudget.lineTooLarge(byteCount: line.count)
         let replacement: MCPResponse
@@ -324,6 +342,6 @@ public final class MCPServer {
                 id: resp.id, code: MCPError.payloadTooLargeCode,
                 message: String(decoding: payload.encodedJSON(), as: UTF8.self))
         }
-        return (try? JSONEncoder().encode(replacement)) ?? Data()
+        return (try? JSONEncoder().encode(replacement)) ?? unencodable()
     }
 }

@@ -114,10 +114,46 @@ final class MCPResponseLineBudgetTests: XCTestCase {
     func test_aNormalResponseIsTheLineEncodedUnchanged() async throws {
         let router = router()
         router.register(method: "ping") { _ in Data(#"{"ok":true}"#.utf8) }
-        let (data, _) = try await send(#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#, to: router)
+        let (_, object) = try await send(#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#, to: router)
+        // Compared as structure: JSONEncoder's key order is not stable run to run.
         let expected = try JSONEncoder().encode(
             MCPResponse.success(id: .int(1), resultJSON: Data(#"{"ok":true}"#.utf8)))
-        XCTAssertEqual(data, expected)
+        let expectedObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: expected) as? NSDictionary)
+        XCTAssertEqual(object as NSDictionary, expectedObject)
+    }
+
+    // MARK: - A tool's own enforce keeps its hint on the direct path
+
+    func test_aDirectMethodsOwnEnforceKeepsItsHintAndTheLineBackstopsCode() async throws {
+        let router = router()
+        let big = Data(repeating: UInt8(ascii: "a"), count: MCPResponseBudget.maxTextBytes + 1)
+        router.register(method: "section_reader") { _ in
+            try MCPResponseBudget.enforce(big, hint: "Read one section with search_text.")
+        }
+        let (_, object) = try await send(
+            #"{"jsonrpc":"2.0","id":9,"method":"section_reader"}"#, to: router)
+        XCTAssertEqual(object["id"] as? Int, 9)
+        let error = try XCTUnwrap(object["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, MCPError.payloadTooLargeCode)
+        let body = try payload(try XCTUnwrap(error["message"] as? String))
+        XCTAssertEqual(body["error"] as? String, "payload_too_large")
+        XCTAssertEqual(body["hint"] as? String, "Read one section with search_text.")
+        XCTAssertEqual(body["max_bytes"] as? Int, MCPResponseBudget.maxTextBytes)
+    }
+
+    // MARK: - An unencodable response is answered, never silent
+
+    func test_aResponseThatWillNotEncodeAnswersInternalErrorForTheSameId() async throws {
+        let router = router()
+        router.register(method: "broken") { _ in Data("not json".utf8) }
+        let (data, object) = try await send(
+            #"{"jsonrpc":"2.0","id":"b-1","method":"broken"}"#, to: router)
+        XCTAssertFalse(data.isEmpty)
+        XCTAssertEqual(object["jsonrpc"] as? String, "2.0")
+        XCTAssertEqual(object["id"] as? String, "b-1")
+        let error = try XCTUnwrap(object["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32603)
     }
 
     /// The worst image `ImageResponseBuilder` emits (a 720 KB JPEG, here

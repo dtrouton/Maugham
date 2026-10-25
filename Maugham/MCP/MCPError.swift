@@ -38,7 +38,7 @@ public enum MCPError: Error, Equatable {
         case .mcpDisabled:       return -32003
         case .invalidArgument:   return -32602
         case .internalError:     return -32603
-        case .toolError:         return -32099  // not reachable via JSON-RPC error path
+        case .toolError:         return -32099  // a direct method's tool error (payload JSON as message); tools/call answers isError instead
         }
     }
 
