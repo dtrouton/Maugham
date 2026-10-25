@@ -19,7 +19,7 @@ public struct FigureCardModel: Equatable, Sendable {
     public var hasTotalRow: Bool
     /// One per column, never `.automatic`: a column's first filled cell, else numbers and dates right, text left.
     public var columnAlignments: [CellAlignment]
-    /// The table has formulas or cells reading Research (any pin).
+    /// The figure holds at least one research pin (`state.pins` is non-empty).
     public var readsResearch: Bool
     /// A source a pin read has changed since the pin was taken.
     public var pinChanged: Bool
