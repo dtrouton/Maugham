@@ -67,7 +67,7 @@ extension ProjectStore {
 
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: researchURL, withIntermediateDirectories: true)
-        try Data().write(to: docURL)  // empty file
+        try Data().write(to: docURL, options: .withoutOverwriting)  // empty file; a link already there (even a dangling one) refuses rather than being followed
 
         let relativePath = "pieces/\(folderName)/\(docName)"
         let id = Self.newId(prefix: "doc")

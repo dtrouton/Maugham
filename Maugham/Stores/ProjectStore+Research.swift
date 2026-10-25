@@ -184,13 +184,15 @@ extension ProjectStore {
         // prior rename left a stale file at the same slug path).
         var finalFilename = "\(slug).md"
         var diskCounter = 2
-        while FileManager.default.fileExists(
-            atPath: parentFolder.appendingPathComponent(finalFilename).path) { // local-path: slugs minted from the titles, under research/
+        // `attributesOfItem`, not `fileExists`: a dangling link at the slug is
+        // taken, not vacant (fileExists follows it and answers false).
+        while (try? FileManager.default.attributesOfItem(
+            atPath: parentFolder.appendingPathComponent(finalFilename).path)) != nil { // local-path: slugs minted from the titles, under research/
             finalFilename = "\(slug)-\(diskCounter).md"
             diskCounter += 1
         }
         let fileURL = parentFolder.appendingPathComponent(finalFilename) // local-path: slugs minted from the titles, under research/
-        try Data().write(to: fileURL)
+        try Data().write(to: fileURL, options: .withoutOverwriting) // a link already there (even a dangling one) refuses rather than being followed
 
         // Compute relative path from project root
         let relativePath: String = {

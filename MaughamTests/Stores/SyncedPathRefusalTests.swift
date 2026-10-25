@@ -314,6 +314,22 @@ final class SyncedPathRefusalTests: XCTestCase {
         XCTAssertEqual(OutputFilenameBuilder.sanitizeForFilesystem(#"A\B/C"#), "ABC")
     }
 
+    /// A link already sitting at the path a new statement would take — even a
+    /// dangling one pointing out of the project — is never followed: the new
+    /// statement steers around it, and the link's target is never created.
+    func test_aDanglingLinkAtANewStatementsPathIsNotFollowed() async throws {
+        let target = base.appendingPathComponent("target.md")
+        try FileManager.default.createSymbolicLink(
+            at: project.appendingPathComponent(StatementConvention.visualLanguagePath),
+            withDestinationURL: target)
+        let (store, documents) = try await open()
+        defer { withExtendedLifetime(documents) {} }
+        let created = try await store.createStatement(kind: .visualLanguage, scope: .project)
+        XCTAssertNotEqual(created.path, StatementConvention.visualLanguagePath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path),
+                       "the link's outside target was never written")
+    }
+
     /// The load's guard: a URL with a `..` is not inside; a linked folder is.
     func test_isInsideProject_refusesAClimbAndAcceptsALink() throws {
         XCTAssertTrue(Document.isInsideProject(

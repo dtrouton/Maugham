@@ -270,7 +270,7 @@ extension ProjectStore {
             // (`addStructureItem`, `addResearchTextNote`): a brand-new file with
             // no second writer for NSFileCoordinator to arbitrate. Content
             // arrives through the op log from here on.
-            try Data().write(to: fileURL)
+            try Data().write(to: fileURL, options: .withoutOverwriting) // a link already there (even a dangling one) refuses rather than being followed
         } catch {
             throw ProjectStoreError.fileSystemError(error.localizedDescription)
         }
@@ -710,9 +710,11 @@ extension ProjectStore {
         let root = url
         let free = Self.dedupedName(ns.deletingPathExtension) { stem in
             let relative = stem + suffix
+            // `attributesOfItem`, not `fileExists`: a link there — even a
+            // dangling one — occupies the path rather than reading as vacant.
             return claimed.contains(relative)
-                || FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(relative).path) // local-path: StatementConvention mints the candidate; createStatement resolves the one chosen
+                || (try? FileManager.default.attributesOfItem(
+                    atPath: root.appendingPathComponent(relative).path)) != nil // local-path: StatementConvention mints the candidate; createStatement resolves the one chosen
         }
         return free + suffix
     }

@@ -14281,4 +14281,153 @@ extension TripwireGrepTests {
             "Rogue.swift:18: let m = dir.appendingPathComponent(filename) // local-path:",
         ])
     }
+
+    // MARK: - A change takes the change form of the checker (tripwire 58, review round 2)
+
+    /// The file calls that CHANGE a path, and the argument labels that name
+    /// what they change (`_` for an unlabeled first argument). A copy's or a
+    /// move's SOURCE read is not a change, except a move's.
+    static let syncedPathChangeCalls: [(spelling: String, changes: Set<String>)] = [
+        ("write(", ["to"]), ("moveItem(", ["at", "to"]), ("copyItem(", ["to"]),
+        ("removeItem(", ["at"]), ("trashItem(", ["at"]), ("replaceItemAt(", ["_"]),
+        ("createFile(", ["atPath"]), ("createDirectory(", ["at", "atPath"]),
+        ("coordinatedWrite(", ["to"]), ("coordinatedMove(", ["from", "to"]),
+        ("executeCopy(", ["to"]), ("replaceFigureImage(", ["at"]),
+    ]
+
+    /// The READ form of the checker in a line's code: `SafeRelativePath.resolve(`
+    /// or a `resolvedProjectPath(` helper — lexical, so a folder linked out of
+    /// the project passes it. (`resolveForChange(`, `resolveFile(` and
+    /// `resolvedProjectPathToChange(` are the change forms and do not match.)
+    static func namesTheReadFormOfTheChecker(_ line: String) -> Bool {
+        let code = line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
+        return code.contains("SafeRelativePath.resolve(") || code.contains("resolvedProjectPath(")
+    }
+
+    /// A call's top-level arguments from just past its `(`: each label (`_`
+    /// for the unlabeled first, `?` for a later unlabeled one) and its text.
+    static func callArguments(in text: String, from start: String.Index) -> [(label: String, text: String)] {
+        var depth = 1
+        var parts: [String] = []
+        var current = ""
+        var cursor = start
+        while cursor < text.endIndex {
+            let c = text[cursor]
+            if "([{".contains(c) { depth += 1 }
+            if ")]}".contains(c) { depth -= 1; if depth == 0 { break } }
+            if c == ",", depth == 1 { parts.append(current); current = "" } else { current.append(c) }
+            cursor = text.index(after: cursor)
+        }
+        parts.append(current)
+        return parts.enumerated().map { index, part in
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let colon = trimmed.firstIndex(of: ":"),
+               trimmed[..<colon].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }),
+               !trimmed[..<colon].isEmpty,
+               trimmed[trimmed.index(after: colon)...].first != ":" {
+                return (String(trimmed[..<colon]), String(trimmed[trimmed.index(after: colon)...]))
+            }
+            return (index == 0 ? "_" : "?", trimmed)
+        }
+    }
+
+    /// Every change call in `text` whose changed argument reaches the checker's
+    /// READ form — inline, or through a local whose nearest definition (60
+    /// lines up) calls it. Comment lines are prose; a call's arguments are read
+    /// across up to four more lines. Returns `(1-based line, trimmed text)`.
+    static func readFormAtAChange(in text: String) -> [(line: Int, text: String)] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        func code(_ line: String) -> String {
+            line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
+        }
+        var hits: [(line: Int, text: String)] = []
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") { continue }
+            let lineCode = code(line)
+            let joined = lines[i..<min(lines.count, i + 5)].map(code).joined(separator: "\n")
+            var offends = false
+            for call in syncedPathChangeCalls {
+                var from = lineCode.startIndex
+                while let range = lineCode.range(of: call.spelling, range: from..<lineCode.endIndex) {
+                    from = range.upperBound
+                    if call.spelling == "write(", range.lowerBound > lineCode.startIndex,
+                       lineCode[lineCode.index(before: range.lowerBound)].isLetter { continue }
+                    let offset = lineCode.distance(from: lineCode.startIndex, to: range.upperBound)
+                    let start = joined.index(joined.startIndex, offsetBy: offset)
+                    for argument in callArguments(in: joined, from: start)
+                    where call.changes.contains(argument.label) {
+                        if namesTheReadFormOfTheChecker(argument.text) { offends = true; continue }
+                        for name in identifiers(inJoinArgument: argument.text) {
+                            if let found = syncedPathDefinition(of: name, in: lines, before: i),
+                               namesTheReadFormOfTheChecker(found.line) { offends = true }
+                        }
+                    }
+                }
+            }
+            if offends { hits.append((i + 1, trimmed)) }
+        }
+        return hits
+    }
+
+    private func readFormAtAChangeOffenders(in roots: [URL]) throws -> [String] {
+        var offenders: [String] = []
+        let fm = FileManager.default
+        for root in roots {
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for hit in Self.readFormAtAChange(in: text) {
+                    offenders.append("\(url.lastPathComponent):\(hit.line): \(hit.text)")
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Recurrence-tripper (report plan 6b Task 2, review round 2): a write,
+    /// copy destination, move, delete or directory creation takes its URL from
+    /// the checker's CHANGE form (`resolveForChange`, `resolveFile`,
+    /// `resolvedProjectPathToChange`), never from the lexical read form, which
+    /// lets a write through a folder linked out of the project. The `Document`
+    /// render and `Bootstrap` write to a URL handed in whole (lexical by ruling,
+    /// so a linked chapter opens and saves) and are not a join this reads.
+    func test_aChangeTakesTheChangeFormOfTheChecker() throws {
+        let offenders = try readFormAtAChangeOffenders(in: admissionRoots)
+        XCTAssertTrue(offenders.isEmpty,
+            "A write, move, copy destination or delete takes its URL from the checker's "
+            + "READ form (SafeRelativePath.resolve / resolvedProjectPath), which a folder "
+            + "linked out of the project passes (tripwire 58). Use resolveForChange / "
+            + "resolvedProjectPathToChange. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: a write, a move and a directory creation fed by the read form
+    /// fire, inline and through a local; a copy whose SOURCE is a read, the
+    /// change form, and a read of a read-form URL do not.
+    func test_theChangeFormCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-change-form-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try #"""
+        func f() throws {
+            let note = try store.resolvedProjectPath(path)
+            try text.write(to: note, atomically: true, encoding: .utf8)
+            try fm.moveItem(at: try SafeRelativePath.resolve(old, under: root),
+                            to: newURL)
+            try fm.createDirectory(at: try store.resolvedProjectPath(folder), withIntermediateDirectories: true)
+            let source = try store.resolvedProjectPath(src)
+            let dest = try store.resolvedProjectPathToChange(dst)
+            try fm.copyItem(at: source, to: dest)
+            let body = try String(contentsOf: note, encoding: .utf8)
+            try body.write(to: try store.resolvedProjectPathToChange(path), atomically: true, encoding: .utf8)
+        }
+        """#.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try readFormAtAChangeOffenders(in: [tmp]), [
+            "Rogue.swift:3: try text.write(to: note, atomically: true, encoding: .utf8)",
+            "Rogue.swift:4: try fm.moveItem(at: try SafeRelativePath.resolve(old, under: root),",
+            "Rogue.swift:6: try fm.createDirectory(at: try store.resolvedProjectPath(folder), withIntermediateDirectories: true)",
+        ])
+    }
 }

@@ -50,7 +50,7 @@ extension ProjectStore {
         do {
             switch kind {
             case .document:
-                try Data().write(to: newURL)
+                try Data().write(to: newURL, options: .withoutOverwriting) // a link already there (even a dangling one) refuses rather than being followed
             case .group:
                 try fm.createDirectory(at: newURL, withIntermediateDirectories: false)
             }
