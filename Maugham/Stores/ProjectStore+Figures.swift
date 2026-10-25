@@ -755,8 +755,10 @@ extension ProjectStore {
     /// Throws when the piece's text will not derive, when a figure it
     /// carries will not read — a promotion never re-creates a figure it could
     /// not see; one it does not carry may be unreadable — or when one of the
-    /// piece's own figures is of a kind this build cannot create. Another
-    /// figure of such a kind is left out and listed (`.unknownKind`).
+    /// piece's own figures is of a kind this build cannot create, or when a
+    /// figure that stays in the Collection is parked on a working copy in
+    /// `carriedResearch`. Another figure of an unknown kind is left out and
+    /// listed (`.unknownKind`).
     func figureCarryPlan(forPiece pieceId: String, carriedResearch: Set<String>) async throws -> FigureCarryPlan {
         let records = manifest.figures ?? []
         guard !records.isEmpty else { return FigureCarryPlan() }
@@ -803,6 +805,19 @@ extension ProjectStore {
             throw FigureEditInvalid(reason: "A newer Maugham made "
                 + newer.map(\.name).joined(separator: ", ")
                 + ", so this piece can't be promoted until this Mac is updated.")
+        }
+        // A figure that stays in the Collection — not carried, or carried as
+        // a copy — parked on a working copy the promotion carries would be
+        // left parked on an item that is gone (controller ruling, plan 6c
+        // Task 5 review): refused before anything moves, naming it.
+        let movedIds = Set(carry.moved.map(\.id))
+        let strandable = records.filter { record in
+            !movedIds.contains(record.id)
+                && states[record.id]?.parked.map { carriedResearch.contains($0.itemId ?? "") } == true
+        }
+        if let first = strandable.first {
+            throw FigureEditInvalid(
+                reason: "\(first.name) is parked in this piece\u{2019}s Research; bring it back before promoting.")
         }
         let skipped = carry.copied.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
         let copied = carry.copied.filter { FigureCarry.canRecreate($0, state: states[$0.id]) }

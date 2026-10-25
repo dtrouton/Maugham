@@ -817,6 +817,88 @@ final class PromotePieceFigureTests: XCTestCase {
         XCTAssertNil(PiecePromotion.notice(for: [], figureNames: [:], researchTitles: [:]))
     }
 
+    // MARK: - A figure that stays, parked in the piece's Research (review I1)
+
+    /// A Collection figure that stays — not carried at all, or carried as a
+    /// copy — parked on a working copy in the piece's Research refuses the
+    /// promotion before anything moves, naming it: otherwise it would be left
+    /// parked on an item that went with the piece.
+    func test_aFigureNotCarried_parkedInThePiecesResearch_refusesThePromotion() async throws {
+        try await assertAStayingParkedFigureRefuses(cited: false)
+    }
+
+    /// The same for a figure the text cites, which would be carried as a
+    /// copy: its Collection record stays, parked on the departed item.
+    func test_aCopiedFigure_parkedInThePiecesResearch_refusesThePromotion() async throws {
+        try await assertAStayingParkedFigureRefuses(cited: true)
+    }
+
+    private func assertAStayingParkedFigureRefuses(cited: Bool) async throws {
+        do {
+            let (projectStore, store, piece) = try await openCollection(
+                text: cited ? "As @tbl:ledger shows.\n" : "Words.\n")
+            defer { withExtendedLifetime(store) {} }
+            let ledger = try await projectStore.createFigure(kind: .table, name: "ledger", piece: nil)
+            let copy = try await projectStore.sendToResearch(figureId: ledger.id, scope: .document(piece.id))
+            let figuresBefore = projectStore.manifest.figures
+            let researchBefore = projectStore.manifest.research
+            let structureBefore = projectStore.manifest.structure
+            let streamBefore = try ops(ledger.id, in: projectStore.url)
+            let destination = root.appendingPathComponent("Promoted \(cited)")
+
+            do {
+                _ = try await projectStore.promotePieceToProject(pieceId: piece.id, destination: destination)
+                XCTFail("cited \(cited): the promotion was not refused")
+            } catch let refused as FigureEditInvalid {
+                XCTAssertEqual(refused.reason,
+                               "ledger is parked in this piece\u{2019}s Research; bring it back before promoting.")
+            }
+
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "cited \(cited)")
+            XCTAssertEqual(stagingTrees(in: root), [], "cited \(cited)")
+            XCTAssertEqual(projectStore.manifest.figures, figuresBefore, "cited \(cited)")
+            XCTAssertEqual(projectStore.manifest.research, researchBefore, "cited \(cited)")
+            XCTAssertEqual(projectStore.manifest.structure, structureBefore, "cited \(cited)")
+            XCTAssertEqual(try ops(ledger.id, in: projectStore.url), streamBefore, "cited \(cited)")
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: projectStore.url.appendingPathComponent(try XCTUnwrap(piece.path)).path), "cited \(cited)")
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: projectStore.url.appendingPathComponent(try XCTUnwrap(copy.path)).path), "cited \(cited)")
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: try ResearchTableSidecar.fileURL(forItem: copy.id, in: projectStore.url).path), "cited \(cited)")
+        }
+    }
+
+    /// The accepted behaviour (controller ruling): a moved parked figure's
+    /// Collection Trash entry restores the figure parked, its working copy
+    /// gone with the piece — and bringing it back there is refused cleanly,
+    /// writing nothing.
+    func test_aMovedParkedFiguresTrashEntryRestoresParked_andBringBackRefuses() async throws {
+        let (projectStore, store, piece) = try await openCollection(text: "Words.\n")
+        defer { withExtendedLifetime(store) {} }
+        let parked = try await projectStore.createFigure(kind: .table, name: "parked", piece: piece.id)
+        let copy = try await projectStore.sendToResearch(figureId: parked.id, scope: .document(piece.id))
+        _ = try await projectStore.promotePieceToProject(
+            pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+
+        let listed = try await projectStore.trashStore.list()
+        let entry = try XCTUnwrap(listed.first { $0.subject == .figure })
+        try await projectStore.restoreTrashEntry(id: entry.id)
+        XCTAssertTrue(projectStore.manifest.figures?.contains { $0.id == parked.id } == true, "restored")
+        let restored = try await store.withFigureHost(parked.id) { $0.state }
+        XCTAssertEqual(restored.parked?.itemId, copy.id, "parked, on a working copy that is gone")
+        XCTAssertNil(projectStore.manifest.research.first { $0.id == copy.id }, "the copy went with the piece")
+
+        let before = try ops(parked.id, in: projectStore.url)
+        do {
+            try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+            XCTFail("a bring-back with the working copy gone was not refused")
+        } catch is UseInDocumentRefused {
+            // Refused: the item is not in this book's Research.
+        }
+        XCTAssertEqual(try ops(parked.id, in: projectStore.url), before, "the refusal wrote nothing")
+    }
+
     // MARK: - Review Focus 4: a failure after the figures are staged
 
     /// The promotion fails after the figures are written into staging (the

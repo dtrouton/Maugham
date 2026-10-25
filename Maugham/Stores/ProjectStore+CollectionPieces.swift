@@ -370,6 +370,9 @@ extension ProjectStore {
         // as each move lands, never before — a move that threw is not a move to
         // undo.
         var stagedMoves: [PromotionStagedMove] = []
+        // The piece's own figures 7b has sent to the Collection's Trash, by
+        // name — for the failure path's log, should step 8 fail after them.
+        var trashedFigures: [String] = []
         #if DEBUG
         // Per-promotion, not cumulative: left to accumulate, a store that had
         // stranded something earlier would make every later promotion look like
@@ -437,6 +440,9 @@ extension ProjectStore {
             // back nothing and report a promotion that is already on disk as
             // a failure.
             figureProblems += await removePromotedFigures(figurePlan.moved)
+            trashedFigures = figurePlan.moved.filter { record in
+                manifest.figures?.contains(where: { $0.id == record.id }) != true
+            }.map(\.name)
 
             // 8. Convert Collection piece to a reference + prune carried research.
             try await convertPromotedPieceToReference(
@@ -458,6 +464,13 @@ extension ProjectStore {
         } catch {
             rollbackPromotionStaging(stagedMoves, staging: stagingURL,
                                      destination: destination, cause: error)
+            if !trashedFigures.isEmpty {
+                // Step 8 failed after 7b: the piece is still loose, and these
+                // figures, now in the promoted project, are in the
+                // Collection's Trash, restorable from there.
+                projectStoreLog.error(
+                    "Promotion failed after the piece's figures left the Collection; these are in its Trash and in \(destination.path, privacy: .public): \(trashedFigures.joined(separator: ", "), privacy: .public)")
+            }
             throw error
         }
     }
@@ -678,6 +691,12 @@ extension ProjectStore {
     /// leaves the Collection through `removeFigure` — its door, its Trash
     /// entry, its file. One that will not go is listed (`.notRemoved`, the
     /// reason as the source) and stays; the rest still go.
+    ///
+    /// **A moved parked figure's entry restores parked, with its working copy
+    /// gone** (controller ruling, accepted behaviour): the copy travelled to
+    /// the promoted project with the piece's Research, so a bring-back in the
+    /// Collection refuses and its pins read their source as missing. The
+    /// figure itself, history and all, is back.
     private func removePromotedFigures(_ moved: [FigureRecord]) async -> [FigureCarryProblem] {
         var problems: [FigureCarryProblem] = []
         for record in moved where manifest.figures?.contains(where: { $0.id == record.id }) == true {
