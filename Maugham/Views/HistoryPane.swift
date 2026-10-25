@@ -1138,6 +1138,7 @@ struct HistoryPane: View {
                     projectURL: projectURL,
                     activeDocId: activeDocId,
                     allDocIds: allDocIds,
+                    figures: documentStore?.projectStore?.manifest.figures ?? [],
                     device: device,
                     session: session,
                     docPaths: docPaths,

@@ -12410,7 +12410,10 @@ final class TripwireGrepTests: XCTestCase {
     ///   restore, which appends through its own store: the settled posture per
     ///   document before the build; the rows and the History button are drawn
     ///   only for documents this Mac may write, and what the door left alone is
-    ///   named in the sheet.
+    ///   named in the sheet. Its `restoreToCheckpoint(` winds back each figure
+    ///   in scope (report plan 6c Task 3) after asking that figure's settled
+    ///   `.editFigure` posture, through its host (which asks again); a refused,
+    ///   parked or part-restored figure is named in the same sentence.
     /// - `TestEditTool.swift` × 1 — `test_apply_edit`, compiled only into the
     ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
     ///   deliberately NOT gated, because it stands in for a keystroke and is
@@ -12467,7 +12470,7 @@ final class TripwireGrepTests: XCTestCase {
         "RecoveredHistorySheet.swift": ["insertParagraph(": 1],
         // History's undoable Rewind, inside the window's `RewindModifier`.
         "type:RewindModifier": ["restoreToOpUndoable(": 1],
-        "PartialRestorePicker.swift": ["buildRestoreOp(": 1],
+        "PartialRestorePicker.swift": ["buildRestoreOp(": 1, "restoreToCheckpoint(": 1],
         "TestEditTool.swift": ["setFullText(": 1],
         // Figures (report plan 6a): each asks posture before it writes.
         "FigureDocument.swift": [
