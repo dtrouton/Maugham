@@ -365,12 +365,12 @@ private struct Parser {
         return try parseRefOrRange(target: .figure(id: try figureId(name, at: start)))
     }
 
-    /// The id of the figure typed as `name` (R-D1). On entry the figure must have a table
-    /// to resolve against; a CSV's positional read only needs the id.
+    /// The id of the figure typed as `name`, any case (R-D1). The figure must have a table:
+    /// an image figure (or an unreadable one) is no table to read, on entry or from a CSV.
     func figureId(_ name: String, at start: Int) throws -> String {
         switch names.figure(named: name) {
         case .found(let id):
-            if case .entry = mode, names.table(id: id) == nil { break }
+            if names.table(id: id) == nil { break }
             return id
         case .ambiguous: throw fail("Two tables are called \(name); rename one.", at: start)
         case .unknown: break
@@ -422,7 +422,9 @@ private struct Parser {
         c.isASCII && (c.isLetter || c.isNumber || c == " " || c == "_" || c == "." || c == "-")
     }
 
-    /// After "research:": a bare name `[A-Za-z0-9 _.-]+` or a quoted one ('' is a quote), then "!".
+    /// After "research:": a bare name `[A-Za-z0-9 _.-]+` or a quoted one holding any
+    /// character ('' is a quote, as for a table), then "!". A research title is free text
+    /// (R-D1 shows it), so whatever the renderer quotes must read back.
     mutating func parseResearchName() throws -> String {
         let start = i
         var name = ""
@@ -433,9 +435,6 @@ private struct Parser {
             name = name.trimmingCharacters(in: .whitespaces)
         }
         guard !name.isEmpty else { throw fail("A research reference needs a name, like research:model!B2", at: start) }
-        guard name.allSatisfy(Self.isResearchNameCharacter) else {
-            throw fail("A research name uses letters, digits, spaces, “_”, “.” and “-”", at: start)
-        }
         guard match("!") else { throw fail("Expected “!” after the research name", at: i) }
         return name
     }
@@ -656,8 +655,8 @@ private struct Renderer {
             return (FormulaParser.isBareFigureName(name) ? name : Self.quoted(name)) + "!"
         case .research(let id):
             guard let name = names.researchTitle(id: id) else { return nil }
-            let bare = !name.isEmpty && !name.contains(" ") && !name.contains("'")
-                && name.trimmingCharacters(in: .whitespaces) == name
+            // Bare only when the bare rule reads it back exactly; anything else is quoted.
+            let bare = !name.isEmpty && name.allSatisfy { Parser.isResearchNameCharacter($0) && $0 != " " }
             return "research:" + (bare ? name : Self.quoted(name)) + "!"
         }
     }

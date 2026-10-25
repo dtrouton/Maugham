@@ -303,6 +303,53 @@ final class FormulaParserTests: XCTestCase {
         XCTAssertEqual(e.message, "Two tables are called cash; rename one.")
     }
 
+    /// Titles and names are free text once a formula shows the current one (R-D1): whatever
+    /// the renderer writes reads back to the same formula — quoted when the bare rule can't
+    /// spell it, `''` escaping a quote.
+    func test_anyTitleOrNameRendersAndReadsBack() throws {
+        let titles = ["Denver's model", "Model (v3)", "Q3, revised", "café", "Сербија", "model-v3.1", "a!b"]
+        let figureNames = ["Denver's table", "cash (2)", "Q3, revised", "café", "Таблица", "cash_flow"]
+        let research = titles.enumerated().map { (id: "res-\($0.offset)", title: $0.element) }
+        let figures = figureNames.enumerated().map { FormulaNames.Figure(id: "fig-\($0.offset)", name: $0.element, table: revenue) }
+        let book = FormulaNames(figures: figures, research: research)
+        for r in research {
+            let f = Formula(.ref(FormulaRef(target: .research(id: r.id), anchor: .position(row: 1, column: 1))))
+            let text = FormulaParser.render(f, in: table, names: book)
+            XCTAssertEqual(try? FormulaParser.parse(text, in: table, names: book).get(), f, "\(r.title) → \(text)")
+        }
+        XCTAssertEqual(FormulaParser.render(Formula(.ref(FormulaRef(target: .research(id: "res-0"), anchor: .position(row: 0, column: 0)))),
+                                            in: table, names: book), "research:'Denver''s model'!A1")
+        XCTAssertEqual(FormulaParser.render(Formula(.ref(FormulaRef(target: .research(id: "res-5"), anchor: .position(row: 0, column: 0)))),
+                                            in: table, names: book), "research:model-v3.1!A1", "the bare rule still writes bare")
+        for g in figures {
+            let f = Formula(.ref(FormulaRef(target: .figure(id: g.id), anchor: .id(row: revenue.rows[1], column: revenue.columns[0]))))
+            let text = FormulaParser.render(f, in: table, names: book)
+            XCTAssertEqual(try? FormulaParser.parse(text, in: table, names: book).get(), f, "\(g.name) → \(text)")
+        }
+    }
+
+    /// Figure names match in any case, like research titles; two records clashing only by
+    /// case refuse rather than guess.
+    func test_figureNamesMatchInAnyCase_andACaseOnlyClashIsRefused() throws {
+        XCTAssertEqual(parse("REVENUE!B2")?.expr,
+                       .ref(FormulaRef(target: .figure(id: "fig-rev00001"), anchor: .id(row: revenue.rows[1], column: revenue.columns[1]))))
+        let twins = FormulaNames(figures: [.init(id: "fig-aaaa0001", name: "Cash", table: revenue),
+                                           .init(id: "fig-bbbb0001", name: "cash", table: cashFlow)])
+        guard case .failure(let e) = FormulaParser.parse("CASH!A1", in: table, names: twins) else {
+            return XCTFail("a case-only clash must refuse")
+        }
+        XCTAssertEqual(e.message, "Two tables are called CASH; rename one.")
+    }
+
+    /// An image figure is no table: a CSV's positional read refuses it as entry does.
+    func test_anImageFigureIsRefusedInBothModes() {
+        let book = FormulaNames(figures: [.init(id: "fig-pic00001", name: "map", table: nil)])
+        guard case .failure(let p) = FormulaParser.parsePositional("map!A1", names: book) else {
+            return XCTFail("a positional ref into an image must be refused, not stored as #REF!")
+        }
+        XCTAssertEqual(p.message, "There is no table named map")
+    }
+
     func test_formulaNames_fromTheRegistryAndTheResearchTree() throws {
         let records = [FigureRecord(id: "fig-rev00001", name: "revenue", kind: .table, piece: nil, path: "figures/revenue.csv"),
                        FigureRecord(id: "fig-pic00001", name: "map", kind: .image, piece: nil, path: "figures/map.png")]

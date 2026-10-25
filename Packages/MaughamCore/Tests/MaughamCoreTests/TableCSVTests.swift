@@ -316,6 +316,18 @@ final class TableCSVTests: XCTestCase {
         XCTAssertTrue(again.isEmpty)
         XCTAssertEqual(extract(try XCTUnwrap(back[key(back, "A1")]).content), extract(try XCTUnwrap(t[key(t, "A1")]).content))
 
+        // Free-text titles and names survive the copy and the return.
+        let wild = FormulaNames(figures: [.init(id: "fig-rev00001", name: "Таблица (2), café", table: revenue)],
+                                research: [(id: "res-model1", title: "Denver's model, Сербија")])
+        let wildCSV = TableCSV.renderResearch(t, locale: gb, names: wild)
+        let (wildBack, wildProblems) = TableCSV.read(wildCSV, locale: gb, names: wild)
+        XCTAssertTrue(wildProblems.isEmpty, "\(wildCSV): \(wildProblems)")
+        XCTAssertEqual(extract(try XCTUnwrap(wildBack[key(wildBack, "A1")]).content), extract(try XCTUnwrap(t[key(t, "A1")]).content))
+        // An image figure has no table to read: reported, kept as text.
+        let picture = FormulaNames(figures: [.init(id: "fig-pic00001", name: "map", table: nil)])
+        XCTAssertEqual(TableCSV.read("=map!A1\n", locale: gb, names: picture).problems,
+                       [CSVReadProblem(row: 0, column: 0, message: "There is no table named map")])
+
         let twins = FormulaNames(research: [(id: "res-a", title: "Forecast"), (id: "res-b", title: "forecast")])
         let (_, refused) = TableCSV.read("=research:forecast!A1\n", locale: gb, names: twins)
         XCTAssertEqual(refused, [CSVReadProblem(row: 0, column: 0, message: "Two Research items are called forecast; rename one.")])

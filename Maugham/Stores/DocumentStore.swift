@@ -186,6 +186,11 @@ public final class DocumentStore {
     /// name with the error — logged by the render pass and kept here.
     var lastUnreadableFigures: [(name: String, error: String)] = []
 
+    /// The figures the last pass found parked, open hosts' folds winning
+    /// (`FigureWorkbook.parked` after `overlay`) — the one answer for
+    /// flagging the figures that read them (plan 6b Task 9).
+    var lastParkedFigures: Set<String> = []
+
     var _figureChangeScheduler: DebounceScheduler<Int>?
 
     /// The deferred render of every table figure at window open (R-6a-11);

@@ -275,6 +275,50 @@ final class FigureRenderTests: XCTestCase {
         await store.closeFigure(figureId: src.id)
     }
 
+    /// **An open figure parked elsewhere is the pass's parked figure** (R-D2,
+    /// plan 6b Task 3 review M-2): the open host's fold carries the park, the
+    /// pass lays it over the read and keeps the parked set on
+    /// `lastParkedFigures`, and the table reading it keeps its last value.
+    func test_anOpenFigureParkedElsewhereIsListedAndItsReaderKeepsItsValue() async throws {
+        let (store, projectStore) = try await openWindow()
+        let src = try await projectStore.createFigure(kind: .table, name: "src", piece: nil)
+        let total = try await projectStore.createFigure(kind: .table, name: "total", piece: nil)
+        let srcDoc = try await store.openFigure(figureId: src.id)
+        try await srcDoc.setCell(number(5), at: key(srcDoc.state.table, row: 0, column: 0))
+        let totalDoc = try await store.openFigure(figureId: total.id)
+        try await totalDoc.setCell(
+            try formula("src!A1*2", in: totalDoc.state.table,
+                        names: FormulaNames(figures: [.init(id: src.id, name: "src", table: srcDoc.state.table)])),
+            at: key(totalDoc.state.table, row: 0, column: 0))
+        await store.closeFigure(figureId: total.id)
+        XCTAssertEqual(store.lastParkedFigures, [])
+
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac", permit: .bookAuthor)
+        await store.postureSettled()
+        await store.flushFigureChangesForTesting()
+        let before = Set(OpLogStore.opLogFileURLs(forDocId: src.id, in: projectURL))
+        let samStore = OpLogStore(
+            projectURL: projectURL, identity: sam.author,
+            state: OpLogDeviceState(fileURL: projectURL.appendingPathComponent("sam-state.json")))
+        try await samStore.append(Op(
+            opId: ULID.generate(), docId: src.id, at: Date(), device: sam.author.deviceId,
+            session: "sams-mac", kind: .figureParked, changes: [],
+            figure: FigureOpPayload(parkedPath: "research/src.csv", parkedHash: "0123456789abcdef")))
+        _ = try await samStore.sealChain(docId: src.id)
+        let samFile = try XCTUnwrap(
+            Set(OpLogStore.opLogFileURLs(forDocId: src.id, in: projectURL)).subtracting(before).first)
+
+        store.presenterDidChangeSubitem(at: samFile)
+        await store.flushFigureChangesForTesting()
+
+        XCTAssertNotNil(srcDoc.state.parked, "the open host re-read the park")
+        XCTAssertEqual(store.lastParkedFigures, [src.id])
+        XCTAssertEqual(try csv(total), "10,,\n,,\n,,\n", "the reader keeps the parked figure's value")
+        await store.closeFigure(figureId: src.id)
+    }
+
     /// **A figure's stream lands before its record** (final review I-4, the
     /// T4 carry; R-6a-9 writes stream then record, and sync delivers them
     /// apart). Sam, an author of piece A, makes two one-cell tables on his Mac.

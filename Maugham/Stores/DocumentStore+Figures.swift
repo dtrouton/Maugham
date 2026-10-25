@@ -227,8 +227,9 @@ extension DocumentStore {
     ///
     /// The book's tables are assembled into one `Workbook` from the cache
     /// (`FigureWorkbook.assemble`), with each open figure's own state laid
-    /// over its read — the host holds the freshest fold, a parked one's too
-    /// (its readers keep its parked values, R-D2). Figures the assembly
+    /// over its read (`FigureWorkbook.overlay`) — the host holds the freshest
+    /// fold, a parked one's too (its readers keep its parked values, R-D2),
+    /// and the parked set it leaves is kept on `lastParkedFigures`. Figures the assembly
     /// could not read (R-6a-7) are logged, one line each, and kept on
     /// `lastUnreadableFigures`; their renders are left as they were. A
     /// failure to write one render is logged and the others still write.
@@ -249,7 +250,7 @@ extension DocumentStore {
                 "figures were not rendered: the registry would not read: \(error.localizedDescription, privacy: .public)")
             return
         }
-        let assembled = FigureWorkbook.assemble(
+        var assembled = FigureWorkbook.assemble(
             for: manifest, cache: figureCache, projectURL: projectURL,
             trust: trust, pins: FigureRender.noResearchPins)
         lastUnreadableFigures = assembled.unreadable
@@ -258,12 +259,13 @@ extension DocumentStore {
                 "figure \(name, privacy: .public) could not be read for the workbook, so its render and its readers' values may be stale: \(error, privacy: .public)")
         }
 
-        var book = assembled.workbook
         let byId = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for (id, doc) in openFigures where !doc.isClosed {
             guard let record = byId[id], record.kind == .table else { continue }
-            book.setTable(doc.state.table, id: record.id)
+            assembled.overlay(doc.state, id: record.id)
         }
+        lastParkedFigures = assembled.parked
+        let book = assembled.workbook
 
         var due = Set<String>()
         for id in changed where byId[id] != nil {

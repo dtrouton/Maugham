@@ -7,11 +7,13 @@ import Foundation
 /// shown. A figure renamed in the registry therefore needs no formula rewritten: the
 /// next render shows the new name.
 ///
-/// - A figure's name is its `FigureRecord.name`, matched exactly as typed (as
-///   before ids). Its table is the one refs into it resolve against; a figure with
-///   no table here (unreadable) is unknown to a parse and `#REF!` to a render.
+/// - A figure's name is its `FigureRecord.name`, matched without regard to case (as
+///   the registry de-duplicates them). Its table is the one refs into it resolve
+///   against; a figure with no table here (an image, an unreadable stream) is refused
+///   by a parse and `name!#REF!` to a render.
 /// - A research item's name is its `ResearchItem.title`, matched without regard to
-///   case. Two items answering to one name refuse the parse rather than guess.
+///   case.
+/// - Two figures, or two items, answering to one name refuse the parse rather than guess.
 /// - An id the directory cannot name renders `#REF!`, as a missing table did.
 public struct FormulaNames: Sendable {
 
@@ -35,7 +37,7 @@ public struct FormulaNames: Sendable {
     }
 
     private var figuresById: [String: Figure] = [:]
-    private var figureIdsByName: [String: [String]] = [:]
+    private var figureIdsByName: [String: [String]] = [:]          // by folded name
     private var researchTitlesById: [String: String] = [:]
     private var researchIdsByFoldedTitle: [String: [String]] = [:]
 
@@ -45,7 +47,7 @@ public struct FormulaNames: Sendable {
     public init(figures: [Figure] = [], research: [(id: String, title: String)] = []) {
         for f in figures where figuresById[f.id] == nil {
             figuresById[f.id] = f
-            figureIdsByName[f.name, default: []].append(f.id)
+            figureIdsByName[Self.folded(f.name), default: []].append(f.id)
         }
         for r in research where researchTitlesById[r.id] == nil {
             researchTitlesById[r.id] = r.title
@@ -70,10 +72,10 @@ public struct FormulaNames: Sendable {
     /// The current title of research item `id`, or nil when it is not in the tree.
     public func researchTitle(id: String) -> String? { researchTitlesById[id] }
 
-    /// A figure by the name typed: a name two records share (two devices made it
-    /// before either saw the other) is ambiguous, never the first one found.
+    /// A figure by the name typed, any case: a name two records share, in any case (two
+    /// devices made it before either saw the other), is ambiguous, never the first found.
     func figure(named name: String) -> Lookup {
-        Self.lookup(figureIdsByName[name] ?? [])
+        Self.lookup(figureIdsByName[Self.folded(name)] ?? [])
     }
 
     /// A research item by the name typed, any case.
@@ -89,5 +91,5 @@ public struct FormulaNames: Sendable {
         }
     }
 
-    private static func folded(_ title: String) -> String { title.lowercased() }
+    private static func folded(_ name: String) -> String { name.lowercased() }
 }

@@ -143,6 +143,19 @@ final class FigureCacheTests: XCTestCase {
                        .number(100), "the reader keeps the parked figure's last value")
     }
 
+    /// An open host's fold laid over the read wins for `parked` both ways, so the set is
+    /// the one answer to which figures sit in Research.
+    func test_anOverlaysParkedStatusWins() throws {
+        let (root, manifest, cash) = try twoFigureBook()
+        var r = FigureWorkbook.assemble(for: manifest, cache: FigureCache(), projectURL: root, pins: NoPins())
+        XCTAssertEqual(r.parked, [])
+        r.overlay(FigureState(kind: .table, table: cash, parked: FigureParking(path: "research/c.csv", hash: "h1")), id: "fig-cash0001")
+        XCTAssertEqual(r.parked, ["fig-cash0001"], "a host that has just parked it")
+        r.overlay(FigureState(kind: .table, table: cash), id: "fig-cash0001")
+        XCTAssertEqual(r.parked, [], "a host that has resumed it, over a parked read")
+        XCTAssertNotNil(r.workbook.tables["fig-cash0001"])
+    }
+
     func test_aRecordAppearingOrItsPieceChanging_missesTheCacheByItself() throws {
         let root = newRoot()
         let id = "fig-aaaa1111"

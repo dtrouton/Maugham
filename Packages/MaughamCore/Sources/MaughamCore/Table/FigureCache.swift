@@ -100,4 +100,12 @@ public struct FigureWorkbook: Sendable {
         }
         return FigureWorkbook(workbook: book, parked: parked, unreadable: unreadable)
     }
+
+    /// **Lay a fresher state of figure `id` over its read** — an open host's fold.
+    /// Its table replaces the read one and its parked status wins, so `parked` stays
+    /// the one answer to "which figures are in Research" for whoever reads this book.
+    public mutating func overlay(_ state: FigureState, id: String) {
+        workbook.setTable(state.table, id: id)
+        if state.parked != nil { parked.insert(id) } else { parked.remove(id) }
+    }
 }
