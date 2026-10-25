@@ -735,7 +735,11 @@ final class FigureDocumentTests: XCTestCase {
 
     /// **The partition sees `.figure`**: a cell written into a figure of piece
     /// A by a device whose author is narrowed to piece B is set aside on a book
-    /// author's Mac; the same device's write into a figure of piece B applies.
+    /// author's Mac once piece A is claimed; the same device's write into a
+    /// figure of piece B applies. Before the claim the figure follows its
+    /// piece exactly (Denver's ruling R-D4): piece A was started by nobody on
+    /// record and nobody has written its text, so his line there is HELD, as
+    /// his words in piece A would be — never set aside.
     func test_aFigureLineFromAPieceBOnlyDeviceIsSetAside() async throws {
         // This device is the book's root.
         try writeThisDevicesRecord()
@@ -783,6 +787,20 @@ final class FigureDocumentTests: XCTestCase {
                 figure: FigureOpPayload(cell: key, next: text("sam"), prior: nil)))
             _ = try await samsStore.sealChain(docId: id)
         }
+
+        let unclaimed = try await load(ofA.id)
+        XCTAssertNil(unclaimed.state.table[keyA], "not applied on the root's Mac")
+        XCTAssertEqual(unclaimed.provenance?.quarantinedLines, 0,
+                       "piece A is nobody's yet: his line is held, as his words there would be")
+        XCTAssertGreaterThan(unclaimed.provenance?.pendingLines ?? 0, 0)
+        await unclaimed.close()
+
+        // The root opens piece A: its bootstrap is a book author's text, which
+        // claims the piece — and with it the piece's figure.
+        let pieceA = try await Document.load(
+            url: projectURL.appendingPathComponent("manuscript/a.md"),
+            actor: .author, session: "s", presenter: nil)
+        await pieceA.close()
 
         let a = try await load(ofA.id)
         XCTAssertNil(a.state.table[keyA], "Sam's line in piece A's figure is set aside")
