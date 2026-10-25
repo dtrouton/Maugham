@@ -6083,10 +6083,10 @@ final class TripwireGrepTests: XCTestCase {
     /// that mount it beside a String destination (`bothDropKinds`).
     private static let providerDropToken = ".onDrop(of: [.fileURL, .image]"
 
-    /// The canvas's one drop modifier (canvas-keyboard-flow Task 1): a provider
-    /// `.onDrop` over `[.fileURL, .image, .utf8PlainText]`, routed by
-    /// `CanvasDropRoute`.
-    private static let canvasDropToken = ".onDrop(of: CanvasDropRoute.acceptedTypes"
+    /// The one-modifier provider drop (canvas-keyboard-flow Task 1; #109): a
+    /// provider `.onDrop` over `[.fileURL, .image, .utf8PlainText]`, routed by
+    /// `ProviderDropRoute`. The canvas and the Research section header mount it.
+    private static let providerRouteToken = ".onDrop(of: ProviderDropRoute.acceptedTypes"
 
     /// The route that looks equivalent, compiles, reads correctly and **silently
     /// rejects every browser image drag** — CoreTransferable fails with error 0:
@@ -6130,8 +6130,8 @@ final class TripwireGrepTests: XCTestCase {
     /// **Count the set, not this comment.** A second canvas surface that grows a
     /// file-or-image drop belongs in the expected set with a line saying why.
     func test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination() throws {
-        XCTAssertEqual(try canvasFilesNaming(Self.canvasDropToken), ["CanvasView.swift"],
-            "`\(Self.canvasDropToken)` is the canvas's drop target. If it "
+        XCTAssertEqual(try canvasFilesNaming(Self.providerRouteToken), ["CanvasView.swift"],
+            "`\(Self.providerRouteToken)` is the canvas's drop target. If it "
             + "vanished, a photograph dragged from the Finder or a browser now lands "
             + "nowhere; if a second file grew one, add it here with its reason.")
 
@@ -6145,7 +6145,7 @@ final class TripwireGrepTests: XCTestCase {
         // Control: the scan really is reading a live tree. The one drop's route
         // is asked in the handler and is expected to be there — if THIS finds
         // nothing, the two assertions above are a search over an empty directory.
-        XCTAssertEqual(try canvasFilesNaming("CanvasDropRoute.route("),
+        XCTAssertEqual(try canvasFilesNaming("ProviderDropRoute.route("),
                        ["CanvasDropHandler.swift"],
             "Control: the drop handler's route call should still be found. "
             + "If it is not, this census is reading nothing.")
@@ -6154,7 +6154,7 @@ final class TripwireGrepTests: XCTestCase {
     /// Self-check: both halves fire on planted offenders, and neither counts a
     /// doc comment. A ban that never matches and a census that reads nothing look
     /// identical from the outside.
-    func test_theCanvasDropRouteTripwiresFireOnPlantedOffenders() throws {
+    func test_theProviderDropRouteTripwiresFireOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
             .appendingPathComponent("tripwire-canvas-drop-\(UUID().uuidString)")
@@ -6175,17 +6175,17 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(try filesNaming(Self.forbiddenDropToken, under: tmp),
                        ["PlantedCanvas.swift"],
             "Self-check: the planted URL destination should be caught.")
-        XCTAssertTrue(try filesNaming(Self.canvasDropToken, under: tmp).isEmpty,
+        XCTAssertTrue(try filesNaming(Self.providerRouteToken, under: tmp).isEmpty,
             "Self-check: a tree with no provider-route drop should census as empty — "
             + "which is what the real assertion above would look like if the modifier "
             + "were deleted from CanvasView.")
 
         try """
-        // .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) named in a comment.
+        // .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) named in a comment.
         struct CommentOnly: View { var body: some View { Color.clear } }
         """.write(to: tmp.appendingPathComponent("CommentOnly.swift"),
                   atomically: true, encoding: .utf8)
-        XCTAssertTrue(try filesNaming(Self.canvasDropToken, under: tmp).isEmpty,
+        XCTAssertTrue(try filesNaming(Self.providerRouteToken, under: tmp).isEmpty,
             "Self-check: a comment naming the token must not satisfy the census — "
             + "otherwise a file that only DISCUSSES the route would pass for one "
             + "that mounts it.")
@@ -6214,7 +6214,11 @@ final class TripwireGrepTests: XCTestCase {
     /// - `Maugham/Views/ResearchRow.swift` — has always had it right, and is the
     ///   only member whose order was ever validated by use.
     /// - `Maugham/Views/BinderTreeSections.swift`, `BinderRow.swift`,
-    ///   `PieceRow.swift` — the tree's own three, as of stage-2b Task 4. The
+    ///   `PieceRow.swift` — the tree's own three, as of stage-2b Task 4. Since
+    ///   #109, `BinderTreeSections` is a member for its empty-section
+    ///   placeholder row alone: its Research HEADER is no List row, had the
+    ///   canvas's bug, and mounts the one provider route instead
+    ///   (`test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly`). The
     ///   milestone deleted `ResearchView` and `CollectionResearchPane`, so the
     ///   external-drop capability moved onto the tree's targets; **the census's
     ///   guarantee had to move with it**, which is why these were listed here in
@@ -6249,12 +6253,24 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **`.dropDestination(for: String.self)` must be mounted BEFORE
-    /// `.onDrop(of: [.fileURL, .image])`, and the other way round is a shipped
-    /// bug rather than a style question.**
+    /// `.onDrop(of: [.fileURL, .image])` on a List row, and the other way round
+    /// is a shipped bug rather than a style question.**
     ///
-    /// `.onDrop(of:)` claims a drag session **on hover, before any payload is
-    /// examined**, so a string destination mounted after it is never offered the
-    /// drop. That is not deduced — it is what two smokes found. On the canvas: a
+    /// **The cause, as corrected by #109.** This doc used to say `.onDrop(of:)`
+    /// claims a drag session on hover. The true cause: SwiftUI gives each drop
+    /// modifier its own AppKit view, and AppKit offers a drag to the innermost
+    /// one only (`test_theCanvasHasOneDropModifierAndItIsTheProviderRoute`).
+    /// A List row is the exception that makes this pair work: the table
+    /// dispatches drops to its rows, and there the String-first pair takes every
+    /// drag kind. Denver measured it on 2026-10-25 — a Finder PNG onto a
+    /// research row, a group row, a chapter row and the empty-section
+    /// placeholder all landed, a browser image onto a row landed, and a reorder
+    /// worked — while the same pair on the Research section HEADER, which is no
+    /// row, sprang a Finder PNG back. So a pair belongs on a row only; anywhere
+    /// else, mount ONE provider `.onDrop` routed by `ProviderDropRoute`.
+    ///
+    /// The reversed order was found by two smokes, one on the canvas and one
+    /// in a Collection. On the canvas: a
     /// Finder photograph landed while a research drag and an inbox drag did
     /// nothing whatever, with the Inbox's "Send to Canvas" *command* working
     /// throughout, which is what identified the modifiers rather than the
@@ -6305,10 +6321,11 @@ final class TripwireGrepTests: XCTestCase {
 
             XCTAssertEqual(reversedDropPairings(in: text), [],
                 "\(file) mounts `.onDrop(of:)` before a string destination in the "
-                + "same chain. That modifier claims the drag session on hover, "
-                + "before the payload is examined, so the destination behind it "
-                + "never sees the drop — an internal drag does nothing at all, "
-                + "silently, while an external one still lands. Both shipped "
+                + "same chain. AppKit offers a drag to the innermost drop modifier "
+                + "only, so the destination behind it never sees the drop — an "
+                + "internal drag does nothing at all, silently, while an external "
+                + "one still lands (#109 corrected the old 'claims on hover' "
+                + "account). Both shipped "
                 + "instances of this were found by a writer, not by a test. "
                 + "Offending `.onDrop` at code line(s) "
                 + "\(reversedDropPairings(in: text)).")
@@ -6503,7 +6520,7 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **The canvas mounts ONE drop modifier, a provider `.onDrop` over
-    /// `CanvasDropRoute.acceptedTypes`, and no typed destination at all.**
+    /// `ProviderDropRoute.acceptedTypes`, and no typed destination at all.**
     ///
     /// SwiftUI gives each drop modifier its own AppKit view registered for every
     /// type, and AppKit hands a drag to the frontmost one only — the innermost
@@ -6527,16 +6544,16 @@ final class TripwireGrepTests: XCTestCase {
             "Maugham/Canvas/ mounts a typed `.dropDestination(for:`: \(found.destination). "
             + "In front of the provider drop it takes every drag, refuses a Finder "
             + "file at hover and a browser image by its page URL.")
-        XCTAssertEqual(try canvasFilesNaming(Self.canvasDropToken), ["CanvasView.swift"],
-            "the one `.onDrop` asks for `CanvasDropRoute.acceptedTypes`")
+        XCTAssertEqual(try canvasFilesNaming(Self.providerRouteToken), ["CanvasView.swift"],
+            "the one `.onDrop` asks for `ProviderDropRoute.acceptedTypes`")
 
-        let route = try String(contentsOf: canvasDir.appendingPathComponent("CanvasDropRoute.swift"),
+        let route = try String(contentsOf: sourceDir.appendingPathComponent("Views/ProviderDropRoute.swift"),
                                encoding: .utf8)
         let accepted = try XCTUnwrap(SourceScan.codeLines(of: route)
             .first { $0.contains("static let acceptedTypes") })
         for type in [".fileURL", ".image", ".utf8PlainText"] {
             XCTAssertTrue(accepted.contains(type),
-                "CanvasDropRoute.acceptedTypes must name \(type): \(accepted)")
+                "ProviderDropRoute.acceptedTypes must name \(type): \(accepted)")
         }
     }
 
@@ -6555,7 +6572,7 @@ final class TripwireGrepTests: XCTestCase {
                 Color.clear
                     // .onDrop(of: [.fileURL], isTargeted: nil) in a comment must NOT count.
                     .dropDestination(for: String.self) { _, _ in true }
-                    .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { _, _ in true }
+                    .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { _, _ in true }
                     .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
             }
         }
@@ -6569,6 +6586,93 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(found.onDrop, ["PlantedCanvas.swift:6", "PlantedCanvas.swift:7"],
             "the census reports 1-based source lines; line numbers count comment lines")
         XCTAssertEqual(found.destination, ["PlantedCanvas.swift:5"])
+    }
+
+    // MARK: - The provider route is the canvas's and the Research header's only (#109)
+
+    /// **The one-modifier provider route is mounted on exactly two surfaces: the
+    /// canvas and the binder's Research section header — and the header has no
+    /// String destination left beside it.**
+    ///
+    /// #109: a Finder PNG dropped on the Research section HEADER sprang back,
+    /// while every List row (and the empty-section placeholder, a row too) took
+    /// it. The header is not a row the table dispatches drops to, so it had the
+    /// canvas's bug: AppKit offers a drag to the innermost drop modifier only,
+    /// and the innermost was a String destination that refused a file at hover.
+    /// The fix mounts the canvas's one provider `.onDrop` there. No test can
+    /// drive a drag session, so the arrangement is censused.
+    ///
+    /// The String-destination count pins the header's removal: exactly ONE is
+    /// left in `BinderTreeSections.swift`, the placeholder row's
+    /// (`test_whereBothDropKindsMeetTheStringDestinationIsMountedFirst` still
+    /// orders that pair).
+    func test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly() throws {
+        XCTAssertEqual(try filesNaming(Self.providerRouteToken, under: sourceDir),
+                       ["CanvasView.swift", "BinderTreeSections.swift"],
+            "`\(Self.providerRouteToken)` is mounted on the canvas and the Research "
+            + "header only. A new surface that takes both drag kinds outside a List "
+            + "row belongs here with its reason.")
+
+        let sectionsURL = sourceDir.appendingPathComponent("Views/BinderTreeSections.swift")
+        let sections = try String(contentsOf: sectionsURL, encoding: .utf8)
+        let codeLines = SourceScan.codeLines(of: sections)
+        XCTAssertEqual(codeLines.filter { $0.contains(".onDrop(of: ProviderDropRoute.acceptedTypes") }.count,
+                       1, "BinderTreeSections mounts the provider route once: the Research header")
+        XCTAssertEqual(stringDestinationCount(in: sections), 1,
+            "BinderTreeSections keeps ONE String destination, the empty-section "
+            + "placeholder row's. A second one is the Research header's coming back "
+            + "in front of its provider drop, which refuses every Finder file (#109).")
+
+        // Control: the header's route is reached through the function a test can
+        // ask, so the census is reading the live file.
+        XCTAssertTrue(codeLines.contains { $0.contains("sharedSectionHeaderDrop(") },
+            "Control: the header's drop closure should call sharedSectionHeaderDrop")
+    }
+
+    /// How many `.dropDestination(for: String` a file mounts, comments excluded.
+    private func stringDestinationCount(in text: String) -> Int {
+        SourceScan.codeLines(of: text).filter { $0.contains(".dropDestination(for: String") }.count
+    }
+
+    /// Planted control: the provider-route census sees a planted header that
+    /// pairs a String destination with the route, and not a comment; and the
+    /// count-of-one check fires when the header's destination comes back.
+    func test_theProviderRouteCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-provider-route-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct PlantedHeader: View {
+            var body: some View {
+                Text("Research")
+                    // .dropDestination(for: String.self) in a comment must NOT count.
+                    .dropDestination(for: String.self) { _, _ in true }
+                    .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { _ in true }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedHeader.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertEqual(try filesNaming(Self.providerRouteToken, under: tmp),
+                       ["PlantedHeader.swift"],
+            "Self-check: a planted provider route should be found")
+        let found = try dropModifiers(under: tmp)
+        XCTAssertEqual(found.destination, ["PlantedHeader.swift:5"],
+            "Self-check: the planted String destination is counted, the comment is not")
+
+        let twoDestinations = """
+            placeholder
+                .dropDestination(for: String.self) { ids, _ -> Bool in true }
+            header
+                // .dropDestination(for: String.self) in a comment must NOT count.
+                .dropDestination(for: String.self) { ids, _ -> Bool in true }
+                .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { _ in true }
+            """
+        XCTAssertEqual(stringDestinationCount(in: twoDestinations), 2,
+            "Self-check: a header destination beside the placeholder's makes two, "
+            + "which the live count-of-one assertion reports")
     }
 
     // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)

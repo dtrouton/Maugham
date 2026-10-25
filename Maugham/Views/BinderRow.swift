@@ -102,11 +102,10 @@ struct BinderRow: View {
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
             }
-            // **After the string destination, always** — `.onDrop(of:)` claims
-            // the drag session on hover, before the payload is examined, so
-            // mounted first it would leave the reorder above it dead and
-            // silent. `ResearchRow` has always had this order; `TripwireGrepTests`
-            // censuses it.
+            // **After the string destination, always.** AppKit offers a drag to
+            // the innermost drop modifier only; a List row's drops are dispatched
+            // by the table, where this order works, as measured on the binder's
+            // rows (#109). `TripwireGrepTests` censuses the order.
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
                 guard !providers.isEmpty else { return false }
                 let rowHeight: CGFloat = 22

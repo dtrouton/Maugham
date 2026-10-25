@@ -103,9 +103,9 @@ struct PieceRow: View {
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
             }
-            // After the string destination, always: `.onDrop(of:)` claims the
-            // drag session on hover and would leave the reorder above it dead
-            // and silent (`TripwireGrepTests` censuses the ordering).
+            // After the string destination, always: AppKit offers a drag to the
+            // innermost drop modifier only, and in a table-dispatched List row
+            // this order works, as measured on the binder's rows (#109).
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
                 guard !providers.isEmpty else { return false }
                 let rowHeight: CGFloat = 22

@@ -369,7 +369,7 @@ final class PromotionCommandTests: XCTestCase {
              + "learn what a picture produced, no way to open it, and no way to "
              + "discover the artifact had been deleted — which is CLAUDE.md rule "
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
-            ("Maugham/Canvas/CanvasView.swift", [".onDrop(of: CanvasDropRoute.acceptedTypes",
+            ("Maugham/Canvas/CanvasView.swift", [".onDrop(of: ProviderDropRoute.acceptedTypes",
                                                  "dropHandler.handleDrop(providers:"],
              "1C-d Task 10's drop MOUNT, which stays on `CanvasView.body` as ONE "
              + "provider `.onDrop` since canvas-keyboard-flow Task 1 "
@@ -380,7 +380,7 @@ final class PromotionCommandTests: XCTestCase {
              + "that answers `false` beside a `dropHandler` nothing calls builds "
              + "with no warning, keeps every token in the entry below, and drops "
              + "nothing the writer drags in"),
-            ("type:CanvasDropHandler", ["CanvasDropRoute.route(",
+            ("type:CanvasDropHandler", ["ProviderDropRoute.route(",
                                         "CanvasDrop.apply(",
                                         "CanvasExternalDrop.ingest(",
                                         "CanvasExternalDrop.apply(",
@@ -887,14 +887,14 @@ final class PromotionCommandTests: XCTestCase {
         // earlier `.maughamPromotePiece` plant broke.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
-                              required: [".onDrop(of: CanvasDropRoute.acceptedTypes",
+                              required: [".onDrop(of: ProviderDropRoute.acceptedTypes",
                                          ".onDrop(of: NotARealDropRoute.acceptedTypes"]),
             [".onDrop(of: NotARealDropRoute.acceptedTypes"],
             "the census reports the ABSENT drop-mount token and not the present one")
         // And the handler's route, falsified the same way.
         XCTAssertEqual(
             try missingTokens(in: "type:CanvasDropHandler",
-                              required: ["CanvasDropRoute.route(",
+                              required: ["ProviderDropRoute.route(",
                                          "CanvasNotADropRoute.route("]),
             ["CanvasNotADropRoute.route("],
             "the census reports the ABSENT route token and not the present one")
@@ -907,7 +907,7 @@ final class PromotionCommandTests: XCTestCase {
                 struct CanvasView: View {
                     var body: some View {
                         Color.clear
-                            .onDrop(of: CanvasDropRoute.acceptedTypes, isTargeted: nil) { _, _ in false }
+                            .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { _, _ in false }
                     }
                     // dropHandler.handleDrop(providers: in a comment does not count.
                     private var dropHandler: CanvasDropHandler { CanvasDropHandler() }
@@ -915,7 +915,7 @@ final class PromotionCommandTests: XCTestCase {
                 """,
         ])
         defer { try? FileManager.default.removeItem(at: base) }
-        let dropCalls = [".onDrop(of: CanvasDropRoute.acceptedTypes",
+        let dropCalls = [".onDrop(of: ProviderDropRoute.acceptedTypes",
                          "dropHandler.handleDrop(providers:"]
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Canvas/CanvasView.swift", required: dropCalls,

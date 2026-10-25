@@ -10,13 +10,13 @@ import XCTest
 /// answered a Finder file "no operation" at hover, so nothing fired, and took
 /// a browser image by its page-URL text, which `handleDrop` refused as an
 /// unknown id. Now one provider `.onDrop` takes every drag and
-/// `CanvasDropRoute` sends it by type: a file or an image always wins over
+/// `ProviderDropRoute` sends it by type: a file or an image always wins over
 /// text.
 ///
 /// What a Finder file drag carries is recorded here, both the ways a test can
 /// build one, so the route is asked over type lists the system really sends.
 @MainActor
-final class CanvasDropRouteTests: XCTestCase {
+final class ProviderDropRouteTests: XCTestCase {
 
     private var root: URL!
 
@@ -75,40 +75,40 @@ final class CanvasDropRouteTests: XCTestCase {
     func test_aFinderPNGRoutesExternal() {
         // As built by the Finder (Step 1's census), and as SwiftUI hands the
         // one `.onDrop` its provider (`public.png` alone).
-        XCTAssertEqual(CanvasDropRoute.route(
+        XCTAssertEqual(ProviderDropRoute.route(
             typeIdentifiers: ["public.png", "public.file-url", "public.url"]), .external)
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: ["public.file-url"]), .external)
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: ["public.png"]), .external)
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: ["public.file-url"]), .external)
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: ["public.png"]), .external)
     }
 
     func test_aResearchRowRoutesInternal() {
-        XCTAssertEqual(CanvasDropRoute.route(
+        XCTAssertEqual(ProviderDropRoute.route(
             typeIdentifiers: [UTType.utf8PlainText.identifier]), .internalPayload)
-        XCTAssertEqual(CanvasDropRoute.route(
+        XCTAssertEqual(ProviderDropRoute.route(
             typeIdentifiers: [UTType.plainText.identifier]), .internalPayload)
     }
 
     /// The probe's browser drag: its text is the PAGE's URL, which is no id
     /// this canvas knows, so text must not win while an image is there.
     func test_aBrowserImageRoutesExternal() {
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: [
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: [
             UTType.png.identifier, UTType.url.identifier, UTType.utf8PlainText.identifier,
         ]), .external)
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: [
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: [
             UTType.utf8PlainText.identifier, UTType.jpeg.identifier,
         ]), .external, "order does not matter: an image wins wherever it sits")
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: [
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: [
             UTType.utf8PlainText.identifier, UTType.url.identifier,
         ]), .external, "a URL is never an id: the external route declines it")
     }
 
     func test_nothingUsableIsRefused() {
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: []), .refuse)
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: ["com.adobe.pdf"]), .refuse)
-        XCTAssertEqual(CanvasDropRoute.route(typeIdentifiers: ["not a type"]), .refuse)
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: []), .refuse)
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: ["com.adobe.pdf"]), .refuse)
+        XCTAssertEqual(ProviderDropRoute.route(typeIdentifiers: ["not a type"]), .refuse)
     }
 
     func test_theAcceptedTypesAreFileImageAndText() {
-        XCTAssertEqual(CanvasDropRoute.acceptedTypes, [.fileURL, .image, .utf8PlainText])
+        XCTAssertEqual(ProviderDropRoute.acceptedTypes, [.fileURL, .image, .utf8PlainText])
     }
 }

@@ -158,20 +158,14 @@ struct BinderTreeSections: View {
             // shared item that is already showing in this very section, so the
             // empty-section placeholder can never be on screen while a fold
             // has something in it.
-            .dropDestination(for: String.self) { ids, _ -> Bool in
-                return sharedSectionDrop(ids)
-            }
-            // **The string destination FIRST, the provider drop after it**
-            // (stage-2b Task 4), and the order is a shipped bug rather than a
-            // style question: `.onDrop(of:)` claims the drag session on hover,
-            // before any payload is examined, so mounted first it leaves the
-            // destination behind it dead — an internal drag onto this header
-            // would do nothing at all, silently, while a Finder file still
-            // landed. Both instances of that were found by a writer and neither
-            // by a test; `TripwireGrepTests` censuses the ordering, and this
-            // file is now one of its members.
-            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
-                return sharedSectionExternalDrop(providers)
+            // ONE provider `.onDrop` (#109): AppKit offers a drag to the innermost
+            // drop modifier only, and a header is no table-dispatched List row.
+            // Census: `test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly`.
+            .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { providers in
+                return sharedSectionHeaderDrop(
+                    typeIdentifiers: providers.flatMap(\.registeredTypeIdentifiers),
+                    providers: providers,
+                    draggedId: { Self.draggedId(on: NSPasteboard(name: .drag)) })
             }
         }
     }
@@ -527,11 +521,11 @@ struct BinderTreeSections: View {
             .dropDestination(for: String.self) { ids, _ -> Bool in
                 return onDrop(ids)
             }
-            // The section's other drop kind, mounted AFTER the string one for
-            // the reason the header's is — see there. An empty Research section
-            // is exactly where a writer drags their first file, and until Task
-            // 4 the only surface that would take it was a pane about to be
-            // deleted.
+            // The section's other drop kind, mounted AFTER the string one: a
+            // List row's drops are dispatched by the table, where this pair
+            // takes every drag kind (Denver's #109 table); outside a row only
+            // the innermost modifier is offered the drag. An empty Research
+            // section is exactly where a writer drags their first file.
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
                 return onExternalDrop(providers)
             }
@@ -575,6 +569,37 @@ struct BinderTreeSections: View {
     func sharedSectionDrop(_ ids: [String]) -> Bool {
         guard let id = ids.first else { return false }
         return verbs.routeSharedSectionDrop(draggedId: id)
+    }
+
+    /// The Research header's one drop (#109), routed by type the canvas's way.
+    /// An internal drag's id is read **synchronously** off the drag pasteboard
+    /// (`draggedId`), not loaded from its provider, because the answer is
+    /// `sharedSectionDrop`'s accept-or-refuse and a refusal must still spring
+    /// the drag back. No id readable: refused.
+    ///
+    /// Not `private`, for the reason `sharedSectionDrop` is not.
+    func sharedSectionHeaderDrop(typeIdentifiers: [String],
+                                 providers: [NSItemProvider],
+                                 draggedId: () -> String?) -> Bool {
+        switch ProviderDropRoute.route(typeIdentifiers: typeIdentifiers) {
+        case .external:
+            return sharedSectionExternalDrop(providers)
+        case .internalPayload:
+            guard let id = draggedId() else {
+                return refuseDrop("research header", payload: nil)
+            }
+            return sharedSectionDrop([id])
+        case .refuse:
+            return false
+        }
+    }
+
+    /// The id a binder drag carries: `.draggable(String)`'s text on `pasteboard`
+    /// (the drag pasteboard in production), trimmed; nil when absent or blank.
+    static func draggedId(on pasteboard: NSPasteboard) -> String? {
+        guard let raw = pasteboard.string(forType: .string) else { return nil }
+        let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
     }
 
     /// The same two targets, for a Finder file or a browser bitmap (stage-2b
