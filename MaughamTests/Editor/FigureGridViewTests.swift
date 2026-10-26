@@ -127,7 +127,6 @@ final class FigureGridViewTests: XCTestCase {
             (key(51, "\u{7f}"), .deleteBackward),
             (key(120, "\u{F705}"), .editInPlace),
             (key(7, "x"), .type("x")),
-            (key(0, "a", .command), .selectAll),
         ]
         for (event, expected) in cases {
             recorder.keys = []
@@ -141,6 +140,90 @@ final class FigureGridViewTests: XCTestCase {
         XCTAssertNil(FigureGridView.gridKey(for: key(125, "\u{F701}", [.command, .option])),
                      "R7c-10: one delivery path, the Format ▸ Table item")
         XCTAssertNil(FigureGridView.gridKey(for: key(8, "c", .command)), "⌘C is plan 7d's")
+        XCTAssertNil(FigureGridView.gridKey(for: key(0, "a", .command)), "⌘A is Edit ▸ Select All's")
+    }
+
+    // MARK: Edit menu actions on the real path
+
+    /// The grid mounted inside a manuscript-like `NSTextView`, as Task 6 mounts
+    /// it: the text view answers every Edit action, so each must stop at the grid.
+    private func mountInText(rows: Int) throws -> (FigureGridView, NSTextView, NSWindow) {
+        let source = Source(table: FigureTable(rows: rows, columns: 3))
+        self.source = source
+        let text = NSTextView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+        text.string = "Prose around the figure."
+        text.setSelectedRange(NSRange(location: 3, length: 0))
+        let grid = FigureGridView(typography: .defaults)
+        grid.dataSource = source
+        grid.delegate = recorder
+        grid.frame = CGRect(x: 0, y: 40, width: 500,
+                            height: FigureGridLayout.viewportHeight(rows: rows, rowHeight: grid.rowHeight))
+        text.addSubview(grid)
+        let window: KeyTestWindow = TestWindow.make(KeyTestWindow.self, contentRect: text.frame, contentView: text)
+        self.window = window
+        window.makeFirstResponder(grid)
+        XCTAssertTrue(window.firstResponder === grid)
+        return (grid, text, window)
+    }
+
+    /// Who an Edit menu item with a nil target reaches: the first responder
+    /// and up the chain, as AppKit resolves it.
+    private func menuTarget(_ action: Selector, in window: NSWindow) -> NSResponder? {
+        var responder = window.firstResponder
+        while let current = responder {
+            if current.responds(to: action) { return current }
+            responder = current.nextResponder
+        }
+        return nil
+    }
+
+    /// The item's enabled state as the menu would validate it.
+    private func isEnabled(_ action: Selector, keyEquivalent: String, in window: NSWindow) throws -> Bool {
+        let target = try XCTUnwrap(menuTarget(action, in: window))
+        let item = NSMenuItem(title: "", action: action, keyEquivalent: keyEquivalent)
+        guard let validator = target as? NSUserInterfaceValidations else { return true }
+        return validator.validateUserInterfaceItem(item)
+    }
+
+    func test_selectAllFromTheEditMenuSelectsTheTableNotTheText() throws {
+        let (grid, text, window) = try mountInText(rows: 5)
+        let action = #selector(NSText.selectAll(_:))
+        XCTAssertTrue(menuTarget(action, in: window) === grid, "⌘A stops at the grid")
+        XCTAssertTrue(try isEnabled(action, keyEquivalent: "a", in: window))
+        recorder.keys = []
+        XCTAssertTrue(NSApp.sendAction(action, to: menuTarget(action, in: window), from: nil))
+        XCTAssertEqual(recorder.keys, [.selectAll])
+        XCTAssertEqual(text.selectedRange(), NSRange(location: 3, length: 0), "the manuscript's selection is untouched")
+        XCTAssertTrue(window.firstResponder === grid)
+    }
+
+    func test_deleteFromTheEditMenuClearsTheSelectionInTheModel() throws {
+        let (grid, text, window) = try mountInText(rows: 5)
+        let action = #selector(NSText.delete(_:))
+        XCTAssertTrue(menuTarget(action, in: window) === grid)
+        recorder.keys = []
+        XCTAssertTrue(NSApp.sendAction(action, to: menuTarget(action, in: window), from: nil))
+        XCTAssertEqual(recorder.keys, [.deleteBackward])
+        XCTAssertEqual(text.string, "Prose around the figure.")
+    }
+
+    func test_pasteCutAndCopyAreDisabledAtTheGridAndNeverReachTheText() throws {
+        let (grid, text, window) = try mountInText(rows: 5)
+        for (action, key) in [(#selector(NSText.paste(_:)), "v"), (#selector(NSText.cut(_:)), "x"),
+                              (#selector(NSText.copy(_:)), "c")] {
+            XCTAssertTrue(menuTarget(action, in: window) === grid, "\(action) stops at the grid")
+            XCTAssertFalse(try isEnabled(action, keyEquivalent: key, in: window), "\(action) waits for plan 7d")
+        }
+        recorder.keys = []
+        NSApp.sendAction(#selector(NSText.paste(_:)), to: menuTarget(#selector(NSText.paste(_:)), in: window), from: nil)
+        XCTAssertEqual(text.string, "Prose around the figure.", "⌘V never pastes into the prose behind the grid (the grid's paste is a no-op until 7d)")
+        XCTAssertEqual(recorder.keys, [])
+    }
+
+    func test_undoAndRedoStayTheWindows() throws {
+        let (grid, _, window) = try mountInText(rows: 5)
+        XCTAssertFalse(grid.responds(to: Selector(("undo:"))), "R7c-1: the window's undo manager answers ⌘Z")
+        XCTAssertFalse(menuTarget(Selector(("undo:")), in: window) === grid)
     }
 
     // MARK: The cell editor

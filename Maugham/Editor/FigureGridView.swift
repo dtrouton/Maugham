@@ -40,7 +40,7 @@ protocol FigureGridViewDelegate: AnyObject {
 /// Geometry and what is drawn are `FigureGridLayout` and `FigureGridPlan`,
 /// pure; this view feeds them and paints.
 @MainActor
-final class FigureGridView: NSView, NSTextFieldDelegate {
+final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidations {
     weak var dataSource: FigureGridDataSource?
     weak var delegate: FigureGridViewDelegate?
 
@@ -252,11 +252,8 @@ final class FigureGridView: NSView, NSTextFieldDelegate {
         if let direction {
             return command || option || control ? nil : .arrow(direction, extend: shift)
         }
-        if command {
-            let letter = event.charactersIgnoringModifiers?.lowercased()
-            return letter == "a" && !option && !control && !shift ? .selectAll : nil
-        }
-        guard !control else { return nil }
+        // ⌘ keys are the menus' (⌘A is Edit ▸ Select All, answered by `selectAll(_:)`).
+        guard !command, !control else { return nil }
         switch event.keyCode {
         case 36, 76: return .returnKey(backward: shift)
         case 48: return .tab(backward: shift)
@@ -269,6 +266,37 @@ final class FigureGridView: NSView, NSTextFieldDelegate {
               characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0)
                   && !(0xF700...0xF8FF).contains($0.value) }) else { return nil }
         return .type(characters)
+    }
+
+    // MARK: Edit menu actions
+
+    // The Edit menu's key equivalents travel the responder chain before any
+    // `keyDown`. The grid answers each one it sits in front of, so none falls
+    // through to the manuscript text the grid is mounted in: Select All and
+    // Delete go to the model; cut, copy and paste are plan 7d's and are
+    // disabled until then. Undo and redo stay the window's (R7c-1).
+
+    override func selectAll(_ sender: Any?) {
+        delegate?.figureGridView(self, handle: .selectAll)
+    }
+
+    @objc func delete(_ sender: Any?) {
+        delegate?.figureGridView(self, handle: .deleteBackward)
+    }
+
+    @objc func cut(_ sender: Any?) {}
+    @objc func copy(_ sender: Any?) {}
+    @objc func paste(_ sender: Any?) {}
+
+    /// The clipboard actions the grid swallows until plan 7d.
+    static let clipboardActions: Set<Selector> = [
+        #selector(NSText.cut(_:)), #selector(NSText.copy(_:)), #selector(NSText.paste(_:)),
+    ]
+
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard let action = item.action else { return false }
+        if Self.clipboardActions.contains(action) { return false }
+        return responds(to: action)
     }
 
     // MARK: Mouse
