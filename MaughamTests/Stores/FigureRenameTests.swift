@@ -442,6 +442,68 @@ final class FigureRenameTests: XCTestCase {
         XCTAssertFalse(exists("figures/costs.csv"))
     }
 
+    // MARK: - Store seams for Insert / Convert (report plan 7b Task 2)
+
+    /// **A figure created with a table keeps its header row and computes its
+    /// values**: the pipe's header is the first row and `headerRows` is 1.
+    func test_createFigureWithATableKeepsTheHeaderRowAndComputesValues() async throws {
+        let (store, projectStore) = try await openBook()
+        let pipe = TableText(
+            header: ["Item", "Qty"], alignments: [.none, .none],
+            rows: [["a", "2"], ["b", "3"]])
+        let context = try await store.tableImportContext()
+        let table = try FigureTable(pipe: pipe, locale: context.locale, names: context.names)
+
+        let record = try await projectStore.createFigure(
+            kind: .table, name: "stock", piece: nil, table: table)
+
+        XCTAssertEqual(record.path, "figures/stock.csv")
+        XCTAssertEqual(try csv("figures/stock.csv"), "Item,Qty\na,2\nb,3\n")
+        let doc = try await store.openFigure(figureId: record.id)
+        XCTAssertEqual(doc.state.table.headerRows, 1)
+        XCTAssertEqual(doc.state.table.rows.count, 3)
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **A refused door writes nothing**: no stream, no record, no render.
+    func test_aRefusedCreateWithATableWritesNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["doc-b"])))
+        await store.postureSettled()
+        let streamsBefore = try FileManager.default.contentsOfDirectory(
+            atPath: projectURL.appendingPathComponent(".maugham/ops").path).sorted()
+        let pipe = TableText(header: ["A", "B"], alignments: [.none, .none], rows: [["1", "2"]])
+        let table = try FigureTable(pipe: pipe, locale: TableLocale(languageTag: nil), names: .empty)
+
+        do {
+            _ = try await projectStore.createFigure(kind: .table, name: "nope", piece: "doc-b", table: table)
+            XCTFail("the creation was not refused")
+        } catch is FigureEditRefused {}
+
+        XCTAssertNil(projectStore.manifest.figures)
+        XCTAssertFalse(exists("figures/nope.csv"))
+        let streamsAfter = try FileManager.default.contentsOfDirectory(
+            atPath: projectURL.appendingPathComponent(".maugham/ops").path).sorted()
+        XCTAssertEqual(streamsAfter, streamsBefore)
+    }
+
+    /// **`removeFigure` answers the Trash entry**, and that entry restores the
+    /// figure with the same id.
+    func test_removeFigureAnswersTheEntryThatRestoresTheSameId() async throws {
+        let (store, projectStore) = try await openBook()
+        let (cash, _, _) = try await cashAndTotal(store, projectStore)
+
+        let entry = try await projectStore.removeFigure(id: cash.id)
+        XCTAssertEqual(entry.subject, .figure)
+        XCTAssertNil(projectStore.manifest.figures?.first { $0.id == cash.id })
+
+        try await projectStore.restoreTrashEntry(id: entry.id)
+        XCTAssertEqual(projectStore.manifest.figures?.first { $0.id == cash.id }, cash)
+    }
+
     /// **A piece whose text cannot be read refuses the rename, named** (N1):
     /// whether it refers to the figure cannot be checked, so nothing changes.
     func test_aPieceWhoseTextCannotBeReadRefusesTheRenameNamingIt() async throws {

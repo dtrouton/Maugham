@@ -52,13 +52,17 @@ extension ProjectStore {
     @discardableResult
     public func createFigure(
         kind: FigureKind, name: String, piece: String?,
-        rows: Int = 3, columns: Int = 3
+        rows: Int = 3, columns: Int = 3, table: FigureTable? = nil
     ) async throws -> FigureRecord {
         guard FigureKind.known.contains(kind) else {
             throw FigureEditInvalid(reason: "this build cannot make a figure of kind \(kind.rawValue)")
         }
+        // `table`, when given, is the figure's whole opening state (Insert ▸
+        // Table, Convert to Table Figure): its header row and cells go into the
+        // stream as they stand, and `rows`/`columns` are ignored.
         return try await createFigureStream(
-            kind: kind, table: kind == .table ? FigureTable(rows: rows, columns: columns) : nil,
+            kind: kind,
+            table: kind == .table ? (table ?? FigureTable(rows: rows, columns: columns)) : nil,
             name: name, piece: piece, source: nil, site: "createFigure")
     }
 
@@ -404,7 +408,8 @@ extension ProjectStore {
     /// Its stream stays (append-only). Its line and references in the text
     /// are left; they read as broken references. The tables reading it
     /// re-render.
-    public func removeFigure(id: String) async throws {
+    @discardableResult
+    public func removeFigure(id: String) async throws -> TrashEntry {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
@@ -446,6 +451,9 @@ extension ProjectStore {
         }
         trashEntries = (try? await trashStore.list()) ?? trashEntries
         await documentStore.renderFigures(changed: [id])
+        // The entry a restore brings back with the same figure id (⌘Z/⇧⌘Z of a
+        // figure's birth, report plan 7b).
+        return trashed
     }
 
     /// **A removed figure, back from the Trash** (`restoreTrashEntry`'s

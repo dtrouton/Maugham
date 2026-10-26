@@ -61,6 +61,27 @@ final class FigureCardCacheTests: XCTestCase {
             workbook: book, pinChanged: [], locale: Self.en)
     }
 
+    // MARK: - Line status
+
+    /// **A line's status is nil before the first fill, then the lexical rule
+    /// over the registry** (report plan 7b Task 2).
+    func test_statusIsNilBeforeTheFirstFill_andCorrectAfter() async {
+        let cash = record("fig-0a1b2c3d", "cash"), pic = record("fig-1a1b2c3d", "pic", kind: .image)
+        let fake = FakeSource(inputs([(cash, table([1])), (pic, FigureState(kind: .image))]))
+        let cache = FigureCardCache()
+        XCTAssertNil(cache.status(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"))
+        cache.attach(fake.source)
+        XCTAssertNil(cache.status(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"),
+                     "attached, not yet filled")
+        await cache.idle()
+        XCTAssertEqual(cache.status(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"), .figure(cash))
+        XCTAssertEqual(cache.status(forLinePath: "../figures/pic.png", documentPath: "manuscript/a.md"), .figure(pic),
+                       "an image figure answers too, though it has no card")
+        XCTAssertEqual(cache.status(forLinePath: "../figures/gone.csv", documentPath: "manuscript/a.md"), .missing)
+        XCTAssertEqual(cache.status(forLinePath: "https://x.example/a.png", documentPath: "manuscript/a.md"), .notLocal)
+        XCTAssertEqual(cache.status(forLinePath: "../research/p.png", documentPath: "manuscript/a.md"), .outsideFigures)
+    }
+
     // MARK: - Coalescing
 
     /// **Several triggers in one turn make one fill and one version bump**,

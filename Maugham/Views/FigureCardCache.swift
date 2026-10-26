@@ -125,6 +125,15 @@ final class FigureCardCache {
         }
     }
 
+    /// **What a figure line's path is** (the caption bar and diagnostics, report
+    /// plan 7b): `FigureLineResolution.status` over the registry as of the last
+    /// fill. Nil before the first fill; memory only, no card needed — so an image
+    /// figure answers `.figure` too.
+    func status(forLinePath linePath: String, documentPath: String) -> FigureLineResolution.Status? {
+        guard hasFilled else { return nil }
+        return FigureLineResolution.status(linePath: linePath, documentPath: documentPath, index: index)
+    }
+
     /// Returns once no fill is pending or running, an abandoned one included
     /// (tests; a host never waits).
     func idle() async {

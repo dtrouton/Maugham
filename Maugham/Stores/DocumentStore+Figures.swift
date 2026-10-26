@@ -342,6 +342,18 @@ extension DocumentStore {
             records: manifest.figures ?? [], tables: assembled.workbook.tables, research: manifest.research)
     }
 
+    /// **What reading pasted or typed table cells needs** (report plan 7b): the
+    /// book's `TableLocale` (its language's day/month order) and the
+    /// `FormulaNames` its formulas resolve through — the pair every import
+    /// (*Use in document*, Research CSV) builds. The editor's Convert to Table
+    /// Figure asks it, then `FigureTable.importing(pipe:locale:names:)`.
+    /// Throws when the registry will not read.
+    func tableImportContext() async throws -> (locale: TableLocale, names: FormulaNames) {
+        let names = try await formulaNamesForUse()
+        let locale = TableLocale(languageTag: await projectStore?.bookLanguageTag())
+        return (locale, names)
+    }
+
     /// **Every source figure `state`'s pins read, as it stands now** (spec
     /// §4.3, report plan 6b Task 9): each Research table its formulas name,
     /// read through `ProjectStore.pinSourceRead` (absent when the item or its
