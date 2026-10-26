@@ -192,23 +192,6 @@ final class TranslatorsNoteTests: XCTestCase {
             "case .translatorsNote: MaughamEvent.post(.maughamTranslatorsNote, to: .keyWindow)"))
     }
 
-    /// `ProjectWindow`'s `.onKeyWindowCommand(.maughamTranslatorsNote, …)` arm is
-    /// the whole command→caret→`activeSheet` wiring, and nothing else in the
-    /// suite mounts `ProjectWindow` to exercise it live. Without this pin the
-    /// arm can be deleted and the branch stays green while ⌘⌥C goes dead.
-    func test_theWindowArmWiresTheCommandToTheSheet() throws {
-        let window = try SourceTree.windowSource()
-        XCTAssertTrue(
-            window.contains(".onKeyWindowCommand(.maughamTranslatorsNote, window: window)"),
-            "without this the ⌘⌥C command reaches no handler in ProjectWindow")
-        XCTAssertTrue(
-            window.contains("activeSheet = .translatorsNote("),
-            "without this the command handler never opens the sheet")
-        // Self-check: prove the scan actually reads the file rather than
-        // trivially passing on an empty string.
-        XCTAssertFalse(window.contains(".onKeyWindowCommand(.maughamNotARealCommand"))
-    }
-
     private func repoFile(_ relative: String) -> URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent(relative)

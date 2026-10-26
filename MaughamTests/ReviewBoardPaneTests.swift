@@ -949,40 +949,9 @@ final class ReviewBoardPaneTests: XCTestCase {
                        + "this closure: the document is not open yet and the "
                        + "refusal is silent \u{2014} got: \(after)")
 
-        // **One hop further, because a name is not a behaviour.** The four
-        // assertions above are satisfied by a `runRoundWhenPieceOpens` whose
-        // body is a bare `runRequested` — the "surely it is open by now"
-        // simplification, which is exactly the defect the deferral exists to
-        // prevent and which no other test in the suite can see. So the census
-        // reads the helper too.
-        // Found by symbol, wherever the window's extensions put it; throws
-        // when the deferral's one production caller is not a readable
-        // declaration, so this census always has a subject.
-        let helper = try SourceTree.declaration(
-            named: "func runRoundWhenPieceOpens(", under: "Maugham")
-        XCTAssertTrue(helper.contains("RunWhenDocumentOpens.start("),
-                      "the helper must go through the bounded wait rather than "
-                      + "run outright. Got:\n\(helper)")
-        XCTAssertTrue(helper.contains("document(forDocId:"),
-                      "\u{2026}and what it waits ON is the piece being OPEN \u{2014} "
-                      + "a wait on anything else is a sleep with a nicer name. "
-                      + "Got:\n\(helper)")
-        // Deliberately no `runRequested`-absence assertion here: this helper's
-        // whole job is to end at that call, inside `start`'s `run:` closure.
-    }
-
-    /// The one production mount hands the pane values off `manifest` — the
-    /// other half of the tripwire-4 census, since the pane's own file cannot
-    /// see what is passed to it.
-    func test_theProductionMountPassesManifestValues() throws {
-        let code = try SourceTree.windowCodeLines()
-
-        for expected in ["title: store.manifest.title",
-                         "structure: store.manifest.structure",
-                         "passes: store.manifest.effectiveReviewPasses"] {
-            XCTAssertTrue(code.contains { $0.contains(expected) },
-                          "the mount must pass `\(expected)`")
-        }
+        // **One hop further, because a name is not a behaviour**: that the
+        // helper itself goes through the bounded wait on the piece being
+        // OPEN is `WiringCensusTests`' entry for `runRoundWhenPieceOpens`.
     }
 
     // MARK: - Hosting

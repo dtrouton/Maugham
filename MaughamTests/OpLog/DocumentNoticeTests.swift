@@ -287,20 +287,4 @@ final class DocumentNoticeTests: XCTestCase {
         XCTAssertEqual(ids, [ProjectIdentifier.id(for: dir)])
     }
 
-    /// The receiving end, as a wiring census rather than a mounted window: the
-    /// notice has a subscriber, and it is the modifier that owns the toast. A
-    /// post with nobody listening is the same silence this whole suite exists
-    /// to end, and it would pass every assertion above.
-    func test_theProjectWindowSubscribesToTheNotice() throws {
-        let source = try SourceTree.windowSource()
-        XCTAssertTrue(
-            source.contains(".onProjectEvent(.maughamDocumentNotice"),
-            "ProjectWindow must receive the notice through the project-scoped "
-            + "helper — the liveness guard is what keeps a closed window from "
-            + "announcing a decline it did not see")
-        XCTAssertTrue(
-            source.contains("restoreToast = message"),
-            "and render it in the toast RewindModifier already owns, rather "
-            + "than a second overlay that could stack with a restore report")
-    }
 }

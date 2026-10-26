@@ -1237,16 +1237,7 @@ final class DesignGateTests: XCTestCase {
                        "the orchestrator's verb is called from `sendChanges` and "
                        + "nowhere else in this department")
 
-        let surfaces = [
-            ("Views/Publish/DepartmentPaneHost.swift",
-             SourceScan.codeLines(of: try Self.source(of: "Views/Publish/DepartmentPaneHost.swift"))),
-            ("the window (type ProjectWindow)", try SourceTree.windowCodeLines()),
-        ]
-        for (surface, code) in surfaces {
-            XCTAssertTrue(
-                code.contains { $0.contains("DepartmentDesignRow.sendChanges") },
-                "\(surface) must reach the one spelling rather than compose its own")
-        }
+        // Both surfaces reaching it: `WiringCensusTests`.
     }
 
     /// **Nothing about the gate's verbs reaches `NSUndoManager`** — the
@@ -1272,26 +1263,6 @@ final class DesignGateTests: XCTestCase {
                     + "stored reversal (Revert), never an undo registration.")
             }
         }
-    }
-
-    /// **The window hands the gate its verbs**, and hands the result back into
-    /// the one piece of state the gate arm is a function of. The bridge from the
-    /// seam's spelling to production's — without it every mounted test above
-    /// passes over a surface nothing wires up.
-    func test_theWindowWiresTheVerbsAndTakesTheirResultBack() throws {
-        let code = try SourceTree.windowCodeLines()
-
-        XCTAssertTrue(code.contains { $0.contains("actions:") && $0.contains("designGateActions") }
-                      || code.contains { $0.contains("designGateActions(") },
-                      "the gate must be given a wired `DesignGateActions`")
-        XCTAssertTrue(
-            code.contains { $0.contains("onProposalChanged:") },
-            "…and the window must take the refreshed proposal back, or the gate "
-            + "draws the snapshot it opened with for the rest of the session")
-        XCTAssertTrue(
-            code.contains { $0.contains("DesignGatePromotion.") },
-            "the verbs run through the one performer, which is what re-reads the "
-            + "proposal and announces the change")
     }
 
     /// **The desk re-derives when the gate acts.** The other half of the

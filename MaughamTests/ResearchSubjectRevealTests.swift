@@ -247,34 +247,6 @@ final class ResearchSubjectRevealTests: XCTestCase {
                        "and the centre and right columns stay where they were")
     }
 
-    /// **The mirror above, pinned to production.** `openResearchItem` and
-    /// `handleShowLatestMCPNote` are private to a view no test can mount, so the
-    /// probe re-spells their three writes — and a mirror is worth exactly as much
-    /// as the census that says production still looks like it.
-    func test_theWindowsTwoForcedEntriesBothOpenTheTree() throws {
-        for entry in ["private func openResearchItem(_ itemId: String) {",
-                      "private func handleShowLatestMCPNote() {"] {
-            // By symbol, wherever the window's extensions put it; throws when
-            // the entry is gone (or spelled twice).
-            let body = try SourceTree.declaration(named: entry, under: "Maugham")
-            // The bound, checked: an unterminated scan reads the rest of the
-            // file and every assertion below it passes for free.
-            XCTAssertFalse(body.contains("private func load() async {"),
-                           "\(entry): the extracted body must stop at its own "
-                           + "closing brace")
-            XCTAssertTrue(
-                body.contains("treeState.reveal("),
-                "\(entry) must open the tree beside its subject write — a "
-                + "forced entry names an item the writer is not looking at, and "
-                + "selecting a row inside a closed section highlights nothing")
-            XCTAssertTrue(
-                body.contains("treeState.scrollRequest = .row("),
-                "\(entry) must ALSO scroll to what `reveal` returned "
-                + "(stage-3b Task 8) — opening the section makes the row "
-                + "EXIST, and arrival is visible, not just true")
-        }
-    }
-
     /// **The converse**: the observer must NOT reveal, because a subject can also
     /// arrive from a restore and a restore may not move the writer's tree.
     func test_theSubjectObserverOpensNothingOnItsOwn() throws {
@@ -453,8 +425,8 @@ final class ResearchRevealProbe {
     ///
     /// Mirrored rather than called because both window methods are private to a
     /// view that cannot be mounted headless; the mirror is only as good as the
-    /// census that pins it
-    /// (`test_theWindowsTwoForcedEntriesBothOpenTheTree`).
+    /// census that pins it (`WiringCensusTests`' entries for
+    /// `openResearchItem` and `handleShowLatestMCPNote`).
     @discardableResult
     func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
         subject = .research(itemId)

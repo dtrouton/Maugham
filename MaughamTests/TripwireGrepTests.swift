@@ -1164,9 +1164,9 @@ final class TripwireGrepTests: XCTestCase {
             + "loop it belongs to literally. Offenders:\n"
             + offenders.joined(separator: "\n"))
         XCTAssertEqual(
-            offenders.count, 2,
-            "…twice: \u{2318}R's arm and \u{2318}\u{21e7}R's. A single hit "
-            + "means one keystroke stopped asking the persona. Hits:\n"
+            offenders.count, 1,
+            "…once, in `CompilerRunModifier.request`, which both run keys ask "
+            + "(`CompilerRunCommandTests` pins each key's request). Hits:\n"
             + offenders.joined(separator: "\n"))
     }
 

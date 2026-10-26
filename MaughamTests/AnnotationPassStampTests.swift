@@ -438,18 +438,6 @@ final class AnnotationPassStampTests: XCTestCase {
                 + "goes through validatedActivePass")
     }
 
-    /// The editor's review toolbar stamps. Without this line a note written
-    /// from the margin — the commonest way a writer makes one — belongs to no
-    /// pass, and nothing else in the suite would notice.
-    func test_theEditorsCreationHandlerPassesTheActivePass() throws {
-        let text = try source("Maugham/Views/EditorHost.swift")
-        XCTAssertTrue(text.contains("reviewPassId: activeReviewPassId("),
-                      "EditorHost's createAnnotationHandler must stamp the pass")
-        let window = try SourceTree.windowSource()
-        XCTAssertTrue(window.contains("activeReviewPassId:"),
-                      "ProjectWindow must thread the resolver into EditorHost")
-    }
-
     /// All four MCP creation tools, not three. The stamp is per call site, so
     /// a fifth tool added without it would write unstamped notes silently.
     func test_everyMCPCreationToolStamps() throws {

@@ -1281,15 +1281,8 @@ final class DetailColumnWidthTests: XCTestCase {
             + "moved under the writer on every mode change (see this file's "
             + "planted offender for the two ways it does)")
 
-        // A fixed column's own divider is inert (measured: a programmatic
-        // `setPosition` on it moves nothing), so the handle is the ONLY way the
-        // width can be changed. Losing the call loses the capability in
-        // silence — the column would simply never be resizable again.
-        XCTAssertTrue(
-            code.contains { $0.contains("detailResizeHandle(documentStore: documentStore)") },
-            "the column must mount its own resize handle: the split view's "
-            + "divider cannot move a fixed column, so without this the writer's "
-            + "one width is one width forever")
+        // The handle's mount (a fixed column's own divider is inert):
+        // `WiringCensusTests`.
     }
 
     /// **The line that ties the mounted tests to the app, and until macOS 27

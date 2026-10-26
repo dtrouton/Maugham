@@ -457,32 +457,11 @@ final class ReferenceIndexTests: XCTestCase {
 
     // MARK: - The wiring
 
-    /// `EditorHost` hands the editor the cached index (never a build), takes
-    /// the open document's text at the metrics edge (never per keystroke),
-    /// pushes a new version through the control plane, and answers
-    /// `projectLabelsElsewhere` from the index rather than a walk.
-    func test_editorHostWiresTheIndex() throws {
+    /// `EditorHost` answers `projectLabelsElsewhere` from the index rather
+    /// than a walk over every document.
+    func test_editorHostNeverWalksEveryDocumentForLabels() throws {
+        // The positive wiring is `WiringCensusTests`' entries for `EditorHost`.
         let host = try SourceTree.read("Maugham/Views/EditorHost.swift")
-        for needle in [
-            "referenceIndex: { [referenceIndex] in referenceIndex.index }",
-            "referenceIndex.noteSettled(docId: doc.docId, text: doc.displayText)",
-            "control.referenceIndexVersion = $0",
-            "referenceIndex.labelsDefined(excluding: doc.docId)",
-            // One listing of the ops directory per rebuild, off main (I2).
-            "DerivedManuscriptCache.tokens(forDocIds: docIds, in: url)",
-            ".onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }",
-            // The piece just left is read again from its flushed op log at the
-            // switch itself, not only from the new mount's `.onAppear` (I1).
-            "documentStore.unregister(path: priorPath)\n"
-                + "            // The piece just left, now flushed and closed: the reference\n"
-                + "            // index reads it again from its op log, whatever the new\n"
-                + "            // document's mount does (plan 3b Task 1 fix round 1, I1).\n"
-                + "            referenceIndex.invalidate(.piece(prior.docId))",
-            // Another device's sync of a closed piece.
-            "referenceIndex.invalidate(.piece(changed))",
-        ] {
-            XCTAssertTrue(host.contains(needle), "EditorHost no longer says: \(needle)")
-        }
         XCTAssertFalse(host.contains("ReportInsert.labelsElsewhere("),
                        "the per-command walk over every document is back")
     }
