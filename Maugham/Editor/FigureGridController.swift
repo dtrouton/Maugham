@@ -922,25 +922,27 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// flavour; its display text as tab-separated text and an HTML table.
     /// Allowed on a read-only grid. Answers whether anything was copied.
     @discardableResult
-    func copySelection() -> Bool {
+    func copySelection(isCut: Bool = false) -> Bool {
         syncFromHost()
         guard let block = selectedBlock() else { return false }
         let table = values.table
         let keys = block.rows.map { row in block.columns.map { CellKey(row: row, column: $0) } }
         let copied = FigureGridClipboard.Cells(
             figureId: figureId, originRow: block.firstRow, originColumn: block.firstColumn,
-            cells: keys.map { $0.map { table[$0] } }, values: keys.map { $0.map { values.value(at: $0) } })
+            cells: keys.map { $0.map { table[$0] } }, values: keys.map { $0.map { values.value(at: $0) } },
+            isCut: isCut)
         FigureGridClipboard.write(copied, display: keys.map { $0.map { values.display(at: $0) } }, to: pasteboard)
         return true
     }
 
-    /// **Cut the selection**: copied, then cleared as one ⌘Z ("Cut"). A
+    /// **Cut the selection**: copied as a cut (pasted back into this figure
+    /// its formulas keep their references — a move), then cleared as one ⌘Z ("Cut"). A
     /// read-only grid copies nothing and says why; an open edit that will
     /// not read stops it (its error shown).
     func cutSelection() {
         syncFromHost()
         if let reason = mode.readOnlyReason { return answer(reason) }
-        guard commitOpenEdit(), let selection = model.selection, copySelection() else { return }
+        guard commitOpenEdit(), let selection = model.selection, copySelection(isCut: true) else { return }
         clear(selection.cells(in: values.table), actionName: "Cut")
     }
 

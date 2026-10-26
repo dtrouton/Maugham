@@ -359,6 +359,34 @@ final class FigureGridClipboardTests: XCTestCase {
         XCTAssertEqual(c.host.state.table[key(c, "D5")]?.content, .value(.number(8)), "the cut cells paste")
     }
 
+    /// **A cut pasted in the same table is a move** (review I1, Excel,
+    /// Numbers and Sheets): `=SUM(B2:B4)` cut from B5 and pasted at D5 still
+    /// sums B2:B4 — never translated to D2:D4. Pasted into another figure a
+    /// cut comes as values, as a copy does.
+    func test_aCutPastedInTheSameTableKeepsItsFormulasReferences() async throws {
+        let (c, store, projectStore, other) = try await openGrid()
+        await type(c, "B2", "1")
+        await type(c, "B3", "2")
+        await type(c, "B4", "3")
+        await type(c, "B5", "=SUM(B2:B4)")
+        select(c, "B5")
+        try sendFromTheGrid(#selector(NSText.cut(_:)), c)
+        await c.settleWrites()
+        XCTAssertNil(c.host.state.table[key(c, "B5")])
+        select(c, "D5")
+        try sendFromTheGrid(#selector(NSText.paste(_:)), c)
+        await c.settleWrites()
+        XCTAssertEqual(bar(c, "D5"), "=SUM(B2:B4)", "a cut moves the formula as it is")
+        XCTAssertEqual(c.figureGridValue(at: key(c, "D5")), .number(6))
+
+        let o = try await visit(other.id, store, projectStore)
+        select(o, "A1")
+        o.paste()
+        await o.settleWrites()
+        XCTAssertEqual(o.host.state.table[key(o, "A1")]?.content, .value(.number(6)),
+                       "into another figure a cut pastes as its value")
+    }
+
     // MARK: - Read-only
 
     /// **A read-only grid copies, and answers a cut or paste with the reason

@@ -16,7 +16,10 @@ import MaughamCore
 ///   the SAME figure keep their formulas, moved by how far the paste moved
 ///   them (`FigurePaste.Block.copiedFrom`); from ANOTHER figure a formula
 ///   pastes as the value it showed (the controller's ruling — a reference
-///   into another table is not carried across). Text from another app is
+///   into another table is not carried across). A CUT pasted into the same
+///   figure moves its formulas as they are, references unchanged (Excel,
+///   Numbers and Sheets move on a cut; review I1) — other cells' references
+///   to the cut cells do not follow them. Text from another app is
 ///   read the way typing is (`FigureCellEntry`).
 /// - The pasteboard is the controller's (`FigureGridController.pasteboard`):
 ///   the general one in the app, a private one in a test.
@@ -39,6 +42,9 @@ enum FigureGridClipboard {
         var cells: [[Cell?]]
         /// The value each cell showed (a formula's computed result), row by row.
         var values: [[CellValue]]
+        /// A cut, not a copy: pasted into the same figure its formulas keep
+        /// their references (a move), never translated.
+        var isCut = false
     }
 
     /// What a paste found on the pasteboard.
@@ -94,12 +100,14 @@ enum FigureGridClipboard {
 
     /// **The block `source` pastes as into `figureId`'s `table`**: the same
     /// figure's cells as copied, with where they came from (their formulas
-    /// move with the paste); another figure's with each formula as the value
+    /// move with the paste) — a cut's as they are, references kept; another figure's with each formula as the value
     /// it showed, its format kept; text read as typing reads it, a formula
     /// that will not read here kept as its text.
     static func block(from source: Source, into figureId: String, table: FigureTable,
                       names: FormulaNames, locale: TableLocale) -> FigurePaste.Block {
         switch source {
+        case .cells(let copied) where copied.figureId == figureId && copied.isCut:
+            return FigurePaste.Block(cells: copied.cells)
         case .cells(let copied) where copied.figureId == figureId:
             return FigurePaste.Block(
                 cells: copied.cells,
