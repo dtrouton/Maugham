@@ -109,19 +109,26 @@ public enum FigureRestoreOutcome: Equatable, Sendable {
     }
 }
 
-/// **One grid visit, as one undoable step** (report plan 7d Task 5): every
-/// op a figure host committed between `beginVisit` and `endVisit`, in order,
-/// with the compensation that takes them all back (`undo`, last op first)
-/// and the one that puts them back with the same ids (`redo`).
+/// **One grid visit, as one undoable step** (report plan 7d Task 5): the
+/// ops the grid wrote between `beginVisit` and `endVisit` — through verbs
+/// handed the visit's undo manager, and that manager's own undos and redos —
+/// in order, with the compensation that takes them all back (`undo`, last op
+/// first) and the one that puts them back with the same ids (`redo`).
 struct FigureVisit: Equatable {
     let ops: [FigureReturnDiff.Change]
     let undo: [FigureReturnDiff.Change]
     let redo: [FigureReturnDiff.Change]
 
-    /// Nil when `ops` is empty or one of them has no inverse.
-    init?(ops: [FigureReturnDiff.Change]) {
+    /// What the writer is told when a visit cannot be taken back as one step.
+    static let noUndoSentence = "Couldn't undo the table's changes as one step — one of them can't be undone."
+
+    /// False when one of `ops` has no inverse: a visit is taken back whole or
+    /// not at all (`FigureInverse.compensating`), and `reason` says so.
+    var isUndoable: Bool { !undo.isEmpty }
+    var reason: String? { isUndoable ? nil : Self.noUndoSentence }
+
+    init(ops: [FigureReturnDiff.Change]) {
         let undo = FigureInverse.compensating(visit: ops.map { ($0.kind, $0.payload) })
-        guard !undo.isEmpty else { return nil }
         self.ops = ops
         self.undo = undo.map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
         self.redo = FigureInverse.compensating(visit: undo).map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
@@ -279,6 +286,8 @@ public final class FigureDocument {
 
     /// The open grid visit's ops, in order (`beginVisit`); nil between visits.
     @ObservationIgnored private var visitRecord: [FigureReturnDiff.Change]?
+    /// The undo manager whose writes the open visit records (the grid's own).
+    @ObservationIgnored private weak var visitManager: UndoManager?
 
     private init(
         figureId: String, projectURL: URL, actor: DeviceActor, session: String,
@@ -1640,6 +1649,8 @@ public final class FigureDocument {
         case cannotRedo(String)
         /// The figure is parked in Research (ruling P-5); its notice.
         case parked(FigureKind?)
+        /// A grid visit holds an op with no inverse (`FigureVisit.reason`).
+        case visitHasNoUndo
 
         var sentence: String {
             switch self {
@@ -1655,6 +1666,8 @@ public final class FigureDocument {
                 "Couldn't redo the change to the figure — \(reason)."
             case .parked(let kind):
                 FigureParkedRefused.notice(for: kind)
+            case .visitHasNoUndo:
+                FigureVisit.noUndoSentence
             }
         }
     }
@@ -1707,14 +1720,20 @@ public final class FigureDocument {
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
         let visit = ([forward] + alongside).compactMap { op in op.figure.map { (op.kind, $0) } }
+        // A write handed the open visit's manager joins the visit — before
+        // the guard, so one with no inverse is in it and says so at its end.
+        if isVisitManager(undoManager) {
+            visitRecord?.append(contentsOf: visit.map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) })
+        }
         let inverses = FigureInverse.compensating(visit: visit)
         guard visit.count == alongside.count + 1, !inverses.isEmpty else { return }
         OpUndoRegistrar.register(
             undoManager, actionName: actionName, target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { d in
+            undo: { [weak undoManager] d in
                 await d.appendCompensation(
-                    inverses, stillAsWritten: stillAsWritten, restoring: restoring, unrestoring: unrestoring)
+                    inverses, stillAsWritten: stillAsWritten, restoring: restoring, unrestoring: unrestoring,
+                    recordingFor: undoManager)
             },
             redo: redo)
     }
@@ -1722,13 +1741,15 @@ public final class FigureDocument {
     /// **The inner path of every figure ⌘Z** (`registerFigureUndo`'s undo,
     /// and `undoVisit`/`redoVisit`): the door, parked, the drift guard,
     /// `restoring`, then `ops` appended with one render after the last.
-    /// Answers whether they landed; every refusal is said (`decline`).
+    /// Answers whether they landed; every refusal is said (`decline`). An
+    /// undo on the open visit's manager (`recordingFor`) joins the visit.
     @discardableResult
     private func appendCompensation(
         _ ops: [(OpKind, FigureOpPayload)],
         stillAsWritten: @MainActor (FigureDocument) -> Bool,
         restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
-        unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil
+        unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
+        recordingFor manager: UndoManager? = nil
     ) async -> Bool {
         guard !isClosed else { return false }
         guard await mayEditHere() else { decline(.notPermitted); return false }
@@ -1745,6 +1766,7 @@ public final class FigureDocument {
             // A visit renders once, after its last inverse.
             for (i, (kind, inverse)) in ops.enumerated() {
                 try await commit(kind, inverse, render: i == ops.count - 1)
+                if isVisitManager(manager) { visitRecord?.append(FigureReturnDiff.Change(kind: kind, payload: inverse)) }
             }
             return true
         } catch {
@@ -1764,29 +1786,34 @@ public final class FigureDocument {
 
     // MARK: - Grid visits (report plan 7d Task 5)
 
-    /// **Start recording a grid visit**: from here every op this host
-    /// commits — forward edits, batches, pins, and the grid's own undos and
-    /// redos — joins the visit, until `endVisit`. Visits don't nest: a begin
-    /// while one is open keeps recording that one.
-    func beginVisit() {
+    /// **Start recording a grid visit** of the grid's own writes: every op a
+    /// verb handed `undoManager` writes (forward edits, batches, sorts, a
+    /// redo re-entering its verb) and every undo that manager runs joins the
+    /// visit, until `endVisit`. Any other writer — a checkpoint restore, a
+    /// return, another undo manager, another device — is not recorded: where
+    /// it touches what the visit wrote, the visit's undo declines as drifted.
+    /// Visits don't nest: a begin while one is open keeps the open one.
+    func beginVisit(undoManager: UndoManager) {
         guard visitRecord == nil else {
             documentLog.error("figure \(self.figureId, privacy: .public): a visit began while one was open; the open one goes on")
             return
         }
         visitRecord = []
+        visitManager = undoManager
     }
 
-    /// **Stop recording**: the visit, or nil when it appended nothing — or
-    /// when one of its ops has no inverse, since a visit is taken back whole
-    /// or not at all (`FigureInverse.compensating`).
+    /// **Stop recording**: the visit, or nil when it recorded nothing. A
+    /// visit holding an op with no inverse comes back with `isUndoable`
+    /// false and its `reason`, never dropped.
     func endVisit() -> FigureVisit? {
-        defer { visitRecord = nil }
+        defer { visitRecord = nil; visitManager = nil }
         guard let ops = visitRecord, !ops.isEmpty else { return nil }
-        let visit = FigureVisit(ops: ops)
-        if visit == nil {
-            documentLog.error("figure \(self.figureId, privacy: .public): a visit holds an op with no undo; it takes no ⌘Z")
-        }
-        return visit
+        return FigureVisit(ops: ops)
+    }
+
+    private func isVisitManager(_ manager: UndoManager?) -> Bool {
+        guard let manager, visitRecord != nil, let visitManager else { return false }
+        return manager === visitManager
     }
 
     /// **Take a whole visit back** as one step: its compensation appended
@@ -1794,7 +1821,8 @@ public final class FigureDocument {
     /// whole — and said — once anything it touched changed since (R7d-10).
     @discardableResult
     func undoVisit(_ visit: FigureVisit) async -> Bool {
-        await appendCompensation(visit.undo.map { ($0.kind, $0.payload) },
+        guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
+        return await appendCompensation(visit.undo.map { ($0.kind, $0.payload) },
                                  stillAsWritten: { FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil })
     }
 
@@ -1802,7 +1830,8 @@ public final class FigureDocument {
     /// revives); declined whole once what the undo wrote changed since.
     @discardableResult
     func redoVisit(_ visit: FigureVisit) async -> Bool {
-        await appendCompensation(visit.redo.map { ($0.kind, $0.payload) },
+        guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
+        return await appendCompensation(visit.redo.map { ($0.kind, $0.payload) },
                                  stillAsWritten: { FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil })
     }
 
@@ -1850,9 +1879,6 @@ public final class FigureDocument {
             // Only while unconfirmed: a read that already contained it has
             // forgotten it, and must not leave this id behind.
             if unconfirmedLocalOpIds.contains(op.opId) { appendedLocalOpIds.insert(op.opId) }
-            // Every op that lands joins an open visit — the grid's own undos
-            // and redos too, which come through here like any edit.
-            visitRecord?.append(FigureReturnDiff.Change(kind: kind, payload: payload))
         } catch {
             unconfirmedLocalOpIds.remove(op.opId)
             _ops.removeAll { $0.opId == op.opId }

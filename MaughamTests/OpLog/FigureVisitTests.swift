@@ -4,8 +4,9 @@ import AppKit
 @testable import MaughamCore
 
 /// **The visit recorder** (report plan 7d Task 5): between `beginVisit` and
-/// `endVisit` the figure host records every op it commits — forward edits,
-/// batches, sorts and the grid's own undos and redos — and `undoVisit` /
+/// `endVisit` the figure host records the grid's own writes — verbs handed
+/// the visit's undo manager (forward edits, batches, sorts, redos) and that
+/// manager's undos — and `undoVisit` /
 /// `redoVisit` take the whole visit back and put it back as one step, through
 /// the inner path every figure ⌘Z takes (one render, drift-guarded, R7d-10).
 @MainActor
@@ -116,6 +117,9 @@ final class FigureVisitTests: XCTestCase {
         return seen
     }
 
+    /// The grid's own undo manager: the visit records what is written on it.
+    private let grid = UndoManager()
+
     private let drifted = "Couldn't undo the change to the figure — it changed on another device."
 
     // MARK: - Recording
@@ -130,21 +134,21 @@ final class FigureVisitTests: XCTestCase {
         let before = host.state
         let count = try ops(of: host.figureId).count
 
-        host.beginVisit()
+        host.beginVisit(undoManager: grid)
         let a = host.state.table.columns[0]
-        try await host.setCell(number(3), at: key(host, 0, 0))
-        let inserted = try await host.insertRow(after: host.state.table.rows.last)
+        try await host.setCell(number(3), at: key(host, 0, 0), undoManager: grid)
+        let inserted = try await host.insertRow(after: host.state.table.rows.last, undoManager: grid)
         try await host.setCells(
             [key(host, 1, 0): number(1), key(host, 2, 0): number(2), CellKey(row: inserted, column: a): number(0)],
-            actionName: "Edit Cells", undoManager: nil)
-        try await host.sortRows(by: a, ascending: true, values: literal(host), actionName: "Sort", undoManager: nil)
+            actionName: "Edit Cells", undoManager: grid)
+        try await host.sortRows(by: a, ascending: true, values: literal(host), actionName: "Sort", undoManager: grid)
         let new = freshRow(host)
         try await host.applyChanges([
             FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
                 structure: .insertRow(new, after: host.state.table.rows.last))),
             FigureReturnDiff.Change(kind: .figureCellSet, payload: FigureOpPayload(
                 cell: CellKey(row: new, column: a), next: text("pasted"), prior: nil)),
-        ], expecting: host.state, actionName: "Paste", undoManager: nil)
+        ], expecting: host.state, actionName: "Paste", undoManager: grid)
         let visited = host.state
         let visitOps = try ops(of: host.figureId).dropFirst(count)
         let visit = try XCTUnwrap(host.endVisit())
@@ -189,9 +193,9 @@ final class FigureVisitTests: XCTestCase {
         let a1 = key(host, 0, 0), b1 = key(host, 0, 1)
         try await host.setCell(text("old"), at: a1)
         let before = host.state
-        let gridUndo = UndoManager()
+        let gridUndo = grid
 
-        host.beginVisit()
+        host.beginVisit(undoManager: grid)
         try await host.setCell(text("one"), at: a1, undoManager: gridUndo)
         gridUndo.undo()
         await host.awaitPendingUndoWork()
@@ -210,11 +214,83 @@ final class FigureVisitTests: XCTestCase {
         await store.closeFigure(figureId: host.figureId)
     }
 
+    /// **Only the grid's own writes are recorded** (review I1): a write
+    /// with no undo manager, or with another one, is not in the visit.
+    func test_aWriteNotOnTheVisitsManagerIsNotRecorded() async throws {
+        let (store, host) = try await openTable()
+        let other = UndoManager()
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("grid"), at: key(host, 0, 0), undoManager: grid)
+        try await host.setCell(text("no manager"), at: key(host, 1, 1))
+        try await host.setCell(text("another manager"), at: key(host, 2, 2), undoManager: other)
+        other.undo()
+        await host.awaitPendingUndoWork()
+        let visit = try XCTUnwrap(host.endVisit())
+        XCTAssertEqual(visit.ops.map(\.payload.next), [text("grid")])
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **A checkpoint restore during an open visit is not recorded** (review
+    /// I1): it is another writer, so the grid's ⌘Z does not take it back;
+    /// having changed a cell the visit wrote, it declines the visit's undo by
+    /// the drift guard, said, appending nothing.
+    func test_aRestoreDuringAVisitIsNotRecorded_andDeclinesTheVisitsUndo() async throws {
+        let (store, host) = try await openTable()
+        let a1 = key(host, 0, 0)
+        try await host.setCell(text("checkpointed"), at: a1)
+        let pointer = try XCTUnwrap(host._ops.map(\.opId).max())
+
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("grid"), at: a1, undoManager: grid)
+        let outcome = try await host.restoreToCheckpoint("ckpt-visit", through: pointer)
+        XCTAssertEqual(outcome, .restored(opCount: 1), "precondition: the restore wrote the cell back")
+        let visit = try XCTUnwrap(host.endVisit())
+        XCTAssertEqual(visit.ops.map(\.payload.next), [text("grid")], "the restore's op is not in the visit")
+        let count = try ops(of: host.figureId).count
+
+        var undone = true
+        let said = await notices { undone = await host.undoVisit(visit) }
+        XCTAssertFalse(undone)
+        XCTAssertEqual(said, [drifted])
+        XCTAssertEqual(host.state.table[a1], text("checkpointed"), "the restore stands")
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **A visit holding an op with no inverse is never dropped** (review
+    /// I1): `endVisit` returns it not undoable, with the sentence the writer
+    /// is told, and `undoVisit` says that sentence and appends nothing.
+    func test_aVisitWithNoUndoSaysSo() async throws {
+        let (store, host) = try await openTable()
+        let a1 = key(host, 0, 0)
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("grid"), at: a1, undoManager: grid)
+        // A pin clear naming no pin (a restore's "clear every pin") has no
+        // inverse; handed to the seam on the grid's manager, it is recorded.
+        let pinless = Op(
+            opId: ULID.generate(), docId: host.figureId, at: Date(), device: "d", session: "s",
+            kind: .figurePinClear, changes: [], figure: FigureOpPayload(cell: a1))
+        host.registerFigureUndo(grid, actionName: "Clear", forward: pinless, stillAsWritten: { _ in true },
+                                redo: { _ in })
+        let visit = try XCTUnwrap(host.endVisit(), "a visit with no undo is still returned")
+        XCTAssertFalse(visit.isUndoable)
+        XCTAssertEqual(visit.reason, FigureVisit.noUndoSentence)
+        let count = try ops(of: host.figureId).count
+
+        var undone = true
+        let said = await notices { undone = await host.undoVisit(visit) }
+        XCTAssertFalse(undone)
+        XCTAssertEqual(said, [FigureVisit.noUndoSentence])
+        XCTAssertEqual(host.state.table[a1], text("grid"))
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        await store.closeFigure(figureId: host.figureId)
+    }
+
     /// **An empty visit is nil**, and a visit ended is ended: a second end
     /// is nil too.
     func test_anEmptyVisitIsNil() async throws {
         let (store, host) = try await openTable()
-        host.beginVisit()
+        host.beginVisit(undoManager: grid)
         XCTAssertNil(host.endVisit())
         try await host.setCell(text("outside"), at: key(host, 0, 0))
         XCTAssertNil(host.endVisit(), "nothing records between visits")
@@ -225,10 +301,10 @@ final class FigureVisitTests: XCTestCase {
     /// open visit, so nothing it held is lost.
     func test_aBeginWhileAVisitIsOpenKeepsRecordingIt() async throws {
         let (store, host) = try await openTable()
-        host.beginVisit()
-        try await host.setCell(text("first"), at: key(host, 0, 0))
-        host.beginVisit()
-        try await host.setCell(text("second"), at: key(host, 0, 1))
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("first"), at: key(host, 0, 0), undoManager: grid)
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("second"), at: key(host, 0, 1), undoManager: grid)
         let visit = try XCTUnwrap(host.endVisit())
         XCTAssertEqual(visit.ops.map(\.payload.next), [text("first"), text("second")])
         XCTAssertNil(host.endVisit())
@@ -242,9 +318,9 @@ final class FigureVisitTests: XCTestCase {
     func test_aVisitUndoDeclinesWholeOnceATouchedCellChanged() async throws {
         let (store, host) = try await openTable()
         let a1 = key(host, 0, 0), b1 = key(host, 0, 1)
-        host.beginVisit()
-        try await host.setCell(text("a"), at: a1)
-        try await host.setCell(text("b"), at: b1)
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("a"), at: a1, undoManager: grid)
+        try await host.setCell(text("b"), at: b1, undoManager: grid)
         let visit = try XCTUnwrap(host.endVisit())
         try await host.setCell(text("since"), at: b1)
         let count = try ops(of: host.figureId).count
@@ -263,8 +339,8 @@ final class FigureVisitTests: XCTestCase {
     func test_aVisitUndoRunsPastAWriteOutsideWhatItTouched() async throws {
         let (store, host) = try await openTable()
         let a1 = key(host, 0, 0), c3 = key(host, 2, 2)
-        host.beginVisit()
-        try await host.setCell(text("a"), at: a1)
+        host.beginVisit(undoManager: grid)
+        try await host.setCell(text("a"), at: a1, undoManager: grid)
         let visit = try XCTUnwrap(host.endVisit())
         try await host.setCell(text("elsewhere"), at: c3)
 
@@ -279,9 +355,9 @@ final class FigureVisitTests: XCTestCase {
     func test_aVisitRedoDeclinesOnceWhatTheUndoWroteChanged() async throws {
         let (store, host) = try await openTable()
         let a1 = key(host, 0, 0)
-        host.beginVisit()
-        let row = try await host.insertRow(after: host.state.table.rows.last)
-        try await host.setCell(text("a"), at: a1)
+        host.beginVisit(undoManager: grid)
+        let row = try await host.insertRow(after: host.state.table.rows.last, undoManager: grid)
+        try await host.setCell(text("a"), at: a1, undoManager: grid)
         let visit = try XCTUnwrap(host.endVisit())
         let undone = await host.undoVisit(visit)
         XCTAssertTrue(undone)

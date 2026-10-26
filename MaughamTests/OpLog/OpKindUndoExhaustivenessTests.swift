@@ -217,13 +217,18 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             return .inverseCovered(mechanism: "FigureInverse.inverse (a pin set swaps to priorPin; a first pin clears), in a visit registered by FigureDocument.registerFigureUndo (refreshPins, or setCell's entry pins), drift-guarded")
 
         case .figurePinClear:
-            // Written only as a first pin's undo, which names the pin it
-            // clears, so it inverts to a set of that pin (report plan 7d):
-            // a grid visit holding one — a Research formula entered and
-            // undone in the grid — is taken back whole by
-            // FigureDocument.undoVisit. Its own ⌘Z is still the visit's
-            // redo (a refresh again, or setCell again).
-            return .inverseCovered(mechanism: "FigureInverse.inverse (a pin clear naming its pin sets it again), in a grid visit taken back by FigureDocument.undoVisit, drift-guarded")
+            // Two writers. (1) A first pin's undo (FigureInverse of a pin
+            // set with no priorPin) names the pin it clears, so it inverts
+            // to a set of that pin (report plan 7d): a grid visit holding
+            // one — a Research formula entered and undone in the grid — is
+            // taken back whole by FigureDocument.undoVisit; its own ⌘Z is the
+            // visit's redo (a refresh again, or setCell again). (2) A
+            // checkpoint restore (FigureRestoreDiff.restorePins) writes clears
+            // both naming a pin and naming none ("clear every pin"); one
+            // naming none has no inverse, and the restore registers no ⌘Z.
+            // A grid visit records only the
+            // grid's own writes, so a restore's clear never enters one.
+            return .inverseCovered(mechanism: "FigureInverse.inverse (a pin clear naming its pin sets it again; one naming none, from FigureRestoreDiff.restorePins, has none), in a grid visit taken back by FigureDocument.undoVisit, drift-guarded")
 
         case .unknown:
             // Forward-tolerance decode fallback for an op kind written by a

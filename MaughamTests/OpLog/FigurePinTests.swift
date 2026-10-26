@@ -257,7 +257,7 @@ final class FigurePinTests: XCTestCase {
         else { throw FigureEditInvalid(reason: "the formula did not parse") }
         let gridUndo = UndoManager()
 
-        host.beginVisit()
+        host.beginVisit(undoManager: gridUndo)
         try await host.setCell(Cell(content: .formula(f)), at: a1, undoManager: gridUndo)
         gridUndo.undo()
         await host.awaitPendingUndoWork()
