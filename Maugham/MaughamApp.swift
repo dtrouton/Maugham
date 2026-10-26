@@ -432,6 +432,17 @@ struct MaughamApp: App {
             }
         }
 
+        // A table popped out of its card (report plan 7d). Never restored: a
+        // relaunch must not bring back a figure window without its project,
+        // which it closes with (`FigureWindows`).
+        WindowGroup(id: FigureWindowKey.sceneID, for: FigureWindowKey.self) { $key in
+            if let key {
+                FigureWindow(key: key)
+                    .environment(projectSessions)
+            }
+        }
+        .restorationBehavior(.disabled)
+
         WindowGroup("Restore Backup", id: "backup-restore", for: URL.self) { $projectURL in
             if let projectURL {
                 RestoreWindow(projectURL: projectURL)

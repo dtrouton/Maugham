@@ -100,6 +100,12 @@ final class ProjectSessionRegistry {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
+    /// The open session for `url` WITHOUT borrowing it, or nil — a figure
+    /// window's lookup: it closes with its project and holds nothing open.
+    func session(for url: URL) -> ProjectSession? {
+        entries[Self.key(for: url)]?.session
+    }
+
     /// The open session for `url`, opening it through `open` if there is none
     /// — concurrent callers for one URL await the SAME open, never two — and
     /// borrowed `as` a window (attached, newest wins) or a reader. Each

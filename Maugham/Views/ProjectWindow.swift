@@ -539,6 +539,7 @@ struct ProjectWindow: View {
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
         .modifier(FigureTableMenuModifier(presence: figureGridPresence))
+        .modifier(FigureWindowOpenModifier(projectURL: url, window: window))
         .modifier(TranslationReviewModifier(
             window: window,
             projectURL: url,

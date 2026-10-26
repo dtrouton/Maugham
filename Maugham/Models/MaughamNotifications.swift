@@ -174,6 +174,12 @@ extension Notification.Name {
     /// grid (`EditorCoordinator.performFigureTableCommand`); with no grid
     /// expanded it does nothing. Scope: .keyWindow — a command, not a data event.
     public static let maughamFigureTableCommand = Notification.Name("maugham.figureTable.command")
+    /// Posted by the expanded grid's ⤢ and a card already in a window (report
+    /// plan 7d, `MaughamEvent.postOpenFigureWindow`), the figure id in the
+    /// payload: the key window opens that figure in its own window, or brings
+    /// the open one front (`FigureWindowOpenModifier`). Scope: .keyWindow — a
+    /// command from the window the writer is in.
+    public static let maughamOpenFigureWindow = Notification.Name("maugham.figure.window.open")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the

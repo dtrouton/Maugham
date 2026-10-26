@@ -36,6 +36,9 @@ final class ProjectSession {
     let bible: BibleStore
     let declaredWorld: DeclaredWorldStore
     let roster: AgentRoster
+    /// The figure windows open on this project (report plan 7d): each closes
+    /// when the last project window detaches, holding no borrow of its own.
+    let figureWindows = FigureWindows()
 
     private init(url: URL, projectStore: ProjectStore, documentStore: DocumentStore,
                  bible: BibleStore, declaredWorld: DeclaredWorldStore, roster: AgentRoster) {
@@ -241,6 +244,7 @@ final class ProjectSession {
         projectStore.liveCanvas = nil
         flashSink = nil
         attachment = nil
+        figureWindows.closeAll()
     }
 
     /// The compiler's acknowledgment, delivered to the attached window's
@@ -285,6 +289,7 @@ final class ProjectSession {
     /// stores, so a session left configured would keep the project graph —
     /// and its `claude` subprocess — alive past the close.
     func close() async {
+        figureWindows.closeAll()
         roster.detachAll()
         await documentStore.close()
     }
