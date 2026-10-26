@@ -93,6 +93,19 @@ final class FigureGridPanel: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// **A key a bar's control left unhandled stops here** (final review
+    /// C1): the panel is a subview of the manuscript's text view, which would
+    /// otherwise take the key (a toolbar button focused under Full Keyboard
+    /// Access passes on all but Space). Tab still moves between the controls.
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 48, flags.isDisjoint(with: [.command, .control, .option]) {
+            if flags.contains(.shift) { window?.selectPreviousKeyView(self) } else { window?.selectNextKeyView(self) }
+            return
+        }
+        NSSound.beep()
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         let parts = Self.parts(in: newSize)

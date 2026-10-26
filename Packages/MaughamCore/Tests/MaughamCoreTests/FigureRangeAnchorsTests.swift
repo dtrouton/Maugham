@@ -173,4 +173,52 @@ final class FigureRangeAnchorsTests: XCTestCase {
         XCTAssertFalse(FigureRangeAnchors.spanChanges(
             in: elsewhere("SUM(A2:A6)"), readingFigure: "other", old: old, new: new), "another figure's id")
     }
+
+    // MARK: Final wave
+
+    /// **A running total keeps its offset from its own row** (Excel's sort):
+    /// `SUM(A$2:A<own row>)` in B, after the sort, still runs from the body's
+    /// first row to its own — the running totals of the sorted column.
+    func test_aRunningTotalKeepsItsOffsetFromItsOwnRow() {
+        var old = fixture()
+        for r in 1...5 { set(&old, r, 1, formula("SUM(A$2:A\(r + 1))", old)) }
+        XCTAssertEqual(value(old, 5, 1), .number(150), "precondition")
+        let new = sortedAscending(old)
+        let fixed = applying(FigureRangeAnchors.reanchoredCells(old: old, new: new), to: new)
+        // Sorted A: 10, 20, 30, 40, 50 → running 10, 30, 60, 100, 150.
+        for (r, total) in zip(1...5, [10.0, 30, 60, 100, 150]) {
+            XCTAssertEqual(value(fixed, r, 1), .number(total), "row \(r + 1)")
+            XCTAssertEqual(text(fixed, r, 1), "SUM(A$2:A\(r + 1))", "row \(r + 1) reads from the body's top to itself")
+        }
+        XCTAssertEqual(text(fixed, 6, 0), "SUM(A2:A6)", "the total row did not move: its range keeps its positions")
+    }
+
+    /// **`$` flags survive a re-anchor** (review N2): the total's
+    /// `SUM(A$2:A$6)` keeps both row `$`s, and its sum.
+    func test_dollarFlagsAreKeptThroughARe_anchor() {
+        var old = fixture()
+        set(&old, 6, 0, formula("SUM($A$2:A$6)", old))
+        let new = sortedAscending(old)
+        let edits = FigureRangeAnchors.reanchoredCells(old: old, new: new)
+        XCTAssertNotNil(edits[key(old, 6, 0)], "premise: the sort moved the range's edges")
+        let fixed = applying(edits, to: new)
+        XCTAssertEqual(text(fixed, 6, 0), "SUM($A$2:A$6)")
+        XCTAssertEqual(value(fixed, 6, 0), .number(150))
+        guard case .formula(let f)? = fixed[key(fixed, 6, 0)]?.content, case .call(_, let args) = f.expr,
+              case .range(let g)? = args.first else { return XCTFail("not a range") }
+        XCTAssertTrue(g.start.rowAbsolute && g.start.columnAbsolute)
+        XCTAssertTrue(g.end.rowAbsolute)
+        XCTAssertFalse(g.end.columnAbsolute)
+    }
+
+    /// **A range whose edge row was deleted** (review N3): the first body row
+    /// (30) deleted, then the sort — the total still sums the live body.
+    func test_aDeletedEdgeRowStillSumsTheLiveBodyAfterASort() {
+        var old = fixture()
+        old.deleteRow(old.rows[1])
+        XCTAssertEqual(value(old, 5, 0), .number(120), "precondition: 10 + 50 + 20 + 40")
+        let new = sortedAscending(old)
+        let fixed = applying(FigureRangeAnchors.reanchoredCells(old: old, new: new), to: new)
+        XCTAssertEqual(value(fixed, 5, 0), .number(120))
+    }
 }

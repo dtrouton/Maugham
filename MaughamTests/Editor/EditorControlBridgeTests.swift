@@ -150,4 +150,34 @@ final class EditorControlBridgeTests: XCTestCase {
         XCTAssertEqual(coordinator.figureCardVersion, 2,
                        "the version must reach the coordinator through the model")
     }
+
+    /// The share's read-only flag and the window's explicit review mode
+    /// (report plan 7c Task 8, the grid's gate) are control-plane inputs:
+    /// each is in the tracked set, and a change reaches the coordinator.
+    func test_theShareAndTheManualReviewModeReachTheCoordinator() async {
+        let (coordinator, _) = makeCoordinator()
+        let control = EditorControl()
+        coordinator.observeControl(control)
+        await settle()
+        XCTAssertFalse(coordinator.shareIsReadOnly)
+        XCTAssertFalse(coordinator.isManualReviewMode)
+
+        var baseline = coordinator.applyControlCount
+        control.shareIsReadOnly = true
+        await settle()
+        XCTAssertGreaterThan(coordinator.applyControlCount, baseline, "the share flag is in the tracked set")
+        XCTAssertTrue(coordinator.shareIsReadOnly)
+
+        baseline = coordinator.applyControlCount
+        control.isManualReviewMode = true
+        await settle()
+        XCTAssertGreaterThan(coordinator.applyControlCount, baseline, "the manual review flag is in the tracked set")
+        XCTAssertTrue(coordinator.isManualReviewMode)
+
+        control.shareIsReadOnly = false
+        control.isManualReviewMode = false
+        await settle()
+        XCTAssertFalse(coordinator.shareIsReadOnly)
+        XCTAssertFalse(coordinator.isManualReviewMode)
+    }
 }

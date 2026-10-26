@@ -347,7 +347,7 @@ final class FigureGridControllerTests: XCTestCase {
         let (_, c) = try await openGrid()
         c.handle(.click(key(c, "A1"), extend: false))
         try await c.host.setCell(number(7), at: key(c, "A1"))
-        for _ in 0..<100 where c.bars.formulaField.stringValue != "7" { await Task.yield() }
+        await c.hostSync?.value   // the catch-up the observation scheduled
         XCTAssertEqual(c.figureGridValue(at: key(c, "A1")), .number(7))
         XCTAssertEqual(c.bars.formulaField.stringValue, "7")
     }
@@ -436,6 +436,113 @@ final class FigureGridControllerTests: XCTestCase {
         XCTAssertTrue(said.first?.contains("=D1*2") == true, "the notice carries the text: \(said)")
         guard case .editing(let e) = c.model.edit else { return XCTFail("the writer's edit was taken: \(c.model.edit)") }
         XCTAssertEqual(e.text, "5")
+    }
+
+    /// **A drift while the grid turned read-only** (final review M5): the
+    /// commit is not reopened in a grid that may not be changed; a notice
+    /// carries the text.
+    func test_aDriftedCommitInAGridTurnedReadOnlyIsSaid_notReopened() async throws {
+        let (_, c) = try await openGrid()
+        let columnA = key(c, "A1").column
+        FigureGridController.writeTurnForTesting = {
+            try? await c.host.deleteColumn(columnA)
+            c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        }
+        c.handle(.click(key(c, "B2"), extend: false))
+        c.handle(.type("="))
+        c.handle(.editTextChanged("=D1*2"))
+        let said = await notices {
+            c.handle(.returnKey(backward: false))
+            await c.settleWrites()
+        }
+        XCTAssertTrue(said.contains { $0.contains("=D1*2") }, "the notice carries the text: \(said)")
+        XCTAssertEqual(c.model.edit, .idle, "no edit reopened in a read-only grid")
+        XCTAssertTrue(c.gridView.cellEditor.isHidden)
+    }
+
+    /// **An open edit whose row is deleted under it** (another window, a
+    /// sync, an undo) is closed by the model — and its typing is said, with
+    /// its address, never lost silently (final review I3).
+    func test_anOpenEditWhoseRowIsDeletedElsewhereIsSaid() async throws {
+        let (_, c) = try await openGrid()
+        let b2 = key(c, "B2")
+        c.handle(.click(b2, extend: false))
+        c.handle(.type("9"))
+        let said = try await notices {
+            try await c.host.deleteRow(b2.row)
+            await c.hostSync?.value
+        }
+        XCTAssertEqual(c.model.edit, .idle, "the edit's cell is gone")
+        XCTAssertEqual(said.count, 1, "\(said)")
+        XCTAssertTrue(said.first?.contains("“9” in B2") == true, "the text and its address: \(said)")
+    }
+
+    /// An open edit left unchanged when its row goes is closed quietly.
+    func test_anUnchangedEditWhoseRowIsDeletedSaysNothing() async throws {
+        let (_, c) = try await openGrid()
+        let b2 = key(c, "B2")
+        c.handle(.click(b2, extend: false))
+        c.handle(.editInPlace)
+        let said = try await notices {
+            try await c.host.deleteRow(b2.row)
+            await c.hostSync?.value
+        }
+        XCTAssertEqual(c.model.edit, .idle)
+        XCTAssertEqual(said, [])
+    }
+
+    /// **A delete of several rows refused part way** says what landed (T9
+    /// review): each row is its own ⌘Z until 7d.
+    func test_aMultiRowDeleteRefusedPartWaySaysWhatLanded() async throws {
+        let (_, c) = try await openGrid()
+        struct DiskFull: Error {}
+        var structures = 0
+        FigureDocument.beforeCommitAppendForTesting = { op in
+            guard op.kind == .figureStructure else { return }
+            structures += 1
+            if structures == 2 { throw DiskFull() }
+        }
+        defer { FigureDocument.beforeCommitAppendForTesting = nil }
+        c.handle(.click(key(c, "A2"), extend: false))
+        c.handle(.click(key(c, "A4"), extend: true))
+        let said = await notices {
+            c.performTableCommand(.deleteRows)
+            await c.settleWrites()
+        }
+        XCTAssertEqual(c.host.state.table.rows.count, 9, "one of the three went")
+        XCTAssertTrue(said.contains("Only 1 of the 3 rows were deleted."), "\(said)")
+    }
+
+    /// **A right-click while a cell edit is open** leaves the selection on
+    /// the edit's cell (a click there composes rather than selects), so the
+    /// menu acts on it (T9 review).
+    func test_aRightClickDuringAnEditActsOnTheEditsCell() async throws {
+        let (_, c) = try await openGrid()
+        let b2 = key(c, "B2")
+        c.handle(.click(b2, extend: false))
+        c.handle(.type("7"))
+        _ = c.contextMenu(at: key(c, "D5"))
+        XCTAssertEqual(c.model.selection?.anchor, b2)
+        guard case .editing(let e) = c.model.edit else { return XCTFail("the edit was closed: \(c.model.edit)") }
+        XCTAssertEqual(e.cell, b2)
+    }
+
+    /// **An empty text value round-trips by writing nothing** (T3 review): a
+    /// `.text("")` cell shows "" in the bar, and an edit left as it opened
+    /// commits nothing — it never turns into an empty cell.
+    func test_anEmptyTextCellLeftAsItWasWritesNothing() async throws {
+        let (_, c) = try await openGrid()
+        let a1 = key(c, "A1")
+        try await c.host.setCell(Cell(content: .value(.text(""))), at: a1)
+        await c.hostSync?.value
+        let before = try ops(of: c.figureId)
+        c.handle(.click(a1, extend: false))
+        XCTAssertEqual(c.bars.formulaField.stringValue, "")
+        c.handle(.editInPlace)
+        c.handle(.returnKey(backward: false))
+        await c.settleWrites()
+        XCTAssertEqual(try ops(of: c.figureId), before, "nothing written")
+        XCTAssertEqual(c.host.state.table[a1]?.content, .value(.text("")))
     }
 
     /// **Done with a formula that will not read keeps the grid open** (R7c-8):

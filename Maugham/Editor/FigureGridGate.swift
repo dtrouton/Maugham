@@ -10,8 +10,9 @@ import MaughamCore
 /// (`DocumentStore.posture(forDocId:)`, `.allows(.editFigure)`), never a rung
 /// (tripwires 47, 51); `parked` and `hostClosed` are the visit's host; the
 /// modes are the editor's own flags. Asked at expand, when the visit mounts,
-/// at every `figureCardVersion` edge (a trust change reaches the editor
-/// there), when a mode flag flips, and after a write the host refused.
+/// whenever the figure's drawn posture changes (the controller observes the
+/// door: a trust change, *Edit Anyway*), at every `figureCardVersion` edge,
+/// when a mode flag flips, and after a write the host refused.
 ///
 /// Only the cells, the structure and the name answer to this gate. The
 /// caption is the figure line's TEXT, so it follows the text's membrane

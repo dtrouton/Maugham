@@ -126,7 +126,15 @@ final class FigureGridViewTests: XCTestCase {
             (key(53, "\u{1b}"), .escape),
             (key(51, "\u{7f}"), .deleteBackward),
             (key(120, "\u{F705}"), .editInPlace),
-            (key(7, "x"), .type("x")),
+            // A typing key opens an empty edit, which the cell editor then
+            // reads (here the recorder opens none, so nothing is handed on).
+            (key(7, "x"), .beginTyping),
+            (key(117, "\u{F728}"), .deleteBackward),   // fn-⌫ clears, like ⌫ (final review C1)
+            (key(51, "\u{7f}", .option), .deleteBackward),
+            (key(125, "\u{F701}", .command), .jump(.down, extend: false)),
+            (key(123, "\u{F702}", [.command, .shift]), .jump(.left, extend: true)),
+            (key(115, "\u{F729}"), .jump(.left, extend: false)),
+            (key(119, "\u{F72B}"), .jump(.right, extend: false)),
         ]
         for (event, expected) in cases {
             recorder.keys = []
@@ -141,6 +149,51 @@ final class FigureGridViewTests: XCTestCase {
                      "R7c-10: one delivery path, the Format ▸ Table item")
         XCTAssertNil(FigureGridView.gridKey(for: key(8, "c", .command)), "⌘C is plan 7d's")
         XCTAssertNil(FigureGridView.gridKey(for: key(0, "a", .command)), "⌘A is Edit ▸ Select All's")
+    }
+
+    /// **No key reaches the text the grid sits in** (final review C1): a key
+    /// the grid has no meaning for is swallowed — never passed up the chain
+    /// to the text view, which would edit or move its caret.
+    func test_aKeyTheGridHasNoMeaningForNeverReachesTheText() throws {
+        let (grid, text, window) = try mountInText(rows: 5)
+        let unmeant: [NSEvent] = [
+            key(51, "\u{7f}", .command),                  // ⌘⌫: delete to the line's start
+            key(123, "\u{F702}", .option),                // ⌥←: a word left
+            key(124, "\u{F703}", .control),
+            key(40, "\u{0b}", .control),                  // ⌃K: kill to the line's end
+            key(2, "\u{04}", .control),                   // ⌃D: forward delete
+            key(121, "\u{F72D}"),                         // Page Down
+            key(116, "\u{F72C}"),                         // Page Up
+            key(122, "\u{F704}"),                         // F1
+        ]
+        for event in unmeant {
+            recorder.keys = []
+            grid.keyDown(with: event)
+            XCTAssertEqual(recorder.keys, [], "keyCode \(event.keyCode) means nothing to the grid")
+        }
+        XCTAssertEqual(text.string, "Prose around the figure.", "the text behind the grid is untouched")
+        XCTAssertEqual(text.selectedRange(), NSRange(location: 3, length: 0), "and its caret did not move")
+        XCTAssertTrue(window.firstResponder === grid)
+    }
+
+    /// **The panel stops a key its bars' controls leave unhandled** (final
+    /// review C1): a toolbar button focused under Full Keyboard Access
+    /// passes on all but Space, and the panel sits in the text.
+    func test_aKeyABarsControlLeavesNeverReachesTheText() throws {
+        let text = NSTextView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+        text.string = "Prose around the figure."
+        text.setSelectedRange(NSRange(location: 9, length: 0))
+        let bars = FigureGridBars()
+        let panel = FigureGridPanel(bars: bars, gridView: FigureGridView(typography: .defaults))
+        panel.frame = CGRect(x: 0, y: 40, width: 500, height: 300)
+        text.addSubview(panel)
+        let window: KeyTestWindow = TestWindow.make(KeyTestWindow.self, contentRect: text.frame, contentView: text)
+        self.window = window
+        for event in [key(123, "\u{F702}", .option), key(117, "\u{F728}"), key(51, "\u{7f}"), key(7, "x")] {
+            bars.sum.keyDown(with: event)
+        }
+        XCTAssertEqual(text.string, "Prose around the figure.", "the text behind the panel is untouched")
+        XCTAssertEqual(text.selectedRange(), NSRange(location: 9, length: 0), "and its caret did not move")
     }
 
     // MARK: Edit menu actions on the real path

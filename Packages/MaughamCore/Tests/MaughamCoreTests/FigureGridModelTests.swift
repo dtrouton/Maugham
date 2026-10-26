@@ -593,7 +593,8 @@ final class FigureGridModelTests: XCTestCase {
         m.select(k(1, 1))
         var t = Self.fixture
         t.deleteRow(RowID("r1"))
-        XCTAssertEqual(m.tableChanged(t), [.moveSelection(to: k(2, 1))])
+        XCTAssertEqual(m.tableChanged(t), [.moveSelection(to: k(2, 1)), .scrollTo(k(2, 1))],
+                       "the active cell gave way: it is brought into view")
         XCTAssertEqual(m.selection, FigureGridSelection(anchor: k(2, 1), focus: k(2, 1)))
     }
 
@@ -602,7 +603,7 @@ final class FigureGridModelTests: XCTestCase {
         m.select(k(3, 2))
         var t = Self.fixture
         t.deleteRow(RowID("r3"))
-        XCTAssertEqual(m.tableChanged(t), [.moveSelection(to: k(2, 2))])
+        XCTAssertEqual(m.tableChanged(t), [.moveSelection(to: k(2, 2)), .scrollTo(k(2, 2))])
     }
 
     func test_aColumnDeletedMovesTheSelectionRight_aRangeKeepsBothCorners() {
@@ -610,7 +611,8 @@ final class FigureGridModelTests: XCTestCase {
         m.selection = FigureGridSelection(anchor: k(1, 1), focus: k(2, 2))
         var t = Self.fixture
         t.deleteColumn(ColumnID("c1"))
-        XCTAssertEqual(m.tableChanged(t), [.moveSelection(to: k(1, 2)), .extendSelection(to: k(2, 2))])
+        XCTAssertEqual(m.tableChanged(t), [.moveSelection(to: k(1, 2)), .extendSelection(to: k(2, 2)),
+                                           .scrollTo(k(1, 2))])
     }
 
     func test_aSortKeepsTheSelectionOnItsRow() {
@@ -643,7 +645,7 @@ final class FigureGridModelTests: XCTestCase {
         _ = m.reduce(.type("4"))
         var t = Self.fixture
         t.deleteRow(RowID("r1"))
-        XCTAssertEqual(m.tableChanged(t), [.cancelEdit, .moveSelection(to: k(2, 1))])
+        XCTAssertEqual(m.tableChanged(t), [.cancelEdit, .moveSelection(to: k(2, 1)), .scrollTo(k(2, 1))])
         XCTAssertEqual(Self.describe(m.edit), .idle)
     }
 
@@ -668,14 +670,65 @@ final class FigureGridModelTests: XCTestCase {
         XCTAssertNil(m.selection)
         var refilled = empty
         refilled.insertRow(RowID("r7"), after: nil)
-        XCTAssertEqual(m.tableChanged(refilled), [.moveSelection(to: CellKey(row: RowID("r7"), column: ColumnID("c0")))])
+        let first = CellKey(row: RowID("r7"), column: ColumnID("c0"))
+        XCTAssertEqual(m.tableChanged(refilled), [.moveSelection(to: first), .scrollTo(first)])
     }
 
     func test_aWhollyReplacedTableSelectsItsFirstCell() {
         var m = Self.model()
         m.select(k(2, 2))
         let other = Self.table(rows: 2, columns: 2)   // the same ids r0…r1 and c0…c1, so r2 is unknown to it
-        XCTAssertEqual(m.tableChanged(other), [.moveSelection(to: k(0, 0))])
+        XCTAssertEqual(m.tableChanged(other), [.moveSelection(to: k(0, 0)), .scrollTo(k(0, 0))])
+    }
+
+    // MARK: Final wave: ⌘ arrows, typing through the editor, ":" composes
+
+    /// ⌘ + arrow goes to the table's edge that way (Excel's ⌘ arrows); ⇧
+    /// stretches the selection there. Already at the edge, nothing.
+    func test_aJumpGoesToTheTablesEdge_andExtendsWithShift() {
+        var m = Self.model()
+        m.select(k(1, 1))
+        XCTAssertEqual(m.reduce(.jump(.down, extend: false)), [.moveSelection(to: k(3, 1)), .scrollTo(k(3, 1))])
+        XCTAssertEqual(m.reduce(.jump(.down, extend: false)), [], "already at the bottom edge")
+        XCTAssertEqual(m.reduce(.jump(.left, extend: false)), [.moveSelection(to: k(3, 0)), .scrollTo(k(3, 0))])
+        XCTAssertEqual(m.reduce(.jump(.up, extend: true)), [.extendSelection(to: k(0, 0)), .scrollTo(k(0, 0))])
+        XCTAssertEqual(m.selection, FigureGridSelection(anchor: k(3, 0), focus: k(0, 0)))
+        XCTAssertEqual(m.reduce(.jump(.right, extend: true)), [.extendSelection(to: k(0, 2)), .scrollTo(k(0, 2))],
+                       "⇧ moves the focus corner, the anchor kept")
+    }
+
+    /// A jump while typing over a cell commits it and goes, as an arrow
+    /// does; in an edit begun in the cell it is the caret's.
+    func test_aJumpInAnEditCommitsOrIsTheCarets() {
+        var m = Self.model()
+        m.select(k(1, 1))
+        _ = m.reduce(.type("4"))
+        XCTAssertEqual(m.reduce(.jump(.down, extend: false)),
+                       [.commitEdit(cell: k(1, 1), text: "4"), .moveSelection(to: k(3, 1)), .scrollTo(k(3, 1))])
+        _ = m.reduce(.editInPlace)
+        XCTAssertEqual(m.reduce(.jump(.up, extend: false)), [.fieldEditorKeeps])
+    }
+
+    /// A key the cell editor reads itself opens an empty typed-over edit;
+    /// during an edit it is the editor's.
+    func test_beginTypingOpensAnEmptyTypedOverEdit() {
+        var m = Self.model()
+        m.select(k(1, 1))
+        XCTAssertEqual(m.reduce(.beginTyping), [.beginEdit(cell: k(1, 1), text: "")])
+        XCTAssertEqual(Self.describe(m.edit), .editing(k(1, 1), "", inCell: false))
+        XCTAssertEqual(m.reduce(.beginTyping), [.fieldEditorKeeps])
+        _ = m.reduce(.editTextChanged("="))
+        XCTAssertEqual(Self.describe(m.edit), .composing(k(1, 1), "=", reference: nil),
+                       "what the editor then holds decides: = composes")
+    }
+
+    /// After a `:` an arrow composes the range's end (`=SUM(B2:` then ↓).
+    func test_anArrowAfterAColonComposesAReference() {
+        var m = Self.model()
+        m.select(k(3, 1))
+        _ = m.reduce(.type("=SUM(B2:"))
+        XCTAssertEqual(m.reduce(.arrow(.up, extend: false)),
+                       [.insertReference("B3", editText: "=SUM(B2:B3"), .scrollTo(k(2, 1))])
     }
 
     // MARK: Fold and a refused commit

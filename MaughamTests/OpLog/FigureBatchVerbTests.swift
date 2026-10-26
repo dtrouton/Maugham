@@ -158,6 +158,66 @@ final class FigureBatchVerbTests: XCTestCase {
         await store.closeFigure(figureId: host.figureId)
     }
 
+    /// **An append that fails part way** (T1 review M3): what landed stays,
+    /// is rendered once and is one ⌘Z, and the failure is thrown.
+    func test_setCellsFailingPartWayRendersAndUndoesWhatLanded() async throws {
+        let (store, host) = try await openTable()
+        let a1 = key(host, 0, 0), b1 = key(host, 0, 1), c1 = key(host, 0, 2)
+        struct DiskFull: Error {}
+        var appended = 0
+        FigureDocument.beforeCommitAppendForTesting = { _ in
+            appended += 1
+            if appended == 2 { throw DiskFull() }
+        }
+        defer { FigureDocument.beforeCommitAppendForTesting = nil }
+        let um = UndoManager()
+        renders = []
+        do {
+            try await host.setCells([a1: text("one"), b1: text("two"), c1: text("three")],
+                                    actionName: "Edit Cells", undoManager: um)
+            XCTFail("a failed append was swallowed")
+        } catch is DiskFull {}
+        FigureDocument.beforeCommitAppendForTesting = nil
+        XCTAssertEqual(host.state.table[a1], text("one"), "the first cell landed (row by row, left to right)")
+        XCTAssertNil(host.state.table[b1], "the failed one did not")
+        XCTAssertNil(host.state.table[c1], "nothing after it was tried")
+        XCTAssertEqual(renders, [host.figureId], "what landed is rendered, once")
+        XCTAssertTrue(um.canUndo)
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertNil(host.state.table[a1], "one ⌘Z takes back what landed")
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// A sort whose cell rewrite fails after its moves landed: the moves
+    /// stand, are rendered and are one ⌘Z back to the old order (the landed
+    /// slicing of moves and rewrites).
+    func test_aSortFailingAtItsRewriteKeepsAndUndoesTheMovesThatLanded() async throws {
+        let (store, host) = try await openTable()
+        let rows = try await sortable(host)
+        let a = host.state.table.columns[0]
+        struct DiskFull: Error {}
+        FigureDocument.beforeCommitAppendForTesting = { op in if op.kind == .figureCellSet { throw DiskFull() } }
+        defer { FigureDocument.beforeCommitAppendForTesting = nil }
+        let um = UndoManager()
+        renders = []
+        do {
+            try await host.sortRows(
+                by: a, ascending: true, values: literal(host), actionName: "Sort Ascending", undoManager: um)
+            XCTFail("a failed append was swallowed")
+        } catch is DiskFull {}
+        FigureDocument.beforeCommitAppendForTesting = nil
+        XCTAssertEqual(host.state.table.rows, [rows[0], rows[2], rows[4], rows[1], rows[5], rows[3], rows[6]],
+                       "the moves landed")
+        XCTAssertEqual(renders, [host.figureId])
+        XCTAssertTrue(um.canUndo)
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.rows, rows, "one ⌘Z puts the order back")
+        XCTAssertEqual(totalValue(host), .number(150))
+        await store.closeFigure(figureId: host.figureId)
+    }
+
     /// **The drift guard covers every cell**: a later write to one cell of
     /// the visit declines the whole ⌘Z, and nothing is appended.
     func test_aSetCellsUndoDeclinesWhenAnyOneCellChangedSince() async throws {
@@ -265,6 +325,7 @@ final class FigureBatchVerbTests: XCTestCase {
         let before = try ops(of: host.figureId).count
         let um = UndoManager()
         renders = []
+        let originalTotal = host.state.table[CellKey(row: rows[6], column: a)]
 
         try await host.sortRows(
             by: a, ascending: true, values: literal(host), actionName: "Sort Ascending", undoManager: um)
@@ -289,6 +350,8 @@ final class FigureBatchVerbTests: XCTestCase {
         XCTAssertEqual(host.state.table.rows, rows, "one ⌘Z restores the order")
         XCTAssertEqual(totalValue(host), .number(150), "and the formula with it")
         XCTAssertNotEqual(host.state.table[CellKey(row: rows[6], column: a)], totalCell, "its old anchors are back")
+        XCTAssertEqual(host.state.table[CellKey(row: rows[6], column: a)], originalTotal,
+                       "exactly the formula it held before the sort (review N1)")
         XCTAssertEqual(renders, [host.figureId])
         XCTAssertFalse(um.canUndo)
 

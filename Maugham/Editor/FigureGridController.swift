@@ -155,6 +155,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// keeps the grid open with its error shown, and `onFold` is not called.
     func fold(commit: Bool) {
         syncFromHost()
+        commitPendingFields()
         execute(model.fold(commit: commit))
     }
 
@@ -162,8 +163,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// torn down): an open edit that reads is committed; one that will not
     /// is said as a notice carrying its text, then discarded (R7c-8).
     func foldForced() {
+        commitPendingFields()
         if let open = unreadableOpenEdit() {
-            sayUnwritten(open.text, at: open.cell, open.error)
+            sayUnwritten(open.text, at: open.cell, open.error.message)
             execute(model.fold(commit: false))
         } else {
             execute(model.fold(commit: true))
@@ -193,6 +195,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// the caret at its offset, as a refused Return leaves it.
     func showOpenEditError() {
         guard !isClosed, !isFolded, let open = unreadableOpenEdit() else { return }
+        if mode.readOnlyReason != nil {
+            sayUnwritten(open.text, at: open.cell, open.error.message)
+            execute(model.fold(commit: false).filter { $0 != .fold })
+            return
+        }
         editSource = .cell
         reopen(open.text, at: open.cell, open.error)
     }
@@ -374,9 +381,47 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         case .sum: sumAbove()
         case .caption(let caption): commitCaption(caption)
         case .name(let newName): commitName(newName)
-        case .done: execute(model.fold(commit: true))
+        case .done:
+            commitPendingFields()
+            execute(model.fold(commit: true))
         }
         return true
+    }
+
+    /// **The bottom bar's typing, written before the grid goes** (final
+    /// review I1): a click on Done takes no focus, so the caption or name
+    /// field may still be open when a fold removes it. Its text is committed
+    /// now, while the expansion is current — the formula bar's edit is the
+    /// model's, which the fold commits. A caption that is refused (the line
+    /// gone under a forced fold, the membrane) is said as a notice carrying
+    /// its text, as an unreadable cell is.
+    func commitPendingFields() {
+        let fieldHadKeys = bars.captionField.currentEditor() != nil || bars.nameField.currentEditor() != nil
+        let pending = bars.takePendingEdits()
+        // The keys stay the grid's, so the fold hands them to the text.
+        if fieldHadKeys { gridView.window?.makeFirstResponder(gridView) }
+        if let caption = pending.caption {
+            if captionMayEdit, line.commitCaption(caption) {
+                line.caption = FigureIngest.keptCaption(caption)
+            } else {
+                MaughamEvent.postNotice("Couldn't write the caption “\(caption)” to the figure line.",
+                                        projectURL: host.projectURL)
+            }
+            bars.showLine(number: line.number, caption: line.caption, name: name)
+        }
+        if let newName = pending.name {
+            if mode.readOnlyReason == nil { commitName(newName) } else { bars.nameField.stringValue = name }
+        }
+    }
+
+    /// **The figure line's number or caption changed in the text** (an undo,
+    /// a sync, a figure line added above): the bottom bar follows, a field
+    /// the writer is typing in left alone (final review I2).
+    func refreshLine(number: String, caption: String) {
+        guard number != line.number || caption != line.caption else { return }
+        line.number = number
+        line.caption = caption
+        bars.showLine(number: number, caption: caption, name: name)
     }
 
     // MARK: The table commands (Task 9)
@@ -415,7 +460,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// **The right-click menu** over `cell` (nil off the cells): a cell
     /// outside the selection is selected first, as a click would; the items
-    /// are `FigureTableMenu`'s, enabled by `menuState`.
+    /// are `FigureTableMenu`'s, enabled by `menuState`. While a cell edit is
+    /// open the selection is left on the edit's cell — a click there would
+    /// compose a reference, not select — so the menu acts on the edit's cell
+    /// (each command commits the edit first).
     func contextMenu(at cell: CellKey?) -> NSMenu {
         syncFromHost()
         if let cell, case .idle = model.edit,
@@ -477,12 +525,30 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let table = values.table
         switch command {
         case .deleteRows:
-            enqueue { [host, undoManager] in
-                for row in block.rows { try await host.deleteRow(row, undoManager: undoManager()) }
+            enqueue { [weak self, host, undoManager] in
+                var deleted = 0
+                do {
+                    for row in block.rows {
+                        try await host.deleteRow(row, undoManager: undoManager())
+                        deleted += 1
+                    }
+                } catch {
+                    self?.sayPartlyDeleted(deleted, of: block.rows.count, "rows")
+                    throw error
+                }
             }
         case .deleteColumns:
-            enqueue { [host, undoManager] in
-                for column in block.columns { try await host.deleteColumn(column, undoManager: undoManager()) }
+            enqueue { [weak self, host, undoManager] in
+                var deleted = 0
+                do {
+                    for column in block.columns {
+                        try await host.deleteColumn(column, undoManager: undoManager())
+                        deleted += 1
+                    }
+                } catch {
+                    self?.sayPartlyDeleted(deleted, of: block.columns.count, "columns")
+                    throw error
+                }
             }
         case .moveRowsUp:
             let above = table.rows[block.firstRow - 1]
@@ -517,6 +583,13 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         default:
             break
         }
+    }
+
+    /// A delete of several rows (columns) refused part way: what landed is
+    /// said, since each is its own ⌘Z until 7d (the refusal says itself).
+    private func sayPartlyDeleted(_ deleted: Int, of count: Int, _ what: String) {
+        guard deleted > 0 else { return }
+        MaughamEvent.postNotice("Only \(deleted) of the \(count) \(what) were deleted.", projectURL: host.projectURL)
     }
 
     /// The writer typed in the formula bar: it edits the active cell (an edit
@@ -672,19 +745,22 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// gone, said as a notice that carries the text, so it is never lost.
     private func reopenDrifted(_ text: String, at cell: CellKey, _ error: FormulaParseError) {
         syncFromHost()
-        if !isFolded, case .idle = model.edit, values.table.rowIndex(of: cell.row) != nil,
-           values.table.columnIndex(of: cell.column) != nil {
+        // A grid turned read-only meanwhile reopens nothing (review M5).
+        if !isFolded, mode.readOnlyReason == nil, case .idle = model.edit,
+           values.table.rowIndex(of: cell.row) != nil, values.table.columnIndex(of: cell.column) != nil {
             editSource = .cell
             reopen(text, at: cell, error)
             return
         }
-        sayUnwritten(text, at: cell, error)
+        sayUnwritten(text, at: cell, error.message)
     }
 
-    /// A notice that carries typing the grid could not write, so it is never lost.
-    private func sayUnwritten(_ text: String, at cell: CellKey, _ error: FormulaParseError) {
-        let address = FigureGridAddress.string(from: cell, to: cell, in: values.table).map { " in \($0)" } ?? ""
-        MaughamEvent.postNotice("Couldn't write “\(text)”\(address) — \(error.message).", projectURL: host.projectURL)
+    /// A notice that carries typing the grid could not write, so it is never
+    /// lost; the address read in `table` (the one the cell was in).
+    private func sayUnwritten(_ text: String, at cell: CellKey, in table: FigureTable? = nil, _ why: String) {
+        let address = FigureGridAddress.string(from: cell, to: cell, in: table ?? values.table)
+            .map { " in \($0)" } ?? ""
+        MaughamEvent.postNotice("Couldn't write “\(text)”\(address) — \(why).", projectURL: host.projectURL)
     }
 
     /// ⌫ over the selection: each cell emptied as typing nothing would (a
@@ -833,16 +909,23 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         MaughamEvent.postNotice(error.localizedDescription, projectURL: host.projectURL)
     }
 
+    /// The catch-up a host change scheduled (a test awaits it).
+    private(set) var hostSync: Task<Void, Never>?
+
     /// Re-armed after each change: the host's state is read on the next turn.
     private func observeHost() {
         guard !isClosed else { return }
         withObservationTracking {
             _ = host.state
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
+            // The host is the main actor's: its change is announced there.
+            MainActor.assumeIsolated {
                 guard let self, !self.isClosed else { return }
-                self.syncFromHost()
-                self.observeHost()
+                self.hostSync = Task { @MainActor [weak self] in
+                    guard let self, !self.isClosed else { return }
+                    self.syncFromHost()
+                    self.observeHost()
+                }
             }
         }
     }
@@ -855,8 +938,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let next = host.state
         guard next != values.state else { return }
         let tableChanged = next.table != values.table
+        // An open edit whose row or column goes with this change is closed
+        // by the model; typing it held is said, never lost (final review I3).
+        let old = values.table
+        let changedEdit: FigureGridEdit? = switch model.edit {
+        case .idle: nil
+        case .editing(let e), .composing(let e, _): tableChanged && e.text != barText(for: e.cell) ? e : nil
+        }
         let repaint = values.advance(to: next)
-        if tableChanged { execute(model.tableChanged(next.table)) }
+        if tableChanged {
+            let effects = model.tableChanged(next.table)
+            if let changedEdit, effects.contains(.cancelEdit) {
+                sayUnwritten(changedEdit.text, at: changedEdit.cell, in: old, "its row or column was deleted")
+            }
+            execute(effects)
+        }
         if repaint == .everything { gridView.reloadData() } else { gridView.repaint(repaint) }
         refreshBars()
     }

@@ -308,11 +308,13 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
     /// one call passes it), and the presence is handed through `EditorHost`
     /// to the grid opening, never read there.
     func test_theWindowGatesTheInsertMenuOnThePresence() throws {
-        let window = try SourceTree.read("Maugham/Views/ProjectWindow.swift")
-        XCTAssertTrue(window.contains("gridHoldsTheKeys: figureGridPresence.holdsTheKeys"))
-        XCTAssertTrue(window.contains(".modifier(FigureTableMenuModifier(presence: figureGridPresence))"))
-        let host = try SourceTree.read("Maugham/Views/EditorHost.swift")
-        XCTAssertTrue(host.contains("presence: figureGridPresence)"))
+        // Whitespace dropped, so a reformat does not break the census (T9 review).
+        func squeezed(_ s: String) -> String { s.filter { !$0.isWhitespace } }
+        let window = squeezed(try SourceTree.read("Maugham/Views/ProjectWindow.swift"))
+        XCTAssertTrue(window.contains(squeezed("gridHoldsTheKeys: figureGridPresence.holdsTheKeys")))
+        XCTAssertTrue(window.contains(squeezed(".modifier(FigureTableMenuModifier(presence: figureGridPresence))")))
+        let host = squeezed(try SourceTree.read("Maugham/Views/EditorHost.swift"))
+        XCTAssertTrue(host.contains(squeezed("presence: figureGridPresence)")))
         XCTAssertFalse(host.contains("figureGridPresence?."), "EditorHost reads the presence (tripwire 6)")
         XCTAssertFalse(host.contains("figureGridPresence."), "EditorHost reads the presence (tripwire 6)")
     }

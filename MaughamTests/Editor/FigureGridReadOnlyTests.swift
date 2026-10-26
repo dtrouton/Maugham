@@ -156,6 +156,9 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.notYours.sentence, "typing is answered")
         c.perform(.format(.currency))
         c.perform(.headerRow(true))
+        c.perform(.sum)
+        c.perform(.decimals(1))
+        c.perform(.align(.center))
         c.perform(.name("cash"))
         c.figureGridView(c.gridView, didResizeColumn: cellKey(c, 1, 1).column, to: 200)
         await c.settleWrites()
@@ -216,6 +219,22 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         m.coordinator.setReviewMode(true)
         m.coordinator.setManualReviewMode(true)
         assertReadOnly(c, .reviewMode)
+    }
+
+    /// **⌘⌥⇧R flips the grid at once** (T8 review M3): the toggle's
+    /// key-window post sets the coordinator's explicit review mode
+    /// synchronously, and the open grid turns read-only — and back.
+    func test_theReviewToggleFlipsAnOpenGridAtOnce() async throws {
+        let m = try await mount()
+        XCTAssertTrue(m.window.isKeyWindow, "premise: a .keyWindow post reaches this editor")
+        let c = try await expand(m)
+        assertEditable(c)
+        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
+        XCTAssertTrue(m.coordinator.isManualReviewMode)
+        assertReadOnly(c, .reviewMode)
+        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
+        XCTAssertFalse(m.coordinator.isManualReviewMode)
+        assertEditable(c)
     }
 
     /// **The two postures are independent** (R7c-6): a Mac that may change

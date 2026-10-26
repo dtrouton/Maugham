@@ -154,6 +154,8 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
     /// unchanged, or whose commit is refused, shows this again.
     private(set) var committedCaption = ""
     private(set) var committedName = ""
+    /// The fields' end of editing is being taken by `takePendingEdits`, not reported.
+    private var takingPendingEdits = false
 
     static let alignments: [CellAlignment] = [.left, .center, .right]
 
@@ -264,6 +266,8 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         for control in [formatPopUp, fewerDecimals, moreDecimals, alignment, headerRow, totalRow, sum] as [NSControl] {
             control.isEnabled = cellsMayEdit
         }
+        // Read-only, the formula reads greyed, as the guide says (review M4).
+        formulaField.textColor = cellsMayEdit ? .controlTextColor : .disabledControlTextColor
         for (field, mayEdit) in [(formulaField, cellsMayEdit), (nameField, cellsMayEdit), (captionField, captionMayEdit)] {
             if !mayEdit, field.currentEditor() != nil { field.abortEditing() }
             field.isEditable = mayEdit
@@ -309,7 +313,24 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         delegate?.figureGridBars(self, perform: .formulaTextChanged(formulaField.stringValue))
     }
 
+    /// **The caption and name the writer is still typing**, when changed
+    /// from what was committed — each field's editing ended without
+    /// reporting it (the caller commits them), its text kept on show.
+    func takePendingEdits() -> (caption: String?, name: String?) {
+        takingPendingEdits = true
+        defer { takingPendingEdits = false }
+        func take(_ field: NSTextField, _ committed: String) -> String? {
+            guard field.currentEditor() != nil else { return nil }
+            let text = field.stringValue
+            field.abortEditing()
+            field.stringValue = text
+            return text == committed ? nil : text
+        }
+        return (take(captionField, committedCaption), take(nameField, committedName))
+    }
+
     func controlTextDidEndEditing(_ notification: Notification) {
+        guard !takingPendingEdits else { return }
         switch notification.object as? NSTextField {
         case captionField where captionField.stringValue != committedCaption:
             delegate?.figureGridBars(self, perform: .caption(captionField.stringValue))

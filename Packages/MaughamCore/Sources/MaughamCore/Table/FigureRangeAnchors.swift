@@ -13,7 +13,13 @@ import Foundation
 ///   kept. A range whose span is unchanged, one that covers nothing
 ///   (`#REF!`), and a positional (research or CSV) range are left alone.
 /// - **A one-row range on its own formula's row** moves with that row, as a
-///   single-cell reference does (`=SUM(B5:D5)` in E5 still reads its row).
+///   single-cell reference does (`=SUM(B5:D5)` in E5 still reads its row) —
+///   the rule below, each edge keeping its offset of nought.
+/// - **A range in a row the reorder moved** keeps, at each edge without a
+///   row `$`, its offset from its own formula's row, as Excel's sort does: a
+///   running total `=SUM(B$2:B5)` moved from row 5 to row 3 reads `B$2:B3`.
+///   An edge with a row `$` keeps its position. An offset that would fall
+///   off the table keeps the position instead.
 /// - **A single-cell reference** is never rewritten: it moves with its row.
 public enum FigureRangeAnchors {
 
@@ -71,13 +77,22 @@ public enum FigureRangeAnchors {
               let p0 = old.rowIndex(of: first), let p1 = old.rowIndex(of: last),
               p1 < new.rows.count
         else { return nil }
-        if let formulaRow, covered == [formulaRow] { return nil }
-        let wanted = Array(new.rows[p0...p1])
+        // The edges as top and bottom (a stored range may run either way).
+        let downward = os0 <= os1
+        let topRef = downward ? range.start : range.end, bottomRef = downward ? range.end : range.start
+        var (q0, q1) = (p0, p1)
+        if let formulaRow, let was = old.rowIndex(of: formulaRow), let now = new.rowIndex(of: formulaRow),
+           now != was {
+            let shift = now - was
+            let s0 = topRef.rowAbsolute ? p0 : p0 + shift, s1 = bottomRef.rowAbsolute ? p1 : p1 + shift
+            if min(s0, s1) >= 0, max(s0, s1) < new.rows.count { (q0, q1) = (min(s0, s1), max(s0, s1)) }
+        }
+        let wanted = Array(new.rows[q0...q1])
         guard new.liveRows(betweenSlots: ns0, ns1) != wanted else { return nil }
-        let top = new.rows[p0], bottom = new.rows[p1]
+        let top = new.rows[q0], bottom = new.rows[q1]
         var out = range
-        out.start.anchor = withRow(range.start.anchor, os0 <= os1 ? top : bottom)
-        out.end.anchor = withRow(range.end.anchor, os0 <= os1 ? bottom : top)
+        out.start.anchor = withRow(range.start.anchor, downward ? top : bottom)
+        out.end.anchor = withRow(range.end.anchor, downward ? bottom : top)
         return out
     }
 

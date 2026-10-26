@@ -19,12 +19,19 @@ public enum FigureGridDirection: Equatable, Sendable {
 public enum FigureGridKey: Equatable, Sendable {
     /// ← → ↑ ↓; `extend` with ⇧.
     case arrow(FigureGridDirection, extend: Bool)
+    /// ⌘ + arrow (and Home / End, a row's ends): to the table's edge that
+    /// way, as Excel's ⌘ arrows go; `extend` with ⇧.
+    case jump(FigureGridDirection, extend: Bool)
     /// Tab, or ⇧Tab when `backward`.
     case tab(backward: Bool)
     /// Return, or ⇧Return when `backward`.
     case returnKey(backward: Bool)
     /// Characters typed while the grid (not the cell editor) has the keys.
     case type(String)
+    /// A typing key the cell editor itself will read (so a dead key or an
+    /// input method composes there): an empty edit opens over the active
+    /// cell, typed over, and the grid hands the key on to the editor.
+    case beginTyping
     /// The cell editor's whole text after the writer changed it.
     case editTextChanged(String)
     /// F2: edit inside the active cell.
@@ -56,6 +63,8 @@ public enum FigureGridEffect: Equatable, Sendable {
     case beginEdit(cell: CellKey, text: String)
     /// Write `text` to `cell` as the writer typed it (the controller parses
     /// it; a refusal comes back through `reopenEdit`). The editor closes.
+    /// A refused commit ends the list: the controller runs no effect after
+    /// it (the move, insert or fold the key would have made).
     case commitEdit(cell: CellKey, text: String)
     /// Close the cell editor, writing nothing.
     case cancelEdit
@@ -135,7 +144,7 @@ public struct FigureGridModel {
     private let editText: (CellKey) -> String
 
     /// Characters after which an arrow or click composes a reference.
-    private static let referencePoints: Set<Character> = ["=", "(", ",", "+", "-", "*", "/", "^", "<", ">"]
+    private static let referencePoints: Set<Character> = ["=", "(", ",", ":", "+", "-", "*", "/", "^", "<", ">"]
 
     public init(table: FigureTable, editText: @escaping (CellKey) -> String) {
         self.table = table
@@ -163,12 +172,16 @@ public struct FigureGridModel {
         switch key {
         case let .arrow(d, extend):
             return extend ? extendTo(step(far, d)) : moveTo(step(active, d))
+        case let .jump(d, extend):
+            return extend ? extendTo(edge(far, d)) : moveTo(edge(active, d))
         case let .tab(backward):
             return moveTo(tabStep(active, backward: backward))
         case let .returnKey(backward):
             return backward ? moveTo(step(active, .up)) : beginEdit(sel.anchor, text: editText(sel.anchor), inCell: true)
         case let .type(text):
             return text.isEmpty ? [] : beginEdit(sel.anchor, text: text, inCell: false)
+        case .beginTyping:
+            return beginEdit(sel.anchor, text: "", inCell: false)
         case .editInPlace:
             return beginEdit(sel.anchor, text: editText(sel.anchor), inCell: true)
         case .deleteBackward:
@@ -209,9 +222,12 @@ public struct FigureGridModel {
             let effects = commit(e)
             guard let p = position(e.cell) else { return effects }
             return effects + moveTo(step(p, backward ? .up : .down))
+        case .jump:
+            if e.inCell { return [.fieldEditorKeeps] }
+            return commit(e) + reduceIdle(key)
         case .tab, .insert, .selectColumn, .selectRow:
             return commit(e) + reduceIdle(key)
-        case .type, .deleteBackward, .selectAll:
+        case .type, .beginTyping, .deleteBackward, .selectAll:
             return [.fieldEditorKeeps]
         case let .editTextChanged(text):
             var next = e
@@ -298,6 +314,8 @@ public struct FigureGridModel {
         if let sel = selection, sel != old {
             effects.append(.moveSelection(to: sel.anchor))
             if sel.focus != sel.anchor { effects.append(.extendSelection(to: sel.focus)) }
+            // The active cell gave way to another: it is brought into view.
+            if sel.anchor != old?.anchor { effects.append(.scrollTo(sel.anchor)) }
         }
         return effects
     }
@@ -331,6 +349,18 @@ public struct FigureGridModel {
         case .down: q.row = min(p.row + 1, table.rows.count - 1)
         case .left: q.column = max(p.column - 1, 0)
         case .right: q.column = min(p.column + 1, table.columns.count - 1)
+        }
+        return q
+    }
+
+    /// The table's last cell `d` of `p` (its first row, last column, …).
+    private func edge(_ p: Position, _ d: FigureGridDirection) -> Position {
+        var q = p
+        switch d {
+        case .up: q.row = 0
+        case .down: q.row = table.rows.count - 1
+        case .left: q.column = 0
+        case .right: q.column = table.columns.count - 1
         }
         return q
     }

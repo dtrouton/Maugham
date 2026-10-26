@@ -216,7 +216,9 @@ final class FigureGridValuesTests: XCTestCase {
             return book
         }
         let slow = Task { try await values.reseed() }
-        while gate == nil { await Task.yield() }
+        // Bounded: a seed that never reaches its gate fails, never hangs (T3 review).
+        for _ in 0..<10_000 where gate == nil { await Task.yield() }
+        guard gate != nil else { return XCTFail("the first seed never reached its gate") }
         let fast = try await values.reseed()
         XCTAssertEqual(fast, .everything)
 

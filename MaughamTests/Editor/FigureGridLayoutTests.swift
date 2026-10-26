@@ -176,6 +176,26 @@ final class FigureGridLayoutTests: XCTestCase {
                                                   width: 50 - 2 * FigureCardDrawing.cellInset, height: 20))
         XCTAssertEqual(plan.rules, [40, 80], "under the header, over the total row")
         XCTAssertNil(plan.scroller, "four rows fit")
+        XCTAssertNil(plan.horizontalScroller, "two columns fit")
+    }
+
+    /// Columns wider than the viewport draw a horizontal indicator along the
+    /// body's foot, moved by the sideways scroll (T4 review minor 6).
+    func test_overflowingColumnsDrawAHorizontalIndicator() throws {
+        let table = FigureTable(rows: 2, columns: 6)
+        var l = FigureGridLayout(columnWidths: Array(repeating: 100, count: 6), rowCount: 2, rowHeight: 20,
+                                 gutterWidth: 30, size: CGSize(width: 330, height: 60))
+        let first = try XCTUnwrap(FigureGridPlan.make(layout: l, table: table, display: { _ in "" },
+                                                      value: { _ in .empty }, selection: nil,
+                                                      reference: nil).horizontalScroller)
+        XCTAssertEqual(first.minX, l.bodyRect.minX, "at the left edge")
+        XCTAssertEqual(first.maxY, l.bodyRect.maxY - 1)
+        XCTAssertEqual(first.width, (300 * 300 / 600).rounded(), "its share of the content")
+        l.scroll = l.clamped(CGPoint(x: 10_000, y: 0))
+        let last = try XCTUnwrap(FigureGridPlan.make(layout: l, table: table, display: { _ in "" },
+                                                     value: { _ in .empty }, selection: nil,
+                                                     reference: nil).horizontalScroller)
+        XCTAssertEqual(last.maxX, l.bodyRect.maxX, accuracy: 0.5, "scrolled right: at the right edge")
     }
 
     func test_thePlanAsksForTheVisibleRowsOnly() {

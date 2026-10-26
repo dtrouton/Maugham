@@ -218,6 +218,8 @@ struct FigureGridPlan: Equatable {
     var reference: CGRect?
     /// The vertical scroll indicator, when the rows overflow the viewport.
     var scroller: CGRect?
+    /// The horizontal one, when the columns overflow it.
+    var horizontalScroller: CGRect?
 
     /// The thickness of the scroll indicator.
     static let scrollerWidth: CGFloat = 4
@@ -290,6 +292,12 @@ struct FigureGridPlan: Equatable {
             let travel = body.height - height
             let y = body.minY + (layout.maxScroll.y > 0 ? travel * layout.scroll.y / layout.maxScroll.y : 0)
             plan.scroller = CGRect(x: body.maxX - scrollerWidth - 1, y: y, width: scrollerWidth, height: height)
+        }
+        if layout.contentWidth > body.width, layout.contentWidth > 0 {
+            let width = max(layout.rowHeight, (body.width * body.width / layout.contentWidth).rounded())
+            let travel = body.width - width
+            let x = body.minX + (layout.maxScroll.x > 0 ? travel * layout.scroll.x / layout.maxScroll.x : 0)
+            plan.horizontalScroller = CGRect(x: x, y: body.maxY - scrollerWidth - 1, width: width, height: scrollerWidth)
         }
         return plan
     }

@@ -57,8 +57,6 @@ public struct FigureBringBackIncomplete: LocalizedError, Equatable {
     }
 }
 
-/// **An edit that names something the figure does not have** — a row or
-/// column that is not live, a table edit on an image. Nothing is written.
 /// **A sort another figure's range would change** (report plan 7c, the
 /// ruling on review C1): `figureName` adds up a range of the rows a sort
 /// would reorder, and a sort rewrites no other figure's formulas, so it is
@@ -71,6 +69,8 @@ public struct FigureSortRefused: LocalizedError, Equatable {
     public var errorDescription: String? { sentence }
 }
 
+/// **An edit that names something the figure does not have** — a row or
+/// column that is not live, a table edit on an image. Nothing is written.
 public struct FigureEditInvalid: LocalizedError, Equatable {
     public let reason: String
     public var errorDescription: String? { reason }

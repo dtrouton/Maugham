@@ -56,8 +56,14 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     /// The body's scroll offset, held inside the content.
     private(set) var scrollOffset: CGPoint = .zero
 
-    /// The cell editor; shown only while a cell is being edited.
+    /// The cell editor; shown only while a cell is being edited, clipped to
+    /// the body so a scroll never floats it over the letters or numbers.
     let cellEditor = NSTextField()
+    private let editorClip = FigureGridEditorClip()
+    /// The header rows' face, made once.
+    private let boldFont: NSFont
+    /// The gutter's width for a row count, measured once per count.
+    private var gutter: (rows: Int, width: CGFloat)?
     /// The cell the editor is open on.
     private(set) var editingCell: CellKey?
 
@@ -79,6 +85,7 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     init(typography: TypographySettings) {
         font = FigureCardMetrics.font(for: typography)
         rowHeight = FigureCardMetrics.rowHeight(for: typography)
+        boldFont = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
         super.init(frame: .zero)
         cellEditor.isBordered = false
         cellEditor.isBezeled = false
@@ -91,7 +98,11 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         cellEditor.cell?.wraps = false
         cellEditor.delegate = self
         cellEditor.isHidden = true
-        addSubview(cellEditor)
+        addSubview(editorClip)
+        editorClip.addSubview(cellEditor)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.table)
+        setAccessibilityLabel("Table")
     }
 
     @available(*, unavailable)
@@ -112,10 +123,13 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
                                 scroll: scrollOffset)
     }
 
-    /// Wide enough for the last row's number.
+    /// Wide enough for the last row's number (measured once per row count).
     private func gutterWidth(rows: Int) -> CGFloat {
+        if let gutter, gutter.rows == rows { return gutter.width }
         let digits = (String(max(rows, 1)) as NSString).size(withAttributes: [.font: font]).width
-        return max(rowHeight * 1.5, (digits + 2 * FigureCardDrawing.cellInset).rounded(.up))
+        let width = max(rowHeight * 1.5, (digits + 2 * FigureCardDrawing.cellInset).rounded(.up))
+        gutter = (rows, width)
+        return width
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -201,6 +215,8 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     }
 
     private func placeCellEditor() {
+        let layout = layout
+        editorClip.clip(to: layout.bodyRect)
         guard let key = editingCell, let table = dataSource?.figureGridTable,
               let r = table.rowIndex(of: key.row), let c = table.columnIndex(of: key.column) else {
             return
@@ -244,17 +260,33 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
 
     // MARK: Keys (the grid itself has them)
 
+    /// **Every key the grid is sent stops here** (final review C1): the grid
+    /// is a subview of the manuscript's text view, so a key passed to
+    /// `super` would travel the responder chain into the text and edit it
+    /// behind the grid. A key the grid has no meaning for beeps. A typing
+    /// key opens an empty edit over the active cell and is handed to the
+    /// cell editor, which reads it — so a dead key (⌥E) or an input method
+    /// composes there as in any field.
     override func keyDown(with event: NSEvent) {
-        guard let key = Self.gridKey(for: event) else {
-            super.keyDown(with: event)
+        guard let key = Self.gridKey(for: event) ?? (Self.composesInTheEditor(event) ? .beginTyping : nil) else {
+            NSSound.beep()
             return
         }
-        delegate?.figureGridView(self, handle: key)
+        switch key {
+        case .type, .beginTyping:
+            delegate?.figureGridView(self, handle: .beginTyping)
+            // The edit opened (a read-only grid opens none): the editor reads the key.
+            if editingCell != nil, let editor = cellEditor.currentEditor() { editor.keyDown(with: event) }
+        default:
+            delegate?.figureGridView(self, handle: key)
+        }
     }
 
     /// **The grid key a key-down means** while the grid (not the cell editor)
-    /// has the keys; nil passes it on. ⌘⌥ arrows are the Format ▸ Table menu
-    /// items' alone (R7c-10, one delivery path), so they answer nil here.
+    /// has the keys; nil has none (the grid beeps). ⌘⌥ arrows are the Format
+    /// ▸ Table menu items' alone (R7c-10, one delivery path), so they answer
+    /// nil here. ⌘ arrows (⇧ to extend), Home and End go to the table's edge
+    /// (Excel's); ⌫, ⌥⌫ and forward delete (fn-⌫) clear the selection.
     static func gridKey(for event: NSEvent) -> FigureGridKey? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shift = flags.contains(.shift)
@@ -267,7 +299,8 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         default: nil
         }
         if let direction {
-            return command || option || control ? nil : .arrow(direction, extend: shift)
+            if option || control { return nil }
+            return command ? .jump(direction, extend: shift) : .arrow(direction, extend: shift)
         }
         // ⌘ keys are the menus' (⌘A is Edit ▸ Select All, answered by `selectAll(_:)`).
         guard !command, !control else { return nil }
@@ -275,7 +308,9 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         case 36, 76: return .returnKey(backward: shift)
         case 48: return .tab(backward: shift)
         case 53: return .escape
-        case 51: return .deleteBackward
+        case 51, 117: return .deleteBackward
+        case 115: return .jump(.left, extend: shift)    // Home: the row's first cell
+        case 119: return .jump(.right, extend: shift)   // End: its last
         case 120: return .editInPlace
         default: break
         }
@@ -283,6 +318,16 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
               characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0)
                   && !(0xF700...0xF8FF).contains($0.value) }) else { return nil }
         return .type(characters)
+    }
+
+    /// A key that types nothing by itself yet composes in a text field: a
+    /// dead key (⌥E, its `characters` empty) — never a ⌘ or ⌃ chord.
+    static func composesInTheEditor(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command), !flags.contains(.control), event.characters?.isEmpty == true,
+              let base = event.charactersIgnoringModifiers, !base.isEmpty else { return false }
+        return base.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0)
+            && !(0xF700...0xF8FF).contains($0.value) }
     }
 
     // MARK: Edit menu actions
@@ -370,14 +415,27 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         needsDisplay = true
     }
 
+    /// The wheel scrolls the grid along the gesture's dominant axis only, so
+    /// a vertical swipe with a little sideways drift is still vertical; at
+    /// that axis's edge the text around the grid scrolls on.
     override func scrollWheel(with event: NSEvent) {
         let step: CGFloat = event.hasPreciseScrollingDeltas ? 1 : rowHeight
-        let wanted = CGPoint(x: scrollOffset.x - event.scrollingDeltaX * step,
-                             y: scrollOffset.y - event.scrollingDeltaY * step)
+        let vertical = abs(event.scrollingDeltaY) >= abs(event.scrollingDeltaX)
+        let wanted = vertical
+            ? CGPoint(x: scrollOffset.x, y: scrollOffset.y - event.scrollingDeltaY * step)
+            : CGPoint(x: scrollOffset.x - event.scrollingDeltaX * step, y: scrollOffset.y)
         let before = scrollOffset
         setScroll(wanted)
-        // At an edge the text around the grid scrolls on.
         if scrollOffset == before { super.scrollWheel(with: event) }
+    }
+
+    // MARK: Accessibility
+
+    /// The active cell's address and what it shows ("B3, 42").
+    override func accessibilityValue() -> Any? {
+        guard let dataSource, let selection = dataSource.figureGridSelection else { return nil }
+        let address = selection.address(in: dataSource.figureGridTable) ?? ""
+        return "\(address), \(dataSource.figureGridDisplay(at: selection.anchor))"
     }
 
     override func resetCursorRects() {
@@ -424,7 +482,7 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         guard let plan = currentPlan() else { return }
         let layout = layout
         let body = layout.bodyRect
-        let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        let bold = boldFont
 
         // The band and the gutter.
         NSColor.secondaryLabelColor.withAlphaComponent(0.08).setFill()
@@ -459,8 +517,8 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
             box.setLineDash([4, 2], count: 2, phase: 0)
             box.stroke()
         }
-        if let scroller = plan.scroller {
-            NSColor.secondaryLabelColor.withAlphaComponent(0.4).setFill()
+        NSColor.secondaryLabelColor.withAlphaComponent(0.4).setFill()
+        for scroller in [plan.scroller, plan.horizontalScroller].compactMap({ $0 }) {
             NSBezierPath(roundedRect: scroller, xRadius: 2, yRadius: 2).fill()
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -482,6 +540,24 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         NSColor.separatorColor.setFill()
         CGRect(x: 0, y: layout.bandHeight - 0.5, width: bounds.width, height: 1).fill()
         CGRect(x: layout.gutterWidth - 0.5, y: 0, width: 1, height: bounds.height).fill()
+    }
+}
+
+/// **The cell editor's frame within the body**: clips the editor to the
+/// body rectangle, its bounds origin at the body's, so the editor is placed
+/// in the grid's own coordinates. Clicks pass through to the grid.
+private final class FigureGridEditorClip: NSView {
+    override var isFlipped: Bool { true }
+
+    func clip(to body: CGRect) {
+        clipsToBounds = true
+        if frame != body { frame = body }
+        if bounds.origin != body.origin { setBoundsOrigin(body.origin) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
     }
 }
 

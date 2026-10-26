@@ -355,7 +355,12 @@ extension EditorCoordinator {
             number: figureGridNumber(atLine: expansion.lineLocation),
             caption: figureGridCaption(atLine: expansion.lineLocation),
             commitCaption: { [weak self, weak expansion] caption in
-                guard let self, let expansion, self.figureGrid === expansion else { return false }
+                // Only on the line the grid is open on, found where its anchor
+                // says — never a line the anchor fell onto once its own was gone.
+                guard let self, let expansion, self.figureGrid === expansion, expansion.refindWithin == nil,
+                      self.figureThumbnailMarks.contains(where: {
+                          $0.lineRange.location == expansion.lineLocation && $0.path == expansion.path
+                      }) else { return false }
                 return self.replaceFigureCaption(ofLineAt: expansion.lineLocation, with: caption)
             })
         do {
@@ -585,6 +590,7 @@ extension EditorCoordinator {
         let marks = figureThumbnailMarks
         if expansion.refindWithin == nil,
            marks.contains(where: { $0.lineRange.location == expansion.lineLocation && $0.path == expansion.path }) {
+            refreshFigureGridLine(expansion)
             layoutFigureGrid()
             return
         }
@@ -608,7 +614,16 @@ extension EditorCoordinator {
         let moved = nearest.lineRange.location != expansion.lineLocation
         expansion.found(at: nearest.lineRange.location, path: nearest.path)
         if moved { relayoutFigureGridLine() }
+        refreshFigureGridLine(expansion)
         layoutFigureGrid()
+    }
+
+    /// The bottom bar's "Table N" and caption read again from the line, so
+    /// a ⌘Z, a sync or a figure line added above reaches it (final review I2).
+    private func refreshFigureGridLine(_ expansion: FigureGridExpansion) {
+        guard let controller = expansion.controller else { return }
+        controller.refreshLine(number: figureGridNumber(atLine: expansion.lineLocation),
+                               caption: figureGridCaption(atLine: expansion.lineLocation))
     }
 
     /// **A `figureCardVersion` edge**: the visit reads the book again, and the
@@ -616,7 +631,8 @@ extension EditorCoordinator {
     /// only, never on a keystroke). The caller re-lays out the line.
     func figureGridCardsChanged() {
         guard let expansion = figureGrid, let controller = expansion.controller else { return }
-        // A trust change reaches the editor here: the gate is asked again.
+        // One of the gate's re-asks (a park, a host closed); a trust change
+        // reaches the grid through the controller's door observation.
         refreshFigureGridAccess()
         guard figureGrid === expansion else { return }
         Task { @MainActor in await controller.figureCardsChanged() }
