@@ -26,6 +26,31 @@ public enum FigureLineResolution {
         Index(records).record(forLinePath: linePath, documentPath: documentPath)
     }
 
+    /// **What a figure line's path is**, for the editor's diagnostics and caption bar.
+    public enum Status: Equatable, Sendable {
+        /// Fails the lexical rule: absolute, URL, `~`, or outside figures and research.
+        case notLocal
+        /// A local path inside a research folder (today's research-picture lines).
+        case outsideFigures
+        case figure(FigureRecord)
+        /// Inside `figures/` with no record on that path.
+        case missing
+        case ambiguous([FigureRecord])
+    }
+
+    /// The line path's status against the registry, by the same lexical rule Publish uses.
+    public static func status(linePath: String, documentPath: String, index: Index) -> Status {
+        guard case .inside(let target, let root) = FigurePathRule.lexical(linePath, piecePath: documentPath)
+        else { return .notLocal }
+        guard root == ["figures"] else { return .outsideFigures }
+        let hits = index.records(atTarget: target)
+        switch hits.count {
+        case 0: return .missing
+        case 1: return .figure(hits[0])
+        default: return .ambiguous(hits)
+        }
+    }
+
     /// **The registry keyed for lookup**: each record's path standardised
     /// once, so a line's lookup is one standardisation and one hash probe
     /// rather than one standardisation per record. A caller asking many lines
@@ -41,6 +66,11 @@ public enum FigureLineResolution {
             var byKey: [String: [FigureRecord]] = [:]
             for record in records { byKey[FigureLineResolution.key(of: record.path), default: []].append(record) }
             self.byKey = byKey
+        }
+
+        /// The records on a standardised, lowercased target path.
+        fileprivate func records(atTarget target: [String]) -> [FigureRecord] {
+            byKey[target.joined(separator: "/").lowercased()] ?? []
         }
 
         public func record(forLinePath linePath: String, documentPath: String) -> Resolution {

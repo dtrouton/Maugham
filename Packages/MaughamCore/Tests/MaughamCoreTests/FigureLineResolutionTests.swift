@@ -71,4 +71,26 @@ final class FigureLineResolutionTests: XCTestCase {
                                root: ["pieces", "p1", "research"]))
         XCTAssertEqual(FigurePathRule.lexical("../p2/research/a.png", piecePath: "pieces/p1/x.md"), .notLocal)
     }
+
+    // MARK: status
+
+    func test_status_everyArm() {
+        let a = rec("fig-00000001", "figures/x.csv")
+        let b = rec("fig-00000002", "figures/d.csv"), b2 = rec("fig-00000003", "figures/D.csv")
+        let index = FigureLineResolution.Index([a, b, b2])
+        func status(_ p: String) -> FigureLineResolution.Status {
+            FigureLineResolution.status(linePath: p, documentPath: "manuscript/ch1.md", index: index)
+        }
+        XCTAssertEqual(status("../figures/x.csv"), .figure(a))
+        XCTAssertEqual(status("../figures/gone.csv"), .missing)
+        XCTAssertEqual(status("../figures/d.csv"), .ambiguous([b, b2]))
+        XCTAssertEqual(status("../research/a.png"), .outsideFigures)
+        XCTAssertEqual(status("../notes/x.png"), .notLocal)
+        XCTAssertEqual(status("/abs/x.png"), .notLocal)
+        XCTAssertEqual(status("https://e.com/x.png"), .notLocal)
+        XCTAssertEqual(FigureLineResolution.status(linePath: "../research/a.png",
+            documentPath: "pieces/p1/x.md", index: index), .notLocal)
+        XCTAssertEqual(FigureLineResolution.status(linePath: "research/a.png",
+            documentPath: "pieces/p1/x.md", index: index), .outsideFigures)
+    }
 }

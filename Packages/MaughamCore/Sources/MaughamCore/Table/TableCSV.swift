@@ -150,9 +150,6 @@ public enum TableCSV {
     public static func read(_ text: String, locale: TableLocale,
                             names: FormulaNames) -> (table: FigureTable, problems: [CSVReadProblem]) {
         let (parsed, separator) = rows(text)
-        let width = parsed.map(\.count).max() ?? 0
-        var table = FigureTable(rows: parsed.count, columns: width)
-        let ids = (rows: table.rows, columns: table.columns)
         // A ";" file is a decimal-comma file and a "," file a decimal-point one,
         // whatever the language; a tab file says nothing, so it reads as the book's
         // language does (a European Excel's "Unicode text" export is tab and comma).
@@ -162,6 +159,30 @@ public enum TableCSV {
         case "\t": cellLocale = locale
         default: cellLocale = locale.readingDecimalPoint()
         }
+        var (table, problems, entries) = readCells(parsed, locale: cellLocale, names: names)
+        if let first = entries.first, first.contains(where: isText),
+           first.allSatisfy({ isText($0) || $0 == .empty }),
+           entries.dropFirst().contains(where: { $0.contains(where: isNumber) }) {
+            table.headerRows = 1
+        }
+        return (table, problems)
+    }
+
+    /// Reads already-split rows into a new table, every cell through `CellInput` with `locale`
+    /// and "=" cells as in `read(_:locale:names:)` — the one reader a CSV and a pipe table share,
+    /// so a cell means the same from either. Short rows pad to the widest; `headerRows` stays 0
+    /// (the caller knows whether the first row is a header).
+    public static func read(rows parsed: [[String]], locale: TableLocale,
+                            names: FormulaNames) -> (table: FigureTable, problems: [CSVReadProblem]) {
+        let result = readCells(parsed, locale: locale, names: names)
+        return (result.table, result.problems)
+    }
+
+    private static func readCells(_ parsed: [[String]], locale cellLocale: TableLocale, names: FormulaNames)
+        -> (table: FigureTable, problems: [CSVReadProblem], entries: [[CellEntry]]) {
+        let width = parsed.map(\.count).max() ?? 0
+        var table = FigureTable(rows: parsed.count, columns: width)
+        let ids = (rows: table.rows, columns: table.columns)
         var problems: [CSVReadProblem] = []
         var entries: [[CellEntry]] = []
 
@@ -198,12 +219,7 @@ public enum TableCSV {
             }
             entries.append(line)
         }
-        if let first = entries.first, first.contains(where: isText),
-           first.allSatisfy({ isText($0) || $0 == .empty }),
-           entries.dropFirst().contains(where: { $0.contains(where: isNumber) }) {
-            table.headerRows = 1
-        }
-        return (table, problems)
+        return (table, problems, entries)
     }
 
     /// **The most non-empty cells a CSV may hold to become a figure** (report plan 6b
