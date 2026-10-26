@@ -110,6 +110,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// Send to Research was chosen: the frame folds the grid (forced) before
     /// the send is asked (R7d-7).
     var onSendToResearch: (() -> Void)?
+    /// Esc with nothing to cancel folds the grid — in place. A figure
+    /// window sets this false: there Esc does nothing (Done or ⌘W closes it).
+    var foldsOnEscape = true
     /// The piece whose Research Send to Research puts the table in by
     /// default; nil offers Shared alone.
     var researchPiece: String? {
@@ -335,9 +338,15 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             bars.clearError()
             if editSource == .cell { bars.setFormulaText(text) }
         }
-        let effects = model.reduce(key)
+        let effects = withoutAnEscapeFold(key, model.reduce(key))
         execute(effects)
         return effects != [.fieldEditorKeeps]
+    }
+
+    /// Esc's fold, dropped where Esc does not fold (`foldsOnEscape`).
+    private func withoutAnEscapeFold(_ key: FigureGridKey, _ effects: [FigureGridEffect]) -> [FigureGridEffect] {
+        guard !foldsOnEscape, case .escape = key else { return effects }
+        return effects.filter { $0 != .fold }
     }
 
     // MARK: Read-only (Task 8)
@@ -369,7 +378,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             return true
         }
         var trial = model
-        let effects = trial.reduce(key)
+        let effects = withoutAnEscapeFold(key, trial.reduce(key))
         if effects.contains(where: Self.changesTheFigure) {
             answer(reason)
             return true

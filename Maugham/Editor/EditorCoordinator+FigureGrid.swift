@@ -50,6 +50,9 @@ struct FigureGridOpening {
     /// figure's window — the key window's post, which the project window
     /// answers with `openWindow` (`FigureWindowOpenModifier`).
     var openWindow: @MainActor (String) -> Void = { MaughamEvent.postOpenFigureWindow(figureId: $0) }
+    /// A figure's name in the book's list, so its line's label (`tbl:name`)
+    /// is found in the `ReferenceIndex` for an open figure window.
+    var figureName: @MainActor (String) -> String? = { _ in nil }
 
     /// The window's: its stores, its grid presence, its project's figure
     /// windows, the document's project-relative path and its piece id.
@@ -76,6 +79,9 @@ struct FigureGridOpening {
             piece: { [weak projectStore] in
                 guard let piece, projectStore?.isResearchScopeTarget(piece) == true else { return nil }
                 return piece
+            },
+            figureName: { [weak projectStore] figureId in
+                projectStore?.manifest.figures?.first { $0.id == figureId }?.name
             })
     }
 
@@ -527,7 +533,8 @@ extension EditorCoordinator {
         guard figureGrid !== expansion else { return }
         windows.handOff(expansion.figureId, .init(
             number: controller.line.number, caption: controller.line.caption, piece: controller.researchPiece,
-            typography: typography, shareIsReadOnly: shareIsReadOnly))
+            typography: typography))
+        windows.setShareIsReadOnly(shareIsReadOnly)
         opening.openWindow(expansion.figureId)
     }
 
@@ -544,6 +551,7 @@ extension EditorCoordinator {
         let identity = ObjectIdentifier(windows)
         guard observedFigureWindows != identity else { return }
         observedFigureWindows = identity
+        windows.setShareIsReadOnly(shareIsReadOnly)
         withObservationTracking {
             _ = windows.openFigureIds
         } onChange: { [weak self] in
@@ -556,6 +564,23 @@ extension EditorCoordinator {
                     self.observeFigureWindows()
                 }
             }
+        }
+    }
+
+    /// **The figure windows' lines follow the book** (concern 1's ruling):
+    /// at each `ReferenceIndex` version, each figure open in a window is
+    /// told its line's "Table N" and caption as the index has them — the
+    /// whole book's, so a figure line in a piece this editor does not show,
+    /// or a table added in an earlier piece, still reaches it. A figure line
+    /// with no label is not a target, and keeps what it was handed.
+    func refreshFigureWindowLines() {
+        guard let opening = figureGridOpening, let windows = opening.windows,
+              !windows.openFigureIds.isEmpty, let index = referenceIndex?() else { return }
+        for figureId in windows.openFigureIds {
+            guard let name = opening.figureName(figureId),
+                  let label = ManuscriptLabel(reference: "\(ManuscriptLabel.Kind.tbl.rawValue):\(name)"),
+                  let target = index.target(for: label) else { continue }
+            windows.lineChanged(figureId, number: target.text, caption: target.detail)
         }
     }
 

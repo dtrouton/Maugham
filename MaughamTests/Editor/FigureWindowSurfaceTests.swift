@@ -77,9 +77,9 @@ final class FigureWindowSurfaceTests: XCTestCase {
         return (window, grid, try XCTUnwrap(grid.controller))
     }
 
-    private func handoff(_ project: Project, shareIsReadOnly: Bool = false) -> FigureWindows.Handoff {
+    private func handoff(_ project: Project) -> FigureWindows.Handoff {
         FigureWindows.Handoff(number: "Table 2", caption: "Cash flow", piece: project.chapter.id,
-                              typography: .defaults, shareIsReadOnly: shareIsReadOnly)
+                              typography: .defaults)
     }
 
     private func cell(_ c: FigureGridController, _ column: Int, _ row: Int) -> CellKey {
@@ -126,14 +126,62 @@ final class FigureWindowSurfaceTests: XCTestCase {
         await project.registry.release(project.lease)
     }
 
-    /// A view-only share handed over makes the window's grid read-only, its
-    /// name locked with the caption.
-    func test_aViewOnlyShareOpensTheWindowReadOnly() async throws {
+    /// A view-only share makes the window's grid read-only, its name locked
+    /// with the caption — read live, not a snapshot: the share flipping
+    /// while the window is open turns it read-only and back.
+    func test_aViewOnlyShareIsReadOnly_andAFlipWhileOpenReasks() async throws {
         let project = try await openProject()
-        let (_, _, c) = try await openWindow(project, handoff: handoff(project, shareIsReadOnly: true))
+        let windows = project.session.figureWindows
+        windows.setShareIsReadOnly(true)
+        let (_, _, c) = try await openWindow(project, handoff: handoff(project))
         XCTAssertEqual(c.mode, .readOnly(.viewOnlyShare))
         XCTAssertFalse(c.bars.nameField.isEditable)
         XCTAssertFalse(c.bars.captionField.isEditable)
+
+        windows.setShareIsReadOnly(false)
+        XCTAssertEqual(c.mode, .editable, "the share came back writable")
+        XCTAssertTrue(c.bars.nameField.isEditable)
+        windows.setShareIsReadOnly(true)
+        XCTAssertEqual(c.mode, .readOnly(.viewOnlyShare), "and view-only again, mid-visit")
+        await project.registry.release(project.lease)
+    }
+
+    /// **The line follows the book**: the index's "Table N" and caption,
+    /// told while the window is open, reach its bottom bar (still locked).
+    func test_theBottomBarFollowsTheLineAsTheBookChanges() async throws {
+        let project = try await openProject()
+        let (_, _, c) = try await openWindow(project, handoff: handoff(project))
+        project.session.figureWindows.lineChanged(project.figure.id, number: "Table 3", caption: "Cash, revised")
+        XCTAssertEqual(c.bars.numberLabel.stringValue, "Table 3")
+        XCTAssertEqual(c.bars.captionField.stringValue, "Cash, revised")
+        XCTAssertFalse(c.bars.captionField.isEditable)
+        XCTAssertEqual(project.session.figureWindows.handoff(for: project.figure.id)?.caption, "Cash, revised")
+        await project.registry.release(project.lease)
+    }
+
+    /// **Esc in a window closes nothing** (ruling 3): with nothing to cancel
+    /// it does nothing; an open edit is still cancelled. Done closes the
+    /// window, and the grid leaves ⌘W to the window.
+    func test_escClosesNoWindow_doneDoes_andTheGridLeavesCommandW() async throws {
+        let project = try await openProject()
+        let (window, grid, c) = try await openWindow(project, handoff: handoff(project))
+        let b2 = cell(c, 2, 2)
+        typeOpen(c, b2, "4")
+        c.handle(.escape)
+        XCTAssertNil(c.host.state.table[b2], "Esc cancelled the open edit")
+        c.handle(.escape)
+        c.handle(.escape)
+        XCTAssertTrue(window.isVisible, "Esc with nothing to cancel does nothing")
+        XCTAssertFalse(grid.isFinished)
+        let commandW = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "w",
+            charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
+        XCTAssertFalse(c.gridView.performKeyEquivalent(with: commandW), "⌘W is the window's")
+
+        c.perform(.done)
+        XCTAssertFalse(window.isVisible, "Done closes the window")
+        XCTAssertTrue(grid.isFinished)
         await project.registry.release(project.lease)
     }
 
@@ -296,7 +344,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
         XCTAssertEqual(asked, [figureId], "then the window was asked for")
         XCTAssertNotNil(m.coordinator.lastFigureVisitStep, "the visit collapsed into its step, as usual")
         XCTAssertEqual(windows.handoff(for: figureId), FigureWindows.Handoff(
-            number: number, caption: "Cash", piece: chapter.id, typography: .defaults, shareIsReadOnly: false))
+            number: number, caption: "Cash", piece: chapter.id, typography: .defaults))
         await m.coordinator.figureGridFolding?.value
         XCTAssertEqual(c.host.state.table[b2]?.content, .value(.number(4)), "the open edit was committed")
     }
@@ -369,5 +417,135 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
         await after.close()
         XCTAssertFalse(text.contains("![Cash]"), "the line left the text: \(text)")
         XCTAssertTrue(text.contains("Intro.") && text.contains("After."))
+    }
+
+    /// **The editor keeps the figure windows current** (concerns 1 and 4):
+    /// the share as its control plane says, and at each `ReferenceIndex`
+    /// version each open figure's "Table N" and caption from the whole book.
+    func test_theEditorTellsTheWindowsTheShareAndTheLine() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let figureId = try XCTUnwrap(m.figure?.id)
+        XCTAssertFalse(windows.shareIsReadOnly)
+        m.coordinator.setShareIsReadOnly(true)
+        XCTAssertTrue(windows.shareIsReadOnly, "the share flipped is told")
+        m.coordinator.setShareIsReadOnly(false)
+        XCTAssertFalse(windows.shareIsReadOnly)
+
+        var told: [String] = []
+        let listener = windows.listen(figureId, line: { told.append("\($0) · \($1)") }, access: {})
+        defer { windows.stopListening(listener) }
+        _ = windows.opened(figureId, close: {})
+        let index = ReferenceIndex.build(
+            structure: m.store.manifest.structure, research: [],
+            text: { [chapter = m.store.manifest.structure.first?.id] piece in
+                piece.id == chapter ? "Intro.\n\n![Cash flow](../figures/t.csv){#tbl:t}\n" : "Words.\n"
+            }, words: .english)
+        XCTAssertNotNil(index.target(for: try XCTUnwrap(ManuscriptLabel(reference: "tbl:t"))),
+                        "premise: the line is a target")
+        m.coordinator.referenceIndex = { index }
+        m.coordinator.setReferenceIndexVersion(m.coordinator.referenceIndexVersion + 1)
+        XCTAssertEqual(told, ["Table 1 · Cash flow"])
+    }
+}
+
+/// **A figure window's grid never goes stale** (concern 2 and the gate):
+/// its values reseed when another figure it reads changes, a park elsewhere
+/// turns it read-only through the same card edge, and a trust change re-asks
+/// through the door — the window's `FigureWindowGrid` opened over a
+/// signed book's stores (no window needed: the grid is the frame's).
+@MainActor
+final class FigureWindowFreshnessTests: FigureGridMountedTestCase {
+
+    override func setUp() async throws {
+        try await super.setUp()
+        let identities = LocalIdentities.softwareForTesting()
+        Document.localIdentitiesForTesting = identities
+        Document.deviceStateForTesting = OpLogDeviceState(
+            fileURL: temp.url.appendingPathComponent("op-log-state.json"))
+        Document.registryCacheForTesting = RegistryCache(
+            fileURL: temp.url.appendingPathComponent("registry-cache.json"),
+            identity: identities.author.fingerprint)
+        Document.admissionMemoryForTesting = AdmissionMemory(
+            fileURL: temp.url.appendingPathComponent("admission-memory.json"),
+            identity: identities.author.fingerprint)
+    }
+
+    override func tearDown() async throws {
+        for grid in grids {
+            grid.finish()
+            await grid.finishing?.value
+        }
+        grids = []
+        try await super.tearDown()
+        Document.localIdentitiesForTesting = nil
+        Document.deviceStateForTesting = nil
+        Document.registryCacheForTesting = nil
+        Document.admissionMemoryForTesting = nil
+    }
+
+    private var grids: [FigureWindowGrid] = []
+
+    private func openGrid(_ m: Mounted, _ figureId: String) async throws -> FigureGridController {
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let grid = FigureWindowGrid()
+        grids.append(grid)
+        grid.open(figureId: figureId, store: ds, projectStore: m.store, windows: FigureWindows(), close: {})
+        await grid.opening?.value
+        return try XCTUnwrap(grid.controller, grid.container.message)
+    }
+
+    private func key(_ table: FigureTable, _ column: Int, _ row: Int) -> CellKey {
+        CellKey(row: table.rows[row - 1], column: table.columns[column - 1])
+    }
+
+    /// Another figure this one reads changes: the window's values reseed.
+    func test_anotherFigureChangingReseedsTheWindowsValues() async throws {
+        let m = try await mount()
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let t = try XCTUnwrap(m.figure)
+        let u = try await m.store.createFigure(kind: .table, name: "u", piece: nil)
+        let uDoc = try await ds.openFigure(figureId: u.id)
+        let u1 = key(uDoc.state.table, 1, 1)
+        try await uDoc.setCell(Cell(content: .value(.number(5))), at: u1)
+        let tDoc = try await ds.openFigure(figureId: t.id)
+        let t1 = key(tDoc.state.table, 1, 1)
+        let names = FormulaNames(figures: [.init(id: u.id, name: "u", table: uDoc.state.table)])
+        guard case .success(let f) = FormulaParser.parse("u!A1*2", in: tDoc.state.table, names: names)
+        else { return XCTFail("the formula did not parse") }
+        try await tDoc.setCell(Cell(content: .formula(f)), at: t1)
+
+        let c = try await openGrid(m, t.id)
+        XCTAssertEqual(c.figureGridDisplay(at: t1), "10", "premise")
+
+        try await uDoc.setCell(Cell(content: .value(.number(7))), at: u1)
+        let reseeded = await RunLoopPump.until(deadline: 5) { c.figureGridDisplay(at: t1) == "14" }
+        XCTAssertTrue(reseeded, "the window reads u again: \(c.figureGridDisplay(at: t1))")
+    }
+
+    /// A park elsewhere reaches the window as a card edge: read-only, parked.
+    func test_aParkElsewhereTurnsTheWindowReadOnly() async throws {
+        let m = try await mount()
+        let t = try XCTUnwrap(m.figure)
+        let c = try await openGrid(m, t.id)
+        XCTAssertEqual(c.mode, .editable)
+        _ = try await m.store.sendToResearch(figureId: t.id, scope: .shared)
+        let parked = await RunLoopPump.until(deadline: 5) { c.mode == .readOnly(.parked) }
+        XCTAssertTrue(parked, "the window's gate was asked again: \(c.mode)")
+    }
+
+    /// A trust change (another author admitted to the chapter, so this Mac
+    /// yields on its figure) re-asks the window's gate through the door.
+    func test_aTrustChangeReasksTheWindowsGate() async throws {
+        let m = try await mount()
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let c = try await openGrid(m, try XCTUnwrap(m.figure?.id))
+        XCTAssertEqual(c.mode, .editable)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await ds.admit(device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+                               permit: .author(.pieces([try XCTUnwrap(m.store.manifest.structure.first?.id)])))
+        await ds.postureSettled()
+        await c.postureChange?.value
+        XCTAssertEqual(c.mode, .readOnly(.notYours))
     }
 }

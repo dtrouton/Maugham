@@ -1234,6 +1234,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard shareIsReadOnly != readOnly else { return }
         shareIsReadOnly = readOnly
         refreshFigureGridAccess()
+        // The project's figure windows read the share live (plan 7d Task 9).
+        figureGridOpening?.windows?.setShareIsReadOnly(readOnly)
     }
 
     /// The explicit review toggle (`EditorControl.isManualReviewMode`).
@@ -1416,6 +1418,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         referenceLabelOverlay?.needsDisplay = true
         // An open picker's rows follow the new index (whole-branch review M2).
         requeryOpenCompletion()
+        // A figure window's "Table N" and caption follow it (plan 7d Task 9).
+        refreshFigureWindowLines()
     }
 
     /// The window's figure cards changed (a new version arrived through

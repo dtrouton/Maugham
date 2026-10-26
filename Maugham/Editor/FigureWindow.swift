@@ -38,15 +38,31 @@ final class FigureWindows {
     /// **What the grid opening a window hands it** (plan 7d Task 9): the
     /// figure line's "Table N" and caption as the text writes them (shown
     /// read-only in the window, R7d-6), the piece whose Research Send to
-    /// Research defaults to, the editor's typography and whether the share
-    /// is view-only — what only the project window's editor knows.
+    /// Research defaults to, and the editor's typography — what only the
+    /// project window's editor knows. The number and caption then follow
+    /// the book (`lineChanged`).
     struct Handoff: Equatable {
         var number: String
         var caption: String
         var piece: String?
         var typography: TypographySettings
-        var shareIsReadOnly: Bool
     }
+
+    /// **The share is view-only** — set by the project windows' editors from
+    /// their control plane whenever it changes (`EditorCoordinator.
+    /// setShareIsReadOnly`); a figure window's gate reads it live.
+    @ObservationIgnored private(set) var shareIsReadOnly = false
+
+    /// A figure window's grid listening for its line and its access.
+    struct Listener: Hashable {
+        let figureId: String
+        fileprivate let serial: Int
+    }
+    private struct Listening {
+        let line: @MainActor (_ number: String, _ caption: String) -> Void
+        let access: @MainActor () -> Void
+    }
+    @ObservationIgnored private var listeners: [Listener: Listening] = [:]
 
     /// The figures a window is open on now.
     private(set) var openFigureIds: Set<String> = []
@@ -89,8 +105,43 @@ final class FigureWindows {
     /// The grid about to open `figureId` in a window leaves what it knows.
     func handOff(_ figureId: String, _ handoff: Handoff) { handoffs[figureId] = handoff }
 
-    /// What the last grid to open `figureId` in a window left, if any.
+    /// What the last grid to open `figureId` in a window left, if any (its
+    /// number and caption as last told).
     func handoff(for figureId: String) -> Handoff? { handoffs[figureId] }
+
+    /// A figure window's grid listens: `line` with the figure line's "Table
+    /// N" and caption when the book's index says they changed, `access`
+    /// when the share flips.
+    func listen(_ figureId: String, line: @escaping @MainActor (String, String) -> Void,
+                access: @escaping @MainActor () -> Void) -> Listener {
+        serial += 1
+        let listener = Listener(figureId: figureId, serial: serial)
+        listeners[listener] = Listening(line: line, access: access)
+        return listener
+    }
+
+    func stopListening(_ listener: Listener) { listeners[listener] = nil }
+
+    /// **The figure line's number or caption, as the book now has them**
+    /// (the project editors' `ReferenceIndex`, at each of its versions): the
+    /// hand-off follows, and each window on the figure is told.
+    func lineChanged(_ figureId: String, number: String, caption: String) {
+        if var handoff = handoffs[figureId], handoff.number != number || handoff.caption != caption {
+            handoff.number = number
+            handoff.caption = caption
+            handoffs[figureId] = handoff
+        }
+        for (listener, listening) in listeners where listener.figureId == figureId {
+            listening.line(number, caption)
+        }
+    }
+
+    /// The share turned view-only, or back: every figure window asks its gate again.
+    func setShareIsReadOnly(_ readOnly: Bool) {
+        guard shareIsReadOnly != readOnly else { return }
+        shareIsReadOnly = readOnly
+        for listening in listeners.values { listening.access() }
+    }
 
     /// The project's last window went: every figure window closes. Forgotten
     /// first, so a window's own `closed` arriving during its close is a no-op.
@@ -119,10 +170,17 @@ final class FigureWindows {
 ///   closing the window adds no step to any text's stack.
 /// - **The caption is read-only** (R7d-6: it is the figure line's text,
 ///   which needs the editor); the name may be changed. The bottom bar shows
-///   "Table N" and the caption the opening grid handed over.
-/// - **The gate** is asked of the window's door (`.editFigure`), the host
-///   (parked, closed) and the share; there is no review mode here.
-/// - **Done closes the window**; Send to Research closes it first (R7d-7).
+///   "Table N" and the caption the opening grid handed over, then whatever
+///   the book's index says as it changes (`FigureWindows.lineChanged`).
+/// - **It never goes stale.** Its own card cache, attached to the store's
+///   figure triggers as a project window's is, reseeds the values at each
+///   version (another figure this one reads changed) and asks the gate
+///   again (a park); the gate is asked of the window's door (`.editFigure`,
+///   observed by the controller), the host (parked, closed) and the share
+///   as the project windows last told it (`FigureWindows.shareIsReadOnly`).
+///   There is no review mode here.
+/// - **Done closes the window**, and ⌘W; Esc with nothing to cancel does
+///   nothing. Send to Research closes it first (R7d-7).
 /// - **Closing ends the visit** (`finish`, from the window's `willClose`):
 ///   an open edit committed (or said), the writes landed, the visit closed.
 ///
@@ -141,19 +199,31 @@ final class FigureWindowGrid {
     private(set) var opening: Task<Void, Never>?
     /// The visit ending after the window closed (a test awaits it).
     private(set) var finishing: Task<Void, Never>?
+    /// The reseed the last card version scheduled (a test awaits it).
+    private(set) var reseeding: Task<Void, Never>?
     private(set) var isFinished = false
     private weak var store: DocumentStore?
-    private var shareIsReadOnly = false
+    private weak var windows: FigureWindows?
+    private var listener: FigureWindows.Listener?
+    /// The window's figure cards, filled from the store's triggers.
+    private var cards: FigureCardCache?
+    /// The line as last told, for a visit still opening.
+    private var line: (number: String, caption: String)?
 
-    /// **Open the visit** on `figureId` through `session`'s stores, with
-    /// what the opening grid handed over (`FigureWindows.handoff`); the grid
+    /// **Open the visit** on `figureId` through the project window's stores,
+    /// with what the opening grid handed over (`windows.handoff`); the grid
     /// mounts when it has opened. `close` closes the window. Once only.
-    func open(figureId: String, session: ProjectSession, handoff: FigureWindows.Handoff?,
+    func open(figureId: String, store: DocumentStore, projectStore: ProjectStore, windows: FigureWindows,
               close: @escaping @MainActor () -> Void) {
         guard opening == nil, !isFinished else { return }
-        let store = session.documentStore, projectStore = session.projectStore
         self.store = store
-        shareIsReadOnly = handoff?.shareIsReadOnly ?? false
+        self.windows = windows
+        let handoff = windows.handoff(for: figureId)
+        listener = windows.listen(figureId, line: { [weak self] number, caption in
+            self?.refreshLine(number: number, caption: caption)
+        }, access: { [weak self] in
+            self?.refreshAccess()
+        })
         let line = FigureGridController.Line(
             number: handoff?.number ?? ElementWords.english.table,
             caption: handoff?.caption ?? "",
@@ -179,22 +249,47 @@ final class FigureWindowGrid {
                        close: @escaping @MainActor () -> Void) {
         self.controller = controller
         controller.researchPiece = piece
-        controller.onFold = close   // Done, or Esc on a selected cell
+        controller.foldsOnEscape = false   // Esc closes no window
+        controller.onFold = close   // Done
         controller.onSendToResearch = close   // the window goes first (R7d-7)
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
         controller.onMenuStateChange = { [weak self] state in
             guard let self, !self.isFinished else { return }
             self.presence.show(state)
         }
+        if let line { controller.refreshLine(number: line.number, caption: line.caption) }
         perform = { [weak controller] command in controller?.performTableCommand(command) }
         refreshAccess()
         presence.expanded()
         presence.show(controller.menuState)
+        watchTheBook()
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
         container.window?.makeFirstResponder(controller.gridView)
+    }
+
+    /// The window's own card cache over the store, as a project window's:
+    /// each version reseeds the values and asks the gate again.
+    private func watchTheBook() {
+        guard let store else { return }
+        let cards = FigureCardCache()
+        cards.onVersionChange = { [weak self] _ in
+            guard let self, !self.isFinished, let controller = self.controller else { return }
+            self.refreshAccess()
+            self.reseeding = Task { @MainActor in await controller.figureCardsChanged() }
+        }
+        store.attachFigureCardCache(cards)
+        cards.attach(FigureCardCache.Source(read: { [weak store] in await store?.figureCardInputs() }))
+        self.cards = cards
+    }
+
+    /// **The figure line's "Table N" and caption changed** in the book.
+    func refreshLine(number: String, caption: String) {
+        guard !isFinished else { return }
+        line = (number, caption)
+        controller?.refreshLine(number: number, caption: caption)
     }
 
     /// **The gate, asked again** over the window's door, the host and the
@@ -204,7 +299,7 @@ final class FigureWindowGrid {
         let mode = FigureGridGate.mode(
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
-            shareIsReadOnly: shareIsReadOnly, isReviewMode: false, isTranslationReview: false)
+            shareIsReadOnly: windows?.shareIsReadOnly ?? false, isReviewMode: false, isTranslationReview: false)
         let access: FigureGridGate.Mode = mode == .noExpand ? .readOnly(.closed) : mode
         guard access != controller.mode || controller.captionMayEdit else { return }
         controller.setAccess(access, captionMayEdit: false)
@@ -218,6 +313,11 @@ final class FigureWindowGrid {
         isFinished = true
         opening?.cancel()
         presence.folded()
+        if let listener { windows?.stopListening(listener) }
+        if let cards {
+            cards.attach(nil)
+            store?.detachFigureCardCache(cards)
+        }
         guard let controller else { return }
         controller.onFold = nil
         controller.onSendToResearch = nil
@@ -352,9 +452,8 @@ struct FigureWindow: View {
         })
         registration = (session.figureWindows, entry)
         grid.container.show(message: "Opening \(title)\u{2026}")
-        grid.open(figureId: key.figureId, session: session,
-                  handoff: session.figureWindows.handoff(for: key.figureId),
-                  close: { [weak window] in window?.close() })
+        grid.open(figureId: key.figureId, store: session.documentStore, projectStore: session.projectStore,
+                  windows: session.figureWindows, close: { [weak window] in window?.close() })
     }
 }
 
