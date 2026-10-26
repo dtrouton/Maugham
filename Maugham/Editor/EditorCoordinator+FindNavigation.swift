@@ -18,6 +18,7 @@ extension EditorCoordinator {
     func navigateToAnnotation(
         id: String, fallbackParagraphId: String?, in textView: NSTextView
     ) {
+        forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
         let length = (textView.string as NSString).length
         if let mark = resolvedReviewMarks.first(where: { $0.id == id }),
            let range = mark.absoluteRange,
@@ -39,7 +40,18 @@ extension EditorCoordinator {
         textView.window?.makeFirstResponder(textView)
     }
 
+    /// **A project-find match selected** (`.maughamFindMatchSelected`, after
+    /// its load delay): the match selected and shown; an expanded grid folds
+    /// first, as any navigation does. The find list keeps the keys.
+    func selectFindMatch(_ range: NSRange, in textView: NSTextView) {
+        guard let storage = textView.textStorage, NSMaxRange(range) <= storage.length else { return }
+        forceFoldFigureGrid(.navigation)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+    }
+
     func navigateToLine(at location: Int, in textView: NSTextView) {
+        forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
         let storage = textView.textStorage
         let length = (storage?.string as NSString?)?.length ?? 0
         let clamped = max(0, min(location, length))

@@ -63,13 +63,15 @@ struct FigureGridOpening {
 enum FigureGridFoldCause {
     /// Esc or Done, from the grid.
     case grid
-    /// The text is taking the focus (a click in it, a task or annotation
-    /// jump, Insert's landing — every `makeFirstResponder(textView)`): the
-    /// caller's selection and focus change are left to the caller.
+    /// The text is taking the focus near the grid (a click in it, Insert's
+    /// landing — `makeFirstResponder(textView)`): the caller's selection and
+    /// focus change are left to the caller.
     case textTookFocus
-    /// The text's caret left the expanded line (a find match selected): the
-    /// caret stays where it was put.
-    case caretLeft
+    /// A navigation moved the view and selection elsewhere (a task, scene or
+    /// annotation jump, a find match), or the text's caret left the line:
+    /// the jump wins, so the fold cannot be refused; the caret stays where
+    /// it was put.
+    case navigation
     /// The figure line left the text.
     case lineGone
     /// The editor is torn down: detach, a document switch, the window closing.
@@ -77,11 +79,12 @@ enum FigureGridFoldCause {
 
     /// The grid cannot stay: an open formula that will not read is said as a
     /// notice carrying its text, never kept in a grid with nowhere to be.
-    var isForced: Bool { self == .lineGone || self == .teardown }
-    /// The caret goes to the end of the figure line.
-    var movesTheCaretToTheLine: Bool { self == .grid || self == .lineGone }
+    var isForced: Bool { self == .navigation || self == .lineGone || self == .teardown }
+    /// The caret goes to the end of the figure line (a line gone leaves it
+    /// where the text put it).
+    var movesTheCaretToTheLine: Bool { self == .grid }
     /// The text takes the focus, when the grid had it.
-    var focusesTheText: Bool { self == .grid || self == .lineGone || self == .caretLeft }
+    var focusesTheText: Bool { self == .grid || self == .lineGone || self == .navigation }
 }
 
 /// **One expansion**: which figure, which line (its start, carried through
@@ -407,12 +410,13 @@ extension EditorCoordinator {
     }
 
     /// **The text is taking the focus** — `MaughamTextView.becomeFirstResponder`,
-    /// so every `makeFirstResponder(textView)` (a click in the text, a task,
-    /// scene or annotation jump, Insert's landing), and the click itself
-    /// (`mouseDown`). The grid folds, its open edit committed, the caller's
-    /// selection kept (R7c-8). True when the text may take the focus. A
-    /// formula that will not read keeps the grid open: false, and once this
-    /// focus change is over the edit shows its error again, with the keys.
+    /// so every `makeFirstResponder(textView)` (a navigation has already
+    /// folded, forced), and the click itself (`mouseDown`). The grid folds,
+    /// its open edit committed, the caller's selection kept (R7c-8). True
+    /// when the text may take the focus. A formula that will not read keeps
+    /// the grid open: false, and once this focus change is over the edit
+    /// shows its error again, with the keys (keys typed in that one turn go
+    /// to the window).
     func figureGridYieldsToText() -> Bool {
         guard let expansion = figureGrid else { return true }
         if let controller = expansion.controller, controller.unreadableOpenEdit() != nil {
@@ -424,10 +428,11 @@ extension EditorCoordinator {
         return true
     }
 
-    /// **The text's caret moved off the expanded line** — a find match
-    /// selected, or the writer's arrows while the visit is still opening:
-    /// the grid folds, its open edit committed, the caret where it was put
-    /// (and the text focused if the grid had the keys). Not for a selection
+    /// **The text's caret moved off the expanded line** — a selection set by
+    /// a navigation, or the writer's arrows while the visit is still
+    /// opening: the grid folds as a navigation does (forced: an edit that
+    /// will not read is said as a notice with its text), the caret where it
+    /// was put, the text focused if the grid had the keys. Not for a selection
     /// an edit carries (typing, a command's landing, a sync), nor one re-set
     /// where it was.
     func figureGridSelectionDidChange(in textView: NSTextView) {
@@ -439,12 +444,12 @@ extension EditorCoordinator {
         let text = textView.string as NSString
         let caret = NSRange(location: min(selection.location, text.length), length: 0)
         guard text.lineRange(for: caret).location != expansion.lineLocation else { return }
-        fold(expansion, as: .caretLeft)
+        fold(expansion, as: .navigation)
     }
 
-    /// **A fold the grid cannot refuse** (`.lineGone`, `.teardown`): an open
-    /// edit that reads is committed; one that will not is said as a notice
-    /// carrying its text, and the grid folds all the same.
+    /// **A fold the grid cannot refuse** (`.navigation`, `.lineGone`,
+    /// `.teardown`): an open edit that reads is committed; one that will not
+    /// is said as a notice carrying its text, and the grid folds all the same.
     func forceFoldFigureGrid(_ cause: FigureGridFoldCause) {
         guard let expansion = figureGrid else { return }
         fold(expansion, as: cause)

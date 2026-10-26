@@ -162,17 +162,17 @@ final class FigureGridFocusTests: FigureGridMountedTestCase {
         XCTAssertEqual(c.host.state.table[cellKey(c, 1, 1)]?.content, .value(.number(7)), "the edit was committed")
     }
 
-    /// **Review Focus 2, a find match**: the find selects the match in the
-    /// text (the find field keeping the keys); the caret has left the line,
-    /// so the grid folds with its edit committed, the match selected. A
-    /// line jump (`navigateToLine`, the scene and find-line verb) folds too.
+    /// **Review Focus 2, a find match**: `selectFindMatch` (what
+    /// `.maughamFindMatchSelected` runs after its load delay) folds the grid
+    /// with its edit committed, the match selected. A line jump
+    /// (`navigateToLine`, the scene and find-line verb) folds too.
     func test_reviewFocus2_aFindMatchSelectedFoldsTheGridWithItsEditCommitted() async throws {
         let m = try await mount()
         let match = NSRange(location: location(m, "Paragraph 3 "), length: 9)
         let (_, c) = try await expanded(m)
         typeInFirstCell(m, c, "8")
 
-        m.textView.setSelectedRange(match)   // what `.maughamFindMatchSelected` does
+        m.coordinator.selectFindMatch(match, in: m.textView)
 
         XCTAssertNil(m.coordinator.figureGrid, "the caret left the line: the grid folded")
         XCTAssertEqual(m.textView.selectedRange(), match, "the match stays selected")
@@ -187,6 +187,74 @@ final class FigureGridFocusTests: FigureGridMountedTestCase {
         XCTAssertTrue(m.window.firstResponder === m.textView)
         XCTAssertEqual(m.textView.selectedRange(), NSRange(location: scene, length: 0))
         await again.settleWrites()
+    }
+
+    // MARK: - A navigation is a forced fold (review I1 ruling)
+
+    /// An expanded grid holding `=SUM(`, which will not read; then `navigate`.
+    /// The jump wins: the grid folds, a notice carries the typing, nothing is
+    /// written, and the view and selection are the jump's.
+    private func assertANavigationWins(
+        to target: String, expectingFocus: Bool = true,
+        file: StaticString = #filePath, line: UInt = #line,
+        _ navigate: (Mounted, Int) -> Void
+    ) async throws {
+        let m = try await mount()
+        let at = location(m, target)
+        m.coordinator.paragraphRangeProvider = { _ in NSRange(location: at, length: 5) }
+        let (grid, c) = try await expanded(m)
+        typeInFirstCell(m, c, "=SUM(")
+        let said = await notices { navigate(m, at) }
+        XCTAssertNil(m.coordinator.figureGrid, "the jump wins: the grid folds", file: file, line: line)
+        XCTAssertNil(grid.panel?.superview, file: file, line: line)
+        XCTAssertTrue(said.contains { $0.contains("=SUM(") }, "a notice carries the typing: \(said)",
+                      file: file, line: line)
+        XCTAssertEqual(m.textView.selectedRange().location, at, "the selection is the jump's", file: file, line: line)
+        if expectingFocus {
+            XCTAssertTrue(m.window.firstResponder === m.textView, "the text has the keys", file: file, line: line)
+        }
+        await c.settleWrites()
+        XCTAssertNil(c.host.state.table[cellKey(c, 1, 1)], "nothing written", file: file, line: line)
+    }
+
+    func test_aTaskJumpOverAnUnreadableFormulaFoldsAndSaysIt() async throws {
+        try await assertANavigationWins(to: "Paragraph 2 ") { _, _ in
+            MaughamEvent.post(.maughamNavigateToParagraph, to: .keyWindow, payload: ["paragraph_id": "k3m7"])
+        }
+    }
+
+    func test_anAnnotationJumpOverAnUnreadableFormulaFoldsAndSaysIt() async throws {
+        try await assertANavigationWins(to: "Paragraph 4 ") { m, _ in
+            m.coordinator.navigateToAnnotation(id: "no-such-mark", fallbackParagraphId: "k3m7", in: m.textView)
+        }
+    }
+
+    func test_aSceneJumpOverAnUnreadableFormulaFoldsAndSaysIt() async throws {
+        try await assertANavigationWins(to: "Paragraph 6 ") { _, at in
+            MaughamEvent.post(.maughamNavigateToScene, to: .keyWindow, payload: ["lineLocation": at])
+        }
+    }
+
+    func test_aFindMatchOverAnUnreadableFormulaFoldsAndSaysIt() async throws {
+        try await assertANavigationWins(to: "Paragraph 8 ") { m, at in
+            m.coordinator.selectFindMatch(NSRange(location: at, length: 9), in: m.textView)
+        }
+    }
+
+    /// The window losing and regaining key status leaves the grid alone: no
+    /// fold, the open edit still holding the keys.
+    func test_deactivatingAndReactivatingTheWindowKeepsTheGridAndItsKeys() async throws {
+        let m = try await mount()
+        let (grid, c) = try await expanded(m)
+        typeInFirstCell(m, c, "=SUM(")
+        let editor = m.window.firstResponder
+        m.window.reportsKey = false
+        m.window.resignKey()
+        m.window.reportsKey = true
+        m.window.becomeKey()
+        XCTAssertTrue(m.coordinator.figureGrid === grid, "no fold")
+        XCTAssertTrue(m.window.firstResponder === editor, "the edit keeps the keys")
+        XCTAssertEqual(c.gridView.cellEditor.stringValue, "=SUM(")
     }
 
     /// **The text becoming first responder folds, whoever asks**: the bare

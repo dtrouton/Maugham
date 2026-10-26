@@ -768,11 +768,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // Defer to allow the document load to complete first.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 50_000_000)
-                let range = match.charRangeInDocument
-                guard let storage = textView.textStorage,
-                      range.location + range.length <= storage.length else { return }
-                textView.setSelectedRange(range)
-                textView.scrollRangeToVisible(range)
+                self.selectFindMatch(match.charRangeInDocument, in: textView)
             }
         }
         paragraphNavigateObserver = MaughamEvent.observe(
@@ -797,6 +793,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // exactly on the task line; for now, paragraph start is
             // close enough and avoids the surprising selection.
             let cursor = NSRange(location: range.location, length: 0)
+            self.forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
             textView.setSelectedRange(cursor)
             textView.scrollRangeToVisible(range)
             textView.window?.makeFirstResponder(textView)
@@ -1125,6 +1122,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         )
         textView.setSelectedRange(clamped)
         retokenizeAndStyle()
+        // The clamp is not a move the caret-left fold should see later.
+        figureGrid?.textSelection = textView.selectedRange()
     }
 
     /// Default vertical text inset (matches EditorSurface.makeNSView). Restored
@@ -1604,7 +1603,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // An open completion list follows a caret inside its trigger, and
         // closes on one that leaves it.
         completionSelectionDidChange(in: textView)
-        // A caret leaving an expanded grid's line before the grid has the keys folds it.
+        // A caret leaving an expanded grid's line folds it, as a navigation.
         figureGridSelectionDidChange(in: textView)
     }
 
