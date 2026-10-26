@@ -21,6 +21,10 @@ The pane has two scopes, toggled by the **Doc / Project** picker at the top:
 
 Filter by status using the **Open / Done / Archive** chips. The default view shows open tasks.
 
+### Jump to a task's paragraph
+
+Click a task's source icon, or double-click its row (or select it and press **Return**), to jump to the paragraph that holds it. Standalone tasks have no paragraph, so they don't jump.
+
 ### Standalone project tasks
 
 Click the **+** button in the Tasks pane toolbar to add a task that isn't tied to any paragraph. A small sheet appears; type the task body and choose **Document** or **Project** scope, then press **Add**. Project-scope tasks live in `.maugham/ops/__project__.jsonl` rather than in a manuscript file.

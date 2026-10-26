@@ -289,6 +289,18 @@ struct TasksPane: View {
                     .tag(task.id)
             }
             .listStyle(.sidebar)
+            // The List's own primary action: double-click on a row, or
+            // Return with one selected, jumps to its paragraph — no tap
+            // gesture on the row (tripwire 9). Right-click offers the same.
+            .contextMenu(forSelectionType: String.self, menu: { ids in
+                if let task = Self.jumpTarget(for: ids, in: currentPool()) {
+                    Button("Jump to Source") { jumpToParagraph(task) }
+                }
+            }, primaryAction: { ids in
+                if let task = Self.jumpTarget(for: ids, in: currentPool()) {
+                    jumpToParagraph(task)
+                }
+            })
         }
     }
 
@@ -606,6 +618,21 @@ struct TasksPane: View {
     }
 
     // MARK: - Navigation
+
+    /// The task a double-click or Return on the list jumps to: exactly one
+    /// selected id, found in `tasks`, of a kind anchored to a paragraph.
+    /// Nil for an empty or multiple selection, an unknown id, or a
+    /// pane-created task (it has no paragraph).
+    static func jumpTarget(for selection: Set<String>, in tasks: [WriterTask]) -> WriterTask? {
+        guard selection.count == 1, let id = selection.first,
+              let task = tasks.first(where: { $0.id == id }),
+              task.anchor?.paragraphId != nil
+        else { return nil }
+        switch task.kind {
+        case .inlineMarkdown, .fountainBoneyard: return task
+        case .paneCreated: return nil
+        }
+    }
 
     private func jumpToParagraph(_ task: WriterTask) {
         guard let anchor = task.anchor,
