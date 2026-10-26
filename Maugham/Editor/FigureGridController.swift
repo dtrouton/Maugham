@@ -43,6 +43,14 @@ import MaughamCore
 ///   it), growing the table past its edge, as one visit and one ⌘Z; a cut is
 ///   a copy and a clear. A read-only grid copies, and answers a cut or paste
 ///   with the reason line.
+/// - **Its frame** (plan 7d Task 9): the same visit mounts in place (the
+///   coordinator's) or in a figure window (`FigureWindowGrid`); the frame
+///   sets `onOpenInWindow` (⤢, shown only when set), `onSendToResearch`
+///   (the fold before a send) and `researchPiece`.
+/// - **Send to Research** (R7d-7): the grid's frame folds it first (an open
+///   edit committed or said), then the figure is parked through
+///   `ProjectStore.sendToResearch` in turn behind every write asked before —
+///   no ⌘Z (ruling P-8), no alert; a refusal is said.
 /// - **Fill and import** (plan 7d Task 4): Fill Down (⌘D, the menu item) and
 ///   Fill Right (⌘R while the grid has the keys, R7d-1) write `FigureFill`'s
 ///   cells as one ⌘Z; Import from CSV… matches the file onto the table
@@ -93,6 +101,20 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private(set) var menuState = FigureTableMenuState()
     /// The right-click menu's items' target.
     private let menuTarget = FigureTableMenuTarget()
+
+    /// ⤢ was pressed (plan 7d Task 9); nil where the grid cannot open in a
+    /// window, which hides the button.
+    var onOpenInWindow: (() -> Void)? {
+        didSet { bars.openInWindow.isHidden = onOpenInWindow == nil }
+    }
+    /// Send to Research was chosen: the frame folds the grid (forced) before
+    /// the send is asked (R7d-7).
+    var onSendToResearch: (() -> Void)?
+    /// The piece whose Research Send to Research puts the table in by
+    /// default; nil offers Shared alone.
+    var researchPiece: String? {
+        didSet { refreshMenuState() }
+    }
 
     /// What the gate last said (`.editable` or `.readOnly`; at `.noExpand`
     /// the coordinator folds instead), and whether the caption, the line's
@@ -456,7 +478,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private static func changesTheFigure(_ action: FigureGridBarAction) -> Bool {
         switch action {
         case .formulaTextChanged, .format, .decimals, .align, .headerRow, .totalRow, .sum, .name: return true
-        case .formulaCommand, .caption, .done: return false
+        case .formulaCommand, .caption, .done, .openInWindow: return false
         }
     }
 
@@ -500,6 +522,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         case .done:
             commitPendingFields()
             execute(model.fold(commit: true))
+        case .openInWindow:
+            onOpenInWindow?()
         }
         return true
     }
@@ -580,6 +604,29 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         case .importCSV:
             guard commitOpenEdit() else { return }
             chooseFileToImport()
+        case .sendTo(let destination):
+            sendFigureToResearch(destination)
+        }
+    }
+
+    /// **Send the figure to Research** (R7d-7): the frame folds the grid
+    /// first — forced, so an open edit that reads is committed and one that
+    /// will not is said — then the park is asked in turn behind every write
+    /// before it, so what the writer typed goes with the figure. Not
+    /// undoable (ruling P-8; the fold registers no step); a refusal is said.
+    private func sendFigureToResearch(_ destination: FigureResearchDestination) {
+        let scope: ResearchScope
+        switch destination {
+        case .piece:
+            guard let researchPiece else { return }
+            scope = .document(researchPiece)
+        case .shared:
+            scope = .shared
+        }
+        onSendToResearch?()
+        enqueue { [projectStore, figureId] in
+            guard let projectStore else { return }
+            _ = try await projectStore.sendToResearch(figureId: figureId, scope: scope)
         }
     }
 
@@ -601,7 +648,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// The menu state over the table, the selection and the gate; told only on a change.
     private func refreshMenuState() {
-        let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode)
+        let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode,
+                                           knowsItsPiece: researchPiece != nil)
         guard next != menuState else { return }
         menuState = next
         onMenuStateChange?(next)

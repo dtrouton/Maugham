@@ -37,12 +37,26 @@ struct FigureGridOpening {
     /// The window's grid presence (R7c-10), told at expand, at fold and when
     /// what Format ▸ Table may do changes; nil where no menu reads it.
     var presence: FigureGridPresence?
+    /// **The project's figure windows** (plan 7d Task 9, R7d-9): a figure
+    /// open in one is never expanded here — its card says "Editing in
+    /// window", and a double-click or Return brings that window front. Nil
+    /// where no window can open (⤢ is hidden then).
+    var windows: FigureWindows?
+    /// The piece this document is, whose Research Send to Research puts the
+    /// table in by default (R7d-7) — asked when a grid mounts; nil (no piece,
+    /// or one that is not a Research scope) offers Shared alone.
+    var piece: @MainActor () -> String? = { nil }
+    /// ⤢'s last step, once the grid has folded: open (or bring front) the
+    /// figure's window — the key window's post, which the project window
+    /// answers with `openWindow` (`FigureWindowOpenModifier`).
+    var openWindow: @MainActor (String) -> Void = { MaughamEvent.postOpenFigureWindow(figureId: $0) }
 
-    /// The window's: its stores, its grid presence, and the document's
-    /// project-relative path.
+    /// The window's: its stores, its grid presence, its project's figure
+    /// windows, the document's project-relative path and its piece id.
     @MainActor
     static func window(store: DocumentStore, projectStore: ProjectStore, documentPath: String,
-                       presence: FigureGridPresence? = nil) -> FigureGridOpening {
+                       presence: FigureGridPresence? = nil, windows: FigureWindows? = nil,
+                       piece: String? = nil) -> FigureGridOpening {
         FigureGridOpening(
             tableFigureId: { [weak projectStore] linePath in
                 guard let projectStore else { return nil }
@@ -58,7 +72,11 @@ struct FigureGridOpening {
                     figureId: figureId, store: store, projectStore: projectStore,
                     typography: typography, line: line)
             },
-            presence: presence)
+            presence: presence, windows: windows,
+            piece: { [weak projectStore] in
+                guard let piece, projectStore?.isResearchScopeTarget(piece) == true else { return nil }
+                return piece
+            })
     }
 
     /// The table figure `linePath` names among `figures`, by the rule Publish
@@ -281,6 +299,12 @@ extension EditorCoordinator {
               let figureId = opening.tableFigureId(mark.path) else { return false }
         let model = figureCardModel?(mark.path)
         if let model, model.kind != .table, model.kind != .parked { return false }   // removed, ambiguous
+        // R7d-9: one grid per host — a figure open in a window is edited
+        // there; its card brings that window front instead of expanding.
+        if let windows = opening.windows, windows.isOpen(figureId) {
+            windows.focus(figureId)
+            return true
+        }
         guard figureGridGateMode(figureId: figureId, parked: model?.kind == .parked, hostClosed: false)
                 != .noExpand else { return false }
         if let current = figureGrid {
@@ -423,6 +447,19 @@ extension EditorCoordinator {
             return
         }
         controller.setAccess(mode, captionMayEdit: figureGridCaptionMayEdit)
+        // ⤢ where the project can open a figure window; Send to Research's
+        // default scope, this piece's Research (plan 7d Task 9).
+        controller.researchPiece = figureGridOpening?.piece()
+        if figureGridOpening?.windows != nil {
+            controller.onOpenInWindow = { [weak self, weak expansion] in
+                guard let self, let expansion, self.figureGrid === expansion else { return }
+                self.openFigureGridInWindow()
+            }
+        }
+        controller.onSendToResearch = { [weak self, weak expansion] in
+            guard let self, let expansion, self.figureGrid === expansion else { return }
+            self.forceFoldFigureGrid(.sentToResearch)
+        }
         // The grid's writes register on its own stack and the host records
         // them, so the fold can collapse them into one window step.
         controller.host.beginVisit(undoManager: controller.gridUndo)
@@ -473,6 +510,60 @@ extension EditorCoordinator {
     /// run; nothing with no grid open.
     func performFigureTableCommand(_ command: FigureTableCommand) {
         figureGrid?.controller?.performTableCommand(command)
+    }
+
+    // MARK: The figure window (plan 7d Task 9)
+
+    /// **⤢: the expanded table opens in its own window** (R7d-9). The grid
+    /// folds first, as Done folds it — its open edit committed, its visit
+    /// collapsed into one step — so the figure is never on two grids; an
+    /// edit that will not read keeps it here with its error shown, and no
+    /// window opens. What only this editor knows is left for the window
+    /// (`FigureWindows.Handoff`), then the window is asked for.
+    func openFigureGridInWindow() {
+        guard let expansion = figureGrid, let controller = expansion.controller,
+              let opening = figureGridOpening, let windows = opening.windows else { return }
+        foldFigureGrid(commit: true)
+        guard figureGrid !== expansion else { return }
+        windows.handOff(expansion.figureId, .init(
+            number: controller.line.number, caption: controller.line.caption, piece: controller.researchPiece,
+            typography: typography, shareIsReadOnly: shareIsReadOnly))
+        opening.openWindow(expansion.figureId)
+    }
+
+    /// **The project's figure windows changed** (opened or closed): the cards
+    /// repaint, so each says "Editing in window" exactly while its window is
+    /// open; and a figure that opened in a window while expanded here (from
+    /// another project window) folds — never two grids on one host (R7d-9).
+    /// Observed from `figureGridOpening`'s set, re-armed after each change.
+    func observeFigureWindows() {
+        guard let windows = figureGridOpening?.windows else {
+            observedFigureWindows = nil
+            return
+        }
+        let identity = ObjectIdentifier(windows)
+        guard observedFigureWindows != identity else { return }
+        observedFigureWindows = identity
+        withObservationTracking {
+            _ = windows.openFigureIds
+        } onChange: { [weak self] in
+            // The list is the main actor's: its change is announced there.
+            MainActor.assumeIsolated {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.observedFigureWindows = nil
+                    self.figureWindowsChanged()
+                    self.observeFigureWindows()
+                }
+            }
+        }
+    }
+
+    private func figureWindowsChanged() {
+        figureThumbnailOverlay?.needsDisplay = true
+        if let expansion = figureGrid, figureGridOpening?.windows?.isOpen(expansion.figureId) == true {
+            forceFoldFigureGrid(.navigation)
+        }
     }
 
     // MARK: Folding

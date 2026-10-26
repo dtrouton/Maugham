@@ -1267,7 +1267,7 @@ struct ProjectWindow: View {
         CentreColumn(
             store: store, documentStore: documentStore,
             canvasModel: canvasModel, editorControl: editorControl,
-            figureGridPresence: figureGridPresence,
+            figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, window: window,
             persona: persona, researchPreviewVisible: researchPreviewVisible,

@@ -18,6 +18,19 @@ import MaughamCore
 // Writing) is the one binding of the chord and Fill Right's menu item carries
 // no key glyph.
 
+/// **Where Send to Research puts a table** (plan 7d Task 9, R7d-7): the
+/// piece's own Research by default, or the book's shared Research.
+enum FigureResearchDestination: Hashable, CaseIterable {
+    case piece, shared
+
+    var title: String {
+        switch self {
+        case .piece: "This Piece\u{2019}s Research"
+        case .shared: "Shared Research"
+        }
+    }
+}
+
 /// **One table command** — what a menu item asks the expanded grid to do.
 enum FigureTableCommand: Hashable {
     case format(FigureGridFormatChoice)
@@ -31,6 +44,9 @@ enum FigureTableCommand: Hashable {
     case sortAscending, sortDescending
     case fillDown, fillRight
     case importCSV
+    /// Send the figure to Research (R7d-7): the grid folds first, and the
+    /// send is not undoable (ruling P-8).
+    case sendTo(FigureResearchDestination)
 
     var title: String {
         switch self {
@@ -62,6 +78,7 @@ enum FigureTableCommand: Hashable {
         case .fillDown: "Fill Down"
         case .fillRight: "Fill Right"
         case .importCSV: "Import from CSV\u{2026}"
+        case .sendTo(let destination): destination.title
         }
     }
 }
@@ -73,9 +90,13 @@ enum FigureTableMenu {
         case command(FigureTableCommand)
         /// "Number Format ▸" and its choices.
         case numberFormats
+        /// "Send to Research ▸": the piece's Research first, then Shared.
+        case sendToResearch
     }
 
     static let numberFormatTitle = "Number Format"
+    static let sendToResearchTitle = "Send to Research"
+    static let sendToResearchCommands = FigureResearchDestination.allCases.map(FigureTableCommand.sendTo)
 
     static let sections: [[Entry]] = [
         [.numberFormats, .command(.fewerDecimals), .command(.moreDecimals)],
@@ -89,6 +110,7 @@ enum FigureTableMenu {
          .command(.moveColumnsLeft), .command(.moveColumnsRight)],
         [.command(.sortAscending), .command(.sortDescending)],
         [.command(.importCSV)],
+        [.sendToResearch],
     ]
 
     /// Every command the menus carry, in order (the number formats in place).
@@ -98,6 +120,7 @@ enum FigureTableMenu {
                 switch entry {
                 case .command(let command): [command]
                 case .numberFormats: FigureGridFormatChoice.allCases.map { .format($0) }
+                case .sendToResearch: sendToResearchCommands
                 }
             }
         }
@@ -131,6 +154,14 @@ enum FigureTableMenu {
                     let parent = NSMenuItem(title: numberFormatTitle, action: nil, keyEquivalent: "")
                     parent.submenu = formats
                     parent.isEnabled = state.isEnabled(.format(.general))
+                    menu.addItem(parent)
+                case .sendToResearch:
+                    let scopes = NSMenu(title: sendToResearchTitle)
+                    scopes.autoenablesItems = false
+                    for command in sendToResearchCommands { scopes.addItem(item(command)) }
+                    let parent = NSMenuItem(title: sendToResearchTitle, action: nil, keyEquivalent: "")
+                    parent.submenu = scopes
+                    parent.isEnabled = sendToResearchCommands.contains(where: state.isEnabled)
                     menu.addItem(parent)
                 }
             }
@@ -178,10 +209,16 @@ struct FigureTableMenuState: Equatable {
     var canMoveRight = false
     /// The active cell's format, ticked in Number Format.
     var format: FigureGridFormatChoice?
+    /// The grid knows the piece the figure's line is in, so Send to Research
+    /// may put it in that piece's Research (the in-place grid, and a window
+    /// opened from one).
+    var knowsItsPiece = false
 
-    static func of(table: FigureTable, selection: FigureGridSelection?, mode: FigureGridGate.Mode) -> Self {
+    static func of(table: FigureTable, selection: FigureGridSelection?, mode: FigureGridGate.Mode,
+                   knowsItsPiece: Bool = true) -> Self {
         var state = Self()
         state.mayEdit = mode == .editable
+        state.knowsItsPiece = knowsItsPiece
         state.header = table.headerRows > 0
         state.total = table.hasTotalRow
         guard state.mayEdit else { return state }
@@ -220,6 +257,8 @@ struct FigureTableMenuState: Equatable {
         case .moveColumnsLeft: return canMoveLeft
         case .moveColumnsRight: return canMoveRight
         case .sortAscending, .sortDescending: return canSort && hasSelection
+        case .sendTo(.piece): return knowsItsPiece
+        case .sendTo(.shared): return true
         }
     }
 

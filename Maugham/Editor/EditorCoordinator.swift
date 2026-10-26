@@ -389,8 +389,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// panel read it.
     var figureGrid: FigureGridExpansion?
     /// How this surface opens a table figure's grid; nil where it never
-    /// expands. Wired by `EditorHost` (`FigureGridOpening.window`).
-    var figureGridOpening: FigureGridOpening?
+    /// expands. Wired by `EditorHost` (`FigureGridOpening.window`); its
+    /// project's figure windows are observed from here (plan 7d Task 9).
+    var figureGridOpening: FigureGridOpening? {
+        didSet { observeFigureWindows() }
+    }
+    /// The figure windows list observed now (`observeFigureWindows`).
+    var observedFigureWindows: ObjectIdentifier?
     /// The last fold's settling: its writes landed, its visit ended and
     /// closed (plan 7d Task 6). The next visit opens after it; a test awaits it.
     var figureGridFolding: Task<Void, Never>?

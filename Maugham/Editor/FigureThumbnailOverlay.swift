@@ -539,6 +539,12 @@ final class FigureThumbnailOverlay: NSView {
     /// The cell strings of each card the last draw found, row-major (the
     /// mounted tests' reading of a content-only change).
     private(set) var lastCardStrings: [[String]] = []
+    /// How many cards the last draw found open in a figure window, each
+    /// drawn faint under "Editing in window" (plan 7d Task 9, R7d-9).
+    private(set) var lastCardsInWindow = 0
+
+    /// What a table card open in a figure window says over itself.
+    static let editingInWindow = "Editing in window"
 
     /// Each card's plan at the origin, kept while its model, the column and
     /// the font are unchanged, so a scroll measures no text (tripwire 4).
@@ -616,6 +622,7 @@ final class FigureThumbnailOverlay: NSView {
         lastVisibleFigureCount = 0
         lastDrawn = []
         lastCardStrings = []
+        lastCardsInWindow = 0
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
@@ -648,6 +655,14 @@ final class FigureThumbnailOverlay: NSView {
         let rowHeight = FigureCardMetrics.rowHeight(for: typography)
 
         let expandedLine = coordinator.figureGrid?.lineLocation
+        // The figures open in a window (R7d-9), asked of the card's path only
+        // while one is open.
+        let opening = coordinator.figureGridOpening
+        let inWindow: (String) -> Bool = { path in
+            guard let windows = opening?.windows, !windows.openFigureIds.isEmpty,
+                  let figureId = opening?.tableFigureId(path) else { return false }
+            return windows.isOpen(figureId)
+        }
         for mark in visible {
             guard mark.lineRange.length > 0, NSMaxRange(mark.lineRange) <= storage.length else { continue }
             // The grid expanded on this line stands in its room (report plan
@@ -665,6 +680,8 @@ final class FigureThumbnailOverlay: NSView {
                                    font: cardFont, rowHeight: rowHeight) {
                 lastDrawn.append(.card(model.kind))
                 lastCardStrings.append(plan.cells.map(\.string))
+                let editedInWindow = model.kind == .table && inWindow(mark.path)
+                if editedInWindow { lastCardsInWindow += 1 }
                 let room = FigureCardDrawing.heldRoom(
                     lineBottom: lineBottom,
                     fragmentBottom: layoutManager.lineFragmentRect(forGlyphAt: lastGlyph,
@@ -673,10 +690,10 @@ final class FigureThumbnailOverlay: NSView {
                     viewBottom: bounds.maxY)
                 let frame = plan.card.offsetBy(dx: columnX, dy: lineBottom)
                 if frame.intersects(dirtyRect) {
-                    drawCard(plan, at: CGPoint(x: columnX, y: lineBottom),
-                             clip: FigureCardDrawing.clip(for: frame, lineBottom: lineBottom,
-                                                          heldRoom: room),
-                             font: cardFont, alpha: alpha)
+                    let clip = FigureCardDrawing.clip(for: frame, lineBottom: lineBottom, heldRoom: room)
+                    drawCard(plan, at: CGPoint(x: columnX, y: lineBottom), clip: clip,
+                             font: cardFont, alpha: editedInWindow ? alpha * 0.3 : alpha)
+                    if editedInWindow { drawEditingInWindow(in: frame.intersection(clip), alpha: alpha) }
                 }
                 continue
             }
@@ -742,6 +759,18 @@ final class FigureThumbnailOverlay: NSView {
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(origin: .zero, size: frame.size))
         context.restoreGState()
+    }
+
+    /// "Editing in window", centred over a card drawn faint.
+    private func drawEditingInWindow(in frame: CGRect, alpha: CGFloat) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(alpha),
+        ]
+        let text = Self.editingInWindow as NSString
+        let size = text.size(withAttributes: attrs)
+        text.draw(at: NSPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2),
+                  withAttributes: attrs)
     }
 
     private func drawBox(_ message: String, in frame: CGRect, alpha: CGFloat) {

@@ -644,6 +644,13 @@ private struct FigureTableMenuButtons: View {
                         }
                     }
                     .disabled(menu?.isEnabled(.format(.general)) != true)
+                case .sendToResearch:
+                    Menu(FigureTableMenu.sendToResearchTitle) {
+                        ForEach(FigureTableMenu.sendToResearchCommands, id: \.self) { command in
+                            button(command)
+                        }
+                    }
+                    .disabled(menu.map { m in FigureTableMenu.sendToResearchCommands.contains(where: m.isEnabled) } != true)
                 case .command(let command):
                     item(command)
                 }

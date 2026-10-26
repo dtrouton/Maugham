@@ -12561,9 +12561,11 @@ final class TripwireGrepTests: XCTestCase {
     ///   6c Task 1), which mints no op of its own.
     ///
     /// `useInDocument(` (report plan 6b Task 6, a figure made from a Research
-    /// item behind the same door) and `sendToResearch(` (Task 7) have no
-    /// production caller yet: plans 7–8's surfaces add theirs here, each drawn
-    /// and pressed only where the posture allows `.editFigure`.
+    /// item behind the same door) has no production caller yet: plan 8's
+    /// surface adds its own here, drawn and pressed only where the posture
+    /// allows `.editFigure`. `sendToResearch(` (Task 7) has one: the table
+    /// grid's Send to Research (plan 7d Task 9), enabled only while the
+    /// grid's gate is editable.
     ///
     /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
     /// file that swapped one writer for another — a Replace that began
@@ -12630,11 +12632,13 @@ final class TripwireGrepTests: XCTestCase {
         // deleted as one visit each, a block moved up/down (left/right) by
         // moving its neighbour across it, a sort by the active cell's column.
         // Every batch — those deletes and a paste (plan 7d Task 3) — goes
-        // through one `applyChanges` call, in `applyPlanned`.
+        // through one `applyChanges` call, in `applyPlanned`. Send to
+        // Research (plan 7d Task 9) parks the figure through
+        // `sendToResearch`, which asks the figure's door and its line's.
         "FigureGridController.swift": [
             "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
-            "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1,
+            "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1, "sendToResearch(": 1,
         ],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the

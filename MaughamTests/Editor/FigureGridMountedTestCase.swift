@@ -67,6 +67,7 @@ class FigureGridMountedTestCase: XCTestCase {
     /// `EditorHost` wires it.
     func mount(_ text: String = document, rows: Int = 3, makeFigure: Bool = true,
                        height: CGFloat = 500, presence: FigureGridPresence? = nil,
+                       windows: FigureWindows? = nil, openWindow: (@MainActor (String) -> Void)? = nil,
                        beforeMaking: (@MainActor () -> Void)? = nil) async throws -> Mounted {
         let url = try await ProjectFactory.createNovelProject(
             named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
@@ -100,7 +101,9 @@ class FigureGridMountedTestCase: XCTestCase {
         configuration.paragraphProviders.figureImageResolver = { _ in .notLocal }
         configuration.paragraphProviders.figureCardModel = { cards.model(forLinePath: $0, documentPath: path) }
         configuration.paragraphProviders.figureGridOpening = .window(
-            store: ds, projectStore: store, documentPath: path, presence: presence)
+            store: ds, projectStore: store, documentPath: path, presence: presence, windows: windows,
+            piece: chapter.id)
+        if let openWindow { configuration.paragraphProviders.figureGridOpening?.openWindow = openWindow }
         configuration.paragraphProviders.tableFigureMaker = { request in
             beforeMaking?()   // the writer, while the figure is being made
             return try await FigureIngest.makeTableFigure(documentId: chapter.id, documentPath: path,

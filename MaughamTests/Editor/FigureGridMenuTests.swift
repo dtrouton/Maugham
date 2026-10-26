@@ -60,7 +60,11 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let none = FigureTableMenuState.of(table: table, selection: nil, mode: .editable)
         let enabledWithNone = FigureTableMenu.commands.filter(none.isEnabled)
         XCTAssertEqual(enabledWithNone, [.headerRow, .totalRow, .insertRowAbove, .insertRowBelow,
-                                         .insertColumnLeft, .insertColumnRight, .importCSV])
+                                         .insertColumnLeft, .insertColumnRight, .importCSV,
+                                         .sendTo(.piece), .sendTo(.shared)])
+        let pieceless = FigureTableMenuState.of(table: table, selection: nil, mode: .editable, knowsItsPiece: false)
+        XCTAssertFalse(pieceless.isEnabled(.sendTo(.piece)), "no piece: Shared alone (R7d-7)")
+        XCTAssertTrue(pieceless.isEnabled(.sendTo(.shared)))
 
         let editable = FigureTableMenuState.of(table: table, selection: selection, mode: .editable)
         for command: FigureTableCommand in [.format(.percent), .moreDecimals, .align(.right), .sum,
@@ -127,6 +131,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             .moveRowsUp, .moveRowsDown, .moveColumnsLeft, .moveColumnsRight,
             .sortAscending, .sortDescending,
             .importCSV,
+            .sendTo(.piece), .sendTo(.shared),
         ])
 
         var recorded: [FigureTableCommand] = []
@@ -150,6 +155,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             section.map { entry -> String in
                 switch entry {
                 case .numberFormats: FigureTableMenu.numberFormatTitle
+                case .sendToResearch: FigureTableMenu.sendToResearchTitle
                 case .command(let command): command.title
                 }
             }
@@ -317,9 +323,12 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         XCTAssertTrue(window.contains(squeezed("gridHoldsTheKeys: figureGridPresence.holdsTheKeys")))
         XCTAssertTrue(window.contains(squeezed(".modifier(FigureTableMenuModifier(presence: figureGridPresence))")))
         let host = squeezed(try SourceTree.read("Maugham/Views/EditorHost.swift"))
-        XCTAssertTrue(host.contains(squeezed("presence: figureGridPresence)")))
+        XCTAssertTrue(host.contains(squeezed("presence: figureGridPresence, windows: figureWindows,")))
         XCTAssertFalse(host.contains("figureGridPresence?."), "EditorHost reads the presence (tripwire 6)")
         XCTAssertFalse(host.contains("figureGridPresence."), "EditorHost reads the presence (tripwire 6)")
+        // The figure windows (plan 7d Task 9) pass through the same way.
+        XCTAssertFalse(host.contains("figureWindows?."), "EditorHost reads the figure windows (tripwire 6)")
+        XCTAssertFalse(host.contains("figureWindows."), "EditorHost reads the figure windows (tripwire 6)")
     }
 
     // MARK: - The right-click menu

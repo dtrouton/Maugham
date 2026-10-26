@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MaughamCore
 
 // MARK: - The figure window (report plan 7d Task 8)
 //
@@ -34,33 +35,69 @@ final class FigureWindows {
         fileprivate let serial: Int
     }
 
+    /// **What the grid opening a window hands it** (plan 7d Task 9): the
+    /// figure line's "Table N" and caption as the text writes them (shown
+    /// read-only in the window, R7d-6), the piece whose Research Send to
+    /// Research defaults to, the editor's typography and whether the share
+    /// is view-only — what only the project window's editor knows.
+    struct Handoff: Equatable {
+        var number: String
+        var caption: String
+        var piece: String?
+        var typography: TypographySettings
+        var shareIsReadOnly: Bool
+    }
+
     /// The figures a window is open on now.
     private(set) var openFigureIds: Set<String> = []
     @ObservationIgnored private var closers: [Registration: @MainActor () -> Void] = [:]
+    @ObservationIgnored private var focusers: [Registration: @MainActor () -> Void] = [:]
+    @ObservationIgnored private var handoffs: [String: Handoff] = [:]
     @ObservationIgnored private var serial = 0
 
     func isOpen(_ figureId: String) -> Bool { openFigureIds.contains(figureId) }
 
-    /// A figure window is open on `figureId`; `close` closes it.
-    func opened(_ figureId: String, close: @escaping @MainActor () -> Void) -> Registration {
+    /// A figure window is open on `figureId`; `close` closes it, `focus`
+    /// brings it front and makes it key.
+    func opened(_ figureId: String, focus: @escaping @MainActor () -> Void = {},
+                close: @escaping @MainActor () -> Void) -> Registration {
         serial += 1
         let registration = Registration(figureId: figureId, serial: serial)
         closers[registration] = close
+        focusers[registration] = focus
         recount()
         return registration
     }
 
     /// The window holding `registration` went. A second call does nothing.
     func closed(_ registration: Registration) {
+        focusers[registration] = nil
         guard closers.removeValue(forKey: registration) != nil else { return }
         recount()
     }
+
+    /// **R7d-9**: the window open on `figureId` comes front and takes the
+    /// keys — a double-click or Return on its card asks this instead of
+    /// expanding. False when no window is open on it.
+    @discardableResult
+    func focus(_ figureId: String) -> Bool {
+        guard let focus = focusers.first(where: { $0.key.figureId == figureId })?.value else { return false }
+        focus()
+        return true
+    }
+
+    /// The grid about to open `figureId` in a window leaves what it knows.
+    func handOff(_ figureId: String, _ handoff: Handoff) { handoffs[figureId] = handoff }
+
+    /// What the last grid to open `figureId` in a window left, if any.
+    func handoff(for figureId: String) -> Handoff? { handoffs[figureId] }
 
     /// The project's last window went: every figure window closes. Forgotten
     /// first, so a window's own `closed` arriving during its close is a no-op.
     func closeAll() {
         let closing = Array(closers.values)
         closers = [:]
+        focusers = [:]
         recount()
         for close in closing { close() }
     }
@@ -71,14 +108,178 @@ final class FigureWindows {
     }
 }
 
-/// **What Format ▸ Table reaches in a figure window**: the window's own
-/// `FigureGridPresence`, published as its focused value so the menu reads
-/// THIS window's grid while it is key, and the verb a posted command goes to.
-/// The grid mounted in the window sets both.
+/// **The grid in a figure window** (plan 7d Tasks 8–9): the same visit the
+/// in-place card opens (`FigureGridController`, the grid's one writer) in
+/// the same panel (`FigureGridPanel`), against the project window's
+/// `DocumentStore` — one figure host per store, so the card and the window
+/// share it. What differs is the frame:
+///
+/// - **Its own undo for its life** (R7d-5): the controller's `gridUndo`,
+///   answered by the grid and the panel; the host records no visit here, so
+///   closing the window adds no step to any text's stack.
+/// - **The caption is read-only** (R7d-6: it is the figure line's text,
+///   which needs the editor); the name may be changed. The bottom bar shows
+///   "Table N" and the caption the opening grid handed over.
+/// - **The gate** is asked of the window's door (`.editFigure`), the host
+///   (parked, closed) and the share; there is no review mode here.
+/// - **Done closes the window**; Send to Research closes it first (R7d-7).
+/// - **Closing ends the visit** (`finish`, from the window's `willClose`):
+///   an open edit committed (or said), the writes landed, the visit closed.
+///
+/// Format ▸ Table reaches it through `presence` (the window's focused value)
+/// and `perform`.
 @MainActor
 final class FigureWindowGrid {
     let presence = FigureGridPresence()
     var perform: (@MainActor (FigureTableCommand) -> Void)?
+    /// The view the panel is mounted in (the window's content).
+    let container = FigureWindowGridContainer()
+    /// The visit, once it has opened.
+    private(set) var controller: FigureGridController?
+    private(set) var panel: FigureGridPanel?
+    /// Opening the visit (a test awaits it).
+    private(set) var opening: Task<Void, Never>?
+    /// The visit ending after the window closed (a test awaits it).
+    private(set) var finishing: Task<Void, Never>?
+    private(set) var isFinished = false
+    private weak var store: DocumentStore?
+    private var shareIsReadOnly = false
+
+    /// **Open the visit** on `figureId` through `session`'s stores, with
+    /// what the opening grid handed over (`FigureWindows.handoff`); the grid
+    /// mounts when it has opened. `close` closes the window. Once only.
+    func open(figureId: String, session: ProjectSession, handoff: FigureWindows.Handoff?,
+              close: @escaping @MainActor () -> Void) {
+        guard opening == nil, !isFinished else { return }
+        let store = session.documentStore, projectStore = session.projectStore
+        self.store = store
+        shareIsReadOnly = handoff?.shareIsReadOnly ?? false
+        let line = FigureGridController.Line(
+            number: handoff?.number ?? ElementWords.english.table,
+            caption: handoff?.caption ?? "",
+            commitCaption: { _ in false })   // R7d-6: the caption is the text's
+        opening = Task { @MainActor [weak self] in
+            do {
+                let controller = try await FigureGridController.open(
+                    figureId: figureId, store: store, projectStore: projectStore,
+                    typography: handoff?.typography ?? .defaults, line: line)
+                guard let self, !self.isFinished else {
+                    controller.close()
+                    return
+                }
+                self.mount(controller, piece: handoff?.piece, close: close)
+            } catch {
+                guard let self, !self.isFinished else { return }
+                self.container.show(message: "The table couldn\u{2019}t be opened: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func mount(_ controller: FigureGridController, piece: String?,
+                       close: @escaping @MainActor () -> Void) {
+        self.controller = controller
+        controller.researchPiece = piece
+        controller.onFold = close   // Done, or Esc on a selected cell
+        controller.onSendToResearch = close   // the window goes first (R7d-7)
+        controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
+        controller.onMenuStateChange = { [weak self] state in
+            guard let self, !self.isFinished else { return }
+            self.presence.show(state)
+        }
+        perform = { [weak controller] command in controller?.performTableCommand(command) }
+        refreshAccess()
+        presence.expanded()
+        presence.show(controller.menuState)
+        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
+        self.panel = panel
+        container.mount(panel)
+        controller.gridView.reloadData()
+        container.window?.makeFirstResponder(controller.gridView)
+    }
+
+    /// **The gate, asked again** over the window's door, the host and the
+    /// share. The caption stays locked (R7d-6).
+    func refreshAccess() {
+        guard let controller, !isFinished else { return }
+        let mode = FigureGridGate.mode(
+            figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
+            parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
+            shareIsReadOnly: shareIsReadOnly, isReviewMode: false, isTranslationReview: false)
+        let access: FigureGridGate.Mode = mode == .noExpand ? .readOnly(.closed) : mode
+        guard access != controller.mode || controller.captionMayEdit else { return }
+        controller.setAccess(access, captionMayEdit: false)
+    }
+
+    /// **The window is closing**: an open edit that reads is committed, one
+    /// that will not is said with its text; the visit closes once its
+    /// writes have landed. No step is registered anywhere (R7d-5). Once only.
+    func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        opening?.cancel()
+        presence.folded()
+        guard let controller else { return }
+        controller.onFold = nil
+        controller.onSendToResearch = nil
+        controller.foldForced()
+        controller.didFold()
+        panel?.removeFromSuperview()
+        finishing = Task { @MainActor in
+            await controller.settleWrites()
+            controller.close()
+        }
+    }
+}
+
+/// **The figure window's content view**: the grid's panel filling it, or a
+/// line saying the table is opening or could not be opened.
+final class FigureWindowGridContainer: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        label.textColor = .secondaryLabelColor
+        label.alignment = .center
+        label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+
+    var message: String { label.stringValue }
+
+    func show(message: String) {
+        label.stringValue = message
+        label.isHidden = false
+        layoutLabel()
+    }
+
+    func mount(_ panel: FigureGridPanel) {
+        label.isHidden = true
+        panel.frame = bounds
+        panel.autoresizingMask = [.width, .height]
+        addSubview(panel)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutLabel()
+    }
+
+    private func layoutLabel() {
+        let height = label.intrinsicContentSize.height
+        label.frame = CGRect(x: 16, y: (bounds.height - height) / 2, width: max(0, bounds.width - 32), height: height)
+    }
+}
+
+/// The container, as SwiftUI shows it.
+private struct FigureWindowGridHost: NSViewRepresentable {
+    let container: FigureWindowGridContainer
+    func makeNSView(context: Context) -> FigureWindowGridContainer { container }
+    func updateNSView(_ nsView: FigureWindowGridContainer, context: Context) {}
 }
 
 /// **A figure window's root view.** It finds its project's session without
@@ -113,9 +314,7 @@ struct FigureWindow: View {
     }
 
     var body: some View {
-        Text(title)
-            .font(.title3)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        FigureWindowGridHost(container: grid.container)
             .frame(minWidth: 480, minHeight: 320)
             .background(WindowAccessor(window: $window))
             .navigationTitle(title)
@@ -129,7 +328,9 @@ struct FigureWindow: View {
             // The close itself, not `.onDisappear`: a window closed by its
             // project, by the writer or by a test leaves the list at once.
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
-                guard let window, note.object as? NSWindow === window, let registration else { return }
+                guard let window, note.object as? NSWindow === window else { return }
+                grid.finish()   // the visit ends with the window
+                guard let registration else { return }
                 registration.windows.closed(registration.entry)
                 self.registration = nil
             }
@@ -144,10 +345,16 @@ struct FigureWindow: View {
             window.close()
             return
         }
-        let entry = session.figureWindows.opened(key.figureId) { [weak window] in
+        let entry = session.figureWindows.opened(key.figureId, focus: { [weak window] in
+            window?.makeKeyAndOrderFront(nil)
+        }, close: { [weak window] in
             window?.close()
-        }
+        })
         registration = (session.figureWindows, entry)
+        grid.container.show(message: "Opening \(title)\u{2026}")
+        grid.open(figureId: key.figureId, session: session,
+                  handoff: session.figureWindows.handoff(for: key.figureId),
+                  close: { [weak window] in window?.close() })
     }
 }
 

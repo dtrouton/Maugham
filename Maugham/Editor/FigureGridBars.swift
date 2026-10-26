@@ -102,6 +102,8 @@ enum FigureGridBarAction: Equatable {
     case caption(String)
     case name(String)
     case done
+    /// ⤢: open the table in its own window (plan 7d Task 9).
+    case openInWindow
 }
 
 @MainActor
@@ -135,6 +137,9 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
     let headerRow = NSButton(checkboxWithTitle: "Header row", target: nil, action: nil)
     let totalRow = NSButton(checkboxWithTitle: "Total row", target: nil, action: nil)
     let sum = NSButton(title: "Σ", target: nil, action: nil)
+    /// ⤢ (plan 7d Task 9): shown only where the grid can open in a window —
+    /// the in-place grid with a project around it, never the window's own.
+    let openInWindow = NSButton(title: "\u{2922}", target: nil, action: nil)
 
     let formulaBar = NSStackView()
     let addressLabel = NSTextField(labelWithString: "")
@@ -172,12 +177,17 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         }
         alignment.toolTip = "Align"
         sum.toolTip = "Sum the column above"
-        for control in [formatPopUp, fewerDecimals, moreDecimals, alignment, headerRow, totalRow, sum, doneButton] as [NSControl] {
+        openInWindow.toolTip = "Open in Window"
+        openInWindow.setAccessibilityLabel("Open in Window")
+        openInWindow.isHidden = true
+        for control in [formatPopUp, fewerDecimals, moreDecimals, alignment, headerRow, totalRow, sum,
+                        openInWindow, doneButton] as [NSControl] {
             control.target = self
             control.action = #selector(controlActed(_:))
             control.controlSize = .small
         }
-        configure(toolbar, [formatPopUp, fewerDecimals, moreDecimals, alignment, headerRow, totalRow, sum])
+        configure(toolbar, [formatPopUp, fewerDecimals, moreDecimals, alignment, headerRow, totalRow, sum,
+                            openInWindow])
 
         addressLabel.alignment = .center
         addressLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 56).isActive = true
@@ -302,6 +312,7 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         case headerRow: action = .headerRow(headerRow.state == .on)
         case totalRow: action = .totalRow(totalRow.state == .on)
         case sum: action = .sum
+        case openInWindow: action = .openInWindow
         case doneButton: action = .done
         default: return
         }
