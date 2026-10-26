@@ -24,6 +24,9 @@ enum EditorControlMirror {
         /// (`FigureGridGate`), which answers to the figure's posture and
         /// never to the text's.
         var shareIsReadOnly: Bool = false
+        /// The explicit ⌘⌥⇧R toggle alone, for the figure grid's gate —
+        /// `isReviewMode` is also forced where the text is refused.
+        var manualReview: Bool = false
     }
 
     static func membrane(
@@ -33,7 +36,7 @@ enum EditorControlMirror {
         return Membrane(
             lockEditing: !mayWrite || shareIsReadOnly,
             isReviewMode: manualReview || !mayWrite,
-            shareIsReadOnly: shareIsReadOnly)
+            shareIsReadOnly: shareIsReadOnly, manualReview: manualReview)
     }
 }
 
@@ -91,6 +94,7 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
                 editorControl.shareIsReadOnly = membrane.shareIsReadOnly
+                editorControl.isManualReviewMode = membrane.manualReview
             }
             .onChange(of: posture) { _, posture in editorControl.posture = posture }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
@@ -110,6 +114,7 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
                 editorControl.shareIsReadOnly = membrane.shareIsReadOnly
+                editorControl.isManualReviewMode = membrane.manualReview
                 editorControl.posture = posture
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography

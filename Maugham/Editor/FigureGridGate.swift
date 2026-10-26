@@ -47,7 +47,8 @@ enum FigureGridGate {
         case notYours
         /// A read-only iCloud share: the folder takes no writes.
         case viewOnlyShare
-        /// Review mode (⌘⌥⇧R, or forced where the text is not hers).
+        /// The window's explicit review mode (⌘⌥⇧R) — never the review
+        /// forced where the text is not hers (R7c-6).
         case reviewMode
 
         /// The line the read-only grid answers typing with.

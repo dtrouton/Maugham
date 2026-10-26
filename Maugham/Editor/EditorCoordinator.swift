@@ -44,6 +44,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Task 8). Use `setShareIsReadOnly(_:)`.
     private(set) var shareIsReadOnly = false
 
+    /// The window's explicit review mode (⌘⌥⇧R) alone — `isReviewMode` is
+    /// also forced where the text is refused. Only the figure grid's gate
+    /// reads it (R7c-6). Use `setManualReviewMode(_:)`.
+    private(set) var isManualReviewMode = false
+
     /// Translation-review posture (Task 11): when true the editor is displaying a
     /// DERIVED translated surface (`translatedText ?? sourceText`, joined) instead
     /// of the source manuscript, so the buffer is read-only — `shouldChangeTextIn`
@@ -828,6 +833,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             guard let self else { return }
             self.setReviewMode(!self.isReviewMode)
+            // The explicit toggle, at once for the figure grid's gate;
+            // `ProjectWindow` flips the same flag, so the mirror agrees.
+            self.setManualReviewMode(!self.isManualReviewMode)
         }
         // Translation review (Task 13): flip the read-only membrane
         // synchronously on the key window's coordinator, exactly as ⌘⌥⇧R does
@@ -1200,6 +1208,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         refreshFigureGridAccess()
     }
 
+    /// The explicit review toggle (`EditorControl.isManualReviewMode`).
+    /// Self-guarded (D2); only the figure grid's gate reads it.
+    func setManualReviewMode(_ enabled: Bool) {
+        guard isManualReviewMode != enabled else { return }
+        isManualReviewMode = enabled
+        refreshFigureGridAccess()
+    }
+
     /// Whether a checkbox click may flip its bracket: the membrane's answer
     /// for a click (`EditorEditPolicy.allowsCheckboxToggle`), read from the
     /// coordinator's own stored flags — no new state (tripwire 2).
@@ -1301,6 +1317,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // explicitly so the tracked set never silently widens.
             _ = control.lockEditing
             _ = control.shareIsReadOnly
+            _ = control.isManualReviewMode
             _ = control.isReviewMode
             _ = control.posture
             _ = control.theme
@@ -1338,6 +1355,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setShareIsReadOnly(c.shareIsReadOnly) // self-guarded
+        setManualReviewMode(c.isManualReviewMode) // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
         updateReviewCardVerbs(for: c.posture) // self-guarded
         // Translation review is a pure membrane flip driven off language

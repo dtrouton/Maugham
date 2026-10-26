@@ -436,7 +436,7 @@ final class PostureMembraneTests: XCTestCase {
             EditorControlMirror.membrane(posture: p, manualReview: manual, shareIsReadOnly: share)
         }
         XCTAssertEqual(m(author), .init(lockEditing: false, isReviewMode: false))
-        XCTAssertEqual(m(author, manual: true), .init(lockEditing: false, isReviewMode: true),
+        XCTAssertEqual(m(author, manual: true), .init(lockEditing: false, isReviewMode: true, manualReview: true),
                        "an author's ⌘⌥⇧R is the render, never the lock")
         XCTAssertEqual(m(reviewer), .init(lockEditing: true, isReviewMode: true),
                        "a reviewer's Mac opens locked, in review mode")

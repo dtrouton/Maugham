@@ -25,6 +25,11 @@ final class EditorControl {
     /// posture and the share, never the text's lock. Mirrored with the
     /// membrane (`EditorControlMirror.Membrane`).
     var shareIsReadOnly: Bool = false
+    /// **The window's explicit review mode** (⌘⌥⇧R) alone — `isReviewMode`
+    /// is also forced on where the text's posture refuses. The figure grid's
+    /// gate reads only this (R7c-6: the figure's posture and the text's are
+    /// independent). Mirrored with the membrane.
+    var isManualReviewMode: Bool = false
     /// **What this window may offer for the document in the editor** (P3c Task
     /// 5) — mirrored from the drawing posture door with the membrane above, so
     /// the margin card's dispositions follow a demotion or a promotion with no

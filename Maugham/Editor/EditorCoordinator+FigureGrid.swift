@@ -374,7 +374,7 @@ extension EditorCoordinator {
             guard let self, let expansion, self.figureGrid === expansion else { return }
             self.closeFigureGrid()
         }
-        controller.onRefused = { [weak self, weak expansion] in
+        controller.onAccessMayHaveChanged = { [weak self, weak expansion] in
             guard let self, let expansion, self.figureGrid === expansion else { return }
             self.refreshFigureGridAccess()
         }
@@ -607,11 +607,15 @@ extension EditorCoordinator {
 
     /// **The gate's answer for a figure** (`FigureGridGate`): the figure's
     /// drawing posture from the window's door, the share, the editor's modes.
+    /// Review mode is the window's EXPLICIT one only — never the review
+    /// forced where the text is refused (R7c-6: a Mac that may change the
+    /// figure but not the text around it gets an editable grid, its caption
+    /// locked).
     func figureGridGateMode(figureId: String, parked: Bool, hostClosed: Bool) -> FigureGridGate.Mode {
         FigureGridGate.mode(
             figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
             parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
-            isReviewMode: isReviewMode, isTranslationReview: isTranslationReview)
+            isReviewMode: isManualReviewMode, isTranslationReview: isTranslationReview)
     }
 
     /// The gate over a visit's own host.

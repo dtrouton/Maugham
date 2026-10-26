@@ -25,7 +25,9 @@ import MaughamCore
 ///   a read-only grid selects and scrolls, its bars disabled, and a key or
 ///   act that would change the figure is answered with the reason line and
 ///   writes nothing. A write the host refuses mid-visit is said, the cell
-///   shows the host's value again, and `onRefused` has the gate asked again.
+///   shows the host's value again, and `onAccessMayHaveChanged` has the gate
+///   asked again — as does any change of the figure's drawn posture (a
+///   trust change, *Edit Anyway*), card or no card.
 @MainActor
 final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
 
@@ -56,8 +58,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// Told when the grid folds (Esc on a selected cell, Done).
     var onFold: (() -> Void)?
     /// Told after the host refused a write (the figure's door, a park, a
-    /// close): the coordinator asks the gate again.
-    var onRefused: (() -> Void)?
+    /// close) and when the figure's drawn posture changed: the coordinator
+    /// asks the gate again.
+    var onAccessMayHaveChanged: (() -> Void)?
+    /// The re-ask a posture change scheduled (a test awaits it).
+    private(set) var postureChange: Task<Void, Never>?
 
     /// What the gate last said (`.editable` or `.readOnly`; at `.noExpand`
     /// the coordinator folds instead), and whether the caption, the line's
@@ -118,6 +123,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         bars.showLine(number: line.number, caption: line.caption, name: name)
         refreshBars()
         observeHost()
+        observeTheDoor()
     }
 
     /// **End the visit**: stop observing the host. The host stays the window's.
@@ -633,13 +639,35 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// A write that failed: said, and — when the host refused it at its door
     /// (the figure's posture, a park, a close) — the cells shown as the host
-    /// holds them and the gate asked again (`onRefused`).
+    /// holds them and the gate asked again (`onAccessMayHaveChanged`).
     private func refused(_ error: Error) {
         say(error)
         guard error is FigureEditRefused || error is FigureParkedRefused || error is DocumentNotWritableError
         else { return }
         gridView.reloadData()
-        onRefused?()
+        onAccessMayHaveChanged?()
+    }
+
+    /// **The figure's drawn posture, observed** (the window's door, read as
+    /// a view reads it): a trust change bumps the door's epoch and *Edit
+    /// Anyway* lifts a yield, neither of which need move a card. Re-armed
+    /// after each change; the gate is asked on the next turn.
+    private func observeTheDoor() {
+        guard !isClosed, let store else { return }
+        let figureId = figureId
+        withObservationTracking {
+            _ = store.posture(forDocId: figureId).allows(.editFigure)
+        } onChange: { [weak self] in
+            // The door is the main actor's: its change is announced there.
+            MainActor.assumeIsolated {
+                guard let self, !self.isClosed else { return }
+                self.postureChange = Task { @MainActor [weak self] in
+                    guard let self, !self.isClosed else { return }
+                    self.onAccessMayHaveChanged?()
+                    self.observeTheDoor()
+                }
+            }
+        }
     }
 
     /// A refusal as a notice; a sort's refusal says itself (`FigureSortRefused`).

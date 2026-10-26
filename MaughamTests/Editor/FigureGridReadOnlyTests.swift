@@ -9,9 +9,11 @@ import SwiftUI
 /// the editor's modes and the visit's host; a read-only grid selects and
 /// scrolls, its bars disabled, typing answered with the reason line; the
 /// gate asked again at a `figureCardVersion` edge, a mode flip and a write
-/// the host refused. Keys go down the real path (`window.sendEvent`); the
-/// edge is the coordinator's verb (`setFigureCardVersion`); no click is
-/// synthesised and nothing waits on a clock.
+/// the host refused, and whenever the figure's drawn posture changes (card
+/// or no card). Keys go down the real path (`window.sendEvent`); the edge is
+/// the coordinator's verb (`setFigureCardVersion`) and a posture change's
+/// re-ask is awaited through its handle; no click is synthesised and nothing
+/// waits on a clock.
 @MainActor
 final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
 
@@ -79,6 +81,11 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         return CellKey(row: table.rows[row - 1], column: table.columns[column - 1])
     }
 
+    /// The re-ask the last posture change scheduled, landed.
+    private func reasked(_ c: FigureGridController) async {
+        await c.postureChange?.value
+    }
+
     private func edge(_ m: Mounted) {
         m.coordinator.setFigureCardVersion(m.coordinator.figureCardVersion + 1)
     }
@@ -125,8 +132,8 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
     /// yields to Sam) expands read-only: the arrows select and the viewport
     /// scrolls, the bars are disabled, typing writes nothing and is answered
     /// with the reason line. Trust arrives mid-visit (*Edit Anyway*): the
-    /// next `figureCardVersion` edge asks again and the grid is editable.
-    func test_reviewFocus3_anotherAuthorsFigureExpandsReadOnly_trustArrivingReasksAtTheEdge() async throws {
+    /// posture change asks again — no card moved — and the grid is editable.
+    func test_reviewFocus3_anotherAuthorsFigureExpandsReadOnly_trustArrivingReasks() async throws {
         let m = try await mount(rows: 40)
         try await samWritesTheChapter(m)
         let c = try await expand(m)
@@ -155,11 +162,12 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         XCTAssertEqual(c.host.state, before, "nothing was written")
         XCTAssertEqual(c.bars.nameField.stringValue, "t")
 
-        // Trust arrives: Edit Anyway on the piece. The drawn posture moves at
-        // once; the grid asks again at the next card edge.
+        // Trust arrives: Edit Anyway on the piece. No card changes; the drawn
+        // posture does, and the grid asks again.
+        let version = m.coordinator.figureCardVersion
         try documentStore(m).overrideYield(docId: try chapterId(m))
-        XCTAssertEqual(c.mode, .readOnly(.notYours), "nothing re-asks before the edge")
-        edge(m)
+        await reasked(c)
+        XCTAssertEqual(m.coordinator.figureCardVersion, version, "no card edge")
         assertEditable(c)
         press(m, "7")
         press(m, "\r", code: 36)
@@ -185,25 +193,60 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
 
         m.coordinator.setLockEditing(false)
         try await samWritesTheChapter(m)
-        edge(m)
+        await reasked(c)
         assertReadOnly(c, .notYours)
         XCTAssertTrue(c.bars.captionField.isEditable, "the figure refused, the caption is still the text's")
     }
 
     // MARK: - Every mode
 
-    /// Review mode expands read-only, and leaving it gives the grid back.
-    func test_reviewModeIsReadOnly_flippedMidVisit() async throws {
+    /// The window's explicit review mode (⌘⌥⇧R) expands read-only, and
+    /// leaving it gives the grid back.
+    func test_explicitReviewModeIsReadOnly_flippedMidVisit() async throws {
         let m = try await mount()
         m.coordinator.setReviewMode(true)
+        m.coordinator.setManualReviewMode(true)
         let c = try await expand(m)
         assertReadOnly(c, .reviewMode)
         XCTAssertFalse(c.bars.captionField.isEditable, "review mode refuses the text too")
         m.coordinator.setReviewMode(false)
+        m.coordinator.setManualReviewMode(false)
         assertEditable(c)
         XCTAssertTrue(c.bars.captionField.isEditable)
         m.coordinator.setReviewMode(true)
+        m.coordinator.setManualReviewMode(true)
         assertReadOnly(c, .reviewMode)
+    }
+
+    /// **The two postures are independent** (R7c-6): a Mac that may change
+    /// the figure but not the text around it — the membrane locked, review
+    /// forced on by the text's posture, the window's own review mode off —
+    /// gets an EDITABLE grid whose caption field is locked.
+    func test_aTextRefusedButFigureAllowedMacGetsAnEditableGridWithALockedCaption() async throws {
+        let m = try await mount()
+        m.coordinator.setLockEditing(true)
+        m.coordinator.setReviewMode(true)   // forced by the membrane, not the window's toggle
+        let c = try await expand(m)
+        assertEditable(c)
+        XCTAssertFalse(c.bars.captionField.isEditable, "the caption is the text's")
+        press(m, "8")
+        press(m, "\r", code: 36)
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table[cellKey(c, 1, 1)]?.content, .value(.number(8)), "the cells are hers")
+    }
+
+    /// **A trust change that changes no card re-asks** (the door's epoch):
+    /// Sam admitted to the chapter mid-visit turns the grid read-only with
+    /// no `figureCardVersion` edge.
+    func test_aTrustChangeThatChangesNoCardReasks() async throws {
+        let m = try await mount()
+        let c = try await expand(m)
+        assertEditable(c)
+        let version = m.coordinator.figureCardVersion
+        try await samWritesTheChapter(m)
+        await reasked(c)
+        XCTAssertEqual(m.coordinator.figureCardVersion, version, "no card edge")
+        assertReadOnly(c, .notYours)
     }
 
     /// A read-only share is read-only.
@@ -281,16 +324,18 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         assertReadOnly(c, .parked)
     }
 
-    /// Turning read-only at an edge over an open edit closes it, and the
-    /// typing is said with the reason — never lost.
+    /// Turning read-only over an open edit (a trust change) closes it, and
+    /// the typing is said with the reason — never lost.
     func test_anEditOpenWhenTheGridTurnsReadOnlyIsSaidWithItsText() async throws {
         let m = try await mount()
         let c = try await expand(m)
         c.handle(.click(cellKey(c, 2, 2), extend: false))
         c.handle(.type("42"))
         c.handle(.editTextChanged("42"))
-        try await samWritesTheChapter(m)
-        let said = await notices { edge(m) }
+        let said = try await notices {
+            try await samWritesTheChapter(m)
+            await reasked(c)
+        }
         XCTAssertEqual(said, ["Couldn't write “42” in B2 — \(FigureGridGate.Reason.notYours.sentence)"])
         XCTAssertEqual(c.model.edit, .idle)
         XCTAssertTrue(c.gridView.cellEditor.isHidden)
