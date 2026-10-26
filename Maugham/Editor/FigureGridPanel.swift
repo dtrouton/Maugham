@@ -122,7 +122,7 @@ final class FigureGridDimView: NSView {
         didSet { if hole != oldValue { needsDisplay = true } }
     }
     var tint: NSColor = .textBackgroundColor {
-        didSet { needsDisplay = true }
+        didSet { if tint != oldValue { needsDisplay = true } }
     }
 
     override var isFlipped: Bool { true }

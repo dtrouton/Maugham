@@ -202,6 +202,9 @@ extension EditorCoordinator {
             // not a keystroke, so they are checked here as at the settle.
             refreshProblemMarks()
         }
+        // The expanded grid follows its line once this paint has laid the
+        // rooms above it out (report plan 7c Task 6, review I1).
+        if figureGrid != nil { layoutFigureGrid() }
         // Fire element callback: text edits can reclassify the line under the
         // cursor without moving the selection, so we must fire here too (not
         // only from textViewDidChangeSelection). Compute stays live on both
@@ -301,6 +304,7 @@ extension EditorCoordinator {
         defer {
             refreshProblemMarks()
             if figureRoomsWaitForTheSettle { refreshFigureRooms() }
+            if figureGrid != nil { layoutFigureGrid() }   // after the settle paint (review I1)
             // Typing on a figure line moved its syntax: show it where it is now.
             refreshFigureSyntaxUnfade(force: true)
         }

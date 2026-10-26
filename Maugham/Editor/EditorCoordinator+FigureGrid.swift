@@ -249,7 +249,7 @@ extension EditorCoordinator {
         for mark in FigureThumbnailLayout.marks(figureThumbnailMarks, intersecting: chars)
         where mark.lineRange.length > 0 && NSMaxRange(mark.lineRange) <= storage.length
             && mark.lineRange.location != figureGrid?.lineLocation
-            && figureCardModel?(mark.path)?.kind == .table {
+            && Self.showsATableCard(figureCardModel?(mark.path), path: mark.path, opening: figureGridOpening) {
             let last = layoutManager.glyphIndexForCharacter(at: NSMaxRange(mark.lineRange) - 1)
             let bottom = layoutManager.lineFragmentUsedRect(forGlyphAt: last, effectiveRange: nil).maxY + origin.y
             cards.append(.init(lineLocation: mark.lineRange.location, frame: FigureCardHit.frame(
@@ -257,6 +257,14 @@ extension EditorCoordinator {
                 columnX: origin.x + padding, columnWidth: container.size.width - 2 * padding)))
         }
         return FigureCardHit.line(at: point, in: cards)
+    }
+
+    /// A table's card, or a table figure whose card the cache has not filled
+    /// yet (its placeholder expands as Return on the line would, review M6).
+    private static func showsATableCard(_ model: FigureCardModel?, path: String,
+                                        opening: FigureGridOpening?) -> Bool {
+        if let model { return model.kind == .table }
+        return opening?.tableFigureId(path) != nil
     }
 
     /// **Return inside a table figure's line expands it** (R7c-3); at the
@@ -314,6 +322,12 @@ extension EditorCoordinator {
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         expansion.panel = panel
         textView.addSubview(panel, positioned: .above, relativeTo: expansion.dim)
+        // A room guessed before the card was cached grows to the table (M3).
+        let room = FigureGridPanel.room(rows: controller.host.state.table.rows.count, typography: typography)
+        if room > expansion.room {
+            expansion.room = room
+            relayoutFigureGridLine()
+        }
         layoutFigureGrid()
         controller.gridView.reloadData()
         textView.window?.makeFirstResponder(controller.gridView)
@@ -421,8 +435,10 @@ extension EditorCoordinator {
         let within = expansion.refindWithin
             ?? text.lineRange(for: NSRange(location: min(expansion.lineLocation, text.length), length: 0))
         let names = figureGridOpening?.tableFigureId
-        let candidates = marks.filter { mark in
-            (NSLocationInRange(mark.lineRange.location, within) || mark.lineRange.location == within.location)
+        // An empty run means nothing replaced the line: it is gone, and the
+        // line after it — even the same figure's — never takes the grid (M1).
+        let candidates = within.length == 0 ? [] : marks.filter { mark in
+            NSLocationInRange(mark.lineRange.location, within)
                 && (mark.path == expansion.path || names?(mark.path) == expansion.figureId)
         }
         guard let nearest = candidates.min(by: {

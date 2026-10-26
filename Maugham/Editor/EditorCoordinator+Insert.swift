@@ -283,8 +283,10 @@ extension EditorCoordinator {
                 await Self.discard(birth, because: .refused, report: report)
                 return
             }
-            // Spec §6.4: the new table expands in place (report plan 7c Task 6).
-            self.expandFigureGrid(lineAt: landed)
+            // Spec §6.4: the new table expands in place (report plan 7c Task 6)
+            // — for a writer still where they asked. A writer who moved on
+            // keeps the focus: the line lands as a card (review I2 ruling).
+            if !writerMoved { self.expandFigureGrid(lineAt: landed) }
         }
         tableFigureTask = task
         return task

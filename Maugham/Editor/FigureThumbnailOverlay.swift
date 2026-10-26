@@ -878,6 +878,8 @@ extension EditorCoordinator {
         figureRoomRefreshCount += touched.count
         holdTrailingFigureRoom(in: textView)
         figureThumbnailOverlay?.needsDisplay = true
+        // A room that moved above the expanded grid moves its line (review I1).
+        if !touched.isEmpty, figureGrid != nil { layoutFigureGrid() }
     }
 
     /// Size the text view for the trailing figure's room: a room that shrank
