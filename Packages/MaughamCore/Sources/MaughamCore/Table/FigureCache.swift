@@ -172,14 +172,18 @@ public struct FigureWorkbook: Sendable {
     /// **Lay a fresher state of figure `id` over its read** — an open host's fold.
     /// Its table and pins replace the read ones and its parked status wins, so `parked` stays
     /// the one answer to "which figures are in Research" for whoever reads this book.
-    public mutating func overlay(_ state: FigureState, id: String) {
+    /// Returns every address, in any figure, whose value changed — what the in-place grid
+    /// repaints when it advances its book by its host's state (report plan 7c Task 3).
+    @discardableResult
+    public mutating func overlay(_ state: FigureState, id: String) -> Set<CellAddress> {
         let readers = pins.setPark(state.parked?.cycle, figure: id)
         let moved = pins.set(state.pins, home: id)
         workbook.setPins(pins)
-        workbook.setParked(state.parked != nil, id: id)
-        workbook.setTable(state.table, id: id)
-        for source in moved { workbook.pinsChanged(home: id, research: source) }
+        var changed = workbook.setParked(state.parked != nil, id: id)
+        changed.formUnion(workbook.setTable(state.table, id: id))
+        for source in moved { changed.formUnion(workbook.pinsChanged(home: id, research: source)) }
         // A new park cycle: the readers' pins from the last one went inert.
-        for home in readers { workbook.pinsChanged(home: home, research: id) }
+        for home in readers { changed.formUnion(workbook.pinsChanged(home: home, research: id)) }
+        return changed
     }
 }

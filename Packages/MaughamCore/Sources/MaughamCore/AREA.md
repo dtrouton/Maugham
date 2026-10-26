@@ -197,6 +197,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureRangeAnchors.swift` — a row reorder keeps each range's positional span: own ranges re-anchored, another figure's reported.
 - `FigureGridModel.swift` — the in-place grid's keys (spec §6.3) as effects: selection by ids, the cell edit, references composed with arrows or clicks; `tableChanged` re-checks the ids.
 - `FigureGridAddress.swift` — a grid cell or range as "B3" / "B2:D9" by live position, and back.
+- `FigureCellEntry.swift` — typed cell text as a `Cell` (prior format kept, a suggestion only over general, a formula error at its offset in the text), and the formula bar's text back.
 - `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin), and a visit's inverses as one all-or-nothing undo.
 
 ### Inbox and capture
