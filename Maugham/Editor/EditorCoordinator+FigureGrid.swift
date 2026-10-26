@@ -25,6 +25,11 @@ struct FigureGridOpening {
     /// The table figure a line's path names now (the book's list, live, so a
     /// figure just renamed is found on its new path), or nil.
     var tableFigureId: @MainActor (String) -> String?
+    /// **May this Mac change the figure?** Its drawing posture, asked of the
+    /// window's one door (`DocumentStore.posture(forDocId:)`) for
+    /// `.allows(.editFigure)` — never a rung (tripwires 47, 51). One input of
+    /// `FigureGridGate`.
+    var figureMayEdit: @MainActor (String) -> Bool
     /// Opens a visit on a figure (`FigureGridController.open`).
     var open: @MainActor (_ figureId: String, _ typography: TypographySettings,
                           _ line: FigureGridController.Line,
@@ -39,6 +44,9 @@ struct FigureGridOpening {
                 guard let projectStore else { return nil }
                 return tableFigureId(linePath: linePath, documentPath: documentPath,
                                      figures: projectStore.manifest.figures ?? [])
+            },
+            figureMayEdit: { [weak store] figureId in
+                store?.posture(forDocId: figureId).allows(.editFigure) ?? false
             },
             open: { [weak store, weak projectStore] figureId, typography, line, undoManager in
                 guard let store, let projectStore else { throw CancellationError() }
@@ -224,9 +232,11 @@ extension EditorCoordinator {
 
     /// **Expand the table figure on the line holding `location`** into its
     /// grid. True when it is (or already was) expanded there. False — nothing
-    /// changed — off a manuscript that shows cards, in translation review
-    /// (R7c-5), on a line that is not a table figure's, or while the tokens
-    /// describe an earlier text. Another expanded line folds first, its open
+    /// changed — off a manuscript that shows cards, where the gate says the
+    /// card stays a card (translation review, R7c-5), on a line that is not a
+    /// table figure's, or while the tokens describe an earlier text. A figure
+    /// this Mac may not change, or one parked in Research, expands read-only
+    /// (`FigureGridGate`). Another expanded line folds first, its open
     /// edit committed; one that will not fold (a formula that will not read)
     /// keeps this one from expanding.
     ///
@@ -234,12 +244,14 @@ extension EditorCoordinator {
     /// caret and scroll still — and the grid mounts when its visit has opened.
     @discardableResult
     func expandFigureGrid(lineAt location: Int) -> Bool {
-        guard !isDetached, showsFigureThumbnails, !isTranslationReview, !tokensDescribeAnEarlierText,
+        guard !isDetached, showsFigureThumbnails, !tokensDescribeAnEarlierText,
               let opening = figureGridOpening, let textView,
               let mark = figureLineMark(containing: location),
               let figureId = opening.tableFigureId(mark.path) else { return false }
         let model = figureCardModel?(mark.path)
-        if let model, model.kind != .table { return false }   // parked, removed, ambiguous
+        if let model, model.kind != .table, model.kind != .parked { return false }   // removed, ambiguous
+        guard figureGridGateMode(figureId: figureId, parked: model?.kind == .parked, hostClosed: false)
+                != .noExpand else { return false }
         if let current = figureGrid {
             if current.lineLocation == mark.lineRange.location {
                 if let grid = current.controller?.gridView { textView.window?.makeFirstResponder(grid) }
@@ -299,11 +311,12 @@ extension EditorCoordinator {
         return FigureCardHit.line(at: point, in: cards)
     }
 
-    /// A table's card, or a table figure whose card the cache has not filled
+    /// A table's card (or a parked table's placeholder, which expands
+    /// read-only), or a table figure whose card the cache has not filled
     /// yet (its placeholder expands as Return on the line would, review M6).
     private static func showsATableCard(_ model: FigureCardModel?, path: String,
                                         opening: FigureGridOpening?) -> Bool {
-        if let model { return model.kind == .table }
+        if let model, model.kind != .parked { return model.kind == .table }
         return opening?.tableFigureId(path) != nil
     }
 
@@ -361,6 +374,17 @@ extension EditorCoordinator {
             guard let self, let expansion, self.figureGrid === expansion else { return }
             self.closeFigureGrid()
         }
+        controller.onRefused = { [weak self, weak expansion] in
+            guard let self, let expansion, self.figureGrid === expansion else { return }
+            self.refreshFigureGridAccess()
+        }
+        // The gate asked again over the visit's own host (parked, closed).
+        let mode = figureGridGateMode(for: controller)
+        guard mode != .noExpand else {
+            closeFigureGrid()   // closes the visit too
+            return
+        }
+        controller.setAccess(mode, captionMayEdit: figureGridCaptionMayEdit)
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         expansion.panel = panel
         textView.addSubview(panel, positioned: .above, relativeTo: expansion.dim)
@@ -568,12 +592,55 @@ extension EditorCoordinator {
     /// only, never on a keystroke). The caller re-lays out the line.
     func figureGridCardsChanged() {
         guard let expansion = figureGrid, let controller = expansion.controller else { return }
+        // A trust change reaches the editor here: the gate is asked again.
+        refreshFigureGridAccess()
+        guard figureGrid === expansion else { return }
         Task { @MainActor in await controller.figureCardsChanged() }
         let room = FigureGridPanel.room(rows: controller.host.state.table.rows.count, typography: typography)
         if room > expansion.room {
             expansion.room = room
             layoutFigureGrid()
         }
+    }
+
+    // MARK: Read-only (Task 8)
+
+    /// **The gate's answer for a figure** (`FigureGridGate`): the figure's
+    /// drawing posture from the window's door, the share, the editor's modes.
+    func figureGridGateMode(figureId: String, parked: Bool, hostClosed: Bool) -> FigureGridGate.Mode {
+        FigureGridGate.mode(
+            figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
+            parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
+            isReviewMode: isReviewMode, isTranslationReview: isTranslationReview)
+    }
+
+    /// The gate over a visit's own host.
+    private func figureGridGateMode(for controller: FigureGridController) -> FigureGridGate.Mode {
+        figureGridGateMode(figureId: controller.figureId, parked: controller.host.state.parked != nil,
+                           hostClosed: controller.host.isClosed)
+    }
+
+    /// The caption is the line's text: the text's membrane decides (R7c-6).
+    var figureGridCaptionMayEdit: Bool {
+        EditorEditPolicy.allowsTextMutation(
+            isReviewMode: isReviewMode, lockEditing: lockEditing, isTranslationReview: isTranslationReview)
+    }
+
+    /// **Ask the gate again** for the expanded grid — at a `figureCardVersion`
+    /// edge, a mode flag flipping, a write the host refused. A grid the gate
+    /// no longer lets open folds (forced: an open edit that reads is
+    /// committed, one that will not is said); otherwise the visit takes the
+    /// answer, turning read-only or back.
+    func refreshFigureGridAccess() {
+        guard let expansion = figureGrid, let controller = expansion.controller else { return }
+        let mode = figureGridGateMode(for: controller)
+        if mode == .noExpand {
+            forceFoldFigureGrid(.navigation)
+            return
+        }
+        let caption = figureGridCaptionMayEdit
+        guard mode != controller.mode || caption != controller.captionMayEdit else { return }
+        controller.setAccess(mode, captionMayEdit: caption)
     }
 
     /// **Frame the grid at its line's bottom** and the dimming around it:

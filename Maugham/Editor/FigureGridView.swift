@@ -59,6 +59,16 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     /// The last cell a drag extended to, so a drag reports each cell once.
     private var dragCell: CellKey?
 
+    /// A read-only grid (Task 8) offers no column resize: no edge cursor, and
+    /// a press on an edge is a press on its letter.
+    var mayResizeColumns = true {
+        didSet {
+            guard mayResizeColumns != oldValue else { return }
+            resizing = nil
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
     init(typography: TypographySettings) {
         font = FigureCardMetrics.font(for: typography)
         rowHeight = FigureCardMetrics.rowHeight(for: typography)
@@ -304,7 +314,7 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let layout = layout
-        if let column = layout.resizeBoundary(at: point),
+        if mayResizeColumns, let column = layout.resizeBoundary(at: point),
            let id = dataSource?.figureGridTable.columns[safe: column] {
             resizing = (column, id, layout.columnWidths[column])
             return
@@ -356,6 +366,7 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     }
 
     override func resetCursorRects() {
+        guard mayResizeColumns else { return }
         let layout = layout
         for c in layout.visibleColumns {
             let edge = layout.letterFrame(column: c).maxX

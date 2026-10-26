@@ -21,6 +21,11 @@ import MaughamCore
 /// - **The caption** is text, so it is committed by the coordinator through
 ///   Route A (`Line.commitCaption`, membrane-gated); **the name** through
 ///   `ProjectStore.renameFigure`, whose refusal is said and the field put back.
+/// - **Read-only** (Task 8, `FigureGridGate`): the coordinator sets the mode;
+///   a read-only grid selects and scrolls, its bars disabled, and a key or
+///   act that would change the figure is answered with the reason line and
+///   writes nothing. A write the host refuses mid-visit is said, the cell
+///   shows the host's value again, and `onRefused` has the gate asked again.
 @MainActor
 final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
 
@@ -50,6 +55,15 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// Told when the grid folds (Esc on a selected cell, Done).
     var onFold: (() -> Void)?
+    /// Told after the host refused a write (the figure's door, a park, a
+    /// close): the coordinator asks the gate again.
+    var onRefused: (() -> Void)?
+
+    /// What the gate last said (`.editable` or `.readOnly`; at `.noExpand`
+    /// the coordinator folds instead), and whether the caption, the line's
+    /// text, may be changed (R7c-6).
+    private(set) var mode: FigureGridGate.Mode = .editable
+    private(set) var captionMayEdit = true
 
     /// Where the open edit is being typed: the cell editor or the formula bar.
     private enum EditSource { case cell, bar }
@@ -202,6 +216,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     }
 
     func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat) {
+        if let reason = mode.readOnlyReason { return answer(reason) }
         enqueue { [host, undoManager] in
             try await host.setColumnWidth(column, Double(width), undoManager: undoManager())
         }
@@ -212,6 +227,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     @discardableResult
     func handle(_ key: FigureGridKey) -> Bool {
         syncFromHost()
+        if let reason = mode.readOnlyReason { return handleReadOnly(key, reason) }
         if case .editTextChanged(let text) = key {
             bars.clearError()
             if editSource == .cell { bars.setFormulaText(text) }
@@ -219,6 +235,83 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let effects = model.reduce(key)
         execute(effects)
         return effects != [.fieldEditorKeeps]
+    }
+
+    // MARK: Read-only (Task 8)
+
+    /// **The gate's answer for this visit** (the coordinator's). Read-only
+    /// disables the bars that change the figure, shows the reason line and
+    /// takes the column resize away; the caption follows `captionMayEdit`.
+    /// Turning read-only over an open edit closes it, and typing that would
+    /// have been written is said as a notice carrying its text.
+    func setAccess(_ mode: FigureGridGate.Mode, captionMayEdit: Bool) {
+        let reason = mode.readOnlyReason
+        if let reason, self.mode.readOnlyReason == nil { closeOpenEdit(because: reason) }
+        self.mode = mode
+        self.captionMayEdit = captionMayEdit
+        bars.setAccess(cellsMayEdit: reason == nil, captionMayEdit: captionMayEdit)
+        bars.showReason(reason?.sentence)
+        gridView.mayResizeColumns = reason == nil
+    }
+
+    /// A key on a read-only grid: one that only selects or scrolls is the
+    /// model's as ever; one that would edit, clear or insert writes nothing
+    /// and is answered with the reason line (a double-click still selects
+    /// its cell).
+    private func handleReadOnly(_ key: FigureGridKey, _ reason: FigureGridGate.Reason) -> Bool {
+        if case .doubleClick(let cell) = key {
+            execute(model.reduce(.click(cell, extend: false)))
+            answer(reason)
+            return true
+        }
+        var trial = model
+        let effects = trial.reduce(key)
+        if effects.contains(where: Self.changesTheFigure) {
+            answer(reason)
+            return true
+        }
+        model = trial
+        execute(effects)
+        return effects != [.fieldEditorKeeps]
+    }
+
+    /// The reason line, said again.
+    private func answer(_ reason: FigureGridGate.Reason) {
+        bars.showReason(reason.sentence)
+    }
+
+    /// The edit open when the grid turned read-only: closed; changed typing
+    /// is said with the reason, so it is never lost.
+    private func closeOpenEdit(because reason: FigureGridGate.Reason) {
+        let edit: FigureGridEdit
+        switch model.edit {
+        case .idle: return
+        case .editing(let e), .composing(let e, _): edit = e
+        }
+        if edit.text != barText(for: edit.cell) {
+            let address = FigureGridAddress.string(from: edit.cell, to: edit.cell, in: values.table)
+                .map { " in \($0)" } ?? ""
+            MaughamEvent.postNotice("Couldn't write “\(edit.text)”\(address) — \(reason.sentence)",
+                                    projectURL: host.projectURL)
+        }
+        bars.clearError()
+        execute(model.reduce(.escape))
+    }
+
+    /// The model's effects that change the figure.
+    private static func changesTheFigure(_ effect: FigureGridEffect) -> Bool {
+        switch effect {
+        case .beginEdit, .commitEdit, .insertReference, .clear, .insertRow, .insertColumn: return true
+        case .moveSelection, .extendSelection, .scrollTo, .cancelEdit, .fold, .fieldEditorKeeps: return false
+        }
+    }
+
+    /// The bars' acts that change the figure (the caption is the text's).
+    private static func changesTheFigure(_ action: FigureGridBarAction) -> Bool {
+        switch action {
+        case .formulaTextChanged, .format, .decimals, .align, .headerRow, .totalRow, .sum, .name: return true
+        case .formulaCommand, .caption, .done: return false
+        }
     }
 
     // MARK: The bars
@@ -232,6 +325,16 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     @discardableResult
     func perform(_ action: FigureGridBarAction) -> Bool {
         syncFromHost()
+        if let reason = mode.readOnlyReason, Self.changesTheFigure(action) {
+            answer(reason)
+            refreshBars(force: true)
+            bars.nameField.stringValue = name
+            return true
+        }
+        if case .caption = action, !captionMayEdit {
+            bars.captionField.stringValue = line.caption
+            return true
+        }
         switch action {
         case .formulaTextChanged(let text): formulaBarChanged(text)
         case .formulaCommand(let key): return formulaBarCommand(key)
@@ -503,7 +606,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
                 let record = try await projectStore.renameFigure(id: figureId, to: newName)
                 self?.name = record.name
             } catch {
-                self?.say(error)
+                self?.refused(error)
             }
             guard let self else { return }
             self.bars.showLine(number: self.line.number, caption: self.line.caption, name: self.name)
@@ -522,10 +625,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             do {
                 try await act()
             } catch {
-                self?.say(error)
+                self?.refused(error)
             }
             self?.syncFromHost()
         }
+    }
+
+    /// A write that failed: said, and — when the host refused it at its door
+    /// (the figure's posture, a park, a close) — the cells shown as the host
+    /// holds them and the gate asked again (`onRefused`).
+    private func refused(_ error: Error) {
+        say(error)
+        guard error is FigureEditRefused || error is FigureParkedRefused || error is DocumentNotWritableError
+        else { return }
+        gridView.reloadData()
+        onRefused?()
     }
 
     /// A refusal as a notice; a sort's refusal says itself (`FigureSortRefused`).

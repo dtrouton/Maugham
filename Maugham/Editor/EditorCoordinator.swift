@@ -39,6 +39,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
     private(set) var lockEditing = false
 
+    /// A read-only iCloud share, apart from `lockEditing` (which it is one
+    /// input of): the figure grid's gate asks it on its own (report plan 7c
+    /// Task 8). Use `setShareIsReadOnly(_:)`.
+    private(set) var shareIsReadOnly = false
+
     /// Translation-review posture (Task 11): when true the editor is displaying a
     /// DERIVED translated surface (`translatedText ?? sourceText`, joined) instead
     /// of the source manuscript, so the buffer is read-only — `shouldChangeTextIn`
@@ -1184,6 +1189,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard lockEditing != locked else { return }
         lockEditing = locked
         closeCompletionIfTheMembraneRefuses()
+        refreshFigureGridAccess()
+    }
+
+    /// The share's read-only flag (`EditorControl.shareIsReadOnly`).
+    /// Self-guarded (D2); only the figure grid's gate reads it.
+    func setShareIsReadOnly(_ readOnly: Bool) {
+        guard shareIsReadOnly != readOnly else { return }
+        shareIsReadOnly = readOnly
+        refreshFigureGridAccess()
     }
 
     /// Whether a checkbox click may flip its bracket: the membrane's answer
@@ -1212,6 +1226,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard isTranslationReview != enabled else { return false }
         isTranslationReview = enabled
         closeCompletionIfTheMembraneRefuses()
+        refreshFigureGridAccess()
         // Translation review shows no caret line's syntax (its dimming owns
         // the temporary foreground); leaving it shows the caret's line again.
         refreshFigureSyntaxUnfade(force: true)
@@ -1222,6 +1237,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard isReviewMode != enabled else { return }
         isReviewMode = enabled
         closeCompletionIfTheMembraneRefuses()
+        refreshFigureGridAccess()
         guard let textView else { return }
         // Re-style from scratch so any focus-dim attributes from the prior
         // posture are cleared, then re-apply focus-dim only when not in review.
@@ -1284,6 +1300,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // properties — the exact set `applyControl` consumes. Touch each
             // explicitly so the tracked set never silently widens.
             _ = control.lockEditing
+            _ = control.shareIsReadOnly
             _ = control.isReviewMode
             _ = control.posture
             _ = control.theme
@@ -1320,6 +1337,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func applyControl(_ c: EditorControl) {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
+        setShareIsReadOnly(c.shareIsReadOnly) // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
         updateReviewCardVerbs(for: c.posture) // self-guarded
         // Translation review is a pure membrane flip driven off language

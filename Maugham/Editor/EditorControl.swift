@@ -19,6 +19,12 @@ final class EditorControl {
     // Posture (membrane).
     var isReviewMode: Bool = false
     var lockEditing: Bool = false
+    /// **A read-only iCloud share** — one of `lockEditing`'s two inputs, kept
+    /// apart because a table figure's grid answers to it on its own (report
+    /// plan 7c Task 8, `FigureGridGate`): the cells follow the figure's
+    /// posture and the share, never the text's lock. Mirrored with the
+    /// membrane (`EditorControlMirror.Membrane`).
+    var shareIsReadOnly: Bool = false
     /// **What this window may offer for the document in the editor** (P3c Task
     /// 5) — mirrored from the drawing posture door with the membrane above, so
     /// the margin card's dispositions follow a demotion or a promotion with no

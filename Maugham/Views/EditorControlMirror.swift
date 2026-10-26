@@ -20,6 +20,10 @@ enum EditorControlMirror {
     struct Membrane: Equatable {
         let lockEditing: Bool
         let isReviewMode: Bool
+        /// The share input on its own, for the figure grid's gate
+        /// (`FigureGridGate`), which answers to the figure's posture and
+        /// never to the text's.
+        var shareIsReadOnly: Bool = false
     }
 
     static func membrane(
@@ -28,7 +32,8 @@ enum EditorControlMirror {
         let mayWrite = posture?.allows(.writeText) ?? true
         return Membrane(
             lockEditing: !mayWrite || shareIsReadOnly,
-            isReviewMode: manualReview || !mayWrite)
+            isReviewMode: manualReview || !mayWrite,
+            shareIsReadOnly: shareIsReadOnly)
     }
 }
 
@@ -85,6 +90,7 @@ struct EditorControlMirrorModifier: ViewModifier {
             .onChange(of: membrane) { _, membrane in
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
+                editorControl.shareIsReadOnly = membrane.shareIsReadOnly
             }
             .onChange(of: posture) { _, posture in editorControl.posture = posture }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
@@ -103,6 +109,7 @@ struct EditorControlMirrorModifier: ViewModifier {
                 // transitions, not on first render).
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
+                editorControl.shareIsReadOnly = membrane.shareIsReadOnly
                 editorControl.posture = posture
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography

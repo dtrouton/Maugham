@@ -442,7 +442,7 @@ final class PostureMembraneTests: XCTestCase {
                        "a reviewer's Mac opens locked, in review mode")
         XCTAssertEqual(m(ownPiece), .init(lockEditing: false, isReviewMode: false),
                        "restricted (may not start a piece) is not locked — ruling E")
-        XCTAssertEqual(m(author, share: true), .init(lockEditing: true, isReviewMode: false),
+        XCTAssertEqual(m(author, share: true), .init(lockEditing: true, isReviewMode: false, shareIsReadOnly: true),
                        "a read-only share is its own lock and claims no role")
         XCTAssertEqual(m(nil), .init(lockEditing: false, isReviewMode: false),
                        "no manuscript document: nothing to lock")

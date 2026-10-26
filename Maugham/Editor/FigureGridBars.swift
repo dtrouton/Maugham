@@ -140,6 +140,9 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
     let addressLabel = NSTextField(labelWithString: "")
     let formulaField = NSTextField(string: "")
     let errorLabel = NSTextField(labelWithString: "")
+    /// Why the grid may be read but not changed (`FigureGridGate.Reason`), in
+    /// the formula bar while the grid is read-only.
+    let reasonLabel = NSTextField(labelWithString: "")
 
     let bottomBar = NSStackView()
     let numberLabel = NSTextField(labelWithString: "")
@@ -180,6 +183,9 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         errorLabel.textColor = .systemRed
         errorLabel.isHidden = true
         errorLabel.lineBreakMode = .byTruncatingTail
+        reasonLabel.textColor = .secondaryLabelColor
+        reasonLabel.isHidden = true
+        reasonLabel.lineBreakMode = .byTruncatingTail
         for field in [formulaField, captionField, nameField] {
             field.delegate = self
             field.usesSingleLineMode = true
@@ -188,7 +194,7 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         }
         captionField.placeholderString = "Caption"
         nameField.placeholderString = "Name"
-        configure(formulaBar, [addressLabel, formulaField, errorLabel])
+        configure(formulaBar, [addressLabel, formulaField, errorLabel, reasonLabel])
         configure(bottomBar, [numberLabel, captionField, nameField, doneButton])
     }
 
@@ -247,6 +253,33 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
     }
 
     var errorMessage: String? { errorLabel.isHidden ? nil : errorLabel.stringValue }
+
+    // MARK: Read-only (Task 8)
+
+    /// The controls that change the figure — its cells, structure and name —
+    /// follow `cellsMayEdit`; the caption follows `captionMayEdit` (the
+    /// text's membrane), each on its own (R7c-6). Done always folds. A
+    /// read-only formula bar still shows the cell and may be selected.
+    func setAccess(cellsMayEdit: Bool, captionMayEdit: Bool) {
+        for control in [formatPopUp, fewerDecimals, moreDecimals, alignment, headerRow, totalRow, sum] as [NSControl] {
+            control.isEnabled = cellsMayEdit
+        }
+        for (field, mayEdit) in [(formulaField, cellsMayEdit), (nameField, cellsMayEdit), (captionField, captionMayEdit)] {
+            if !mayEdit, field.currentEditor() != nil { field.abortEditing() }
+            field.isEditable = mayEdit
+            field.isSelectable = true
+        }
+        if !captionMayEdit { captionField.stringValue = committedCaption }
+        if !cellsMayEdit { nameField.stringValue = committedName }
+    }
+
+    /// The reason line: shown with a sentence, hidden with nil.
+    func showReason(_ sentence: String?) {
+        reasonLabel.stringValue = sentence ?? ""
+        reasonLabel.isHidden = sentence == nil
+    }
+
+    var reasonMessage: String? { reasonLabel.isHidden ? nil : reasonLabel.stringValue }
 
     // MARK: The writer's acts
 
