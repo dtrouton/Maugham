@@ -598,8 +598,14 @@ final class MaughamTextView: NSTextView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+    /// The text taking the focus folds an expanded grid (report plan 7c
+    /// Task 7) — every `makeFirstResponder(textView)` at once: a click in
+    /// the text, a task, scene or annotation jump, Insert's landing. Its open
+    /// edit is committed; a formula that will not read keeps the grid, and
+    /// the text refuses (R7c-8).
     override func becomeFirstResponder() -> Bool {
-        super.becomeFirstResponder()
+        guard coordinator?.figureGridYieldsToText() != false else { return false }
+        return super.becomeFirstResponder()
     }
 
     /// Recovery spec §4: typing in a read-only recovery view is refused AND
@@ -688,6 +694,12 @@ final class MaughamTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // A click in the text folds an expanded grid (report plan 7c Task 7;
+        // the grid's own room is its panel, a subview, so never reaches
+        // here). The window has offered this view the focus already; a fold
+        // refused there (a formula that will not read) swallows the click, so
+        // no caret moves under the grid.
+        guard coordinator?.figureGridYieldsToText() != false else { return }
         // A double-click on a table figure's card expands it in place (report
         // plan 7c Task 6). The card is decided by geometry
         // (`FigureCardHit`): the character index would land on the next line.

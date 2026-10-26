@@ -423,4 +423,53 @@ final class EditorIntegrationHarnessTests: XCTestCase {
             XCTAssertTrue(a.1?.isEqual(b.1) ?? (b.1 == nil), "paragraph style at \(a.0)")
         }
     }
+
+    /// **The in-place grid** (report plan 7c Task 7): expanding a table card
+    /// into its grid and folding it back are layout and focus only — no
+    /// `applyExternalText`, no typing burst, the text untouched.
+    func test_figureGrid_expandAndFoldFireNoApplyExternalTextAndNoBurst() async throws {
+        let temp = TempDirectory()
+        defer { temp.cleanup() }
+        let url = try await ProjectFactory.createNovelProject(named: "Grid", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: store.url)
+        store.documentStore = ds
+        ds.projectStore = store
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let path = try XCTUnwrap(chapter.path)
+        _ = try await store.createFigure(kind: .table, name: "t", piece: chapter.id, rows: 3, columns: 3)
+        let cards = FigureCardCache()
+        ds.attachFigureCardCache(cards)
+        cards.attach(FigureCardCache.Source(read: { [weak ds] in await ds?.figureCardInputs() }))
+        await cards.idle()
+
+        let text = "Opening.\n\n![Cash](../figures/t.csv){#tbl:t}\n\nAfter."
+        let rig = EditorIntegrationHarness(
+            mode: ProseMode(reservesFigureThumbnails: true), initialText: text, cursorLocation: 0)
+        let coordinator = rig.coordinator
+        coordinator.figureImageResolver = { _ in .notLocal }
+        coordinator.figureCardModel = { cards.model(forLinePath: $0, documentPath: path) }
+        coordinator.figureGridOpening = .window(store: ds, projectStore: store, documentPath: path)
+        coordinator.attach(to: rig.textView)   // a whole-document paint with the cards
+        let line = (text as NSString).range(of: "![Cash](").location
+
+        rig.assertNoApplyExternalText { XCTAssertTrue(coordinator.expandFigureGrid(lineAt: line)) }
+        let grid = try XCTUnwrap(coordinator.figureGrid)
+        await grid.opening?.value
+        let controller = try XCTUnwrap(grid.controller, "the visit opened")
+        XCTAssertFalse(coordinator.isInTypingBurst, "expanding is no typing")
+        XCTAssertNil(coordinator.deferredRestyleTask, "and schedules no settle")
+
+        rig.assertNoApplyExternalText { coordinator.foldFigureGrid(commit: true) }
+        XCTAssertNil(coordinator.figureGrid)
+        XCTAssertFalse(coordinator.isInTypingBurst, "folding is no typing")
+        XCTAssertNil(coordinator.deferredRestyleTask)
+        XCTAssertEqual(rig.currentText, text, "the text is untouched")
+
+        await controller.settleWrites()
+        controller.close()
+        cards.attach(nil)
+        ds.detachFigureCardCache(cards)
+        await ds.close()
+    }
 }

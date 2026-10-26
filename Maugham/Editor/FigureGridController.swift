@@ -126,6 +126,45 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         execute(model.fold(commit: commit))
     }
 
+    /// **A fold that cannot be refused** (the figure line gone, the editor
+    /// torn down): an open edit that reads is committed; one that will not
+    /// is said as a notice carrying its text, then discarded (R7c-8).
+    func foldForced() {
+        if let open = unreadableOpenEdit() {
+            sayUnwritten(open.text, at: open.cell, open.error)
+            execute(model.fold(commit: false))
+        } else {
+            execute(model.fold(commit: true))
+        }
+    }
+
+    /// **The open edit, when committing it would be refused**: a formula
+    /// that will not read, over the table as it is now. Nil with no edit
+    /// open, or one that reads (or is unchanged, which writes nothing).
+    func unreadableOpenEdit() -> (text: String, cell: CellKey, error: FormulaParseError)? {
+        syncFromHost()
+        let edit: FigureGridEdit
+        switch model.edit {
+        case .idle: return nil
+        case .editing(let e), .composing(let e, _): edit = e
+        }
+        let table = values.table
+        guard edit.text != barText(for: edit.cell),
+              case .failure(let error) = FigureCellEntry.cell(
+                from: edit.text, prior: table[edit.cell], table: table, names: names, locale: values.locale)
+        else { return nil }
+        return (edit.text, edit.cell, error)
+    }
+
+    /// **The text was refused the focus** over an edit that will not read:
+    /// the edit opens again in its cell with the keys, the message shown and
+    /// the caret at its offset, as a refused Return leaves it.
+    func showOpenEditError() {
+        guard !isClosed, !isFolded, let open = unreadableOpenEdit() else { return }
+        editSource = .cell
+        reopen(open.text, at: open.cell, open.error)
+    }
+
     /// **A `figureCardVersion` edge**: another figure, a trust change or a
     /// rename may have changed what this one reads — assemble the book again
     /// and repaint what changed.
@@ -305,12 +344,14 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         execute(model.select(cell(active)))
     }
 
-    /// Close whichever field the edit was typed in; the grid takes the keys back.
+    /// Close whichever field the edit was typed in; the grid takes the keys
+    /// back if that field still had them — not when it has already given
+    /// them up to the text, whose taking the focus is folding the grid.
     private func endEdit() {
         gridView.endEditing()
         if editSource == .bar {
             editSource = .cell
-            gridView.window?.makeFirstResponder(gridView)
+            if bars.formulaField.currentEditor() != nil { gridView.window?.makeFirstResponder(gridView) }
         }
     }
 
@@ -371,6 +412,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             reopen(text, at: cell, error)
             return
         }
+        sayUnwritten(text, at: cell, error)
+    }
+
+    /// A notice that carries typing the grid could not write, so it is never lost.
+    private func sayUnwritten(_ text: String, at cell: CellKey, _ error: FormulaParseError) {
         let address = FigureGridAddress.string(from: cell, to: cell, in: values.table).map { " in \($0)" } ?? ""
         MaughamEvent.postNotice("Couldn't write “\(text)”\(address) — \(error.message).", projectURL: host.projectURL)
     }

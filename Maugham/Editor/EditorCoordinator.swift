@@ -1011,6 +1011,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // second pass (textView/tokens are nil'd), but the early return makes
         // the contract explicit and skips the redundant work.
         guard !isDetached else { return }
+        // An expanded grid folds first, while the text view is still here:
+        // its open edit committed, or said as a notice when it will not read.
+        forceFoldFigureGrid(.teardown)
         isDetached = true
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
@@ -1601,6 +1604,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // An open completion list follows a caret inside its trigger, and
         // closes on one that leaves it.
         completionSelectionDidChange(in: textView)
+        // A caret leaving an expanded grid's line before the grid has the keys folds it.
+        figureGridSelectionDidChange(in: textView)
     }
 
     /// AppKit's own completion (`complete:`, which F5 or a direct call reaches) is never

@@ -58,6 +58,32 @@ struct FigureGridOpening {
     }
 }
 
+/// **Why a grid folds** (report plan 7c Task 7, R7c-8): how its open edit is
+/// treated, and what the text is handed.
+enum FigureGridFoldCause {
+    /// Esc or Done, from the grid.
+    case grid
+    /// The text is taking the focus (a click in it, a task or annotation
+    /// jump, Insert's landing — every `makeFirstResponder(textView)`): the
+    /// caller's selection and focus change are left to the caller.
+    case textTookFocus
+    /// The text's caret left the expanded line (a find match selected): the
+    /// caret stays where it was put.
+    case caretLeft
+    /// The figure line left the text.
+    case lineGone
+    /// The editor is torn down: detach, a document switch, the window closing.
+    case teardown
+
+    /// The grid cannot stay: an open formula that will not read is said as a
+    /// notice carrying its text, never kept in a grid with nowhere to be.
+    var isForced: Bool { self == .lineGone || self == .teardown }
+    /// The caret goes to the end of the figure line.
+    var movesTheCaretToTheLine: Bool { self == .grid || self == .lineGone }
+    /// The text takes the focus, when the grid had it.
+    var focusesTheText: Bool { self == .grid || self == .lineGone || self == .caretLeft }
+}
+
 /// **One expansion**: which figure, which line (its start, carried through
 /// every storage edit), the room it holds, and the views on screen.
 @MainActor
@@ -82,6 +108,16 @@ final class FigureGridExpansion {
     let dim = FigureGridDimView()
     /// Opening the visit (the host, the book); a test awaits it.
     var opening: Task<Void, Never>?
+    /// Why the fold under way was asked (Esc and Done reach the teardown
+    /// through the controller's `onFold`, so it is held here).
+    var foldCause: FigureGridFoldCause = .grid
+    /// The text was refused the focus (a formula that will not read): the
+    /// edit shows its error again, with the keys, once that focus change is
+    /// over. A test awaits it.
+    var reshowing: Task<Void, Never>?
+    /// The text's selection when last seen, so only a selection that moves
+    /// (never one re-set where it was) can take the caret off the line.
+    var textSelection: NSRange?
 
     init(figureId: String, lineLocation: Int, path: String, room: CGFloat) {
         self.figureId = figureId
@@ -213,6 +249,7 @@ extension EditorCoordinator {
         let expansion = FigureGridExpansion(
             figureId: figureId, lineLocation: mark.lineRange.location, path: mark.path,
             room: FigureGridPanel.room(rows: rows, typography: typography))
+        expansion.textSelection = textView.selectedRange()
         figureGrid = expansion
         textView.addSubview(expansion.dim)
         relayoutFigureGridLine()
@@ -268,13 +305,15 @@ extension EditorCoordinator {
     }
 
     /// **Return inside a table figure's line expands it** (R7c-3); at the
-    /// line's end, Return inserts a newline as it always has (false here).
+    /// line's end, and at its very start (ruling M4: the writer opening a
+    /// line above), Return inserts a newline as it always has (false here).
     func handleFigureGridCommand(_ selector: Selector, in textView: NSTextView) -> Bool {
         guard selector == #selector(NSResponder.insertNewline(_:)), figureGridOpening != nil else { return false }
         let selection = textView.selectedRange()
         guard let mark = figureLineMark(containing: selection.location),
               NSMaxRange(selection) <= NSMaxRange(mark.lineRange),
-              selection.length > 0 || selection.location < NSMaxRange(mark.lineRange)
+              selection.length > 0
+                || (selection.location > mark.lineRange.location && selection.location < NSMaxRange(mark.lineRange))
         else { return false }
         return expandFigureGrid(lineAt: mark.lineRange.location)
     }
@@ -359,6 +398,7 @@ extension EditorCoordinator {
     /// same teardown through the controller's `onFold`.
     func foldFigureGrid(commit: Bool) {
         guard let expansion = figureGrid else { return }
+        expansion.foldCause = .grid
         if let controller = expansion.controller {
             controller.fold(commit: commit)   // its `.fold` effect closes, through `onFold`
         } else {
@@ -366,14 +406,78 @@ extension EditorCoordinator {
         }
     }
 
+    /// **The text is taking the focus** — `MaughamTextView.becomeFirstResponder`,
+    /// so every `makeFirstResponder(textView)` (a click in the text, a task,
+    /// scene or annotation jump, Insert's landing), and the click itself
+    /// (`mouseDown`). The grid folds, its open edit committed, the caller's
+    /// selection kept (R7c-8). True when the text may take the focus. A
+    /// formula that will not read keeps the grid open: false, and once this
+    /// focus change is over the edit shows its error again, with the keys.
+    func figureGridYieldsToText() -> Bool {
+        guard let expansion = figureGrid else { return true }
+        if let controller = expansion.controller, controller.unreadableOpenEdit() != nil {
+            expansion.reshowing?.cancel()
+            expansion.reshowing = Task { @MainActor [weak controller] in controller?.showOpenEditError() }
+            return false
+        }
+        fold(expansion, as: .textTookFocus)
+        return true
+    }
+
+    /// **The text's caret moved off the expanded line** — a find match
+    /// selected, or the writer's arrows while the visit is still opening:
+    /// the grid folds, its open edit committed, the caret where it was put
+    /// (and the text focused if the grid had the keys). Not for a selection
+    /// an edit carries (typing, a command's landing, a sync), nor one re-set
+    /// where it was.
+    func figureGridSelectionDidChange(in textView: NSTextView) {
+        guard let expansion = figureGrid else { return }
+        let selection = textView.selectedRange()
+        let previous = expansion.textSelection
+        expansion.textSelection = selection
+        guard selection != previous, !isApplyingCommandEdit, !tokensDescribeAnEarlierText else { return }
+        let text = textView.string as NSString
+        let caret = NSRange(location: min(selection.location, text.length), length: 0)
+        guard text.lineRange(for: caret).location != expansion.lineLocation else { return }
+        fold(expansion, as: .caretLeft)
+    }
+
+    /// **A fold the grid cannot refuse** (`.lineGone`, `.teardown`): an open
+    /// edit that reads is committed; one that will not is said as a notice
+    /// carrying its text, and the grid folds all the same.
+    func forceFoldFigureGrid(_ cause: FigureGridFoldCause) {
+        guard let expansion = figureGrid else { return }
+        fold(expansion, as: cause)
+    }
+
+    private func fold(_ expansion: FigureGridExpansion, as cause: FigureGridFoldCause) {
+        expansion.foldCause = cause
+        guard let controller = expansion.controller else {
+            closeFigureGrid()   // still opening: nothing typed yet
+            return
+        }
+        if cause.isForced {
+            controller.foldForced()
+            if figureGrid === expansion { closeFigureGrid() }   // it cannot stay
+        } else {
+            controller.fold(commit: true)   // its `.fold` effect closes, through `onFold`
+            // A commit that will not read kept it open, its error shown; a
+            // later Esc or Done folds as the grid's own.
+            if figureGrid === expansion { expansion.foldCause = .grid }
+        }
+    }
+
     /// The teardown: the views off the text view, the line's card back (only
-    /// that paragraph re-laid out), the visit closed once its writes have
-    /// landed, and — when the grid had the focus — the caret at the end of
-    /// the figure line, the text focused, nothing scrolled.
+    /// that paragraph re-laid out; nothing on a teardown), the visit closed
+    /// once its writes have landed, and — when the grid had the focus — the
+    /// text focused, nothing scrolled, the caret at the end of the figure
+    /// line on Esc, Done or a line gone (`FigureGridFoldCause`).
     private func closeFigureGrid() {
         guard let expansion = figureGrid else { return }
         figureGrid = nil
+        let cause = expansion.foldCause
         expansion.opening?.cancel()
+        expansion.reshowing?.cancel()
         let window = textView?.window
         let hadFocus = (window?.firstResponder as? NSView).map { responder in
             expansion.panel.map { responder.isDescendant(of: $0) } ?? false
@@ -387,11 +491,11 @@ extension EditorCoordinator {
                 controller.close()
             }
         }
-        relayoutFigureGridLine()
+        if cause != .teardown { relayoutFigureGridLine() }
         figureThumbnailOverlay?.needsDisplay = true
-        guard hadFocus, let textView else { return }
+        guard cause.focusesTheText, hadFocus, let textView else { return }
         let text = textView.string as NSString
-        if expansion.lineLocation < text.length {
+        if cause.movesTheCaretToTheLine, expansion.lineLocation < text.length {
             var start = 0, end = 0, contentsEnd = 0
             text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd,
                               for: NSRange(location: expansion.lineLocation, length: 0))
@@ -421,7 +525,8 @@ extension EditorCoordinator {
     /// line), so the other line of a figure written twice never takes it
     /// (R7c-4) — and hold the room there; a figure renamed under the grid
     /// (its line relabelled, `applyExternalText`) stays open. No line there
-    /// names it any more: the grid folds, its open edit committed.
+    /// names it any more: the grid folds, its open edit committed (or, when
+    /// it will not read, said as a notice carrying its text).
     func figureGridTokensDidChange() {
         guard let expansion = figureGrid, let textView else { return }
         let marks = figureThumbnailMarks
@@ -444,9 +549,7 @@ extension EditorCoordinator {
         guard let nearest = candidates.min(by: {
             abs($0.lineRange.location - expansion.lineLocation) < abs($1.lineRange.location - expansion.lineLocation)
         }) else {
-            foldFigureGrid(commit: true)
-            // The line is gone: even a commit that will not read cannot stay.
-            if figureGrid === expansion { closeFigureGrid() }
+            forceFoldFigureGrid(.lineGone)
             return
         }
         let moved = nearest.lineRange.location != expansion.lineLocation
