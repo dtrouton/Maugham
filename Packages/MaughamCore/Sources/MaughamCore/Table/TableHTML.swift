@@ -25,12 +25,18 @@ public enum TableHTML {
     ///   shows nothing (Numbers writes an empty cell as `<p><br></p>`).
     /// - Entities are decoded: the named ones spreadsheets write, and every
     ///   `&#NNN;`/`&#xHH;`. `&nbsp;` reads as a plain space that is never
-    ///   collapsed (Excel writes it for a cell's leading spaces). An unknown
-    ///   entity is kept as written.
+    ///   collapsed (Excel writes it for a cell's leading spaces), while `&#160;`
+    ///   is kept as the no-break space it names. An unknown entity, or one
+    ///   without its `;` (`&amp`, legacy HTML a browser would still decode), is
+    ///   kept as written — spreadsheets always close theirs.
     /// - `<style>`, `<script>`, `<title>` and `<xml>` bodies, comments (Excel's
     ///   `<!--[if …]>…<![endif]-->` included), `<!DOCTYPE>`, `<![if …]>` and
     ///   `<?xml?>` are skipped; so are tags like `<google-sheets-html-origin>`.
     /// - A table nested in a cell gives its text to that cell.
+    /// - Reading stops once the table holds more than `TableCSV.figureCellLimit`
+    ///   cells (spans' empty cells counted): what comes back is already more
+    ///   than any paste takes, so the paste is refused as too large rather than
+    ///   a hostile `colspan` run materialising millions of cells.
     public static func rows(fromHTML html: String) -> [[String]]? {
         var reader = Reader(Array(html.unicodeScalars))
         return reader.firstTable()
@@ -41,7 +47,9 @@ public enum TableHTML {
     /// a browser would collapse (leading, trailing, or after another) as
     /// `&nbsp;` — so `rows(fromHTML:)` reads back what was written, every
     /// line break as `\n`. A tab is written `&#9;`, a no-break space `&#160;`,
-    /// and a cell ending in a line break gets one `<br>` more.
+    /// and a cell ending in a line break gets one `<br>` more. The tab and the
+    /// `&nbsp;`s are for Maugham's own reader: a browser, Numbers or Sheets
+    /// shows a tab as a space (the TSV beside it on the pasteboard keeps it).
     public static func html(rows: [[String]]) -> String {
         var out = "<meta charset=\"utf-8\"><table>"
         for row in rows {
@@ -150,6 +158,7 @@ private struct Reader {
                 i += 1
                 continue
             }
+            if grid.isPastTheLimit { return grid.finish() }
             let outer = nested == 0
             switch (tag.name, tag.closing) {
             case ("table", false):
@@ -201,7 +210,14 @@ private struct Reader {
         let next = s[i + 1]
         if next == "!" {
             if matches(Self.commentOpen, at: i) {
-                i = indexAfter(Self.commentClose, from: i + Self.commentOpen.count)
+                let body = i + Self.commentOpen.count
+                if matches(Self.tagClose, at: body) {
+                    i = body + 1                          // <!--> : an empty comment, as browsers read it
+                } else if matches(Self.emptyCommentEnd, at: body) {
+                    i = body + Self.emptyCommentEnd.count  // <!--->
+                } else {
+                    i = indexAfter(Self.commentClose, from: body)
+                }
             } else {
                 i = indexAfter(Self.tagClose, from: i + 2)     // <!DOCTYPE …>, <![if …]>, <![endif]>
             }
@@ -241,7 +257,9 @@ private struct Reader {
             let key = attr.lowercased()
             if !key.isEmpty, attributes[key] == nil { attributes[key] = value }
         }
-        i = Swift.min(j + 1, s.count)
+        // A tag the text ends inside is dropped, as a browser drops it.
+        guard j < s.count else { i = s.count; return .skipped }
+        i = j + 1
         if !closing, Self.rawTextElements.contains(name) {
             i = indexAfterClosing(name, from: i)
             return .skipped
@@ -253,6 +271,7 @@ private struct Reader {
     private static let commentOpen = Array("<!--".unicodeScalars)
     private static let commentClose = Array("-->".unicodeScalars)
     private static let tagClose = Array(">".unicodeScalars)
+    private static let emptyCommentEnd = Array("->".unicodeScalars)
 
     private func matches(_ t: [Unicode.Scalar], at k: Int) -> Bool {
         guard k + t.count <= s.count else { return false }
@@ -381,6 +400,7 @@ private struct Grid {
             while r.count <= last { coverIfSpanned(r.count); r.append("") }
         }
         rows.append(r)
+        closedCells += r.count
         row = nil
         spans = spans.filter { $0.value > 0 }
         for (column, count) in newSpans { spans[column] = count }
@@ -411,10 +431,19 @@ private struct Grid {
         if let left = spans[column], left > 0 { spans[column] = left - 1 }
     }
 
+    /// Cells read so far, the open row's included.
+    var cellCount: Int { closedCells + (row?.count ?? 0) }
+    private var closedCells = 0
+
+    /// Past what any paste takes (`TableCSV.figureCellLimit`): reading stops.
+    var isPastTheLimit: Bool { cellCount > TableCSV.figureCellLimit }
+
     mutating func finish() -> [[String]]? {
         endRow()
         guard sawCell else { return nil }
         let width = rows.map(\.count).max() ?? 0
+        // A table past the limit comes back unpadded: padding could only make it bigger.
+        guard rows.count * width <= TableCSV.figureCellLimit else { return rows }
         return rows.map { $0 + Array(repeating: "", count: width - $0.count) }
     }
 }

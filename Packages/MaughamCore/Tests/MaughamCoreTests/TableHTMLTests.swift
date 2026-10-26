@@ -262,6 +262,36 @@ final class TableHTMLTests: XCTestCase {
         XCTAssertEqual(TableHTML.rows(fromHTML: "<table><tr><td>1 < 2<td>3 <= 4"), [["1 < 2", "3 <= 4"]])
     }
 
+    // MARK: - Hostile input
+
+    func test_emptyComments_CDATA_andAnUnclosedQuotedAttribute() {
+        XCTAssertEqual(TableHTML.rows(fromHTML: "<table><tr><td>a<!-->b<!--->c</td></tr></table>"), [["abc"]],
+                       "<!--> and <!---> are empty comments, as browsers read them")
+        XCTAssertEqual(TableHTML.rows(fromHTML: "<table><tr><td>a<![CDATA[x]]>b</td></tr></table>"), [["ab"]],
+                       "CDATA outside foreign content is a bogus comment ending at the first >")
+        XCTAssertEqual(TableHTML.rows(fromHTML: "<table><tr><td>a</td><td title=\"never closed>b</td></tr></table>"),
+                       [["a"]], "an unclosed quote runs the tag to the end, and a tag never closed is dropped, as browsers do")
+        XCTAssertNil(TableHTML.rows(fromHTML: "<table><tr><td"), "a tag cut off opens nothing")
+    }
+
+    /// A hostile `colspan` run stops at the paste limit instead of
+    /// materialising tens of millions of cells — and what comes back is over
+    /// the limit, so a paste refuses it.
+    func test_aHugeSpannedTableStopsAtTheLimit() {
+        let html = "<table>" + String(repeating: "<tr><td colspan=1000 rowspan=65534>x</td>", count: 50_000) + "</table>"
+        let started = Date()
+        let rows = TableHTML.rows(fromHTML: html)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "linear, and stopped early")
+        let cells = rows?.reduce(0) { $0 + $1.count } ?? 0
+        XCTAssertGreaterThan(cells, TableCSV.figureCellLimit)
+        XCTAssertLessThan(cells, TableCSV.figureCellLimit + 70_000, "stopped within a row or two of the limit")
+        let block = FigurePaste.Block(cells: (rows ?? []).map { $0.map { _ in Cell?.none } })
+        let state = FigureState(kind: .table, table: FigureTable(rows: 1, columns: 1))
+        let outcome = FigurePaste.changes(
+            state: state, anchor: CellKey(row: state.table.rows[0], column: state.table.columns[0]), block: block)
+        if case .tooLarge = outcome {} else { XCTFail("the paste should refuse it, got \(outcome)") }
+    }
+
     // MARK: - Writing
 
     func test_html_readsBackAsWritten() throws {

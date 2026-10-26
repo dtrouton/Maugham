@@ -60,6 +60,13 @@ public enum FigurePaste {
     /// - **growth**: rows the block runs past the last row are inserted after
     ///   it, and columns past the last column after that, with fresh ids from
     ///   `mintRow`/`mintColumn` (never one the table has held);
+    /// - **a total row is never pasted over** (report plan 7d, controller's
+    ///   ruling on R7d-2): with `hasTotalRow` the body ends above it, so rows
+    ///   the block runs past the body are inserted before the total row, which
+    ///   stays last with its cells as they were; a paste anchored ON the total
+    ///   row goes into new body rows just above it (as Excel's table grows when
+    ///   you write under its last body row) — `Plan.pasted` then starts at the
+    ///   first of them;
     /// - **`area`** is the selection pasted into: when it is a whole multiple
     ///   of the block's size the block tiles it (one cell copied into a range
     ///   fills the range — Excel); otherwise the block pastes once;
@@ -77,9 +84,13 @@ public enum FigurePaste {
         mintColumn: () -> ColumnID = { ColumnID(TableID.mint(excluding: [])) }
     ) -> Outcome {
         let table = state.table
-        guard let ar = table.rowIndex(of: anchor.row), let ac = table.columnIndex(of: anchor.column) else {
+        guard let anchorRow = table.rowIndex(of: anchor.row), let ac = table.columnIndex(of: anchor.column) else {
             return .anchorGone
         }
+        // Where the body ends: above a total row (FigureSort's rule), else at the last row.
+        let bodyEnd = table.rowCountAboveTotal
+        // The block's first row: the anchor's, or — anchored on the total row — the first new body row.
+        let ar = min(anchorRow, bodyEnd)
         let bh = block.height, bw = block.width
         guard bh > 0, bw > 0 else {
             return .paste(Plan(changes: [], insertedRows: [], insertedColumns: [],
@@ -110,7 +121,7 @@ public enum FigurePaste {
         var after = 0
         for (key, value) in table.cells where filled(value) {
             guard let r = table.rowIndex(of: key.row), let c = table.columnIndex(of: key.column) else { continue }
-            let inside = (ar..<(ar + height)).contains(r) && (ac..<(ac + width)).contains(c)
+            let inside = (ar..<min(ar + height, bodyEnd)).contains(r) && (ac..<(ac + width)).contains(c)
             if !inside { after += 1 }
             else if cell(r - ar, c - ac) == nil { after += 1 }   // a ragged row leaves it
         }
@@ -135,8 +146,8 @@ public enum FigurePaste {
             lastColumn = id
         }
         var insertedRows: [RowID] = []
-        var lastRow = table.rows.last
-        for _ in 0..<max(0, ar + height - table.rows.count) {
+        var lastRow = bodyEnd > 0 ? table.rows[bodyEnd - 1] : nil   // nil: before the total row, first
+        for _ in 0..<max(0, ar + height - bodyEnd) {
             var id = mintRow()
             while used.contains(id.raw) { id = mintRow() }
             used.insert(id.raw)
@@ -162,8 +173,18 @@ public enum FigurePaste {
                 sim.emit(.figureCellSet, FigureOpPayload(cell: key, next: next, prior: now))
             }
         }
+        let first = CellKey(row: rows[ar], column: anchor.column)
         let focus = CellKey(row: rows[ar + height - 1], column: columns[ac + width - 1])
         return .paste(Plan(changes: sim.ops, insertedRows: insertedRows, insertedColumns: insertedColumns,
-                           pasted: FigureGridSelection(anchor: anchor, focus: focus)))
+                           pasted: FigureGridSelection(anchor: first, focus: focus)))
+    }
+}
+
+extension FigureTable {
+    /// The live rows above a total row — all of them when there is none, or
+    /// when the table is all header (`FigureSort`'s rule for the total row).
+    var rowCountAboveTotal: Int {
+        let count = rows.count
+        return hasTotalRow && count > headerRows ? count - 1 : count
     }
 }

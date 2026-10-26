@@ -79,6 +79,74 @@ final class FigurePasteTests: XCTestCase {
         XCTAssertEqual(undone.table.cells, before.table.cells)
     }
 
+    /// The controller's ruling on R7d-2: a total row is never pasted over.
+    /// Review Focus 1 with a total row: the block's three rows land in rows 8
+    /// and 9 and one new body row inserted before the total, which stays last
+    /// with its cells; one compensating visit restores the table.
+    func test_withATotalRow_growthGoesAboveIt_andItsCellsAreNeverWritten() throws {
+        var before = state(rows: 10, columns: 4)
+        before.table.headerRows = 1
+        before.table.hasTotalRow = true
+        let total = before.table.rows[9]
+        for c in 0..<4 { before.table.setCell(text("Σ"), at: key(before, 9, c)) }
+        let anchor = key(before, 7, 2)   // C8
+        let block = FigurePaste.Block(cells: (0..<3).map { r in (0..<4).map { c in num(Double(r * 10 + c)) } })
+        let p = try plan(FigurePaste.changes(state: before, anchor: anchor, block: block))
+        XCTAssertEqual(p.insertedRows.count, 1, "rows 8 and 9 hold two; one more goes in")
+        XCTAssertEqual(p.insertedColumns.count, 2)
+        let after = applied(p.changes, to: before)
+        XCTAssertEqual(after.diagnostics, [])
+        XCTAssertEqual(after.table.rows.last, total, "the total row stays last")
+        XCTAssertEqual(after.table.rows[9], p.insertedRows[0], "the new row sits just above it")
+        XCTAssertEqual(values(after)[9], [nil, nil, 20, 21, 22, 23])
+        for c in 0..<4 { XCTAssertEqual(after.table[CellKey(row: total, column: after.table.columns[c])], text("Σ")) }
+        XCTAssertNil(after.table[CellKey(row: total, column: after.table.columns[4])], "nor written in a grown column")
+        XCTAssertEqual(p.pasted, FigureGridSelection(anchor: anchor, focus: CellKey(row: p.insertedRows[0],
+                                                                                 column: after.table.columns[5])))
+
+        let undone = applied(FigureInverse.compensating(visit: p.changes.map { ($0.kind, $0.payload) }), to: after)
+        XCTAssertEqual(undone.table.rows, before.table.rows)
+        XCTAssertEqual(undone.table.columns, before.table.columns)
+        XCTAssertEqual(undone.table.cells, before.table.cells)
+    }
+
+    /// Anchored ON the total row, the block goes into new body rows just
+    /// above it — the paste begins there, and a same-table formula moves to
+    /// where it landed.
+    func test_anchoredOnTheTotalRow_theBlockGoesIntoNewBodyRowsAboveIt() throws {
+        var before = state(rows: 3, columns: 2)
+        before.table.hasTotalRow = true
+        let total = before.table.rows[2]
+        before.table.setCell(text("total"), at: key(before, 2, 0))
+        let f = try FormulaParser.parse("A1", in: before.table).get()      // as it sat in B1
+        let block = FigurePaste.Block(cells: [[num(1), Cell(content: .formula(f))], [num(2), nil]],
+                                      copiedFrom: FigurePaste.Position(row: 0, column: 0))
+        let p = try plan(FigurePaste.changes(state: before, anchor: CellKey(row: total, column: before.table.columns[0]),
+                                             block: block))
+        XCTAssertEqual(p.insertedRows.count, 2)
+        let after = applied(p.changes, to: before)
+        XCTAssertEqual(after.table.rows, [before.table.rows[0], before.table.rows[1]] + p.insertedRows + [total])
+        XCTAssertEqual(values(after).map { $0[0] }, [nil, nil, 1, 2, nil])
+        XCTAssertEqual(after.table[key(after, 4, 0)], text("total"), "the total row is untouched")
+        XCTAssertEqual(p.pasted.anchor, CellKey(row: p.insertedRows[0], column: before.table.columns[0]),
+                       "the paste starts at the first new row, not the total row")
+        guard case .formula(let moved)? = after.table[key(after, 2, 1)]?.content else { return XCTFail("no formula") }
+        XCTAssertEqual(FormulaParser.render(moved, in: after.table), "A3", "moved two rows down, to where it landed")
+    }
+
+    /// A total row that is the table's only row below the header: the body is
+    /// empty, so everything pasted goes in above it.
+    func test_aTotalRowWithNoBodyAboveIt() throws {
+        var before = state(rows: 1, columns: 1)
+        before.table.hasTotalRow = true
+        let total = before.table.rows[0]
+        let p = try plan(FigurePaste.changes(state: before, anchor: key(before, 0, 0),
+                                             block: FigurePaste.Block(cells: [[num(1)]])))
+        let after = applied(p.changes, to: before)
+        XCTAssertEqual(after.table.rows, p.insertedRows + [total])
+        XCTAssertEqual(values(after).map { $0[0] }, [1, nil])
+    }
+
     func test_aBlockPastTheBottomGrowsRows_afterTheLastRow_withFreshIds() throws {
         var before = state(rows: 2, columns: 2)
         before.table.deleteRow(before.table.rows[1])        // a tombstone the mint must avoid
