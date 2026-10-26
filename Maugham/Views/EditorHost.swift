@@ -892,6 +892,11 @@ struct EditorHost: View {
                 // The project's sources and targets (plan 3b Task 1): the
                 // cached value, never a build.
                 referenceIndex: { [referenceIndex] in referenceIndex.index },
+                // The caption bar's numbers (report plan 7b Task 8): the
+                // tables and figures earlier pieces number, off the same index.
+                figureNumbersBefore: { [referenceIndex] in
+                    referenceIndex.index.numbersBefore(docId: doc.docId)
+                },
                 // The profile colours a problem underline (plan 3b Task 6):
                 // red for what a Report refuses to publish on, amber otherwise.
                 projectProfile: { [store] in store.manifest.profile },

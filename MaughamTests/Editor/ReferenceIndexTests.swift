@@ -102,6 +102,33 @@ final class ReferenceIndexTests: XCTestCase {
         XCTAssertNil(index.target(for: Self.label("tbl:wrong")))
         XCTAssertEqual(index.target(for: Self.label("tbl:sales"))?.docId, "ch-one",
                        "a label defined twice is the first definition's")
+
+        // The caption bar (report plan 7b Task 8): each figure line's
+        // "Table n." / "Figure n." is the index's numbers before its piece
+        // plus its ordinal in the live text — labelled or not, an unlabelled
+        // `.csv` line a Table (7a I4) — and a labelled line's number is the
+        // one publishing prints.
+        XCTAssertNil(index.numbersBefore(docId: "ref"), "a reference piece is not in the book")
+        func captions(_ docId: String) throws -> [String] {
+            let text = try XCTUnwrap(texts[docId]) as NSString
+            let before = try XCTUnwrap(index.numbersBefore(docId: docId))
+            let tokens = ProseMode(reservesFigureThumbnails: true).tokenize(text as String)
+            let lines = FigureCaptionBar.lines(tokens: tokens, text: text)
+            for line in lines {
+                let content = text.substring(with: line.lineRange)
+                guard let label = ManuscriptAttributes.split(content).label,
+                      let target = published[label], label.kind == line.kind else { continue }
+                XCTAssertEqual(line.caption(after: before, words: .english), "\(target.text).",
+                               "\(label.reference) numbers as publishing prints it")
+            }
+            return lines.map { $0.caption(after: before, words: .english) }
+        }
+        XCTAssertEqual(try captions("ch-one"), ["Figure 1.", "Figure 2."])
+        XCTAssertEqual(try captions("ch-two"),
+                       ["Figure 3.", "Table 3.", "Table 4.", "Figure 4.", "Figure 5."],
+                       "Chart; Plain (unlabelled .csv) after ch-one's Sales and this piece's "
+                       + "pipe table; Cash; Wrong (an image labelled tbl:); Grid (labelled fig:)")
+        XCTAssertEqual(try captions("ch-three"), ["Figure 6."])
     }
 
     /// R7a-1: a pipe table, an unlabelled table figure, a labelled table

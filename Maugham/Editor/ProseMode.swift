@@ -101,6 +101,17 @@ public struct ProseMode: WritingMode {
                     && range.location <= NSMaxRange(window))
         }
 
+        // The caption bar (report plan 7b Task 8, R7b-2): on a manuscript, a
+        // figure line's syntax — its `![`, `](path)` and `{#…}` — is painted
+        // faint, a pure function of the tokens, so window ≡ whole document.
+        // The caret's line is shown again by a layout-manager temporary
+        // (`EditorCoordinator.refreshFigureSyntaxUnfade`), never by this paint.
+        let fadedFigureSyntax: NSColor? = reservesFigureThumbnails
+            ? Self.figureSyntaxColours(palette).faded : nil
+        let storageText = storage.string as NSString
+        let figureLines: Set<Int> = reservesFigureThumbnails
+            ? Self.figureLineStarts(tokens: tokens, text: storageText) : []
+
         storage.beginEditing()
         storage.setAttributes(bodyAttrs, range: window)
         if reservesFigureThumbnails {
@@ -172,12 +183,66 @@ public struct ProseMode: WritingMode {
                 ]
                 storage.addAttributes(attrs, range: token.range)
             } else {
-                let attrs = attributes(
+                var attrs = attributes(
                     for: token.kind, palette: palette, baseFont: baseFont)
+                if let fadedFigureSyntax,
+                   Self.isFigureLineSyntax(token, figureLines: figureLines, text: storageText) {
+                    attrs[.foregroundColor] = fadedFigureSyntax
+                }
                 storage.addAttributes(attrs, range: token.range)
             }
         }
         storage.endEditing()
+    }
+
+    // MARK: - The caption bar's fade (report plan 7b Task 8)
+
+    /// How far a figure line's syntax is blended from `syntaxPunctuation`
+    /// toward the page's background (R7b-2).
+    static let figureSyntaxFadeFraction: CGFloat = 0.55
+
+    /// A figure line's syntax colours: `faded`, painted on every figure line,
+    /// is `syntaxPunctuation` BLENDED toward the background, an opaque colour
+    /// — never an alpha, because the focus dim sets alpha absolutely
+    /// (`withAlphaComponent(0.4)`) and would make an alpha-faded line
+    /// brighter when dimmed; `shown` is the caret's line, plain
+    /// `syntaxPunctuation` as every other syntax mark.
+    static func figureSyntaxColours(_ palette: ThemePalette) -> (faded: NSColor, shown: NSColor) {
+        let faded = palette.syntaxPunctuation.blended(withFraction: figureSyntaxFadeFraction,
+                                                      of: palette.background)
+        return (faded ?? palette.syntaxPunctuation, palette.syntaxPunctuation)
+    }
+
+    /// The palette a paint under `theme` uses now (the system appearance
+    /// resolves a Follow System theme), for a caller outside the paint.
+    static func palette(for theme: Theme) -> ThemePalette {
+        theme.resolved(systemAppearanceIsDark: systemIsDark()).palette
+    }
+
+    /// Where each figure line starts: the line of each closing `](path)`
+    /// token, as `FigureThumbnailLayout.figurePath(closing:in:)` reads it.
+    static func figureLineStarts(tokens: [Token], text: NSString) -> Set<Int> {
+        var starts = Set<Int>()
+        for token in tokens where FigureThumbnailLayout.figurePath(closing: token, in: text) != nil {
+            starts.insert(text.lineRange(for: NSRange(location: token.range.location, length: 0)).location)
+        }
+        return starts
+    }
+
+    /// Whether `token` is a figure line's syntax: a `.figureSyntax` token
+    /// (only a figure line has one), or an `.attributeBlock` on a figure line
+    /// — a heading's or a pipe table's caption label keeps its own colour.
+    static func isFigureLineSyntax(_ token: Token, figureLines: Set<Int>, text: NSString) -> Bool {
+        switch token.kind {
+        case .figureSyntax:
+            return true
+        case .attributeBlock:
+            guard !figureLines.isEmpty else { return false }
+            return figureLines.contains(
+                text.lineRange(for: NSRange(location: token.range.location, length: 0)).location)
+        default:
+            return false
+        }
     }
 
     public func bodyTypingAttributes(
@@ -206,7 +271,7 @@ public struct ProseMode: WritingMode {
         return avgCharWidth * CGFloat(typography.pageWidthCharacters)
     }
 
-    private static func systemIsDark() -> Bool {
+    static func systemIsDark() -> Bool {
         NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 

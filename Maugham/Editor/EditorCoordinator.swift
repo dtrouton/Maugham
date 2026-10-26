@@ -114,6 +114,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var lastTokens: [Token] = [] {
         didSet {
             figureThumbnailMarksCache = nil
+            figureCaptionLinesCache = nil
             tokensDescribeAnEarlierText = false
             var tables: [NSRange] = []
             var figures = false
@@ -378,6 +379,30 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var projectProfile: (() -> ProjectProfile?)?
     /// The label overlay, installed by `syncReferenceLabelOverlay`.
     weak var referenceLabelOverlay: ReferenceLabelOverlay?
+
+    // MARK: The caption bar (report plan 7b Task 8, `ReferenceLabelOverlay.swift`)
+
+    /// The tables and figures the book numbers before this document's first
+    /// (`ReferenceIndex.numbersBefore(docId:)`), read off the cached index;
+    /// nil before the index has read this piece, and then no caption number
+    /// is drawn. Built by `EditorHost`; nil on every other surface.
+    var figureNumbersBefore: (() -> ReferenceIndex.NumbersBefore?)?
+    /// The figure lines in `lastTokens` with their syntax ranges and their
+    /// ordinals in this document (`FigureCaptionBar.lines`), derived once per
+    /// retokenize on first ask (tripwire 4). Cleared by `lastTokens`.
+    var figureCaptionLinesCache: [FigureCaptionBar.Line]?
+    /// The syntax ranges the caret's figure line is shown at full colour on,
+    /// as layout-manager temporaries (`refreshFigureSyntaxUnfade`); empty in
+    /// translation review, which owns every temporary foreground colour.
+    var unfadedFigureSyntax: [NSRange] = []
+    /// True from a character edit while `unfadedFigureSyntax` is held: the
+    /// edit may have moved the temporaries, so their next removal clears the
+    /// whole text's temporary foreground (exact outside translation review,
+    /// where the un-fade is the only one).
+    var unfadedFigureSyntaxIsStale = false
+    /// How many times the un-fade actually moved (tests read it: a caret move
+    /// along one line moves nothing).
+    var figureSyntaxUnfadeMoves = 0
     /// Each footnote's number in this document, from the last check (keyed
     /// by label, so it never drifts while a burst is typed).
     var footnoteNumbers: [String: Int] = [:] {
@@ -1163,6 +1188,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard isTranslationReview != enabled else { return false }
         isTranslationReview = enabled
         closeCompletionIfTheMembraneRefuses()
+        // Translation review shows no caret line's syntax (its dimming owns
+        // the temporary foreground); leaving it shows the caret's line again.
+        refreshFigureSyntaxUnfade(force: true)
         return true
     }
 
@@ -1509,6 +1537,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.tokensDescribeAnEarlierText = true
+                if !self.unfadedFigureSyntax.isEmpty { self.unfadedFigureSyntaxIsStale = true }
                 self.tableTidy.noteEdit(editedRange: range, changeInLength: delta)
             }
         }
@@ -1531,6 +1560,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Cursor-only selection changes (arrow keys, click) don't go through
         // retokenizeAndStyle. Re-dim here (no-op in review posture).
         applyFocusDim(in: textView)
+        // The caption bar: the caret's figure line shows its syntax, on
+        // temporaries over at most two lines — no storage edit, no re-layout.
+        refreshFigureSyntaxUnfade()
         onCursorChanged?(textView.selectedRange().location)
         onElementChanged?(currentElementAbbreviation(in: textView))
         // One-way drive of the floating selection toolbar (review posture only).

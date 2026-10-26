@@ -74,6 +74,102 @@ enum ReferenceLabelLayout {
     }
 }
 
+// MARK: - The caption bar (pure)
+
+/// **A figure line as a caption bar** (report plan 7b Task 8, spec §3.2):
+/// its syntax faded until the caret enters it (`ProseMode`'s paint and the
+/// coordinator's un-fade), and "Table 2." / "Figure 3." drawn beside it by
+/// the label overlay (R7b-1). The number is the book's: the index's
+/// `NumbersBefore` for this document plus the line's ordinal in it, counted
+/// as `ReferenceIndex.PieceSummary` counts — every pipe table and every
+/// table figure line (a `.csv` line labelled `tbl:` or unlabelled, R7a-1)
+/// in the Tables list, every other figure line in the Figures list.
+enum FigureCaptionBar {
+    /// One figure line of the live text.
+    struct Line: Equatable {
+        /// The line, without its terminator.
+        let lineRange: NSRange
+        /// Which list it numbers in: `.tbl` or `.fig`.
+        let kind: ManuscriptLabel.Kind
+        /// Its place in that list within this document, from 1.
+        let ordinal: Int
+        /// Its `![`, `](path)` and `{#…}` token ranges, in order.
+        let syntax: [NSRange]
+
+        /// The book's number for this line, after `before`.
+        func number(after before: ReferenceIndex.NumbersBefore) -> Int {
+            ordinal + (kind == .tbl ? before.tablesBefore : before.figuresBefore)
+        }
+
+        /// "Table 2." or "Figure 3.", in the book's words.
+        func caption(after before: ReferenceIndex.NumbersBefore, words: ElementWords) -> String {
+            "\(kind == .tbl ? words.table : words.figure) \(number(after: before))."
+        }
+    }
+
+    /// The figure lines of `tokens` (the live text's), in document order, one
+    /// pass over the tokens.
+    static func lines(tokens: [Token], text: NSString) -> [Line] {
+        var figures: [(line: NSRange, path: String)] = []
+        var tables: [Int] = []
+        var syntax: [Int: [NSRange]] = [:]   // by line start
+        for token in tokens {
+            switch token.kind {
+            case .tableBlock:
+                tables.append(token.range.location)
+            case .figureSyntax, .attributeBlock:
+                guard NSMaxRange(token.range) <= text.length else { continue }
+                let start = text.lineRange(for: NSRange(location: token.range.location, length: 0)).location
+                syntax[start, default: []].append(token.range)
+                if let path = FigureThumbnailLayout.figurePath(closing: token, in: text) {
+                    var lineStart = 0, end = 0, contentsEnd = 0
+                    text.getLineStart(&lineStart, end: &end, contentsEnd: &contentsEnd,
+                                      for: NSRange(location: token.range.location, length: 0))
+                    figures.append((NSRange(location: lineStart, length: contentsEnd - lineStart), path))
+                }
+            default:
+                continue
+            }
+        }
+        guard !figures.isEmpty else { return [] }
+        figures.sort { $0.line.location < $1.line.location }
+        tables.sort()
+        var out: [Line] = []
+        var tableCount = 0, figureCount = 0, nextTable = 0
+        for figure in figures {
+            while nextTable < tables.count, tables[nextTable] < figure.line.location {
+                tableCount += 1
+                nextTable += 1
+            }
+            let content = text.substring(with: figure.line).trimmingCharacters(in: .whitespaces)
+            let label = ManuscriptAttributes.split(content).label
+            let kind = ManuscriptLabel.Kind.ofFigureLine(path: figure.path, label: label)
+            let ordinal: Int
+            if kind == .tbl { tableCount += 1; ordinal = tableCount } else { figureCount += 1; ordinal = figureCount }
+            out.append(Line(lineRange: figure.line, kind: kind, ordinal: ordinal,
+                            syntax: (syntax[figure.line.location] ?? []).sorted { $0.location < $1.location }))
+        }
+        return out
+    }
+}
+
+extension ReferenceLabelLayout {
+    /// The space between a caption number and the text column it sits beside.
+    static let marginGap: CGFloat = 8
+
+    /// **Where a caption number goes** (R7b-1): in the left margin, its right
+    /// edge `marginGap` before the column, on the line's baseline (its
+    /// top-left, for `NSString.draw(at:)` in a flipped view). Nil when the
+    /// margin is too narrow to hold it inside the view (`viewMinX`): the
+    /// overlay then falls back to its tag above the line.
+    static func marginOrigin(columnMinX: CGFloat, viewMinX: CGFloat, labelWidth: CGFloat,
+                             baseline: CGFloat, ascender: CGFloat) -> CGPoint? {
+        let x = columnMinX - marginGap - labelWidth
+        guard x >= viewMinX else { return nil }
+        return CGPoint(x: x, y: baseline - ascender)
+    }
+}
+
 // MARK: - The overlay
 
 /// Transparent, click-through overlay over the text view that draws each
@@ -92,6 +188,11 @@ final class ReferenceLabelOverlay: NSView {
     /// their markers, and tags drawn above their lines.
     private(set) var lastBeneathCount = 0
     private(set) var lastTagCount = 0
+    /// Caption numbers drawn in the margin, and as tags above their lines
+    /// (R7b-1), with the text of each, in order (the mounted tests').
+    private(set) var lastMarginNumberCount = 0
+    private(set) var lastCaptionTagCount = 0
+    private(set) var lastCaptionTexts: [String] = []
     /// Markers in view whose label didn't fit, and where each sits: what the
     /// pointer can hover, and what a caret move repaints for.
     private(set) var hoverTargets: [(rect: CGRect, range: NSRange)] = []
@@ -143,14 +244,16 @@ final class ReferenceLabelOverlay: NSView {
     /// marker-free manuscript never repaints its labels.
     @objc private func repaint(_ note: Notification) {
         guard lastBeneathCount + lastTagCount > 0 || !hoverTargets.isEmpty
-                || coordinator?.referenceMarkerTokens.isEmpty == false else { return }
+                || lastMarginNumberCount + lastCaptionTagCount > 0
+                || coordinator?.referenceMarkerTokens.isEmpty == false
+                || coordinator?.hasFigureLines == true else { return }
         repaintRequests += 1
         needsDisplay = true
     }
 
     /// A caret move matters only to a label that waits for the caret.
     @objc private func caretMoved(_ note: Notification) {
-        guard lastTagCount > 0 || !hoverTargets.isEmpty else { return }
+        guard lastTagCount + lastCaptionTagCount > 0 || !hoverTargets.isEmpty else { return }
         repaintRequests += 1
         needsDisplay = true
     }
@@ -190,14 +293,19 @@ final class ReferenceLabelOverlay: NSView {
         super.draw(dirtyRect)
         lastBeneathCount = 0
         lastTagCount = 0
+        lastMarginNumberCount = 0
+        lastCaptionTagCount = 0
+        lastCaptionTexts = []
         hoverTargets = []
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
               let storage = textView.textStorage,
               let coordinator, coordinator.showsReferenceMarks,
-              !coordinator.referenceMarkerTokens.isEmpty,
               let index = coordinator.referenceIndex?() else { return }
+        let hasMarkers = !coordinator.referenceMarkerTokens.isEmpty
+        let captionLines = coordinator.hasFigureLines ? coordinator.figureCaptionLines : []
+        guard hasMarkers || !captionLines.isEmpty else { return }
         let length = storage.length
 
         // A label hangs below its line: look a line higher than the view's top.
@@ -207,13 +315,20 @@ final class ReferenceLabelOverlay: NSView {
         probe.size.height += 80
         let glyphs = layoutManager.glyphRange(forBoundingRect: probe, in: container)
         let chars = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        let groups = coordinator.referenceGroups(intersecting: chars)
-        guard !groups.isEmpty else { return }
 
         let padding = container.lineFragmentPadding
         let column = (origin.x + padding)...(origin.x + max(padding, container.size.width - padding))
         let caret = textView.selectedRange()
         let background = textView.backgroundColor
+
+        if !captionLines.isEmpty, let before = coordinator.figureNumbersBefore?() {
+            drawCaptionNumbers(captionLines, in: chars, before: before, words: index.words,
+                               column: column, caret: caret, background: background,
+                               dirtyRect: dirtyRect)
+        }
+
+        let groups = hasMarkers ? coordinator.referenceGroups(intersecting: chars) : []
+        guard !groups.isEmpty else { return }
         var drawnOnLine: (top: CGFloat, frames: [CGRect]) = (.nan, [])
 
         for group in groups {
@@ -287,9 +402,120 @@ final class ReferenceLabelOverlay: NSView {
     }
 }
 
+// MARK: - The caption numbers (R7b-1)
+
+extension ReferenceLabelOverlay {
+    /// Draws "Table 2." / "Figure 3." beside each figure line in `chars`: in
+    /// the left margin, right-aligned to the column, in the line's own font
+    /// and faint ink; when the margin cannot hold it, as the overlay's tag
+    /// above the line, shown while the caret is on the line or the pointer
+    /// over it. Nothing here changes layout, so card heights are unchanged.
+    fileprivate func drawCaptionNumbers(
+        _ lines: [FigureCaptionBar.Line], in chars: NSRange,
+        before: ReferenceIndex.NumbersBefore, words: ElementWords,
+        column: ClosedRange<CGFloat>, caret: NSRange, background: NSColor, dirtyRect: NSRect
+    ) {
+        guard let textView = associatedTextView, let layoutManager = textView.layoutManager,
+              let container = textView.textContainer, let storage = textView.textStorage
+        else { return }
+        let origin = textView.textContainerOrigin
+        // The first line that could reach `chars`: binary search on location.
+        var lo = 0, hi = lines.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if NSMaxRange(lines[mid].lineRange) < chars.location { lo = mid + 1 } else { hi = mid }
+        }
+        var i = lo
+        while i < lines.count, lines[i].lineRange.location <= NSMaxRange(chars) {
+            let line = lines[i]
+            i += 1
+            guard line.lineRange.length > 0, NSMaxRange(line.lineRange) <= storage.length else { continue }
+            let text = line.caption(after: before, words: words) as NSString
+            let first = line.lineRange.location
+            let glyph = layoutManager.glyphIndexForCharacter(at: first)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let baseline = lineRect.minY + layoutManager.location(forGlyphAt: glyph).y + origin.y
+            let lineTop = lineRect.minY + origin.y
+            // The caption's own font and colour: the character after `![`.
+            let sample = min(first + 2, NSMaxRange(line.lineRange) - 1)
+            let attributes = storage.attributes(at: sample, effectiveRange: nil)
+            let font = attributes[.font] as? NSFont ?? NSFont.systemFont(ofSize: 13)
+            let ink = (attributes[.foregroundColor] as? NSColor) ?? NSColor.textColor
+            let style: [NSAttributedString.Key: Any] = [
+                .font: font, .foregroundColor: ink.withAlphaComponent(ink.alphaComponent * 0.55),
+            ]
+            let size = text.size(withAttributes: style)
+
+            if let point = ReferenceLabelLayout.marginOrigin(
+                columnMinX: column.lowerBound, viewMinX: bounds.minX, labelWidth: size.width,
+                baseline: baseline, ascender: font.ascender) {
+                lastMarginNumberCount += 1
+                lastCaptionTexts.append(text as String)
+                if CGRect(origin: point, size: size).intersects(dirtyRect) {
+                    text.draw(at: point, withAttributes: style)
+                }
+                continue
+            }
+            // Too narrow a margin: the tag above the line, for the caret or the pointer.
+            let lineGlyphs = layoutManager.glyphRange(forCharacterRange: line.lineRange,
+                                                      actualCharacterRange: nil)
+            let lineBox = layoutManager.boundingRect(forGlyphRange: lineGlyphs, in: container)
+                .offsetBy(dx: origin.x, dy: origin.y)
+            hoverTargets.append((lineBox, line.lineRange))
+            let caretIn = caret.location >= line.lineRange.location
+                && caret.location <= NSMaxRange(line.lineRange)
+            guard caretIn || hoveredMarker == line.lineRange else { continue }
+            let small = NSFont.systemFont(ofSize: ReferenceLabelLayout.labelPointSize(forBody: font.pointSize))
+            var tagStyle = style
+            tagStyle[.font] = small
+            tagStyle[.foregroundColor] = ink.withAlphaComponent(ink.alphaComponent * 0.8)
+            let frame = ReferenceLabelLayout.tagFrame(
+                markerMaxX: column.lowerBound, lineTop: lineTop,
+                labelSize: text.size(withAttributes: tagStyle), column: column)
+            lastCaptionTagCount += 1
+            lastCaptionTexts.append(text as String)
+            guard frame.intersects(dirtyRect) else { continue }
+            let box = NSBezierPath(roundedRect: frame, xRadius: 3, yRadius: 3)
+            background.withAlphaComponent(0.95).setFill()
+            box.fill()
+            ink.withAlphaComponent(0.25 * ink.alphaComponent).setStroke()
+            box.lineWidth = 0.5
+            box.stroke()
+            text.draw(at: CGPoint(x: frame.minX + ReferenceLabelLayout.tagPadding.width,
+                                  y: frame.minY + ReferenceLabelLayout.tagPadding.height),
+                      withAttributes: tagStyle)
+        }
+    }
+}
+
 // MARK: - The coordinator's side
 
 extension EditorCoordinator {
+    /// The live text's figure lines as caption bars (`FigureCaptionBar`),
+    /// derived from `lastTokens` once per retokenize, on first ask: what the
+    /// un-fade and the caption numbers read on a caret move or a draw
+    /// (tripwire 4). Empty off a manuscript.
+    var figureCaptionLines: [FigureCaptionBar.Line] {
+        if let cached = figureCaptionLinesCache { return cached }
+        guard paintsFigureSyntaxFaded, hasFigureLines, let textView else { return [] }
+        let lines = FigureCaptionBar.lines(tokens: lastTokens, text: textView.string as NSString)
+        figureCaptionLinesCache = lines
+        return lines
+    }
+
+    /// The figure line holding `location` (its ends included), by binary
+    /// search over `figureCaptionLines`.
+    func figureCaptionLine(at location: Int) -> FigureCaptionBar.Line? {
+        let lines = figureCaptionLines
+        var lo = 0, hi = lines.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if NSMaxRange(lines[mid].lineRange) < location { lo = mid + 1 } else { hi = mid }
+        }
+        guard lo < lines.count, lines[lo].lineRange.location <= location else { return nil }
+        return lines[lo]
+    }
+
     /// Install the label overlay on a surface that shows labels. Idempotent;
     /// called from `attach` after the thumbnails, so it sits above them.
     func syncReferenceLabelOverlay() {

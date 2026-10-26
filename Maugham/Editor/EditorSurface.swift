@@ -97,6 +97,10 @@ struct EditorSurfaceConfiguration {
         /// redraw trigger is `EditorControl.referenceIndexVersion`. Wired by
         /// `EditorHost`; nil elsewhere.
         var referenceIndex: (() -> ReferenceIndex)? = nil
+        /// The tables and figures the book numbers before this document
+        /// (report plan 7b Task 8, the caption bar's "Table 2."), off the
+        /// cached index. Wired by `EditorHost`; nil elsewhere.
+        var figureNumbersBefore: (() -> ReferenceIndex.NumbersBefore?)? = nil
         /// The project's profile, which colours a problem underline red or
         /// amber (plan 3b Task 6, `PublishProblem.isError`). Asked at each
         /// check, never per keystroke. Wired by `EditorHost`; nil elsewhere.
@@ -256,6 +260,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         coordinator.referenceIndex = pp.referenceIndex
+        coordinator.figureNumbersBefore = pp.figureNumbersBefore
         coordinator.projectProfile = pp.projectProfile
         coordinator.figureImporter = pp.figureImporter
         coordinator.tableFigureMaker = pp.tableFigureMaker
@@ -530,6 +535,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
         context.coordinator.projectLabelsElsewhere = pp.projectLabelsElsewhere
         context.coordinator.referenceIndex = pp.referenceIndex
+        context.coordinator.figureNumbersBefore = pp.figureNumbersBefore
         context.coordinator.projectProfile = pp.projectProfile
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.tableFigureMaker = pp.tableFigureMaker

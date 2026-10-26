@@ -74,13 +74,32 @@ struct ReferenceIndex: Equatable, Sendable {
     /// build as 1 at least, so a host's version 0 means "not built yet".
     let version: Int
 
+    /// How many tables and figures the book numbers before one piece's
+    /// first: the piece's caption bar adds its own lines' ordinals to these
+    /// (report plan 7b Task 8, R7b-1), so "Table 4." beside a line in
+    /// chapter two is the number Publish prints, unlabelled lines included.
+    struct NumbersBefore: Equatable, Sendable {
+        let tablesBefore: Int
+        let figuresBefore: Int
+    }
+
     /// Every label each piece DEFINES, whatever its kind and however often —
     /// what a command that mints a label must avoid (`labelsDefined(excluding:)`).
     private let definedLabels: [String: Set<ManuscriptLabel>]
+    /// Each indexed piece's `NumbersBefore`, the first time it appears.
+    private let numbersBefore: [String: NumbersBefore]
+    /// The book's words its numbers were built with ("Table", "Figure"), so
+    /// the caption bar says "Table 2." as `targets` say "Table 2".
+    let words: ElementWords
     private let sourceIndex: [String: Int]
     private let targetIndex: [ManuscriptLabel: Int]
 
-    static let empty = ReferenceIndex(sources: [], targets: [], definedLabels: [:], version: 0)
+    static let empty = ReferenceIndex(sources: [], targets: [], definedLabels: [:],
+                                      numbersBefore: [:], words: .english, version: 0)
+
+    /// The tables and figures numbered before `docId`'s first, or nil when
+    /// the index has not read that piece (not built yet, or not in the book).
+    func numbersBefore(docId: String) -> NumbersBefore? { numbersBefore[docId] }
 
     func source(forKey key: String) -> Source? { sourceIndex[key].map { sources[$0] } }
 
@@ -108,19 +127,23 @@ struct ReferenceIndex: Equatable, Sendable {
     /// Same sources and targets, whatever the version.
     func hasSameContents(as other: ReferenceIndex) -> Bool {
         sources == other.sources && targets == other.targets && definedLabels == other.definedLabels
+            && numbersBefore == other.numbersBefore && words == other.words
     }
 
     /// This index's contents at `version`.
     func versioned(_ version: Int) -> ReferenceIndex {
         ReferenceIndex(sources: sources, targets: targets, definedLabels: definedLabels,
-                       version: version)
+                       numbersBefore: numbersBefore, words: words, version: version)
     }
 
     private init(sources: [Source], targets: [Target],
-                 definedLabels: [String: Set<ManuscriptLabel>], version: Int) {
+                 definedLabels: [String: Set<ManuscriptLabel>],
+                 numbersBefore: [String: NumbersBefore], words: ElementWords, version: Int) {
         self.sources = sources
         self.targets = targets
         self.definedLabels = definedLabels
+        self.numbersBefore = numbersBefore
+        self.words = words
         self.version = version
         var bySource: [String: Int] = [:]
         for (i, s) in sources.enumerated() where bySource[s.key] == nil { bySource[s.key] = i }
@@ -266,6 +289,7 @@ struct ReferenceIndex: Equatable, Sendable {
         var registered = Set<ManuscriptLabel>()
         var figures = 0, tables = 0
         var defined: [String: Set<ManuscriptLabel>] = [:]
+        var before: [String: NumbersBefore] = [:]
         func register(_ label: ManuscriptLabel?, _ kind: ManuscriptLabel.Kind,
                       text: String, detail: String, docId: String) {
             guard let label, label.kind == kind, registered.insert(label).inserted else { return }
@@ -274,6 +298,9 @@ struct ReferenceIndex: Equatable, Sendable {
         }
         for piece in pieces {
             defined[piece.docId, default: []].formUnion(piece.summary.definedLabels)
+            if before[piece.docId] == nil {
+                before[piece.docId] = NumbersBefore(tablesBefore: tables, figuresBefore: figures)
+            }
             for element in piece.summary.elements {
                 switch element {
                 case .heading(let text, let label):
@@ -326,7 +353,8 @@ struct ReferenceIndex: Equatable, Sendable {
                 return a.key < b.key
             }
         }
-        return ReferenceIndex(sources: sources, targets: targets, definedLabels: defined, version: 0)
+        return ReferenceIndex(sources: sources, targets: targets, definedLabels: defined,
+                              numbersBefore: before, words: words, version: 0)
     }
 
     /// Every key in the research tree, children walked, each once, in tree

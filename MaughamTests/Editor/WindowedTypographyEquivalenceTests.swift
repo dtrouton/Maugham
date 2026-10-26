@@ -535,6 +535,32 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
     }
 
+    // MARK: - The caption bar's fade (report plan 7b Task 8, R7b-2)
+    //
+    // A manuscript paints a figure line's `![`, `](path)` and `{#…}` faded,
+    // a pure function of the tokens: a label belongs to the fade only on a
+    // figure line, and the caret never enters the paint.
+
+    func test_fade_labellingAnUnlabelledTableLineFadesItsLabel() {
+        let doc = cardDoc.replacingOccurrences(of: "{#tbl:staff}", with: "")
+        let edit = Edit(replace: "](figures/staff.csv)", with: "](figures/staff.csv){#tbl:staff}")
+        assertEquivalent(doc: doc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
+    /// Dropping the `!` leaves `[Cash flows](…){#tbl:cash}` prose: its label
+    /// and brackets lose the fade on both paints.
+    func test_fade_unmakingATableLineUnfadesItsSyntax() {
+        let edit = Edit(replace: "![Cash flows]", with: "[Cash flows]")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
+    /// A heading's label two lines above a figure line keeps its own colour.
+    func test_fade_aHeadingLabelBesideAFigureLineIsNotFaded() {
+        let doc = "## Results {#sec:results}\n" + cardDoc
+        let edit = Edit(replace: "## Results", with: "## Findings")
+        assertEquivalent(doc: doc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
     // MARK: - The typing window's cap
 
     /// A 250 KB document with single newlines and no blank line is ONE block.

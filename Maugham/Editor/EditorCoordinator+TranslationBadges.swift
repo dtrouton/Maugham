@@ -32,15 +32,20 @@ extension EditorCoordinator {
     /// translated" without hiding the text. Implemented as a LAYOUT-MANAGER
     /// temporary attribute: display-only, never touches the op log or the text
     /// storage's stored attributes (so a `retokenizeAndStyle` doesn't wipe it),
-    /// and trivially cleared. Clears any prior dimming wholesale first — nothing
-    /// else sets a temporary foreground color, so a full-range removal is exact —
-    /// then re-applies over the current missing ranges. Outside translation
-    /// review it only clears.
+    /// and trivially cleared. Clears any prior dimming wholesale first — in
+    /// translation review nothing else sets a temporary foreground color (the
+    /// caption bar's caret-line un-fade, report plan 7b Task 8, is skipped
+    /// there), so a full-range removal is exact — then re-applies over the
+    /// current missing ranges. Outside translation review it clears, and the
+    /// caret's figure line takes its un-fade back.
     func applyTranslationDimming() {
         guard let textView, let layoutManager = textView.layoutManager else { return }
         let fullRange = NSRange(location: 0, length: textView.textStorage?.length ?? 0)
         layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-        guard isTranslationReview else { return }
+        guard isTranslationReview else {
+            figureSyntaxUnfadeWasCleared()
+            return
+        }
         for badge in resolvedTranslationBadges where badge.status == .missing {
             let loc = min(badge.range.location, fullRange.length)
             let len = min(badge.range.length, max(0, fullRange.length - loc))

@@ -193,6 +193,8 @@ extension EditorCoordinator {
             trailingFigureRoomMemo = nil
             applyModeTypography(in: storage, tokens: tokens, restyleWindow: nil)
             applyFocusDim(in: textView)
+            // The caret's figure line, in the colour this paint's theme gives.
+            refreshFigureSyntaxUnfade(force: true)
             // Re-baseline the live (screenplay) windowed path against the freshly
             // repainted whole-doc text so its next keystroke diffs correctly.
             liveRestyleBaseline = text
@@ -299,6 +301,8 @@ extension EditorCoordinator {
         defer {
             refreshProblemMarks()
             if figureRoomsWaitForTheSettle { refreshFigureRooms() }
+            // Typing on a figure line moved its syntax: show it where it is now.
+            refreshFigureSyntaxUnfade(force: true)
         }
         let baseline = burstBaselineText
         burstBaselineText = nil
@@ -478,6 +482,72 @@ extension EditorCoordinator {
         if abs(clampedY - visible.origin.y) < 0.5 { return }
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    // MARK: - The caption bar's un-fade (report plan 7b Task 8, R7b-2)
+
+    /// Whether this surface paints figure-line syntax faded (`ProseMode`,
+    /// manuscript only): the one gate the paint and the un-fade share.
+    var paintsFigureSyntaxFaded: Bool {
+        (mode as? ProseMode)?.reservesFigureThumbnails == true
+    }
+
+    /// **Shows the caret's figure line's syntax at full colour**: a
+    /// layout-manager temporary `.foregroundColor` (plain
+    /// `syntaxPunctuation`) over that line's `![`, `](path)` and `{#…}`,
+    /// taken off the line the caret left. Display only: never a storage edit,
+    /// so no `processEditing`, no re-layout and no scroll; at most two lines
+    /// repaint. Called on every selection change (a no-op while the caret
+    /// stays on its line), and with `force` after each paint — the settle
+    /// (typing moved the ranges) and a whole-document paint (the theme may
+    /// have changed) — and on a translation-review flip.
+    ///
+    /// Translation review shows none: its dimming is the one temporary
+    /// foreground there and clears over the whole text
+    /// (`applyTranslationDimming`), which stays exact. Between a character
+    /// edit and its retokenize the tokens describe the old text, so nothing
+    /// moves until they are fresh.
+    func refreshFigureSyntaxUnfade(force: Bool = false) {
+        guard let textView, let layoutManager = textView.layoutManager,
+              let storage = textView.textStorage else { return }
+        if tokensDescribeAnEarlierText && !isTranslationReview { return }
+        let wanted: [NSRange]
+        if isTranslationReview || !paintsFigureSyntaxFaded {
+            wanted = []
+        } else {
+            wanted = figureCaptionLine(at: textView.selectedRange().location)?.syntax ?? []
+        }
+        guard force || unfadedFigureSyntaxIsStale || wanted != unfadedFigureSyntax else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        if unfadedFigureSyntaxIsStale {
+            // An edit may have carried the temporaries anywhere in its text.
+            if !unfadedFigureSyntax.isEmpty {
+                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: full)
+            }
+        } else {
+            for range in unfadedFigureSyntax {
+                let clipped = NSIntersectionRange(range, full)
+                guard clipped.length > 0 else { continue }
+                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: clipped)
+            }
+        }
+        unfadedFigureSyntaxIsStale = false
+        if wanted != unfadedFigureSyntax { figureSyntaxUnfadeMoves += 1 }
+        unfadedFigureSyntax = wanted
+        guard !wanted.isEmpty else { return }
+        let shown = ProseMode.figureSyntaxColours(ProseMode.palette(for: theme)).shown
+        for range in wanted where NSMaxRange(range) <= full.length {
+            layoutManager.addTemporaryAttribute(.foregroundColor, value: shown, forCharacterRange: range)
+        }
+    }
+
+    /// Forgets the un-fade after something else cleared every temporary
+    /// foreground colour (`applyTranslationDimming`), and shows the caret's
+    /// line again outside translation review.
+    func figureSyntaxUnfadeWasCleared() {
+        unfadedFigureSyntax = []
+        unfadedFigureSyntaxIsStale = false
+        refreshFigureSyntaxUnfade(force: true)
     }
 
     func applyFocusDim(in textView: NSTextView) {
