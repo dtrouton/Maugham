@@ -196,6 +196,24 @@ final class FigureGridViewTests: XCTestCase {
         XCTAssertEqual(text.selectedRange(), NSRange(location: 9, length: 0), "and its caret did not move")
     }
 
+    /// The grid reads to VoiceOver as a table of its size whose one child is
+    /// the active cell, with its address and what it shows.
+    func test_accessibilityIsATableOfItsSizeWithTheActiveCell() throws {
+        let (grid, source) = mount(rows: 5)
+        let table = source.figureGridTable
+        let b3 = CellKey(row: table.rows[2], column: table.columns[1])
+        source.figureGridSelection = FigureGridSelection(anchor: b3, focus: b3)
+        XCTAssertEqual(grid.accessibilityRole(), .table)
+        XCTAssertEqual(grid.accessibilityRowCount(), 5)
+        XCTAssertEqual(grid.accessibilityColumnCount(), 3)
+        let cell = try XCTUnwrap(grid.accessibilityChildren()?.first as? NSAccessibilityElement)
+        XCTAssertEqual(cell.accessibilityRole(), .cell)
+        XCTAssertEqual(cell.accessibilityLabel(), "B3")
+        XCTAssertEqual(cell.accessibilityValue() as? String, "r2")
+        XCTAssertEqual(cell.accessibilityRowIndexRange(), NSRange(location: 2, length: 1))
+        XCTAssertEqual(grid.accessibilityValue() as? String, "B3, r2")
+    }
+
     // MARK: Edit menu actions on the real path
 
     /// The grid mounted inside a manuscript-like `NSTextView`, as Task 6 mounts

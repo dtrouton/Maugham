@@ -93,6 +93,23 @@ final class FigureGridPanel: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// **The panel's responder chain skips the text it sits in** (re-review
+    /// I-N1): an action with no target sent while the grid or a bar has the
+    /// keys — Paste and Match Style, Transformations, Substitutions, the
+    /// Spelling panel's Change — would otherwise walk grid → panel → the
+    /// manuscript's text view and change the text under the dim. The chain
+    /// goes on from the text view's own next responder (its clip view, the
+    /// scroll view, the window), so ⌘Z and ⇧⌘Z still reach the window's
+    /// undo manager, the one the grid's writes register on (R7c-1); the
+    /// text view answers no `undo:` of its own.
+    ///
+    /// AppKit walks the chain by the stored link (an overridden getter is
+    /// not asked) and sets it when the panel is added, so the coordinator
+    /// calls this after mounting and at each re-frame; idempotent.
+    func skipTheTextInTheResponderChain() {
+        if let text = nextResponder as? NSTextView { nextResponder = text.nextResponder }
+    }
+
     /// **A key a bar's control left unhandled stops here** (final review
     /// C1): the panel is a subview of the manuscript's text view, which would
     /// otherwise take the key (a toolbar button focused under Full Keyboard

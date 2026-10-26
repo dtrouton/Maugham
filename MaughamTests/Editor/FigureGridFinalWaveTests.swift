@@ -64,15 +64,19 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
     /// the table's edge; a chord the grid has no meaning for (⌘⌫, ⌥⌫'s
     /// cousins ⌥← and ⌃K, Page Down) is swallowed. Through all of it the
     /// manuscript is byte-for-byte what it was, its caret where it was, and
-    /// the grid still open with the keys. (In this harness the mounted text
-    /// view, never first responder, does not act on a key passed up to it,
-    /// so the responder-chain pins that go red without the fix are
-    /// `FigureGridViewTests`' grid and panel tests over a plain text view.)
+    /// the grid still open with the keys. The manuscript view is TextKit 1,
+    /// which ignores a key while it is not first responder, so its text
+    /// alone could not show a key passed up; a spy put in its place in the
+    /// panel's chain does — it is sent nothing (re-review I-N3).
     func test_noKeyTheGridIsSentEditsOrMovesTheManuscript() async throws {
         let m = try await mount()
         // The text's caret mid-word, where a key passed on would delete or move it.
         park(m, caret: location(m, "Paragraph 40 of") + 12, showing: location(m, "![Cash]("))
         let (grid, c) = try await expanded(m)
+        let panel = try XCTUnwrap(grid.panel)
+        let spy = ChainSpy()
+        spy.nextResponder = m.textView
+        panel.nextResponder = spy
         try await c.host.setCell(Cell(content: .value(.number(5))), at: cellKey(c, 1, 1), undoManager: nil)
         await c.hostSync?.value
         let text = m.textView.string
@@ -98,6 +102,43 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
         XCTAssertEqual(m.textView.selectedRange(), caret, "and its caret did not move")
         XCTAssertTrue(m.coordinator.figureGrid === grid, "the grid is still open")
         XCTAssertTrue(m.window.firstResponder === c.gridView, "with the keys")
+        XCTAssertEqual(spy.received, [], "nothing the grid was sent went on past the panel")
+    }
+
+    /// **No text action sent from the grid reaches the manuscript**
+    /// (re-review I-N1): Paste and Match Style, a transformation, a
+    /// substitution — an action with no target walks the responder chain
+    /// from the grid, which skips the text the panel sits in. ⌘Z still
+    /// reaches the window's undo manager (R7c-1).
+    func test_aTextActionFromTheGridNeverReachesTheManuscript_andUndoStillDoes() async throws {
+        let m = try await mount()
+        park(m, caret: location(m, "Paragraph 40 of") + 12, showing: location(m, "![Cash]("))
+        let (_, c) = try await expanded(m)
+        let text = m.textView.string
+        let caret = m.textView.selectedRange()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("PASTED", forType: .string)
+
+        for action in [#selector(NSTextView.pasteAsPlainText(_:)), #selector(NSTextView.pasteAsRichText(_:)),
+                       #selector(NSResponder.uppercaseWord(_:)), #selector(NSResponder.capitalizeWord(_:)),
+                       #selector(NSTextView.toggleAutomaticDashSubstitution(_:)),
+                       #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.deleteForward(_:))] {
+            var taker: NSResponder? = c.gridView
+            while let current = taker, !current.responds(to: action) { taker = current.nextResponder }
+            XCTAssertFalse(taker is NSTextView, "\(action) is taken by \(String(describing: taker))")
+            _ = c.gridView.tryToPerform(action, with: nil)   // as a menu item with no target sends it
+        }
+        XCTAssertEqual(m.textView.string, text, "the manuscript is byte-identical")
+        XCTAssertEqual(m.textView.selectedRange(), caret)
+
+        send(m, "7", code: 26)
+        send(m, "\r", code: 36)
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table[cellKey(c, 1, 1)]?.content, .value(.number(7)))
+        XCTAssertTrue(c.gridView.tryToPerform(Selector(("undo:")), with: nil), "⌘Z reaches the window from the grid")
+        await c.host.awaitPendingUndoWork()
+        XCTAssertNil(c.host.state.table[cellKey(c, 1, 1)], "and undoes the grid's write")
+        XCTAssertEqual(m.textView.string, text)
     }
 
     // MARK: - I1: the bottom bar's typing is written before the fold
@@ -210,5 +251,17 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
         m.cards.attach(nil)
         XCTAssertNil(m.coordinator.figureCardModel?("../figures/t.csv"), "premise: no card cached")
         XCTAssertEqual(m.coordinator.figureCardLine(at: inCard), line)
+    }
+}
+
+/// Stands where the text view was in the panel's responder chain and
+/// records whatever reaches it, passing nothing on.
+private final class ChainSpy: NSResponder {
+    var received: [String] = []
+    override func keyDown(with event: NSEvent) { received.append("keyDown \(event.keyCode)") }
+    override func doCommand(by selector: Selector) { received.append("doCommand \(selector)") }
+    override func tryToPerform(_ action: Selector, with object: Any?) -> Bool {
+        received.append("tryToPerform \(action)")
+        return false
     }
 }

@@ -80,19 +80,22 @@ public enum FigureRangeAnchors {
         // The edges as top and bottom (a stored range may run either way).
         let downward = os0 <= os1
         let topRef = downward ? range.start : range.end, bottomRef = downward ? range.end : range.start
+        // Each edge's new position, kept on its own edge (and its own `$`):
+        // a shifted relative edge may cross an absolute one, so the range
+        // then runs the other way — only the span it covers is ordered.
         var (q0, q1) = (p0, p1)
         if let formulaRow, let was = old.rowIndex(of: formulaRow), let now = new.rowIndex(of: formulaRow),
            now != was {
             let shift = now - was
             let s0 = topRef.rowAbsolute ? p0 : p0 + shift, s1 = bottomRef.rowAbsolute ? p1 : p1 + shift
-            if min(s0, s1) >= 0, max(s0, s1) < new.rows.count { (q0, q1) = (min(s0, s1), max(s0, s1)) }
+            if min(s0, s1) >= 0, max(s0, s1) < new.rows.count { (q0, q1) = (s0, s1) }
         }
-        let wanted = Array(new.rows[q0...q1])
+        let wanted = Array(new.rows[min(q0, q1)...max(q0, q1)])
         guard new.liveRows(betweenSlots: ns0, ns1) != wanted else { return nil }
-        let top = new.rows[q0], bottom = new.rows[q1]
+        let topEdgeRow = new.rows[q0], bottomEdgeRow = new.rows[q1]
         var out = range
-        out.start.anchor = withRow(range.start.anchor, downward ? top : bottom)
-        out.end.anchor = withRow(range.end.anchor, downward ? bottom : top)
+        out.start.anchor = withRow(range.start.anchor, downward ? topEdgeRow : bottomEdgeRow)
+        out.end.anchor = withRow(range.end.anchor, downward ? bottomEdgeRow : topEdgeRow)
         return out
     }
 

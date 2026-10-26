@@ -333,10 +333,11 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     // MARK: Edit menu actions
 
     // The Edit menu's key equivalents travel the responder chain before any
-    // `keyDown`. The grid answers each one it sits in front of, so none falls
-    // through to the manuscript text the grid is mounted in: Select All and
-    // Delete go to the model; cut, copy and paste are plan 7d's and are
-    // disabled until then. Undo and redo stay the window's (R7c-1).
+    // `keyDown`. The grid answers the ones it means: Select All and Delete go
+    // to the model; cut, copy and paste are plan 7d's and are disabled until
+    // then. Undo and redo stay the window's (R7c-1). Every other text action
+    // (Paste and Match Style, Transformations, …) finds no taker: the panel's
+    // responder chain skips the manuscript text it sits in.
 
     override func selectAll(_ sender: Any?) {
         delegate?.figureGridView(self, handle: .selectAll)
@@ -436,6 +437,32 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         guard let dataSource, let selection = dataSource.figureGridSelection else { return nil }
         let address = selection.address(in: dataSource.figureGridTable) ?? ""
         return "\(address), \(dataSource.figureGridDisplay(at: selection.anchor))"
+    }
+
+    // The table's size and one child: the active cell, so VoiceOver reads a
+    // table of so many rows and columns and the cell the writer is on
+    // (re-review). Built when asked — never on the drawing path.
+
+    override func accessibilityRowCount() -> Int { dataSource?.figureGridTable.rows.count ?? 0 }
+    override func accessibilityColumnCount() -> Int { dataSource?.figureGridTable.columns.count ?? 0 }
+    override func accessibilityChildren() -> [Any]? { activeCellElement().map { [$0] } ?? [] }
+    override func accessibilitySelectedCells() -> [Any]? { activeCellElement().map { [$0] } ?? [] }
+
+    /// The active cell as an accessibility cell: its address, what it
+    /// shows, its row and column, its frame.
+    func activeCellElement() -> NSAccessibilityElement? {
+        guard let dataSource, let key = dataSource.figureGridSelection?.anchor else { return nil }
+        let table = dataSource.figureGridTable
+        guard let r = table.rowIndex(of: key.row), let c = table.columnIndex(of: key.column) else { return nil }
+        let cell = NSAccessibilityElement()
+        cell.setAccessibilityRole(.cell)
+        cell.setAccessibilityParent(self)
+        cell.setAccessibilityLabel(FigureGridAddress.string(from: key, to: key, in: table))
+        cell.setAccessibilityValue(dataSource.figureGridDisplay(at: key))
+        cell.setAccessibilityRowIndexRange(NSRange(location: r, length: 1))
+        cell.setAccessibilityColumnIndexRange(NSRange(location: c, length: 1))
+        cell.setAccessibilityFrameInParentSpace(layout.cellFrame(row: r, column: c).intersection(layout.bodyRect))
+        return cell
     }
 
     override func resetCursorRects() {

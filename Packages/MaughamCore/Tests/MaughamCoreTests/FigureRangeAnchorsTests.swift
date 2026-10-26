@@ -221,4 +221,27 @@ final class FigureRangeAnchorsTests: XCTestCase {
         let fixed = applying(FigureRangeAnchors.reanchoredCells(old: old, new: new), to: new)
         XCTAssertEqual(value(fixed, 5, 0), .number(120))
     }
+
+    /// **Crossing edges keep their own `$`** (re-review I-N2): `SUM(A2:A$3)`
+    /// in row 4, which the sort moves down two places, shifts only its
+    /// relative top edge — to row 4, past the fixed bottom at row 3. The
+    /// range then runs upward; the `$` stays on the row-3 edge.
+    func test_aShiftedRelativeEdgeCrossingAnAbsoluteOneKeepsEachFlagOnItsEdge() throws {
+        var old = fixture()
+        // Row 4 (index 3, A = 50) holds the formula; sorted ascending
+        // (10, 20, 30, 40, 50) it moves to index 5: a shift of +2.
+        set(&old, 3, 1, formula("SUM(A2:A$3)", old))
+        let new = sortedAscending(old)
+        let moved = try XCTUnwrap(new.rows.firstIndex(of: old.rows[3]))
+        XCTAssertEqual(moved, 5, "premise: the formula's row moved down two")
+        let fixed = applying(FigureRangeAnchors.reanchoredCells(old: old, new: new), to: new)
+        guard case .formula(let f)? = fixed[key(fixed, moved, 1)]?.content, case .call(_, let args) = f.expr,
+              case .range(let g)? = args.first, case .id(let start, _) = g.start.anchor,
+              case .id(let end, _) = g.end.anchor else { return XCTFail("not a range") }
+        XCTAssertEqual(start, fixed.rows[3], "the relative edge followed its row: 2 + 2 = 4")
+        XCTAssertFalse(g.start.rowAbsolute)
+        XCTAssertEqual(end, fixed.rows[2], "the $ edge keeps position 3")
+        XCTAssertTrue(g.end.rowAbsolute, "with its $")
+        XCTAssertEqual(value(fixed, moved, 1), .number(50), "rows 3 and 4 of the sorted column: 20 + 30")
+    }
 }

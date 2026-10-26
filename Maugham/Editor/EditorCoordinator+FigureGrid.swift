@@ -407,6 +407,7 @@ extension EditorCoordinator {
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         expansion.panel = panel
         textView.addSubview(panel, positioned: .above, relativeTo: expansion.dim)
+        panel.skipTheTextInTheResponderChain()   // no text action reaches the text (I-N1)
         // A room guessed before the card was cached grows to the table (M3).
         let room = FigureGridPanel.room(rows: controller.host.state.table.rows.count, typography: typography)
         if room > expansion.room {
@@ -708,6 +709,7 @@ extension EditorCoordinator {
         let frame = FigureGridPanel.frame(lineBottom: bottom, room: expansion.room, columnX: origin.x + padding,
                                           columnWidth: container.size.width - 2 * padding)
         if expansion.panel?.frame != frame { expansion.panel?.frame = frame }
+        expansion.panel?.skipTheTextInTheResponderChain()
         expansion.dim.frame = textView.bounds
         expansion.dim.tint = textView.backgroundColor
         expansion.dim.hole = CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom + expansion.room - top)
