@@ -109,6 +109,25 @@ public enum FigureRestoreOutcome: Equatable, Sendable {
     }
 }
 
+/// **One grid visit, as one undoable step** (report plan 7d Task 5): every
+/// op a figure host committed between `beginVisit` and `endVisit`, in order,
+/// with the compensation that takes them all back (`undo`, last op first)
+/// and the one that puts them back with the same ids (`redo`).
+struct FigureVisit: Equatable {
+    let ops: [FigureReturnDiff.Change]
+    let undo: [FigureReturnDiff.Change]
+    let redo: [FigureReturnDiff.Change]
+
+    /// Nil when `ops` is empty or one of them has no inverse.
+    init?(ops: [FigureReturnDiff.Change]) {
+        let undo = FigureInverse.compensating(visit: ops.map { ($0.kind, $0.payload) })
+        guard !undo.isEmpty else { return nil }
+        self.ops = ops
+        self.undo = undo.map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
+        self.redo = FigureInverse.compensating(visit: undo).map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
+    }
+}
+
 /// **The content hashes of the pictures one restore read** (final review
 /// M6): a whole-project restore asks for each image figure's picture by
 /// hash, and `figures/` is hashed once for all of them, not per figure. A
@@ -257,6 +276,9 @@ public final class FigureDocument {
     /// open document only: a temporary folder, never `.maugham/` (nothing
     /// syncs it), removed at `close()`.
     @ObservationIgnored private var imageUndoFolder: URL?
+
+    /// The open grid visit's ops, in order (`beginVisit`); nil between visits.
+    @ObservationIgnored private var visitRecord: [FigureReturnDiff.Change]?
 
     private init(
         figureId: String, projectURL: URL, actor: DeviceActor, session: String,
@@ -1691,35 +1713,97 @@ public final class FigureDocument {
             undoManager, actionName: actionName, target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { d in
-                guard !d.isClosed else { return }
-                guard await d.mayEditHere() else { return d.decline(.notPermitted) }
-                // After the door's await, so nothing lands between the check
-                // and the append. A parked figure folds nothing (ruling P-5).
-                guard d.state.parked == nil else { return d.decline(.parked(d.state.kind)) }
-                guard stillAsWritten(d) else { return d.decline(.drifted) }
-                do { try await restoring?(d) } catch {
-                    documentLog.error("figure undo could not restore \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    return d.decline(.pictureNotKept)
-                }
-                do {
-                    // A visit renders once, after its last inverse.
-                    for (i, (kind, inverse)) in inverses.enumerated() {
-                        try await d.commit(kind, inverse, render: i == inverses.count - 1)
-                    }
-                } catch {
-                    if inverses.count > 1 { await d.documentStore?.figureHostAppended(d.figureId) }
-                    documentLog.error("figure undo append failed on \(d.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    // What `restoring` put back goes back to what the op
-                    // log still names, so the file and the history agree.
-                    do { try await unrestoring?(d) } catch {
-                        documentLog.error("figure undo could not re-place \(d.figureId, privacy: .public) after a failed append: \(error.localizedDescription, privacy: .public)")
-                    }
-                    // Said, not only logged: the ⌘Z was consumed and the
-                    // figure is as it was.
-                    d.decline(.notRecorded)
-                }
+                await d.appendCompensation(
+                    inverses, stillAsWritten: stillAsWritten, restoring: restoring, unrestoring: unrestoring)
             },
             redo: redo)
+    }
+
+    /// **The inner path of every figure ⌘Z** (`registerFigureUndo`'s undo,
+    /// and `undoVisit`/`redoVisit`): the door, parked, the drift guard,
+    /// `restoring`, then `ops` appended with one render after the last.
+    /// Answers whether they landed; every refusal is said (`decline`).
+    @discardableResult
+    private func appendCompensation(
+        _ ops: [(OpKind, FigureOpPayload)],
+        stillAsWritten: @MainActor (FigureDocument) -> Bool,
+        restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
+        unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil
+    ) async -> Bool {
+        guard !isClosed else { return false }
+        guard await mayEditHere() else { decline(.notPermitted); return false }
+        // After the door's await, so nothing lands between the check
+        // and the append. A parked figure folds nothing (ruling P-5).
+        guard state.parked == nil else { decline(.parked(state.kind)); return false }
+        guard stillAsWritten(self) else { decline(.drifted); return false }
+        do { try await restoring?(self) } catch {
+            documentLog.error("figure undo could not restore \(self.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            decline(.pictureNotKept)
+            return false
+        }
+        do {
+            // A visit renders once, after its last inverse.
+            for (i, (kind, inverse)) in ops.enumerated() {
+                try await commit(kind, inverse, render: i == ops.count - 1)
+            }
+            return true
+        } catch {
+            if ops.count > 1 { await documentStore?.figureHostAppended(figureId) }
+            documentLog.error("figure undo append failed on \(self.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            // What `restoring` put back goes back to what the op
+            // log still names, so the file and the history agree.
+            do { try await unrestoring?(self) } catch {
+                documentLog.error("figure undo could not re-place \(self.figureId, privacy: .public) after a failed append: \(error.localizedDescription, privacy: .public)")
+            }
+            // Said, not only logged: the ⌘Z was consumed and the
+            // figure is as it was.
+            decline(.notRecorded)
+            return false
+        }
+    }
+
+    // MARK: - Grid visits (report plan 7d Task 5)
+
+    /// **Start recording a grid visit**: from here every op this host
+    /// commits — forward edits, batches, pins, and the grid's own undos and
+    /// redos — joins the visit, until `endVisit`. Visits don't nest: a begin
+    /// while one is open keeps recording that one.
+    func beginVisit() {
+        guard visitRecord == nil else {
+            documentLog.error("figure \(self.figureId, privacy: .public): a visit began while one was open; the open one goes on")
+            return
+        }
+        visitRecord = []
+    }
+
+    /// **Stop recording**: the visit, or nil when it appended nothing — or
+    /// when one of its ops has no inverse, since a visit is taken back whole
+    /// or not at all (`FigureInverse.compensating`).
+    func endVisit() -> FigureVisit? {
+        defer { visitRecord = nil }
+        guard let ops = visitRecord, !ops.isEmpty else { return nil }
+        let visit = FigureVisit(ops: ops)
+        if visit == nil {
+            documentLog.error("figure \(self.figureId, privacy: .public): a visit holds an op with no undo; it takes no ⌘Z")
+        }
+        return visit
+    }
+
+    /// **Take a whole visit back** as one step: its compensation appended
+    /// through the inner path of every figure ⌘Z (one render), declined
+    /// whole — and said — once anything it touched changed since (R7d-10).
+    @discardableResult
+    func undoVisit(_ visit: FigureVisit) async -> Bool {
+        await appendCompensation(visit.undo.map { ($0.kind, $0.payload) },
+                                 stillAsWritten: { FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil })
+    }
+
+    /// **Put an undone visit back**, the same ids again (an insert's row
+    /// revives); declined whole once what the undo wrote changed since.
+    @discardableResult
+    func redoVisit(_ visit: FigureVisit) async -> Bool {
+        await appendCompensation(visit.redo.map { ($0.kind, $0.payload) },
+                                 stillAsWritten: { FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil })
     }
 
     /// Await the last undo/redo's async hop — a test's wait, and what the
@@ -1766,6 +1850,9 @@ public final class FigureDocument {
             // Only while unconfirmed: a read that already contained it has
             // forgotten it, and must not leave this id behind.
             if unconfirmedLocalOpIds.contains(op.opId) { appendedLocalOpIds.insert(op.opId) }
+            // Every op that lands joins an open visit — the grid's own undos
+            // and redos too, which come through here like any edit.
+            visitRecord?.append(FigureReturnDiff.Change(kind: kind, payload: payload))
         } catch {
             unconfirmedLocalOpIds.remove(op.opId)
             _ops.removeAll { $0.opId == op.opId }

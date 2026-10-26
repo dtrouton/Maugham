@@ -217,9 +217,13 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             return .inverseCovered(mechanism: "FigureInverse.inverse (a pin set swaps to priorPin; a first pin clears), in a visit registered by FigureDocument.registerFigureUndo (refreshPins, or setCell's entry pins), drift-guarded")
 
         case .figurePinClear:
-            // Written only as a first pin's undo; that undo is reversed by
-            // the visit's redo (a refresh again, or setCell again).
-            return .nonUndoable(reason: "written only as the undo of a cell's first pin; the visit's redo (refreshPins or setCell) reverses it")
+            // Written only as a first pin's undo, which names the pin it
+            // clears, so it inverts to a set of that pin (report plan 7d):
+            // a grid visit holding one — a Research formula entered and
+            // undone in the grid — is taken back whole by
+            // FigureDocument.undoVisit. Its own ⌘Z is still the visit's
+            // redo (a refresh again, or setCell again).
+            return .inverseCovered(mechanism: "FigureInverse.inverse (a pin clear naming its pin sets it again), in a grid visit taken back by FigureDocument.undoVisit, drift-guarded")
 
         case .unknown:
             // Forward-tolerance decode fallback for an op kind written by a
@@ -299,7 +303,7 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
     func test_bucketMembership_matchesADR0023() {
         let covered: [OpKind] = [
             .figureCellSet, .figureStructure, .figureSettings, .figureImageSet,
-            .figurePinSet,
+            .figurePinSet, .figurePinClear,
             .claudeReject, .claudeArchive, .annotationWithdraw, .annotationEdit,
             .annotationReopen, .annotationStet, .annotationTriage,
             .claudeAccept, .claudeAcceptRevert,
@@ -311,7 +315,6 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             .typingBurst, .externalEdit, .checkpoint, .bootstrap,
             .claudeSuggestion, .claudeComment, .claudeQuery, .claudeCraftNote,
             .figureCreate, .figureParked, .figureResumed,
-            .figurePinClear,
             .unknown,
         ]
         XCTAssertEqual(

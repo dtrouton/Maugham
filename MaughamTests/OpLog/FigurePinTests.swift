@@ -241,6 +241,43 @@ final class FigurePinTests: XCTestCase {
         await store.closeFigure(figureId: summary.id)
     }
 
+    /// **A Research formula entered, undone and redone inside a grid visit
+    /// still undoes as one visit** (report plan 7d Task 5, the pin-clear
+    /// trap): the visit holds a pin clear, which now inverts, so the visit is
+    /// not left without an undo; `undoVisit` clears the cell and its pin,
+    /// `redoVisit` puts both back.
+    func test_aVisitHoldingAResearchFormulasUndoneEntryPinStillUndoesWhole() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        guard case .success(let f) = FormulaParser.parse(
+            "research:model!B2*2", in: host.state.table, names: FormulaNames(research: [(item.id, item.title)]))
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        let gridUndo = UndoManager()
+
+        host.beginVisit()
+        try await host.setCell(Cell(content: .formula(f)), at: a1, undoManager: gridUndo)
+        gridUndo.undo()
+        await host.awaitPendingUndoWork()
+        gridUndo.redo()
+        await host.awaitPendingUndoWork()
+        let visit = try XCTUnwrap(host.endVisit(), "a visit holding a pin clear has an undo")
+        XCTAssertTrue(visit.ops.contains { $0.kind == .figurePinClear }, "precondition: the trap's pin clear")
+
+        let undone = await host.undoVisit(visit)
+        XCTAssertTrue(undone)
+        XCTAssertNil(host.state.table[a1], "the cell is as before the visit")
+        XCTAssertNil(host.state.pins[a1], "and holds no pin")
+
+        let redone = await host.redoVisit(visit)
+        XCTAssertTrue(redone)
+        XCTAssertEqual(host.state.table[a1], Cell(content: .formula(f)))
+        XCTAssertEqual(host.state.pins[a1]?.map(\.value), [.number(10)], "the pin is back")
+        await store.closeFigure(figureId: summary.id)
+    }
+
     /// **A batch takes every formula's entry pins in one read** (report plan
     /// 7c Task 1): two Research-reading formulas set by one `setCells` each
     /// take their pin, and one ⌘Z clears both cells and both pins.
