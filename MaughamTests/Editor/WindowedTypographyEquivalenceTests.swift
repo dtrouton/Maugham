@@ -454,7 +454,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
     // MARK: - The table card's reserved room (report plan 7a Task 4)
     //
     // A table figure's line reserves its card's height, read from the cached
-    // model through the coordinator's `figureRoom(forLinePath:)`. The room is
+    // model through the coordinator's `figureRoom(forLinePath:at:)`. The room is
     // data-derived (the row count), so both paints must read the same
     // function of the path, and a path the cache has not filled keeps the
     // placeholder (R7a-2).
@@ -488,9 +488,9 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         "figures/ledger.csv": table(rows: 40),
     ]
 
-    private var cardRoom: (String) -> CGFloat {
+    private var cardRoom: (String, Int) -> CGFloat {
         let models = cardModels
-        return { FigureCardMetrics.room(for: models[$0], typography: .defaults) }
+        return { path, _ in FigureCardMetrics.room(for: models[path], typography: .defaults) }
     }
 
     func test_card_eachTableLineReservesItsOwnCardsRoom() {
@@ -533,6 +533,56 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
     func test_card_aLineUnderTheLongTableTakesItsRoomAway() {
         let edit = Edit(replace: "{#tbl:ledger}", with: "{#tbl:ledger}\nand a second line")
         assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript, figureRoom: cardRoom)
+    }
+
+    // MARK: - The expanded grid's room (report plan 7c Task 6)
+    //
+    // The line a grid is expanded on holds the grid's room, keyed by the
+    // line's START (`figureRoom(forLinePath:at:)`), which the coordinator's
+    // anchor carries through every edit. Both paints read that function.
+
+    /// The card rooms, with the line starting where `"![Staff"` starts in
+    /// `text` given the grid's room instead.
+    private func expandedRoom(in text: String, room: CGFloat = 400) -> (String, Int) -> CGFloat {
+        let start = (text as NSString).range(of: "![Staff").location
+        let cards = cardRoom
+        return { path, line in line == start ? room : cards(path, line) }
+    }
+
+    /// An edit above the expanded line moves its start; the anchor moves
+    /// with it, so the windowed paint and a whole paint agree.
+    func test_expandedGrid_anEditAboveTheExpandedLineKeepsItsRoomOnBothPaints() {
+        let edit = Edit(replace: "Middle prose", with: "Some longer middle prose")
+        let after = cardDoc.replacingOccurrences(of: "Middle prose", with: "Some longer middle prose")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript,
+                         figureRoom: expandedRoom(in: after), figureRoomBefore: expandedRoom(in: cardDoc))
+    }
+
+    /// Typing in the expanded line's caption keeps its room on both paints.
+    func test_expandedGrid_editingTheExpandedLinesCaption() {
+        let edit = Edit(replace: "Staff by grade", with: "Staff by grade and year")
+        let after = cardDoc.replacingOccurrences(of: "Staff by grade", with: "Staff by grade and year")
+        assertEquivalent(doc: cardDoc, edit: edit, mode: .manuscript,
+                         figureRoom: expandedRoom(in: after), figureRoomBefore: expandedRoom(in: cardDoc))
+    }
+
+    /// R7c-4: the same figure on two lines — only the expanded line takes
+    /// the grid's room; the other keeps its card's.
+    func test_expandedGrid_theSameFigureOnAnotherLineKeepsItsCard() {
+        let doc = cardDoc.replacingOccurrences(of: "![The full ledger](figures/ledger.csv){#tbl:ledger}",
+                                               with: "![Staff again](figures/staff.csv)")
+        let storage = NSTextStorage(string: doc)
+        applyWhole(storage, text: doc, mode: .manuscript, figureRoom: expandedRoom(in: doc, room: 400))
+        func spacing(_ needle: String) -> CGFloat {
+            let at = (storage.string as NSString).range(of: needle).location
+            return (storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+                    as? NSParagraphStyle)?.paragraphSpacing ?? -1
+        }
+        let body = spacing("Middle prose")
+        XCTAssertEqual(spacing("![Staff by grade]") - body, 400, "the expanded line holds the grid's room")
+        XCTAssertEqual(spacing("![Staff again]") - body,
+                       FigureCardMetrics.room(for: cardModels["figures/staff.csv"], typography: .defaults),
+                       "the same figure's other line keeps its card")
     }
 
     // MARK: - The caption bar's fade (report plan 7b Task 8, R7b-2)
@@ -604,7 +654,8 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         doc oldText: String,
         edit: Edit,
         mode: ModeKind,
-        figureRoom: ((String) -> CGFloat)? = nil,
+        figureRoom: ((String, Int) -> CGFloat)? = nil,
+        figureRoomBefore: ((String, Int) -> CGFloat)? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -619,7 +670,9 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
 
         // ----- Storage A: old text fully styled, then edited, then windowed -----
         let storageA = NSTextStorage(string: oldText)
-        applyWhole(storageA, text: oldText, mode: mode, figureRoom: figureRoom)
+        // The old text as it was painted: with the room function of THAT
+        // text (an anchor keyed by line start moves with the edit).
+        applyWhole(storageA, text: oldText, mode: mode, figureRoom: figureRoomBefore ?? figureRoom)
         // Apply the edit the way NSTextView does — attributes shift with chars.
         storageA.replaceCharacters(in: editRange, with: edit.with)
         XCTAssertEqual(storageA.length, (newText as NSString).length,
@@ -665,7 +718,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
     }
 
     private func applyWhole(_ storage: NSTextStorage, text: String, mode: ModeKind,
-                            figureRoom: ((String) -> CGFloat)? = nil) {
+                            figureRoom: ((String, Int) -> CGFloat)? = nil) {
         switch mode {
         case .screenplay:
             let m = ScreenplayMode()
@@ -685,7 +738,7 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
         tokens: [Token],
         mode: ModeKind,
         window: NSRange?,
-        figureRoom: ((String) -> CGFloat)? = nil
+        figureRoom: ((String, Int) -> CGFloat)? = nil
     ) {
         let text = storage.string
         switch mode {

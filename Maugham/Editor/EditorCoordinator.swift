@@ -16,7 +16,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var sentenceFocus: Bool
     var paragraphFocus: Bool
 
-    private var isApplyingExternalUpdate = false
+    private(set) var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
 
     /// Review posture (WF1): when true the manuscript text is read-only —
@@ -346,7 +346,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// **The cached card under a figure line** (report plan 7a Task 4): the
     /// path as written → the window's `FigureCardCache` model, nil on a miss.
     /// Memory only, never a disk or op-log read, so the styler may ask it on
-    /// both paints (`figureRoom(forLinePath:)`). Its redraw trigger is
+    /// both paints (`figureRoom(forLinePath:at:)`). Its redraw trigger is
     /// `EditorControl.figureCardVersion`. Built by `EditorHost`, which knows
     /// the document's path; nil on every other surface.
     var figureCardModel: ((String) -> FigureCardModel?)?
@@ -365,9 +365,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var figureRoomsWaitForTheSettle = false
     /// How many figure lines `refreshFigureRooms` has re-laid out (tests read it).
     var figureRoomRefreshCount = 0
-    /// The trailing figure's path and the room its card gave it, as of the
-    /// last `refreshFigureRooms` or whole-document paint (`figureTrailingRoom`).
-    var trailingFigureRoomMemo: (path: String, room: CGFloat)?
+    /// The trailing figure's path, whether the grid was expanded on it, and
+    /// the room it was given, as of the last `refreshFigureRooms` or
+    /// whole-document paint (`figureTrailingRoom`).
+    var trailingFigureRoomMemo: (path: String, expanded: Bool, room: CGFloat)?
+    /// **The table figure expanded in place into its grid** (report plan 7c
+    /// Task 6, `EditorCoordinator+FigureGrid.swift`), nil while every card is
+    /// folded. Not observable (tripwire 6): the room, the overlay and the
+    /// panel read it.
+    var figureGrid: FigureGridExpansion?
+    /// How this surface opens a table figure's grid; nil where it never
+    /// expands. Wired by `EditorHost` (`FigureGridOpening.window`).
+    var figureGridOpening: FigureGridOpening?
     /// How many times `figureTrailingRoom` asked the cards (tests read it).
     var trailingFigureRoomLookupCount = 0
 
@@ -1100,7 +1109,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
         // Preserve cursor where possible
         let oldSelection = textView.selectedRange()
+        let gridLine = figureGrid.map { ($0.lineLocation, textView.string) }
         textView.string = text
+        // The expanded grid's line, followed through the replace by a line
+        // diff (report plan 7c Task 6): kept, rewritten, or gone.
+        if let (line, oldText) = gridLine {
+            figureGrid?.followReplacement(of: line, old: oldText, new: text)
+        }
         let clamped = NSRange(
             location: min(oldSelection.location, text.utf16.count),
             length: 0
@@ -1350,6 +1365,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func setFigureCardVersion(_ version: Int) {
         guard version != figureCardVersion else { return }
         figureCardVersion = version
+        // The expanded grid's book and room (report plan 7c Task 6) first,
+        // so the re-layout below carries a room that grew.
+        figureGridCardsChanged()
         if isInTypingBurst {
             figureRoomsWaitForTheSettle = true   // the settle checks the problems anyway
         } else {
@@ -1425,6 +1443,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Prose: Tab, Shift-Tab and Return move through and grow a table when
         // the caret is in one; anywhere else they fall through to AppKit.
         guard mode is ScreenplayMode else {
+            // Return inside a table figure's line expands its grid (R7c-3).
+            if handleFigureGridCommand(commandSelector, in: textView) { return true }
             return handleTableCommand(commandSelector, in: textView)
         }
 
@@ -1546,6 +1566,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.tokensDescribeAnEarlierText = true
                 if !self.unfadedFigureSyntax.isEmpty { self.unfadedFigureSyntaxIsStale = true }
                 self.tableTidy.noteEdit(editedRange: range, changeInLength: delta)
+                self.figureGrid?.noteEdit(editedRange: range, changeInLength: delta)
             }
         }
     }

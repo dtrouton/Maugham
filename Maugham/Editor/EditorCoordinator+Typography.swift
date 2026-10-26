@@ -222,7 +222,7 @@ extension EditorCoordinator {
             prose.applyTypography(
                 in: storage, theme: theme, typography: typography,
                 tokens: tokens, wikiLinkResolver: wikiLinkResolver,
-                figureRoom: self.figureRoom(forLinePath:),
+                figureRoom: self.figureRoom(forLinePath:at:),
                 restyleWindow: restyleWindow)
         } else {
             mode.applyTypography(

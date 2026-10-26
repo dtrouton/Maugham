@@ -279,10 +279,12 @@ extension EditorCoordinator {
             let writerMoved = tracker.anchor.edited || textView.selectedRange() != writersSelection
             let location = tracker.anchor.location(
                 in: textView.string, caret: NSMaxRange(textView.selectedRange()))
-            guard self.writeTableFigureLine(birth, at: location, writerMoved: writerMoved) else {
+            guard let landed = self.writeTableFigureLine(birth, at: location, writerMoved: writerMoved) else {
                 await Self.discard(birth, because: .refused, report: report)
                 return
             }
+            // Spec §6.4: the new table expands in place (report plan 7c Task 6).
+            self.expandFigureGrid(lineAt: landed)
         }
         tableFigureTask = task
         return task
@@ -307,21 +309,23 @@ extension EditorCoordinator {
     }
 
     /// The table figure's line at `location` through Route A, its birth
-    /// registered alongside. False when the membrane refused.
+    /// registered alongside: where its caption landed in the text, or nil
+    /// when the membrane refused.
     private func writeTableFigureLine(_ birth: FigureIngest.TableFigureBirth, at location: Int,
-                                      writerMoved: Bool) -> Bool {
-        guard let textView else { return false }
+                                      writerMoved: Bool) -> Int? {
+        guard let textView else { return nil }
         let line = FigureIngest.figureLine(path: birth.linePath, kind: .tbl, name: birth.name)
         let blocks = tableBlockRange(containing: location)
             .map { [$0] } ?? []
         let edit = FigureIngest.figureEdit(in: textView.string, at: location,
                                            tableBlocks: blocks, line: line)
-        return applyCommandEdit(
+        let written = applyCommandEdit(
             edit, actionName: Self.insertTableActionName,
             landing: .deferred(writerMoved: writerMoved),
             alongside: figureBirthUndo(figureId: birth.figureId,
                                        actionName: Self.insertTableActionName,
                                        store: birth.store))
+        return written ? edit.selection.location : nil
     }
 
     /// Why a made table figure's line was not written (R7b-6).

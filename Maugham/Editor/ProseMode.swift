@@ -77,7 +77,7 @@ public struct ProseMode: WritingMode {
         typography: TypographySettings,
         tokens: [Token],
         wikiLinkResolver: ((String) -> Bool)?,
-        figureRoom: ((String) -> CGFloat)? = nil,
+        figureRoom: ((String, Int) -> CGFloat)? = nil,
         restyleWindow: NSRange? = nil
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
@@ -117,7 +117,7 @@ public struct ProseMode: WritingMode {
         if reservesFigureThumbnails {
             reserveFigureThumbnailSpace(in: storage, tokens: tokens, window: window,
                                         body: bodyAttrs[.paragraphStyle] as? NSParagraphStyle,
-                                        figureRoom: figureRoom ?? { _ in FigureThumbnailLayout.reservedHeight })
+                                        figureRoom: figureRoom ?? { _, _ in FigureThumbnailLayout.reservedHeight })
         }
 
         for token in tokens {
@@ -412,15 +412,18 @@ public struct ProseMode: WritingMode {
     }
 
     /// Gives each figure line's paragraph room for its thumbnail or card: the
-    /// body paragraph style with `figureRoom(path as written)` more
-    /// `paragraphSpacing`. An attribute, never a character (tripwires 1, 26).
+    /// body paragraph style with `figureRoom(path as written, line start)`
+    /// more `paragraphSpacing`. An attribute, never a character (tripwires 1, 26).
     ///
-    /// `figureRoom` is the coordinator's `figureRoom(forLinePath:)` (report
+    /// `figureRoom` is the coordinator's `figureRoom(forLinePath:at:)` (report
     /// plan 7a Task 4): an image figure's or a cache miss's
     /// `FigureThumbnailLayout.reservedHeight`, a table figure's card height
-    /// from its cached model. Both paints read the same function of the
-    /// path, so window ≡ whole document holds; it reads memory only. A caller
-    /// with none (a test, the protocol witness) gets the fixed height.
+    /// from its cached model, and the in-place grid's room for the one line
+    /// it is expanded on (report plan 7c Task 6, keyed by the line's start so
+    /// the same figure on another line keeps its card, R7c-4). Both paints
+    /// read the same function of the path and the line, so window ≡ whole
+    /// document holds; it reads memory only. A caller with none (a test, the
+    /// protocol witness) gets the fixed height.
     ///
     /// Keyed on the LINE, not the token: a windowed paint that covers any part
     /// of a figure line (the caption, say) has just reset that part to the body
@@ -432,7 +435,7 @@ public struct ProseMode: WritingMode {
     /// `.paragraphStyle` is touched outside the window, on that line alone.
     private func reserveFigureThumbnailSpace(
         in storage: NSTextStorage, tokens: [Token], window: NSRange, body: NSParagraphStyle?,
-        figureRoom: (String) -> CGFloat
+        figureRoom: (String, Int) -> CGFloat
     ) {
         let text = storage.string as NSString
         // One style per distinct room, shared by every line that needs it.
@@ -442,7 +445,7 @@ public struct ProseMode: WritingMode {
             else { continue }
             let line = text.lineRange(for: NSRange(location: token.range.location, length: 0))
             guard NSIntersectionRange(line, window).length > 0 else { continue }
-            let room = figureRoom(path)
+            let room = figureRoom(path, line.location)
             let figureStyle: NSParagraphStyle
             if let shared = styles[room] {
                 figureStyle = shared
@@ -465,7 +468,7 @@ public struct ProseMode: WritingMode {
 
     /// **Re-lays out the figure lines whose room has changed** (report plan
     /// 7a Task 5), and no other: for each of `lines`, the style a paint would
-    /// put there now (`figureRoom` of its path) is compared with the style it
+    /// put there now (`figureRoom` of its path and line start) is compared with the style it
     /// carries, and only a line that differs gets an `addAttribute` of
     /// `.paragraphStyle` over the whole line, all in one
     /// `beginEditing`/`endEditing`. Never `setAttributes`, so nothing else
@@ -478,7 +481,7 @@ public struct ProseMode: WritingMode {
     @discardableResult
     func refreshFigureRooms(
         in storage: NSTextStorage, theme: Theme, typography: TypographySettings,
-        lines: [FigureThumbnailLayout.Mark], figureRoom: (String) -> CGFloat
+        lines: [FigureThumbnailLayout.Mark], figureRoom: (String, Int) -> CGFloat
     ) -> [NSRange] {
         guard reservesFigureThumbnails else { return [] }
         let body = bodyTypingAttributes(theme: theme, typography: typography)[.paragraphStyle]
@@ -488,7 +491,7 @@ public struct ProseMode: WritingMode {
         for mark in lines where mark.lineRange.length > 0 && NSMaxRange(mark.lineRange) <= text.length {
             // The line with its terminator, as `reserveFigureThumbnailSpace` styles it.
             let line = text.lineRange(for: NSRange(location: mark.lineRange.location, length: 0))
-            let wanted = Self.figureLineStyle(body: body, room: figureRoom(mark.path))
+            let wanted = Self.figureLineStyle(body: body, room: figureRoom(mark.path, line.location))
             let current = storage.attribute(.paragraphStyle, at: line.location,
                                             effectiveRange: nil) as? NSParagraphStyle
             if current?.isEqual(wanted) == true { continue }

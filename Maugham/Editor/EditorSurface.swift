@@ -137,6 +137,10 @@ struct EditorSurfaceConfiguration {
         /// diagnostics: memory only, nil before the first fill. Wired by
         /// `EditorHost`; nil elsewhere, which skips the registry checks.
         var figureLineStatus: ((String) -> FigureLineResolution.Status?)? = nil
+        /// Opens a table figure's grid in place (report plan 7c Task 6): the
+        /// window's stores and the document's path. Wired by `EditorHost`;
+        /// nil elsewhere, where a card never expands.
+        var figureGridOpening: FigureGridOpening? = nil
     }
 
     /// Review-mode annotation authoring plus the resolvers the crafted render
@@ -268,6 +272,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.figureCardModel = pp.figureCardModel
         coordinator.figureLineStatus = pp.figureLineStatus
+        coordinator.figureGridOpening = pp.figureGridOpening
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
@@ -543,6 +548,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.figureCardModel = pp.figureCardModel
         context.coordinator.figureLineStatus = pp.figureLineStatus
+        context.coordinator.figureGridOpening = pp.figureGridOpening
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider
@@ -682,6 +688,12 @@ final class MaughamTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // A double-click on a table figure's card expands it in place (report
+        // plan 7c Task 6). The card is decided by geometry
+        // (`FigureCardHit`): the character index would land on the next line.
+        if event.clickCount == 2, coordinator?.expandFigureGrid(atCardPoint: point) == true {
+            return
+        }
         let charIndex = characterIndexForInsertion(at: point)
         // Checkbox click (markdown `- [ ]` or Fountain `[[todo:]]`) → flip
         // the bracket. Routed through the host's wiring of
@@ -973,6 +985,8 @@ final class MaughamTextView: NSTextView {
 
         // Re-frame the figure-thumbnail overlay (covers the view) too.
         coordinator?.layoutFigureThumbnailOverlay(in: self)
+        // The expanded grid follows its line to the new column.
+        coordinator?.layoutFigureGrid()
         // And the label overlay, with the problem tooltips on a new width.
         coordinator?.layoutReferenceLabelOverlay(in: self)
     }

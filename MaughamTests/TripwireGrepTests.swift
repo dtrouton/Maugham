@@ -2528,6 +2528,12 @@ final class TripwireGrepTests: XCTestCase {
     /// mount-and-read that the control is DRAWN), or, if a click really is the
     /// only guard, add it here in the same commit with the reason beside it.
     static let clickRepresentatives: Set<String> = [
+        // The real entry point for double-click-to-expand (report plan 7c
+        // Task 6): `MaughamTextView.mouseDown(with:)` with a click count of
+        // two, the only path that reads the count. Synchronous — the arm
+        // returns before `super`, and the room has grown when it returns; the
+        // card it hit is the pure `FigureCardHit`'s, pinned without a window.
+        "FigureGridExpandTests.swift test_aDoubleClickOnTheCardExpandsIt",
         // The real entry point: `CanvasEventNSView.mouseDown(with:)` takes first
         // responder, and every other canvas test clicks through the seam that
         // does not. Synchronous — the override is called directly, nothing waits.

@@ -647,8 +647,12 @@ final class FigureThumbnailOverlay: NSView {
         let cardFont = FigureCardMetrics.font(for: typography)
         let rowHeight = FigureCardMetrics.rowHeight(for: typography)
 
+        let expandedLine = coordinator.figureGrid?.lineLocation
         for mark in visible {
             guard mark.lineRange.length > 0, NSMaxRange(mark.lineRange) <= storage.length else { continue }
+            // The grid expanded on this line stands in its room (report plan
+            // 7c Task 6); the same figure on another line keeps its card (R7c-4).
+            if mark.lineRange.location == expandedLine { continue }
             let lastGlyph = layoutManager.glyphIndexForCharacter(at: NSMaxRange(mark.lineRange) - 1)
             let used = layoutManager.lineFragmentUsedRect(forGlyphAt: lastGlyph, effectiveRange: nil)
             let lineBottom = used.maxY + origin.y
@@ -797,15 +801,20 @@ extension EditorCoordinator {
         overlay.needsDisplay = true
     }
 
-    /// **The room under the figure line written `path`** (report plan 7a
-    /// Task 4): what `ProseMode.reserveFigureThumbnailSpace` adds to the
-    /// line's `paragraphSpacing` on BOTH paints, so window ≡ whole document.
+    /// **The room under the figure line written `path` that starts at
+    /// `lineStart`** (report plan 7a Task 4): what
+    /// `ProseMode.reserveFigureThumbnailSpace` adds to the line's
+    /// `paragraphSpacing` on BOTH paints, so window ≡ whole document.
     /// The card comes from `figureCardModel` (the window's `FigureCardCache`,
     /// memory only); a surface with no provider, or a figure the cache has
     /// not filled, gets the fixed placeholder (`FigureCardMetrics.room`).
+    /// The one line the grid is expanded on (report plan 7c Task 6) gets the
+    /// grid's room instead, held constant while it is expanded — keyed by the
+    /// line's start, so the same figure on another line keeps its card (R7c-4).
     /// Asked once per figure line a paint covers, never on its own.
-    func figureRoom(forLinePath path: String) -> CGFloat {
-        FigureCardMetrics.room(for: figureCardModel?(path), typography: typography)
+    func figureRoom(forLinePath path: String, at lineStart: Int) -> CGFloat {
+        if let grid = figureGrid, grid.lineLocation == lineStart { return grid.room }
+        return FigureCardMetrics.room(for: figureCardModel?(path), typography: typography)
     }
 
     /// The room a figure on the document's LAST line needs below the text:
@@ -817,21 +826,31 @@ extension EditorCoordinator {
     /// never of the marks: `setFrameSize` asks it mid-edit, before the
     /// retokenize (whole-branch review I1).
     ///
-    /// The room is the line's own (`figureRoom(forLinePath:)`), so a table
+    /// The room is the line's own (`figureRoom(forLinePath:at:)`), so a table
     /// card on the last line keeps room for every row it grows to. It is
-    /// memoised by path (`trailingFigureRoomMemo`): the keystroke path pays a
-    /// string compare, and asks the cards again only when the path itself
-    /// changes. A card version moves it only through `refreshFigureRooms`,
+    /// memoised by path and whether the grid is expanded on it
+    /// (`trailingFigureRoomMemo`): the keystroke path pays a string compare,
+    /// and asks the cards again only when the path changes or the line
+    /// expands or folds. A card version moves it only through `refreshFigureRooms`,
     /// so it moves at the same edge as every other figure line — never
     /// mid-burst.
     var figureTrailingRoom: CGFloat {
         guard showsFigureThumbnails, let textView,
               let path = FigureThumbnailLayout.trailingFigurePath(textView.string as NSString)
         else { return 0 }
-        if let memo = trailingFigureRoomMemo, memo.path == path { return memo.room }
+        // Whether the grid is expanded on this line: asked only while one is.
+        var lineStart = 0
+        if figureGrid != nil {
+            let text = textView.string as NSString
+            lineStart = text.lineRange(for: NSRange(location: text.length, length: 0)).location
+        }
+        let expanded = figureGrid?.lineLocation == lineStart && figureGrid != nil
+        if let memo = trailingFigureRoomMemo, memo.path == path, memo.expanded == expanded {
+            return memo.room
+        }
         trailingFigureRoomLookupCount += 1
-        let room = figureRoom(forLinePath: path)
-        trailingFigureRoomMemo = (path, room)
+        let room = figureRoom(forLinePath: path, at: lineStart)
+        trailingFigureRoomMemo = (path, expanded, room)
         return room
     }
 
@@ -855,7 +874,7 @@ extension EditorCoordinator {
         trailingFigureRoomMemo = nil   // the trailing card is asked again, here only
         let touched = prose.refreshFigureRooms(
             in: storage, theme: theme, typography: typography,
-            lines: figureThumbnailMarks, figureRoom: figureRoom(forLinePath:))
+            lines: figureThumbnailMarks, figureRoom: figureRoom(forLinePath:at:))
         figureRoomRefreshCount += touched.count
         holdTrailingFigureRoom(in: textView)
         figureThumbnailOverlay?.needsDisplay = true
@@ -891,6 +910,8 @@ extension EditorCoordinator {
            overlay.lastVisibleFigureCount > 0 || hasFigureLines {
             overlay.needsDisplay = true
         }
+        // The expanded grid follows its line (report plan 7c Task 6).
+        if figureGrid != nil { figureGridTokensDidChange() }
     }
 
     /// The figure lines in `lastTokens`, derived once per retokenize.

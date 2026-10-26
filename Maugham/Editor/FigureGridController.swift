@@ -111,6 +111,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         isClosed = true
     }
 
+    /// The grid is no longer on screen (the coordinator folded it); writes
+    /// still in flight land, but one that no longer reads is said as a
+    /// notice, never reopened in a grid nobody sees.
+    private(set) var isFolded = false
+    func didFold() { isFolded = true }
+
+    /// **Fold, asked from outside the grid** (the coordinator's
+    /// `foldFigureGrid(commit:)`): an open edit committed or discarded as
+    /// `commit` says (R7c-8), then `onFold`. A commit that will not read
+    /// keeps the grid open with its error shown, and `onFold` is not called.
+    func fold(commit: Bool) {
+        syncFromHost()
+        execute(model.fold(commit: commit))
+    }
+
     /// **A `figureCardVersion` edge**: another figure, a trust change or a
     /// rename may have changed what this one reads — assemble the book again
     /// and repaint what changed.
@@ -350,7 +365,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// gone, said as a notice that carries the text, so it is never lost.
     private func reopenDrifted(_ text: String, at cell: CellKey, _ error: FormulaParseError) {
         syncFromHost()
-        if case .idle = model.edit, values.table.rowIndex(of: cell.row) != nil,
+        if !isFolded, case .idle = model.edit, values.table.rowIndex(of: cell.row) != nil,
            values.table.columnIndex(of: cell.column) != nil {
             editSource = .cell
             reopen(text, at: cell, error)

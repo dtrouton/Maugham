@@ -103,8 +103,8 @@ final class FigureCardTypingBudgetTests: XCTestCase {
         let cache = book.cache
         XCTAssertEqual(cache.model(forLinePath: "../figures/t0.csv", documentPath: "manuscript/a.md")?.kind,
                        .table, "precondition: the cards are filled")
-        let room: (String) -> CGFloat = {
-            FigureCardMetrics.room(for: cache.model(forLinePath: $0, documentPath: "manuscript/a.md"),
+        let room: (String, Int) -> CGFloat = { path, _ in
+            FigureCardMetrics.room(for: cache.model(forLinePath: path, documentPath: "manuscript/a.md"),
                                    typography: .defaults)
         }
 

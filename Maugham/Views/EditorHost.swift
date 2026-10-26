@@ -946,7 +946,10 @@ struct EditorHost: View {
                     }
                     if case .notLocal = FigurePathRule.lexical(linePath, piecePath: path) { return .notLocal }
                     return nil
-                }),
+                },
+                // A table card expanded in place into its grid (report plan
+                // 7c Task 6): the window's stores, this document's path.
+                figureGridOpening: .window(store: documentStore, projectStore: store, documentPath: path)),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
                     // Annotation creation is an op-log append, not a text
