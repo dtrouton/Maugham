@@ -1722,7 +1722,8 @@ public final class FigureDocument {
             redo: redo)
     }
 
-    /// Test seam: await the last undo/redo's async hop.
+    /// Await the last undo/redo's async hop — a test's wait, and what the
+    /// grid awaits before it plans a batch against `state` (plan 7d Task 3).
     func awaitPendingUndoWork() async {
         await _lastUndoWorkTask?.value
     }

@@ -11,7 +11,8 @@ import MaughamCore
 ///   this file's calls in `manuscriptWriterCallSites`): a cell through
 ///   `setCell`, a range (⌫, a format, decimals, align, Σ) through `setCells`
 ///   — one ⌘Z and one render however many cells — the structure verbs, and
-///   a delete of several rows or columns through `applyChanges`.
+///   a batch planned against the host (a delete of several rows or columns,
+///   a paste) through `applyChanges`.
 ///   Each registers on the window's `UndoManager` (ruling R7c-1, until 7d).
 /// - **It observes `host.state`** (`withObservationTracking`; the coordinator
 ///   never does, tripwire 6) and advances the values incrementally, repainting
@@ -33,6 +34,12 @@ import MaughamCore
 ///   and the right-click menu reach `performTableCommand`, which asks
 ///   `menuState` first; the menu state is told (`onMenuStateChange`) only
 ///   when it changes.
+/// - **Cut, copy and paste** (plan 7d Task 3, `FigureGridClipboard`): a copy
+///   writes the selection's cells and display text; a paste puts the block at
+///   the selection's top-left (tiling a selection that is a whole multiple of
+///   it), growing the table past its edge, as one visit and one ⌘Z; a cut is
+///   a copy and a clear. A read-only grid copies, and answers a cut or paste
+///   with the reason line.
 @MainActor
 final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
 
@@ -90,9 +97,17 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private var writes: Task<Void, Never>?
     private var isClosed = false
 
+    /// The pasteboard cut, copy and paste use: the general one; a test sets
+    /// a private one (never the general pasteboard in a test).
+    var pasteboard: NSPasteboard = .general
+
     /// Test seam: runs as each write's turn comes, before it reads the host —
     /// where a test lands a change made elsewhere.
     static var writeTurnForTesting: (@MainActor () async -> Void)?
+    /// Test seam: runs between a batch's plan and its write
+    /// (`applyPlanned`) — where a test lands a change that moves the table
+    /// under the plan.
+    static var afterPlanForTesting: (@MainActor () async -> Void)?
 
     // MARK: Opening
 
@@ -243,6 +258,18 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu? {
         contextMenu(at: cell)
+    }
+
+    func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction) {
+        switch action {
+        case .cut: cutSelection()
+        case .copy: copySelection()
+        case .paste: paste()
+        }
+    }
+
+    func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool {
+        mayPerform(action)
     }
 
     func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat) {
@@ -527,37 +554,42 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         switch command {
         case .deleteRows:
             enqueue { [weak self, host, undoManager] in
-                let state = host.state
-                let rows = block.rows.filter { state.table.rowIndex(of: $0) != nil }
-                let changes = rows.map { row in
-                    FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
-                        structure: .deleteRow(row), removed: state.removedSlice(row: row)))
-                }
+                var rows: [RowID] = []
                 do {
-                    try await host.applyChanges(
-                        changes, expecting: state, actionName: rows.count == 1 ? "Delete Row" : "Delete Rows",
-                        undoManager: undoManager())
+                    try await Self.applyPlanned(
+                        on: host, actionName: block.rows.count == 1 ? "Delete Row" : "Delete Rows",
+                        undoManager: undoManager()
+                    ) { state in
+                        rows = block.rows.filter { state.table.rowIndex(of: $0) != nil }
+                        return rows.map { row in
+                            FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
+                                structure: .deleteRow(row), removed: state.removedSlice(row: row)))
+                        }
+                    }
                 } catch {
-                    let deleted = rows.filter { host.state.table.rowIndex(of: $0) == nil }.count
+                    let deleted = Self.deletedBeforeFailure(rows, error) { host.state.table.rowIndex(of: $0) == nil }
                     self?.sayPartlyDeleted(deleted, of: rows.count, "rows")
                     throw error
                 }
             }
         case .deleteColumns:
             enqueue { [weak self, host, undoManager] in
-                let state = host.state
-                let columns = block.columns.filter { state.table.columnIndex(of: $0) != nil }
-                let changes = columns.map { column in
-                    FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
-                        structure: .deleteColumn(column), removed: state.removedSlice(column: column)))
-                }
+                var columns: [ColumnID] = []
                 do {
-                    try await host.applyChanges(
-                        changes, expecting: state,
-                        actionName: columns.count == 1 ? "Delete Column" : "Delete Columns",
-                        undoManager: undoManager())
+                    try await Self.applyPlanned(
+                        on: host, actionName: block.columns.count == 1 ? "Delete Column" : "Delete Columns",
+                        undoManager: undoManager()
+                    ) { state in
+                        columns = block.columns.filter { state.table.columnIndex(of: $0) != nil }
+                        return columns.map { column in
+                            FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
+                                structure: .deleteColumn(column), removed: state.removedSlice(column: column)))
+                        }
+                    }
                 } catch {
-                    let deleted = columns.filter { host.state.table.columnIndex(of: $0) == nil }.count
+                    let deleted = Self.deletedBeforeFailure(columns, error) {
+                        host.state.table.columnIndex(of: $0) == nil
+                    }
                     self?.sayPartlyDeleted(deleted, of: columns.count, "columns")
                     throw error
                 }
@@ -595,6 +627,40 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         default:
             break
         }
+    }
+
+    /// **A batch planned against the host as its turn comes** (plan 7d
+    /// Task 2's review M1): planned after any ⌘Z still landing has landed, and
+    /// planned once more when the host refuses it because the table changed
+    /// between the plan and the write (another device, an undo's last hop).
+    /// `plan` answers nil to write nothing (it has said why).
+    static func applyPlanned(
+        on host: FigureDocument, actionName: String, undoManager: UndoManager?,
+        plan: (FigureState) -> [FigureReturnDiff.Change]?
+    ) async throws {
+        for attempt in 0..<2 {
+            await host.awaitPendingUndoWork()
+            let state = host.state
+            guard let changes = plan(state), !changes.isEmpty else { return }
+            await afterPlanForTesting?()
+            do {
+                try await host.applyChanges(changes, expecting: state, actionName: actionName, undoManager: undoManager)
+                return
+            } catch is FigureEditInvalid where attempt == 0 && host.state != state {
+                continue   // the table moved under the plan: plan again
+            }
+        }
+    }
+
+    /// **How many of a batch's deletes landed before it failed** (plan 7d
+    /// Task 2's review M2): none when it was refused before writing (it did
+    /// not fit the table as it is, or a door said no) — a row another device
+    /// deleted is not this batch's; else the run of `planned` gone from the
+    /// front, since the batch writes in order.
+    static func deletedBeforeFailure<ID>(_ planned: [ID], _ error: Error, isGone: (ID) -> Bool) -> Int {
+        if error is FigureEditInvalid || error is FigureEditRefused || error is FigureParkedRefused
+            || error is DocumentNotWritableError { return 0 }
+        return planned.prefix(while: isGone).count
     }
 
     /// A delete of several rows (columns) whose append failed part way: what
@@ -775,11 +841,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         MaughamEvent.postNotice("Couldn't write “\(text)”\(address) — \(why).", projectURL: host.projectURL)
     }
 
-    /// ⌫ over the selection: each cell emptied as typing nothing would (a
-    /// chosen format kept), as one ⌘Z.
-    private func clear(_ keys: [CellKey]) {
+    /// ⌫ over the selection (or a cut's clear): each cell emptied as typing
+    /// nothing would (a chosen format kept), as one ⌘Z.
+    private func clear(_ keys: [CellKey], actionName: String = "Clear Cells") {
         let (names, locale) = (names, values.locale)
-        write(keys, actionName: "Clear Cells") { prior, _, table in
+        write(keys, actionName: actionName) { prior, _, table in
             guard prior != nil, case .success(let cleared) = FigureCellEntry.cell(
                 from: "", prior: prior, table: table, names: names, locale: locale) else { return .none }
             return .some(cleared)
@@ -836,6 +902,101 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             guard !edits.isEmpty else { return }
             try await host.setCells(edits, actionName: actionName, undoManager: undoManager())
         }
+    }
+
+    // MARK: Cut, copy and paste (plan 7d Task 3)
+
+    /// Whether Edit ▸ Cut, Copy or Paste is enabled: each needs a selection,
+    /// a paste something it reads. A read-only grid enables them all, so a
+    /// cut or paste is answered with the reason line rather than a beep.
+    func mayPerform(_ action: FigureGridClipboardAction) -> Bool {
+        guard model.selection != nil else { return false }
+        switch action {
+        case .cut, .copy: return true
+        case .paste: return FigureGridClipboard.canRead(pasteboard)
+        }
+    }
+
+    /// **Copy the selection**: its cells as stored and the values they show,
+    /// with this figure and the block's top-left position, in Maugham's own
+    /// flavour; its display text as tab-separated text and an HTML table.
+    /// Allowed on a read-only grid. Answers whether anything was copied.
+    @discardableResult
+    func copySelection() -> Bool {
+        syncFromHost()
+        guard let block = selectedBlock() else { return false }
+        let table = values.table
+        let keys = block.rows.map { row in block.columns.map { CellKey(row: row, column: $0) } }
+        let copied = FigureGridClipboard.Cells(
+            figureId: figureId, originRow: block.firstRow, originColumn: block.firstColumn,
+            cells: keys.map { $0.map { table[$0] } }, values: keys.map { $0.map { values.value(at: $0) } })
+        FigureGridClipboard.write(copied, display: keys.map { $0.map { values.display(at: $0) } }, to: pasteboard)
+        return true
+    }
+
+    /// **Cut the selection**: copied, then cleared as one ⌘Z ("Cut"). A
+    /// read-only grid copies nothing and says why; an open edit that will
+    /// not read stops it (its error shown).
+    func cutSelection() {
+        syncFromHost()
+        if let reason = mode.readOnlyReason { return answer(reason) }
+        guard commitOpenEdit(), let selection = model.selection, copySelection() else { return }
+        clear(selection.cells(in: values.table), actionName: "Cut")
+    }
+
+    /// **Paste at the selection** (R7d-2): what the pasteboard holds
+    /// (`FigureGridClipboard.read`) put with its top-left at the selection's,
+    /// tiling a selection that is a whole multiple of it; the table grows past
+    /// its edge (never over a total row), as one visit and one ⌘Z, and the
+    /// pasted cells are selected. Planned when its turn comes, against the
+    /// host as it then is. More cells than a table may hold is refused with a
+    /// notice and writes nothing. A read-only grid says why.
+    func paste() {
+        syncFromHost()
+        if let reason = mode.readOnlyReason { return answer(reason) }
+        guard commitOpenEdit(), let block = selectedBlock() else { return }
+        guard let source = FigureGridClipboard.read(from: pasteboard) else { return NSSound.beep() }
+        let anchor = CellKey(row: block.rows[0], column: block.columns[0])
+        let area = (rows: block.rows.count, columns: block.columns.count)
+        let (names, locale, figureId) = (names, values.locale, figureId)
+        enqueue { [weak self, host, undoManager] in
+            var pasted: FigureGridSelection?
+            try await Self.applyPlanned(on: host, actionName: "Paste", undoManager: undoManager()) { state in
+                let cells = FigureGridClipboard.block(
+                    from: source, into: figureId, table: state.table, names: names, locale: locale)
+                switch FigurePaste.changes(state: state, anchor: anchor, block: cells, area: area, names: names) {
+                case .paste(let plan):
+                    pasted = plan.pasted
+                    return plan.changes
+                case .tooLarge(let count):
+                    pasted = nil
+                    self?.sayTooLargeToPaste(count)
+                    return nil
+                case .anchorGone:
+                    pasted = nil
+                    MaughamEvent.postNotice("Couldn't paste — the cell it was pasted at was deleted.",
+                                            projectURL: host.projectURL)
+                    return nil
+                }
+            }
+            if let pasted { self?.selectPasted(pasted) }
+        }
+    }
+
+    private func sayTooLargeToPaste(_ count: Int) {
+        let limit = TableCSV.figureCellLimit
+        MaughamEvent.postNotice(
+            "Couldn't paste — \(count.formatted()) cells are more than a table can hold (\(limit.formatted())).",
+            projectURL: host.projectURL)
+    }
+
+    /// The pasted cells selected, once the host holds them — unless the
+    /// writer has begun an edit meanwhile, or the grid is gone.
+    private func selectPasted(_ selection: FigureGridSelection) {
+        syncFromHost()
+        guard !isFolded, case .idle = model.edit else { return }
+        execute(model.select(selection.anchor))
+        if selection.focus != selection.anchor { execute(model.reduce(.click(selection.focus, extend: true))) }
     }
 
     // MARK: Caption and name

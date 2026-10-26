@@ -22,6 +22,13 @@ public enum BuildVariant: Equatable {
     public var mcpServerKey: String      { self == .dev ? "maugham-dev" : "maugham" }
     public var updaterEnabled: Bool      { self == .stable }
 
+    /// **The table grid's own pasteboard type** (report plan 7d Task 3,
+    /// ruling R7d-3): a copy out of a table figure's grid carries its cells —
+    /// formulas included — the figure they came from and where, beside the
+    /// display text other apps read. One type for both variants, so a copy in
+    /// the dev build pastes into the stable one as cells.
+    public static let figureCellsPasteboardType = "com.maugham.Maugham.figure-cells"
+
     public var mcpSocketPath: String {
         let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
         return lib

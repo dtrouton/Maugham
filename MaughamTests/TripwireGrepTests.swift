@@ -12627,13 +12627,14 @@ final class TripwireGrepTests: XCTestCase {
         // and a resize, each through the figure host's own door; the name
         // through `renameFigure`, which asks every door before it writes.
         // Format ▸ Table's verbs (Task 9): the selected rows or columns
-        // deleted as one `applyChanges` visit each (plan 7d Task 2), a block
-        // moved up/down (left/right) by moving its neighbour across it, a
-        // sort by the active cell's column.
+        // deleted as one visit each, a block moved up/down (left/right) by
+        // moving its neighbour across it, a sort by the active cell's column.
+        // Every batch — those deletes and a paste (plan 7d Task 3) — goes
+        // through one `applyChanges` call, in `applyPlanned`.
         "FigureGridController.swift": [
             "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
-            "applyChanges(": 2, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1,
+            "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1,
         ],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the

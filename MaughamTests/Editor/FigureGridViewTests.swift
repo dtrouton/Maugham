@@ -39,6 +39,14 @@ final class FigureGridViewTests: XCTestCase {
             return handles
         }
         func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat) {}
+        var clipboard: [FigureGridClipboardAction] = []
+        var clipboardMayRun = true
+        func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction) {
+            clipboard.append(action)
+        }
+        func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool {
+            clipboardMayRun
+        }
     }
 
     private var window: NSWindow?
@@ -147,7 +155,7 @@ final class FigureGridViewTests: XCTestCase {
     func test_commandOptionArrowsAreTheMenusAlone() {
         XCTAssertNil(FigureGridView.gridKey(for: key(125, "\u{F701}", [.command, .option])),
                      "R7c-10: one delivery path, the Format ▸ Table item")
-        XCTAssertNil(FigureGridView.gridKey(for: key(8, "c", .command)), "⌘C is plan 7d's")
+        XCTAssertNil(FigureGridView.gridKey(for: key(8, "c", .command)), "⌘C is Edit ▸ Copy's")
         XCTAssertNil(FigureGridView.gridKey(for: key(0, "a", .command)), "⌘A is Edit ▸ Select All's")
     }
 
@@ -278,17 +286,27 @@ final class FigureGridViewTests: XCTestCase {
         XCTAssertEqual(text.string, "Prose around the figure.")
     }
 
-    func test_pasteCutAndCopyAreDisabledAtTheGridAndNeverReachTheText() throws {
+    /// **Cut, copy and paste stop at the grid** (plan 7d Task 3): each is
+    /// the delegate's, enabled as it says, and never reaches the text the
+    /// grid sits in.
+    func test_pasteCutAndCopyGoToTheDelegateAndNeverReachTheText() throws {
         let (grid, text, window) = try mountInText(rows: 5)
-        for (action, key) in [(#selector(NSText.paste(_:)), "v"), (#selector(NSText.cut(_:)), "x"),
-                              (#selector(NSText.copy(_:)), "c")] {
+        let cases: [(Selector, String, FigureGridClipboardAction)] = [
+            (#selector(NSText.paste(_:)), "v", .paste), (#selector(NSText.cut(_:)), "x", .cut),
+            (#selector(NSText.copy(_:)), "c", .copy)]
+        for (action, key, clipboard) in cases {
             XCTAssertTrue(menuTarget(action, in: window) === grid, "\(action) stops at the grid")
-            XCTAssertFalse(try isEnabled(action, keyEquivalent: key, in: window), "\(action) waits for plan 7d")
+            recorder.clipboardMayRun = true
+            XCTAssertTrue(try isEnabled(action, keyEquivalent: key, in: window), "\(action) enabled as the delegate says")
+            recorder.clipboardMayRun = false
+            XCTAssertFalse(try isEnabled(action, keyEquivalent: key, in: window), "\(action) disabled as the delegate says")
+            recorder.clipboard = []
+            XCTAssertTrue(NSApp.sendAction(action, to: menuTarget(action, in: window), from: nil))
+            XCTAssertEqual(recorder.clipboard, [clipboard])
         }
-        recorder.keys = []
-        NSApp.sendAction(#selector(NSText.paste(_:)), to: menuTarget(#selector(NSText.paste(_:)), in: window), from: nil)
-        XCTAssertEqual(text.string, "Prose around the figure.", "⌘V never pastes into the prose behind the grid (the grid's paste is a no-op until 7d)")
-        XCTAssertEqual(recorder.keys, [])
+        XCTAssertEqual(text.string, "Prose around the figure.", "nothing reaches the prose behind the grid")
+        XCTAssertEqual(text.selectedRange(), NSRange(location: 3, length: 0))
+        XCTAssertTrue(window.firstResponder === grid)
     }
 
     func test_undoAndRedoStayTheWindows() throws {

@@ -29,10 +29,21 @@ protocol FigureGridViewDelegate: AnyObject {
     /// The right-click menu over `cell` (nil off the cells) — the table
     /// commands (Task 9); nil offers none.
     func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu?
+    /// Edit ▸ Cut, Copy or Paste with the grid first responder (plan 7d Task 3).
+    func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction)
+    /// Whether Edit ▸ Cut, Copy or Paste is enabled at the grid.
+    func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool
 }
 
 extension FigureGridViewDelegate {
     func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu? { nil }
+    func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction) {}
+    func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool { false }
+}
+
+/// The Edit menu's clipboard actions the grid answers (plan 7d Task 3).
+enum FigureGridClipboardAction: Equatable {
+    case cut, copy, paste
 }
 
 /// **The table figure's grid** (report plan 7c Task 4, R7c-9): column
@@ -334,10 +345,12 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
 
     // The Edit menu's key equivalents travel the responder chain before any
     // `keyDown`. The grid answers the ones it means: Select All and Delete go
-    // to the model; cut, copy and paste are plan 7d's and are disabled until
-    // then. Undo and redo stay the window's (R7c-1). Every other text action
-    // (Paste and Match Style, Transformations, …) finds no taker: the panel's
-    // responder chain skips the manuscript text it sits in.
+    // to the model; Cut, Copy and Paste to the delegate (plan 7d Task 3),
+    // which says whether each is enabled. While a cell edit is open the field
+    // editor is first responder and takes them for its own text. Undo and
+    // redo stay the window's (R7c-1). Every other text action (Paste and
+    // Match Style, Transformations, …) finds no taker: the panel's responder
+    // chain skips the manuscript text it sits in.
 
     override func selectAll(_ sender: Any?) {
         delegate?.figureGridView(self, handle: .selectAll)
@@ -347,18 +360,20 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         delegate?.figureGridView(self, handle: .deleteBackward)
     }
 
-    @objc func cut(_ sender: Any?) {}
-    @objc func copy(_ sender: Any?) {}
-    @objc func paste(_ sender: Any?) {}
+    @objc func cut(_ sender: Any?) { delegate?.figureGridView(self, perform: .cut) }
+    @objc func copy(_ sender: Any?) { delegate?.figureGridView(self, perform: .copy) }
+    @objc func paste(_ sender: Any?) { delegate?.figureGridView(self, perform: .paste) }
 
-    /// The clipboard actions the grid swallows until plan 7d.
-    static let clipboardActions: Set<Selector> = [
-        #selector(NSText.cut(_:)), #selector(NSText.copy(_:)), #selector(NSText.paste(_:)),
+    /// The Edit menu's clipboard actions, as the delegate hears them.
+    static let clipboardActions: [Selector: FigureGridClipboardAction] = [
+        #selector(NSText.cut(_:)): .cut, #selector(NSText.copy(_:)): .copy, #selector(NSText.paste(_:)): .paste,
     ]
 
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         guard let action = item.action else { return false }
-        if Self.clipboardActions.contains(action) { return false }
+        if let clipboard = Self.clipboardActions[action] {
+            return delegate?.figureGridView(self, mayPerform: clipboard) ?? false
+        }
         return responds(to: action)
     }
 
