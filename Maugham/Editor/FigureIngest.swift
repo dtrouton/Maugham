@@ -130,13 +130,29 @@ enum FigureIngest {
     /// as one figure (`ManuscriptBlocks.imageRegex`).
     static func figureLine(path: String, kind: ManuscriptLabel.Kind, name: String,
                            caption: String = captionPlaceholder) -> String {
-        let kept = caption.components(separatedBy: .newlines).joined(separator: " ")
+        "![\(keptCaption(caption))](\(path)){#\(kind.rawValue):\(name)}"
+    }
+
+    /// `caption` as a figure line can hold it: on one line, any `](` opened
+    /// to `] (` so the line still reads as one figure.
+    static func keptCaption(_ caption: String) -> String {
+        caption.components(separatedBy: .newlines).joined(separator: " ")
             .replacingOccurrences(of: "](", with: "] (")
-        return "![\(kept)](\(path)){#\(kind.rawValue):\(name)}"
     }
 
     /// Where `Caption` sits in a `figureLine`.
     static let captionRange = NSRange(location: 2, length: (captionPlaceholder as NSString).length)
+
+    /// **Where the caption sits in `line`** (UTF-16, from the line's start),
+    /// when `line` reads as a figure line (`ManuscriptBlocks.parse`): after
+    /// its leading spaces and `![`, up to the `](` that opens its path. Nil
+    /// for any other line.
+    static func captionRange(inLine line: String) -> NSRange? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard case .figure(let caption, _, _)? = ManuscriptBlocks.parse(trimmed).first?.block else { return nil }
+        let lead = line.prefix { $0.unicodeScalars.allSatisfy(CharacterSet.whitespaces.contains) }
+        return NSRange(location: (String(lead) as NSString).length + 2, length: (caption as NSString).length)
+    }
 
     /// The figure line on a paragraph of its own at `location`, `Caption`
     /// selected: Insert Table's placement (`ReportInsert.blockEdit`), so inside

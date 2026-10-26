@@ -334,6 +334,31 @@ final class FigureGridModelTests: XCTestCase {
         ])
     }
 
+    // MARK: A column letter or a row number selects the whole column or row
+
+    func test_aColumnLetterSelectsTheColumn_aRowNumberTheRow() {
+        run([
+            Case(name: "letter B", anchor: k(2, 0), key: .selectColumn(ColumnID("c1")),
+                 effects: [.moveSelection(to: k(0, 1)), .extendSelection(to: k(3, 1))],
+                 anchorAfter: k(0, 1), focusAfter: k(3, 1)),
+            Case(name: "number 3", anchor: k(0, 0), key: .selectRow(RowID("r2")),
+                 effects: [.moveSelection(to: k(2, 0)), .extendSelection(to: k(2, 2))],
+                 anchorAfter: k(2, 0), focusAfter: k(2, 2)),
+            Case(name: "the column already selected", anchor: k(0, 1), focus: k(3, 1), key: .selectColumn(ColumnID("c1")),
+                 effects: [], anchorAfter: k(0, 1), focusAfter: k(3, 1)),
+            Case(name: "a column the table does not have", anchor: k(1, 1), key: .selectColumn(ColumnID("gone")),
+                 effects: [], anchorAfter: k(1, 1)),
+            Case(name: "a letter during an edit commits it first", anchor: k(1, 1), start: .typing("45"),
+                 key: .selectColumn(ColumnID("c2")),
+                 effects: [.commitEdit(cell: k(1, 1), text: "45"), .moveSelection(to: k(0, 2)), .extendSelection(to: k(3, 2))],
+                 anchorAfter: k(0, 2), focusAfter: k(3, 2)),
+        ])
+        run([
+            Case(name: "a one-cell table's row is that cell, already selected", anchor: k(0, 0),
+                 key: .selectRow(RowID("r0")), effects: [], anchorAfter: k(0, 0)),
+        ], table: Self.table(rows: 1, columns: 1))
+    }
+
     // MARK: ⌘⌥ arrows insert a row above/below, a column left/right
 
     func test_commandOptionArrowsInsertRowsAndColumns() {

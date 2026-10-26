@@ -98,6 +98,28 @@ final class FigureGridLayoutTests: XCTestCase {
         XCTAssertEqual(l.scroll(revealing: 0, column: 2), CGPoint(x: 100, y: 0))
     }
 
+    /// **A press on a letter selects its column, on a number its row** (the
+    /// Task 4 ruling, built in Task 5): the hit, and the key the view sends.
+    func test_aLetterIsItsColumn_aNumberItsRow_andTheViewSendsTheirKeys() {
+        let l = layout()
+        XCTAssertEqual(l.letterColumn(at: CGPoint(x: 31, y: 10)), 0)
+        XCTAssertEqual(l.letterColumn(at: CGPoint(x: 30 + 50 + 40, y: 10)), 1)
+        XCTAssertNil(l.letterColumn(at: CGPoint(x: 30 + 190 + 5, y: 10)), "past the last column")
+        XCTAssertNil(l.letterColumn(at: CGPoint(x: 10, y: 10)), "the corner is no letter")
+        XCTAssertNil(l.letterColumn(at: CGPoint(x: 35, y: 25)), "the body is no letter")
+        XCTAssertEqual(l.numberRow(at: CGPoint(x: 10, y: 20 + 2 * 20 + 1)), 2)
+        XCTAssertEqual(layout(scroll: CGPoint(x: 0, y: 40)).numberRow(at: CGPoint(x: 10, y: 25)), 2, "follows the scroll")
+        XCTAssertNil(l.numberRow(at: CGPoint(x: 10, y: 10)), "the corner is no number")
+        XCTAssertNil(layout(rows: 2).numberRow(at: CGPoint(x: 10, y: 20 + 2 * 20 + 1)), "past the last row")
+
+        let table = FigureTable(rows: 40, columns: 3)
+        XCTAssertEqual(FigureGridView.headerKey(at: CGPoint(x: 30 + 50 + 40, y: 10), in: l, table: table),
+                       .selectColumn(table.columns[1]))
+        XCTAssertEqual(FigureGridView.headerKey(at: CGPoint(x: 10, y: 20 + 2 * 20 + 1), in: l, table: table),
+                       .selectRow(table.rows[2]))
+        XCTAssertNil(FigureGridView.headerKey(at: CGPoint(x: 35, y: 25), in: l, table: table), "a cell is a click")
+    }
+
     // MARK: Resize
 
     func test_aPressNearAColumnsRightEdgeInTheBandResizesIt() {

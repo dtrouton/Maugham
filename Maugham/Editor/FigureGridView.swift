@@ -311,6 +311,10 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         }
         // The open editor keeps the keys: a click may compose a reference into it.
         if editingCell == nil { window?.makeFirstResponder(self) }
+        if let key = Self.headerKey(at: point, in: layout, table: dataSource?.figureGridTable) {
+            delegate?.figureGridView(self, handle: key)
+            return
+        }
         guard let key = key(at: point, in: layout) else { return }
         dragCell = key
         if event.clickCount == 2 {
@@ -359,6 +363,15 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
                                  width: 2 * FigureGridLayout.resizeSlop, height: layout.bandHeight),
                           cursor: .resizeLeftRight)
         }
+    }
+
+    /// **The key a press on a column letter or a row number means**: the
+    /// whole column or row. Nil off the band and gutter (and past the table).
+    static func headerKey(at point: CGPoint, in layout: FigureGridLayout, table: FigureTable?) -> FigureGridKey? {
+        guard let table else { return nil }
+        if let c = layout.letterColumn(at: point), let id = table.columns[safe: c] { return .selectColumn(id) }
+        if let r = layout.numberRow(at: point), let id = table.rows[safe: r] { return .selectRow(id) }
+        return nil
     }
 
     private func key(at point: CGPoint, in layout: FigureGridLayout) -> CellKey? {

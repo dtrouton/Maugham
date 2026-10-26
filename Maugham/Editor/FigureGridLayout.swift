@@ -130,10 +130,28 @@ struct FigureGridLayout: Equatable {
         let y = point.y - bandHeight + scroll.y
         let row = Int((y / rowHeight).rounded(.down))
         guard row >= 0, row < rowCount else { return nil }
-        let x = point.x - gutterWidth + scroll.x
+        return column(atContentX: point.x - gutterWidth + scroll.x).map { (row, $0) }
+    }
+
+    /// **The column whose letter is under `point`** (the band, right of the
+    /// gutter), or nil. A resize edge is asked first (`resizeBoundary`).
+    func letterColumn(at point: CGPoint) -> Int? {
+        guard point.y >= 0, point.y < bandHeight, point.x >= gutterWidth, point.x < size.width else { return nil }
+        return column(atContentX: point.x - gutterWidth + scroll.x)
+    }
+
+    /// **The row whose number is under `point`** (the gutter, under the band), or nil.
+    func numberRow(at point: CGPoint) -> Int? {
+        guard point.x >= 0, point.x < gutterWidth, point.y >= bandHeight, point.y < size.height, rowHeight > 0
+        else { return nil }
+        let row = Int(((point.y - bandHeight + scroll.y) / rowHeight).rounded(.down))
+        return row >= 0 && row < rowCount ? row : nil
+    }
+
+    private func column(atContentX x: CGFloat) -> Int? {
         var left: CGFloat = 0
         for (i, w) in columnWidths.enumerated() {
-            if x >= left, x < left + w { return (row, i) }
+            if x >= left, x < left + w { return i }
             left += w
         }
         return nil

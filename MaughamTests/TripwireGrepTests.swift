@@ -12616,6 +12616,14 @@ final class TripwireGrepTests: XCTestCase {
             figureOpMintSpelling: 1,
         ],
         "FigureIngest.swift": ["createImageFigure(": 1, "createFigure(": 1],
+        // The in-place grid's one writer (report plan 7c Task 5): a cell, a
+        // range (⌫, a format, Σ — one `setCells` visit), the structure verbs
+        // and a resize, each through the figure host's own door; the name
+        // through `renameFigure`, which asks every door before it writes.
+        "FigureGridController.swift": [
+            "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
+            "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
+        ],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
         // state, through an op it never appends; what it yields is appended

@@ -39,6 +39,10 @@ public enum FigureGridKey: Equatable, Sendable {
     /// A click on a cell; `extend` with ⇧ or while dragging.
     case click(CellKey, extend: Bool)
     case doubleClick(CellKey)
+    /// A click on a column's letter: the whole column.
+    case selectColumn(ColumnID)
+    /// A click on a row's number: the whole row.
+    case selectRow(RowID)
 }
 
 /// What the controller does for a key, in order.
@@ -171,10 +175,15 @@ public struct FigureGridModel {
             return [.clear(sel.cells(in: table))]
         case .selectAll:
             guard let first = Self.firstCell(of: table), let last = lastCell else { return [] }
-            let all = FigureGridSelection(anchor: first, focus: last)
-            guard all != sel else { return [] }
-            selection = all
-            return first == last ? [.moveSelection(to: first)] : [.moveSelection(to: first), .extendSelection(to: last)]
+            return selectRectangle(first, last)
+        case let .selectColumn(column):
+            guard table.columnIndex(of: column) != nil, let top = table.rows.first, let bottom = table.rows.last
+            else { return [] }
+            return selectRectangle(CellKey(row: top, column: column), CellKey(row: bottom, column: column))
+        case let .selectRow(row):
+            guard table.rowIndex(of: row) != nil, let left = table.columns.first, let right = table.columns.last
+            else { return [] }
+            return selectRectangle(CellKey(row: row, column: left), CellKey(row: row, column: right))
         case let .click(cell, extend):
             guard let p = position(cell) else { return [] }
             return extend ? extendTo(p) : moveTo(p)
@@ -200,7 +209,7 @@ public struct FigureGridModel {
             let effects = commit(e)
             guard let p = position(e.cell) else { return effects }
             return effects + moveTo(step(p, backward ? .up : .down))
-        case .tab, .insert:
+        case .tab, .insert, .selectColumn, .selectRow:
             return commit(e) + reduceIdle(key)
         case .type, .deleteBackward, .selectAll:
             return [.fieldEditorKeeps]
@@ -341,6 +350,14 @@ public struct FigureGridModel {
         guard next != selection else { return [] }
         selection = next
         return [.moveSelection(to: cell), .scrollTo(cell)]
+    }
+
+    /// Select the rectangle `first`…`last`, `first` the active cell; nothing when it already is.
+    private mutating func selectRectangle(_ first: CellKey, _ last: CellKey) -> [FigureGridEffect] {
+        let next = FigureGridSelection(anchor: first, focus: last)
+        guard next != selection else { return [] }
+        selection = next
+        return first == last ? [.moveSelection(to: first)] : [.moveSelection(to: first), .extendSelection(to: last)]
     }
 
     private mutating func extendTo(_ p: Position) -> [FigureGridEffect] {
