@@ -895,12 +895,13 @@ final class DocSyncTests: XCTestCase {
         }
     }
 
-    /// What the test sources declare: each class (or extension) name mapped to
-    /// the text of every file that declares it, plus all the files' text.
+    /// What the test sources declare, read once: each class (or extension)
+    /// name mapped to every `func`/`let`/`var` name in the files that declare
+    /// it, plus every such name in any file.
     struct TestIndex {
-        var filesByType: [String: [String]] = [:]
+        var declaredByType: [String: Set<String>] = [:]
         var classes: Set<String> = []
-        var allFiles: [String] = []
+        var declaredAnywhere: Set<String> = []
     }
 
     static let testSourceRoots = ["MaughamTests", "MaughamPhoneTests", "Packages/MaughamCore/Tests"]
@@ -908,6 +909,7 @@ final class DocSyncTests: XCTestCase {
     private func testIndex() throws -> TestIndex {
         var index = TestIndex()
         let typeDecl = try NSRegularExpression(pattern: #"\b(class|struct|extension)\s+(\w+)"#)
+        let memberDecl = try NSRegularExpression(pattern: #"\b(?:func|let|var)\s+(\w+)"#)
         for root in Self.testSourceRoots {
             let dir = repoRoot.appendingPathComponent(root)
             guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else {
@@ -915,12 +917,14 @@ final class DocSyncTests: XCTestCase {
             }
             for case let url as URL in walker where url.pathExtension == "swift" {
                 let text = try String(contentsOf: url, encoding: .utf8)
-                index.allFiles.append(text)
                 let ns = text as NSString
-                for m in typeDecl.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                let whole = NSRange(location: 0, length: ns.length)
+                let members = Set(memberDecl.matches(in: text, range: whole).map { ns.substring(with: $0.range(at: 1)) })
+                index.declaredAnywhere.formUnion(members)
+                for m in typeDecl.matches(in: text, range: whole) {
                     let kind = ns.substring(with: m.range(at: 1))
                     let name = ns.substring(with: m.range(at: 2))
-                    index.filesByType[name, default: []].append(text)
+                    index.declaredByType[name, default: []].formUnion(members)
                     if kind != "extension" { index.classes.insert(name) }
                 }
             }
@@ -946,9 +950,8 @@ final class DocSyncTests: XCTestCase {
         let member: String? = parts.count == 2 ? parts[1] : (parts[0].hasPrefix("test_") ? parts[0] : nil)
         if let owner, !index.classes.contains(owner) { return "no test class `\(owner)`" }
         guard let member else { return nil }
-        let pool = owner.map { index.filesByType[$0] ?? [] } ?? index.allFiles
-        let decl = #"\b(func|let|var)\s+"# + NSRegularExpression.escapedPattern(for: member) + #"\b"#
-        guard pool.contains(where: { $0.range(of: decl, options: .regularExpression) != nil }) else {
+        let declared = owner.map { index.declaredByType[$0] ?? [] } ?? index.declaredAnywhere
+        guard declared.contains(member) else {
             return owner.map { "`\($0)` declares no `\(member)`" } ?? "no `func \(member)` in any test target"
         }
         return nil

@@ -505,10 +505,11 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **No variant identity value is spelled outside `BuildVariant`** (tripwire
-    /// 13). Six values differ between the stable and dev builds (bundle id,
-    /// display name, support folder, MCP socket path, Claude Desktop config key,
-    /// MCP serverInfo.name); a hardcoded one is a split-build bug — the dev
-    /// build answering as stable, or binding stable's socket. Mac, phone and
+    /// 13). Five `BuildVariant` members differ between the stable and dev
+    /// builds (`displayName`, `supportFolderName`, `mcpServerKey`,
+    /// `mcpSocketPath`, `updaterEnabled`; tripwires.md row 13); a hardcoded
+    /// one is a split-build bug — the dev build answering as stable, or
+    /// binding stable's socket. Mac, phone and
     /// Core are all scanned (`productionRootURLs`); the allow-list is keyed by
     /// type, so a file merely NAMED `BuildVariant.swift` earns nothing. The
     /// phone twin `TripwirePhoneGrepTest` keeps its own narrower scan.
