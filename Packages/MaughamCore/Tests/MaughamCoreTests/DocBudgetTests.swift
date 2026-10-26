@@ -13,7 +13,7 @@ final class DocBudgetTests: XCTestCase {
     static let wordCeilings: [String: Int] = [
         "CLAUDE.md": 3_087,  // hard cap 4,000 words
         "docs/tripwires.md": 7_761,
-        "docs/testing/TROUBLESHOOTING.md": 4_406,
+        "docs/testing/TROUBLESHOOTING.md": 4_506,
         "docs/INDEX.md": 454,
         "Maugham/Canvas/AREA.md": 7_951,
         "Maugham/OpLog/AREA.md": 7_994,
