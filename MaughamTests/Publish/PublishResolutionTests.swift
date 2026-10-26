@@ -517,6 +517,9 @@ final class PublishResolutionTests: XCTestCase {
         case .duplicateFootnoteDefinition: return false
         case .labelOnWrongElement: return false
         case .malformedLabel: return false
+        case .figureNotFound: return false
+        case .figureAmbiguous: return false
+        case .tableFigureLabelledFig: return false
         }
     }
 
@@ -524,7 +527,9 @@ final class PublishResolutionTests: XCTestCase {
         [.unresolvedCrossRef(label("fig:x")), .unknownCitationKey("k"), .duplicateLabel(label("tbl:x")),
          .missingFootnoteDefinition("1"), .duplicateFootnoteDefinition("1"),
          .unusedFootnoteDefinition("1"), .labelOnWrongElement(label("sec:x")),
-         .malformedLabel("eq:1"), .figurePathNotLocal("/x.png"), .imageUnreadable("no file")]
+         .malformedLabel("eq:1"), .figurePathNotLocal("/x.png"), .imageUnreadable("no file"),
+         .figureNotFound("figures/x.csv"), .figureAmbiguous("figures/x.csv"),
+         .tableFigureLabelledFig(label("fig:x"))]
     }
 
     func test_severity_everyKindInEveryProfile() {

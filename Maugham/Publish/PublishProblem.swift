@@ -31,13 +31,24 @@ public struct PublishProblem: Sendable, Hashable {
         /// valid `kind:name`; the payload is what was written between `{#`
         /// and `}`.
         case malformedLabel(String)
-        /// A figure path, as written, that is not a file inside a research
-        /// folder of the project.
+        /// A figure path, as written, that is not a file inside the
+        /// project's figures folder or a research folder (an image's or a
+        /// table figure's alike).
         case figurePathNotLocal(String)
         /// A figure image that can't be used: the payload is
         /// `FigureImageResolver`'s reason, a sentence fragment that names the
         /// path ("there is no file at research/x.png").
         case imageUnreadable(String)
+        /// The editor's only (report plan 7b, R7b-4): a figure line's path,
+        /// as written, inside `figures/` naming no registered figure (one
+        /// removed, or never made).
+        case figureNotFound(String)
+        /// The editor's only: two or more registered figures share a figure
+        /// line's path, as written, so the line shows neither.
+        case figureAmbiguous(String)
+        /// The editor's only (R7b-3): a table figure's line labelled `fig:`.
+        /// Publish keeps numbering it as a figure until plan 9.
+        case tableFigureLabelledFig(ManuscriptLabel)
     }
 
     public let kind: Kind
@@ -87,6 +98,10 @@ public struct PublishProblem: Sendable, Hashable {
         case .unusedFootnoteDefinition, .duplicateFootnoteDefinition,
              .labelOnWrongElement, .malformedLabel:
             return false
+        // The editor's figure-line warnings: Publish refuses on none of them
+        // (a table figure ships its literal source, an image its file).
+        case .figureNotFound, .figureAmbiguous, .tableFigureLabelledFig:
+            return false
         }
     }
 
@@ -119,11 +134,18 @@ public struct PublishProblem: Sendable, Hashable {
         case .malformedLabel(let raw):
             return "{#\(raw)} is not a valid label; write {#fig:name}, {#tbl:name} or {#sec:name}."
         case .figurePathNotLocal(let path):
-            return "The figure image \(path) is not inside this project’s figures folder or a research folder."
+            return "The figure \(path) is not inside this project’s figures folder or a research folder."
         case .imageUnreadable(let reason):
             // The reason may end in a system message's own full stop: one
             // sentence ends once (final review M8).
             return "The figure image can't be used: \(withoutClosingStop(reason))."
+        case .figureNotFound(let path):
+            return "No figure in this project is at \(path); it may have been removed."
+        case .figureAmbiguous(let path):
+            return "More than one figure is at \(path), so this line shows neither; rename one."
+        case .tableFigureLabelledFig(let label):
+            return "This table figure is labelled \(label.reference), so it is numbered as a figure; "
+                + "write {#tbl:\(label.name)} to number it as a table."
         }
     }
 

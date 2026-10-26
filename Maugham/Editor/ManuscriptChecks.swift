@@ -3,8 +3,9 @@ import MaughamCore
 
 /// **The editor's per-document reference checks** (report foundations plan 3b
 /// Task 6, R-3b-4): an unknown citation key, a cross-reference to nothing, a
-/// label defined here and again (here or elsewhere), and a footnote that is
-/// missing, defined twice or never used. Each is a `PublishProblem.Kind`, so
+/// label defined here and again (here or elsewhere), a footnote that is
+/// missing, defined twice or never used, and a figure line whose path or label
+/// is wrong (report plan 7b Task 7). Each is a `PublishProblem.Kind`, so
 /// its severity is publishing's one table (`PublishProblem.isError(_:profile:)`)
 /// and its sentence publishing's (`PublishProblem.sentence(for:)`): the editor
 /// and the publishing desk say the same thing.
@@ -62,15 +63,23 @@ enum ManuscriptChecks {
             .problems.map { ($0.range, $0.kind) }
     }
 
-    /// - Parameter blockGroups: reads one block's text into its groups; the
-    ///   coordinator passes its per-block cache, so a settle re-scans only
-    ///   blocks whose text changed.
+    /// - Parameters:
+    ///   - figureLineStatus: a figure line's path as written → what it names
+    ///     in the window's registry (`FigureCardCache.status`, memory only).
+    ///     Nil (another surface), or nil for a line (the cache not filled
+    ///     yet), skips that line's path checks, as `index == nil` skips the
+    ///     index's; the label-kind checks read the line alone.
+    ///   - blockGroups: reads one block's text into its groups; the
+    ///     coordinator passes its per-block cache, so a settle re-scans only
+    ///     blocks whose text changed.
     static func analyse(tokens: [Token], text: NSString, index: ReferenceIndex?,
                         labelsElsewhere: Set<ManuscriptLabel>,
+                        figureLineStatus: ((String) -> FigureLineResolution.Status?)? = nil,
                         blockGroups: (String) -> [Group] = groups(inBlockText:)) -> Analysis {
         var problems: [Problem] = []
         let notes = footnotes(in: tokens, text: text)
         problems += notes.problems
+        problems += figureLineProblems(in: tokens, text: text, status: figureLineStatus)
 
         // Labels defined here: twice here, or here and in another piece.
         var seen = Set<ManuscriptLabel>()
@@ -114,6 +123,56 @@ enum ManuscriptChecks {
         }
         problems.sort { $0.range.location < $1.range.location }
         return Analysis(problems: problems, footnoteNumbers: notes.numbers)
+    }
+
+    // MARK: - Figure lines (report plan 7b Task 7)
+
+    /// At most one problem per figure line, on its `](path)` token: the path
+    /// first — not local (F9), no figure there, two figures there (lexical
+    /// and registry only, R7b-4: no disk, so a missing image file stays
+    /// Publish's `.imageUnreadable`) — then the label's kind (R7b-3): an
+    /// image labelled `tbl:` is Publish's `.labelOnWrongElement`, a table
+    /// figure labelled `fig:` the editor's own warning.
+    static func figureLineProblems(in tokens: [Token], text: NSString,
+                                   status: ((String) -> FigureLineResolution.Status?)?) -> [Problem] {
+        var out: [Problem] = []
+        for token in tokens {
+            guard let path = FigureThumbnailLayout.figurePath(closing: token, in: text) else { continue }
+            if let kind = figureLineProblem(path: path, label: figureLabel(ofLineAt: token.range.location, in: text),
+                                            status: status?(path)) {
+                out.append(Problem(range: token.range, kind: kind))
+            }
+        }
+        return out
+    }
+
+    /// The one problem of a figure line with `path` and `label` whose
+    /// registry status is `status` (nil: not known), or nil.
+    static func figureLineProblem(path: String, label: ManuscriptLabel?,
+                                  status: FigureLineResolution.Status?) -> PublishProblem.Kind? {
+        switch status {
+        case .notLocal?: return .figurePathNotLocal(path)
+        case .missing?: return .figureNotFound(path)
+        case .ambiguous?: return .figureAmbiguous(path)
+        case .figure?, .outsideFigures?, nil: break
+        }
+        guard let label else { return nil }
+        let isTable = ManuscriptLabel.Kind.isTableFigurePath(path)
+        switch label.kind {
+        case .tbl where !isTable: return .labelOnWrongElement(label)
+        case .fig where isTable: return .tableFigureLabelledFig(label)
+        case .sec: return .labelOnWrongElement(label)
+        case .tbl, .fig: return nil
+        }
+    }
+
+    /// The label of the figure line holding `location`, by the rule the
+    /// tokenizer's figure tokens come from (`ManuscriptBlocks.parse`).
+    private static func figureLabel(ofLineAt location: Int, in text: NSString) -> ManuscriptLabel? {
+        let line = text.substring(with: text.lineRange(for: NSRange(location: location, length: 0)))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard case .figure(_, _, let label)? = ManuscriptBlocks.parse(line).first?.block else { return nil }
+        return label
     }
 
     // MARK: - Footnotes
@@ -417,8 +476,9 @@ extension EditorCoordinator {
     /// **The settle hook** (R-3b-4): run this document's checks and repaint
     /// their underlines and tooltips. Called on the typing burst's settle
     /// edge (`performDeferredRestyle`), after a whole-document paint (attach,
-    /// an external replace, a theme or posture change) and on a new index
-    /// version — never per keystroke (`problemCheckCount`).
+    /// an external replace, a theme or posture change), on a new index
+    /// version and on a new figure-card version outside a burst
+    /// (`setFigureCardVersion`) — never per keystroke (`problemCheckCount`).
     ///
     /// Display-only: layout-manager temporaries on `.underlineStyle` and
     /// `.underlineColor` alone, cleared first. Nothing else sets those
@@ -445,6 +505,7 @@ extension EditorCoordinator {
         let analysis = ManuscriptChecks.analyse(
             tokens: lastTokens, text: textView.string as NSString, index: index,
             labelsElsewhere: index == nil ? [] : (projectLabelsElsewhere?() ?? []),
+            figureLineStatus: figureLineStatus,
             blockGroups: { self.cachedReferenceGroups(blockText: $0) })
         problemMarks = analysis.problems
         if footnoteNumbers != analysis.footnoteNumbers {

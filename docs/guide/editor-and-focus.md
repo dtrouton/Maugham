@@ -52,7 +52,7 @@ Next to each citation, cross-reference and footnote marker the editor shows a fa
 
 The numbers in the editor count the whole book, in book order. An edition that leaves chapters out may number differently in its PDF.
 
-A dotted underline marks a marker with a problem: a citation key no source has, a cross-reference to nothing, a label defined twice, or a footnote that is missing, defined twice or never used. Red means a Report would refuse to publish with this problem; amber means it would publish anyway. Hover over the underline to read the sentence. The marks update when you pause typing, not on every keystroke, and appear only in a manuscript, not in a screenplay.
+A dotted underline marks a marker with a problem: a citation key no source has, a cross-reference to nothing, a label defined twice, or a footnote that is missing, defined twice or never used. On a figure line it marks the path when it points outside the project, names a figure that isn't there or names two figures at once, or when a table figure is labelled `fig:` or an image `tbl:`. Red means a Report would refuse to publish with this problem; amber means it would publish anyway. Hover over the underline to read the sentence. The marks update when you pause typing, not on every keystroke, and appear only in a manuscript, not in a screenplay.
 
 Smart typography leaves table rows, labels and cross-references exactly as typed.
 

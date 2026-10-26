@@ -128,6 +128,11 @@ struct EditorSurfaceConfiguration {
         /// `EditorControl.figureCardVersion`. Wired by `EditorHost`; nil
         /// elsewhere, where every figure line keeps the fixed room.
         var figureCardModel: ((String) -> FigureCardModel?)? = nil
+        /// What a figure line's path names in the window's registry (report
+        /// plan 7b Task 7, `FigureCardCache.status`), for the figure-line
+        /// diagnostics: memory only, nil before the first fill. Wired by
+        /// `EditorHost`; nil elsewhere, which skips the registry checks.
+        var figureLineStatus: ((String) -> FigureLineResolution.Status?)? = nil
     }
 
     /// Review-mode annotation authoring plus the resolvers the crafted render
@@ -257,6 +262,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.commandFailureReporter = pp.commandFailureReporter
         coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.figureCardModel = pp.figureCardModel
+        coordinator.figureLineStatus = pp.figureLineStatus
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
@@ -530,6 +536,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
         context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.figureCardModel = pp.figureCardModel
+        context.coordinator.figureLineStatus = pp.figureLineStatus
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider

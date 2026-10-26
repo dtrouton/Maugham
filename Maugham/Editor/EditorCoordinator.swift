@@ -350,6 +350,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// the document's path; nil on every other surface.
     var figureCardModel: ((String) -> FigureCardModel?)?
 
+    /// **What a figure line's path names** (report plan 7b Task 7): the path
+    /// as written → its `FigureLineResolution.Status` in the window's
+    /// `FigureCardCache`, nil before the first fill. Memory only; the problem
+    /// check reads it (`ManuscriptChecks.analyse`) and re-reads it on a new
+    /// `figureCardVersion`. Built by `EditorHost`; nil on every other surface.
+    var figureLineStatus: ((String) -> FigureLineResolution.Status?)?
+
     /// The card version last applied from `EditorControl.figureCardVersion`.
     private(set) var figureCardVersion = 0
     /// A card version landed mid-burst: the settle paint re-lays out the
@@ -1300,16 +1307,19 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// through `figureCardModel`, never pushed.
     ///
     /// The figure lines whose room changed re-lay out here
-    /// (`refreshFigureRooms`, report plan 7a Task 5) — but never inside a
-    /// typing burst: while one is in flight the work waits for the burst's
-    /// settle paint (`performDeferredRestyle`), which runs it once.
+    /// (`refreshFigureRooms`, report plan 7a Task 5), and the figure-line
+    /// diagnostics re-check (`refreshProblemMarks`, plan 7b Task 7: a figure
+    /// removed or restored elsewhere) — but never inside a typing burst:
+    /// while one is in flight both wait for the burst's settle paint
+    /// (`performDeferredRestyle`), which runs each once.
     func setFigureCardVersion(_ version: Int) {
         guard version != figureCardVersion else { return }
         figureCardVersion = version
         if isInTypingBurst {
-            figureRoomsWaitForTheSettle = true
+            figureRoomsWaitForTheSettle = true   // the settle checks the problems anyway
         } else {
             refreshFigureRooms()
+            refreshProblemMarks()
         }
     }
 

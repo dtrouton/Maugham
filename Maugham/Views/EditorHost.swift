@@ -930,6 +930,17 @@ struct EditorHost: View {
                 // the placeholder room until the fill lands (R7a-2).
                 figureCardModel: { [figureCards] linePath in
                     figureCards.model(forLinePath: linePath, documentPath: path)
+                },
+                // What each figure line names (report plan 7b Task 7), for
+                // its diagnostic: the cache's status, memory only. Before the
+                // first fill a path that is not local is still said (the
+                // rule is lexical); the registry's answers wait for the fill.
+                figureLineStatus: { [figureCards] linePath in
+                    if let status = figureCards.status(forLinePath: linePath, documentPath: path) {
+                        return status
+                    }
+                    if case .notLocal = FigurePathRule.lexical(linePath, piecePath: path) { return .notLocal }
+                    return nil
                 }),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in

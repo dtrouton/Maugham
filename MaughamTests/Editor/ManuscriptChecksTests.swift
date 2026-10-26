@@ -71,13 +71,16 @@ final class ManuscriptChecksTests: XCTestCase {
 
     /// R7a-1: a table figure's line (`figures/<name>.csv`) labelled `tbl:` is a
     /// table, so its label resolves here before the index catches up; an image
-    /// figure line labelled `tbl:` keeps today's answer (plan 7b diagnoses it).
+    /// figure line labelled `tbl:` keeps today's answer, and plan 7b's line
+    /// diagnostic names the mismatch (R7b-3).
     func test_aTableFigureLinesTblLabelResolvesBeforeTheIndexCatchesUp() {
         XCTAssertTrue(problems("![Cash](figures/cash.csv){#tbl:cash}\n\nSee @tbl:cash.").isEmpty)
         XCTAssertEqual(problems("![Wrong](w.png){#tbl:wrong}\n\nSee @tbl:wrong.").map(\.kind),
-                       [.unresolvedCrossRef(label("tbl:wrong"))], "the control: an image is no table")
-        XCTAssertTrue(problems("![Cash](figures/cash.csv){#fig:cash}\n\nSee @fig:cash.").isEmpty,
-                      "a table figure labelled fig: is a figure, as today")
+                       [.labelOnWrongElement(label("tbl:wrong")), .unresolvedCrossRef(label("tbl:wrong"))],
+                       "the control: an image is no table")
+        XCTAssertEqual(problems("![Cash](figures/cash.csv){#fig:cash}\n\nSee @fig:cash.").map(\.kind),
+                       [.tableFigureLabelledFig(label("fig:cash"))],
+                       "a table figure labelled fig: is a figure, as today, with its warning")
     }
 
     /// The checks read each block through the reader they're handed (the
@@ -94,6 +97,115 @@ final class ManuscriptChecksTests: XCTestCase {
     /// The index not built yet: no key or reference is called unknown.
     func test_withNoIndexTheIndexChecksWait() {
         XCTAssertTrue(problems("See [@ghost] and @fig:missing.", index: nil).isEmpty)
+    }
+
+    // MARK: - Figure lines (report plan 7b Task 7, R7b-3, R7b-4)
+
+    private static let documentPath = "chapter.md"
+
+    private static func record(_ id: String, _ path: String, kind: FigureKind = .table) -> FigureRecord {
+        FigureRecord(id: id, name: id, kind: kind, piece: nil, path: path)
+    }
+
+    /// The figure-line problems of `text` against `records`, through the
+    /// status lookup the editor's provider answers (`FigureCardCache.status`).
+    private func figureProblems(_ text: String, records: [FigureRecord]?)
+        -> [(text: String, kind: PublishProblem.Kind)] {
+        let ns = text as NSString
+        let index = records.map(FigureLineResolution.Index.init)
+        let status: ((String) -> FigureLineResolution.Status?)? = index.map { index in
+            { FigureLineResolution.status(linePath: $0, documentPath: Self.documentPath, index: index) }
+        }
+        return ManuscriptChecks.analyse(tokens: ProseMode().tokenize(text), text: ns,
+                                        index: Self.index(), labelsElsewhere: [],
+                                        figureLineStatus: status)
+            .problems.map { (ns.substring(with: $0.range), $0.kind) }
+    }
+
+    /// Review Focus 4, row by row: each line gets its own diagnostic, on its
+    /// `](path)`, with its own sentence.
+    func test_reviewFocus4_eachFigureLineGetsItsOwnDiagnostic() {
+        let text = """
+            ![Notes](../notes/x.png)
+
+            ![Gone](figures/gone.csv){#tbl:gone}
+
+            ![Twice](figures/dup.csv){#tbl:dup}
+
+            ![Cash](figures/cash.csv){#fig:cash}
+
+            ![Kept](figures/kept.csv){#tbl:kept}
+            """
+        let records = [Self.record("dup1", "figures/dup.csv"), Self.record("dup2", "figures/DUP.csv"),
+                       Self.record("cash", "figures/cash.csv"), Self.record("kept", "figures/kept.csv")]
+        let found = figureProblems(text, records: records)
+        XCTAssertEqual(found.map(\.text),
+                       ["](../notes/x.png)", "](figures/gone.csv)", "](figures/dup.csv)", "](figures/cash.csv)"])
+        XCTAssertEqual(found.map(\.kind), [
+            .figurePathNotLocal("../notes/x.png"),
+            .figureNotFound("figures/gone.csv"),
+            .figureAmbiguous("figures/dup.csv"),
+            .tableFigureLabelledFig(label("fig:cash")),
+        ])
+        let sentences = found.map { PublishProblem.sentence(for: $0.kind) }
+        XCTAssertEqual(Set(sentences).count, 4, "four different sentences: \(sentences)")
+    }
+
+    /// F9: a path that escapes the project is named for any figure, a table
+    /// figure's `.csv` included — "figure", not "figure image".
+    func test_f9_aPathOutsideTheProjectIsMarked_withTheGeneralSentence() {
+        let found = figureProblems("![Notes](../notes/x.png)\n\n![T](/tmp/t.csv)\n", records: [])
+        XCTAssertEqual(found.map(\.kind), [.figurePathNotLocal("../notes/x.png"),
+                                           .figurePathNotLocal("/tmp/t.csv")])
+        XCTAssertEqual(PublishProblem.sentence(for: .figurePathNotLocal("../notes/x.png")),
+                       "The figure ../notes/x.png is not inside this project’s figures folder or a research folder.")
+    }
+
+    /// R7b-3: an image labelled `tbl:` gets Publish's `.labelOnWrongElement`;
+    /// a registered image line and a research picture are clean.
+    func test_anImageLabelledTbl_isALabelOnTheWrongElement_andCleanLinesAreNotMarked() {
+        let records = [Self.record("logo", "figures/logo.png", kind: .image)]
+        XCTAssertEqual(figureProblems("![Logo](figures/logo.png){#tbl:logo}\n", records: records).map(\.kind),
+                       [.labelOnWrongElement(label("tbl:logo"))])
+        XCTAssertTrue(figureProblems("![Logo](figures/logo.png){#fig:logo}\n", records: records).isEmpty)
+        XCTAssertEqual(figureProblems("![Logo](figures/logo.png){#sec:logo}\n", records: records).map(\.kind),
+                       [.labelOnWrongElement(label("sec:logo"))], "a section label names no figure")
+        XCTAssertTrue(figureProblems("![Pic](research/pic.png)\n", records: records).isEmpty,
+                      "a picture in Research is no registry question (R7b-4)")
+    }
+
+    /// A path problem comes first: a removed figure labelled `fig:` is one
+    /// diagnostic, the missing figure.
+    func test_oneDiagnosticPerLine_thePathFirst() {
+        XCTAssertEqual(figureProblems("![Gone](figures/gone.csv){#fig:gone}\n", records: []).map(\.kind),
+                       [.figureNotFound("figures/gone.csv")])
+    }
+
+    /// No provider (another surface) or a provider with no answer yet (the
+    /// cache before its first fill) skips the registry checks, as `index ==
+    /// nil` does; the lexical kind mismatch needs neither.
+    func test_withNoStatusTheRegistryChecksWait_butTheKindMismatchDoesNot() {
+        let text = "![Gone](figures/gone.csv)\n\n![Cash](figures/cash.csv){#fig:cash}\n"
+        XCTAssertEqual(figureProblems(text, records: nil).map(\.kind),
+                       [.tableFigureLabelledFig(label("fig:cash"))])
+        let ns = text as NSString
+        let unanswered = ManuscriptChecks.analyse(tokens: ProseMode().tokenize(text), text: ns,
+                                                  index: Self.index(), labelsElsewhere: [],
+                                                  figureLineStatus: { _ in nil })
+        XCTAssertEqual(unanswered.problems.map(\.kind), [.tableFigureLabelledFig(label("fig:cash"))])
+    }
+
+    /// The new kinds are warnings in every profile: Publish does not refuse
+    /// on them; a path outside the project still refuses a Report.
+    func test_figureLineSeverity() {
+        for kind: PublishProblem.Kind in [.figureNotFound("figures/x.csv"), .figureAmbiguous("figures/x.csv"),
+                                          .tableFigureLabelledFig(label("fig:x"))] {
+            XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: .report), .systemOrange, "\(kind)")
+        }
+        XCTAssertEqual(EditorCoordinator.problemColor(.figurePathNotLocal("../x.png"), profile: .report),
+                       .systemRed)
+        XCTAssertEqual(EditorCoordinator.problemColor(.figurePathNotLocal("../x.png"), profile: nil),
+                       .systemOrange)
     }
 
     // MARK: - Labels

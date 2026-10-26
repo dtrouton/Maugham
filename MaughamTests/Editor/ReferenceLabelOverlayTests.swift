@@ -325,4 +325,57 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         overlay.display()
         XCTAssertEqual(overlay.lastBeneathCount, 2)
     }
+
+    // MARK: - Figure-line diagnostics follow the registry (report plan 7b Task 7)
+
+    /// The registry the status provider answers from, changed by the test.
+    private final class Registry {
+        var records: [FigureRecord] = []
+    }
+
+    /// Review Focus 4: a remote change restores the removed figure, landing as
+    /// a card version mid-burst — the line's "not found" stays until the
+    /// burst's settle edge, then clears there; a version outside a burst
+    /// re-checks at once.
+    func test_aRemoteRestoreClearsFigureNotFoundAtTheSettleEdge_notMidBurst() async {
+        let text = "Opening prose.\n\n![Gone](figures/gone.csv){#tbl:gone}\n\nMore prose here."
+        let registry = Registry()
+        let harness = EditorIntegrationHarness(mode: ProseMode(), initialText: text, cursorLocation: 0)
+        let coordinator = harness.coordinator
+        coordinator.answersInsertCommands = true
+        coordinator.referenceIndex = { Self.index() }
+        coordinator.projectProfile = { .report }
+        coordinator.figureLineStatus = { [registry] linePath in
+            FigureLineResolution.status(linePath: linePath, documentPath: "chapter.md",
+                                        index: FigureLineResolution.Index(registry.records))
+        }
+        coordinator.attach(to: harness.textView)
+        coordinator.restyleSettleDelayMs = 0   // the settle runs on the next main-actor turn
+        let ns = harness.textView.string as NSString
+        let path = ns.range(of: "](figures/gone.csv)")
+        XCTAssertEqual(coordinator.problemMarks.map(\.kind), [.figureNotFound("figures/gone.csv")])
+        XCTAssertEqual(coordinator.problemMarks.map(\.range), [path], "on the line's ](path)")
+        XCTAssertEqual(underline(harness, at: path.location).color, .systemOrange)
+
+        harness.setCursor(to: ns.length)
+        for c in " and" { harness.typeCharacter(c) }
+        XCTAssertTrue(coordinator.isInTypingBurst, "precondition: the burst is in flight")
+        let checks = coordinator.problemCheckCount
+        registry.records = [FigureRecord(id: "fig-gone0001", name: "gone", kind: .table,
+                                         piece: nil, path: "figures/gone.csv")]
+        coordinator.setFigureCardVersion(1)
+        XCTAssertEqual(coordinator.problemCheckCount, checks, "no check mid-burst")
+        XCTAssertEqual(coordinator.problemMarks.map(\.kind), [.figureNotFound("figures/gone.csv")],
+                       "mid-burst the line keeps its mark")
+
+        await coordinator.deferredRestyleTask?.value   // the settle edge
+        XCTAssertEqual(coordinator.problemMarks, [], "the settle re-checks against the restored figure")
+        XCTAssertNil(underline(harness, at: path.location).style)
+
+        // Outside a burst a new version re-checks at once (the figure removed again).
+        registry.records = []
+        coordinator.setFigureCardVersion(2)
+        XCTAssertEqual(coordinator.problemMarks.map(\.kind), [.figureNotFound("figures/gone.csv")])
+        XCTAssertEqual(underline(harness, at: path.location).style, dotted)
+    }
 }

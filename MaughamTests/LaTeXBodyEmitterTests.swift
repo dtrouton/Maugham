@@ -810,6 +810,19 @@ final class LaTeXReportElementEmitterTests: XCTestCase {
         XCTAssertFalse(resolved.contains("\\begin{figure}"), resolved)
     }
 
+    /// Plan 7a carry: an uncaptioned table figure's list entry is `\\relax`,
+    /// as an uncaptioned pipe table's is, never an empty `\\caption[{}]`.
+    func test_anUncaptionedTableFigure_isListedUnderARelaxShortCaption() throws {
+        let (resolved, _) = try bodies(book(["![](figures/cash.csv)"], lists: true))
+        XCTAssertTrue(resolved.contains("""
+            \\setcounter{table}{0}
+            \\begin{table}[htbp]
+            \\centering
+            \\caption[{\\relax}]{}
+            """), resolved)
+        XCTAssertFalse(resolved.contains("\\caption[{}]"), resolved)
+    }
+
     // MARK: tables
 
     func test_table_rendersAsAMaughamTableWithItsNumberAnchorAndEscapedCells() throws {
