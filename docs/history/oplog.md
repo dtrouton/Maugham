@@ -2337,3 +2337,12 @@ To make room for `setCells` and `sortRows` in the figure-undo rule under the 8,0
 
 - Don't bypass `PendingBuffer`: the pending file carries the live `sequence`, so crash recovery is op-log-domain.
 - A moved project forgetting its heads (they are keyed by project-root path) is the safe direction.
+
+## Moved by report plan 7c task 1's fix round (2026-10-26)
+
+To make room for the sort's range rule (a sort keeps every range's positional span) under the 8,000-word cap:
+
+- A test crossing the `.md` boundary with non-alphabet paragraph ids silently tests half the round trip.
+- `mergeSortedDedup`'s total order means directory enumeration order cannot change the survivor.
+- A failed flush keeps the pending file because it is the recovery source.
+- A figure restore judges pins by the book's park cycles so a live pin never becomes an inert one.

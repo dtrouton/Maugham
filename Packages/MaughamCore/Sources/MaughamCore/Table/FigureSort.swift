@@ -22,8 +22,8 @@ public enum FigureSort {
     ) -> [RowID] {
         let rows = table.rows
         let head = min(table.headerRows, rows.count)
-        let tail = table.hasTotalRow && rows.count > head ? 1 : 0
-        let body = rows[head..<(rows.count - tail)].enumerated().map { offset, row in
+        let bodyEnd = rows.count - (table.hasTotalRow && rows.count > head ? 1 : 0)
+        let body = rows[head..<bodyEnd].enumerated().map { offset, row in
             (offset: offset, row: row, value: values(CellKey(row: row, column: column)))
         }
         let sorted = body.sorted { a, b in
@@ -33,7 +33,10 @@ public enum FigureSort {
             case .orderedSame: a.offset < b.offset
             }
         }
-        return Array(rows[..<head]) + sorted.map(\.row) + Array(rows[(rows.count - tail)...])
+        var out = Array(rows[..<head])
+        out += sorted.map(\.row)
+        out += rows[bodyEnd...]
+        return out
     }
 
     /// Where `a` sorts against `b` in the asked direction.

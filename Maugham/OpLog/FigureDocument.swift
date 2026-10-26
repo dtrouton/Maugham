@@ -59,6 +59,18 @@ public struct FigureBringBackIncomplete: LocalizedError, Equatable {
 
 /// **An edit that names something the figure does not have** — a row or
 /// column that is not live, a table edit on an image. Nothing is written.
+/// **A sort another figure's range would change** (report plan 7c, the
+/// ruling on review C1): `figureName` adds up a range of the rows a sort
+/// would reorder, and a sort rewrites no other figure's formulas, so it is
+/// refused before anything is written. The host says `sentence` as a notice.
+public struct FigureSortRefused: LocalizedError, Equatable {
+    public let figureName: String
+    public var sentence: String {
+        "Couldn't sort the table — “\(figureName)” reads a range of its rows, and sorting would change which rows that range covers."
+    }
+    public var errorDescription: String? { sentence }
+}
+
 public struct FigureEditInvalid: LocalizedError, Equatable {
     public let reason: String
     public var errorDescription: String? { reason }
@@ -730,7 +742,8 @@ public final class FigureDocument {
     // MARK: - Batch verbs (report plan 7c Task 1)
 
     /// **Set (or clear, with nil) many cells as one visit** — a format over a
-    /// selection, ⌫ over a range, Σ. One door check, one op per cell that
+    /// selection, ⌫ over a range, Σ. One door check (asked again after a
+    /// Research read, below), one op per cell that
     /// changes (in table order), one render, and **one ⌘Z** that restores
     /// every cell (`registerFigureUndo`'s visit).
     ///
@@ -822,11 +835,22 @@ public final class FigureDocument {
 
     /// **Sort the body rows by one column, as one visit** (ruling R7c-7):
     /// `FigureSort.order` over `values` — each cell's computed value, which the
-    /// caller holds — turned into row moves, so each row keeps its cells and
-    /// every formula keeps reading by id. Header and total rows stay put.
-    /// One door check, one render, **one ⌘Z** back to the old order, declined
-    /// once the order has changed since; the redo sorts by the values this
-    /// sort read. An order already sorted writes nothing.
+    /// caller holds, read once — turned into row moves, so each row keeps its
+    /// cells and every single-cell reference follows its row. Header and total
+    /// rows stay put. An order already sorted writes nothing.
+    ///
+    /// - **Every range keeps its positional span** (the ruling on review C1):
+    ///   this figure's own ranges whose span the moves would change are
+    ///   re-anchored in the same visit (`FigureRangeAnchors.reanchoredCells`),
+    ///   so a total's `SUM` over the body adds up the same rows' worth.
+    /// - **Another figure's range into the reordered rows refuses the sort up
+    ///   front** (`FigureSortRefused`, said as a notice naming that figure):
+    ///   no other figure's formulas are rewritten, and nothing is written.
+    ///   Asked of the window's assembled book; windowless, there is none.
+    /// - The door is asked before that read and again after it; one render,
+    ///   **one ⌘Z** restoring the order and the formulas, declined once the
+    ///   order or a rewritten formula has changed since; the redo sorts by
+    ///   the values this sort read.
     public func sortRows(
         by column: ColumnID, ascending: Bool, values: (CellKey) -> CellValue,
         actionName: String, undoManager: UndoManager? = nil
@@ -835,11 +859,22 @@ public final class FigureDocument {
         try requireTable()
         guard state.table.columnIndex(of: column) != nil else { throw FigureEditInvalid(reason: "that column is gone") }
         let before = state.table.rows
-        let order = FigureSort.order(table: state.table, values: values, column: column, ascending: ascending)
-        guard order != before else { return }
+        // What this sort reads, once: the order and the redo both use it.
+        let read = Dictionary(uniqueKeysWithValues: before.map { ($0, values(CellKey(row: $0, column: column))) })
+        let readValue: (CellKey) -> CellValue = { read[$0.row] ?? .empty }
+        guard FigureSort.order(table: state.table, values: readValue, column: column, ascending: ascending) != before
+        else { return }
+        let others = try await otherFigureTables()
+        // The read awaited: the door and the table are asked again.
+        try await requireWritable("sortRows")
+        guard state.table.rows == before, state.table.columnIndex(of: column) != nil else {
+            throw FigureEditInvalid(reason: "the table changed while the sort was being prepared")
+        }
+        let old = state.table
+        let order = FigureSort.order(table: old, values: readValue, column: column, ascending: ascending)
         // Each row of `order` in turn goes just after the one before it,
         // unless it already follows it; a scratch copy says which do.
-        var scratch = state.table
+        var scratch = old
         var moves: [(row: RowID, after: RowID?)] = []
         for (i, row) in order.enumerated() {
             let after = i == 0 ? nil : order[i - 1]
@@ -849,6 +884,21 @@ public final class FigureDocument {
             scratch.moveRow(row, after: after)
             moves.append((row, after))
         }
+        for other in others {
+            let reads = other.table.cells.values.contains { cell in
+                guard case .formula(let f) = cell.content else { return false }
+                return FigureRangeAnchors.spanChanges(in: f, readingFigure: figureId, old: old, new: scratch)
+            }
+            if reads {
+                let refused = FigureSortRefused(figureName: other.name)
+                documentLog.error(
+                    "figure \(self.figureId, privacy: .public): sort refused, \(other.id, privacy: .public) reads a range of its rows")
+                MaughamEvent.postNotice(refused.sentence, projectURL: projectURL)
+                throw refused
+            }
+        }
+        let rewrites = FigureRangeAnchors.reanchoredCells(old: old, new: scratch, ownId: figureId)
+            .sorted { $0.key.row.raw == $1.key.row.raw ? $0.key.column.raw < $1.key.column.raw : $0.key.row.raw < $1.key.row.raw }
         var written: [Op] = []
         var failure: Error?
         do {
@@ -857,6 +907,10 @@ public final class FigureDocument {
                 written.append(try await commit(.figureStructure, FigureOpPayload(
                     structure: .moveRow(m.row, after: m.after, priorAfter: priorAfter)), render: false))
             }
+            for (key, cell) in rewrites {
+                written.append(try await commit(
+                    .figureCellSet, FigureOpPayload(cell: key, next: cell, prior: old[key]), render: false))
+            }
         } catch {
             documentLog.error(
                 "figure \(self.figureId, privacy: .public): a sort was not all written: \(error.localizedDescription, privacy: .public)")
@@ -864,14 +918,15 @@ public final class FigureDocument {
         }
         guard let first = written.first else { throw failure ?? FigureEditInvalid(reason: "nothing was written") }
         await documentStore?.figureHostAppended(figureId)
-        let landed = Array(moves.prefix(written.count))
+        let landedMoves = Array(moves.prefix(written.count))
+        let landedCells = Array(rewrites.prefix(max(written.count - moves.count, 0)))
         let sorted = state.table.rows
-        // What this sort read, so its redo sorts the same rows the same way.
-        let read = Dictionary(uniqueKeysWithValues: before.map { ($0, values(CellKey(row: $0, column: column))) })
         registerFigureUndo(
             undoManager, actionName: actionName, forward: first, alongside: Array(written.dropFirst()),
             stillAsWritten: { d in
-                d.state.table.rows == sorted && landed.allSatisfy { d.rowPredecessor($0.row) == .some($0.after) }
+                d.state.table.rows == sorted
+                    && landedMoves.allSatisfy { d.rowPredecessor($0.row) == .some($0.after) }
+                    && landedCells.allSatisfy { d.state.table[$0.key] == $0.value }
             },
             redo: { [weak undoManager] d in
                 guard d.state.table.rows == before else { return d.decline(.drifted) }
@@ -882,6 +937,20 @@ public final class FigureDocument {
                 }
             })
         if let failure { throw failure }
+    }
+
+    /// Every other table figure in the window's book, by id and name — what a
+    /// sort asks whether another figure reads a range of its rows. Empty
+    /// without a window.
+    private func otherFigureTables() async throws -> [(id: String, name: String, table: FigureTable)] {
+        guard let documentStore, let book = try await documentStore.assembledFigures() else { return [] }
+        let names = Dictionary(
+            (documentStore.projectStore?.manifest.figures ?? []).map { ($0.id, $0.name) },
+            uniquingKeysWith: { a, _ in a })
+        return book.workbook.tables
+            .filter { $0.key != figureId }
+            .sorted { $0.key < $1.key }
+            .map { (id: $0.key, name: names[$0.key] ?? $0.key, table: $0.value) }
     }
 
     /// **Replace an image figure's picture** (report plan 6a Task 9): the
