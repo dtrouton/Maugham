@@ -89,7 +89,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `MarkdownBlockParser.swift` — `MarkdownBlock` and the one block-level Markdown parser every surface shares.
 - `ManuscriptBlocks.swift` — the report block layer over that parser: labelled headings, captioned tables, figures, footnote definitions.
 - `TableText.swift` — the one pipe-table formatter, and its cell lookups.
-- `TableClipboard.swift` — spreadsheet cells pasted as tab-separated text, read by Excel's quoting.
+- `TableClipboard.swift` — spreadsheet cells as tab-separated text, read and written by Excel's quoting.
 - `ManuscriptLabel.swift` — `ManuscriptLabel` (`fig`/`tbl`/`sec`) and `ManuscriptAttributes.split`, the trailing `{#kind:name}` reader.
 - `ManuscriptInlineScanner.swift` — finds footnote references, citations and cross-references inside sentences.
 - `ManuscriptIndex.swift` — the project index: labels, cited keys and every diagnostic, line by line.
@@ -198,7 +198,10 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureGridModel.swift` — the in-place grid's keys (spec §6.3) as effects: selection by ids, the cell edit, references composed with arrows or clicks; `tableChanged` re-checks the ids.
 - `FigureGridAddress.swift` — a grid cell or range as "B3" / "B2:D9" by live position, and back.
 - `FigureCellEntry.swift` — typed cell text as a `Cell` (prior format kept, a suggestion only over general, a formula error at its offset in the text), and the formula bar's text back.
-- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin), and a visit's inverses as one all-or-nothing undo.
+- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin set and a pin clear that names its pin), and a visit's inverses as one all-or-nothing undo.
+- `FigureFill.swift` — Fill Down and Fill Right (R7d-1): the cells a fill writes, formulas translated from the head cell; a one-deep selection fills from the row above or column left.
+- `FigurePaste.swift` — a paste into the grid as ops (R7d-2): growth by row and column inserts, tiling into a whole-multiple selection, formulas of a same-table copy translated, refused past `figureCellLimit`.
+- `TableHTML.swift` — a table as the HTML Excel, Sheets, Numbers and web pages put on the pasteboard: a hand-written forgiving reader (spans, entities, `<br>`, nested tags) and a writer that reads back exactly.
 
 ### Inbox and capture
 - `InboxEntry.swift` — one capture row in the per-device inbox manifest.

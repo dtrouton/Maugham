@@ -2,10 +2,32 @@ import Foundation
 
 /// **Cells copied from a spreadsheet, as rows** (report foundations plan 3b
 /// Task 5): what Excel, Numbers and Google Sheets put on the pasteboard as
-/// tab-separated text, read by Excel's quoting rules. Its one
-/// reader, the grid sheet's Paste Cells, is retired (report plan 7b); it
-/// stays in Core so a later reader, phone or MCP, shares it (tripwire 19).
+/// tab-separated text, read by Excel's quoting rules — and, since report plan
+/// 7d, the same text written for a copy out of a table figure's grid (the
+/// display strings, ruling R7d-3). Kept in Core so the phone or MCP shares it
+/// (tripwire 19).
 public enum TableClipboard {
+    /// **Rows as the tab-separated text a spreadsheet puts on the pasteboard**
+    /// (report plan 7d, ruling R7d-3): cells joined by tabs, each row ended by
+    /// `\n` (the last one too, as Excel does). A cell holding a tab, a line
+    /// break or a `"` is quoted, its quotes doubled — so
+    /// `rows(fromTabSeparated:)` reads every row back as written, and Excel,
+    /// Numbers and Google Sheets read the cell whole.
+    public static func tabSeparated(_ rows: [[String]]) -> String {
+        var out = ""
+        for row in rows {
+            out += row.map(quoted).joined(separator: "\t")
+            out += "\n"
+        }
+        return out
+    }
+
+    private static func quoted(_ cell: String) -> String {
+        guard cell.unicodeScalars.contains(where: { $0 == tab || $0 == lineFeed || $0 == carriageReturn || $0 == quote })
+        else { return cell }
+        return "\"" + cell.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
     /// The rows of `text`, each a list of cells, by Excel's tab-separated rules:
     ///
     /// - a tab ends a cell; `\r\n`, `\r` or `\n` ends a row, and the break

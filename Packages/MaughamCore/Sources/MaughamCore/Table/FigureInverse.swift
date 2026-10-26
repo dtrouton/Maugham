@@ -22,7 +22,14 @@ public enum FigureInverse {
     ///   no op clears an image;
     /// - a pin set swaps to `priorPin`, or — for a cell that held no pin from
     ///   that source — clears the pin it set (ruling P-8);
-    /// - create, park, resume and a pin clear have none.
+    /// - a pin clear that names its pin swaps back to a pin set of that pin
+    ///   (report plan 7d, `priorPin` nil: after the clear the cell held no pin
+    ///   from that source) — so a visit holding a Research formula entered and
+    ///   undone inside the grid (a pin set, then its clear) still collapses to
+    ///   one undo. The set re-adds the pin after any other source's pins on
+    ///   the cell, so their order may differ; the pins themselves are the same;
+    /// - create, park, resume and a pin clear that names no pin (it cleared
+    ///   every pin on the cell, which it does not carry) have none.
     public static func inverse(of payload: FigureOpPayload, kind: OpKind) -> (OpKind, FigureOpPayload)? {
         guard FigureOpPayload.validate(kind: kind, payload: payload) else { return nil }
         switch kind {
@@ -68,6 +75,10 @@ public enum FigureInverse {
                 return (.figurePinClear, FigureOpPayload(cell: payload.cell, pin: payload.pin))
             }
             return (.figurePinSet, FigureOpPayload(cell: payload.cell, pin: prior, priorPin: payload.pin))
+
+        case .figurePinClear:
+            guard let pin = payload.pin else { return nil }
+            return (.figurePinSet, FigureOpPayload(cell: payload.cell, pin: pin))
 
         default:
             return nil

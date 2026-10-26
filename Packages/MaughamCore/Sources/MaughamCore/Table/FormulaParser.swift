@@ -43,7 +43,16 @@ public enum FormulaParser {
                                  names: FormulaNames) -> Formula {
         guard let fr = table.rowIndex(of: from.row), let fc = table.columnIndex(of: from.column),
               let tr = table.rowIndex(of: to.row), let tc = table.columnIndex(of: to.column) else { return formula }
-        let t = Translator(table: table, names: names, dRow: tr - fr, dColumn: tc - fc)
+        return translate(formula, rows: tr - fr, columns: tc - fc, in: table, names: names)
+    }
+
+    /// `translate(_:from:to:in:names:)` by a shift in live positions rather than two
+    /// cells — for a paste whose source cells need not be live in `table` (report
+    /// plan 7d, `FigurePaste`): relative parts move `rows` down and `columns` right,
+    /// `$` parts stay, and a ref leaving its live grid becomes `.error(.ref)`.
+    public static func translate(_ formula: Formula, rows: Int, columns: Int, in table: FigureTable,
+                                 names: FormulaNames) -> Formula {
+        let t = Translator(table: table, names: names, dRow: rows, dColumn: columns)
         return Formula(t.map(formula.expr))
     }
 

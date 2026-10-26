@@ -83,4 +83,28 @@ final class TableClipboardTests: XCTestCase {
         XCTAssertEqual(TableClipboard.rows(fromTabSeparated: "👨‍👩‍👧\te\u{301}\r\nЋ\t\"日本\""),
                        [["👨‍👩‍👧", "e\u{301}"], ["Ћ", "日本"]])
     }
+
+    // MARK: - Writing (report plan 7d, R7d-3)
+
+    /// A copy out of the grid: tabs between cells, each row ended by a line
+    /// break, and a cell holding a tab, a line break or a quote quoted with
+    /// its quotes doubled — read back cell for cell.
+    func test_tabSeparated_quotesWhatNeedsIt_andReadsBackAsWritten() {
+        let rows = [
+            ["Region", "Q1", ""],
+            ["a\tb", "line one\nline two", "say \"hi\""],
+            ["\"opens", "5\" pipe", "cr\r\nlf"],
+            [""],
+        ]
+        let tsv = TableClipboard.tabSeparated(rows)
+        XCTAssertEqual(tsv, "Region\tQ1\t\n"
+            + "\"a\tb\"\t\"line one\nline two\"\t\"say \"\"hi\"\"\"\n"
+            + "\"\"\"opens\"\t\"5\"\" pipe\"\t\"cr\r\nlf\"\n"
+            + "\n")
+        XCTAssertEqual(TableClipboard.rows(fromTabSeparated: tsv), rows)
+    }
+
+    func test_tabSeparated_ofNothingIsEmpty() {
+        XCTAssertEqual(TableClipboard.tabSeparated([]), "")
+    }
 }

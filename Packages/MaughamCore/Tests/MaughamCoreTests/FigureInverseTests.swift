@@ -181,7 +181,44 @@ final class FigureInverseTests: XCTestCase {
         XCTAssertNil(state.pins[k])
     }
 
-    func test_lifecycleKindsAndAPinClear_haveNoInverse() {
+    /// Report plan 7d: a pin clear that names its pin swaps back to a pin set
+    /// of it, so a Research formula entered then undone inside a grid visit
+    /// (its pin set, then that set's clear) leaves the visit undoable whole.
+    func test_aPinClearNamingItsPin_invertsToAPinSet_roundTrip() throws {
+        let pin = FigureResearchPin(research: "res-a", row: 2, column: 1, value: .number(10), sourceHash: "h1",
+                                    at: Date(timeIntervalSince1970: 1))
+        let clearStep = (OpKind.figurePinClear, FigureOpPayload(cell: key(r1, c1), pin: pin))
+        let set = try XCTUnwrap(FigureInverse.inverse(of: clearStep.1, kind: clearStep.0))
+        XCTAssertEqual(set.0, .figurePinSet)
+        XCTAssertEqual(set.1, FigureOpPayload(cell: key(r1, c1), pin: pin), "no prior pin: the clear left none from that source")
+        let back = try XCTUnwrap(FigureInverse.inverse(of: set.1, kind: set.0))
+        XCTAssertEqual(back.0, clearStep.0)
+        XCTAssertEqual(back.1, clearStep.1, "the set's inverse is the clear again")
+
+        // Folded: clear then its inverse puts the pin back.
+        let pinned = apply([(.figurePinSet, FigureOpPayload(cell: key(r1, c1), pin: pin))], to: start())
+        let cleared = apply([clearStep], to: pinned)
+        XCTAssertNil(cleared.pins[key(r1, c1)], "control: the clear took the pin")
+        XCTAssertEqual(apply([set], to: cleared).pins[key(r1, c1)], [pin])
+
+        // The visit the grid leaves: a formula's entry pin, then its undo's clear.
+        let visit: [(OpKind, FigureOpPayload)] = [
+            (.figureCellSet, FigureOpPayload(cell: key(r1, c2), next: num(5), prior: nil)),
+            (.figurePinSet, FigureOpPayload(cell: key(r1, c2), pin: pin)),
+            (.figurePinClear, FigureOpPayload(cell: key(r1, c2), pin: pin)),
+            (.figureCellSet, FigureOpPayload(cell: key(r1, c2), next: nil, prior: num(5))),
+            (.figureCellSet, FigureOpPayload(cell: key(r2, c1), next: num(8), prior: nil)),
+        ]
+        let before = start()
+        let after = apply(visit, to: before)
+        let comp = FigureInverse.compensating(visit: visit)
+        XCTAssertEqual(comp.count, visit.count, "the whole visit has an undo")
+        let undone = apply(comp, to: after)
+        assertSameView(undone, before)
+        XCTAssertEqual(undone.pins, before.pins)
+    }
+
+    func test_lifecycleKindsAndAPinClearNamingNoPin_haveNoInverse() {
         let cases: [(OpKind, FigureOpPayload)] = [
             (.figureCreate, FigureOpPayload(kind: .table)),
             (.figureParked, FigureOpPayload(parkedPath: "research/x.csv", parkedHash: "h")),
