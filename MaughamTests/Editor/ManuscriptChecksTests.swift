@@ -195,12 +195,30 @@ final class ManuscriptChecksTests: XCTestCase {
         XCTAssertEqual(unanswered.problems.map(\.kind), [.tableFigureLabelledFig(label("fig:cash"))])
     }
 
-    /// The new kinds are warnings in every profile: Publish does not refuse
-    /// on them; a path outside the project still refuses a Report.
+    /// The figure-line kinds follow Publish (whole-branch review I3, M3): in
+    /// a Report, a table figure labelled `fig:` (the image door refuses its
+    /// `.csv`) and an image path naming no figure (its file went with it)
+    /// are red; a `.csv` naming no figure or two, and an image naming two,
+    /// still publish, so amber. Outside a Report every one is amber. A path
+    /// outside the project still refuses a Report.
     func test_figureLineSeverity() {
-        for kind: PublishProblem.Kind in [.figureNotFound("figures/x.csv"), .figureAmbiguous("figures/x.csv"),
-                                          .tableFigureLabelledFig(label("fig:x"))] {
+        let red: [PublishProblem.Kind] = [.tableFigureLabelledFig(label("fig:x")),
+                                          .figureNotFound("figures/x.png"),
+                                          .figureNotFound("../figures/x.PNG")]
+        let amber: [PublishProblem.Kind] = [.figureNotFound("figures/x.csv"),
+                                            .figureNotFound("../figures/x.CSV"),
+                                            .figureAmbiguous("figures/x.csv"),
+                                            .figureAmbiguous("figures/x.png")]
+        for kind in red {
+            XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: .report), .systemRed, "\(kind)")
+        }
+        for kind in amber {
             XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: .report), .systemOrange, "\(kind)")
+        }
+        for kind in red + amber {
+            XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: nil), .systemOrange, "\(kind)")
+            XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: .unknown("novel")),
+                           .systemOrange, "\(kind)")
         }
         XCTAssertEqual(EditorCoordinator.problemColor(.figurePathNotLocal("../x.png"), profile: .report),
                        .systemRed)

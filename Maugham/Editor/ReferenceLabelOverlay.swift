@@ -193,11 +193,17 @@ final class ReferenceLabelOverlay: NSView {
     private(set) var lastMarginNumberCount = 0
     private(set) var lastCaptionTagCount = 0
     private(set) var lastCaptionTexts: [String] = []
+    /// The ink each margin number was drawn in, in order.
+    private(set) var lastMarginNumberInks: [NSColor] = []
     /// Markers in view whose label didn't fit, and where each sits: what the
     /// pointer can hover, and what a caret move repaints for.
     private(set) var hoverTargets: [(rect: CGRect, range: NSRange)] = []
     /// The marker the pointer is over, if its label waits for a hover.
     private(set) var hoveredMarker: NSRange?
+    /// The waiting label (a `hoverTargets` range) the caret was in at the
+    /// last draw or caret move: a caret move repaints only when it enters or
+    /// leaves one (whole-branch review M2).
+    private var caretTarget: NSRange?
     /// How many observed changes asked for a repaint.
     private(set) var repaintRequests = 0
 
@@ -251,11 +257,24 @@ final class ReferenceLabelOverlay: NSView {
         needsDisplay = true
     }
 
-    /// A caret move matters only to a label that waits for the caret.
+    /// A caret move matters only to a label that waits for the caret, and
+    /// only when the caret enters or leaves one: a move along a line, or
+    /// across prose, repaints nothing.
     @objc private func caretMoved(_ note: Notification) {
-        guard lastTagCount + lastCaptionTagCount > 0 || !hoverTargets.isEmpty else { return }
+        guard lastTagCount + lastCaptionTagCount > 0 || !hoverTargets.isEmpty,
+              let textView = associatedTextView else { return }
+        let now = target(atCaret: textView.selectedRange())
+        guard now != caretTarget else { return }
+        caretTarget = now
         repaintRequests += 1
         needsDisplay = true
+    }
+
+    /// The waiting label holding `caret` (its ends included, as the draw asks).
+    private func target(atCaret caret: NSRange) -> NSRange? {
+        hoverTargets.first {
+            caret.location >= $0.range.location && caret.location <= NSMaxRange($0.range)
+        }?.range
     }
 
     // MARK: Hover
@@ -296,7 +315,9 @@ final class ReferenceLabelOverlay: NSView {
         lastMarginNumberCount = 0
         lastCaptionTagCount = 0
         lastCaptionTexts = []
+        lastMarginNumberInks = []
         hoverTargets = []
+        defer { caretTarget = associatedTextView.flatMap { target(atCaret: $0.selectedRange()) } }
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
@@ -324,6 +345,7 @@ final class ReferenceLabelOverlay: NSView {
         if !captionLines.isEmpty, let before = coordinator.figureNumbersBefore?() {
             drawCaptionNumbers(captionLines, in: chars, before: before, words: index.words,
                                column: column, caret: caret, background: background,
+                               bodyInk: ProseMode.palette(for: coordinator.theme).bodyText,
                                dirtyRect: dirtyRect)
         }
 
@@ -413,7 +435,8 @@ extension ReferenceLabelOverlay {
     fileprivate func drawCaptionNumbers(
         _ lines: [FigureCaptionBar.Line], in chars: NSRange,
         before: ReferenceIndex.NumbersBefore, words: ElementWords,
-        column: ClosedRange<CGFloat>, caret: NSRange, background: NSColor, dirtyRect: NSRect
+        column: ClosedRange<CGFloat>, caret: NSRange, background: NSColor, bodyInk: NSColor,
+        dirtyRect: NSRect
     ) {
         guard let textView = associatedTextView, let layoutManager = textView.layoutManager,
               let container = textView.textContainer, let storage = textView.textStorage
@@ -436,11 +459,18 @@ extension ReferenceLabelOverlay {
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
             let baseline = lineRect.minY + layoutManager.location(forGlyphAt: glyph).y + origin.y
             let lineTop = lineRect.minY + origin.y
-            // The caption's own font and colour: the character after `![`.
-            let sample = min(first + 2, NSMaxRange(line.lineRange) - 1)
+            // The caption's own font and colour: the character after `![`. An
+            // empty caption (`![](…)`, a converted uncaptioned table) has
+            // none; its number takes the body's ink, with the line's focus
+            // dim (the `]`'s alpha), never the faded `]`'s colour, which
+            // would draw it fainter than a captioned line's (whole-branch M2).
+            let captionStart = line.syntax.first.map(NSMaxRange) ?? first + 2
+            let captioned = line.syntax.count >= 2 && line.syntax[1].location > captionStart
+            let sample = min(captionStart, NSMaxRange(line.lineRange) - 1)
             let attributes = storage.attributes(at: sample, effectiveRange: nil)
             let font = attributes[.font] as? NSFont ?? NSFont.systemFont(ofSize: 13)
-            let ink = (attributes[.foregroundColor] as? NSColor) ?? NSColor.textColor
+            let sampled = (attributes[.foregroundColor] as? NSColor) ?? NSColor.textColor
+            let ink = captioned ? sampled : bodyInk.withAlphaComponent(sampled.alphaComponent)
             let style: [NSAttributedString.Key: Any] = [
                 .font: font, .foregroundColor: ink.withAlphaComponent(ink.alphaComponent * 0.55),
             ]
@@ -451,6 +481,7 @@ extension ReferenceLabelOverlay {
                 baseline: baseline, ascender: font.ascender) {
                 lastMarginNumberCount += 1
                 lastCaptionTexts.append(text as String)
+                lastMarginNumberInks.append(style[.foregroundColor] as? NSColor ?? ink)
                 if CGRect(origin: point, size: size).intersects(dirtyRect) {
                     text.draw(at: point, withAttributes: style)
                 }

@@ -26,6 +26,8 @@ final class InsertCommandTests: XCTestCase {
         var text: String
         var writes = 0
         var reported: [String] = []
+        /// Called with each text the binding is written, as it is written.
+        var onWrite: ((String) -> Void)?
         init(_ text: String) { self.text = text }
     }
 
@@ -57,7 +59,7 @@ final class InsertCommandTests: XCTestCase {
                        tableFigureMaker: FigureIngest.TableFigureMaker? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text },
-                              set: { box.text = $0; box.writes += 1 })
+                              set: { box.text = $0; box.writes += 1; box.onWrite?($0) })
         var configuration = EditorSurfaceConfiguration(
             presentation: .init(theme: .light, typography: .defaults, mode: ProseMode(),
                                 typewriterScroll: false, sentenceFocus: false,
@@ -127,6 +129,22 @@ final class InsertCommandTests: XCTestCase {
         return (store, try XCTUnwrap(store.manifest.structure.first))
     }
 
+    /// A window's figure cards as `EditorHost` attaches them: told by the
+    /// store, filled through `figureCardInputs`; filled once before return.
+    private func figureCards(_ store: ProjectStore) async throws -> FigureCardCache {
+        let ds = try XCTUnwrap(store.documentStore)
+        ds.projectStore = store   // as the window wires it: the fill reads the registry through it
+        let cache = FigureCardCache()
+        ds.attachFigureCardCache(cache)
+        cache.attach(FigureCardCache.Source(read: { [weak ds] in await ds?.figureCardInputs() }))
+        addTeardownBlock { @MainActor in
+            cache.attach(nil)
+            ds.detachFigureCardCache(cache)
+        }
+        await cache.idle()
+        return cache
+    }
+
     /// The maker `EditorHost` builds, over a real store and chapter.
     private func maker(_ store: ProjectStore, _ chapter: StructureItem) throws
         -> FigureIngest.TableFigureMaker
@@ -139,7 +157,9 @@ final class InsertCommandTests: XCTestCase {
     }
 
     /// A maker that records what it was handed and makes nothing (so no line
-    /// is written).
+    /// is written). The throw is deliberate: the command tells the writer the
+    /// table couldn't be made, which `test_insertTableHandsTheMakerTheTblNamesOtherDocumentsDefine`
+    /// asserts once.
     private final class Recorder {
         var taken: [Set<String>] = []
     }
@@ -257,6 +277,58 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(m.box.reported, [])
     }
 
+    /// **Whole-branch review I2**: the window's cards know the new figure
+    /// before its line is written, so the line shows its table the moment it
+    /// lands — never "Figure removed", never a not-found diagnostic; and the
+    /// moment ⇧⌘Z puts the line back, before the store's restore lands, its
+    /// card is back too. Real cards over the real store; the host's
+    /// manifest watch after ⌘Z is stood in for by `settleFigureCards`.
+    func test_aMadeTableShowsItsCardTheMomentItsLineLands_andTheMomentARedoReturns() async throws {
+        let (store, chapter) = try await novel()
+        let path = try XCTUnwrap(chapter.path)
+        let cards = try await figureCards(store)
+        let linePath = "../figures/table.csv"
+        let m = try mount("Intro", tableFigureMaker: try maker(store, chapter))
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        var landed: [(FigureCardModel?, FigureLineResolution.Status?)] = []
+        m.box.onWrite = { text in
+            guard text.contains("![") else { return }
+            landed.append((cards.model(forLinePath: linePath, documentPath: path),
+                           cards.status(forLinePath: linePath, documentPath: path)))
+        }
+
+        await insertTable(m)
+        let figure = try XCTUnwrap(store.manifest.figures?.first)
+        let card = try XCTUnwrap(cards.model(forFigureId: figure.id), "the cards hold the new table")
+        XCTAssertEqual(landed.count, 1, "premise: the line was written once")
+        XCTAssertEqual(landed.first?.0, card, "as the line landed, it showed its table")
+        XCTAssertNotEqual(landed.first?.0, .placeholder(.removed))
+        XCTAssertEqual(landed.first?.1, .figure(figure), "and named a figure, so no not-found check")
+        let problems = ManuscriptChecks.analyse(
+            tokens: ProseMode().tokenize(m.textView.string), text: m.textView.string as NSString,
+            index: nil, labelsElsewhere: [],
+            figureLineStatus: { cards.status(forLinePath: $0, documentPath: path) })
+        XCTAssertFalse(problems.problems.contains { if case .figureNotFound = $0.kind { true } else { false } },
+                       "no figureNotFound for the line just made")
+
+        await undo(m)
+        await store.documentStore?.settleFigureCards()   // the host's manifest watch
+        XCTAssertEqual(cards.model(forLinePath: linePath, documentPath: path), .placeholder(.removed),
+                       "premise: the cards know the figure left")
+
+        m.coordinator.figureBirthUndoTask = nil
+        m.textView.undoManager?.redo()
+        XCTAssertEqual(m.textView.string, "Intro\n\n![Caption](\(linePath)){#tbl:table}")
+        XCTAssertEqual(cards.model(forLinePath: linePath, documentPath: path), card,
+                       "the moment ⇧⌘Z returns, before the restore lands, the line shows its table")
+        await m.coordinator.figureBirthUndoTask?.value
+        await store.documentStore?.settleFigureCards()
+        XCTAssertEqual(cards.model(forLinePath: linePath, documentPath: path), card,
+                       "and the registry agrees once the restore has landed")
+        XCTAssertEqual(m.box.reported, [])
+    }
+
     /// R7b-9: the name, and so the label, steps clear of every `tbl:` name in
     /// use — a figure already called `table`, a `@tbl:table_2` reference in
     /// the text, a `tbl:table_3` another chapter defines — and never the label
@@ -301,6 +373,90 @@ final class InsertCommandTests: XCTestCase {
                 + "so the figure went to the Trash.",
         ])
         XCTAssertFalse(m.textView.undoManager?.canUndo ?? true, "a refused line left an undo step")
+    }
+
+    /// R7b-6 end to end: an input method composes through every wait after
+    /// the figure is made: nothing is written, the composition is untouched,
+    /// the figure goes to the Trash, and the writer is told.
+    func test_aCompositionOutlastingTheWaitsSendsTheMadeFigureToTheTrash() async throws {
+        let (store, chapter) = try await novel()
+        let real = try maker(store, chapter)
+        var m: Mounted!
+        m = try mount("Intro", tableFigureMaker: { request in
+            let birth = try await real(request)
+            m.textView.setSelectedRange(NSRange(location: 5, length: 0))
+            m.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                                     replacementRange: m.textView.selectedRange())
+            return birth
+        })
+        m.window.makeFirstResponder(m.textView)
+        var waits = 0
+        m.coordinator.figureCompositionWait = { waits += 1 }
+        m.coordinator.figureCompositionWaitLimit = 2
+        await insertTable(m)
+
+        XCTAssertEqual(waits, 2)
+        XCTAssertEqual(m.textView.string, "Introか")
+        XCTAssertTrue(m.textView.hasMarkedText(), "the composition was disturbed")
+        XCTAssertEqual(figureIds(store), [])
+        XCTAssertEqual(trashedFigureIds(store).count, 1, "the made figure is in the Trash")
+        XCTAssertEqual(m.box.reported,
+                       [EditorCoordinator.tableFigureDiscardMessage(.composing, trashed: true, name: "table")])
+    }
+
+    /// R7b-6 end to end: the editor leaves the document while the figure is
+    /// made (a document switch detaches it): nothing is written, the figure
+    /// goes to the Trash, and the writer is told through the reporter held at
+    /// the command's start.
+    func test_anEditorThatLeftTheDocumentSendsTheMadeFigureToTheTrash() async throws {
+        let (store, chapter) = try await novel()
+        let real = try maker(store, chapter)
+        var m: Mounted!
+        m = try mount("Intro", tableFigureMaker: { request in
+            let birth = try await real(request)
+            m.coordinator.detach()
+            return birth
+        })
+        m.window.makeFirstResponder(m.textView)
+        await insertTable(m)
+
+        XCTAssertEqual(m.textView.string, "Intro")
+        XCTAssertEqual(figureIds(store), [])
+        XCTAssertEqual(trashedFigureIds(store).count, 1, "the made figure is in the Trash")
+        XCTAssertEqual(m.box.reported,
+                       [EditorCoordinator.tableFigureDiscardMessage(.documentLeft, trashed: true, name: "table")])
+    }
+
+    /// Whole-branch review M1: Insert ▸ Table asked from inside an untidy
+    /// pipe table lands its line after the table, and the caret leaving the
+    /// table tidies it — the line neither swallowed nor misplaced. Two undo
+    /// steps: "Tidy Table" first, then "Insert Table".
+    func test_insertTableFromInsideAnUntidyPipeTableLandsAfterItAndTheTableTidies() async throws {
+        let (store, chapter) = try await novel()
+        let table = "| A | Bee |\n|---|---|\n| 1 | 2 |"
+        let text = "Intro.\n\n" + table
+        let m = try mount(text, tableFigureMaker: try maker(store, chapter))
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: (text as NSString).range(of: "| 1").location + 2,
+                                            length: 0))
+        await insertTable(m)
+        m.coordinator.performPendingTableTidy()   // the leave-tidy's runloop hop, by hand
+
+        let line = "![Caption](../figures/table.csv){#tbl:table}"
+        let tidy = try XCTUnwrap(TableText(parsing: table)).formatted()
+        XCTAssertNotEqual(tidy, table, "premise: the table was untidy")
+        XCTAssertEqual(m.textView.string, "Intro.\n\n" + tidy + "\n\n" + line)
+        XCTAssertEqual((m.textView.string as NSString).substring(with: m.textView.selectedRange()),
+                       "Caption", "the caption is still selected")
+        XCTAssertEqual(m.box.reported, [])
+
+        XCTAssertEqual(m.textView.undoManager?.undoActionName, "Tidy Table")
+        await undo(m)
+        XCTAssertEqual(m.textView.string, text + "\n\n" + line, "the first ⌘Z untidies")
+        XCTAssertEqual(m.textView.undoManager?.undoActionName, "Insert Table")
+        await undo(m)
+        XCTAssertEqual(m.textView.string, text, "the second takes the line and its figure back")
+        XCTAssertEqual(figureIds(store), [])
     }
 
     /// A figure the store refuses to make writes nothing and is told.
@@ -382,6 +538,8 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(asked, 1)
         XCTAssertEqual(recorder.taken, [["table", "cited"]],
                        "another chapter's tbl:table and this text's @tbl:cited are taken; a fig: is not")
+        XCTAssertEqual(m.box.reported, [FigureIngest.tableFigureFailureMessage(for: CancellationError())],
+                       "a maker that makes nothing is told, once")
     }
 
     /// Whole-branch review I1: before the window's reference index has built

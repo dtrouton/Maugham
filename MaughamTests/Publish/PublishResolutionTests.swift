@@ -517,9 +517,9 @@ final class PublishResolutionTests: XCTestCase {
         case .duplicateFootnoteDefinition: return false
         case .labelOnWrongElement: return false
         case .malformedLabel: return false
-        case .figureNotFound: return false
+        case .figureNotFound(let path): return !ManuscriptLabel.Kind.isTableFigurePath(path)
         case .figureAmbiguous: return false
-        case .tableFigureLabelledFig: return false
+        case .tableFigureLabelledFig: return true
         }
     }
 
@@ -528,7 +528,8 @@ final class PublishResolutionTests: XCTestCase {
          .missingFootnoteDefinition("1"), .duplicateFootnoteDefinition("1"),
          .unusedFootnoteDefinition("1"), .labelOnWrongElement(label("sec:x")),
          .malformedLabel("eq:1"), .figurePathNotLocal("/x.png"), .imageUnreadable("no file"),
-         .figureNotFound("figures/x.csv"), .figureAmbiguous("figures/x.csv"),
+         .figureNotFound("figures/x.csv"), .figureNotFound("figures/x.png"),
+         .figureAmbiguous("figures/x.csv"),
          .tableFigureLabelledFig(label("fig:x"))]
     }
 

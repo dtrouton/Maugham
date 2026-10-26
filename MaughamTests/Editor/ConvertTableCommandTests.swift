@@ -253,6 +253,80 @@ final class ConvertTableCommandTests: XCTestCase {
         XCTAssertEqual(m.box.reported, [])
     }
 
+    // MARK: - The line stands alone (whole-branch review I1)
+
+    /// Whether `line` reads as a figure in `text`: a one-line paragraph of
+    /// its own, as the figure-line grammar needs.
+    private func readsAsFigure(_ line: String, in text: String) -> Bool {
+        let lines = text.components(separatedBy: "\n")
+        return ManuscriptBlocks.parse(text).contains { block, span in
+            guard case .figure = block else { return false }
+            return lines[span].joined(separator: "\n") == line
+        }
+    }
+
+    /// Prose right under a table (no blank line), which the table never
+    /// claimed: the figure line still stands as its own paragraph, the prose
+    /// kept after a blank line.
+    func test_proseRightUnderTheTableStaysOutOfTheFigureLine() async throws {
+        let (store, chapter) = try await novel()
+        let text = "| A | B |\n| --- | --- |\n| 1 | 2 |\nSome prose."
+        let m = try mount(text, tableFigureMaker: try maker(store, chapter))
+
+        await convert(m, at: location(of: "| 1", in: m))
+
+        let line = "![](../figures/table.csv){#tbl:table}"
+        XCTAssertEqual(m.textView.string, line + "\n\nSome prose.")
+        XCTAssertTrue(readsAsFigure(line, in: m.textView.string), "the line is a figure, not prose")
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: (line as NSString).length, length: 0),
+                       "the caret right after the line")
+        XCTAssertEqual(m.box.reported, [])
+    }
+
+    /// A `Table:` line followed by prose is not the table's caption (a
+    /// caption is a one-line paragraph): the table converts uncaptioned, and
+    /// the would-be caption and its prose stay below, apart from the line.
+    func test_aDanglingCaptionAndItsProseStayBelowTheFigureLine() async throws {
+        let (store, chapter) = try await novel()
+        let text = "| A |\n| --- |\n| 1 |\nTable: Costs\nMore prose."
+        let m = try mount(text, tableFigureMaker: try maker(store, chapter))
+
+        await convert(m, at: location(of: "| 1", in: m))
+
+        let line = "![](../figures/table.csv){#tbl:table}"
+        XCTAssertEqual(m.textView.string, line + "\n\nTable: Costs\nMore prose.")
+        XCTAssertTrue(readsAsFigure(line, in: m.textView.string))
+    }
+
+    /// A heading right above the table (no blank line): the figure line
+    /// gets a blank line above it too, so it is its own op-log paragraph.
+    func test_aHeadingRightAboveTheTableIsSetApartFromTheFigureLine() async throws {
+        let (store, chapter) = try await novel()
+        let text = "# Costs\n| A |\n| --- |\n| 1 |\n\nAfter."
+        let m = try mount(text, tableFigureMaker: try maker(store, chapter))
+
+        await convert(m, at: location(of: "| 1", in: m))
+
+        let line = "![](../figures/table.csv){#tbl:table}"
+        XCTAssertEqual(m.textView.string, "# Costs\n\n" + line + "\n\nAfter.")
+        XCTAssertTrue(readsAsFigure(line, in: m.textView.string))
+        XCTAssertEqual(ReportInsert.paragraphRange(
+            containing: location(of: "![", in: m), in: m.textView.string as NSString),
+            (m.textView.string as NSString).range(of: line), "the line is its own paragraph")
+    }
+
+    /// One ⌘Z after a padded conversion puts the original text back exactly.
+    func test_undoAfterAPaddedConversionRestoresTheTextExactly() async throws {
+        let (store, chapter) = try await novel()
+        let text = "# Costs\n| A |\n| --- |\n| 1 |\nSome prose."
+        let m = try mount(text, tableFigureMaker: try maker(store, chapter))
+        await convert(m, at: location(of: "| 1", in: m))
+        XCTAssertEqual(m.textView.string, "# Costs\n\n![](../figures/table.csv){#tbl:table}\n\nSome prose.")
+        await undo(m)
+        XCTAssertEqual(m.textView.string, text)
+        XCTAssertEqual(figureIds(store), [])
+    }
+
     // MARK: - One ⌘Z
 
     /// One ⌘Z puts the pipe table back and sends the figure to the Trash;

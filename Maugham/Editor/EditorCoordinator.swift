@@ -398,8 +398,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// True from a character edit while `unfadedFigureSyntax` is held: the
     /// edit may have moved the temporaries, so their next removal clears the
     /// whole text's temporary foreground (exact outside translation review,
-    /// where the un-fade is the only one).
+    /// where the un-fade is the only one) — at most once per character edit,
+    /// never on a caret move (`figureSyntaxUnfadeWholeClears`). Until then,
+    /// characters typed right after a shown run may draw in its `shown`
+    /// colour; the settle's forced refresh puts the run where it is now
+    /// (accepted: transient, display only).
     var unfadedFigureSyntaxIsStale = false
+    /// How many times the un-fade cleared the whole text's temporary
+    /// foreground after an edit (tests read it).
+    var figureSyntaxUnfadeWholeClears = 0
     /// How many times the un-fade actually moved (tests read it: a caret move
     /// along one line moves nothing).
     var figureSyntaxUnfadeMoves = 0

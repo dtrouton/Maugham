@@ -112,6 +112,9 @@ final class FigureBirthUndo {
     /// The same figure back from its Trash entry — unless it never left (a
     /// refused removal kept it in the book).
     private func restore() {
+        // The line is already back (the text's redo ran first): its card
+        // comes back with it, before the restore lands (whole-branch I2).
+        store?.documentStore?.readoptFigureCard(figureId: figureId)
         let previous = pending
         let task = Task { @MainActor in
             await previous?.value

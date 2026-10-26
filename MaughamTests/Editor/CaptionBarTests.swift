@@ -202,20 +202,28 @@ final class CaptionBarTests: XCTestCase {
             harness.setCursor(to: NSMaxRange(line.lineRange) + 2)   // onto the prose below
             XCTAssertTrue(temporaryRuns(harness).isEmpty, "line \(i): left, it fades again")
         }
+        XCTAssertEqual(coordinator.figureSyntaxUnfadeWholeClears, 0,
+                       "a caret move never clears the whole text's temporaries")
         XCTAssertEqual(layout.edits, 0, "a caret move makes no storage edit")
         XCTAssertEqual(layout.firstUnlaidCharacterIndex(), length, "and invalidates no layout")
         XCTAssertEqual(harness.scrollView.contentView.bounds.origin, origin, "and does not scroll")
     }
 
     /// Typing on the caret's line moves its syntax; the settle shows the
-    /// syntax where it now is and leaves nothing behind.
+    /// syntax where it now is and leaves nothing behind. The stale
+    /// temporaries are cleared over the whole text at most once per
+    /// character edit (whole-branch review M2).
     func test_typingOnTheCaretsLineIsShownWhereItLandsAtTheSettle() async throws {
         let text = "Opening prose.\n\n![Cash](figures/cash.csv){#tbl:cash}\n\nClosing prose."
         let (harness, _) = mount(text)
         harness.coordinator.restyleSettleDelayMs = 0
         harness.setCursor(to: (text as NSString).range(of: "Cash]").location + 4)
+        let clears = harness.coordinator.figureSyntaxUnfadeWholeClears
         await harness.typeString(" flows")
         await harness.coordinator.deferredRestyleTask?.value
+        let made = harness.coordinator.figureSyntaxUnfadeWholeClears - clears
+        XCTAssertGreaterThan(made, 0, "the edit's stale temporaries were cleared")
+        XCTAssertLessThanOrEqual(made, " flows".count, "at most once per character edit")
         let line = try XCTUnwrap(harness.coordinator.figureCaptionLine(
             at: (harness.currentText as NSString).range(of: "Cash flows").location))
         XCTAssertEqual(temporaryRuns(harness), merged(line.syntax), "exactly the line's syntax, where it is now")
@@ -266,6 +274,26 @@ final class CaptionBarTests: XCTestCase {
         XCTAssertEqual(overlay.lastCaptionTagCount, 0)
     }
 
+    /// An empty caption (`![](…)`, what Convert writes for an uncaptioned
+    /// table) draws its number as legibly as a captioned line's: in the
+    /// body's ink, never sampled off the faded `]` (whole-branch review M2).
+    func test_anEmptyCaptionsNumberIsAsLegibleAsACaptionedOne() throws {
+        let text = "![Cash](figures/cash.csv){#tbl:cash}\n\n![](figures/bare.csv){#tbl:bare}\n\nProse."
+        let (harness, _) = mount(text)
+        harness.setCursor(to: (text as NSString).length)   // neither line shown
+        harness.textView.textContainerInset = NSSize(width: 120, height: 24)
+        let overlay = try XCTUnwrap(harness.coordinator.referenceLabelOverlay)
+        overlay.frame = harness.textView.bounds
+        overlay.display()
+        XCTAssertEqual(overlay.lastCaptionTexts, ["Table 2.", "Table 3."])
+        let inks = overlay.lastMarginNumberInks
+        XCTAssertEqual(inks.count, 2)
+        XCTAssertEqual(inks.first, inks.last, "the bare line's number is drawn like the captioned one's")
+        let faded = colours(harness).faded
+        XCTAssertNotEqual(inks.last, faded.withAlphaComponent(faded.alphaComponent * 0.55),
+                          "not the faded syntax's colour")
+    }
+
     /// A margin too narrow for the number falls back to the tag above the
     /// line, shown for the caret or the pointer only.
     func test_aNarrowMarginFallsBackToTheTagForTheCaret() throws {
@@ -280,6 +308,32 @@ final class CaptionBarTests: XCTestCase {
         overlay.display()
         XCTAssertEqual(overlay.lastCaptionTagCount, 1)
         XCTAssertEqual(overlay.lastCaptionTexts, ["Figure 3."])
+    }
+
+    /// A caret move repaints the narrow-margin tags only when the caret
+    /// enters or leaves a figure line, never along one or across prose
+    /// (whole-branch review M2).
+    func test_aCaretMoveRepaintsOnlyWhenItChangesFigureLine() throws {
+        let text = "Prose first.\n\n![Map](map.png)\n\n![Cash](figures/cash.csv){#tbl:cash}\n\nProse last."
+        let ns = text as NSString
+        let (harness, _) = mount(text)
+        harness.textView.textContainerInset = NSSize(width: 0, height: 24)
+        let overlay = try XCTUnwrap(harness.coordinator.referenceLabelOverlay)
+        overlay.display()
+        XCTAssertEqual(overlay.lastMarginNumberCount, 0, "premise: the tags wait for the caret")
+        func requests(_ move: () -> Void) -> Int {
+            let before = overlay.repaintRequests
+            move()
+            return overlay.repaintRequests - before
+        }
+        XCTAssertEqual(requests { harness.setCursor(to: 3) }, 0, "across prose")
+        XCTAssertEqual(requests { harness.setCursor(to: ns.range(of: "Map]").location) }, 1, "onto a line")
+        XCTAssertEqual(requests { harness.setCursor(to: ns.range(of: "Map]").location + 2) }, 0,
+                       "along the line")
+        XCTAssertEqual(requests { harness.setCursor(to: ns.range(of: "Cash]").location) }, 1,
+                       "onto another line")
+        XCTAssertEqual(requests { harness.setCursor(to: ns.range(of: "last").location) }, 1, "off it")
+        XCTAssertEqual(requests { harness.setCursor(to: ns.length) }, 0, "across prose again")
     }
 
     /// Before the index has read this document, no number is guessed.

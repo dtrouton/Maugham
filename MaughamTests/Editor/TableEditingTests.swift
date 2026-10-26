@@ -23,6 +23,8 @@ final class TableEditingTests: XCTestCase {
         init(_ text: String) { self.text = text }
     }
 
+    /// Main-actor: its computed views read the text view.
+    @MainActor
     struct Mounted {
         let box: Box
         let window: KeyTestWindow

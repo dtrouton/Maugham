@@ -523,6 +523,7 @@ extension EditorCoordinator {
             // An edit may have carried the temporaries anywhere in its text.
             if !unfadedFigureSyntax.isEmpty {
                 layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: full)
+                figureSyntaxUnfadeWholeClears += 1
             }
         } else {
             for range in unfadedFigureSyntax {

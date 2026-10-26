@@ -82,6 +82,46 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(cache.status(forLinePath: "../research/p.png", documentPath: "manuscript/a.md"), .outsideFigures)
     }
 
+    // MARK: - A departed figure brought back (whole-branch review I2)
+
+    /// **A figure a fill saw leave comes back at once on `readopt`**, its
+    /// last card and record, with a version bump — what a redo asks before
+    /// the store's restore lands, so the redone line never shows "Figure
+    /// removed". The next fill replaces it with what the registry holds; a
+    /// figure never seen leaving, or one still registered, is left alone.
+    func test_readoptBringsADepartedCardBackUntilTheNextFill() async {
+        let cash = record("fig-0a1b2c3d", "cash")
+        let fake = FakeSource(inputs([(cash, table([1]))]))
+        let cache = FigureCardCache()
+        cache.attach(fake.source)
+        await cache.idle()
+        let card = cache.model(forFigureId: cash.id)
+        XCTAssertNotNil(card)
+        cache.readopt(figureId: cash.id)
+        XCTAssertEqual(cache.version, 1, "still registered: nothing to bring back")
+
+        fake.inputs = inputs([])
+        cache.invalidate()
+        await cache.idle()
+        XCTAssertEqual(cache.model(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"),
+                       .placeholder(.removed), "premise: the fill saw it leave")
+        let left = cache.version
+
+        cache.readopt(figureId: "fig-9z9z9z9z")
+        XCTAssertEqual(cache.version, left, "a figure never seen leaving is not invented")
+        cache.readopt(figureId: cash.id)
+        XCTAssertEqual(cache.version, left + 1, "the line's room is asked again")
+        XCTAssertEqual(cache.model(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"), card,
+                       "synchronously: its card, not Figure removed")
+        XCTAssertEqual(cache.status(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"),
+                       .figure(cash), "and no not-found diagnostic")
+
+        cache.invalidate()   // the restore was refused: the registry still lacks it
+        await cache.idle()
+        XCTAssertEqual(cache.model(forLinePath: "../figures/cash.csv", documentPath: "manuscript/a.md"),
+                       .placeholder(.removed), "the next fill says what the registry holds")
+    }
+
     // MARK: - Coalescing
 
     /// **Several triggers in one turn make one fill and one version bump**,

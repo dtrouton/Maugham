@@ -90,6 +90,26 @@ enum ReportInsert {
                                length: selectionInBlock.length))
     }
 
+    /// `block` in place of the whole lines `range` (Convert to Table Figure: a
+    /// pipe table's rows and `Table:` line), standing as a block of its own —
+    /// the figure-line grammar reads a figure only from a one-line paragraph.
+    /// A line break goes before `block` when the line above `range` is not
+    /// blank, and after it when the line below is not, so text that touched
+    /// the replaced lines (prose right under a table, which the table did not
+    /// claim) stays out of `block`'s paragraph (whole-branch review I1). The
+    /// selection is a caret right after `block`.
+    static func blockReplacement(of range: NSRange, in text: String, with block: String) -> Edit {
+        let ns = text as NSString
+        let before = isBlankLine(endingBefore: range.location, in: ns) ? "" : "\n"
+        let end = NSMaxRange(range)
+        let below = end < ns.length
+            ? NSMaxRange(ns.lineRange(for: NSRange(location: end, length: 0))) : ns.length
+        let after = isBlankLine(startingAt: below, in: ns) ? "" : "\n"
+        let caret = range.location + (before as NSString).length + (block as NSString).length
+        return Edit(replacedRange: range, replacement: before + block + after,
+                    selection: NSRange(location: caret, length: 0))
+    }
+
     // MARK: - R-3a-6 Insert Footnote
 
     /// `[^n]` at `caret`, and a `[^n]: ` definition paragraph after

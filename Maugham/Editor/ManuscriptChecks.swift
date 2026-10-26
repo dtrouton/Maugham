@@ -483,8 +483,8 @@ extension EditorCoordinator {
     /// Display-only: layout-manager temporaries on `.underlineStyle` and
     /// `.underlineColor` alone, cleared first. Nothing else sets those
     /// temporaries, so a whole-range removal is exact; it never touches
-    /// `.foregroundColor`, which the translation dimming owns, nor the text or
-    /// the paint inputs.
+    /// `.foregroundColor` — whose temporaries the translation dimming and the
+    /// caption bar's un-fade share — nor the text or the paint inputs.
     func refreshProblemMarks() {
         guard let textView, let layoutManager = textView.layoutManager,
               let storage = textView.textStorage else { return }

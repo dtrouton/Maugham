@@ -33,6 +33,13 @@ import MaughamCore
 /// fill always bumps, even with nothing in it: lines that named no figure
 /// stop being cache misses then.
 ///
+/// **A figure brought back** (`readopt(figureId:)`, whole-branch review I2): a
+/// fill that sees a figure leave the registry keeps its record and card among
+/// the last few departed, in memory. A redo that brings the figure back
+/// (`FigureBirthUndo`) writes its line before the store's restore lands, so it
+/// asks for the departed card back at once — the line shows its table, not
+/// "Figure removed", until the next fill says what the registry holds.
+///
 /// **Closing.** `attach(nil)` (the host's teardown) drops every card and
 /// bumps the generation, so a fill still in flight lands nowhere.
 @MainActor
@@ -61,6 +68,10 @@ final class FigureCardCache {
     private var records: [FigureRecord] = []
     /// `records` keyed for line lookups, built once per fill.
     private var index = FigureLineResolution.Index([])
+    /// The figures fills saw leave the registry, most recent last, with the
+    /// card each had (`readopt(figureId:)`); at most `departedLimit`.
+    private var departed: [(record: FigureRecord, model: FigureCardModel?)] = []
+    static let departedLimit = 8
     private var hasFilled = false
     private var dirty = false
     private var filling: Task<Void, Never>?
@@ -83,6 +94,7 @@ final class FigureCardCache {
         dirty = false
         models.removeAll()
         records.removeAll()
+        departed.removeAll()
         index = FigureLineResolution.Index([])
         hasFilled = false
         guard source != nil else { return }
@@ -134,8 +146,30 @@ final class FigureCardCache {
         return FigureLineResolution.status(linePath: linePath, documentPath: documentPath, index: index)
     }
 
-    /// Returns once no fill is pending or running, an abandoned one included
-    /// (tests; a host never waits).
+    /// **A departed figure is coming back** (a redo restoring it from the
+    /// Trash, `FigureBirthUndo`): its last record and card return to the
+    /// lookups now, synchronously, and the version bumps, so the line the redo
+    /// just wrote resolves to its table instead of "Figure removed". The next
+    /// fill — the restore changes the registry — replaces this with what the
+    /// registry holds (a refused restore then shows what the line really
+    /// names). Memory only; nothing when the figure is registered, never
+    /// departed, or no fill has run.
+    func readopt(figureId: String) {
+        guard hasFilled, !records.contains(where: { $0.id == figureId }),
+              let at = departed.lastIndex(where: { $0.record.id == figureId }) else { return }
+        let back = departed.remove(at: at)
+        records.append(back.record)
+        models[figureId] = back.model
+        index = FigureLineResolution.Index(records)
+        version += 1
+        onVersionChange?(version)
+    }
+
+    /// Returns once no fill is pending or running, an abandoned one included.
+    /// Tests wait on it, and so does a command that has just made a figure
+    /// before it writes the figure's line (`DocumentStore.settleFigureCards`,
+    /// whole-branch review I2) — off the typing path; nothing per keystroke
+    /// waits.
     func idle() async {
         await abandoned?.value
         while let task = filling { await task.value }
@@ -170,6 +204,13 @@ final class FigureCardCache {
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let moved = next != models || after != before
         let first = !hasFilled
+        for record in records where after[record.id] == nil {
+            departed.append((record, models[record.id]))
+        }
+        departed.removeAll { after[$0.record.id] != nil }
+        if departed.count > Self.departedLimit {
+            departed.removeFirst(departed.count - Self.departedLimit)
+        }
         models = next
         records = inputs.records
         index = FigureLineResolution.Index(inputs.records)

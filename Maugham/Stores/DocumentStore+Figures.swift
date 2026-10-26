@@ -161,6 +161,25 @@ extension DocumentStore {
         for cache in figureCardCaches.allObjects { cache.invalidate() }
     }
 
+    /// **Every attached window's figure cards know the registry as it is
+    /// now**: each refills, and this returns once every fill has landed. A
+    /// command that has just made a figure awaits it before writing the
+    /// figure's line (`FigureIngest.makeTableFigure`), so the line never draws
+    /// "Figure removed" while the cards catch up (whole-branch review I2).
+    /// Off the typing path: a command, never a keystroke.
+    func settleFigureCards() async {
+        let caches = figureCardCaches.allObjects
+        for cache in caches { cache.invalidate() }
+        for cache in caches { await cache.idle() }
+    }
+
+    /// A figure a redo is bringing back from the Trash shows its last card in
+    /// every attached window now, before the restore lands
+    /// (`FigureCardCache.readopt(figureId:)`, whole-branch review I2).
+    func readoptFigureCard(figureId: String) {
+        for cache in figureCardCaches.allObjects { cache.readopt(figureId: figureId) }
+    }
+
     /// The open figure for `figureId`, if this window holds one.
     func openFigure(forId figureId: String) -> FigureDocument? {
         openFigures[figureId].flatMap { $0.isClosed ? nil : $0 }

@@ -430,6 +430,9 @@ enum FigureIngest {
         let record = try await store.createFigure(
             kind: .table, name: request.name, piece: documentId,
             table: table, avoiding: request.taken)
+        // The cards learn the figure before its line is written, so the line
+        // never shows "Figure removed" while they catch up (whole-branch I2).
+        await store.documentStore?.settleFigureCards()
         return TableFigureBirth(
             figureId: record.id,
             linePath: relativePath(fromDocument: documentPath, toResearch: record.path),

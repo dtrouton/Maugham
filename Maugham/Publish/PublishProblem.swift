@@ -47,7 +47,8 @@ public struct PublishProblem: Sendable, Hashable {
         /// line's path, as written, so the line shows neither.
         case figureAmbiguous(String)
         /// The editor's only (R7b-3): a table figure's line labelled `fig:`.
-        /// Publish keeps numbering it as a figure until plan 9.
+        /// Publish numbers it as a figure and reads it through the image
+        /// door, which refuses a `.csv`, so a Report will not publish it.
         case tableFigureLabelledFig(ManuscriptLabel)
     }
 
@@ -98,9 +99,19 @@ public struct PublishProblem: Sendable, Hashable {
         case .unusedFootnoteDefinition, .duplicateFootnoteDefinition,
              .labelOnWrongElement, .malformedLabel:
             return false
-        // The editor's figure-line warnings: Publish refuses on none of them
-        // (a table figure ships its literal source, an image its file).
-        case .figureNotFound, .figureAmbiguous, .tableFigureLabelledFig:
+        // The editor's figure-line checks (report plan 7b) take the colour of
+        // what Publish would do with the line. A table figure ships its
+        // literal source, judged by the lexical path rule only, so a `.csv`
+        // naming no figure, or naming two, still publishes; an image naming
+        // two figures still has its file. But a figure line labelled `fig:`
+        // goes through the image door, which refuses a `.csv`
+        // (`.imageUnreadable`); and an image path naming no figure has lost
+        // its file with the figure (whole-branch review I3, M3).
+        case .figureNotFound(let path):
+            return !ManuscriptLabel.Kind.isTableFigurePath(path)
+        case .tableFigureLabelledFig:
+            return true
+        case .figureAmbiguous:
             return false
         }
     }
@@ -144,8 +155,8 @@ public struct PublishProblem: Sendable, Hashable {
         case .figureAmbiguous(let path):
             return "More than one figure is at \(path), so this line shows neither; rename one."
         case .tableFigureLabelledFig(let label):
-            return "This table figure is labelled \(label.reference), so it is numbered as a figure; "
-                + "write {#tbl:\(label.name)} to number it as a table."
+            return "This table figure is labelled \(label.reference), so it is numbered as a figure "
+                + "and a Report won’t publish it; write {#tbl:\(label.name)} to number it as a table."
         }
     }
 

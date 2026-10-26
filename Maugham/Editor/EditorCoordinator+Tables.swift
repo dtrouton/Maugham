@@ -487,12 +487,12 @@ extension EditorCoordinator {
             let line = FigureIngest.figureLine(
                 path: birth.linePath, kind: .tbl, name: keptLabel?.name ?? birth.name,
                 caption: at.table.caption ?? "")
-            let caret = NSRange(location: range.location + (line as NSString).length, length: 0)
+            // The line stands as its own paragraph, whatever touched the table.
+            let edit = ReportInsert.blockReplacement(of: range, in: textView.string, with: line)
             let writerMoved = textView.selectedRange() != writersSelection
             self.tableTidy.isApplying = true
             let applied = self.applyCommandEdit(
-                replacing: range, with: line, selecting: caret,
-                actionName: Self.convertTableActionName,
+                edit, actionName: Self.convertTableActionName,
                 landing: .deferred(writerMoved: writerMoved),
                 alongside: self.figureBirthUndo(figureId: birth.figureId,
                                                 actionName: Self.convertTableActionName,
