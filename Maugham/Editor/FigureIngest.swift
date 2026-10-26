@@ -109,21 +109,24 @@ enum FigureIngest {
         return ManuscriptLabel(reference: "fig:\(name)")!
     }
 
-    /// The `fig:` names taken: those the project's other documents define
-    /// (`elsewhere`, the host's `projectLabelsElsewhere`), and those this text
-    /// defines or refers to with `@fig:`.
-    static func existingFigureNames(in text: String, elsewhere: Set<ManuscriptLabel>) -> Set<String> {
-        var names = Set(elsewhere.filter { $0.kind == .fig }.map(\.name))
-        names.formUnion(ReportInsert.definedLabels(in: text).filter { $0.kind == .fig }.map(\.name))
+    /// The names of `kind` taken (`fig:` for a picture, `tbl:` for Insert ▸
+    /// Table): those the project's other documents define (`elsewhere`, the
+    /// host's `projectLabelsElsewhere`), and those this text defines or refers
+    /// to with `@kind:`.
+    static func existingFigureNames(in text: String, elsewhere: Set<ManuscriptLabel>,
+                                    kind: ManuscriptLabel.Kind = .fig) -> Set<String> {
+        var names = Set(elsewhere.filter { $0.kind == kind }.map(\.name))
+        names.formUnion(ReportInsert.definedLabels(in: text).filter { $0.kind == kind }.map(\.name))
         for (marker, _) in ManuscriptInlineScanner.scan(text) {
-            if case .crossRef(let label) = marker, label.kind == .fig { names.insert(label.name) }
+            if case .crossRef(let label) = marker, label.kind == kind { names.insert(label.name) }
         }
         return names
     }
 
-    /// `![Caption](path){#fig:name}` (spec §3.1).
-    static func figureLine(path: String, label: ManuscriptLabel) -> String {
-        "![\(captionPlaceholder)](\(path)){#\(label.reference)}"
+    /// `![Caption](path){#kind:name}` (spec §3.1): `fig:` for a picture,
+    /// `tbl:` for a table figure (Insert ▸ Table always labels its line, R7b-9).
+    static func figureLine(path: String, kind: ManuscriptLabel.Kind, name: String) -> String {
+        "![\(captionPlaceholder)](\(path)){#\(kind.rawValue):\(name)}"
     }
 
     /// Where `Caption` sits in a `figureLine`.
@@ -349,6 +352,61 @@ enum FigureIngest {
         let record = try await store.createImageFigure(
             fromURL: url, piece: documentId, avoiding: taken)
         return relativePath(fromDocument: documentPath, toResearch: record.path)
+    }
+
+    // MARK: - Insert ▸ Table (report plan 7b Task 4)
+
+    /// The name Insert ▸ Table gives its figure (`table`, `table_2`, … as the
+    /// store steps it), which is also its line's label, `tbl:<name>` (R7b-9).
+    static let tableFigureName = "table"
+
+    /// **A table figure Insert ▸ Table made**: its id, the path its line
+    /// writes (relative to the document), its name (the label's), and the
+    /// store that holds it — for the one ⌘Z that sends it to the Trash with
+    /// its line (`FigureBirthUndo`), or the Trash when the line can't be
+    /// written (R7b-6).
+    struct TableFigureBirth {
+        let figureId: String
+        let linePath: String
+        let name: String
+        let store: ProjectStore
+    }
+
+    /// **What the editor asks for a table figure**: the `tbl:` names the text
+    /// already uses (`existingFigureNames(kind: .tbl)`), read when the
+    /// command begins; it answers the figure it made.
+    typealias TableFigureMaker = @MainActor (Set<String>) async throws -> TableFigureBirth
+
+    /// The table Insert ▸ Table opens with: three rows by three columns, the
+    /// first a header row, every cell empty (spec §6.4).
+    static func insertedTable() -> FigureTable {
+        var table = FigureTable(rows: 3, columns: 3)
+        table.headerRows = 1
+        return table
+    }
+
+    /// Makes Insert ▸ Table's figure in the document's piece (`documentId`,
+    /// as `importImage`), named `tableFigureName` stepped clear of the
+    /// registry and of `taken`, so its label is its name.
+    /// `ProjectStore.createFigure` asks the new figure's posture (`.editFigure`)
+    /// before it writes anything.
+    @MainActor
+    static func makeTableFigure(documentId: String, documentPath: String,
+                                taken: Set<String>, store: ProjectStore) async throws -> TableFigureBirth {
+        let record = try await store.createFigure(
+            kind: .table, name: tableFigureName, piece: documentId,
+            table: insertedTable(), avoiding: taken)
+        return TableFigureBirth(
+            figureId: record.id,
+            linePath: relativePath(fromDocument: documentPath, toResearch: record.path),
+            name: record.name, store: store)
+    }
+
+    /// What the writer is told when the table figure could not be made.
+    static func tableFigureFailureMessage(for error: Error) -> String {
+        error is FigureEditRefused
+            ? "This Mac may not make a figure here, so no table was inserted."
+            : "The table figure couldn’t be made, so no table was inserted."
     }
 
     /// Writes pasted image data as a PNG the importer can copy, named for the

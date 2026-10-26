@@ -16,11 +16,11 @@ Every source file in `Maugham/Editor/` appears once.
 - `FigureBirthUndo.swift` — one ⌘Z for a figure line and the figure its command made (`applyCommandEdit`'s `alongside:`): undo sends the figure to the Trash, redo restores the same id, each re-registering the other.
 - `EditorCoordinator+Tables.swift` — pipe tables: Tab and Shift-Tab move by cell, Return adds a row, the table tidies itself, and Edit Table… opens the grid editor (`tableEditor`) and saves it.
 - `EditorCoordinator+Completion.swift` — the completion list's trigger, keys, accept and close paths; `CompletionListView.swift` — the list (a plain `NSView`), `CompletionSource` and the placement maths. Tripwire 5.
-- `ReportInsert.swift` — the pure text Insert Table and Insert Footnote write, and where.
+- `ReportInsert.swift` — the pure text Insert Footnote writes, and where a figure line goes (`blockEdit`).
 - `CitationCompletion.swift` — the citation picker, a `CompletionSource` over the index's sources (`[@`, `;`), and the matching rules the pickers share.
 - `CrossReferenceCompletion.swift` — the cross-reference picker over the index's targets (`@` and a letter at a word start).
 - `ReferenceIndex.swift` — the project's citation sources and cross-reference targets with the editor's numbers: a pure value built over publishing's pieces; `Maugham/Views/ReferenceIndexHost.swift` caches it.
-- `FigureIngest.swift` + `EditorCoordinator+Figure.swift` — image figures: Insert Figure…, an image drop and an image paste make an image figure in `figures/` (`figureImporter`, `ProjectStore.createImageFigure`) and write the figure line through Route A.
+- `FigureIngest.swift` + `EditorCoordinator+Figure.swift` — figures a command makes: Insert Figure…, an image drop and an image paste make an image figure in `figures/` (`figureImporter`, `ProjectStore.createImageFigure`), Insert ▸ Table a 3×3 table figure (`tableFigureMaker`, `insertTableFigure`); each writes its line through Route A.
 - `FigureThumbnailOverlay.swift` — the thumbnail drawn under each figure line of a manuscript: the layout maths, the decoded-thumbnail store and cache, and the click-through overlay (which draws table cards too). Tripwires 1, 4.
 - `FigureCardDrawing.swift` — the read-only card under a table figure's line: a pure drawing plan and its painting. Tripwires 1, 4.
 - `ReferenceLabelOverlay.swift` — the faint resolved label beneath each marker (a tag on caret or hover when there is no room): the placement maths and the overlay. Tripwires 1, 4.
@@ -149,6 +149,7 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 - **Nothing places an offset against `lastTokens` between a character edit and its retokenize**: AppKit posts a selection change inside `replaceCharacters`. `tokensDescribeAnEarlierText` marks the gap, the table anchors ride every storage edit (`TableTidyState.noteEdit`), and `textDidChange` re-reads the caret's table once the tokens are fresh (`TableEditingTests`).
 - **Insert commands go to the focused editor**: with another text input focused (a statement, a research note, a field), the manuscript ignores them (`insertCommandContext`, `InsertCommandTests`).
 - **A mixed drop (pictures and other files) and a paste carrying text keep today's behaviour on purpose**: a picture beside text is the text's rendering (Word, Pages), and half a drag is no answer (`FigureIngest.dropDecision`, `carriesText`).
+- **A figure a command made whose line cannot be written goes to the Trash, and the writer is told** (Insert ▸ Table, R7b-6; `InsertCommandTests`).
 - **The Figure… panel runs from the coordinator**, an exception to the window-command recipe: its result must land at this editor's remembered caret.
 - **A figure drop or paste never reaches `super`** (`MaughamTextView.performDragOperation`, `paste`): `super` would write the file's path or a `U+FFFC` into the op log. The membrane is asked before anything is copied; the line lands after the async copy at the point carried through any typing (`FigureIngest.Anchor`), never in a document the editor has left (`FigureCommandTests`).
 - **Only `EditorHost` sets `answersInsertCommands`**: a research note answers window commands and shares `ProseMode`, so without it the note takes a table (`InsertCommandTests`). The menu's enabled state is `InsertMenuGate` (`Maugham/Views/EditorControlMirror.swift`).

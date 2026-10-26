@@ -49,10 +49,16 @@ extension ProjectStore {
     ///    content floor to 10 for a manifest with figures).
     /// 6. A table's `figures/<name>.csv` is rendered where a window holds the
     ///    book (`DocumentStore.renderFigures`).
+    ///
+    /// `avoiding` steps the name around names the caller knows are taken
+    /// elsewhere, compared case-insensitively — Insert ▸ Table's `tbl:` names
+    /// the text already uses, so the line's label can be the figure's name
+    /// (report plan 7b, R7b-9).
     @discardableResult
     public func createFigure(
         kind: FigureKind, name: String, piece: String?,
-        rows: Int = 3, columns: Int = 3, table: FigureTable? = nil
+        rows: Int = 3, columns: Int = 3, table: FigureTable? = nil,
+        avoiding taken: Set<String> = []
     ) async throws -> FigureRecord {
         guard FigureKind.known.contains(kind) else {
             throw FigureEditInvalid(reason: "this build cannot make a figure of kind \(kind.rawValue)")
@@ -63,7 +69,7 @@ extension ProjectStore {
         return try await createFigureStream(
             kind: kind,
             table: kind == .table ? (table ?? FigureTable(rows: rows, columns: columns)) : nil,
-            name: name, piece: piece, source: nil, site: "createFigure")
+            name: name, piece: piece, source: nil, site: "createFigure", avoiding: taken)
     }
 
     /// **What `createFigure` and a Research table's *Use in document* share**:
@@ -74,7 +80,7 @@ extension ProjectStore {
     /// Internal for `ProjectStore+FigureResearch` (*Use in document*).
     func createFigureStream(
         kind: FigureKind, table: FigureTable?, name: String, piece: String?,
-        source: FigureSource?, site: StaticString
+        source: FigureSource?, site: StaticString, avoiding taken: Set<String> = []
     ) async throws -> FigureRecord {
         // A structural verb: it awaits (the door, the appends) before it
         // writes the manifest, so a manifest arriving meanwhile is held and
@@ -102,7 +108,10 @@ extension ProjectStore {
 
         // Named against the registry as it stands NOW, after the appends'
         // awaits, so two creations racing cannot take one name.
-        let vacant = vacantFigureName(basedOn: name, kind: kind)
+        let takenLower = Set(taken.map { $0.lowercased() })
+        let vacant = vacantFigureName(basedOn: name, kind: kind) {
+            takenLower.contains($0.lowercased())
+        }
         let placed = FigureRecord(
             id: figureId, name: vacant, kind: kind, piece: piece,
             path: Self.figurePath(name: vacant, kind: kind))

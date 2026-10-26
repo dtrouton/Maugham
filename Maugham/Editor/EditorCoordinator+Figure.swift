@@ -71,16 +71,13 @@ extension EditorCoordinator {
                     self?.commandFailureReporter?(ImagePasteHandler.failureMessage(for: error))
                     return
                 }
-                guard let self, !self.isDetached, self.textView === textView else { return }
-                var waits = 0
-                while textView.hasMarkedText() {
-                    guard waits < self.figureCompositionWaitLimit else {
-                        self.commandFailureReporter?(Self.compositionFailureMessage)
-                        return
-                    }
-                    waits += 1
-                    await self.figureCompositionWait()
-                    guard !self.isDetached, self.textView === textView else { return }
+                guard let self else { return }
+                switch await self.waitOutComposition(in: textView) {
+                case .ready: break
+                case .gone: return
+                case .gaveUp:
+                    self.commandFailureReporter?(Self.compositionFailureMessage)
+                    return
                 }
                 let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
                 let writerMoved = tracker.anchor.edited
@@ -113,7 +110,7 @@ extension EditorCoordinator {
         let names = FigureIngest.existingFigureNames(
             in: text, elsewhere: projectLabelsElsewhere?() ?? [])
         let line = FigureIngest.figureLine(
-            path: path, label: FigureIngest.figureLabel(stem: stem, existing: names))
+            path: path, kind: .fig, name: FigureIngest.figureLabel(stem: stem, existing: names).name)
         let blocks = tableBlockRange(containing: location)
             .map { [$0] } ?? []
         let edit = FigureIngest.figureEdit(in: text, at: location, tableBlocks: blocks, line: line)
@@ -121,6 +118,33 @@ extension EditorCoordinator {
                                landing: .deferred(writerMoved: writerMoved)) else { return nil }
         return edit.selection.location - FigureIngest.captionRange.location
             + (line as NSString).length
+    }
+
+    /// Where a line that lands after its event stands once any composition
+    /// is out of the way (`waitOutComposition`).
+    enum CompositionWait: Equatable {
+        /// Still this editor's document, nothing composing: write now.
+        case ready
+        /// The editor left the document (detached, or another text view).
+        case gone
+        /// An input method composed through every wait.
+        case gaveUp
+    }
+
+    /// Waits while an input method is composing in `textView`
+    /// (`figureCompositionWait`, at most `figureCompositionWaitLimit` times):
+    /// committing or moving the selection would break the composition. Image
+    /// ingest and Insert ▸ Table share it.
+    func waitOutComposition(in textView: NSTextView) async -> CompositionWait {
+        guard !isDetached, self.textView === textView else { return .gone }
+        var waits = 0
+        while textView.hasMarkedText() {
+            guard waits < figureCompositionWaitLimit else { return .gaveUp }
+            waits += 1
+            await figureCompositionWait()
+            guard !isDetached, self.textView === textView else { return .gone }
+        }
+        return .ready
     }
 
     /// What the writer is told when a composition outlasted every wait.

@@ -420,6 +420,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// surface, which is what keeps their drop and paste unchanged.
     var figureImporter: FigureIngest.Importer?
 
+    /// Makes Insert ▸ Table's figure in this document's piece and answers it
+    /// (report plan 7b Task 4, `FigureIngest.makeTableFigure`). Built by
+    /// `EditorHost`; nil on every other surface, where ⌘⇧T does nothing.
+    var tableFigureMaker: FigureIngest.TableFigureMaker?
+
     /// Where a command that could not finish is told — a figure that could
     /// not be made, a table grid save refused — the host's notice banner, the
     /// channel the editor's other failures use.
@@ -436,6 +441,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The most recent figure ingest, so a caller (a test) can await it
     /// instead of polling.
     var figureIngestTask: Task<Void, Never>?
+    /// The most recent Insert ▸ Table, so a caller (a test) can await it
+    /// instead of polling.
+    var tableFigureTask: Task<Void, Never>?
     /// The most recent figure-birth undo or redo's store verb
     /// (`figureBirthUndo`), so a caller (a test) can await it.
     var figureBirthUndoTask: Task<Void, Never>?
@@ -800,7 +808,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             .maughamInsertTable,
             context: { [weak self] in self?.insertCommandContext() }
         ) { [weak self] _ in
-            self?.insertTable()
+            self?.insertTableFigure()
         }
         insertFootnoteObserver = MaughamEvent.observe(
             .maughamInsertFootnote,

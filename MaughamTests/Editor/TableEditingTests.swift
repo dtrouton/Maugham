@@ -128,6 +128,15 @@ final class TableEditingTests: XCTestCase {
                         file: file, line: line)
     }
 
+    /// A tidy three-column table with one empty body row and a caption, the
+    /// shape the old pipe Insert Table wrote (R7b-7 retired it).
+    static let freshTable = """
+        | Column 1 | Column 2 | Column 3 |
+        | -------- | -------- | -------- |
+        |          |          |          |
+        Table: Caption {#tbl:table-1}
+        """
+
     static let tidy = """
         | A   | B   |
         | --- | --- |
@@ -156,13 +165,13 @@ final class TableEditingTests: XCTestCase {
     }
 
     func test_tabIntoAnEmptyCellPutsTheCaretAtItsText() throws {
-        let m = try mount(ReportInsert.table(nextLabelNumber: 1))
+        let m = try mount(Self.freshTable)
         caret(m, before: "Column 3")
         tab(m, edits: false)
         let row = (m.string as NSString).range(of: "|          |").location
         XCTAssertEqual(m.textView.selectedRange(), NSRange(location: row + 2, length: 0))
-        XCTAssertEqual(m.string, ReportInsert.table(nextLabelNumber: 1),
-                       "a freshly inserted table is already tidy — Tab must not re-align it")
+        XCTAssertEqual(m.string, Self.freshTable,
+                       "a table already tidy — Tab must not re-align it")
         XCTAssertFalse(m.undo.canUndo)
     }
 
@@ -271,7 +280,7 @@ final class TableEditingTests: XCTestCase {
     }
 
     func test_returnOnTheOnlyEmptyRowKeepsItAndLeaves() throws {
-        let table = ReportInsert.table(nextLabelNumber: 1)
+        let table = Self.freshTable
         let m = try mount(table)
         caret(m, at: (table as NSString).range(of: "|          |").location + 2)
         newline(m)
@@ -517,20 +526,6 @@ final class TableEditingTests: XCTestCase {
     }
 
     // MARK: - Leaving one table for another (whole-branch review M3)
-
-    func test_insertingATableFromInsideAnUntidyOneTidiesTheOneLeft() throws {
-        let untidy = "|A|B|\n|-|-|\n|c|d|"
-        let m = try mount(untidy)
-        caret(m, before: "c")
-        asOneEvent(m) { m.coordinator.insertTable() }
-        XCTAssertTrue(m.string.hasPrefix(untidy + "\n\n"), "the new table lands after: \(m.string)")
-        assertInATable(m)
-        XCTAssertTrue(m.coordinator.hasPendingTableTidy, "leaving for the new table scheduled nothing")
-        runTheTidy(m)
-        XCTAssertTrue(m.string.hasPrefix(Self.tidy + "\n\n"), m.string)
-        assertInATable(m)
-        XCTAssertNotNil(m.coordinator.tableTidy.anchor, "the new table is no longer remembered")
-    }
 
     func test_movingStraightIntoAnotherTableTidiesTheOneLeft() throws {
         let m = try mount("|A|B|\n|-|-|\n|c|d|\n\n|E|F|\n|-|-|\n|g|h|")

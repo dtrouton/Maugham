@@ -12539,11 +12539,12 @@ final class TripwireGrepTests: XCTestCase {
     ///   (`.editFigure` of the class the new figure will have,
     ///   `requireNewFigurePermitted`) before it mints a line, and throws
     ///   `FigureEditRefused`.
-    /// - `FigureIngest.swift` × 1 — `importImage`'s `createImageFigure(`, the
+    /// - `FigureIngest.swift` × 2 — `importImage`'s `createImageFigure(`, the
     ///   editor's Insert Figure…, image drop and image paste (report plan 6a
-    ///   Task 9): reached only once the editor's membrane allows writing, and
-    ///   `createImageFigure` asks the figure's own posture before it copies
-    ///   or mints anything.
+    ///   Task 9), and `makeTableFigure`'s `createFigure(`, Insert ▸ Table
+    ///   (report plan 7b Task 4): each reached only once the editor's membrane
+    ///   allows writing, and the store asks the new figure's own posture
+    ///   (`.editFigure`) before it copies or mints anything.
     /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already
     ///   built (and judged) by one of the above, never a new figure write.
     /// - `FigureReturnDiff.swift` × 1 — Core's simulated fold: each change the
@@ -12552,10 +12553,10 @@ final class TripwireGrepTests: XCTestCase {
     ///   `Simulation` also folds `FigureRestoreDiff`'s changes (report plan
     ///   6c Task 1), which mints no op of its own.
     ///
-    /// `createFigure(`, `useInDocument(` (report plan 6b Task 6, a figure
-    /// made from a Research item behind the same door) and `sendToResearch(`
-    /// (Task 7) have no production caller yet: plans 7–8's surfaces add theirs here, each drawn and
-    /// pressed only where the posture allows `.editFigure`.
+    /// `useInDocument(` (report plan 6b Task 6, a figure made from a Research
+    /// item behind the same door) and `sendToResearch(` (Task 7) have no
+    /// production caller yet: plans 7–8's surfaces add theirs here, each drawn
+    /// and pressed only where the posture allows `.editFigure`.
     ///
     /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
     /// file that swapped one writer for another — a Replace that began
@@ -12610,7 +12611,7 @@ final class TripwireGrepTests: XCTestCase {
             "createImageFigure(": 1, "parkInResearch(": 1, "resumeFromResearch(": 1, "bringBack(": 1,
             figureOpMintSpelling: 1,
         ],
-        "FigureIngest.swift": ["createImageFigure(": 1],
+        "FigureIngest.swift": ["createImageFigure(": 1, "createFigure(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
         // state, through an op it never appends; what it yields is appended

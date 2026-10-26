@@ -1,9 +1,9 @@
 import Foundation
 import MaughamCore
 
-/// **What the Insert menu writes, and where** (plan 3a Task 4, R-3a-5 and
-/// R-3a-6). Pure text, so every rule is pinned without a view
-/// (`ReportInsertTests`). The coordinator turns an `Edit` into one Route A
+/// **What the Insert menu writes, and where** (plan 3a Task 4, R-3a-6; a
+/// figure line's placement, `blockEdit`). Pure text, so every rule is pinned
+/// without a view (`ReportInsertTests`). The coordinator turns an `Edit` into one Route A
 /// replace (`EditorCoordinator.applyCommandEdit`), which is one ⌘Z step.
 ///
 /// A "paragraph" here is the op log's: a blank-line-delimited block, the way
@@ -18,44 +18,7 @@ enum ReportInsert {
         let selection: NSRange
     }
 
-    // MARK: - R-3a-5 Insert Table
-
-    /// The name of every table Insert Table labels is `table-N`.
-    static let tableLabelStem = "table-"
-
-    /// A 3-column table: a header row, its delimiter row, one empty body row,
-    /// and a `Table: Caption {#tbl:table-N}` line. It holds no blank line, so
-    /// it is one op-log paragraph. The columns are already padded to one
-    /// width, so the table is tidy as written.
-    static func table(nextLabelNumber: Int) -> String {
-        """
-        | Column 1 | Column 2 | Column 3 |
-        | -------- | -------- | -------- |
-        |          |          |          |
-        Table: Caption {#tbl:\(tableLabelStem)\(nextLabelNumber)}
-        """
-    }
-
-    /// The first header cell's text inside `table(nextLabelNumber:)`, which
-    /// Insert Table selects.
-    static let firstHeaderCell = NSRange(location: 2, length: ("Column 1" as NSString).length)
-
-    /// The lowest N ≥ 1 for which `tbl:table-N` is not used: not defined or
-    /// referenced in `text`, and not defined in `elsewhere` — the labels the
-    /// project's other manuscript documents define
-    /// (`EditorCoordinator.projectLabelsElsewhere`). A Report refuses a label
-    /// defined twice anywhere in the project.
-    static func nextTableLabelNumber(in text: String,
-                                     elsewhere: Set<ManuscriptLabel> = []) -> Int {
-        var used = Set(elsewhere.filter { $0.kind == .tbl }.map(\.name))
-        used.formUnion(definedLabels(in: text).filter { $0.kind == .tbl }.map(\.name))
-        for (marker, _) in ManuscriptInlineScanner.scan(text) {
-            if case .crossRef(let label) = marker, label.kind == .tbl { used.insert(label.name) }
-        }
-        var n = 1
-        while used.contains("\(tableLabelStem)\(n)") { n += 1 }
-        return n
-    }
+    // MARK: - Labels
 
     /// Every label `text` DEFINES: a heading's, a table caption's or a
     /// figure's trailing `{#kind:name}`.
@@ -77,24 +40,11 @@ enum ReportInsert {
             .labelsDefined(excluding: docId)
     }
 
-    /// Insert Table at `location`, as one edit. Mid-line, the table splits the
-    /// paragraph onto a block of its own; at a line's edge it adds only the
-    /// blank lines it needs before and after. Spaces and tabs touching the
-    /// caret on its line are absorbed. Asked for inside a table (any range of
-    /// `tableBlocks`, the tokenizer's `.tableBlock` ranges), it goes after that
-    /// table's paragraph rather than splitting it.
-    static func tableEdit(in text: String, at location: Int, tableBlocks: [NSRange],
-                          labelsElsewhere: Set<ManuscriptLabel> = []) -> Edit {
-        blockEdit(in: text, at: location, tableBlocks: tableBlocks,
-                  block: table(nextLabelNumber: nextTableLabelNumber(in: text,
-                                                                     elsewhere: labelsElsewhere)),
-                  selectionInBlock: firstHeaderCell)
-    }
-
     /// `block` (text with no blank line: one op-log paragraph) on a block of
     /// its own at `location`, `selectionInBlock` selected — the placement rule
-    /// Insert Table and Insert Figure (Task 6) share. Mid-line, it splits the
-    /// paragraph; at a line's edge it adds only the blank lines it needs.
+    /// every figure line takes (Insert Figure…, Insert ▸ Table). Mid-line, it
+    /// splits the paragraph; at a line's edge it adds only the blank lines it
+    /// needs.
     /// Spaces and tabs touching the caret on its line are absorbed. Inside a
     /// table (any range of `tableBlocks`) it goes after that table's paragraph.
     static func blockEdit(in text: String, at location: Int, tableBlocks: [NSRange],

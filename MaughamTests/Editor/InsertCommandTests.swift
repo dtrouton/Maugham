@@ -5,13 +5,16 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// The Insert menu end to end (plan 3a Task 4): the command posted as the menu
-/// posts it, answered by a mounted `EditorSurface` through Route A. Each insert
+/// The Insert menu end to end (plan 3a Task 4; Insert ▸ Table makes a table
+/// figure, report plan 7b Task 4): the command posted as the menu posts it,
+/// answered by a mounted `EditorSurface` through Route A. Each insert
 /// is one ⌘Z step that leaves the writer's earlier typing undoable; the
 /// membrane refuses it in a read-only posture, review mode and translation
 /// review; and a surface that is not a manuscript (a research note, a
-/// statement) never answers. No clicks, no waits after a post: delivery is
-/// synchronous on the main thread, so the test posts, then asserts.
+/// statement) never answers. No clicks, no polling after a post: delivery is
+/// synchronous on the main thread, so the test posts, then asserts — and
+/// Insert ▸ Table's figure, made in a task, is awaited through its handle
+/// (`tableFigureTask`).
 @MainActor
 final class InsertCommandTests: XCTestCase {
     override class func setUp() { FontWarmup.ensure() }
@@ -22,7 +25,20 @@ final class InsertCommandTests: XCTestCase {
     final class Box {
         var text: String
         var writes = 0
+        var reported: [String] = []
         init(_ text: String) { self.text = text }
+    }
+
+    private var temp: TempDirectory!
+    private var documentStores: [DocumentStore] = []
+
+    override func setUp() async throws { temp = TempDirectory() }
+
+    override func tearDown() async throws {
+        for ds in documentStores { await ds.close() }
+        documentStores.removeAll()
+        temp.cleanup()
+        temp = nil
     }
 
     struct Mounted {
@@ -37,7 +53,8 @@ final class InsertCommandTests: XCTestCase {
     /// `EditorHost` says for a Markdown manuscript; the default (false) is what
     /// `ResearchNoteEditor` and `StatementEditorHost` build.
     private func mount(_ text: String, answersInsertCommands: Bool = true,
-                       labelsElsewhere: (() -> Set<ManuscriptLabel>)? = nil) throws -> Mounted {
+                       labelsElsewhere: (() -> Set<ManuscriptLabel>)? = nil,
+                       tableFigureMaker: FigureIngest.TableFigureMaker? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text },
                               set: { box.text = $0; box.writes += 1 })
@@ -48,6 +65,8 @@ final class InsertCommandTests: XCTestCase {
             control: EditorControl())
         configuration.answersInsertCommands = answersInsertCommands
         configuration.paragraphProviders.projectLabelsElsewhere = labelsElsewhere
+        configuration.paragraphProviders.tableFigureMaker = tableFigureMaker
+        configuration.paragraphProviders.commandFailureReporter = { box.reported.append($0) }
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
                                       as: KeyTestWindow.self)
@@ -97,28 +116,214 @@ final class InsertCommandTests: XCTestCase {
         }
     }
 
+    /// A novel whose window's `DocumentStore` is open, and its first chapter.
+    private func novel() async throws -> (ProjectStore, StructureItem) {
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: store.url)
+        store.documentStore = ds
+        documentStores.append(ds)
+        return (store, try XCTUnwrap(store.manifest.structure.first))
+    }
+
+    /// The maker `EditorHost` builds, over a real store and chapter.
+    private func maker(_ store: ProjectStore, _ chapter: StructureItem) throws
+        -> FigureIngest.TableFigureMaker
+    {
+        let path = try XCTUnwrap(chapter.path)
+        return { taken in
+            try await FigureIngest.makeTableFigure(documentId: chapter.id, documentPath: path,
+                                                   taken: taken, store: store)
+        }
+    }
+
+    /// A maker that records what it was handed and makes nothing (so no line
+    /// is written).
+    private final class Recorder {
+        var taken: [Set<String>] = []
+    }
+
+    private func recordingMaker(_ recorder: Recorder) -> FigureIngest.TableFigureMaker {
+        { taken in
+            recorder.taken.append(taken)
+            throw CancellationError()
+        }
+    }
+
+    /// ⌘⇧T as the menu posts it; then the figure's making and its line's
+    /// landing awaited through `tableFigureTask`, never polled. Not bracketed
+    /// as an event: the command registers nothing in its own event (the line
+    /// lands in a task, in its own group), and AppKit opens an event's group
+    /// only at a registration, so a bracket here would be an empty step the
+    /// app never makes.
+    private func insertTable(_ m: Mounted) async {
+        m.coordinator.tableFigureTask = nil
+        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        await m.coordinator.tableFigureTask?.value
+    }
+
+    private func undo(_ m: Mounted) async {
+        m.coordinator.figureBirthUndoTask = nil
+        m.textView.undoManager?.undo()
+        await m.coordinator.figureBirthUndoTask?.value
+    }
+
+    private func redo(_ m: Mounted) async {
+        m.coordinator.figureBirthUndoTask = nil
+        m.textView.undoManager?.redo()
+        await m.coordinator.figureBirthUndoTask?.value
+    }
+
+    private func figureIds(_ store: ProjectStore) -> [String] {
+        (store.manifest.figures ?? []).map(\.id)
+    }
+
+    private func trashedFigureIds(_ store: ProjectStore) -> [String] {
+        store.trashEntries.compactMap { entry in
+            guard entry.subject == .figure else { return nil }
+            return (try? JSONDecoder().decode(FigureRecord.self, from: entry.itemMetadata))?.id
+        }
+    }
+
     // MARK: - One undo step
 
-    func test_insertTableIsOneUndoStepAndTheEarlierTypingSurvivesIt() throws {
-        let m = try mount("")
+    /// **Insert ▸ Table makes a table figure** (report plan 7b Task 4): a
+    /// 3×3 figure with a header row in the chapter's piece, named `table`, and
+    /// its line written at the caret with a `tbl:` label equal to the name and
+    /// `Caption` selected.
+    func test_insertTableMakesAHeaderRowTableFigureAndWritesItsLineAtTheCaret() async throws {
+        let (store, chapter) = try await novel()
+        let m = try mount("", tableFigureMaker: try maker(store, chapter))
         try type("Intro", into: m)
-        let undo = try XCTUnwrap(m.textView.undoManager)
-        XCTAssertTrue(undo.canUndo, "the typing registered no undo, so this proves nothing")
 
-        try asOneEvent(m) { MaughamEvent.post(.maughamInsertTable, to: .keyWindow) }
+        await insertTable(m)
 
-        let table = ReportInsert.table(nextLabelNumber: 1)
-        XCTAssertEqual(m.textView.string, "Intro\n\n" + table)
-        XCTAssertEqual(m.box.text, m.textView.string,
-                       "the insert reached the binding — the op log's door")
+        XCTAssertEqual(m.textView.string, "Intro\n\n![Caption](../figures/table.csv){#tbl:table}")
+        XCTAssertEqual(m.box.text, m.textView.string, "the line reached the binding — the op log's door")
         XCTAssertEqual((m.textView.string as NSString).substring(with: m.textView.selectedRange()),
-                       "Column 1", "the first header cell is selected")
+                       "Caption", "the caption is selected for the writer to type over")
+        XCTAssertEqual(m.box.reported, [])
+        let figure = try XCTUnwrap(store.manifest.figures?.first)
+        XCTAssertEqual(store.manifest.figures?.count, 1)
+        XCTAssertEqual(figure.kind, .table)
+        XCTAssertEqual(figure.name, "table")
+        XCTAssertEqual(figure.piece, chapter.id, "the figure is the chapter's piece's")
+        XCTAssertEqual(figure.path, "figures/table.csv")
+        let ds = try XCTUnwrap(store.documentStore)
+        let doc = try await ds.openFigure(figureId: figure.id)
+        XCTAssertEqual(doc.state.table.rows.count, 3)
+        XCTAssertEqual(doc.state.table.columns.count, 3)
+        XCTAssertEqual(doc.state.table.headerRows, 1, "the first row is a header row")
+        await ds.closeFigure(figureId: figure.id)
+        XCTAssertEqual(m.textView.undoManager?.undoActionName, "Insert Table")
+    }
 
-        undo.undo()
-        XCTAssertEqual(m.textView.string, "Intro", "one ⌘Z takes back the whole table")
-        XCTAssertTrue(undo.canUndo, "the writer's typing is still undoable after it")
-        undo.undo()
-        XCTAssertEqual(m.textView.string, "", "and the next ⌘Z takes back the typing")
+    /// **Review Focus 1, through the real command path** (the notification
+    /// the menu posts, answered by the coordinator): type in the caption, ⌘Z
+    /// takes back the typing only; ⌘Z takes back the line and sends the figure
+    /// to the Trash; ⇧⌘Z brings the same figure id back with its line; ⌘Z
+    /// removes it again; the typing before the insert is its own step.
+    func test_insertTableTypeUndoRedoUndo() async throws {
+        let (store, chapter) = try await novel()
+        let m = try mount("", tableFigureMaker: try maker(store, chapter))
+        try type("Intro", into: m)
+        await insertTable(m)
+        let figureId = try XCTUnwrap(figureIds(store).first)
+        let line = "![Caption](../figures/table.csv){#tbl:table}"
+        try asOneEvent(m) { m.textView.insertText("Costs", replacementRange: m.textView.selectedRange()) }
+        XCTAssertEqual(m.textView.string, "Intro\n\n![Costs](../figures/table.csv){#tbl:table}")
+
+        await undo(m)
+        XCTAssertEqual(m.textView.string, "Intro\n\n" + line, "the first ⌘Z is the typing only")
+        XCTAssertEqual(figureIds(store), [figureId])
+
+        await undo(m)
+        XCTAssertEqual(m.textView.string, "Intro", "the second ⌘Z takes the line back")
+        XCTAssertEqual(figureIds(store), [], "…and the figure with it")
+        XCTAssertEqual(trashedFigureIds(store), [figureId], "the figure is in the Trash")
+
+        await redo(m)
+        XCTAssertEqual(m.textView.string, "Intro\n\n" + line, "⇧⌘Z puts the line back")
+        XCTAssertEqual(figureIds(store), [figureId], "…and the same figure, id kept")
+
+        await undo(m)
+        XCTAssertEqual(m.textView.string, "Intro")
+        XCTAssertEqual(figureIds(store), [], "the redo re-registered its undo")
+        XCTAssertEqual(trashedFigureIds(store), [figureId])
+
+        await undo(m)
+        XCTAssertEqual(m.textView.string, "", "the typing before the insert is its own step")
+        XCTAssertEqual(m.box.reported, [])
+    }
+
+    /// R7b-9: the name, and so the label, steps clear of every `tbl:` name in
+    /// use — a figure already called `table`, a `@tbl:table_2` reference in
+    /// the text, a `tbl:table_3` another chapter defines — and never the label
+    /// apart from the name.
+    func test_insertTableStepsTheNameAndLabelPastTheTblNamesInUse() async throws {
+        let (store, chapter) = try await novel()
+        _ = try await store.createFigure(kind: .table, name: "table", piece: chapter.id)
+        let m = try mount("See @tbl:table_2.", labelsElsewhere: {
+            [ManuscriptLabel(reference: "tbl:table_3")!, ManuscriptLabel(reference: "fig:table_4")!]
+        }, tableFigureMaker: try maker(store, chapter))
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: (m.textView.string as NSString).length, length: 0))
+
+        await insertTable(m)
+
+        XCTAssertEqual(m.textView.string,
+                       "See @tbl:table_2.\n\n![Caption](../figures/table_4.csv){#tbl:table_4}",
+                       "a fig: label does not take a table's name")
+        XCTAssertEqual(store.manifest.figures?.map(\.name), ["table", "table_4"])
+    }
+
+    /// R7b-6: the figure is made, but by the time its line would land the
+    /// document can't be written (the posture locked meanwhile): the figure
+    /// goes to the Trash, nothing is written, and the writer is told.
+    func test_aRefusedLineSendsTheMadeFigureToTheTrashAndSaysSo() async throws {
+        let (store, chapter) = try await novel()
+        let real = try maker(store, chapter)
+        var m: Mounted!
+        m = try mount("Intro", tableFigureMaker: { taken in
+            let birth = try await real(taken)
+            m.coordinator.setLockEditing(true)
+            return birth
+        })
+        m.window.makeFirstResponder(m.textView)
+        await insertTable(m)
+
+        XCTAssertEqual(m.textView.string, "Intro", "the refused line wrote nothing")
+        XCTAssertEqual(figureIds(store), [], "the figure is no longer in the book")
+        XCTAssertEqual(trashedFigureIds(store).count, 1, "it is in the Trash")
+        XCTAssertEqual(m.box.reported, [
+            "The table figure was made, but this document can’t be written to now, "
+                + "so the figure went to the Trash.",
+        ])
+        XCTAssertFalse(m.textView.undoManager?.canUndo ?? true, "a refused line left an undo step")
+    }
+
+    /// A figure the store refuses to make writes nothing and is told.
+    func test_aFigureTheStoreRefusesWritesNothingAndSaysWhy() async throws {
+        let m = try mount("Intro", tableFigureMaker: { _ in
+            throw FigureEditRefused(site: "createFigure")
+        })
+        m.window.makeFirstResponder(m.textView)
+        await insertTable(m)
+        XCTAssertEqual(m.textView.string, "Intro")
+        XCTAssertEqual(m.box.reported, ["This Mac may not make a figure here, so no table was inserted."])
+    }
+
+    func test_theDiscardSentences() {
+        XCTAssertEqual(
+            EditorCoordinator.tableFigureDiscardMessage(.documentLeft, trashed: true, name: "table"),
+            "The table figure was made, but its document was no longer open, so the figure went to the Trash.")
+        XCTAssertEqual(
+            EditorCoordinator.tableFigureDiscardMessage(.composing, trashed: false, name: "table_2"),
+            "The table figure was made, but it wasn’t placed while you were composing text, "
+                + "and it couldn’t be moved to the Trash: it stays in the book as “table_2”.")
+        XCTAssertEqual(FigureIngest.tableFigureFailureMessage(for: CancellationError()),
+                       "The table figure couldn’t be made, so no table was inserted.")
     }
 
     func test_insertFootnoteIsOneUndoStepAndTheCaretWaitsAtTheDefinition() throws {
@@ -161,29 +366,30 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(m.textView.string, "", "then the typing before it")
     }
 
-    /// I1: the table's label is unique across the PROJECT. The host's
-    /// `projectLabelsElsewhere` (another chapter defines `tbl:table-1`) reaches
-    /// the number, asked when the command runs.
-    func test_insertTableNumbersPastTheLabelsOtherDocumentsDefine() throws {
+    /// I1: the table's name is unique across the PROJECT. The host's
+    /// `projectLabelsElsewhere` (another chapter defines `tbl:table`) reaches
+    /// the maker as a taken name, asked when the command runs.
+    func test_insertTableHandsTheMakerTheTblNamesOtherDocumentsDefine() async throws {
         var asked = 0
-        let m = try mount("Text.", labelsElsewhere: {
+        let recorder = Recorder()
+        let m = try mount("Text. See @tbl:cited.", labelsElsewhere: {
             asked += 1
-            return [ManuscriptLabel(reference: "tbl:table-1")!,
-                    ManuscriptLabel(reference: "fig:table-2")!]
-        })
+            return [ManuscriptLabel(reference: "tbl:table")!,
+                    ManuscriptLabel(reference: "fig:table_2")!]
+        }, tableFigureMaker: recordingMaker(recorder))
         XCTAssertEqual(asked, 0, "the walk ran before any command — it must be per command")
-        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        await insertTable(m)
         XCTAssertEqual(asked, 1)
-        XCTAssertTrue(m.textView.string.hasSuffix("{#tbl:table-2}"),
-                      "table-1 is taken in another chapter; got \(m.textView.string)")
+        XCTAssertEqual(recorder.taken, [["table", "cited"]],
+                       "another chapter's tbl:table and this text's @tbl:cited are taken; a fig: is not")
     }
 
     /// Whole-branch review I1: before the window's reference index has built
-    /// once, its cached index is empty. Insert Table in chapter 1 still skips
-    /// the `tbl:table-1` chapter 2 defines, because the host walks the
+    /// once, its cached index is empty. Insert Table in chapter 1 still steps
+    /// past the `tbl:table` chapter 2 defines, because the host walks the
     /// project while no build has published. The host here is the one
     /// `EditorHost` wires, over a builder that never finishes.
-    func test_insertTableBeforeTheIndexIsBuiltSkipsAnotherChaptersLabel() throws {
+    func test_insertTableBeforeTheIndexIsBuiltSkipsAnotherChaptersLabel() async throws {
         let gate = DispatchSemaphore(value: 0)
         let host = ReferenceIndexHost(builder: { snapshot, memo in
             gate.wait()
@@ -198,14 +404,15 @@ final class InsertCommandTests: XCTestCase {
             liveText: { _ in nil },
             tokens: { _ in [:] },
             derivedText: { id in
-                id == "ch2" ? "| a | b |\n|---|---|\n| 1 | 2 |\nTable: Two {#tbl:table-1}" : ""
+                id == "ch2" ? "![Two](figures/table.csv){#tbl:table}" : ""
             },
             words: { .english }))
-        let m = try mount("Text.", labelsElsewhere: { host.labelsDefined(excluding: "ch1") })
+        let recorder = Recorder()
+        let m = try mount("Text.", labelsElsewhere: { host.labelsDefined(excluding: "ch1") },
+                          tableFigureMaker: recordingMaker(recorder))
         XCTAssertEqual(host.index.version, 0, "the premise: no build has published")
-        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
-        XCTAssertTrue(m.textView.string.hasSuffix("{#tbl:table-2}"),
-                      "chapter 2 already has table-1; got \(m.textView.string)")
+        await insertTable(m)
+        XCTAssertEqual(recorder.taken, [["table"]], "chapter 2 already has tbl:table")
     }
 
     func test_insertFootnoteNumbersPastTheLabelsTheDocumentUses() throws {
@@ -233,7 +440,8 @@ final class InsertCommandTests: XCTestCase {
     private func assertRefused(_ posture: (EditorCoordinator) -> Void,
                                file: StaticString = #filePath, line: UInt = #line) throws {
         let text = "A sentence."
-        let m = try mount(text)
+        let recorder = Recorder()
+        let m = try mount(text, tableFigureMaker: recordingMaker(recorder))
         posture(m.coordinator)
         let writes = m.box.writes
         let undo = try XCTUnwrap(m.textView.undoManager)
@@ -248,6 +456,8 @@ final class InsertCommandTests: XCTestCase {
                        file: file, line: line)
         XCTAssertFalse(undo.canUndo, "a refused insert left an undo step",
                        file: file, line: line)
+        XCTAssertNil(m.coordinator.tableFigureTask, "a refused Insert Table began making a figure",
+                     file: file, line: line)
     }
 
     // MARK: - Only a manuscript surface answers
@@ -258,7 +468,9 @@ final class InsertCommandTests: XCTestCase {
     /// same mount saying true, so the refusal is about the flag and not about a
     /// post that reached nobody.
     func test_aSurfaceThatIsNotAManuscriptIgnoresTheInsertCommands() throws {
-        let note = try mount("Research note.", answersInsertCommands: false)
+        let recorder = Recorder()
+        let note = try mount("Research note.", answersInsertCommands: false,
+                             tableFigureMaker: recordingMaker(recorder))
         XCTAssertNotNil(note.coordinator.receiverContext(.keyWindow),
                         "precondition: the note answers the window's other commands")
 
@@ -266,6 +478,7 @@ final class InsertCommandTests: XCTestCase {
         MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
         XCTAssertEqual(note.textView.string, "Research note.",
                        "an Insert command wrote into a research note")
+        XCTAssertNil(note.coordinator.tableFigureTask, "Insert Table began a figure for a research note")
 
         // Control.
         note.window.reportsKey = false
@@ -282,8 +495,9 @@ final class InsertCommandTests: XCTestCase {
     /// ⌘⇧T is not the manuscript's, so it neither writes there nor takes the
     /// focus over. The control: the manuscript focused, and a non-text view
     /// (the binder) focused, both answer.
-    func test_anotherTextInputWithTheFocusKeepsTheInsertOutOfTheManuscript() throws {
-        let m = try mount("Chapter.")
+    func test_anotherTextInputWithTheFocusKeepsTheInsertOutOfTheManuscript() async throws {
+        let recorder = Recorder()
+        let m = try mount("Chapter.", tableFigureMaker: recordingMaker(recorder))
         let sibling = NSTextView(frame: NSRect(x: 0, y: 0, width: 80, height: 20))
         m.window.contentView?.addSubview(sibling)
         m.window.makeFirstResponder(sibling)
@@ -293,6 +507,7 @@ final class InsertCommandTests: XCTestCase {
         MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
         MaughamEvent.post(.maughamInsertFigure, to: .keyWindow)
         XCTAssertEqual(m.textView.string, "Chapter.", "an insert reached the unfocused manuscript")
+        XCTAssertNil(m.coordinator.tableFigureTask, "Insert Table answered for the unfocused manuscript")
         XCTAssertTrue(m.window.firstResponder === sibling, "the insert pulled the focus over")
 
         m.window.makeFirstResponder(nil)                  // a non-text view: the window itself
@@ -301,8 +516,8 @@ final class InsertCommandTests: XCTestCase {
                        "with no text input focused the manuscript still answers")
 
         m.window.makeFirstResponder(m.textView)
-        try asOneEvent(m) { MaughamEvent.post(.maughamInsertTable, to: .keyWindow) }
-        XCTAssertTrue(m.textView.string.contains("| Column 1 |"), "the focused manuscript answers")
+        await insertTable(m)
+        XCTAssertEqual(recorder.taken.count, 1, "the focused manuscript answers Insert Table")
     }
 
     // MARK: - Census: who may say "this surface answers Insert"
@@ -338,6 +553,8 @@ final class InsertCommandTests: XCTestCase {
         let host = try SourceTree.read("Maugham/Views/EditorHost.swift")
         XCTAssertTrue(host.contains("answersInsertCommands: !DocumentFormat.ofManuscript(path: path).isScreenplay"),
                       "EditorHost no longer sets the flag, so no manuscript answers Insert")
+        XCTAssertTrue(host.contains("tableFigureMaker: {"),
+                      "EditorHost no longer hands the editor a table-figure maker, so ⌘⇧T does nothing")
         XCTAssertTrue(host.contains("projectLabelsElsewhere: {"),
                       "EditorHost no longer hands the editor the project's other labels, "
                       + "so a table label can repeat another chapter's")

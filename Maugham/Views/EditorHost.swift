@@ -915,6 +915,14 @@ struct EditorHost: View {
                                                        documentPath: path, taken: taken,
                                                        store: store)
                 },
+                // Insert ▸ Table (report plan 7b Task 4): a 3×3 header-row
+                // table figure of this document's piece, its line path
+                // relative to the document; the coordinator writes the line.
+                tableFigureMaker: { [store] taken in
+                    try await FigureIngest.makeTableFigure(documentId: doc.docId,
+                                                           documentPath: path, taken: taken,
+                                                           store: store)
+                },
                 commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)
                 },

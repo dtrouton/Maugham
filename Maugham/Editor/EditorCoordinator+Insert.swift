@@ -229,19 +229,135 @@ extension EditorCoordinator {
         answersInsertCommands && tableEditor != nil && !isDetached
     }
 
-    /// Insert ▸ Table (⌘⇧T, R-3a-5): a 3-column table on a block of its own
-    /// at the caret (after the selection), its first header cell selected.
-    func insertTable() {
-        guard answersInsertCommands, let textView else { return }
+    /// Whether this editor makes table figures (report plan 7b Task 4): a
+    /// manuscript surface whose host handed it a maker (`tableFigureMaker`).
+    var answersTableFigures: Bool {
+        answersInsertCommands && tableFigureMaker != nil && !isDetached
+    }
+
+    /// The undo step Insert ▸ Table names ("Undo Insert Table").
+    static let insertTableActionName = "Insert Table"
+
+    /// **Insert ▸ Table (⌘⇧T)** (report plan 7b Task 4, R7b-7): makes a 3×3
+    /// table figure with a header row in the document's piece
+    /// (`tableFigureMaker`), then writes `![Caption](figures/table.csv){#tbl:table}`
+    /// as a paragraph of its own at the caret (after the selection), `Caption`
+    /// selected. The line always carries a `tbl:` label, its name the
+    /// figure's (R7b-9): the maker is handed the `tbl:` names the text and the
+    /// project already use, so the store steps the name clear of them.
+    ///
+    /// It lands as image ingest's line does (`beginFigureIngest`): the point
+    /// is carried through typing while the figure is made
+    /// (`FigureAnchorTracker`), a composition is waited out, and the line
+    /// lands `.deferred`. One ⌘Z takes back the line and sends the figure to
+    /// the Trash (`figureBirthUndo`, R7b-5). The membrane is asked before
+    /// anything is made; a figure that exists but whose line cannot be
+    /// written — the membrane refused meanwhile, the editor left the
+    /// document, a composition outlasted the waits — goes to the Trash, and
+    /// the writer is told (R7b-6).
+    @discardableResult
+    func insertTableFigure() -> Task<Void, Never>? {
+        guard answersTableFigures, commandMayWrite, let textView,
+              let storage = textView.textStorage, let maker = tableFigureMaker else { return nil }
         let at = NSMaxRange(textView.selectedRange())
-        let blocks = tableBlockRange(containing: at)
+        let tracker = FigureAnchorTracker(
+            anchor: FigureIngest.Anchor(point: at, in: textView.string), storage: storage)
+        let writersSelection = textView.selectedRange()
+        // Asked per command, never per keystroke.
+        let taken = FigureIngest.existingFigureNames(
+            in: textView.string, elsewhere: projectLabelsElsewhere?() ?? [], kind: .tbl)
+        // Held now, so a figure whose editor went away is still told about.
+        let report = commandFailureReporter
+        let task = Task { @MainActor [weak self] in
+            defer { tracker.stop() }
+            let birth: FigureIngest.TableFigureBirth
+            do {
+                birth = try await maker(taken)
+            } catch {
+                report?(FigureIngest.tableFigureFailureMessage(for: error))
+                return
+            }
+            guard let self else {
+                await Self.discard(birth, because: .documentLeft, report: report)
+                return
+            }
+            switch await self.waitOutComposition(in: textView) {
+            case .ready: break
+            case .gone:
+                await Self.discard(birth, because: .documentLeft, report: report)
+                return
+            case .gaveUp:
+                await Self.discard(birth, because: .composing, report: report)
+                return
+            }
+            let writerMoved = tracker.anchor.edited || textView.selectedRange() != writersSelection
+            let location = tracker.anchor.location(
+                in: textView.string, caret: NSMaxRange(textView.selectedRange()))
+            guard self.writeTableFigureLine(birth, at: location, writerMoved: writerMoved) else {
+                await Self.discard(birth, because: .refused, report: report)
+                return
+            }
+        }
+        tableFigureTask = task
+        return task
+    }
+
+    /// The table figure's line at `location` through Route A, its birth
+    /// registered alongside. False when the membrane refused.
+    private func writeTableFigureLine(_ birth: FigureIngest.TableFigureBirth, at location: Int,
+                                      writerMoved: Bool) -> Bool {
+        guard let textView else { return false }
+        let line = FigureIngest.figureLine(path: birth.linePath, kind: .tbl, name: birth.name)
+        let blocks = tableBlockRange(containing: location)
             .map { [$0] } ?? []
-        // Asked per command, never per keystroke: the labels the project's
-        // OTHER manuscript documents define (a Report refuses a duplicate).
-        let elsewhere = projectLabelsElsewhere?() ?? []
-        applyCommandEdit(ReportInsert.tableEdit(in: textView.string, at: at, tableBlocks: blocks,
-                                                labelsElsewhere: elsewhere),
-                         actionName: "Insert Table")
+        let edit = FigureIngest.figureEdit(in: textView.string, at: location,
+                                           tableBlocks: blocks, line: line)
+        return applyCommandEdit(
+            edit, actionName: Self.insertTableActionName,
+            landing: .deferred(writerMoved: writerMoved),
+            alongside: figureBirthUndo(figureId: birth.figureId,
+                                       actionName: Self.insertTableActionName,
+                                       store: birth.store))
+    }
+
+    /// Why a made table figure's line was not written (R7b-6).
+    enum TableFigureDiscard: Equatable {
+        /// The membrane refused the line.
+        case refused
+        /// The editor left the document while the figure was made.
+        case documentLeft
+        /// An input method composed through every wait.
+        case composing
+    }
+
+    /// Sends a table figure whose line was not written to the Trash, and says
+    /// so (R7b-6). A removal the store refuses leaves the figure where it is,
+    /// and the sentence says that instead.
+    private static func discard(_ birth: FigureIngest.TableFigureBirth,
+                                because reason: TableFigureDiscard,
+                                report: (@MainActor (String) -> Void)?) async {
+        let trashed: Bool
+        do {
+            try await birth.store.removeFigure(id: birth.figureId)
+            trashed = true
+        } catch {
+            trashed = false
+        }
+        report?(tableFigureDiscardMessage(reason, trashed: trashed, name: birth.name))
+    }
+
+    /// The sentence a discarded table figure is told with.
+    static func tableFigureDiscardMessage(_ reason: TableFigureDiscard, trashed: Bool,
+                                          name: String) -> String {
+        let why: String
+        switch reason {
+        case .refused: why = "The table figure was made, but this document can’t be written to now"
+        case .documentLeft: why = "The table figure was made, but its document was no longer open"
+        case .composing: why = "The table figure was made, but it wasn’t placed while you were composing text"
+        }
+        return trashed
+            ? why + ", so the figure went to the Trash."
+            : why + ", and it couldn’t be moved to the Trash: it stays in the book as “\(name)”."
     }
 
     /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3): `[@` at the caret (after

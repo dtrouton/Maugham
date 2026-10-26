@@ -115,13 +115,40 @@ final class FigureIngestTests: XCTestCase {
 
     func test_theFigureLineIsTheSpecForm() {
         let label = ManuscriptLabel(reference: "fig:chart")!
-        let line = FigureIngest.figureLine(path: "../research/chart.png", label: label)
+        let line = FigureIngest.figureLine(path: "../research/chart.png", kind: .fig, name: "chart")
         XCTAssertEqual(line, "![Caption](../research/chart.png){#fig:chart}")
         guard case .figure(let caption, let path, let parsed)? = ManuscriptBlocks.parse(line).first?.block
         else { return XCTFail("the line does not parse as a figure") }
         XCTAssertEqual(caption, "Caption")
         XCTAssertEqual(path, "../research/chart.png")
         XCTAssertEqual(parsed, label)
+    }
+
+    /// Insert ▸ Table's line (report plan 7b Task 4, R7b-9): the same form,
+    /// always labelled `tbl:`, so a table figure numbers as a table.
+    func test_aTableFigureLineCarriesATblLabel() {
+        let line = FigureIngest.figureLine(path: "figures/table.csv", kind: .tbl, name: "table")
+        XCTAssertEqual(line, "![Caption](figures/table.csv){#tbl:table}")
+        guard case .figure(_, _, let parsed)? = ManuscriptBlocks.parse(line).first?.block
+        else { return XCTFail("the line does not parse as a figure") }
+        XCTAssertEqual(parsed, ManuscriptLabel(reference: "tbl:table"))
+    }
+
+    func test_theTakenTblNamesAreThisTextsTablesAndReferencesAndTheProjectsElsewhere() {
+        let text = "![T](figures/table.csv){#tbl:table}\n\nSee @tbl:table_2 and @fig:table_3."
+        let elsewhere: Set<ManuscriptLabel> = [ManuscriptLabel(reference: "tbl:table_4")!,
+                                               ManuscriptLabel(reference: "fig:table_5")!]
+        XCTAssertEqual(FigureIngest.existingFigureNames(in: text, elsewhere: elsewhere, kind: .tbl),
+                       ["table", "table_2", "table_4"],
+                       "only tbl: labels take a table figure's name")
+    }
+
+    func test_theInsertedTableIsThreeByThreeWithAHeaderRow() {
+        let table = FigureIngest.insertedTable()
+        XCTAssertEqual(table.rows.count, 3)
+        XCTAssertEqual(table.columns.count, 3)
+        XCTAssertEqual(table.headerRows, 1)
+        XCTAssertFalse(table.hasTotalRow)
     }
 
     // MARK: - Where the line goes
@@ -146,7 +173,7 @@ final class FigureIngestTests: XCTestCase {
     }
 
     func test_insideATableTheFigureGoesAfterIt() {
-        let table = ReportInsert.table(nextLabelNumber: 1)
+        let table = "| a | b |\n| - | - |\n| c | d |\nTable: T {#tbl:t}"
         let text = table + "\n\nAfter."
         let blocks = [NSRange(location: 0, length: (table as NSString).length)]
         let edit = FigureIngest.figureEdit(in: text, at: 4, tableBlocks: blocks, line: line)

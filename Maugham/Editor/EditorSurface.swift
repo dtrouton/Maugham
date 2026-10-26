@@ -107,6 +107,12 @@ struct EditorSurfaceConfiguration {
         /// the Insert menu, Insert Figure…, an image drop and an image paste
         /// make figures. Wired by `EditorHost`; nil elsewhere.
         var figureImporter: FigureIngest.Importer? = nil
+        /// Makes Insert ▸ Table's 3×3 header-row table figure in the
+        /// document's piece and answers its id and line path (report plan 7b
+        /// Task 4, `FigureIngest.makeTableFigure`). With it set on a surface
+        /// that answers the Insert menu, ⌘⇧T makes a table figure. Wired by
+        /// `EditorHost`; nil elsewhere.
+        var tableFigureMaker: FigureIngest.TableFigureMaker? = nil
         /// Where a command that could not finish is told (a sentence): a
         /// figure that could not be made, a table grid save refused.
         var commandFailureReporter: (@MainActor (String) -> Void)? = nil
@@ -252,6 +258,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.referenceIndex = pp.referenceIndex
         coordinator.projectProfile = pp.projectProfile
         coordinator.figureImporter = pp.figureImporter
+        coordinator.tableFigureMaker = pp.tableFigureMaker
         coordinator.commandFailureReporter = pp.commandFailureReporter
         coordinator.tableEditor = pp.tableEditor
         coordinator.figureImageResolver = pp.figureImageResolver
@@ -525,6 +532,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.referenceIndex = pp.referenceIndex
         context.coordinator.projectProfile = pp.projectProfile
         context.coordinator.figureImporter = pp.figureImporter
+        context.coordinator.tableFigureMaker = pp.tableFigureMaker
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
         context.coordinator.tableEditor = pp.tableEditor
         context.coordinator.figureImageResolver = pp.figureImageResolver
