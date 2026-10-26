@@ -123,6 +123,10 @@ final class FigureBirthUndo {
                 try await store.restoreTrashEntry(id: entry)
                 self.trashEntryId = nil
             } catch {
+                // The registry did not change, so no manifest watch refills
+                // the cards: refill them here, or the card readopted above
+                // would stay (re-review N1).
+                store.documentStore?.invalidateFigureCards()
                 self.report(Self.restoreRefusedMessage(error))
             }
         }

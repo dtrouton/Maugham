@@ -329,6 +329,49 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertEqual(m.box.reported, [])
     }
 
+    /// **Re-review N1**: a redo whose restore is refused (another figure took
+    /// the name meanwhile) changes no registry, so no manifest watch refills
+    /// the cards — the refusal refills them itself. After it settles the line
+    /// shows the other figure called `table`, as the notice says: not the
+    /// trashed table's card, and not "more than one figure".
+    func test_aRefusedRedoRestoreLeavesTheLineShowingWhatItReallyNames() async throws {
+        let (store, chapter) = try await novel()
+        let path = try XCTUnwrap(chapter.path)
+        let cards = try await figureCards(store)
+        let linePath = "../figures/table.csv"
+        let m = try mount("Intro", tableFigureMaker: try maker(store, chapter))
+        m.window.makeFirstResponder(m.textView)
+        m.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        await insertTable(m)
+        let made = try XCTUnwrap(store.manifest.figures?.first)
+        let madeCard = try XCTUnwrap(cards.model(forFigureId: made.id))
+        await undo(m)
+        await store.documentStore?.settleFigureCards()   // the host's manifest watch
+        // Meanwhile another figure takes the name (a second window, say), with other cells.
+        var cells = FigureTable(rows: 1, columns: 1)
+        cells.setCell(Cell(content: .value(.text("Other"))),
+                      at: CellKey(row: cells.rows[0], column: cells.columns[0]))
+        let other = try await store.createFigure(kind: .table, name: "table", piece: chapter.id,
+                                                 table: cells, avoiding: [])
+        XCTAssertEqual(other.path, made.path, "premise: the name and path are taken")
+        await store.documentStore?.settleFigureCards()
+        let otherCard = try XCTUnwrap(cards.model(forFigureId: other.id))
+        XCTAssertNotEqual(otherCard, madeCard, "premise: the two cards differ")
+
+        m.coordinator.figureBirthUndoTask = nil
+        m.textView.undoManager?.redo()
+        await m.coordinator.figureBirthUndoTask?.value
+        await cards.idle()   // the refusal's own refill
+
+        XCTAssertEqual(m.box.reported,
+                       [FigureBirthUndo.restoreRefusedMessage(FigureRestoreRefused(name: "table"))])
+        XCTAssertEqual(trashedFigureIds(store), [made.id], "the made figure stays in the Trash")
+        XCTAssertEqual(cards.model(forLinePath: linePath, documentPath: path), otherCard,
+                       "the line shows the other figure called table, as the notice says")
+        XCTAssertEqual(cards.status(forLinePath: linePath, documentPath: path), .figure(other),
+                       "one figure on the path: no ambiguous mark")
+    }
+
     /// R7b-9: the name, and so the label, steps clear of every `tbl:` name in
     /// use — a figure already called `table`, a `@tbl:table_2` reference in
     /// the text, a `tbl:table_3` another chapter defines — and never the label

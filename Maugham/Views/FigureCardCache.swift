@@ -150,10 +150,11 @@ final class FigureCardCache {
     /// Trash, `FigureBirthUndo`): its last record and card return to the
     /// lookups now, synchronously, and the version bumps, so the line the redo
     /// just wrote resolves to its table instead of "Figure removed". The next
-    /// fill — the restore changes the registry — replaces this with what the
-    /// registry holds (a refused restore then shows what the line really
-    /// names). Memory only; nothing when the figure is registered, never
-    /// departed, or no fill has run.
+    /// fill replaces this with what the registry holds: a restore that lands
+    /// changes the registry, which refills the cards; a refused one changes
+    /// nothing, so `FigureBirthUndo` refills them itself, and the line then
+    /// shows what it really names (re-review N1). Memory only; nothing when
+    /// the figure is registered, never departed, or no fill has run.
     func readopt(figureId: String) {
         guard hasFilled, !records.contains(where: { $0.id == figureId }),
               let at = departed.lastIndex(where: { $0.record.id == figureId }) else { return }

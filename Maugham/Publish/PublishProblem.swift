@@ -76,9 +76,11 @@ public struct PublishProblem: Sendable, Hashable {
         self.bodyLanguage = bodyLanguage
     }
 
-    /// R-P2-1, the one severity table. In a Report the six error kinds block a
-    /// versioned compile; in every other project nothing does, so a novel that
-    /// happens to contain `[@sarah]` still compiles.
+    /// R-P2-1, the one severity table. In a Report its error kinds (the
+    /// `isError(_:profile:)` switch) block a versioned compile; in every other
+    /// project nothing does, so a novel that happens to contain `[@sarah]`
+    /// still compiles. The editor-only figure-line kinds Publish never emits,
+    /// so they colour an underline and block nothing.
     public func isError(profile: ProjectProfile?) -> Bool {
         Self.isError(kind, profile: profile)
     }
@@ -106,7 +108,11 @@ public struct PublishProblem: Sendable, Hashable {
         // two figures still has its file. But a figure line labelled `fig:`
         // goes through the image door, which refuses a `.csv`
         // (`.imageUnreadable`); and an image path naming no figure has lost
-        // its file with the figure (whole-branch review I3, M3).
+        // its file with the figure (whole-branch review I3, M3). That last is
+        // a premise, not a probe: Publish's image door reads the disk, so an
+        // unregistered picture still sitting in `figures/` would publish
+        // though the editor says red — accepted, since the editor's checks
+        // never touch the disk (R7b-4; re-review N2).
         case .figureNotFound(let path):
             return !ManuscriptLabel.Kind.isTableFigurePath(path)
         case .tableFigureLabelledFig:
