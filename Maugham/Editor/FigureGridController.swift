@@ -393,8 +393,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// **What Edit ▸ Undo and Redo say at the grid**: "Undo Typing" over open
     /// typing (Redo off), else the grid stack's own titles ("Undo Sort
-    /// Ascending"). A read-only grid keeps them enabled so a press is
-    /// answered with the reason line rather than a silent beep.
+    /// Ascending"), enabled while that stack has a step — on a read-only grid
+    /// too, so the press is answered with the reason line, not a beep.
     func undoItem(redo: Bool) -> FigureGridUndoItem {
         if hasOpenTyping {
             return redo ? FigureGridUndoItem(enabled: false, title: gridUndo.redoMenuTitle(forUndoActionName: ""))

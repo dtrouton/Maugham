@@ -284,6 +284,61 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         XCTAssertEqual(c.host.state, state, "nothing written")
     }
 
+    /// Whether `body` finishes within `seconds` (a deadlock answers false
+    /// rather than hanging the suite).
+    private func finishes(within seconds: Double, _ body: @escaping @MainActor () async -> Void) async -> Bool {
+        final class Once { var done = false }
+        let once = Once()
+        return await withCheckedContinuation { (answer: CheckedContinuation<Bool, Never>) in
+            Task { @MainActor in
+                await body()
+                if !once.done { once.done = true; answer.resume(returning: true) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                if !once.done { once.done = true; answer.resume(returning: false) }
+            }
+        }
+    }
+
+    /// **⌘Z on the visit's step while the fold's own write is still landing**
+    /// (review C1): the step awaits the visit, and the visit's end never
+    /// awaits the step — the write lands, the visit ends, the ⌘Z takes it
+    /// back, and the next expansion opens.
+    func test_aCommandZWhileTheFoldsWriteIsStillLandingCompletes_andTheNextVisitOpens() async throws {
+        let m = try await mount()
+        let (_, c) = try await expanded(m)
+        final class Hold { var release: CheckedContinuation<Void, Never>?; var reached = false }
+        let hold = Hold()
+        FigureGridController.writeTurnForTesting = {
+            FigureGridController.writeTurnForTesting = nil
+            await withCheckedContinuation { hold.release = $0; hold.reached = true }
+        }
+        defer { FigureGridController.writeTurnForTesting = nil }
+        let target = cell(c, 1, 1)
+        c.handle(.click(target, extend: false))
+        type(m, "6")
+        c.perform(.done)   // commits the edit — its write held at its turn — and folds
+        XCTAssertNil(m.coordinator.figureGrid, "folded")
+        let step = try XCTUnwrap(m.coordinator.lastFigureVisitStep, "a step for the write still landing")
+        let held = await finishes(within: 5) { while !hold.reached { await Task.yield() } }
+        XCTAssertTrue(held, "premise: the write is held at its turn")
+
+        try press(m)   // "Undo Edit Table", before the write has landed
+        hold.release?.resume()
+
+        let settled = await finishes(within: 5) {
+            await m.coordinator.figureGridFolding?.value
+            await step.settled?.value
+            await c.host.awaitPendingUndoWork()
+        }
+        XCTAssertTrue(settled, "the visit ended and the ⌘Z landed — no circular await")
+        XCTAssertNil(c.host.state.table[target], "the write landed and the ⌘Z took the visit back")
+
+        let reopened = await finishes(within: 5) { _ = try? await self.expanded(m) }
+        XCTAssertTrue(reopened, "the next expansion opens")
+    }
+
     // MARK: - ⌘Z inside the grid
 
     /// **⌘Z and ⇧⌘Z with the grid having the keys run the grid's own stack**,

@@ -23,6 +23,11 @@ import AppKit
 ///   once it is known; one holding an op with no inverse removes it and says
 ///   why (`FigureVisit.reason`).
 ///
+/// **No circular await**: the visit's end awaits the grid's writes and the
+/// host's undo work as they stood at the fold, and a hop becomes the host's
+/// undo work only once the visit has ended (`FigureGridUndoTests`, a ⌘Z
+/// pressed while the fold's write is still landing).
+///
 /// It re-registers itself both ways, as `FigureBirthUndo` does: each
 /// re-registration runs synchronously inside the undo or redo pass, which
 /// routes it onto the opposite stack; the host's append hops to a task, and
@@ -48,6 +53,10 @@ final class FigureVisitUndo {
     private var applied = true
     /// The last hop, so the next awaits it.
     private var pending: Task<Void, Never>?
+    /// The visit has ended. Until then no hop is the host's undo work: the
+    /// visit's end, and a batch still landing, await that work, and a hop
+    /// awaits the visit — publishing it sooner would be a circular await.
+    private var visitEnded = false
     /// Settled once the step is known to stay or has been removed (a test's wait).
     private(set) var settled: Task<Void, Never>?
 
@@ -70,6 +79,9 @@ final class FigureVisitUndo {
         step.registerUndo(on: um)
         step.settled = Task { @MainActor [weak um] in
             let recorded = await visit.value
+            step.visitEnded = true
+            // A ⌘Z pressed while the visit was still landing is the host's undo work now.
+            if let pending = step.pending { step.workTaskSink?(pending) }
             guard recorded?.isUndoable != true else { return }
             // Nothing to take back, or nothing that can be: no step.
             if let um, !um.isUndoing, !um.isRedoing { um.removeAllActions(withTarget: step) }
@@ -115,6 +127,6 @@ final class FigureVisitUndo {
             await body(self, host, recorded)
         }
         pending = task
-        workTaskSink?(task)
+        if visitEnded { workTaskSink?(task) }   // else `settled` publishes it
     }
 }

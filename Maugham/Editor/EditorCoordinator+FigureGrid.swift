@@ -95,17 +95,32 @@ enum FigureGridFoldCause {
 
     /// The grid cannot stay: an open formula that will not read is said as a
     /// notice carrying its text, never kept in a grid with nowhere to be.
-    var isForced: Bool { self != .grid && self != .textTookFocus }
+    var isForced: Bool {
+        switch self {
+        case .grid, .textTookFocus: false
+        case .navigation, .lineGone, .teardown, .sentToResearch: true
+        }
+    }
     /// The caret goes to the end of the figure line (a line gone leaves it
     /// where the text put it).
     var movesTheCaretToTheLine: Bool { self == .grid }
     /// The text takes the focus, when the grid had it.
-    var focusesTheText: Bool { self != .textTookFocus && self != .teardown }
+    var focusesTheText: Bool {
+        switch self {
+        case .grid, .navigation, .lineGone, .sentToResearch: true
+        case .textTookFocus, .teardown: false
+        }
+    }
     /// **The visit collapses into one window step** (plan 7d Task 6): every
     /// fold but a teardown (`detach()` clears the window's stack after it,
     /// so there is nothing to register on) and a send to Research (ruling P1:
     /// the figure leaves for Research, and the send is not undoable).
-    var collapsesTheVisit: Bool { self != .teardown && self != .sentToResearch }
+    var collapsesTheVisit: Bool {
+        switch self {
+        case .grid, .textTookFocus, .navigation, .lineGone: true
+        case .teardown, .sentToResearch: false
+        }
+    }
 }
 
 /// **One expansion**: which figure, which line (its start, carried through
@@ -570,9 +585,12 @@ extension EditorCoordinator {
         if let controller = expansion.controller {
             controller.didFold()
             let host = controller.host, recorded = expansion.recordsAVisit
+            // The host's undo work as it stands now — never a later handle,
+            // which may be this visit's own step awaiting this very task.
+            let undoWork = host._lastUndoWorkTask
             let visit = Task { @MainActor () -> FigureVisit? in
                 await controller.settleWrites()
-                await host.awaitPendingUndoWork()
+                await undoWork?.value
                 let visit = recorded ? host.endVisit() : nil
                 controller.close()
                 return visit
