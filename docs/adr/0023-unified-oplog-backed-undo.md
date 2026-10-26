@@ -123,6 +123,7 @@ span.
   published as the host's undo work until it has: a batch (paste, fill, import) plans after
   that work, and would otherwise await a hop that awaits the visit that awaits the batch.
   Both halves are pinned, each with a disable experiment that turns it red alone.
+- **The figure window keeps its own private stack for its life; closing it adds no text-side step.** Its grid registers on the window's own `gridUndo`, and a window's visit is never collapsed onto the manuscript's stack.
 - **Why.** A grid is a sub-editor with its own keys: its writer expects ⌘Z to walk back the
   cell they just typed, not to rewind the paragraph before the table, and expects to find
   the table as one thing on the manuscript's stack once they step out. Putting every cell on
