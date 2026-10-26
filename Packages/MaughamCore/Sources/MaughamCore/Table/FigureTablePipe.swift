@@ -15,12 +15,19 @@ extension FigureTable {
     /// caption and label belong to the manuscript line, not the table, and are ignored here.
     /// Throws `.tooLarge` past `TableCSV.figureCellLimit` non-empty cells.
     public init(pipe: TableText, locale: TableLocale, names: FormulaNames) throws {
+        self = try Self.importing(pipe: pipe, locale: locale, names: names).table
+    }
+
+    /// As `init(pipe:locale:names:)`, with the cells that could not be read as the writer meant
+    /// (an unparseable formula, kept as text) — `row` 0 is the header row.
+    public static func importing(pipe: TableText, locale: TableLocale, names: FormulaNames) throws
+        -> (table: FigureTable, problems: [CSVReadProblem]) {
         let rows = [pipe.header] + pipe.rows
         let cells = rows.reduce(0) { total, row in
             total + row.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
         }
         guard cells <= TableCSV.figureCellLimit else { throw FigureTablePipeError.tooLarge(cells: cells) }
-        var table = TableCSV.read(rows: rows, locale: locale, names: names).table
+        var (table, problems) = TableCSV.read(rows: rows, locale: locale, names: names)
         table.headerRows = 1
         let columns = table.columns
         for (c, alignment) in pipe.alignments.enumerated() where c < columns.count {
@@ -38,6 +45,6 @@ extension FigureTable {
                 table.setCell(cell, at: key)
             }
         }
-        self = table
+        return (table, problems)
     }
 }

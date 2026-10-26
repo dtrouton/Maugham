@@ -37,6 +37,12 @@ final class FigureTablePipeTests: XCTestCase {
         XCTAssertEqual(cell(t, 1, 1)?.content, .value(.text("=NOSUCH((")))
     }
 
+    func test_importingReturnsTheUnparseableFormulaAsAProblem() throws {
+        let text = try XCTUnwrap(TableText(parsing: "| A | B |\n| --- | --- |\n| 1 | =NOSUCH(( |"))
+        let result = try FigureTable.importing(pipe: text, locale: gb, names: .empty)
+        XCTAssertEqual(result.problems.map { [$0.row, $0.column] }, [[1, 1]])
+    }
+
     func test_alignmentsMapToCells() throws {
         let t = try make("| A | B | C | D |\n| :-- | :-: | --: | --- |\n| 1 | 2 | 3 | 4 |")
         XCTAssertEqual(cell(t, 1, 0)?.alignment, .left)

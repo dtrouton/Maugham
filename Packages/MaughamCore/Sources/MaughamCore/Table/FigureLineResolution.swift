@@ -43,9 +43,16 @@ public enum FigureLineResolution {
         guard case .inside(let target, let root) = FigurePathRule.lexical(linePath, piecePath: documentPath)
         else { return .notLocal }
         guard root == ["figures"] else { return .outsideFigures }
-        let hits = index.records(atTarget: target)
+        switch FigureLineResolution.resolution(of: index.records(atTarget: target)) {
+        case .none: return .missing
+        case .figure(let r): return .figure(r)
+        case .ambiguous(let rs): return .ambiguous(rs)
+        }
+    }
+
+    fileprivate static func resolution(of hits: [FigureRecord]) -> Resolution {
         switch hits.count {
-        case 0: return .missing
+        case 0: return .none
         case 1: return .figure(hits[0])
         default: return .ambiguous(hits)
         }
@@ -76,12 +83,7 @@ public enum FigureLineResolution {
         public func record(forLinePath linePath: String, documentPath: String) -> Resolution {
             guard case .inside(let target, _) = FigurePathRule.lexical(linePath, piecePath: documentPath)
             else { return .none }
-            let hits = byKey[target.joined(separator: "/").lowercased()] ?? []
-            switch hits.count {
-            case 0: return .none
-            case 1: return .figure(hits[0])
-            default: return .ambiguous(hits)
-            }
+            return FigureLineResolution.resolution(of: records(atTarget: target))
         }
     }
 
