@@ -572,7 +572,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `DocumentStore.relocate(plan:)` / `relocateUserContent(...)` / `trash(...)`,
     /// which run the close-before-FS-surgery discipline (close+unregister +
     /// `flushPendingSave`) INTERNALLY before any FS call. A raw `moveItem` /
-    /// `moveToTrash` on a user path bypasses that discipline → phantom files
+    /// `moveToTrash` / `removeItem` on a user path bypasses that discipline → phantom files
     /// (tripwire 14; findings 1.3 / 1.6).
     /// Computed (not a hardcoded list) so a NEW `ProjectStore+Foo.swift` seam is
     /// auto-covered by the guard — closing the allowlist ceiling the M3.1 review
@@ -621,7 +621,7 @@ final class TripwireGrepTests: XCTestCase {
         return false
     }
 
-    /// Recurrence-tripper: the next bespoke `fm.moveItem`/`moveToTrash` on a
+    /// Recurrence-tripper: the next bespoke `fm.moveItem`/`moveToTrash`/`removeItem` on a
     /// manuscript / piece-folder / research-note path re-introduces the
     /// close-before-FS-surgery bug class (tripwire 14, missed at findings
     /// 1.3 / 1.6). Route the move through the typed `DocumentStore` mover
@@ -636,7 +636,7 @@ final class TripwireGrepTests: XCTestCase {
             excludeLine: { [self] in isInternalMoveLine($0) }
         )
         XCTAssertTrue(offenders.isEmpty,
-            "Raw FileManager.moveItem / moveToTrash on a user-content path in a "
+            "Raw FileManager.moveItem / moveToTrash / removeItem on a user-content path in a "
             + "ProjectStore+* seam. Route it through the typed DocumentStore mover "
             + "(relocate(plan:) / relocateUserContent(perform:) / trash(...)) so the "
             + "close+unregister+flush discipline runs before the move (tripwire 14). "
@@ -3568,7 +3568,7 @@ final class TripwireGrepTests: XCTestCase {
     /// A line is exempt when it's the function's own definition (`func
     /// applyExternalText(`, in EditorCoordinator.swift) or a comment —
     /// tripwire 7's whole point is that a call site outside the one
-    /// sanctioned caller (EditorSurface.swift's `updateNSView`, the
+    /// sanctioned caller (EditorSurface.swift's `reconcileTextBuffer`, the
     /// cloud-conflict resolution path) is a binding race; prose that merely
     /// discusses `applyExternalText` (and there is a lot of it — tripwires
     /// 2/3/6/7 are cross-referenced throughout Editor/) is not a call.
@@ -3584,7 +3584,7 @@ final class TripwireGrepTests: XCTestCase {
     /// production call site is a binding race of the same shape that drove
     /// three cursor races in the `EditorHost` triad (tripwire 6). Unlike the
     /// other tripwires here, this is a CENSUS, not an allow/deny grep — the
-    /// one legitimate call (EditorSurface.swift's `updateNSView`) must be
+    /// one legitimate call (EditorSurface.swift's `reconcileTextBuffer`) must be
     /// present exactly once, and adding a second must fail even though
     /// `applyExternalText(` isn't a forbidden token in isolation.
     func test_applyExternalTextHasExactlyOneProductionCallSite() throws {
@@ -3595,7 +3595,7 @@ final class TripwireGrepTests: XCTestCase {
         )
         XCTAssertEqual(callSites.count, 1,
             "Expected exactly ONE production call site of applyExternalText( — "
-            + "EditorSurface.swift's updateNSView (the sanctioned cloud-conflict "
+            + "EditorSurface.swift's reconcileTextBuffer (the sanctioned cloud-conflict "
             + "resolution path, tripwire 7). A second call site is a binding race "
             + "(tripwire 6/7 class of bug, EditorHost.swift AREA.md). Found:\n"
             + callSites.joined(separator: "\n"))

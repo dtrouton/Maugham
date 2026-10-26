@@ -76,8 +76,8 @@ struct TaskRow: View {
     @ViewBuilder
     private var sourceBadge: some View {
         // Single-click jumps to the source paragraph. Pane-created tasks
-        // have no paragraph anchor; the badge stays non-interactive for
-        // them (clicking is a no-op via the disabled button style).
+        // have no paragraph anchor, so their badge is a plain image, not a
+        // button.
         switch task.kind {
         case .inlineMarkdown:
             Button {

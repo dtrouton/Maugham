@@ -1067,14 +1067,16 @@ final class DocSyncTests: XCTestCase {
     /// fourth subclass otherwise runs silently in every fast loop.
     static func mountingSkipMismatches(sources: [String], script: String, claude: String) -> [String] {
         func names(_ pattern: String, in texts: [String]) -> Set<String> {
-            let regex = try! NSRegularExpression(pattern: pattern)
+            let regex = try! NSRegularExpression(pattern: pattern, options: .anchorsMatchLines)
             return Set(texts.flatMap { text -> [String] in
                 let ns = text as NSString
                 return regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
                     .map { ns.substring(with: $0.range(at: 1)) }
             })
         }
-        let subclasses = names(#"class\s+(\w+)\s*:\s*CanvasViewMountingCase\b"#, in: sources)
+        // Anchored to a line-start declaration, so a quoted planted class
+        // (the control below, in this very file) is not a subclass.
+        let subclasses = names(#"^\s*(?:final\s+)?class\s+(\w+)\s*:\s*CanvasViewMountingCase\b"#, in: sources)
         let skipped = names(#"-skip-testing:MaughamTests/(CanvasViewMounting\w+)"#, in: [script])
         var problems: [String] = []
         if subclasses.isEmpty { problems.append("no CanvasViewMountingCase subclass found") }
@@ -1089,8 +1091,13 @@ final class DocSyncTests: XCTestCase {
     }
 
     func test_canvasMountingSkipListIsEveryMountingSubclass() throws {
-        let canvasTests = repoRoot.appendingPathComponent("MaughamTests/Canvas")
-        let sources = try FileManager.default.contentsOfDirectory(at: canvasTests, includingPropertiesForKeys: nil)
+        // All of MaughamTests, recursively: a subclass in another folder is
+        // exactly the one that would slip into the fast loop.
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests")
+        guard let walker = FileManager.default.enumerator(at: testsDir, includingPropertiesForKeys: nil) else {
+            return XCTFail("Could not walk MaughamTests")
+        }
+        let sources = try walker.compactMap { $0 as? URL }
             .filter { $0.pathExtension == "swift" }
             .map { try String(contentsOf: $0, encoding: .utf8) }
         let problems = Self.mountingSkipMismatches(
@@ -1107,6 +1114,9 @@ final class DocSyncTests: XCTestCase {
         let agreeing = ["final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {}",
                         "final class CanvasViewMountingEditingTests : CanvasViewMountingCase {}"]
         XCTAssertEqual(Self.mountingSkipMismatches(sources: agreeing, script: script, claude: claude), [])
+        let quoted = ["    let fixture = \"final class CanvasViewMountingFakeTests: CanvasViewMountingCase {}\""]
+        XCTAssertEqual(Self.mountingSkipMismatches(sources: agreeing + quoted, script: script, claude: claude), [],
+            "Self-check: a class named inside a string literal is not a subclass.")
         let withFourth = agreeing + ["final class CanvasViewMountingLinesTests: CanvasViewMountingCase {}"]
         let problems = Self.mountingSkipMismatches(sources: withFourth, script: script, claude: claude)
         XCTAssertEqual(problems.count, 2,
