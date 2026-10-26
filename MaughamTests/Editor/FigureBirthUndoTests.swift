@@ -112,13 +112,19 @@ final class FigureBirthUndoTests: XCTestCase {
     /// the figure's birth registered alongside — outside any event, as a Task
     /// continuation lands it.
     private func insertTableFigure(_ m: Mounted, _ store: ProjectStore,
-                                   _ chapter: StructureItem) async throws -> FigureRecord {
+                                   _ chapter: StructureItem,
+                                   insideAnEvent: Bool = false) async throws -> FigureRecord {
         let figure = try await store.createFigure(kind: .table, name: "table", piece: chapter.id,
                                                   rows: 3, columns: 3)
         let end = (m.textView.string as NSString).length
         let written = "\n\n" + Self.line
         let caption = NSRange(location: end + 4, length: ("Caption" as NSString).length)
-        XCTAssertEqual(m.undo.groupingLevel, 0, "precondition: lands outside an event")
+        if insideAnEvent {
+            m.undo.groupsByEvent = false
+            m.undo.beginUndoGrouping()
+        }
+        defer { if insideAnEvent { m.undo.endUndoGrouping() } }
+        XCTAssertEqual(m.undo.groupingLevel, insideAnEvent ? 1 : 0, "precondition: where it lands")
         let wrote = m.coordinator.applyCommandEdit(
             replacing: NSRange(location: end, length: 0), with: written,
             selecting: caption, actionName: "Insert Table",
@@ -215,6 +221,23 @@ final class FigureBirthUndoTests: XCTestCase {
         XCTAssertEqual(m.box.reported, [])
     }
 
+    /// **Inside an event's open group** (`applyCommandEdit` brackets none of
+    /// its own): the figure's registration joins the same group as the text,
+    /// so one ⌘Z still takes back both.
+    func test_insideAnOpenGroupTheLineAndTheFigureAreStillOneStep() async throws {
+        let (store, chapter) = try await novel()
+        let m = try mount("Intro")
+        let figure = try await insertTableFigure(m, store, chapter, insideAnEvent: true)
+
+        await undo(m)
+        XCTAssertEqual(m.textView.string, "Intro")
+        XCTAssertEqual(ids(store), [])
+        XCTAssertEqual(trashedFigureIds(store), [figure.id])
+        await redo(m)
+        XCTAssertEqual(m.textView.string, "Intro\n\n" + Self.line)
+        XCTAssertEqual(ids(store), [figure.id])
+    }
+
     // MARK: - Refusals still move the text
 
     /// **A refused removal**: the figure cannot go (here it already went,
@@ -238,6 +261,25 @@ final class FigureBirthUndoTests: XCTestCase {
         await redo(m)
         XCTAssertEqual(m.textView.string, "Intro\n\n" + Self.line)
         XCTAssertEqual(m.box.reported.count, 1, "nothing to restore, nothing said")
+
+        // ⌘Z again tries the removal again, and says so again.
+        await undo(m)
+        XCTAssertEqual(m.textView.string, "Intro")
+        XCTAssertEqual(m.box.reported.count, 2, "\(m.box.reported)")
+    }
+
+    /// **A refused removal or restore, in the writer's words**: the posture
+    /// refusal gets its own sentence, any other error its own reason.
+    func test_theRefusalSentences() {
+        XCTAssertEqual(
+            FigureBirthUndo.removalRefusedMessage(FigureEditRefused(site: "removeFigure")),
+            "The text was taken back, but this Mac may not change its figure, so the figure stays in the book.")
+        XCTAssertEqual(
+            FigureBirthUndo.removalRefusedMessage(FigureEditInvalid(reason: "gone")),
+            "The text was taken back, but its figure stays in the book: gone")
+        XCTAssertEqual(
+            FigureBirthUndo.restoreRefusedMessage(FigureEditInvalid(reason: "gone")),
+            "The figure line is back, but its figure stays in the Trash: gone")
     }
 
     /// **A refused restore** (another figure took the name while this one was
@@ -257,8 +299,8 @@ final class FigureBirthUndoTests: XCTestCase {
         XCTAssertEqual(ids(store), [usurper.id], "the removed figure did not come back")
         XCTAssertEqual(trashedFigureIds(store), [figure.id], "it stays in the Trash")
         XCTAssertEqual(m.box.reported, [
-            "The figure line is back, but its figure stays in the Trash: "
-                + "A figure called table already exists; rename it first."
+            "The figure line is back, but it now shows the other figure called table; "
+                + "the figure it made stays in the Trash."
         ])
 
         await undo(m)

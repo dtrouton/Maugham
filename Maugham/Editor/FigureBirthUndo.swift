@@ -22,8 +22,9 @@ import AppKit
 /// already moved); the writer is told why through `report` — the editor's
 /// `commandFailureReporter`. A refused removal leaves the figure in the book; a
 /// refused restore (`FigureRestoreRefused`, its name taken meanwhile) leaves it
-/// in the Trash, its line reading as a removed figure, and the next ⌘Z does not
-/// try to remove it again. A Route B wipe or a document switch drops the
+/// in the Trash — the redone line, whose path is the name's, now shows the
+/// other figure that has that name (Denver's ruling, report plan 7b) — and the
+/// next ⌘Z does not try to remove either of them. A Route B wipe or a document switch drops the
 /// registration, leaving the figure where it is (accepted).
 @MainActor
 final class FigureBirthUndo {
@@ -135,7 +136,13 @@ final class FigureBirthUndo {
     }
 
     /// What the writer is told when ⇧⌘Z put the line back but not its figure.
+    /// A name taken meanwhile says what the line now shows: the other figure
+    /// called that, since the line's path is the name's.
     static func restoreRefusedMessage(_ error: Error) -> String {
-        "The figure line is back, but its figure stays in the Trash: \(error.localizedDescription)"
+        if let taken = error as? FigureRestoreRefused {
+            return "The figure line is back, but it now shows the other figure called \(taken.name); "
+                + "the figure it made stays in the Trash."
+        }
+        return "The figure line is back, but its figure stays in the Trash: \(error.localizedDescription)"
     }
 }
