@@ -708,6 +708,12 @@ final class FigureDocumentTests: XCTestCase {
                 try await doc.sortRows(
                     by: key.column, ascending: true, values: { _ in .empty }, actionName: "Sort", undoManager: um)
             }),
+            ("applyChanges", {
+                try await doc.applyChanges(
+                    [FigureReturnDiff.Change(kind: .figureCellSet, payload: FigureOpPayload(
+                        cell: key, next: self.text("x"), prior: nil))],
+                    expecting: doc.state, actionName: "Paste", undoManager: um)
+            }),
         ]
         for (name, press) in presses {
             do {

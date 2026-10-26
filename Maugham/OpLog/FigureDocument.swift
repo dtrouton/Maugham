@@ -939,6 +939,95 @@ public final class FigureDocument {
         if let failure { throw failure }
     }
 
+    /// The op kinds a batch may carry: a table's content, never its life.
+    private static let batchKinds: Set<OpKind> = [
+        .figureCellSet, .figureStructure, .figureSettings, .figurePinSet, .figurePinClear,
+    ]
+
+    /// **Apply planned changes as one visit** (report plan 7d Task 2): a paste
+    /// that grows the table, an import, a delete of several rows or columns.
+    /// `expecting` is the state they were planned against: once the figure
+    /// differs, nothing is written. One door check (asked again after a
+    /// Research read), the changes in order, one render, **one ⌘Z** that
+    /// takes every change back.
+    ///
+    /// - Refused, writing nothing (`FigureEditInvalid`): a kind that is not a
+    ///   table's content, or a change that does not apply or misstates what it
+    ///   replaces (`FigureReturnDiff.applied`), or one without an undo.
+    /// - **Research-reading formulas take their entry pins** through one read
+    ///   (`DocumentStore.entryPins(for:cells:)`), as `setCells` does.
+    /// - The undo and the redo each ask `FigureReturnDiff.applied` of what they
+    ///   would append — every inverse (or redone change) still describes what
+    ///   it replaces — and decline as drifted otherwise. The redo re-applies
+    ///   the same ids (an insert comes back as a revive).
+    /// - An append that fails part way renders what landed, registers its
+    ///   ⌘Z, and throws.
+    public func applyChanges(
+        _ changes: [FigureReturnDiff.Change], expecting: FigureState,
+        actionName: String, undoManager: UndoManager? = nil
+    ) async throws {
+        try await requireWritable("applyChanges")
+        try requireTable()
+        guard !changes.isEmpty else { return }
+        guard state == expecting else {
+            throw FigureEditInvalid(reason: "the table changed while the change was being prepared")
+        }
+        guard changes.allSatisfy({ Self.batchKinds.contains($0.kind) }),
+              let planned = FigureReturnDiff.applied(changes, onto: state),
+              !FigureInverse.compensating(visit: changes.map { ($0.kind, $0.payload) }).isEmpty
+        else { throw FigureEditInvalid(reason: "the changes don't fit the table") }
+        var entryPins: [PinWrite] = []
+        let formulaKeys = Set(changes.compactMap { c -> CellKey? in
+            guard c.kind == .figureCellSet, case .formula(let f)? = c.payload.next?.content,
+                  FigurePins.readsResearch(f) else { return nil }
+            return c.payload.cell
+        })
+        if !formulaKeys.isEmpty, let documentStore {
+            do {
+                entryPins = try await documentStore.entryPins(for: planned, cells: formulaKeys)
+            } catch {
+                documentLog.error(
+                    "figure \(self.figureId, privacy: .public): a batch's Research sources did not read, so it takes no pins: \(error.localizedDescription, privacy: .public)")
+            }
+            // The read awaited: the door and the table are asked again.
+            try await requireWritable("applyChanges")
+            guard state == expecting else {
+                throw FigureEditInvalid(reason: "the table changed while its Research sources were read")
+            }
+        }
+        var written: [Op] = []
+        var failure: Error?
+        do {
+            for c in changes {
+                written.append(try await commit(c.kind, c.payload, render: false))
+            }
+            for w in entryPins {
+                written.append(try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin), render: false))
+            }
+        } catch {
+            documentLog.error(
+                "figure \(self.figureId, privacy: .public): a batch was not all written: \(error.localizedDescription, privacy: .public)")
+            failure = error
+        }
+        guard let first = written.first else { throw failure ?? FigureEditInvalid(reason: "nothing was written") }
+        await documentStore?.figureHostAppended(figureId)
+        let visit = written.compactMap { op in op.figure.map { (op.kind, $0) } }
+        let undo = FigureInverse.compensating(visit: visit)
+        let redo = FigureInverse.compensating(visit: undo)
+            .map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
+        let undoChanges = undo.map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
+        registerFigureUndo(
+            undoManager, actionName: actionName, forward: first, alongside: Array(written.dropFirst()),
+            stillAsWritten: { d in FigureReturnDiff.applied(undoChanges, onto: d.state) != nil },
+            redo: { [weak undoManager] d in
+                guard FigureReturnDiff.applied(redo, onto: d.state) != nil else { return d.decline(.drifted) }
+                await d.redoing {
+                    try await d.applyChanges(redo, expecting: d.state, actionName: actionName, undoManager: undoManager)
+                }
+            })
+        if let failure { throw failure }
+    }
+
     /// Every other table figure in the window's book, by id and name — what a
     /// sort asks whether another figure reads a range of its rows. Empty
     /// without a window.

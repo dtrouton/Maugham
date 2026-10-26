@@ -462,4 +462,151 @@ final class FigureBatchVerbTests: XCTestCase {
         await store.closeFigure(figureId: summary.id)
         await store.closeFigure(figureId: host.figureId)
     }
+
+    // MARK: - applyChanges (report plan 7d Task 2)
+
+    private func change(_ kind: OpKind, _ payload: FigureOpPayload) -> FigureReturnDiff.Change {
+        FigureReturnDiff.Change(kind: kind, payload: payload)
+    }
+
+    /// A fresh row id the table has never held.
+    private func freshRow(_ host: FigureDocument) -> RowID {
+        RowID(TableID.mint(excluding: Set(host.state.table.rowSlots.map(\.id.raw)
+            + host.state.table.columnSlots.map(\.id.raw))))
+    }
+
+    /// **Inserts, deletes and cells, one visit**: an op per change, one
+    /// render, one ⌘Z that restores the rows and cells exactly — itself one
+    /// render — and a redo that re-applies them with the same ids, itself
+    /// undoable again.
+    func test_applyChangesIsOneRender_andOneUndoRestoresEverything_andRedoKeepsTheIds() async throws {
+        let (store, host) = try await openTable()
+        let a1 = key(host, 0, 0), b2 = key(host, 1, 1), a3 = key(host, 2, 0)
+        try await host.setCell(text("a1"), at: a1)
+        try await host.setCell(text("b2"), at: b2)
+        try await host.setCell(text("a3"), at: a3)
+        let before = host.state
+        let new = freshRow(host)
+        let newA = CellKey(row: new, column: before.table.columns[0])
+        let changes = [
+            change(.figureStructure, FigureOpPayload(structure: .insertRow(new, after: a3.row))),
+            change(.figureCellSet, FigureOpPayload(cell: newA, next: number(4), prior: nil)),
+            change(.figureCellSet, FigureOpPayload(cell: a1, next: text("A1"), prior: text("a1"))),
+            change(.figureStructure, FigureOpPayload(structure: .deleteRow(b2.row), removed: before.removedSlice(row: b2.row))),
+        ]
+        let count = try ops(of: host.figureId).count
+        let um = UndoManager()
+        renders = []
+
+        try await host.applyChanges(changes, expecting: before, actionName: "Paste", undoManager: um)
+
+        XCTAssertEqual(try ops(of: host.figureId).count, count + 4, "an op per change")
+        XCTAssertEqual(renders, [host.figureId], "one render for the visit")
+        XCTAssertEqual(host.state.table.rows, [a1.row, a3.row, new])
+        XCTAssertEqual(host.state.table[newA], number(4))
+        XCTAssertEqual(host.state.table[a1], text("A1"))
+        XCTAssertEqual(um.undoActionName, "Paste")
+
+        renders = []
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.rows, before.table.rows, "one ⌘Z restores the rows")
+        XCTAssertEqual(host.state.table.cells, before.table.cells, "and every cell, the deleted row's too")
+        XCTAssertEqual(renders, [host.figureId], "in one render")
+        XCTAssertFalse(um.canUndo, "one step, not four")
+
+        um.redo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.rows, [a1.row, a3.row, new], "the redo keeps the ids")
+        XCTAssertEqual(host.state.table[newA], number(4))
+        XCTAssertEqual(host.state.table[a1], text("A1"))
+        XCTAssertTrue(um.canUndo, "and is undoable again")
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.cells, before.table.cells, "a second ⌘Z restores it again")
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **Refused, nothing is written**: changes planned against a figure that
+    /// has changed since, a change that misstates what it replaces, and a
+    /// kind that is not a table's content each write, render and register
+    /// nothing.
+    func test_applyChangesRefusedWritesNothing() async throws {
+        let (store, host) = try await openTable()
+        let a1 = key(host, 0, 0)
+        let stale = host.state
+        try await host.setCell(text("since"), at: a1)
+        let now = host.state
+        let count = try ops(of: host.figureId).count
+        let um = UndoManager()
+        renders = []
+        let refused: [(String, [FigureReturnDiff.Change], FigureState)] = [
+            ("planned against an older figure",
+             [change(.figureCellSet, FigureOpPayload(cell: a1, next: text("x"), prior: nil))], stale),
+            ("a prior that is not the cell's",
+             [change(.figureCellSet, FigureOpPayload(cell: a1, next: text("x"), prior: nil))], now),
+            ("a delete that does not carry what the row holds",
+             [change(.figureStructure, FigureOpPayload(structure: .deleteRow(a1.row), removed: FigureRemovedSlice()))], now),
+            ("not a table's content", [change(.figureResumed, FigureOpPayload())], now),
+        ]
+        for (what, changes, expecting) in refused {
+            do {
+                try await host.applyChanges(changes, expecting: expecting, actionName: "Paste", undoManager: um)
+                XCTFail("\(what) was written")
+            } catch is FigureEditInvalid {}
+        }
+        XCTAssertEqual(host.state.table[a1], text("since"))
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        XCTAssertEqual(renders, [], "nothing rendered")
+        XCTAssertFalse(um.canUndo, "nothing registered")
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **The undo's drift guard covers what the visit touched**: a cell typed
+    /// since into a row the visit inserted declines the whole ⌘Z (the row
+    /// is not taken back with another device's cell in it); a write
+    /// elsewhere does not.
+    func test_anApplyChangesUndoDeclinesOnceAnotherWriteLandedInWhatItTouched() async throws {
+        let (store, host) = try await openTable()
+        let c3 = key(host, 2, 2)
+        let before = host.state
+        let new = freshRow(host)
+        let changes = [
+            change(.figureStructure, FigureOpPayload(structure: .insertRow(new, after: c3.row))),
+            change(.figureCellSet, FigureOpPayload(
+                cell: CellKey(row: new, column: before.table.columns[0]), next: text("pasted"), prior: nil)),
+        ]
+        let um = UndoManager()
+        try await host.applyChanges(changes, expecting: before, actionName: "Paste", undoManager: um)
+        try await host.setCell(text("elsewhere"), at: c3)
+        try await host.setCell(text("late"), at: CellKey(row: new, column: before.table.columns[1]))
+        let count = try ops(of: host.figureId).count
+
+        let said = await notices {
+            um.undo()
+            await host.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(host.state.table.rows.last, new, "the row stays")
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// Control: with only a write elsewhere since, the ⌘Z runs.
+    func test_anApplyChangesUndoRunsPastAWriteOutsideWhatItTouched() async throws {
+        let (store, host) = try await openTable()
+        let c3 = key(host, 2, 2)
+        let before = host.state
+        let new = freshRow(host)
+        let um = UndoManager()
+        try await host.applyChanges(
+            [change(.figureStructure, FigureOpPayload(structure: .insertRow(new, after: c3.row)))],
+            expecting: before, actionName: "Paste", undoManager: um)
+        try await host.setCell(text("elsewhere"), at: c3)
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.rows, before.table.rows, "the inserted row is taken back")
+        XCTAssertEqual(host.state.table[c3], text("elsewhere"), "the other write stands")
+        await store.closeFigure(figureId: host.figureId)
+    }
 }

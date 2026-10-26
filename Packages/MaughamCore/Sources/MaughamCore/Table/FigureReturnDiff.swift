@@ -112,6 +112,62 @@ public enum FigureReturnDiff {
         return true
     }
 
+    /// **`state` with `changes` folded in turn, or nil when one does not apply
+    /// or misstates what it replaces** (report plan 7d Task 2). Each change's
+    /// undo is built from what it says it replaced, so a host asks this before
+    /// it appends a batch it will undo, and asks it of the inverses at ⌘Z and
+    /// of the redo at ⇧⌘Z: their drift guard. Beyond `everyChangeApplies`:
+    /// - a cell set's `prior` is the cell it lands on;
+    /// - a delete's `removed` slice is what the row or column holds;
+    /// - a move's `priorAfter` is the slot before it;
+    /// - a setting's prior is the table's;
+    /// - a pin set's `priorPin`, and a pin clear's pin, are held by the cell.
+    public static func applied(_ changes: [Change], onto state: FigureState) -> FigureState? {
+        var sim = Simulation(state: state)
+        for change in changes {
+            let diagnosed = sim.state.diagnostics.count, held = sim.state.held.count
+            guard FigureOpPayload.validate(kind: change.kind, payload: change.payload),
+                  describesWhatItReplaces(change, in: sim.state) else { return nil }
+            sim.emit(change.kind, change.payload)
+            guard sim.state.diagnostics.count == diagnosed, sim.state.held.count <= held else { return nil }
+        }
+        sim.state.parked = state.parked
+        return sim.state
+    }
+
+    private static func describesWhatItReplaces(_ change: Change, in state: FigureState) -> Bool {
+        let p = change.payload, table = state.table
+        switch change.kind {
+        case .figureCellSet:
+            return p.cell.map { table[$0] == p.prior } ?? false
+        case .figureStructure:
+            switch p.structure {
+            case let .deleteRow(id)?: return p.removed.map { $0 == state.removedSlice(row: id) } ?? true
+            case let .deleteColumn(id)?: return p.removed.map { $0 == state.removedSlice(column: id) } ?? true
+            case let .moveRow(id, _, priorAfter)?:
+                return id.slot(in: table) != nil && id.predecessor(in: table) == priorAfter
+            case let .moveColumn(id, _, priorAfter)?:
+                return id.slot(in: table) != nil && id.predecessor(in: table) == priorAfter
+            default: return true
+            }
+        case .figureSettings:
+            switch p.settings {
+            case let .headerRows(_, prior)?: return table.headerRows == prior
+            case let .totalRow(_, prior)?: return table.hasTotalRow == prior
+            case let .columnWidth(column, _, prior)?: return table.columnWidths[column] == prior
+            case nil: return false
+            }
+        case .figurePinSet:
+            guard let prior = p.priorPin, let key = p.cell else { return true }
+            return state.pins[key]?.contains(prior) == true
+        case .figurePinClear:
+            guard let pin = p.pin, let key = p.cell else { return true }
+            return state.pins[key]?.contains(pin) == true
+        default:
+            return true
+        }
+    }
+
     /// The two-way return (the brief's shape): `parked` is both the base and
     /// the state the changes land on.
     public static func ops(

@@ -10,7 +10,8 @@ import MaughamCore
 /// - **The only grid file that calls a figure mutator** (tripwire 52 counts
 ///   this file's calls in `manuscriptWriterCallSites`): a cell through
 ///   `setCell`, a range (⌫, a format, decimals, align, Σ) through `setCells`
-///   — one ⌘Z and one render however many cells — and the structure verbs.
+///   — one ⌘Z and one render however many cells — the structure verbs, and
+///   a delete of several rows or columns through `applyChanges`.
 ///   Each registers on the window's `UndoManager` (ruling R7c-1, until 7d).
 /// - **It observes `host.state`** (`withObservationTracking`; the coordinator
 ///   never does, tripwire 6) and advances the values incrementally, repainting
@@ -513,8 +514,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// **Delete, move or sort** through the host, each behind its own door.
     ///
-    /// - A delete takes each selected row (column) in turn — one ⌘Z each on
-    ///   the window's undo manager until 7d's grid undo (R7c-1).
+    /// - A delete takes every selected row (column) as one visit
+    ///   (`applyChanges`): one render, one ⌘Z.
     /// - A move shifts the selected block one place by moving its neighbour
     ///   across it (one `moveRow`/`moveColumn`, one ⌘Z); the selection rides
     ///   its ids. References follow their ids, as an Excel cut-and-insert
@@ -526,27 +527,38 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         switch command {
         case .deleteRows:
             enqueue { [weak self, host, undoManager] in
-                var deleted = 0
+                let state = host.state
+                let rows = block.rows.filter { state.table.rowIndex(of: $0) != nil }
+                let changes = rows.map { row in
+                    FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
+                        structure: .deleteRow(row), removed: state.removedSlice(row: row)))
+                }
                 do {
-                    for row in block.rows {
-                        try await host.deleteRow(row, undoManager: undoManager())
-                        deleted += 1
-                    }
+                    try await host.applyChanges(
+                        changes, expecting: state, actionName: rows.count == 1 ? "Delete Row" : "Delete Rows",
+                        undoManager: undoManager())
                 } catch {
-                    self?.sayPartlyDeleted(deleted, of: block.rows.count, "rows")
+                    let deleted = rows.filter { host.state.table.rowIndex(of: $0) == nil }.count
+                    self?.sayPartlyDeleted(deleted, of: rows.count, "rows")
                     throw error
                 }
             }
         case .deleteColumns:
             enqueue { [weak self, host, undoManager] in
-                var deleted = 0
+                let state = host.state
+                let columns = block.columns.filter { state.table.columnIndex(of: $0) != nil }
+                let changes = columns.map { column in
+                    FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
+                        structure: .deleteColumn(column), removed: state.removedSlice(column: column)))
+                }
                 do {
-                    for column in block.columns {
-                        try await host.deleteColumn(column, undoManager: undoManager())
-                        deleted += 1
-                    }
+                    try await host.applyChanges(
+                        changes, expecting: state,
+                        actionName: columns.count == 1 ? "Delete Column" : "Delete Columns",
+                        undoManager: undoManager())
                 } catch {
-                    self?.sayPartlyDeleted(deleted, of: block.columns.count, "columns")
+                    let deleted = columns.filter { host.state.table.columnIndex(of: $0) == nil }.count
+                    self?.sayPartlyDeleted(deleted, of: columns.count, "columns")
                     throw error
                 }
             }
@@ -585,8 +597,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         }
     }
 
-    /// A delete of several rows (columns) refused part way: what landed is
-    /// said, since each is its own ⌘Z until 7d (the refusal says itself).
+    /// A delete of several rows (columns) whose append failed part way: what
+    /// landed is said (its one ⌘Z takes it back; the failure says itself).
     private func sayPartlyDeleted(_ deleted: Int, of count: Int, _ what: String) {
         guard deleted > 0 else { return }
         MaughamEvent.postNotice("Only \(deleted) of the \(count) \(what) were deleted.", projectURL: host.projectURL)

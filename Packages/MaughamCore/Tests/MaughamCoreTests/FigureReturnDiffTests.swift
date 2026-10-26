@@ -635,4 +635,87 @@ final class FigureReturnDiffTests: XCTestCase {
         let back = applied(changes.ops, to: parked)
         XCTAssertEqual(value(back, cash, 1), value(parked, cash, 1))
     }
+
+    // MARK: - applied(_:onto:) (report plan 7d Task 2)
+
+    private func change(_ kind: OpKind, _ payload: FigureOpPayload) -> FigureReturnDiff.Change {
+        FigureReturnDiff.Change(kind: kind, payload: payload)
+    }
+
+    private func t(_ s: String) -> Cell { Cell(content: .value(.text(s))) }
+
+    /// **A batch that says truly what it replaces folds as the stream would**,
+    /// and its inverses (the batch's ⌘Z) fold it back to where it began.
+    func test_appliedFoldsATruthfulBatch_andItsInversesFoldItBack() throws {
+        let s = figure("a,b\nc,d\ne,f")
+        let (r0, r1, r2) = (s.table.rows[0], s.table.rows[1], s.table.rows[2])
+        let (c0, c1) = (s.table.columns[0], s.table.columns[1])
+        let new = RowID("nr000001")
+        let batch = [
+            change(.figureStructure, FigureOpPayload(structure: .insertRow(new, after: r2))),
+            change(.figureCellSet, FigureOpPayload(cell: CellKey(row: new, column: c0), next: t("g"), prior: nil)),
+            change(.figureCellSet, FigureOpPayload(cell: CellKey(row: r0, column: c1), next: t("B"), prior: t("b"))),
+            change(.figureStructure, FigureOpPayload(structure: .deleteRow(r1), removed: s.removedSlice(row: r1))),
+            change(.figureStructure, FigureOpPayload(structure: .moveRow(r0, after: r2, priorAfter: nil))),
+            change(.figureSettings, FigureOpPayload(settings: .headerRows(1, prior: s.table.headerRows))),
+        ]
+        let after = try XCTUnwrap(FigureReturnDiff.applied(batch, onto: s))
+        XCTAssertEqual(after.table, applied(batch, to: s).table, "the same fold the stream makes")
+        XCTAssertEqual(after.table.rows, [r2, r0, new])
+
+        let undo = FigureInverse.compensating(visit: batch.map { ($0.kind, $0.payload) })
+            .map { change($0.0, $0.1) }
+        let back = try XCTUnwrap(FigureReturnDiff.applied(undo, onto: after), "the inverses describe the batch's result")
+        XCTAssertEqual(back.table.rows, s.table.rows)
+        XCTAssertEqual(back.table.cells, s.table.cells)
+        XCTAssertEqual(back.table.headerRows, s.table.headerRows)
+    }
+
+    /// **Each misstatement refuses the batch** — what an undo built from it
+    /// would put back is not what was there.
+    func test_appliedRefusesABatchThatMisstatesWhatItReplaces() {
+        var s = figure("a,b\nc,d\ne,f")
+        let (r0, r1, r2) = (s.table.rows[0], s.table.rows[1], s.table.rows[2])
+        let (c0, c1) = (s.table.columns[0], s.table.columns[1])
+        let pin = FigureResearchPin(research: "r", row: 1, column: 1, value: .number(1), sourceHash: "h", at: Date(timeIntervalSince1970: 0))
+        s.pins[CellKey(row: r0, column: c0)] = [pin]
+        let wrong: [(String, FigureReturnDiff.Change)] = [
+            ("a cell's prior", change(.figureCellSet, FigureOpPayload(cell: CellKey(row: r0, column: c0), next: t("x"), prior: t("z")))),
+            ("a cell on a gone row", change(.figureCellSet, FigureOpPayload(cell: CellKey(row: RowID("nr999999"), column: c0), next: t("x"), prior: nil))),
+            ("a delete's slice", change(.figureStructure, FigureOpPayload(structure: .deleteRow(r1), removed: FigureRemovedSlice()))),
+            ("a move's prior slot", change(.figureStructure, FigureOpPayload(structure: .moveRow(r2, after: nil, priorAfter: r0)))),
+            ("a setting's prior", change(.figureSettings, FigureOpPayload(settings: .totalRow(true, prior: true)))),
+            ("a width's prior", change(.figureSettings, FigureOpPayload(settings: .columnWidth(c1, 80, prior: 40)))),
+            ("a pin the cell does not hold", change(.figurePinClear, FigureOpPayload(cell: CellKey(row: r1, column: c0), pin: pin))),
+        ]
+        for (what, c) in wrong {
+            XCTAssertNil(FigureReturnDiff.applied([c], onto: s), what)
+        }
+        XCTAssertNotNil(FigureReturnDiff.applied(
+            [change(.figurePinClear, FigureOpPayload(cell: CellKey(row: r0, column: c0), pin: pin))], onto: s),
+            "control: the pin the cell holds")
+    }
+
+    /// **The drift guard an undo asks**: an insert's inverse refuses once the
+    /// new row holds a cell the batch did not write; a cell's, once it changed.
+    func test_appliedRefusesAnUndoOnceAnotherWriteLandedInWhatTheBatchTouched() throws {
+        let s = figure("a,b\nc,d")
+        let (r1, c0, c1) = (s.table.rows[1], s.table.columns[0], s.table.columns[1])
+        let new = RowID("nr000001")
+        let batch = [
+            change(.figureStructure, FigureOpPayload(structure: .insertRow(new, after: r1))),
+            change(.figureCellSet, FigureOpPayload(cell: CellKey(row: new, column: c0), next: t("g"), prior: nil)),
+        ]
+        let after = try XCTUnwrap(FigureReturnDiff.applied(batch, onto: s))
+        let undo = FigureInverse.compensating(visit: batch.map { ($0.kind, $0.payload) }).map { change($0.0, $0.1) }
+        XCTAssertNotNil(FigureReturnDiff.applied(undo, onto: after), "control: nothing landed since")
+
+        var typedInto = after
+        typedInto.table.setCell(t("late"), at: CellKey(row: new, column: c1))
+        XCTAssertNil(FigureReturnDiff.applied(undo, onto: typedInto), "the new row holds another device's cell")
+
+        var changed = after
+        changed.table.setCell(t("other"), at: CellKey(row: new, column: c0))
+        XCTAssertNil(FigureReturnDiff.applied(undo, onto: changed), "the batch's own cell changed since")
+    }
 }

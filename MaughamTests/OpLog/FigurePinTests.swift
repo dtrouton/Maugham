@@ -273,6 +273,46 @@ final class FigurePinTests: XCTestCase {
         await store.closeFigure(figureId: summary.id)
     }
 
+    /// **`applyChanges` takes entry pins as `setCells` does** (report plan 7d
+    /// Task 2): a Research formula pasted into a row the paste inserts takes
+    /// its pin in the same visit; one ⌘Z takes the row, the cell and the pin
+    /// back, and the redo brings the row back with its id, cell and pin.
+    func test_applyChangesPinsAResearchFormulaInANewRow_andOneUndoTakesItAllBack() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let names = FormulaNames(research: [(item.id, item.title)])
+        guard case .success(let f) = FormulaParser.parse("research:model!B2*2", in: host.state.table, names: names)
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        let before = host.state
+        let new = RowID(TableID.mint(excluding: Set(before.table.rowSlots.map(\.id.raw))))
+        let cell = CellKey(row: new, column: before.table.columns[0])
+        let changes = [
+            FigureReturnDiff.Change(kind: .figureStructure, payload: FigureOpPayload(
+                structure: .insertRow(new, after: before.table.rows.last))),
+            FigureReturnDiff.Change(kind: .figureCellSet, payload: FigureOpPayload(
+                cell: cell, next: Cell(content: .formula(f)), prior: nil)),
+        ]
+        let um = UndoManager()
+
+        try await host.applyChanges(changes, expecting: before, actionName: "Paste", undoManager: um)
+        XCTAssertEqual(host.state.pins[cell]?.map(\.value), [.number(10)], "the pin is taken in the visit")
+
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.rows, before.table.rows, "one ⌘Z takes the row back")
+        XCTAssertNil(host.state.pins[cell], "with its pin")
+        XCTAssertFalse(um.canUndo)
+
+        um.redo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.state.table.rows.last, new, "the redo brings the same row back")
+        XCTAssertEqual(host.state.table[cell], Cell(content: .formula(f)))
+        XCTAssertEqual(host.state.pins[cell]?.map(\.value), [.number(10)], "and its pin")
+        await store.closeFigure(figureId: summary.id)
+    }
+
     /// **A failed entry-pin append is thrown** (review rule 7), as a
     /// refresh's is: the cell landed and stays undoable; no pin did.
     func test_aFailedEntryPinAppendThrows_andTheEditStaysUndoable() async throws {

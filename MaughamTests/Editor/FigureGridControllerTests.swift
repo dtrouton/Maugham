@@ -491,8 +491,35 @@ final class FigureGridControllerTests: XCTestCase {
         XCTAssertEqual(said, [])
     }
 
-    /// **A delete of several rows refused part way** says what landed (T9
-    /// review): each row is its own ⌘Z until 7d.
+    /// **A delete of several rows is one ⌘Z** (report plan 7d Task 2, the
+    /// 7c carry): A2:A4's rows go as one `applyChanges` visit, and one ⌘Z
+    /// brings all three back with their cells, in their places.
+    func test_aMultiRowDeleteIsOneUndoStep() async throws {
+        let (_, c) = try await openGrid()
+        let rows = Array(c.host.state.table.rows[1...3])
+        for (i, row) in rows.enumerated() {
+            try await c.host.setCell(Cell(content: .value(.number(Double(i)))),
+                                     at: CellKey(row: row, column: c.host.state.table.columns[0]))
+        }
+        await c.hostSync?.value
+        let before = c.host.state.table
+        c.handle(.click(key(c, "A2"), extend: false))
+        c.handle(.click(key(c, "A4"), extend: true))
+        renders = []
+        c.performTableCommand(.deleteRows)
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table.rows.count, before.rows.count - 3)
+        XCTAssertEqual(renders.count, 1, "one render for the three")
+        XCTAssertEqual(um.undoActionName, "Delete Rows")
+
+        um.undo()
+        await c.host.awaitPendingUndoWork()
+        XCTAssertEqual(c.host.state.table.rows, before.rows, "one ⌘Z brings all three back")
+        XCTAssertEqual(c.host.state.table.cells, before.cells, "with their cells")
+    }
+
+    /// **A delete of several rows whose append fails part way** says what
+    /// landed (T9 review); what landed is one ⌘Z.
     func test_aMultiRowDeleteRefusedPartWaySaysWhatLanded() async throws {
         let (_, c) = try await openGrid()
         struct DiskFull: Error {}

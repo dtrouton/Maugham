@@ -12154,7 +12154,7 @@ final class TripwireGrepTests: XCTestCase {
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
         "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
-        "setCells(", "sortRows(",
+        "setCells(", "sortRows(", "applyChanges(",
         figureOpMintSpelling,
     ]
 
@@ -12178,7 +12178,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
         "refreshPins(", "restoreToCheckpoint(",
-        "setCells(", "sortRows(",
+        "setCells(", "sortRows(", "applyChanges(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12599,8 +12599,8 @@ final class TripwireGrepTests: XCTestCase {
             // (report plan 6b Task 9).
             "refreshPins(": 1,
             // A batch's redo re-enters its verb, behind its own door (report
-            // plan 7c Task 1).
-            "setCells(": 1, "sortRows(": 1,
+            // plan 7c Task 1; `applyChanges`, plan 7d Task 2).
+            "setCells(": 1, "sortRows(": 1, "applyChanges(": 1,
         ],
         // A rename's picture: `renameImageFile` through the figure's host,
         // after `renameFigure` asked every door (report plan 6b Task 5).
@@ -12626,13 +12626,14 @@ final class TripwireGrepTests: XCTestCase {
         // range (⌫, a format, Σ — one `setCells` visit), the structure verbs
         // and a resize, each through the figure host's own door; the name
         // through `renameFigure`, which asks every door before it writes.
-        // Format ▸ Table's verbs (Task 9): a delete per selected row or
-        // column, a block moved up/down (left/right) by moving its neighbour
-        // across it, a sort by the active cell's column.
+        // Format ▸ Table's verbs (Task 9): the selected rows or columns
+        // deleted as one `applyChanges` visit each (plan 7d Task 2), a block
+        // moved up/down (left/right) by moving its neighbour across it, a
+        // sort by the active cell's column.
         "FigureGridController.swift": [
             "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
-            "deleteRow(": 1, "deleteColumn(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1,
+            "applyChanges(": 2, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1,
         ],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
@@ -12720,8 +12721,9 @@ final class TripwireGrepTests: XCTestCase {
         // the same guard; a parked figure is skipped, not written.
         "restoreToCheckpoint": "figure",
         // The batch verbs (report plan 7c Task 1): many cells or row moves
-        // behind one door check, one render and one ⌘Z.
-        "setCells": "figure", "sortRows": "figure",
+        // behind one door check, one render and one ⌘Z; `applyChanges`
+        // (plan 7d Task 2) any planned table changes the same way.
+        "setCells": "figure", "sortRows": "figure", "applyChanges": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12875,19 +12877,21 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **The batch verbs are in the derived population** (report plan 7c
-    /// Task 1): `setCells` and `sortRows` guard with `requireWritable`, so the
-    /// production code itself plants them — taken out of the classification,
-    /// the census names both; classified, it passes.
+    /// Task 1; `applyChanges`, plan 7d Task 2): each guards with
+    /// `requireWritable`, so the production code itself plants them — taken
+    /// out of the classification, the census names each; classified, it passes.
     func test_theBatchFigureVerbsAreFoundAndMustBeClassified() throws {
         let names = try guardedDocumentMutatorNames(in: sourceDir)
-        XCTAssertTrue(["setCells", "sortRows"].allSatisfy(names.contains),
+        XCTAssertTrue(["setCells", "sortRows", "applyChanges"].allSatisfy(names.contains),
             "Self-check: the batch verbs are in the derived population")
         var classified = Self.guardedDocumentMutators
         classified["setCells"] = nil
         classified["sortRows"] = nil
+        classified["applyChanges"] = nil
         XCTAssertEqual(
             Self.guardedMutatorProblems(names: names, classified: classified),
-            ["setCells: guarded but unclassified", "sortRows: guarded but unclassified"],
+            ["applyChanges: guarded but unclassified", "setCells: guarded but unclassified",
+             "sortRows: guarded but unclassified"],
             "unclassified, the census fails on each")
         XCTAssertTrue(
             Self.guardedMutatorProblems(names: names, classified: Self.guardedDocumentMutators).isEmpty,
@@ -12945,6 +12949,7 @@ final class TripwireGrepTests: XCTestCase {
         let outcome = try await host.restoreToCheckpoint(checkpoint.id, target: then)
         try await host.setCells(edits, actionName: "Clear", undoManager: um)
         try await host.sortRows(by: c, ascending: true, values: read, actionName: "Sort", undoManager: um)
+        try await host.applyChanges(changes, expecting: s, actionName: "Paste", undoManager: um)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
