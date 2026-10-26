@@ -125,8 +125,14 @@ enum FigureIngest {
 
     /// `![Caption](path){#kind:name}` (spec §3.1): `fig:` for a picture,
     /// `tbl:` for a table figure (Insert ▸ Table always labels its line, R7b-9).
-    static func figureLine(path: String, kind: ManuscriptLabel.Kind, name: String) -> String {
-        "![\(captionPlaceholder)](\(path)){#\(kind.rawValue):\(name)}"
+    /// Convert to Table Figure passes the pipe table's own `caption`, kept
+    /// on one line and with any `](` opened to `] (` so the line still reads
+    /// as one figure (`ManuscriptBlocks.imageRegex`).
+    static func figureLine(path: String, kind: ManuscriptLabel.Kind, name: String,
+                           caption: String = captionPlaceholder) -> String {
+        let kept = caption.components(separatedBy: .newlines).joined(separator: " ")
+            .replacingOccurrences(of: "](", with: "] (")
+        return "![\(kept)](\(path)){#\(kind.rawValue):\(name)}"
     }
 
     /// Where `Caption` sits in a `figureLine`.
@@ -360,22 +366,35 @@ enum FigureIngest {
     /// store steps it), which is also its line's label, `tbl:<name>` (R7b-9).
     static let tableFigureName = "table"
 
-    /// **A table figure Insert ▸ Table made**: its id, the path its line
-    /// writes (relative to the document), its name (the label's), and the
-    /// store that holds it — for the one ⌘Z that sends it to the Trash with
-    /// its line (`FigureBirthUndo`), or the Trash when the line can't be
-    /// written (R7b-6).
+    /// **A table figure Insert ▸ Table or Convert to Table Figure made**: its
+    /// id, the path its line writes (relative to the document), its name (the
+    /// store's, stepped clear of the registry), the store that holds it — for
+    /// the one ⌘Z that sends it to the Trash with its line (`FigureBirthUndo`),
+    /// or the Trash when the line can't be written (R7b-6) — and, for a
+    /// converted table, the cells kept as text because their formula would
+    /// not read (R7b-10).
     struct TableFigureBirth {
         let figureId: String
         let linePath: String
         let name: String
         let store: ProjectStore
+        var problems: [CSVReadProblem] = []
     }
 
-    /// **What the editor asks for a table figure**: the `tbl:` names the text
-    /// already uses (`existingFigureNames(kind: .tbl)`), read when the
-    /// command begins; it answers the figure it made.
-    typealias TableFigureMaker = @MainActor (Set<String>) async throws -> TableFigureBirth
+    /// **What the editor asks for a table figure**: the name to start from
+    /// (`tableFigureName` for Insert ▸ Table; a converted table's label's name
+    /// or its caption's), the names to step clear of — Insert's `tbl:` names
+    /// the text already uses (`existingFigureNames(kind: .tbl)`), read when
+    /// the command begins — and the pipe table to read the cells of (nil:
+    /// Insert's empty 3×3, `insertedTable()`).
+    struct TableFigureRequest: Equatable {
+        let name: String
+        let taken: Set<String>
+        let pipe: TableText?
+    }
+
+    /// Answers the figure it made for a `TableFigureRequest`.
+    typealias TableFigureMaker = @MainActor (TableFigureRequest) async throws -> TableFigureBirth
 
     /// The table Insert ▸ Table opens with: three rows by three columns, the
     /// first a header row, every cell empty (spec §6.4).
@@ -385,21 +404,36 @@ enum FigureIngest {
         return table
     }
 
-    /// Makes Insert ▸ Table's figure in the document's piece (`documentId`,
-    /// as `importImage`), named `tableFigureName` stepped clear of the
-    /// registry and of `taken`, so its label is its name.
+    /// Makes a table figure in the document's piece (`documentId`, as
+    /// `importImage`), named `request.name` stepped clear of the registry and
+    /// of `request.taken`. A pipe table's cells are read as a CSV import
+    /// reads them (`FigureTable.importing(pipe:locale:names:)`, over the
+    /// book's `tableImportContext`), before anything is made.
     /// `ProjectStore.createFigure` asks the new figure's posture (`.editFigure`)
     /// before it writes anything.
     @MainActor
     static func makeTableFigure(documentId: String, documentPath: String,
-                                taken: Set<String>, store: ProjectStore) async throws -> TableFigureBirth {
+                                request: TableFigureRequest,
+                                store: ProjectStore) async throws -> TableFigureBirth {
+        var table = insertedTable()
+        var problems: [CSVReadProblem] = []
+        if let pipe = request.pipe {
+            let context: (locale: TableLocale, names: FormulaNames)
+            if let documentStore = store.documentStore {
+                context = try await documentStore.tableImportContext()
+            } else {
+                context = (TableLocale(languageTag: await store.bookLanguageTag()), .empty)
+            }
+            (table, problems) = try FigureTable.importing(pipe: pipe, locale: context.locale,
+                                                          names: context.names)
+        }
         let record = try await store.createFigure(
-            kind: .table, name: tableFigureName, piece: documentId,
-            table: insertedTable(), avoiding: taken)
+            kind: .table, name: request.name, piece: documentId,
+            table: table, avoiding: request.taken)
         return TableFigureBirth(
             figureId: record.id,
             linePath: relativePath(fromDocument: documentPath, toResearch: record.path),
-            name: record.name, store: store)
+            name: record.name, store: store, problems: problems)
     }
 
     /// What the writer is told when the table figure could not be made.
@@ -408,6 +442,55 @@ enum FigureIngest {
             ? "This Mac may not make a figure here, so no table was inserted."
             : "The table figure couldn’t be made, so no table was inserted."
     }
+
+    // MARK: - Convert to Table Figure (report plan 7b Task 5)
+
+    /// The name a converted table's figure starts from when its table had no
+    /// `tbl:` label (R7b-9): its other label's name, else its caption's first
+    /// few words as a name (`figureName(stem:)`), else `tableFigureName`.
+    static func convertedTableName(caption: String?, label: ManuscriptLabel?) -> String {
+        if let label { return label.name }
+        let caption = (caption ?? "").trimmingCharacters(in: .whitespaces)
+        guard !caption.isEmpty else { return tableFigureName }
+        let name = figureName(stem: caption)
+        guard name != "figure" || caption.lowercased().hasPrefix("figure") else {
+            return tableFigureName
+        }
+        return name.split(separator: "-").prefix(convertedNameWords).joined(separator: "-")
+    }
+
+    /// How many of a caption's words a converted table's name keeps.
+    static let convertedNameWords = 4
+
+    /// What the writer is told when a pipe table could not become a figure.
+    static func tableConvertFailureMessage(for error: Error) -> String {
+        if error is FigureEditRefused {
+            return "This Mac may not make a figure here, so the table was not converted."
+        }
+        if case FigureTablePipeError.tooLarge(let cells) = error {
+            return "The table has \(cells) cells, more than a table figure holds "
+                + "(\(TableCSV.figureCellLimit)), so it was not converted."
+        }
+        return "The table figure couldn’t be made, so the table was not converted."
+    }
+
+    /// What the writer is told when a converted table's cells were kept as
+    /// text because their formula would not read (R7b-10); nil when none
+    /// were. Row 1 is the header row, as in the figure.
+    static func convertedTableProblemsMessage(_ problems: [CSVReadProblem]) -> String? {
+        guard !problems.isEmpty else { return nil }
+        let shown = problems.prefix(convertedProblemsShown).map {
+            "row \($0.row + 1), column \($0.column + 1) (\($0.message))"
+        }
+        let more = problems.count - shown.count
+        let list = shown.joined(separator: "; ") + (more > 0 ? "; and \(more) more" : "")
+        let cells = problems.count == 1 ? "One formula" : "\(problems.count) formulas"
+        return "The table is a figure now. \(cells) couldn’t be read and "
+            + (problems.count == 1 ? "was" : "were") + " kept as text: \(list)."
+    }
+
+    /// How many unread formulas `convertedTableProblemsMessage` names.
+    static let convertedProblemsShown = 5
 
     /// Writes pasted image data as a PNG the importer can copy, named for the
     /// moment it was pasted (`ResearchPasteImporter`'s convention), in a

@@ -163,10 +163,11 @@ extension Notification.Name {
     /// manuscript editor writes `@` at the caret through Route A and opens the
     /// cross-reference picker with every target. Scope: .keyWindow.
     public static let maughamInsertCrossReference = Notification.Name("maugham.insert.crossreference")
-    /// Posted by Insert ▸ Edit Table… (⌘⌥⇧T, plan 3b Task 5): the manuscript
-    /// editor opens the table grid editor on the caret's table; outside a
-    /// table it does nothing. Scope: .keyWindow.
-    public static let maughamEditTable = Notification.Name("maugham.insert.edittable")
+    /// Posted by Insert ▸ Convert to Table Figure (⌘⌥⇧T, report plan 7b Task
+    /// 5): the manuscript editor turns the caret's pipe table into a table
+    /// figure (`convertTableToFigure`); outside a table it does nothing.
+    /// Scope: .keyWindow.
+    public static let maughamConvertTable = Notification.Name("maugham.insert.converttable")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the

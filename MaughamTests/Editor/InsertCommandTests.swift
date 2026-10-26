@@ -132,9 +132,9 @@ final class InsertCommandTests: XCTestCase {
         -> FigureIngest.TableFigureMaker
     {
         let path = try XCTUnwrap(chapter.path)
-        return { taken in
+        return { request in
             try await FigureIngest.makeTableFigure(documentId: chapter.id, documentPath: path,
-                                                   taken: taken, store: store)
+                                                   request: request, store: store)
         }
     }
 
@@ -145,8 +145,8 @@ final class InsertCommandTests: XCTestCase {
     }
 
     private func recordingMaker(_ recorder: Recorder) -> FigureIngest.TableFigureMaker {
-        { taken in
-            recorder.taken.append(taken)
+        { request in
+            recorder.taken.append(request.taken)
             throw CancellationError()
         }
     }
@@ -285,8 +285,8 @@ final class InsertCommandTests: XCTestCase {
         let (store, chapter) = try await novel()
         let real = try maker(store, chapter)
         var m: Mounted!
-        m = try mount("Intro", tableFigureMaker: { taken in
-            let birth = try await real(taken)
+        m = try mount("Intro", tableFigureMaker: { request in
+            let birth = try await real(request)
             m.coordinator.setLockEditing(true)
             return birth
         })

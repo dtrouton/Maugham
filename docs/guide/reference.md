@@ -30,7 +30,7 @@ The ones you'll use most:
 | `⌘⇧I` | Insert ▸ Figure… — an image from a file, made into an image figure in the project's `figures/` folder |
 | `⌘⇧C` | Insert ▸ Citation… — writes `[@` and opens the citation picker over your research sources; typing `[@` opens it too, and `;` inside a citation adds the next source |
 | `⌘⇧X` | Insert ▸ Cross-Reference… — writes `@` and opens a picker over the project's labelled figures, tables and sections, in book order; typing `@` and a label kind with its colon (`@fig:`, `@tbl:`, `@sec:`) opens it too |
-| `⌘⌥⇧T` | Insert ▸ Edit Table… — opens the table under the caret in a grid: add, remove and move rows and columns, set each column's alignment, the caption and the label, and paste cells copied from Excel, Numbers or Sheets. Double-clicking the dashed line under a table's header opens it too |
+| `⌘⌥⇧T` | Insert ▸ Convert to Table Figure — turns the pipe table under the caret into a table figure, keeping its caption and its `{#tbl:…}` label so every reference to it keeps its number; a cell starting `=` becomes a formula. Right-clicking inside a pipe table offers it too |
 | `⌘\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
 | `⌘1` | Plan persona |

@@ -915,12 +915,13 @@ struct EditorHost: View {
                                                        documentPath: path, taken: taken,
                                                        store: store)
                 },
-                // Insert ▸ Table (report plan 7b Task 4): a 3×3 header-row
-                // table figure of this document's piece, its line path
-                // relative to the document; the coordinator writes the line.
-                tableFigureMaker: { [store] taken in
+                // Insert ▸ Table (report plan 7b Task 4) and Convert to Table
+                // Figure (Task 5): a table figure of this document's piece —
+                // a 3×3 header-row one, or the pipe table's cells — its line
+                // path relative to the document; the coordinator writes the line.
+                tableFigureMaker: { [store] request in
                     try await FigureIngest.makeTableFigure(documentId: doc.docId,
-                                                           documentPath: path, taken: taken,
+                                                           documentPath: path, request: request,
                                                            store: store)
                 },
                 commandFailureReporter: { [store] message in

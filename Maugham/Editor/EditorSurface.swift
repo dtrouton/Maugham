@@ -107,10 +107,11 @@ struct EditorSurfaceConfiguration {
         /// the Insert menu, Insert Figure…, an image drop and an image paste
         /// make figures. Wired by `EditorHost`; nil elsewhere.
         var figureImporter: FigureIngest.Importer? = nil
-        /// Makes Insert ▸ Table's 3×3 header-row table figure in the
-        /// document's piece and answers its id and line path (report plan 7b
-        /// Task 4, `FigureIngest.makeTableFigure`). With it set on a surface
-        /// that answers the Insert menu, ⌘⇧T makes a table figure. Wired by
+        /// Makes a table figure in the document's piece — Insert ▸ Table's
+        /// 3×3 header-row one, or Convert to Table Figure's from a pipe
+        /// table — and answers its id and line path (report plan 7b Tasks 4–5,
+        /// `FigureIngest.makeTableFigure`). With it set on a surface that
+        /// answers the Insert menu, ⌘⇧T and ⌘⌥⇧T make table figures. Wired by
         /// `EditorHost`; nil elsewhere.
         var tableFigureMaker: FigureIngest.TableFigureMaker? = nil
         /// Where a command that could not finish is told (a sentence): a
@@ -719,6 +720,21 @@ final class MaughamTextView: NSTextView {
             return
         }
         super.mouseDown(with: event)
+    }
+
+    /// The right-click menu: AppKit's, with Convert to Table Figure first when
+    /// the click is in a pipe table (report plan 7b Task 5). The coordinator
+    /// decides (`convertTableMenuItem(atCharacterIndex:)`, over the pure
+    /// `convertOffer`); no test may synthesise the right-click (tripwire 33),
+    /// so the tests ask those two directly.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        let index = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+        guard let item = coordinator?.convertTableMenuItem(atCharacterIndex: index) else { return menu }
+        let offered = menu ?? NSMenu()
+        offered.insertItem(item, at: 0)
+        if offered.items.count > 1 { offered.insertItem(.separator(), at: 1) }
+        return offered
     }
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {

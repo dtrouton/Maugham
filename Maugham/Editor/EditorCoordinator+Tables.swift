@@ -518,3 +518,151 @@ extension EditorCoordinator {
         return (projectLabelsElsewhere?() ?? []).union(ReportInsert.definedLabels(in: without))
     }
 }
+
+// EditorCoordinator — Convert to Table Figure (report plan 7b Task 5): a pipe
+// table becomes a table figure, its cells read as a CSV import reads them
+// (R7b-10), and the table's block — rows and `Table:` line — becomes one
+// figure line keeping its caption and label (R7b-9). ⌘⌥⇧T, Insert ▸ Convert to
+// Table Figure, and the editor's right-click menu inside a pipe table.
+extension EditorCoordinator {
+    /// The undo step Convert names ("Undo Convert to Table Figure"), and the
+    /// menu items' title.
+    static let convertTableActionName = "Convert to Table Figure"
+
+    /// Whether a right-click at `index` offers Convert to Table Figure: a
+    /// surface that makes table figures and may write now, with `index` in a
+    /// pipe table (its ends included) as the fresh tokens place it. Pure over
+    /// the text, the tokens and the posture.
+    func convertOffer(atCharacterIndex index: Int) -> Bool {
+        convertibleTable(at: index) != nil && commandMayWrite
+    }
+
+    /// The right-click menu's item (`MaughamTextView.menu(for:)`): nil unless
+    /// `convertOffer(atCharacterIndex:)` says yes; otherwise an item that
+    /// converts the table at `index` (`convertTableFromMenu(_:)`).
+    func convertTableMenuItem(atCharacterIndex index: Int) -> NSMenuItem? {
+        guard convertOffer(atCharacterIndex: index) else { return nil }
+        let item = NSMenuItem(title: Self.convertTableActionName,
+                              action: #selector(convertTableFromMenu(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = index
+        return item
+    }
+
+    @objc func convertTableFromMenu(_ sender: NSMenuItem) {
+        convertTableToFigure(at: sender.representedObject as? Int)
+    }
+
+    /// The pipe table holding `index`: its block (header row through
+    /// `Table:` line) and parse. Nil outside a table, on a surface that makes
+    /// no table figures, or while the tokens describe an earlier text.
+    private func convertibleTable(at index: Int) -> CaretTable? {
+        guard answersTableFigures, let textView, !tokensDescribeAnEarlierText,
+              let range = tableBlockRange(containing: index) else { return nil }
+        let ns = textView.string as NSString
+        guard NSMaxRange(range) <= ns.length else { return nil }
+        let block = ns.substring(with: range)
+        guard let table = TableText(parsing: block) else { return nil }
+        return CaretTable(range: range, block: block, table: table)
+    }
+
+    /// **Convert to Table Figure** on the table holding `location` (the caret
+    /// when nil). Outside a pipe table, where the membrane refuses, or while
+    /// an input method is composing, nothing happens (nil, R7b-8).
+    ///
+    /// The table's text and start are recorded (`TableAnchorTracker` carries
+    /// the start through every edit), then the figure is made through
+    /// `tableFigureMaker` with the pipe table's cells. Its name (R7b-9): a
+    /// `tbl:` label's name, the label itself kept on the line exactly, so
+    /// every `@tbl:` reference resolves to the same number; with none, a name
+    /// from `FigureIngest.convertedTableName`, stepped clear of the `tbl:`
+    /// names in use, and the label minted from it. Once the figure exists the
+    /// table is re-read at its start: if it is not exactly the recorded text —
+    /// an edit, another device's change, a tidy — nothing is written and the
+    /// figure goes to the Trash with a notice (Review Focus 2); a refused
+    /// write or a lost document does the same (R7b-6). Otherwise the block is
+    /// replaced by the figure line as one Route A edit, landing `.deferred`,
+    /// the figure's birth registered alongside so one ⌘Z takes back both.
+    /// Cells kept as text because their formula would not read are named in a
+    /// notice. The task is `tableFigureTask`.
+    @discardableResult
+    func convertTableToFigure(at location: Int? = nil) -> Task<Void, Never>? {
+        guard let textView, let storage = textView.textStorage, let maker = tableFigureMaker,
+              !textView.hasMarkedText(), commandMayWrite,
+              let at = convertibleTable(at: location ?? textView.selectedRange().location)
+        else { return nil }
+        closeCompletion()
+        let keptLabel = at.table.label?.kind == .tbl ? at.table.label : nil
+        let request: FigureIngest.TableFigureRequest
+        if let keptLabel {
+            request = .init(name: keptLabel.name, taken: [], pipe: at.table)
+        } else {
+            let others = (textView.string as NSString).replacingCharacters(in: at.range, with: "")
+            request = .init(
+                name: FigureIngest.convertedTableName(caption: at.table.caption, label: at.table.label),
+                taken: FigureIngest.existingFigureNames(
+                    in: others, elsewhere: projectLabelsElsewhere?() ?? [], kind: .tbl),
+                pipe: at.table)
+        }
+        let tracker = TableAnchorTracker(anchor: at.range.location, storage: storage)
+        let writersSelection = textView.selectedRange()
+        let report = commandFailureReporter
+        let task = Task { @MainActor [weak self] in
+            defer { tracker.stop() }
+            let birth: FigureIngest.TableFigureBirth
+            do {
+                birth = try await maker(request)
+            } catch {
+                report?(FigureIngest.tableConvertFailureMessage(for: error))
+                return
+            }
+            guard let self else {
+                await Self.discard(birth, because: .documentLeft, report: report)
+                return
+            }
+            guard await self.tableFigureMayLand(birth, in: textView, report: report) else { return }
+            guard let range = self.unchangedTable(at.block, at: tracker.anchor) else {
+                await Self.discard(birth, because: .tableChanged, report: report)
+                return
+            }
+            let line = FigureIngest.figureLine(
+                path: birth.linePath, kind: .tbl, name: keptLabel?.name ?? birth.name,
+                caption: at.table.caption ?? "")
+            let caret = NSRange(location: range.location + (line as NSString).length, length: 0)
+            let writerMoved = textView.selectedRange() != writersSelection
+            self.tableTidy.isApplying = true
+            let applied = self.applyCommandEdit(
+                replacing: range, with: line, selecting: caret,
+                actionName: Self.convertTableActionName,
+                landing: .deferred(writerMoved: writerMoved),
+                alongside: self.figureBirthUndo(figureId: birth.figureId,
+                                                actionName: Self.convertTableActionName,
+                                                store: birth.store))
+            self.tableTidy.isApplying = false
+            self.tableTidy.cancelPending()
+            guard applied else {
+                await Self.discard(birth, because: .refused, report: report)
+                return
+            }
+            // The writer may be in ANOTHER table: that one stays remembered.
+            self.tableTidy.anchor = self.tableBlockRange(
+                containing: textView.selectedRange().location)?.location
+            if let notice = FigureIngest.convertedTableProblemsMessage(birth.problems) {
+                report?(notice)
+            }
+        }
+        tableFigureTask = task
+        return task
+    }
+
+    /// The table block at `anchor` when it is still exactly `original`; nil
+    /// when its start was replaced, it moved, or its text changed.
+    private func unchangedTable(_ original: String, at anchor: Int?) -> NSRange? {
+        guard let anchor, let textView, !tokensDescribeAnEarlierText,
+              let range = tableBlockRange(containing: anchor), range.location == anchor
+        else { return nil }
+        let ns = textView.string as NSString
+        guard NSMaxRange(range) <= ns.length, ns.substring(with: range) == original else { return nil }
+        return range
+    }
+}

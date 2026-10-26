@@ -285,15 +285,6 @@ final class TableGridCommandTests: XCTestCase {
         XCTAssertEqual(m.box.requests.count, 0)
     }
 
-    /// The menu's window command reaches the focused manuscript editor.
-    func test_theEditTableCommandOpensTheGridOnTheCaretsTable() async throws {
-        let m = try mount(Self.document)
-        m.textView.setSelectedRange(NSRange(location: location(of: "Apple", in: m), length: 0))
-        MaughamEvent.post(.maughamEditTable, to: .keyWindow)
-        await m.coordinator.tableGridTask?.value
-        XCTAssertEqual(m.box.requests.map(\.table), [TableText(parsing: Self.table)])
-    }
-
     func test_aSurfaceWithoutAGridIgnoresEditTable() throws {
         let m = try mount(Self.document, grid: false)
         m.textView.setSelectedRange(NSRange(location: location(of: "Apple", in: m), length: 0))

@@ -12542,7 +12542,7 @@ final class TripwireGrepTests: XCTestCase {
     /// - `FigureIngest.swift` × 2 — `importImage`'s `createImageFigure(`, the
     ///   editor's Insert Figure…, image drop and image paste (report plan 6a
     ///   Task 9), and `makeTableFigure`'s `createFigure(`, Insert ▸ Table
-    ///   (report plan 7b Task 4): each reached only once the editor's membrane
+    ///   and Convert to Table Figure (report plan 7b Tasks 4–5): each reached only once the editor's membrane
     ///   allows writing, and the store asks the new figure's own posture
     ///   (`.editFigure`) before it copies or mints anything.
     /// - `Op.swift` × 1 — Core's `withReplacedOpId`, a RE-ID of an op already

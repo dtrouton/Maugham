@@ -583,7 +583,7 @@ extension FocusedValues {
     }
 }
 
-/// Insert → Table, Edit Table…, Footnote, Figure…, Citation…, Cross-Reference…
+/// Insert → Table, Convert to Table Figure, Footnote, Figure…, Citation…, Cross-Reference…
 /// (plan 3a R-3a-1, R-3a-2; plan 3b). Each posts a key-window command the
 /// manuscript editor answers through Route A, one undo step each. Disabled where the focused window
 /// says no (`InsertMenuGate`) — a read-only posture, review mode, translation
@@ -598,11 +598,11 @@ private struct InsertMenuButtons: View {
         }
         .keyboardShortcut("t", modifiers: [.command, .shift])
         .disabled(!enabled)
-        // The grid editor on the caret's table (plan 3b Task 5, R-3b-3);
-        // outside a table it does nothing. A double-click on a table's
-        // delimiter row opens it too.
-        Button("Edit Table\u{2026}") {
-            MaughamEvent.post(.maughamEditTable, to: .keyWindow)
+        // The caret's pipe table becomes a table figure (report plan 7b
+        // Task 5); outside a table it does nothing. The editor's right-click
+        // menu offers it inside a pipe table too.
+        Button("Convert to Table Figure") {
+            MaughamEvent.post(.maughamConvertTable, to: .keyWindow)
         }
         .keyboardShortcut("t", modifiers: [.command, .option, .shift])
         .disabled(!enabled)

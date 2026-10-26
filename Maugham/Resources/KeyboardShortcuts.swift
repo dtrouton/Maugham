@@ -61,7 +61,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Insert Figure…",          shortcut: "⌘⇧I"),
             Entry(label: "Insert Citation…",        shortcut: "⌘⇧C"),
             Entry(label: "Insert Cross-Reference…", shortcut: "⌘⇧X"),
-            Entry(label: "Edit Table…",             shortcut: "⌘⌥⇧T"),
+            Entry(label: "Convert to Table Figure", shortcut: "⌘⌥⇧T"),
         ]),
         Category(category: "View", items: [
             Entry(label: "Toggle Focus Mode",       shortcut: "⌘\\"),

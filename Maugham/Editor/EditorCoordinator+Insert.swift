@@ -272,7 +272,8 @@ extension EditorCoordinator {
             defer { tracker.stop() }
             let birth: FigureIngest.TableFigureBirth
             do {
-                birth = try await maker(taken)
+                birth = try await maker(FigureIngest.TableFigureRequest(
+                    name: FigureIngest.tableFigureName, taken: taken, pipe: nil))
             } catch {
                 report?(FigureIngest.tableFigureFailureMessage(for: error))
                 return
@@ -281,15 +282,7 @@ extension EditorCoordinator {
                 await Self.discard(birth, because: .documentLeft, report: report)
                 return
             }
-            switch await self.waitOutComposition(in: textView) {
-            case .ready: break
-            case .gone:
-                await Self.discard(birth, because: .documentLeft, report: report)
-                return
-            case .gaveUp:
-                await Self.discard(birth, because: .composing, report: report)
-                return
-            }
+            guard await self.tableFigureMayLand(birth, in: textView, report: report) else { return }
             let writerMoved = tracker.anchor.edited || textView.selectedRange() != writersSelection
             let location = tracker.anchor.location(
                 in: textView.string, caret: NSMaxRange(textView.selectedRange()))
@@ -300,6 +293,24 @@ extension EditorCoordinator {
         }
         tableFigureTask = task
         return task
+    }
+
+    /// Waits out a composition before a made table figure's line is
+    /// written (`waitOutComposition`); false — the figure sent to the Trash,
+    /// the writer told — when the editor left the document or the
+    /// composition outlasted every wait. Insert ▸ Table and Convert share it.
+    func tableFigureMayLand(_ birth: FigureIngest.TableFigureBirth, in textView: NSTextView,
+                            report: (@MainActor (String) -> Void)?) async -> Bool {
+        switch await waitOutComposition(in: textView) {
+        case .ready:
+            return true
+        case .gone:
+            await Self.discard(birth, because: .documentLeft, report: report)
+            return false
+        case .gaveUp:
+            await Self.discard(birth, because: .composing, report: report)
+            return false
+        }
     }
 
     /// The table figure's line at `location` through Route A, its birth
@@ -328,12 +339,15 @@ extension EditorCoordinator {
         case documentLeft
         /// An input method composed through every wait.
         case composing
+        /// Convert to Table Figure: the pipe table's text changed while its
+        /// figure was made (Review Focus 2).
+        case tableChanged
     }
 
     /// Sends a table figure whose line was not written to the Trash, and says
     /// so (R7b-6). A removal the store refuses leaves the figure where it is,
     /// and the sentence says that instead.
-    private static func discard(_ birth: FigureIngest.TableFigureBirth,
+    static func discard(_ birth: FigureIngest.TableFigureBirth,
                                 because reason: TableFigureDiscard,
                                 report: (@MainActor (String) -> Void)?) async {
         let trashed: Bool
@@ -354,6 +368,7 @@ extension EditorCoordinator {
         case .refused: why = "The table figure was made, but this document can’t be written to now"
         case .documentLeft: why = "The table figure was made, but its document was no longer open"
         case .composing: why = "The table figure was made, but it wasn’t placed while you were composing text"
+        case .tableChanged: why = "The table changed while its figure was being made and was left as it is"
         }
         return trashed
             ? why + ", so the figure went to the Trash."
