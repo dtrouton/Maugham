@@ -99,7 +99,7 @@ public struct TableText: Equatable, Sendable {
     }
 
     /// `Table: caption {#tbl:x}`; `Table: {#tbl:x}` for a label with no
-    /// caption (nil or empty — plan 3b's grid sets a label without a caption,
+    /// caption (nil or empty — a label can be set without a caption,
     /// and dropping it would orphan every `@tbl:x`); nil with neither, which
     /// no `Table:` line could read back. A line break in the caption is a
     /// space (`singleLine`).

@@ -25,7 +25,7 @@ The ones you'll use most:
 | `⌘⌥A` | Show Annotations pane |
 | `⌘⌥C` | Translator's Note… — a directive on the paragraph under the caret, into the piece's craft intent (every edition) or one edition's brief |
 | `⌘⌥Z` | Restore last deletion |
-| `⌘⇧T` | Insert ▸ Table — a three-column table with a caption and a `{#tbl:…}` label, on its own paragraph at the caret |
+| `⌘⇧T` | Insert ▸ Table — a 3×3 table figure with a header row in the project's `figures/` folder, with its figure line written at the caret and "Caption" selected; one ⌘Z takes back the line and the figure |
 | `⌘⇧N` | Insert ▸ Footnote — a numbered `[^n]` at the caret, with its definition opened below the paragraph |
 | `⌘⇧I` | Insert ▸ Figure… — an image from a file, made into an image figure in the project's `figures/` folder |
 | `⌘⇧C` | Insert ▸ Citation… — writes `[@` and opens the citation picker over your research sources; typing `[@` opens it too, and `;` inside a citation adds the next source |

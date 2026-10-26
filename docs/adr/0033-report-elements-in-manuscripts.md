@@ -60,7 +60,7 @@ A fence-aware parser would turn the hidden `¶id` anchor line of an already-spli
 
 ### 4. The op log needs no new kind.
 
-Every element is text inside an ordinary paragraph. A pipe table, with its caption, has no blank line, so it is one paragraph. A figure line, a footnote definition and a labelled heading are each one paragraph. Citations, cross-references and footnote references sit inside their paragraphs.
+Every element is text inside an ordinary paragraph. A pipe table, with its caption, has no blank line, so it is one paragraph. Because the op log joins on paragraphs, two devices that edit one pipe table merge whole-table, and the last writer wins. A table figure keeps its cells in a cell-keyed op log, so it merges cell by cell: it is the cell-granular answer, and Convert to Table Figure is the writer's route to it. A figure line, a footnote definition and a labelled heading are each one paragraph. Citations, cross-references and footnote references sit inside their paragraphs.
 
 ### 5. One reader, in MaughamCore.
 
@@ -73,7 +73,7 @@ Every element is text inside an ordinary paragraph. A pipe table, with its capti
 - **Plan split.** The milestone is four plans, and each later plan is re-derived against the built code:
   1. Grammar and storage: the Core parser and scanner, research citation fields, the manifest profile and schema 10, this ADR.
   2. Publishing: AST nodes, numbering and resolution, the LaTeX and XHTML emitters, References and the lists.
-  3. The editor: styling, insert commands and pickers, tidy tables and the grid editor, figure drag-in.
+  3. The editor: styling, insert commands and pickers, tidy tables, figure drag-in. (The grid editor planned here was built and later retired: Convert to Table Figure replaced it.)
   4. Word export and the Report profile.
 - **Existing manuscripts are safe.** A manuscript that happens to contain a pipe table or `[^1]` today reads as the same text. It now also means something.
 

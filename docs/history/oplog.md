@@ -2324,3 +2324,9 @@ To make room for plan 6c's figure restore, `withFigureHost` and the promotion's 
 ## Restored to the guide by report plan 6c's final fix wave (2026-10-25)
 
 The final review found rules among the clauses Task 6 moved here. Back in the guide: `declareActorOnce` runs on the store's own actor (the reason, a detached hop reordering what `append`'s callers observe, stays here); where the refused displacing record is about this device, its key is recorded as a claimant.
+
+## Moved by report plan 7b task 9 (2026-10-26)
+
+- The load compares `stripAnchors` display forms and dedupes against the newest backup.
+- Divergent same-opId payloads: surfacing the corruption signal needs a `projectURL` the pure merge function lacks, so don't entangle the two.
+- First bootstrap wins: an iCloud partial-sync re-mint is inert once the real log merges.
