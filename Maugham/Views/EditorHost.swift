@@ -53,6 +53,10 @@ struct EditorHost: View {
     /// Control-plane model owned by ProjectWindow, threaded ONE-WAY to the
     /// EditorSurface/coordinator (ADR 0017).
     var control: EditorControl
+    /// The window's table-grid presence (report plan 7c Task 9, R7c-10),
+    /// passed through to the grid opening — the coordinator sets it, the
+    /// window's menus read it. Never read here (tripwire 6).
+    var figureGridPresence: FigureGridPresence? = nil
     /// **The review pass a note written from the margin belongs to**
     /// (M3 P2 Task 8) — asked of the window, per document id, at the moment of
     /// creation.
@@ -949,7 +953,8 @@ struct EditorHost: View {
                 },
                 // A table card expanded in place into its grid (report plan
                 // 7c Task 6): the window's stores, this document's path.
-                figureGridOpening: .window(store: documentStore, projectStore: store, documentPath: path)),
+                figureGridOpening: .window(store: documentStore, projectStore: store, documentPath: path,
+                                           presence: figureGridPresence)),
             reviewProviders: .init(
                 createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
                     // Annotation creation is an op-log append, not a text

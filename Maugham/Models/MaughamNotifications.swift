@@ -168,6 +168,12 @@ extension Notification.Name {
     /// figure (`convertTableToFigure`); outside a table it does nothing.
     /// Scope: .keyWindow.
     public static let maughamConvertTable = Notification.Name("maugham.insert.converttable")
+    /// Posted by Format ▸ Table's items (report plan 7c Task 9, R7c-10;
+    /// `MaughamEvent.postFigureTableCommand`), the command in the payload:
+    /// the key window's manuscript editor hands it to its expanded table
+    /// grid (`EditorCoordinator.performFigureTableCommand`); with no grid
+    /// expanded it does nothing. Scope: .keyWindow — a command, not a data event.
+    public static let maughamFigureTableCommand = Notification.Name("maugham.figureTable.command")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the

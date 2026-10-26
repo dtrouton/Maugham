@@ -26,6 +26,13 @@ protocol FigureGridViewDelegate: AnyObject {
     func figureGridView(_ view: FigureGridView, handle key: FigureGridKey) -> Bool
     /// A column's resize ended at `width` points (the mouse-up; the drag itself writes nothing).
     func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat)
+    /// The right-click menu over `cell` (nil off the cells) — the table
+    /// commands (Task 9); nil offers none.
+    func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu?
+}
+
+extension FigureGridViewDelegate {
+    func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu? { nil }
 }
 
 /// **The table figure's grid** (report plan 7c Task 4, R7c-9): column
@@ -310,6 +317,14 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     }
 
     // MARK: Mouse
+
+    /// **A right-click** (or a control-click): the delegate's table menu
+    /// over the cell under the pointer — never the text view's menu, which
+    /// a view answering nil would hand the click on to.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        return delegate?.figureGridView(self, menuAt: key(at: point, in: layout))
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)

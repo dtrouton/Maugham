@@ -12626,9 +12626,13 @@ final class TripwireGrepTests: XCTestCase {
         // range (⌫, a format, Σ — one `setCells` visit), the structure verbs
         // and a resize, each through the figure host's own door; the name
         // through `renameFigure`, which asks every door before it writes.
+        // Format ▸ Table's verbs (Task 9): a delete per selected row or
+        // column, a block moved up/down (left/right) by moving its neighbour
+        // across it, a sort by the active cell's column.
         "FigureGridController.swift": [
             "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
+            "deleteRow(": 1, "deleteColumn(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1,
         ],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the

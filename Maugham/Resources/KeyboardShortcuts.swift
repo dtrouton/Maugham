@@ -63,6 +63,14 @@ public enum KeyboardShortcuts {
             Entry(label: "Insert Cross-Reference…", shortcut: "⌘⇧X"),
             Entry(label: "Convert to Table Figure", shortcut: "⌘⌥⇧T"),
         ]),
+        // Format ▸ Table (report plan 7c Task 9): an expanded table grid's
+        // inserts, bound on the menu items alone.
+        Category(category: "Table", items: [
+            Entry(label: "Insert Row Above",        shortcut: "⌘⌥↑"),
+            Entry(label: "Insert Row Below",        shortcut: "⌘⌥↓"),
+            Entry(label: "Insert Column Left",      shortcut: "⌘⌥←"),
+            Entry(label: "Insert Column Right",     shortcut: "⌘⌥→"),
+        ]),
         Category(category: "View", items: [
             Entry(label: "Toggle Focus Mode",       shortcut: "⌘\\"),
             Entry(label: "Toggle Full-Screen Focus", shortcut: "⌘⇧F"),

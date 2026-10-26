@@ -28,6 +28,10 @@ import MaughamCore
 ///   shows the host's value again, and `onAccessMayHaveChanged` has the gate
 ///   asked again — as does any change of the figure's drawn posture (a
 ///   trust change, *Edit Anyway*), card or no card.
+/// - **The table commands** (Task 9, `FigureGridMenu.swift`): Format ▸ Table
+///   and the right-click menu reach `performTableCommand`, which asks
+///   `menuState` first; the menu state is told (`onMenuStateChange`) only
+///   when it changes.
 @MainActor
 final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
 
@@ -63,6 +67,13 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     var onAccessMayHaveChanged: (() -> Void)?
     /// The re-ask a posture change scheduled (a test awaits it).
     private(set) var postureChange: Task<Void, Never>?
+    /// Told when what the table commands may do changes (the coordinator
+    /// sets the window's `FigureGridPresence`).
+    var onMenuStateChange: ((FigureTableMenuState) -> Void)?
+    /// What the table commands may do now, last told.
+    private(set) var menuState = FigureTableMenuState()
+    /// The right-click menu's items' target.
+    private let menuTarget = FigureTableMenuTarget()
 
     /// What the gate last said (`.editable` or `.readOnly`; at `.noExpand`
     /// the coordinator folds instead), and whether the caption, the line's
@@ -120,6 +131,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         gridView.dataSource = self
         gridView.delegate = self
         bars.delegate = self
+        menuTarget.onCommand = { [weak self] in self?.performTableCommand($0) }
         bars.showLine(number: line.number, caption: line.caption, name: name)
         refreshBars()
         observeHost()
@@ -221,6 +233,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         handle(key)
     }
 
+    func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu? {
+        contextMenu(at: cell)
+    }
+
     func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat) {
         if let reason = mode.readOnlyReason { return answer(reason) }
         enqueue { [host, undoManager] in
@@ -258,6 +274,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         bars.setAccess(cellsMayEdit: reason == nil, captionMayEdit: captionMayEdit)
         bars.showReason(reason?.sentence)
         gridView.mayResizeColumns = reason == nil
+        refreshMenuState()
     }
 
     /// A key on a read-only grid: one that only selects or scrolls is the
@@ -360,6 +377,146 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         case .done: execute(model.fold(commit: true))
         }
         return true
+    }
+
+    // MARK: The table commands (Task 9)
+
+    /// **A Format ▸ Table or right-click command**, asked of `menuState`
+    /// first: one it does not enable does nothing (on a read-only grid, the
+    /// reason line is said). The toolbar's acts go the bars' way; the inserts
+    /// go to the model (an open edit committed first, as Tab would); a delete,
+    /// move or sort commits an open edit first, and does nothing when that
+    /// edit will not read (its error shown, R7c-8).
+    func performTableCommand(_ command: FigureTableCommand) {
+        syncFromHost()
+        refreshMenuState()
+        guard menuState.isEnabled(command) else {
+            if let reason = mode.readOnlyReason { answer(reason) }
+            return
+        }
+        switch command {
+        case .format(let choice): perform(.format(choice))
+        case .fewerDecimals: perform(.decimals(-1))
+        case .moreDecimals: perform(.decimals(1))
+        case .align(let alignment): perform(.align(alignment))
+        case .headerRow: perform(.headerRow(!menuState.header))
+        case .totalRow: perform(.totalRow(!menuState.total))
+        case .sum: perform(.sum)
+        case .insertRowAbove: handle(.insert(.up))
+        case .insertRowBelow: handle(.insert(.down))
+        case .insertColumnLeft: handle(.insert(.left))
+        case .insertColumnRight: handle(.insert(.right))
+        case .deleteRows, .deleteColumns, .moveRowsUp, .moveRowsDown, .moveColumnsLeft, .moveColumnsRight,
+             .sortAscending, .sortDescending:
+            guard commitOpenEdit(), let block = selectedBlock() else { return }
+            restructure(command, block)
+        }
+    }
+
+    /// **The right-click menu** over `cell` (nil off the cells): a cell
+    /// outside the selection is selected first, as a click would; the items
+    /// are `FigureTableMenu`'s, enabled by `menuState`.
+    func contextMenu(at cell: CellKey?) -> NSMenu {
+        syncFromHost()
+        if let cell, case .idle = model.edit,
+           !(model.selection?.cells(in: values.table).contains(cell) ?? false) {
+            handle(.click(cell, extend: false))
+        }
+        refreshMenuState()
+        return FigureTableMenu.contextMenu(state: menuState, target: menuTarget)
+    }
+
+    /// The menu state over the table, the selection and the gate; told only on a change.
+    private func refreshMenuState() {
+        let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode)
+        guard next != menuState else { return }
+        menuState = next
+        onMenuStateChange?(next)
+    }
+
+    /// An open edit committed, as a fold would (without folding): false — and
+    /// the edit reopened with its error — when it will not read.
+    private func commitOpenEdit() -> Bool {
+        guard case .idle = model.edit else {
+            execute(model.fold(commit: true).filter { $0 != .fold })
+            if case .idle = model.edit { return true }
+            return false
+        }
+        return true
+    }
+
+    /// The selection's rows and columns, by id and position, top-left first.
+    private struct Block {
+        var rows: [RowID]
+        var columns: [ColumnID]
+        var firstRow: Int, lastRow: Int, firstColumn: Int, lastColumn: Int
+    }
+
+    private func selectedBlock() -> Block? {
+        let table = values.table
+        guard let selection = model.selection,
+              let ar = table.rowIndex(of: selection.anchor.row), let fr = table.rowIndex(of: selection.focus.row),
+              let ac = table.columnIndex(of: selection.anchor.column),
+              let fc = table.columnIndex(of: selection.focus.column) else { return nil }
+        let (r0, r1, c0, c1) = (min(ar, fr), max(ar, fr), min(ac, fc), max(ac, fc))
+        return Block(rows: Array(table.rows[r0...r1]), columns: Array(table.columns[c0...c1]),
+                     firstRow: r0, lastRow: r1, firstColumn: c0, lastColumn: c1)
+    }
+
+    /// **Delete, move or sort** through the host, each behind its own door.
+    ///
+    /// - A delete takes each selected row (column) in turn — one ⌘Z each on
+    ///   the window's undo manager until 7d's grid undo (R7c-1).
+    /// - A move shifts the selected block one place by moving its neighbour
+    ///   across it (one `moveRow`/`moveColumn`, one ⌘Z); the selection rides
+    ///   its ids. References follow their ids, as an Excel cut-and-insert
+    ///   does (Task 1's ledger).
+    /// - A sort orders the body by the active cell's column, its values as
+    ///   the grid shows them (`sortRows`, which says its own refusal).
+    private func restructure(_ command: FigureTableCommand, _ block: Block) {
+        let table = values.table
+        switch command {
+        case .deleteRows:
+            enqueue { [host, undoManager] in
+                for row in block.rows { try await host.deleteRow(row, undoManager: undoManager()) }
+            }
+        case .deleteColumns:
+            enqueue { [host, undoManager] in
+                for column in block.columns { try await host.deleteColumn(column, undoManager: undoManager()) }
+            }
+        case .moveRowsUp:
+            let above = table.rows[block.firstRow - 1]
+            enqueue { [host, undoManager] in
+                try await host.moveRow(above, after: block.rows.last, undoManager: undoManager())
+            }
+        case .moveRowsDown:
+            let below = table.rows[block.lastRow + 1]
+            let after = block.firstRow == 0 ? nil : table.rows[block.firstRow - 1]
+            enqueue { [host, undoManager] in
+                try await host.moveRow(below, after: after, undoManager: undoManager())
+            }
+        case .moveColumnsLeft:
+            let left = table.columns[block.firstColumn - 1]
+            enqueue { [host, undoManager] in
+                try await host.moveColumn(left, after: block.columns.last, undoManager: undoManager())
+            }
+        case .moveColumnsRight:
+            let right = table.columns[block.lastColumn + 1]
+            let after = block.firstColumn == 0 ? nil : table.columns[block.firstColumn - 1]
+            enqueue { [host, undoManager] in
+                try await host.moveColumn(right, after: after, undoManager: undoManager())
+            }
+        case .sortAscending, .sortDescending:
+            guard let column = model.selection?.anchor.column else { return }
+            let ascending = command == .sortAscending
+            enqueue { [weak self, host, undoManager] in
+                try await host.sortRows(
+                    by: column, ascending: ascending, values: { self?.values.value(at: $0) ?? .empty },
+                    actionName: ascending ? "Sort Ascending" : "Sort Descending", undoManager: undoManager())
+            }
+        default:
+            break
+        }
     }
 
     /// The writer typed in the formula bar: it edits the active cell (an edit
@@ -714,6 +871,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// The bars follow the selection, the open edit and the table.
     private func refreshBars(force: Bool = false) {
+        refreshMenuState()
         let table = values.table
         guard let selection = model.selection else {
             bars.showSelection(address: "", text: "")

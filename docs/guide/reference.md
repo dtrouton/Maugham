@@ -31,6 +31,10 @@ The ones you'll use most:
 | `⌘⇧C` | Insert ▸ Citation… — writes `[@` and opens the citation picker over your research sources; typing `[@` opens it too, and `;` inside a citation adds the next source |
 | `⌘⇧X` | Insert ▸ Cross-Reference… — writes `@` and opens a picker over the project's labelled figures, tables and sections, in book order; typing `@` and a label kind with its colon (`@fig:`, `@tbl:`, `@sec:`) opens it too |
 | `⌘⌥⇧T` | Insert ▸ Convert to Table Figure — turns the pipe table under the caret into a table figure, keeping its caption and its `{#tbl:…}` label so every reference to it keeps its number; a cell starting `=` becomes a formula. Right-clicking inside a pipe table offers it too |
+| `⌘⌥↑` | Format ▸ Table ▸ Insert Row Above — in an expanded table, a row above the selected cell's (never above the header row) |
+| `⌘⌥↓` | Format ▸ Table ▸ Insert Row Below — never below the total row |
+| `⌘⌥←` | Format ▸ Table ▸ Insert Column Left |
+| `⌘⌥→` | Format ▸ Table ▸ Insert Column Right |
 | `⌘\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
 | `⌘1` | Plan persona |

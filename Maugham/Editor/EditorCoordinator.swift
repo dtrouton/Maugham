@@ -322,6 +322,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Insert ▸ Convert to Table Figure (⌘⌥⇧T, report plan 7b Task 5), gated
     /// the same way.
     private var convertTableObserver: NSObjectProtocol?
+    /// Format ▸ Table (report plan 7c Task 9): the command goes to the
+    /// expanded grid's controller. Key-window scoped; a surface with no grid
+    /// opening never expands one, so it has nothing to hand on.
+    private var figureTableCommandObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -713,7 +717,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamExitTranslationReview`, and the Insert menu's
     /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
     /// `maughamInsertCitation`, `maughamInsertCrossReference` and
-    /// `maughamConvertTable` (which also ask `answersInsertCommands`) — count the
+    /// `maughamConvertTable` (which also ask `answersInsertCommands`), and
+    /// `maughamFigureTableCommand` — count the
     /// `MaughamEvent.observe` calls rather than this sentence.
     ///
     /// True for every editor that IS the window's manuscript surface, which is
@@ -892,6 +897,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.convertTableToFigure()
         }
+        figureTableCommandObserver = MaughamEvent.observe(
+            .maughamFigureTableCommand,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] note in
+            guard let command = note.userInfo?[MaughamEvent.figureTableCommandKey] as? FigureTableCommand
+            else { return }
+            self?.performFigureTableCommand(command)
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -941,6 +954,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = convertTableObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = figureTableCommandObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = storageEditObserver {
@@ -1041,7 +1057,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                       annotationNavigateObserver, reviewToggleObserver,
                       translationEnterObserver, translationExitObserver,
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
-                      insertCitationObserver, insertCrossReferenceObserver, convertTableObserver] {
+                      insertCitationObserver, insertCrossReferenceObserver, convertTableObserver,
+                      figureTableCommandObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
@@ -1049,6 +1066,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         translationEnterObserver = nil; translationExitObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
         insertCitationObserver = nil; insertCrossReferenceObserver = nil; convertTableObserver = nil
+        figureTableCommandObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
         storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is

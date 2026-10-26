@@ -35,10 +35,15 @@ struct FigureGridOpening {
                           _ line: FigureGridController.Line,
                           _ undoManager: @escaping @MainActor () -> UndoManager?)
         async throws -> FigureGridController
+    /// The window's grid presence (R7c-10), told at expand, at fold and when
+    /// what Format ▸ Table may do changes; nil where no menu reads it.
+    var presence: FigureGridPresence?
 
-    /// The window's: its stores, and the document's project-relative path.
+    /// The window's: its stores, its grid presence, and the document's
+    /// project-relative path.
     @MainActor
-    static func window(store: DocumentStore, projectStore: ProjectStore, documentPath: String) -> FigureGridOpening {
+    static func window(store: DocumentStore, projectStore: ProjectStore, documentPath: String,
+                       presence: FigureGridPresence? = nil) -> FigureGridOpening {
         FigureGridOpening(
             tableFigureId: { [weak projectStore] linePath in
                 guard let projectStore else { return nil }
@@ -53,7 +58,8 @@ struct FigureGridOpening {
                 return try await FigureGridController.open(
                     figureId: figureId, store: store, projectStore: projectStore,
                     typography: typography, line: line, undoManager: undoManager)
-            })
+            },
+            presence: presence)
     }
 
     /// The table figure `linePath` names among `figures`, by the rule Publish
@@ -266,6 +272,7 @@ extension EditorCoordinator {
             room: FigureGridPanel.room(rows: rows, typography: typography))
         expansion.textSelection = textView.selectedRange()
         figureGrid = expansion
+        opening.presence?.expanded()   // the Insert menu stands down (R7c-10)
         textView.addSubview(expansion.dim)
         relayoutFigureGridLine()
         layoutFigureGrid()
@@ -385,6 +392,13 @@ extension EditorCoordinator {
             return
         }
         controller.setAccess(mode, captionMayEdit: figureGridCaptionMayEdit)
+        // Format ▸ Table follows the visit: told at once, then whenever what
+        // its commands may do changes — never after this expansion folds.
+        controller.onMenuStateChange = { [weak self, weak expansion] state in
+            guard let self, let expansion, self.figureGrid === expansion else { return }
+            self.figureGridOpening?.presence?.show(state)
+        }
+        figureGridOpening?.presence?.show(controller.menuState)
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         expansion.panel = panel
         textView.addSubview(panel, positioned: .above, relativeTo: expansion.dim)
@@ -414,6 +428,15 @@ extension EditorCoordinator {
         let line = text.substring(with: text.lineRange(for: NSRange(location: location, length: 0)))
         guard let range = FigureIngest.captionRange(inLine: line) else { return "" }
         return (line as NSString).substring(with: range)
+    }
+
+    // MARK: Format ▸ Table (Task 9)
+
+    /// **A Format ▸ Table command** (`maughamFigureTableCommand`), for the
+    /// expanded grid's controller, which asks its own state whether it may
+    /// run; nothing with no grid open.
+    func performFigureTableCommand(_ command: FigureTableCommand) {
+        figureGrid?.controller?.performTableCommand(command)
     }
 
     // MARK: Folding
@@ -504,6 +527,7 @@ extension EditorCoordinator {
     private func closeFigureGrid() {
         guard let expansion = figureGrid else { return }
         figureGrid = nil
+        figureGridOpening?.presence?.folded()
         let cause = expansion.foldCause
         expansion.opening?.cancel()
         expansion.reshowing?.cancel()

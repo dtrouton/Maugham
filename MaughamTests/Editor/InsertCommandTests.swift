@@ -781,10 +781,10 @@ final class InsertCommandTests: XCTestCase {
         let bare = CentreRoute.editor(altitude: false, cover: nil)
         func gate(posture: Posture? = author, format: DocumentFormat? = .markdown,
                   review: Bool = false, share: Bool = false, translation: Bool = false,
-                  route: CentreRoute? = bare) -> Bool {
+                  grid: Bool = false, route: CentreRoute? = bare) -> Bool {
             InsertMenuGate.isEnabled(posture: posture, format: format, manualReview: review,
                                      shareIsReadOnly: share, isTranslationReview: translation,
-                                     route: route)
+                                     gridHoldsTheKeys: grid, route: route)
         }
         XCTAssertTrue(gate(), "a writable Markdown chapter in the editor")
         XCTAssertFalse(gate(posture: .settling), "a posture that refuses .writeText")
@@ -795,6 +795,9 @@ final class InsertCommandTests: XCTestCase {
         XCTAssertFalse(gate(format: .fountain), "a screenplay")
         XCTAssertFalse(gate(format: nil), "no document path")
         XCTAssertFalse(gate(route: nil), "no project store")
+        // Report plan 7c Task 9: an expanded table grid has the keys; the
+        // writer folds it before inserting into the text.
+        XCTAssertFalse(gate(grid: true), "a table grid expanded in the editor")
     }
 
     /// Every centre but the bare editor hides the text an insert would land
@@ -824,7 +827,8 @@ final class InsertCommandTests: XCTestCase {
             XCTAssertFalse(
                 InsertMenuGate.isEnabled(posture: Posture(.unrestricted), format: .markdown,
                                          manualReview: false, shareIsReadOnly: false,
-                                         isTranslationReview: false, route: route),
+                                         isTranslationReview: false, gridHoldsTheKeys: false,
+                                         route: route),
                 "the Insert menu is enabled under \(route)")
         }
     }

@@ -129,6 +129,10 @@ struct ProjectWindow: View {
     /// posture/appearance writer; EditorHost writes the annotation set.
     /// Threaded down to the coordinator, which observes it.
     @State private var editorControl = EditorControl()
+    /// Whether the editor has a table grid expanded, and what Format ▸ Table
+    /// may do (report plan 7c Task 9, R7c-10). Window-scoped; the editor's
+    /// coordinator sets it, the menus read it.
+    @State private var figureGridPresence = FigureGridPresence()
     /// The canvas's scene, scraps, selection, sidecar store and undo recorder.
     /// Owned HERE rather than inside `CanvasView` because the region inspector in
     /// the right-hand column reads and mutates the same scene the centre column
@@ -534,6 +538,7 @@ struct ProjectWindow: View {
             mayInsertReportElement: mayInsertReportElement,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
+        .modifier(FigureTableMenuModifier(presence: figureGridPresence))
         .modifier(TranslationReviewModifier(
             window: window,
             projectURL: url,
@@ -653,6 +658,7 @@ struct ProjectWindow: View {
             manualReview: isReviewModeOn,
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
             isTranslationReview: editorControl.translationLanguage != nil,
+            gridHoldsTheKeys: figureGridPresence.holdsTheKeys,
             route: store.map { store in
                 // The same answer `CentreColumn.editorPane` switches on.
                 Self.centreRoute(persona: persona,
@@ -1260,6 +1266,7 @@ struct ProjectWindow: View {
         CentreColumn(
             store: store, documentStore: documentStore,
             canvasModel: canvasModel, editorControl: editorControl,
+            figureGridPresence: figureGridPresence,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, window: window,
             persona: persona, researchPreviewVisible: researchPreviewVisible,

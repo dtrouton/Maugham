@@ -56,7 +56,7 @@ class FigureGridMountedTestCase: XCTestCase {
 
     /// Forty paragraphs of prose, the table's line, a paragraph, the SAME
     /// table written on a second line (R7c-4), and an end.
-    static let document: String = {
+    nonisolated static let document: String = {
         let prose = (1...40).map { "Paragraph \($0) of plain prose before the table." }
         return (prose + ["![Cash](../figures/t.csv){#tbl:t}", "Middle prose.",
                          "![Cash again](../figures/t.csv)", "The end."]).joined(separator: "\n\n")
@@ -66,7 +66,7 @@ class FigureGridMountedTestCase: XCTestCase {
     /// figure cards filled, and a manuscript editor over `text` wired as
     /// `EditorHost` wires it.
     func mount(_ text: String = document, rows: Int = 3, makeFigure: Bool = true,
-                       height: CGFloat = 500,
+                       height: CGFloat = 500, presence: FigureGridPresence? = nil,
                        beforeMaking: (@MainActor () -> Void)? = nil) async throws -> Mounted {
         let url = try await ProjectFactory.createNovelProject(
             named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
@@ -99,7 +99,8 @@ class FigureGridMountedTestCase: XCTestCase {
         configuration.answersInsertCommands = true
         configuration.paragraphProviders.figureImageResolver = { _ in .notLocal }
         configuration.paragraphProviders.figureCardModel = { cards.model(forLinePath: $0, documentPath: path) }
-        configuration.paragraphProviders.figureGridOpening = .window(store: ds, projectStore: store, documentPath: path)
+        configuration.paragraphProviders.figureGridOpening = .window(
+            store: ds, projectStore: store, documentPath: path, presence: presence)
         configuration.paragraphProviders.tableFigureMaker = { request in
             beforeMaking?()   // the writer, while the figure is being made
             return try await FigureIngest.makeTableFigure(documentId: chapter.id, documentPath: path,

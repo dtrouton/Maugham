@@ -27,6 +27,9 @@ struct CentreColumn: View {
     let documentStore: DocumentStore
     let canvasModel: CanvasModel
     let editorControl: EditorControl
+    /// The window's table-grid presence (report plan 7c Task 9), handed to
+    /// the manuscript editor's grid opening; read nowhere here.
+    let figureGridPresence: FigureGridPresence
     @Bindable var publishCentre: PublishCentreModel
     let designer: DesignerOrchestrator
     let declaredWorld: DeclaredWorldStore?
@@ -178,6 +181,7 @@ struct CentreColumn: View {
                 // hard-locked (lockEditing) via `ProjectWindow.editorMembrane`
                 // mirrored into the control.
                 control: editorControl,
+                figureGridPresence: figureGridPresence,
                 // A note written from the margin carries the pass this piece is
                 // being reviewed through. Read off `documentStore.uiState`, never a
                 // per-window copy: a second window on the project records a pass

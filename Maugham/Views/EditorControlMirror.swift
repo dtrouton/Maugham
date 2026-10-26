@@ -56,11 +56,15 @@ enum InsertMenuGate {
     /// - the editor holds a manuscript document (`posture` non-nil) whose
     ///   format takes report elements (`format`, not a screenplay);
     /// - its posture `allows(.writeText)`, and the iCloud share is writable;
-    /// - the editor is not in review mode (⌘⌥⇧R) or translation review.
+    /// - the editor is not in review mode (⌘⌥⇧R) or translation review;
+    /// - no table grid is expanded in the editor (`FigureGridPresence`,
+    ///   report plan 7c Task 9): the grid has the keys, and the writer folds
+    ///   it before inserting into the text.
     static func isEnabled(posture: Posture?, format: DocumentFormat?,
                           manualReview: Bool, shareIsReadOnly: Bool,
-                          isTranslationReview: Bool, route: CentreRoute?) -> Bool {
-        guard case .editor(altitude: false, cover: nil)? = route,
+                          isTranslationReview: Bool, gridHoldsTheKeys: Bool,
+                          route: CentreRoute?) -> Bool {
+        guard !gridHoldsTheKeys, case .editor(altitude: false, cover: nil)? = route,
               let posture, let format, !format.isScreenplay else { return false }
         return posture.allows(.writeText) && !shareIsReadOnly
             && !manualReview && !isTranslationReview

@@ -401,6 +401,13 @@ struct MaughamApp: App {
             CommandMenu("Insert") {
                 InsertMenuButtons()
             }
+            // The expanded table grid's commands (report plan 7c Task 9,
+            // R7c-10), in `FigureTableMenu.sections`' order.
+            CommandMenu("Format") {
+                Menu("Table") {
+                    FigureTableMenuButtons()
+                }
+            }
             HelpCommands(onboarding: onboarding)
         }
 
@@ -580,6 +587,86 @@ extension FocusedValues {
     var mayInsertReportElement: Bool? {
         get { self[FocusedMayInsertReportElementKey.self] }
         set { self[FocusedMayInsertReportElementKey.self] = newValue }
+    }
+}
+
+/// What the focused window's expanded table grid may do (`FigureGridPresence`,
+/// report plan 7c Task 9); nil with no grid expanded. Published by
+/// `FigureTableMenuModifier`; read only by `FigureTableMenuButtons`.
+struct FocusedFigureTableMenuKey: FocusedValueKey { typealias Value = FigureTableMenuState }
+extension FocusedValues {
+    var figureTableMenu: FigureTableMenuState? {
+        get { self[FocusedFigureTableMenuKey.self] }
+        set { self[FocusedFigureTableMenuKey.self] = newValue }
+    }
+}
+
+/// Publishes the window's grid presence to the menu bar — its own view, so
+/// a change of the menu's state re-evaluates this body and not the window's
+/// (`CanvasPromotionModifier`'s measured reason).
+struct FigureTableMenuModifier: ViewModifier {
+    let presence: FigureGridPresence
+    func body(content: Content) -> some View {
+        content.focusedSceneValue(\.figureTableMenu, presence.menu)
+    }
+}
+
+/// Format ▸ Table: the expanded grid's commands, built from
+/// `FigureTableMenu.sections` (the right-click menu's order too), each
+/// enabled by the focused window's `FigureTableMenuState` and posted to the
+/// key window (`MaughamEvent.postFigureTableCommand`). ⌘⌥↑↓←→ insert a row
+/// or column — bound here only (R7c-10: the grid's `keyDown` leaves them to
+/// these items, one delivery path).
+private struct FigureTableMenuButtons: View {
+    @FocusedValue(\.figureTableMenu) private var menu
+    var body: some View {
+        ForEach(Array(FigureTableMenu.sections.enumerated()), id: \.offset) { index, section in
+            if index > 0 { Divider() }
+            ForEach(section, id: \.self) { entry in
+                switch entry {
+                case .numberFormats:
+                    Menu(FigureTableMenu.numberFormatTitle) {
+                        ForEach(FigureGridFormatChoice.allCases, id: \.self) { choice in
+                            toggle(.format(choice))
+                        }
+                    }
+                    .disabled(menu?.isEnabled(.format(.general)) != true)
+                case .command(let command):
+                    item(command)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func item(_ command: FigureTableCommand) -> some View {
+        switch command {
+        case .insertRowAbove:
+            button(command).keyboardShortcut(.upArrow, modifiers: [.command, .option])
+        case .insertRowBelow:
+            button(command).keyboardShortcut(.downArrow, modifiers: [.command, .option])
+        case .insertColumnLeft:
+            button(command).keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+        case .insertColumnRight:
+            button(command).keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+        case .headerRow, .totalRow:
+            toggle(command)
+        default:
+            button(command)
+        }
+    }
+
+    private func button(_ command: FigureTableCommand) -> some View {
+        Button(command.title) { MaughamEvent.postFigureTableCommand(command) }
+            .disabled(menu?.isEnabled(command) != true)
+    }
+
+    /// A ticked item: Header Row, Total Row, the active cell's format.
+    private func toggle(_ command: FigureTableCommand) -> some View {
+        Toggle(command.title, isOn: Binding(
+            get: { menu?.isOn(command) == true },
+            set: { _ in MaughamEvent.postFigureTableCommand(command) }))
+            .disabled(menu?.isEnabled(command) != true)
     }
 }
 
