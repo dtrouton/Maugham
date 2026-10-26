@@ -54,6 +54,7 @@ final class FigureGridControllerTests: XCTestCase {
         window?.close()
         window = nil
         DocumentStore.figureHostAppendedForTesting = nil
+        FigureGridController.writeTurnForTesting = nil
         projectStore = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
@@ -389,6 +390,54 @@ final class FigureGridControllerTests: XCTestCase {
         XCTAssertEqual(c.host.state.table[key(c, "A1")]?.content, .value(.number(9)))
     }
 
+    /// **A commit the table changed under is never dropped** (review I1,
+    /// R7c-8): `=D1*2` read when Return was pressed; column A is deleted
+    /// elsewhere before the write's turn, so D1 is past the table. Nothing is
+    /// written, and the edit opens again on its cell with the text and the
+    /// message, as a fresh parse error would.
+    func test_aCommitThatNoLongerReadsAtItsTurnReopensWithTheText() async throws {
+        let (_, c) = try await openGrid()
+        let b2 = key(c, "B2"), columnA = key(c, "A1").column
+        FigureGridController.writeTurnForTesting = { try? await c.host.deleteColumn(columnA) }
+        c.handle(.click(b2, extend: false))
+        c.handle(.type("="))
+        c.handle(.editTextChanged("=D1*2"))
+        let said = await notices {
+            c.handle(.returnKey(backward: false))
+            await c.settleWrites()
+        }
+        XCTAssertEqual(c.host.state.table.columns.count, 3, "precondition: the column went")
+        XCTAssertNil(c.host.state.table[b2], "nothing written")
+        XCTAssertEqual(c.model.edit, .composing(FigureGridEdit(cell: b2, text: "=D1*2", inCell: true), reference: nil))
+        XCTAssertEqual(c.gridView.cellEditor.stringValue, "=D1*2", "the typing is back in the cell")
+        XCTAssertNotNil(c.bars.errorMessage)
+        XCTAssertEqual(said, [])
+    }
+
+    /// The same drift while the writer is already editing another cell: the
+    /// open edit is left alone, and a notice carries the text.
+    func test_aDriftedCommitWhileEditingElsewhereIsSaidWithItsText() async throws {
+        let (_, c) = try await openGrid()
+        let columnA = key(c, "A1").column
+        FigureGridController.writeTurnForTesting = {
+            try? await c.host.deleteColumn(columnA)
+            let table = c.host.state.table
+            c.handle(.click(CellKey(row: table.rows[4], column: table.columns[0]), extend: false))
+            c.handle(.type("5"))
+        }
+        c.handle(.click(key(c, "B2"), extend: false))
+        c.handle(.type("="))
+        c.handle(.editTextChanged("=D1*2"))
+        let said = await notices {
+            c.handle(.returnKey(backward: false))
+            await c.settleWrites()
+        }
+        XCTAssertEqual(said.count, 1)
+        XCTAssertTrue(said.first?.contains("=D1*2") == true, "the notice carries the text: \(said)")
+        guard case .editing(let e) = c.model.edit else { return XCTFail("the writer's edit was taken: \(c.model.edit)") }
+        XCTAssertEqual(e.text, "5")
+    }
+
     /// **Done with a formula that will not read keeps the grid open** (R7c-8):
     /// the refused commit ends the effect list, so the fold after it never runs.
     func test_doneWithAFormulaThatWillNotReadKeepsTheGridOpen() async throws {
@@ -452,7 +501,8 @@ final class FigureGridControllerTests: XCTestCase {
 
         XCTAssertEqual(textView.string, "Intro.\n\n![Cash] (by month](figures/t.csv){#tbl:t}\n\nAfter.\n")
         XCTAssertEqual(textView.undoManager?.undoActionName, "Edit Caption")
-        XCTAssertEqual(c.bars.committedCaption, "Cash](by\nmonth")
+        XCTAssertEqual(c.bars.committedCaption, "Cash] (by month", "the bar holds what the line holds")
+        XCTAssertEqual(c.bars.captionField.stringValue, "Cash] (by month")
         textView.undoManager?.undo()
         XCTAssertEqual(textView.string, text, "one ⌘Z")
     }

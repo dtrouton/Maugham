@@ -59,6 +59,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private var writes: Task<Void, Never>?
     private var isClosed = false
 
+    /// Test seam: runs as each write's turn comes, before it reads the host —
+    /// where a test lands a change made elsewhere.
+    static var writeTurnForTesting: (@MainActor () async -> Void)?
+
     // MARK: Opening
 
     /// **Open a visit** on `figureId`'s table through the window's store: its
@@ -91,6 +95,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         name = projectStore.manifest.figures?.first { $0.id == host.figureId }?.name ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
         gridView = FigureGridView(typography: typography)
+        // A placeholder first, so the real model's closure may capture `self`.
         model = FigureGridModel(table: host.state.table, editText: { _ in "" })
         model = FigureGridModel(table: host.state.table, editText: { [weak self] in self?.barText(for: $0) ?? "" })
         gridView.dataSource = self
@@ -202,6 +207,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         case .idle:
             editSource = .bar
             execute(model.reduce(.editInPlace))
+            // No edit opened (nothing to edit): the bar is not the edit's.
+            if case .idle = model.edit {
+                editSource = .cell
+                return
+            }
         case .editing, .composing:
             if editSource == .cell {
                 editSource = .bar
@@ -302,25 +312,52 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         }
         switch FigureCellEntry.cell(from: text, prior: table[cell], table: table, names: names, locale: values.locale) {
         case .failure(let error):
-            execute(model.reopenEdit(cell: cell, text: text))
-            bars.showError(error.message)
-            let caret = NSRange(location: FigureGridFormatting.utf16Offset(ofCharacter: error.offset, in: text), length: 0)
-            let field = editSource == .bar ? bars.formulaField : gridView.cellEditor
-            field.currentEditor()?.selectedRange = caret
+            reopen(text, at: cell, error)
             return false
         case .success:
             bars.clearError()
             endEdit()
             // Read again when its turn comes, over the cell as the host then holds it.
             let (names, locale) = (names, values.locale)
-            enqueue { [host, undoManager] in
+            enqueue { [weak self, host, undoManager] in
                 let table = host.state.table
-                guard case .success(let next) = FigureCellEntry.cell(
-                    from: text, prior: table[cell], table: table, names: names, locale: locale) else { return }
-                try await host.setCell(next, at: cell, undoManager: undoManager())
+                switch FigureCellEntry.cell(from: text, prior: table[cell], table: table, names: names, locale: locale) {
+                case .success(let next):
+                    try await host.setCell(next, at: cell, undoManager: undoManager())
+                case .failure(let error):
+                    // The table changed under it (a column it names deleted
+                    // elsewhere): the typing is never dropped (R7c-8).
+                    self?.reopenDrifted(text, at: cell, error)
+                }
             }
             return true
         }
+    }
+
+    /// A formula that will not read: the edit opens again on its cell holding
+    /// `text`, the message shown, the caret at its offset (in UTF-16).
+    private func reopen(_ text: String, at cell: CellKey, _ error: FormulaParseError) {
+        execute(model.reopenEdit(cell: cell, text: text))
+        bars.showError(error.message)
+        let caret = NSRange(location: FigureGridFormatting.utf16Offset(ofCharacter: error.offset, in: text), length: 0)
+        let field = editSource == .bar ? bars.formulaField : gridView.cellEditor
+        field.currentEditor()?.selectedRange = caret
+    }
+
+    /// **A commit that read when asked but not at its turn** (the table
+    /// changed meanwhile): reopened like a fresh parse error when the grid is
+    /// free; when the writer is already editing elsewhere, or the cell is
+    /// gone, said as a notice that carries the text, so it is never lost.
+    private func reopenDrifted(_ text: String, at cell: CellKey, _ error: FormulaParseError) {
+        syncFromHost()
+        if case .idle = model.edit, values.table.rowIndex(of: cell.row) != nil,
+           values.table.columnIndex(of: cell.column) != nil {
+            editSource = .cell
+            reopen(text, at: cell, error)
+            return
+        }
+        let address = FigureGridAddress.string(from: cell, to: cell, in: values.table).map { " in \($0)" } ?? ""
+        MaughamEvent.postNotice("Couldn't write “\(text)”\(address) — \(error.message).", projectURL: host.projectURL)
     }
 
     /// ⌫ over the selection: each cell emptied as typing nothing would (a
@@ -391,8 +428,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The caption is the figure line's text: Route A through the coordinator.
     /// Refused (the membrane, a line gone), the field shows the caption again.
     private func commitCaption(_ caption: String) {
-        if line.commitCaption(caption) { line.caption = caption }
+        if line.commitCaption(caption) { line.caption = FigureIngest.keptCaption(caption) }
         bars.showLine(number: line.number, caption: line.caption, name: name)
+        bars.captionField.stringValue = line.caption
     }
 
     /// The name through `ProjectStore.renameFigure` (every door it asks, the
@@ -419,6 +457,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let previous = writes
         writes = Task { @MainActor [weak self] in
             await previous?.value
+            await Self.writeTurnForTesting?()
             do {
                 try await act()
             } catch {
