@@ -115,14 +115,8 @@ struct EditorSurfaceConfiguration {
         /// `EditorHost`; nil elsewhere.
         var tableFigureMaker: FigureIngest.TableFigureMaker? = nil
         /// Where a command that could not finish is told (a sentence): a
-        /// figure that could not be made, a table grid save refused.
+        /// figure that could not be made.
         var commandFailureReporter: (@MainActor (String) -> Void)? = nil
-        /// Presents the table grid editor on a table and returns the edited
-        /// table, or nil when the writer cancelled (plan 3b Task 5,
-        /// `EditorCoordinator.editTable`). A sheet the host presents, since a
-        /// `.keyWindow` post from inside a sheet is dropped. Wired by
-        /// `EditorHost`; nil elsewhere, where Edit Table… does nothing.
-        var tableEditor: (@MainActor (TableGridRequest) async -> TableText?)? = nil
         /// Resolves a figure path as written, from the document's own path, for
         /// the thumbnail drawn under each figure line (plan 3a Task 7,
         /// `FigureThumbnailOverlay`). Wired by `EditorHost`, together with a
@@ -261,7 +255,6 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.figureImporter = pp.figureImporter
         coordinator.tableFigureMaker = pp.tableFigureMaker
         coordinator.commandFailureReporter = pp.commandFailureReporter
-        coordinator.tableEditor = pp.tableEditor
         coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.figureCardModel = pp.figureCardModel
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
@@ -535,7 +528,6 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.tableFigureMaker = pp.tableFigureMaker
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
-        context.coordinator.tableEditor = pp.tableEditor
         context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.figureCardModel = pp.figureCardModel
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
@@ -707,16 +699,6 @@ final class MaughamTextView: NSTextView {
                 .maughamNavigateToDocument,
                 to: .project(id: projectId),
                 payload: ["id": id])
-            return
-        }
-        // A double-click on a table's delimiter row (`|---|`) opens the grid
-        // editor (plan 3b Task 5, R-3b-3); anywhere else, inside a cell
-        // included, the coordinator says no and `super` selects the word. No
-        // test may synthesise the click (tripwire 33), so
-        // `TripwireGrepTests.test_theTableDoubleClickIsADoubleClickOnTheDelimiterRow`
-        // reads this source.
-        if event.clickCount == 2,
-           coordinator?.editTableOnDelimiterRow(atCharacterIndex: charIndex) == true {
             return
         }
         super.mouseDown(with: event)

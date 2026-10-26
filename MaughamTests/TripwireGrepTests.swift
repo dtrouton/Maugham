@@ -12159,8 +12159,7 @@ final class TripwireGrepTests: XCTestCase {
 
     /// **`FigureDocument`'s mutator spellings, counted only as an AWAITED
     /// call.** The names are generic — plan 5's `FigureTable.setCell(`/
-    /// `insertRow(`/`moveRow(` in Core, `FigureStructureChange.insertRow(`,
-    /// the grid editor's `model.setCell(` — and every one of those is
+    /// `insertRow(`/`moveRow(` in Core, `FigureStructureChange.insertRow(` — and every one of those is
     /// synchronous, while `FigureDocument`'s are `async throws` and so are
     /// always reached as `await <receiver>.setCell(` (or `await setCell(`
     /// from inside). A spelling here counts only in that shape
@@ -12914,9 +12913,8 @@ final class TripwireGrepTests: XCTestCase {
 
     /// **A figure mutator's generic name counts only on FigureDocument's
     /// receiver shape** (report plan 6a Task 8). Plan 5's `FigureTable`
-    /// mutators in Core, `FigureStructureChange`'s cases and the grid
-    /// editor's model share the names `setCell(`/`insertRow(`/`moveRow(`, and
-    /// all are synchronous: none is counted, so Core's `FigureDeriver.swift`
+    /// mutators in Core and `FigureStructureChange`'s cases share the names
+    /// `setCell(`/`insertRow(`/`moveRow(`, and all are synchronous: none is counted, so Core's `FigureDeriver.swift`
     /// and `TableCSV.swift` are not writer sites. The awaited
     /// `FigureDocument` call on the same file is, and taken away the file
     /// leaves the census. The production census's own result is checked the
@@ -12950,7 +12948,7 @@ final class TripwireGrepTests: XCTestCase {
         try helpers.write(to: tmp.appendingPathComponent("FigureDeriver.swift"),
                           atomically: true, encoding: .utf8)
         XCTAssertEqual(Self.byFile(try manuscriptWriterCallCounts(in: [tmp])), [:],
-            "Self-check: no table helper, structure case, grid-model call, "
+            "Self-check: no table helper, structure case, "
             + "declaration, comment, bare payload or other `figure:` label is "
             + "counted as a figure writer")
 
@@ -12980,7 +12978,7 @@ final class TripwireGrepTests: XCTestCase {
 
         let production = Self.byFile(try manuscriptWriterCallCounts(in: admissionRoots))
         for helperFile in ["FigureDeriver.swift", "TableCSV.swift", "FigureOp.swift",
-                           "FigureTable.swift", "TableGridEditor.swift"] {
+                           "FigureTable.swift"] {
             XCTAssertNil(production[helperFile],
                 "\(helperFile) holds table helpers, not figure writers")
         }
@@ -13482,104 +13480,6 @@ extension TripwireGrepTests {
         XCTAssertNil(Self.checkboxGateProblem(inMouseDownBody: gated))
         XCTAssertEqual(Self.mouseDownBody(in: "override func mouseDown(with event: NSEvent) { if x { y } } z"),
                        "{ if x { y } }")
-    }
-
-    // MARK: - The table grid opens on a double-click of the delimiter row only (plan 3b Task 5)
-
-    /// Names what is wrong with a `mouseDown` body's table double-click, or
-    /// returns nil. R-3b-3: a double-click on a table's delimiter row opens
-    /// the grid; inside a cell it stays AppKit's word selection. So the
-    /// coordinator's `editTableOnDelimiterRow` (which says no off the
-    /// delimiter row, `TableGridCommandTests`) is asked in ONE `if`, whose
-    /// clause first requires `event.clickCount == 2` — a single click would
-    /// otherwise open the sheet — and before `super.mouseDown`, which would
-    /// already have selected the word.
-    ///
-    /// And `mouseDown` never calls `editTable(` itself (fix round 1, M4):
-    /// that opens the grid wherever the caret's table is, with no
-    /// delimiter-row question asked.
-    static func tableDoubleClickProblem(inMouseDownBody body: String) -> String? {
-        if body.contains("editTable(") {
-            return "mouseDown calls editTable( directly, skipping the delimiter-row question"
-        }
-        let ask = "editTableOnDelimiterRow"
-        let uses = body.components(separatedBy: ask).count - 1
-        guard uses == 1, let use = body.range(of: ask) else {
-            return "mouseDown asks editTableOnDelimiterRow \(uses) times, not once"
-        }
-        guard let clause = body[..<use.lowerBound].range(of: "if ", options: .backwards),
-              body[clause.upperBound..<use.lowerBound].contains("event.clickCount == 2,")
-        else {
-            return "editTableOnDelimiterRow is asked without event.clickCount == 2 first in its if"
-        }
-        // The call, not a comment naming it — spelled in two halves so the
-        // click census does not read this helper as one that builds a click.
-        if let superCall = body.range(of: "super.mouseDown" + "(with:"),
-           superCall.lowerBound < use.lowerBound {
-            return "editTableOnDelimiterRow is asked after super.mouseDown has selected the word"
-        }
-        return nil
-    }
-
-    func test_theTableDoubleClickIsADoubleClickOnTheDelimiterRow() throws {
-        let editorDir = sourceDir.appendingPathComponent("Editor")
-        let surface = try String(contentsOf: editorDir.appendingPathComponent("EditorSurface.swift"),
-                                 encoding: .utf8)
-        let body = try XCTUnwrap(Self.mouseDownBody(in: surface), "mouseDown not found")
-        XCTAssertNil(Self.tableDoubleClickProblem(inMouseDownBody: body))
-        // The double-click route is defined in the coordinator and called by
-        // mouseDown alone: any other caller is a way in no ruling covers.
-        var callers: [String] = []
-        for dir in [editorDir, sourceDir.appendingPathComponent("Views")] {
-            for case let url as URL in FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)!
-            where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
-                if text.contains("editTableOnDelimiterRow(") { callers.append(url.lastPathComponent) }
-            }
-        }
-        XCTAssertEqual(callers.sorted(), ["EditorCoordinator+Tables.swift", "EditorSurface.swift"],
-                       "the double-click route is defined in the coordinator and called by mouseDown alone")
-    }
-
-    /// The planted bodies live in multi-line literals, which the click census
-    /// (tripwire 33's click arm) does not read as code.
-    func test_theTableDoubleClickCensusFiresOnAPlantedOffender() {
-        let anyClick = """
-            { if coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
-              super.mouseDown(with: event) }
-            """
-        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: anyClick), "a single click opens it")
-        let afterSuper = """
-            { super.mouseDown(with: event)
-              if event.clickCount == 2, coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return } }
-            """
-        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: afterSuper), "the word is already selected")
-        let otherIf = """
-            { if event.clickCount == 2, x { }
-              if coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
-              super.mouseDown(with: event) }
-            """
-        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: otherIf), "the count is another if's")
-        let gone = """
-            { super.mouseDown(with: event) }
-            """
-        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: gone), "the route is gone")
-        let direct = """
-            { if event.clickCount == 2,
-                 coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
-              if event.clickCount == 2 { coordinator?.editTable(at: i); return }
-              super.mouseDown(with: event) }
-            """
-        XCTAssertNotNil(Self.tableDoubleClickProblem(inMouseDownBody: direct),
-                        "editTable( called straight from mouseDown")
-        let wired = """
-            { // falls through to `super.mouseDown` below
-              if event.clickCount == 2,
-                 coordinator?.editTableOnDelimiterRow(atCharacterIndex: i) == true { return }
-              super.mouseDown(with: event) }
-            """
-        XCTAssertNil(Self.tableDoubleClickProblem(inMouseDownBody: wired),
-                     "a comment naming super.mouseDown is not the call")
     }
 }
 

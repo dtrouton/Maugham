@@ -3,7 +3,7 @@ import XCTest
 
 /// `TableClipboard`: cells copied from Excel, Numbers or Google Sheets, as the
 /// tab-separated text they put on the pasteboard (report foundations plan 3b
-/// Task 5, the grid editor's Paste Cells).
+/// Task 5).
 final class TableClipboardTests: XCTestCase {
 
     func test_tabsSeparateCellsAndLineBreaksSeparateRows() {

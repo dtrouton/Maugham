@@ -428,17 +428,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var tableFigureMaker: FigureIngest.TableFigureMaker?
 
     /// Where a command that could not finish is told — a figure that could
-    /// not be made, a table grid save refused — the host's notice banner, the
+    /// not be made — the host's notice banner, the
     /// channel the editor's other failures use.
     var commandFailureReporter: (@MainActor (String) -> Void)?
-
-    /// Presents the table grid editor and returns the edited table, nil on
-    /// Cancel (plan 3b Task 5). Built by `EditorHost`; nil on every other
-    /// surface, where Edit Table… and the delimiter-row double-click do nothing.
-    var tableEditor: (@MainActor (TableGridRequest) async -> TableText?)?
-    /// The most recent table grid session, so a caller (a test) can await its
-    /// save instead of polling.
-    var tableGridTask: Task<Void, Never>?
 
     /// The most recent figure ingest, so a caller (a test) can await it
     /// instead of polling.
@@ -975,9 +967,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
-        // A table grid still open is cancelled: its sheet closes (the
-        // presenter answers cancellation) and its Save can land nowhere.
-        tableGridTask?.cancel(); tableGridTask = nil
         tableTidy.cancelPending()
         figureThumbnailStore?.cancelAll()
         problemTooltips?.removeAll(from: textView)

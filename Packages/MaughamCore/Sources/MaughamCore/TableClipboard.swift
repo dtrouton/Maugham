@@ -2,8 +2,9 @@ import Foundation
 
 /// **Cells copied from a spreadsheet, as rows** (report foundations plan 3b
 /// Task 5): what Excel, Numbers and Google Sheets put on the pasteboard as
-/// tab-separated text, read for the grid editor's Paste Cells. In Core so the
-/// phone or MCP could read the same text the same way (tripwire 19).
+/// tab-separated text, read by Excel's quoting rules. Its one
+/// reader, the grid sheet's Paste Cells, is retired (report plan 7b); it
+/// stays in Core so a later reader, phone or MCP, shares it (tripwire 19).
 public enum TableClipboard {
     /// The rows of `text`, each a list of cells, by Excel's tab-separated rules:
     ///

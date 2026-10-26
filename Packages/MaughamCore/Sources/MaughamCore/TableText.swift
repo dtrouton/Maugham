@@ -2,7 +2,7 @@ import Foundation
 
 /// **One pipe table as text, and the one formatter that writes it** (report
 /// foundations plan 3a Task 5). The editor's Tab, Return and leave-the-table
-/// tidy write through `formatted()`; plan 3b's grid editor reuses it, and so
+/// tidy write through `formatted()`; Convert to Table Figure reads it, and so
 /// may publishing, the phone or MCP (tripwire 19: one implementation, here).
 ///
 /// It reads through `ManuscriptBlocks.parse` — the reader publishing and the

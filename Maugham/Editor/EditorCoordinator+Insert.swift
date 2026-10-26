@@ -222,13 +222,6 @@ extension EditorCoordinator {
         answersInsertCommands && figureImporter != nil && !isDetached
     }
 
-    /// Whether this editor opens the table grid (plan 3b Task 5,
-    /// `EditorCoordinator+Tables.swift`): a manuscript surface whose host
-    /// presents the sheet (`tableEditor`).
-    var answersTableGrid: Bool {
-        answersInsertCommands && tableEditor != nil && !isDetached
-    }
-
     /// Whether this editor makes table figures (report plan 7b Task 4): a
     /// manuscript surface whose host handed it a maker (`tableFigureMaker`).
     var answersTableFigures: Bool {

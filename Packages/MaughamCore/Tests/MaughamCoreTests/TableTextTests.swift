@@ -3,7 +3,7 @@ import XCTest
 
 /// `TableText`, the one pipe-table formatter (report foundations plan 3a
 /// Task 5): what the editor's Tab, Return and leave-the-table tidy write, and
-/// what plan 3b's grid editor will write.
+/// what a table is written as.
 final class TableTextTests: XCTestCase {
 
     // MARK: - Parsing
@@ -162,9 +162,9 @@ final class TableTextTests: XCTestCase {
         }
     }
 
-    // MARK: - What the grid editor writes (plan 3b Task 5)
+    // MARK: - Label without a caption
 
-    /// A label with no caption is not dropped: the grid sets a label without
+    /// A label with no caption is not dropped: a label may be set without
     /// ever typing a caption, and the Report's cross-references need it.
     func test_aLabelWithoutACaptionWritesItsCaptionLine() throws {
         let t = TableText(header: ["a"], alignments: [.none], rows: [["1"]],

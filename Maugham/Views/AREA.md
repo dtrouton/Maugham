@@ -95,7 +95,6 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `EditorStatusFooter.swift` — the status row under the editor.
 - `ReferenceIndexHost.swift` — the window's cached `ReferenceIndex`, its token listing and parse off the main thread; `EditorHost` owns it.
 - `FigureCardCache.swift` — the window's figure cards, filled off the typing path and read from memory only; `EditorHost` owns it.
-- `TableGridEditor.swift` — Edit Table…'s grid sheet over a pure `TableGridModel`, and the presenter `EditorHost` awaits.
 - `StatusSwatch.swift` — the one place a `ReviewStatus` becomes a `Color`.
 
 ### The right column's panes

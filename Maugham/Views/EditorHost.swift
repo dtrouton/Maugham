@@ -117,13 +117,6 @@ struct EditorHost: View {
     /// card, filled off the typing path, read synchronously by the editor. A
     /// plain reference like `referenceIndex`, never observed by this body.
     @State private var figureCards = FigureCardCache()
-    /// **The table grid editor's presenter** (plan 3b Task 5): the coordinator
-    /// awaits it through `tableEditor`, and `TableGridSheetModifier` shows the
-    /// sheet. A plain reference like `referenceIndex`: this body never reads
-    /// its session (tripwire 6), so a sheet going up or down re-renders only
-    /// the modifier. A host closure rather than a window event because a
-    /// `.keyWindow` post from inside a sheet is dropped.
-    @State private var tableGrid = TableGridPresenter()
 
     /// **What a document that did not open is showing**, instead of an eternal
     /// "Loading…" (RULING-7 + RULING-54, widened by signed op log P3a Task 8).
@@ -366,7 +359,6 @@ struct EditorHost: View {
             attachReferenceIndex()
             attachFigureCards()
         }
-        .modifier(TableGridSheetModifier(presenter: tableGrid))
         .onDisappear {
             // EditorHost's `.onDisappear` fires only on document-abandonment
             // paths: leaving the manuscript/scenes/find segment (a fresh
@@ -405,8 +397,6 @@ struct EditorHost: View {
             recoveryPaneModel = nil
             referenceIndex.attach(nil)
             detachFigureCards()
-            // A grid still open saves nowhere: it closes as cancelled.
-            tableGrid.finish(nil)
             loadedItemId = nil
             priorLoadedPath = nil
             // And nothing in flight may bind into a host that has gone: it
@@ -926,11 +916,6 @@ struct EditorHost: View {
                 },
                 commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)
-                },
-                // The table grid editor (plan 3b Task 5): a sheet this host
-                // presents; the coordinator writes its result through Route A.
-                tableEditor: { [tableGrid] request in
-                    await tableGrid.present(request)
                 },
                 // The thumbnail under each figure line (plan 3a Task 7): a
                 // figure path resolves from this document's own project-relative
