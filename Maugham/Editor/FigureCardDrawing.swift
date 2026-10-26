@@ -220,7 +220,8 @@ enum FigureCardDrawing {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private static func drawText(_ text: Text, font: NSFont, color: NSColor, alpha: CGFloat) {
+    /// One text in its box, vertically centred and truncated (the grid paints with it too).
+    static func drawText(_ text: Text, font: NSFont, color: NSColor, alpha: CGFloat) {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byTruncatingTail
         switch text.alignment {
