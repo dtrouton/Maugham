@@ -103,8 +103,8 @@ final class WiringCensusTests: XCTestCase {
                ".onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }",
                "referenceIndex.invalidate(.piece(changed))"],
               why: "the editor reads the cached reference index (never a build), feeds it at the metrics edge, and invalidates it on research and sync changes"),
-        Entry("type:EditorHost", .inOrder,
-              ["documentStore.unregister(path: priorPath)", "referenceIndex.invalidate(.piece(prior.docId))"],
+        Entry("decl:func loadDocumentIfNeeded() async {", .anyOrder,
+              ["documentStore.unregister(path: priorPath) referenceIndex.invalidate(.piece(prior.docId))"],
               why: "the piece just left is re-read from its flushed op log at the switch itself (plan 3b I1)"),
         Entry("type:MaughamTextView", .anyOrder,
               ["coordinator.asNotTyping { pasteAsTyped(sender) }",
@@ -275,11 +275,15 @@ final class WiringCensusTests: XCTestCase {
     // MARK: - Reading
 
     /// Every failed entry, as `key: missing token — why`. Throws when a key
-    /// resolves to nothing.
+    /// resolves to nothing. The tree is read ONCE per call, and
+    /// each key's code and each type's declarations are computed once: the
+    /// window family alone is twenty types, named by a dozen entries, and a
+    /// walk per type per entry took the census to ~90s.
     static func failures(of entries: [Entry], base: URL) throws -> [String] {
+        let reader = Reader(base: base)
         var out: [String] = []
         for entry in entries {
-            let haystack = normalized(try code(of: entry.key, base: base))
+            let haystack = try reader.normalizedCode(of: entry.key)
             var from = haystack.startIndex
             for token in entry.tokens {
                 let needle = normalized(token)
@@ -300,38 +304,99 @@ final class WiringCensusTests: XCTestCase {
         return out
     }
 
-    /// The comment-stripped code a key names.
-    static func code(of key: String, base: URL) throws -> String {
-        let raw: [String]
-        if key.hasPrefix("decl:") {
-            raw = [try SourceTree.declaration(named: String(key.dropFirst(5)), under: "Maugham", base: base)]
-        } else if key == window {
-            raw = try ["ProjectWindow"].flatMap { try declarations(of: $0, base: base) }
-                + SourceTree.windowFamilyTypes.flatMap { type -> [String] in
-                    do { return try declarations(of: type, base: base) } catch where base != SourceTree.repoRoot {
-                        return []   // a planted tree plants only what it needs
-                    }
-                }
-        } else if let type = SourceTree.typeName(ofKey: key) {
-            raw = try declarations(of: type, base: base)
-        } else {
-            throw SourceTree.LookupError(description: "WiringCensus: unknown key kind `\(key)`")
-        }
-        return raw.map { SourceScan.codeLines(of: $0).joined(separator: "\n") }
-            .joined(separator: "\n")
-    }
+    /// The code a key names: `Maugham/` read once, each file masked at most
+    /// once, and the answer memoised per key and per type for the life of one
+    /// `failures` call. `decl:` keys are found in the same files, with `SourceTree.declaration`'s
+    /// matching and its throw on none or more than one.
+    final class Reader {
+        let base: URL
+        private var files: [(path: String, text: String, bytes: [UInt8])]?
+        private var masks: [String: [UInt8]] = [:]
+        private var byType: [String: [String]] = [:]
+        private var byKey: [String: String] = [:]
 
-    /// The text of every declaration of `type` (extensions included) under
-    /// `Maugham/`, each brace-matched; throws when nothing declares it.
-    static func declarations(of type: String, base: URL) throws -> [String] {
-        let ranges = try SourceTree.declarationRanges(of: type, under: ["Maugham"], base: base)
-        guard !ranges.isEmpty else {
-            throw SourceTree.LookupError(description: "WiringCensus: no file declares type '\(type)'")
+        init(base: URL) { self.base = base }
+
+        /// The files under `Maugham/` whose text contains `name`, each masked
+        /// once and only when first asked for. The tree is read once, and the
+        /// prefilter is `memmem` over the raw bytes: `String.contains` across
+        /// 600-odd files is ~0.15s a call in a Debug build, and the window
+        /// family alone asks twenty times.
+        private func candidates(naming name: String) throws
+            -> [(path: String, text: String, masked: [UInt8])] {
+            if files == nil {
+                files = try SourceTree.swiftFiles(under: "Maugham", base: base).map {
+                    let text = try SourceTree.read($0, base: base)
+                    return ($0, text, Array(text.utf8))
+                }
+            }
+            let needle = Array(name.utf8)
+            return try (files ?? []).filter { Self.contains(needle, in: $0.bytes) }.map { file in
+                if let known = masks[file.path] { return (file.path, file.text, known) }
+                let masked = try SourceTree.checkedMask(file.text, path: file.path)
+                masks[file.path] = masked
+                return (file.path, file.text, masked)
+            }
         }
-        return try ranges.keys.sorted().flatMap { file -> [String] in
-            let lines = try SourceTree.read(file, base: base)
-                .split(separator: "\n", omittingEmptySubsequences: false)
-            return ranges[file, default: []].map { lines[($0.lowerBound - 1)...($0.upperBound - 1)].joined(separator: "\n") }
+
+        private static func contains(_ needle: [UInt8], in haystack: [UInt8]) -> Bool {
+            guard !needle.isEmpty else { return true }
+            return haystack.withUnsafeBytes { h in
+                needle.withUnsafeBytes { n in
+                    memmem(h.baseAddress, h.count, n.baseAddress, n.count) != nil
+                }
+            }
+        }
+
+        func normalizedCode(of key: String) throws -> String {
+            if let known = byKey[key] { return known }
+            let code = WiringCensusTests.normalized(try self.code(of: key))
+            byKey[key] = code
+            return code
+        }
+
+        /// The comment-stripped code a key names.
+        func code(of key: String) throws -> String {
+            let raw: [String]
+            if key.hasPrefix("decl:") {
+                let header = String(key.dropFirst(5))
+                raw = [try SourceTree.declaration(
+                    named: header, in: candidates(naming: SourceTree.withoutAccessModifiers(header)),
+                    root: "Maugham")]
+            } else if key == WiringCensusTests.window {
+                raw = try declarations(of: "ProjectWindow")
+                    + SourceTree.windowFamilyTypes.flatMap { type -> [String] in
+                        do { return try declarations(of: type) } catch where base != SourceTree.repoRoot {
+                            return []   // a planted tree plants only what it needs
+                        }
+                    }
+            } else if let type = SourceTree.typeName(ofKey: key) {
+                raw = try declarations(of: type)
+            } else {
+                throw SourceTree.LookupError(description: "WiringCensus: unknown key kind `\(key)`")
+            }
+            return raw.map { SourceScan.codeLines(of: $0).joined(separator: "\n") }
+                .joined(separator: "\n")
+        }
+
+        /// The text of every declaration of `type` (extensions included) under
+        /// `Maugham/`, each brace-matched; throws when nothing declares it.
+        func declarations(of type: String) throws -> [String] {
+            if let known = byType[type] { return known }
+            let files = try candidates(naming: type)
+            let ranges = try SourceTree.declarationRanges(of: type, in: files)
+            guard !ranges.isEmpty else {
+                throw SourceTree.LookupError(description: "WiringCensus: no file declares type '\(type)'")
+            }
+            let texts = Dictionary(files.map { ($0.path, $0.text) }, uniquingKeysWith: { a, _ in a })
+            let found = ranges.keys.sorted().flatMap { file -> [String] in
+                let lines = (texts[file] ?? "").split(separator: "\n", omittingEmptySubsequences: false)
+                return ranges[file, default: []].map {
+                    lines[($0.lowerBound - 1)...($0.upperBound - 1)].joined(separator: "\n")
+                }
+            }
+            byType[type] = found
+            return found
         }
     }
 
