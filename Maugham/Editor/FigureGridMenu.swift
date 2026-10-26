@@ -10,8 +10,13 @@ import MaughamCore
 // selection and its gate. The menu bar's items post one key-window event
 // (`MaughamEvent.postFigureTableCommand`) that the window's editor routes to
 // the expanded grid's controller; the right-click menu calls the controller
-// directly. ⌘⌥↑↓←→ are bound on the menu-bar items only — the grid's own
-// `keyDown` answers nil for them — so each insert has one delivery path.
+// directly. ⌘⌥↑↓←→ and ⌘D (Fill Down) are bound on the menu-bar items only —
+// the grid's own `keyDown` answers nil for them — so each has one delivery
+// path. ⌘R is Fill Right only while the grid has the keys (R7d-1): the grid
+// claims it in `performKeyEquivalent`, which AppKit asks before the menu bar
+// (`FigureGridView.performKeyEquivalent`), so the File menu's ⌘R (Check
+// Writing) is the one binding of the chord and Fill Right's menu item carries
+// no key glyph.
 
 /// **One table command** — what a menu item asks the expanded grid to do.
 enum FigureTableCommand: Hashable {
@@ -24,6 +29,8 @@ enum FigureTableCommand: Hashable {
     case deleteRows, deleteColumns
     case moveRowsUp, moveRowsDown, moveColumnsLeft, moveColumnsRight
     case sortAscending, sortDescending
+    case fillDown, fillRight
+    case importCSV
 
     var title: String {
         switch self {
@@ -52,6 +59,9 @@ enum FigureTableCommand: Hashable {
         case .moveColumnsRight: "Move Column Right"
         case .sortAscending: "Sort Ascending by Column"
         case .sortDescending: "Sort Descending by Column"
+        case .fillDown: "Fill Down"
+        case .fillRight: "Fill Right"
+        case .importCSV: "Import from CSV\u{2026}"
         }
     }
 }
@@ -71,12 +81,14 @@ enum FigureTableMenu {
         [.numberFormats, .command(.fewerDecimals), .command(.moreDecimals)],
         [.command(.align(.left)), .command(.align(.center)), .command(.align(.right))],
         [.command(.headerRow), .command(.totalRow), .command(.sum)],
+        [.command(.fillDown), .command(.fillRight)],
         [.command(.insertRowAbove), .command(.insertRowBelow),
          .command(.insertColumnLeft), .command(.insertColumnRight),
          .command(.deleteRows), .command(.deleteColumns)],
         [.command(.moveRowsUp), .command(.moveRowsDown),
          .command(.moveColumnsLeft), .command(.moveColumnsRight)],
         [.command(.sortAscending), .command(.sortDescending)],
+        [.command(.importCSV)],
     ]
 
     /// Every command the menus carry, in order (the number formats in place).
@@ -197,8 +209,9 @@ struct FigureTableMenuState: Equatable {
     func isEnabled(_ command: FigureTableCommand) -> Bool {
         guard mayEdit else { return false }
         switch command {
-        case .format, .fewerDecimals, .moreDecimals, .align, .sum: return hasSelection
-        case .headerRow, .totalRow, .insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight:
+        case .format, .fewerDecimals, .moreDecimals, .align, .sum, .fillDown, .fillRight: return hasSelection
+        case .headerRow, .totalRow, .insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight,
+             .importCSV:
             return true
         case .deleteRows: return canDeleteRows
         case .deleteColumns: return canDeleteColumns

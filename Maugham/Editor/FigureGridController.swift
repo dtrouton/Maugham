@@ -40,6 +40,11 @@ import MaughamCore
 ///   it), growing the table past its edge, as one visit and one ⌘Z; a cut is
 ///   a copy and a clear. A read-only grid copies, and answers a cut or paste
 ///   with the reason line.
+/// - **Fill and import** (plan 7d Task 4): Fill Down (⌘D, the menu item) and
+///   Fill Right (⌘R while the grid has the keys, R7d-1) write `FigureFill`'s
+///   cells as one ⌘Z; Import from CSV… matches the file onto the table
+///   (`FigureGridImport`, R7d-8) and writes it through `applyChanges` as one
+///   ⌘Z. A read-only grid answers each with the reason line.
 @MainActor
 final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
 
@@ -272,6 +277,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         mayPerform(action)
     }
 
+    func figureGridViewFillRight(_ view: FigureGridView) {
+        performTableCommand(.fillRight)
+    }
+
     func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat) {
         if let reason = mode.readOnlyReason { return answer(reason) }
         enqueue { [host, undoManager] in
@@ -483,6 +492,15 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
              .sortAscending, .sortDescending:
             guard commitOpenEdit(), let block = selectedBlock() else { return }
             restructure(command, block)
+        case .fillDown:
+            guard commitOpenEdit() else { return }
+            fill(.down)
+        case .fillRight:
+            guard commitOpenEdit() else { return }
+            fill(.right)
+        case .importCSV:
+            guard commitOpenEdit() else { return }
+            chooseFileToImport()
         }
     }
 
@@ -893,14 +911,37 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private func write(_ keys: [CellKey], actionName: String,
                        make: @escaping (_ prior: Cell?, _ key: CellKey, _ table: FigureTable) -> Cell??) {
         guard !keys.isEmpty else { return }
-        enqueue { [host, undoManager] in
-            let table = host.state.table
+        write(actionName: actionName) { table in
             var edits: [CellKey: Cell?] = [:]
             for key in keys where table.rowIndex(of: key.row) != nil && table.columnIndex(of: key.column) != nil {
                 if case .some(let cell) = make(table[key], key, table), cell != table[key] { edits[key] = cell }
             }
+            return edits
+        }
+    }
+
+    /// The batch as the host's table stands when the write's turn comes;
+    /// `afterPendingUndo` plans it once a ⌘Z still landing has landed (a
+    /// fill reads the cells it copies).
+    private func write(actionName: String, afterPendingUndo: Bool = false,
+                       plan: @escaping (FigureTable) -> [CellKey: Cell?]) {
+        enqueue { [host, undoManager] in
+            if afterPendingUndo { await host.awaitPendingUndoWork() }
+            let edits = plan(host.state.table)
             guard !edits.isEmpty else { return }
             try await host.setCells(edits, actionName: actionName, undoManager: undoManager())
+        }
+    }
+
+    /// **Fill Down (⌘D) or Fill Right (⌘R in the grid)** (R7d-1): the
+    /// selection's top row (left column) copied into the rest, formulas
+    /// translated (`FigureFill.edits`; one row or column deep, from the row
+    /// above or the column left) — one ⌘Z, planned when its turn comes.
+    private func fill(_ direction: FigureFill.Direction) {
+        guard let selection = model.selection else { return }
+        let names = names
+        write(actionName: direction == .down ? "Fill Down" : "Fill Right", afterPendingUndo: true) { table in
+            FigureFill.edits(table: table, selection: selection, direction: direction, names: names)
         }
     }
 
@@ -999,6 +1040,75 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         guard !isFolded, case .idle = model.edit else { return }
         execute(model.select(selection.anchor))
         if selection.focus != selection.anchor { execute(model.reduce(.click(selection.focus, extend: true))) }
+    }
+
+    // MARK: Import from CSV (plan 7d Task 4)
+
+    /// Shows the open panel and answers the chosen file (nil: cancelled). A
+    /// test sets this; the app leaves it nil and the panel is a sheet on the
+    /// grid's window (`FigureGridImport.panelConfiguration`).
+    var chooseImportFile: (@MainActor (_ chosen: @escaping @MainActor (URL?) -> Void) -> Void)?
+
+    private func chooseFileToImport() {
+        let chosen: @MainActor (URL?) -> Void = { [weak self] url in
+            guard let self, let url, !self.isClosed else { return }
+            self.importCSV(from: url)
+        }
+        if let chooseImportFile { return chooseImportFile(chosen) }
+        let panel = NSOpenPanel()
+        FigureGridImport.panelConfiguration.apply(to: panel)
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            MainActor.assumeIsolated { chosen(response == .OK ? panel.url : nil) }
+        }
+        if let window = gridView.window {
+            panel.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(panel.runModal())
+        }
+    }
+
+    /// **Import `url`'s cells over the table** (R7d-8): read off the main
+    /// actor, then matched onto the host as it is when the write's turn comes
+    /// (`FigureGridImport.changes`) and written as one visit and one ⌘Z.
+    /// Refused with a notice, writing nothing: a read-only grid (the reason
+    /// line), a file that will not read or holds no cells, more cells than a
+    /// table may hold. Cells the read kept as text are said after.
+    func importCSV(from url: URL) {
+        syncFromHost()
+        if let reason = mode.readOnlyReason { return answer(reason) }
+        let file = url.lastPathComponent
+        enqueue { [weak self, host, store, undoManager] in
+            let text = try await Task.detached { try FigureGridImport.readText(of: url) }.value
+            let cells = TableCSV.nonEmptyCellCount(text)
+            guard cells <= TableCSV.figureCellLimit else {
+                return MaughamEvent.postNotice(
+                    "Couldn't import “\(file)” — \(cells.formatted()) cells are more than a table can hold "
+                        + "(\(TableCSV.figureCellLimit.formatted())).", projectURL: host.projectURL)
+            }
+            guard let store else { return }
+            let context = try await store.tableImportContext()
+            let read = TableCSV.read(text, locale: context.locale, names: context.names)
+            guard !read.table.rows.isEmpty, !read.table.columns.isEmpty else {
+                return MaughamEvent.postNotice("Couldn't import “\(file)” — it holds no cells.",
+                                               projectURL: host.projectURL)
+            }
+            var problems: [CSVReadProblem] = []
+            try await Self.applyPlanned(on: host, actionName: FigureGridImport.actionName,
+                                        undoManager: undoManager()) { state in
+                let changes = FigureGridImport.changes(
+                    onto: state, read: read.table, names: context.names, problems: read.problems)
+                problems = changes.problems
+                return changes.ops
+            }
+            if !problems.isEmpty { self?.sayKeptAsText(problems.count, file) }
+        }
+    }
+
+    private func sayKeptAsText(_ count: Int, _ file: String) {
+        let cells = count == 1 ? "1 cell" : "\(count) cells"
+        MaughamEvent.postNotice(
+            "Imported “\(file)”; \(cells) couldn't be read as a formula and \(count == 1 ? "was" : "were") kept as text.",
+            projectURL: host.projectURL)
     }
 
     // MARK: Caption and name

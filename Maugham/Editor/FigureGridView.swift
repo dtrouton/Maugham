@@ -33,12 +33,15 @@ protocol FigureGridViewDelegate: AnyObject {
     func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction)
     /// Whether Edit ▸ Cut, Copy or Paste is enabled at the grid.
     func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool
+    /// ⌘R while the grid has the keys: Fill Right (plan 7d Task 4, R7d-1).
+    func figureGridViewFillRight(_ view: FigureGridView)
 }
 
 extension FigureGridViewDelegate {
     func figureGridView(_ view: FigureGridView, menuAt cell: CellKey?) -> NSMenu? { nil }
     func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction) {}
     func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool { false }
+    func figureGridViewFillRight(_ view: FigureGridView) {}
 }
 
 /// The Edit menu's clipboard actions the grid answers (plan 7d Task 3).
@@ -339,6 +342,39 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
               let base = event.charactersIgnoringModifiers, !base.isEmpty else { return false }
         return base.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0)
             && !(0xF700...0xF8FF).contains($0.value) }
+    }
+
+    // MARK: ⌘R (plan 7d Task 4, R7d-1)
+
+    /// **⌘R is Fill Right while the grid has the keys** — the grid itself, or
+    /// its cell editor open over a cell — and the File menu's Check Writing
+    /// everywhere else. AppKit offers a key equivalent to the key window's
+    /// views (`performKeyEquivalent`, every view, whoever is first responder)
+    /// before the menu bar — its documented order — so claiming it here keeps
+    /// the menu's ⌘R the chord's one binding. `FigureGridFillKeyTests` pins
+    /// the window's walk on every run and the whole `NSApp.sendEvent` path
+    /// where the host may be made active (CI); a local host is never key, and
+    /// `NSApp` then gives a ⌘ key to the menu bar alone. Any other key
+    /// equivalent travels on.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard Self.isFillRight(event), hasTheKeys else { return super.performKeyEquivalent(with: event) }
+        delegate?.figureGridViewFillRight(self)
+        return true
+    }
+
+    /// ⌘R alone (⇧, ⌥ or ⌃ held is another chord: ⌘⇧R is Reread).
+    static func isFillRight(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        return flags == .command && event.charactersIgnoringModifiers?.lowercased() == "r"
+    }
+
+    /// The window's first responder is this grid, or the field editor of its
+    /// open cell editor.
+    var hasTheKeys: Bool {
+        guard let responder = window?.firstResponder else { return false }
+        if responder === self { return true }
+        return editingCell != nil && cellEditor.currentEditor() != nil && responder === cellEditor.currentEditor()
     }
 
     // MARK: Edit menu actions

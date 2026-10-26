@@ -64,12 +64,16 @@ public enum KeyboardShortcuts {
             Entry(label: "Convert to Table Figure", shortcut: "⌘⌥⇧T"),
         ]),
         // Format ▸ Table (report plan 7c Task 9): an expanded table grid's
-        // inserts, bound on the menu items alone.
+        // inserts and Fill Down, bound on the menu items alone. Fill Right's
+        // ⌘R is the grid's while it has the keys (plan 7d R7d-1) — File's
+        // Check Writing everywhere else — so its menu item shows no glyph.
         Category(category: "Table", items: [
             Entry(label: "Insert Row Above",        shortcut: "⌘⌥↑"),
             Entry(label: "Insert Row Below",        shortcut: "⌘⌥↓"),
             Entry(label: "Insert Column Left",      shortcut: "⌘⌥←"),
             Entry(label: "Insert Column Right",     shortcut: "⌘⌥→"),
+            Entry(label: "Fill Down",               shortcut: "⌘D"),
+            Entry(label: "Fill Right (in the table)", shortcut: "⌘R"),
         ]),
         Category(category: "View", items: [
             Entry(label: "Toggle Focus Mode",       shortcut: "⌘\\"),

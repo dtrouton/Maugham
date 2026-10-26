@@ -615,8 +615,10 @@ struct FigureTableMenuModifier: ViewModifier {
 /// `FigureTableMenu.sections` (the right-click menu's order too), each
 /// enabled by the focused window's `FigureTableMenuState` and posted to the
 /// key window (`MaughamEvent.postFigureTableCommand`). ⌘⌥↑↓←→ insert a row
-/// or column — bound here only (R7c-10: the grid's `keyDown` leaves them to
-/// these items, one delivery path).
+/// or column and ⌘D fills down — bound here only (R7c-10: the grid's
+/// `keyDown` leaves them to these items, one delivery path). Fill Right has
+/// no glyph: ⌘R is File's (Check Writing), and the grid claims it while it
+/// has the keys (R7d-1, `FigureGridView.performKeyEquivalent`).
 private struct FigureTableMenuButtons: View {
     @FocusedValue(\.figureTableMenu) private var menu
     var body: some View {
@@ -649,6 +651,8 @@ private struct FigureTableMenuButtons: View {
             button(command).keyboardShortcut(.leftArrow, modifiers: [.command, .option])
         case .insertColumnRight:
             button(command).keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+        case .fillDown:
+            button(command).keyboardShortcut("d", modifiers: .command)
         case .headerRow, .totalRow:
             toggle(command)
         default:

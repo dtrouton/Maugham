@@ -60,12 +60,13 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let none = FigureTableMenuState.of(table: table, selection: nil, mode: .editable)
         let enabledWithNone = FigureTableMenu.commands.filter(none.isEnabled)
         XCTAssertEqual(enabledWithNone, [.headerRow, .totalRow, .insertRowAbove, .insertRowBelow,
-                                         .insertColumnLeft, .insertColumnRight])
+                                         .insertColumnLeft, .insertColumnRight, .importCSV])
 
         let editable = FigureTableMenuState.of(table: table, selection: selection, mode: .editable)
         for command: FigureTableCommand in [.format(.percent), .moreDecimals, .align(.right), .sum,
                                              .deleteRows, .deleteColumns, .moveRowsDown, .moveColumnsRight,
-                                             .sortAscending, .sortDescending] {
+                                             .sortAscending, .sortDescending, .fillDown, .fillRight,
+                                             .importCSV] {
             XCTAssertTrue(editable.isEnabled(command), "\(command) is disabled over a selected body cell")
         }
         XCTAssertFalse(editable.isEnabled(.moveRowsUp), "the first body row does not move above the header")
@@ -120,10 +121,12 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             .fewerDecimals, .moreDecimals,
             .align(.left), .align(.center), .align(.right),
             .headerRow, .totalRow, .sum,
+            .fillDown, .fillRight,
             .insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight,
             .deleteRows, .deleteColumns,
             .moveRowsUp, .moveRowsDown, .moveColumnsLeft, .moveColumnsRight,
             .sortAscending, .sortDescending,
+            .importCSV,
         ])
 
         var recorded: [FigureTableCommand] = []
@@ -356,10 +359,21 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let app = try SourceTree.read("Maugham/MaughamApp.swift")
         let tokens = DocSyncTests.extractShortcutBindings(from: app).map(\.token)
         let cheatsheet = KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut)
-        for token in ["⌘⌥↑", "⌘⌥↓", "⌘⌥←", "⌘⌥→"] {
+        for token in ["⌘⌥↑", "⌘⌥↓", "⌘⌥←", "⌘⌥→", "⌘D"] {
             XCTAssertEqual(tokens.filter { $0 == token }.count, 1, "\(token) is not bound once")
             XCTAssertTrue(cheatsheet.contains(token), "\(token) is missing from the ⌘/ cheatsheet")
         }
+        // ⌘R stays File ▸ Check Writing's one binding (R7d-1): Fill Right is
+        // the grid's claim while it has the keys, listed beside the Table's.
+        XCTAssertEqual(tokens.filter { $0 == "⌘R" }.count, 1, "⌘R is bound once")
+        let table = try XCTUnwrap(KeyboardShortcuts.all.first { $0.category == "Table" })
+        XCTAssertTrue(table.items.contains { $0.shortcut == "⌘R" && $0.label.hasPrefix("Fill Right") })
+        XCTAssertTrue(table.items.contains { $0.shortcut == "⌘D" && $0.label == "Fill Down" })
+        let fillDown = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
+            context: nil, characters: "d", charactersIgnoringModifiers: "d", isARepeat: false, keyCode: 2))
+        XCTAssertNil(FigureGridView.gridKey(for: fillDown), "⌘D is the menu item's, not the grid's keyDown")
+        XCTAssertFalse(FigureGridView.isFillRight(fillDown))
         for (code, glyph) in [(UInt16(126), "\u{F700}"), (125, "\u{F701}"), (123, "\u{F702}"), (124, "\u{F703}")] {
             let event = try XCTUnwrap(NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [.command, .option], timestamp: 0,
