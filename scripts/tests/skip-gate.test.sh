@@ -29,4 +29,10 @@ out=$("$GATE" "$W/t.json" "$W/base.txt" 2>&1) || fail "a fall must pass: $out"
 json
 out=$("$GATE" "$W/t.json" "$W/base.txt" 2>&1) || fail "no skips must pass: $out"
 [[ "$out" == *"0 tests skipped, ceiling 2"* ]] || fail "none: $out"
+# No test cases at all (empty export, {} or format drift) fails, never passes as "0 skipped".
+for body in '' '{}' '{"testNodes":[]}' 'not json'; do
+  printf '%s' "$body" > "$W/t.json"
+  set +e; out=$("$GATE" "$W/t.json" "$W/base.txt" 2>&1); code=$?; set -e
+  [[ $code -eq 1 && "$out" == *"holds no test cases"* ]] || fail "no test cases ('$body') must fail: $code $out"
+done
 echo ok

@@ -12,6 +12,14 @@
 set -euo pipefail
 JSON="$1"; BASELINE="$2"
 
+# A result with no test cases at all is format drift or an empty export, not
+# "nothing skipped": refuse it rather than pass it.
+total=$(/usr/bin/jq -s '[.[] | .. | objects | select(.nodeType? == "Test Case")] | length' "$JSON" 2>/dev/null || echo 0)
+if [[ "$total" == 0 ]]; then
+  echo "✗ skip gate: $JSON holds no test cases — unreadable, empty, or xcresulttool's" >&2
+  echo "  format changed. The skip count cannot be checked." >&2
+  exit 1
+fi
 now=$(/usr/bin/jq -r '[.. | objects | select(.nodeType? == "Test Case" and .result? == "Skipped")
   | .nodeIdentifier] | unique | .[]' "$JSON")
 want=$(grep -v '^#' "$BASELINE" | grep -v '^[[:space:]]*$' | LC_ALL=C sort -u || true)
