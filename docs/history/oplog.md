@@ -2330,3 +2330,10 @@ The final review found rules among the clauses Task 6 moved here. Back in the gu
 - The load compares `stripAnchors` display forms and dedupes against the newest backup.
 - Divergent same-opId payloads: surfacing the corruption signal needs a `projectURL` the pure merge function lacks, so don't entangle the two.
 - First bootstrap wins: an iCloud partial-sync re-mint is inert once the real log merges.
+
+## Moved by report plan 7c task 1 (2026-10-26)
+
+To make room for `setCells` and `sortRows` in the figure-undo rule under the 8,000-word cap:
+
+- Don't bypass `PendingBuffer`: the pending file carries the live `sequence`, so crash recovery is op-log-domain.
+- A moved project forgetting its heads (they are keyed by project-root path) is the safe direction.

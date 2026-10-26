@@ -727,6 +727,163 @@ public final class FigureDocument {
             })
     }
 
+    // MARK: - Batch verbs (report plan 7c Task 1)
+
+    /// **Set (or clear, with nil) many cells as one visit** — a format over a
+    /// selection, ⌫ over a range, Σ. One door check, one op per cell that
+    /// changes (in table order), one render, and **one ⌘Z** that restores
+    /// every cell (`registerFigureUndo`'s visit).
+    ///
+    /// - Every key must be live, or nothing is written (`FigureEditInvalid`).
+    /// - **Every Research-reading formula takes its entry pins through one
+    ///   read** (`DocumentStore.entryPins(for:cells:)`), as `setCell` does for
+    ///   one: the door and every cell are asked again after it.
+    /// - The drift guard covers every cell and pin it wrote; the redo re-runs
+    ///   the batch while every cell still holds what it replaced.
+    /// - An append that fails part way renders what landed, registers its
+    ///   ⌘Z, and throws.
+    public func setCells(
+        _ edits: [CellKey: Cell?], actionName: String, undoManager: UndoManager? = nil
+    ) async throws {
+        try await requireWritable("setCells")
+        try requireTable()
+        guard edits.keys.allSatisfy(isLive) else {
+            throw FigureEditInvalid(reason: "a cell's row or column is gone")
+        }
+        let table = state.table
+        let changes: [(key: CellKey, next: Cell?, prior: Cell?)] = edits
+            .compactMap { key, next in table[key] == next ? nil : (key, next, table[key]) }
+            .sorted { a, b in
+                let ra = table.rowIndex(of: a.key.row)!, rb = table.rowIndex(of: b.key.row)!
+                return ra != rb ? ra < rb : table.columnIndex(of: a.key.column)! < table.columnIndex(of: b.key.column)!
+            }
+        guard !changes.isEmpty else { return }
+        let stillPrior: (FigureDocument) -> Bool = { d in
+            changes.allSatisfy { d.isLive($0.key) && d.state.table[$0.key] == $0.prior }
+        }
+        var entryPins: [PinWrite] = []
+        let formulaKeys = Set(changes.compactMap { c -> CellKey? in
+            guard case .formula(let f)? = c.next?.content, FigurePins.readsResearch(f) else { return nil }
+            return c.key
+        })
+        if !formulaKeys.isEmpty, let documentStore {
+            var probe = state
+            for c in changes { probe.table.setCell(c.next, at: c.key) }
+            do {
+                entryPins = try await documentStore.entryPins(for: probe, cells: formulaKeys)
+            } catch {
+                documentLog.error(
+                    "figure \(self.figureId, privacy: .public): a batch's Research sources did not read, so it takes no pins: \(error.localizedDescription, privacy: .public)")
+            }
+            // The read awaited: the door and every cell are asked again.
+            try await requireWritable("setCells")
+            guard stillPrior(self) else {
+                throw FigureEditInvalid(reason: "a cell changed while its Research sources were read")
+            }
+        }
+        var written: [Op] = []
+        var failure: Error?
+        do {
+            for c in changes {
+                written.append(try await commit(
+                    .figureCellSet, FigureOpPayload(cell: c.key, next: c.next, prior: c.prior), render: false))
+            }
+            for w in entryPins {
+                written.append(try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin), render: false))
+            }
+        } catch {
+            documentLog.error(
+                "figure \(self.figureId, privacy: .public): a batch was not all written: \(error.localizedDescription, privacy: .public)")
+            failure = error
+        }
+        guard let first = written.first else { throw failure ?? FigureEditInvalid(reason: "nothing was written") }
+        await documentStore?.figureHostAppended(figureId)
+        let landed = written.compactMap(\.figure)
+        let cells = landed.filter { $0.pin == nil }.compactMap { p in p.cell.map { ($0, p.next) } }
+        let pins = landed.compactMap { p in p.pin.flatMap { pin in p.cell.map { ($0, pin) } } }
+        let redoEdits = Dictionary(uniqueKeysWithValues: changes.prefix(cells.count).map { ($0.key, $0.next) })
+        let redoPriors = Array(changes.prefix(cells.count))
+        registerFigureUndo(
+            undoManager, actionName: actionName, forward: first, alongside: Array(written.dropFirst()),
+            stillAsWritten: { d in
+                cells.allSatisfy { d.isLive($0.0) && d.state.table[$0.0] == $0.1 }
+                    && pins.allSatisfy { d.state.pins[$0.0]?.contains($0.1) == true }
+            },
+            redo: { [weak undoManager] d in
+                guard redoPriors.allSatisfy({ d.isLive($0.key) && d.state.table[$0.key] == $0.prior }) else {
+                    return d.decline(.drifted)
+                }
+                await d.redoing {
+                    try await d.setCells(redoEdits, actionName: actionName, undoManager: undoManager)
+                }
+            })
+        if let failure { throw failure }
+    }
+
+    /// **Sort the body rows by one column, as one visit** (ruling R7c-7):
+    /// `FigureSort.order` over `values` — each cell's computed value, which the
+    /// caller holds — turned into row moves, so each row keeps its cells and
+    /// every formula keeps reading by id. Header and total rows stay put.
+    /// One door check, one render, **one ⌘Z** back to the old order, declined
+    /// once the order has changed since; the redo sorts by the values this
+    /// sort read. An order already sorted writes nothing.
+    public func sortRows(
+        by column: ColumnID, ascending: Bool, values: (CellKey) -> CellValue,
+        actionName: String, undoManager: UndoManager? = nil
+    ) async throws {
+        try await requireWritable("sortRows")
+        try requireTable()
+        guard state.table.columnIndex(of: column) != nil else { throw FigureEditInvalid(reason: "that column is gone") }
+        let before = state.table.rows
+        let order = FigureSort.order(table: state.table, values: values, column: column, ascending: ascending)
+        guard order != before else { return }
+        // Each row of `order` in turn goes just after the one before it,
+        // unless it already follows it; a scratch copy says which do.
+        var scratch = state.table
+        var moves: [(row: RowID, after: RowID?)] = []
+        for (i, row) in order.enumerated() {
+            let after = i == 0 ? nil : order[i - 1]
+            let live = scratch.rows
+            guard let at = live.firstIndex(of: row) else { continue }
+            if at == 0 ? after == nil : live[at - 1] == after { continue }
+            scratch.moveRow(row, after: after)
+            moves.append((row, after))
+        }
+        var written: [Op] = []
+        var failure: Error?
+        do {
+            for m in moves {
+                let priorAfter = rowPredecessor(m.row) ?? nil
+                written.append(try await commit(.figureStructure, FigureOpPayload(
+                    structure: .moveRow(m.row, after: m.after, priorAfter: priorAfter)), render: false))
+            }
+        } catch {
+            documentLog.error(
+                "figure \(self.figureId, privacy: .public): a sort was not all written: \(error.localizedDescription, privacy: .public)")
+            failure = error
+        }
+        guard let first = written.first else { throw failure ?? FigureEditInvalid(reason: "nothing was written") }
+        await documentStore?.figureHostAppended(figureId)
+        let landed = Array(moves.prefix(written.count))
+        let sorted = state.table.rows
+        // What this sort read, so its redo sorts the same rows the same way.
+        let read = Dictionary(uniqueKeysWithValues: before.map { ($0, values(CellKey(row: $0, column: column))) })
+        registerFigureUndo(
+            undoManager, actionName: actionName, forward: first, alongside: Array(written.dropFirst()),
+            stillAsWritten: { d in
+                d.state.table.rows == sorted && landed.allSatisfy { d.rowPredecessor($0.row) == .some($0.after) }
+            },
+            redo: { [weak undoManager] d in
+                guard d.state.table.rows == before else { return d.decline(.drifted) }
+                await d.redoing {
+                    try await d.sortRows(
+                        by: column, ascending: ascending, values: { read[$0.row] ?? .empty },
+                        actionName: actionName, undoManager: undoManager)
+                }
+            })
+        if let failure { throw failure }
+    }
+
     /// **Replace an image figure's picture** (report plan 6a Task 9): the
     /// file under `figures/` is replaced through the window's coordinated
     /// door (`DocumentStore.replaceFigureImage`), then one `figureImageSet`

@@ -12148,6 +12148,7 @@ final class TripwireGrepTests: XCTestCase {
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
         "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
+        "setCells(", "sortRows(",
         figureOpMintSpelling,
     ]
 
@@ -12171,6 +12172,7 @@ final class TripwireGrepTests: XCTestCase {
         "moveRow(", "moveColumn(", "setHeaderRows(", "setTotalRow(", "setColumnWidth(",
         "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
         "refreshPins(", "restoreToCheckpoint(",
+        "setCells(", "sortRows(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -12590,6 +12592,9 @@ final class TripwireGrepTests: XCTestCase {
             // A pin refresh's redo refreshes again, behind its own door
             // (report plan 6b Task 9).
             "refreshPins(": 1,
+            // A batch's redo re-enters its verb, behind its own door (report
+            // plan 7c Task 1).
+            "setCells(": 1, "sortRows(": 1,
         ],
         // A rename's picture: `renameImageFile` through the figure's host,
         // after `renameFigure` asked every door (report plan 6b Task 5).
@@ -12696,6 +12701,9 @@ final class TripwireGrepTests: XCTestCase {
         // A checkpoint restore's figure ops (report plan 6c Task 2), behind
         // the same guard; a parked figure is skipped, not written.
         "restoreToCheckpoint": "figure",
+        // The batch verbs (report plan 7c Task 1): many cells or row moves
+        // behind one door check, one render and one ⌘Z.
+        "setCells": "figure", "sortRows": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -12848,6 +12856,26 @@ final class TripwireGrepTests: XCTestCase {
             "and with the planted mutator taken away the census passes")
     }
 
+    /// **The batch verbs are in the derived population** (report plan 7c
+    /// Task 1): `setCells` and `sortRows` guard with `requireWritable`, so the
+    /// production code itself plants them — taken out of the classification,
+    /// the census names both; classified, it passes.
+    func test_theBatchFigureVerbsAreFoundAndMustBeClassified() throws {
+        let names = try guardedDocumentMutatorNames(in: sourceDir)
+        XCTAssertTrue(["setCells", "sortRows"].allSatisfy(names.contains),
+            "Self-check: the batch verbs are in the derived population")
+        var classified = Self.guardedDocumentMutators
+        classified["setCells"] = nil
+        classified["sortRows"] = nil
+        XCTAssertEqual(
+            Self.guardedMutatorProblems(names: names, classified: classified),
+            ["setCells: guarded but unclassified", "sortRows: guarded but unclassified"],
+            "unclassified, the census fails on each")
+        XCTAssertTrue(
+            Self.guardedMutatorProblems(names: names, classified: Self.guardedDocumentMutators).isEmpty,
+            "and classified as figure writers with their spellings listed, it passes")
+    }
+
     /// The census's control: it counts a planted call of each spelling, not the
     /// comment and not the declaration, and a file off the list fails it.
     func test_theManuscriptWriterCensusFiresOnPlantedOffenders() throws {
@@ -12897,6 +12925,8 @@ final class TripwireGrepTests: XCTestCase {
         let back = try await store.bringBack(researchItemId: i, piece: p)
         try await reader.refreshPins(undoManager: um)
         let outcome = try await host.restoreToCheckpoint(checkpoint.id, target: then)
+        try await host.setCells(edits, actionName: "Clear", undoManager: um)
+        try await host.sortRows(by: c, ascending: true, values: read, actionName: "Sort", undoManager: um)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

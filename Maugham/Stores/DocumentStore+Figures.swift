@@ -185,9 +185,14 @@ extension DocumentStore {
         openFigures[figureId].flatMap { $0.isClosed ? nil : $0 }
     }
 
+    /// Test seam: told each time an open host asks for its render, so a test
+    /// can count one render per visit (report plan 7c Task 1).
+    static var figureHostAppendedForTesting: ((String) -> Void)?
+
     /// **The open host appended an op** (`FigureDocument.commit`): its render
     /// and every table whose formulas name it follow.
     func figureHostAppended(_ figureId: String) async {
+        Self.figureHostAppendedForTesting?(figureId)
         figureCache.invalidate(figureId: figureId)
         invalidateFigureCards()
         await renderFigures(changed: [figureId])

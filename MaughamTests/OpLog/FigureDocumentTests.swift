@@ -701,6 +701,13 @@ final class FigureDocumentTests: XCTestCase {
             ("setHeaderRows", { try await doc.setHeaderRows(1, undoManager: um) }),
             ("setTotalRow", { try await doc.setTotalRow(true, undoManager: um) }),
             ("setColumnWidth", { try await doc.setColumnWidth(key.column, 80, undoManager: um) }),
+            ("setCells", {
+                try await doc.setCells([key: self.text("x")], actionName: "Edit Cells", undoManager: um)
+            }),
+            ("sortRows", {
+                try await doc.sortRows(
+                    by: key.column, ascending: true, values: { _ in .empty }, actionName: "Sort", undoManager: um)
+            }),
         ]
         for (name, press) in presses {
             do {

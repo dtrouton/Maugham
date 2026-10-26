@@ -193,6 +193,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureReturnDiff.swift` — a changed working copy's return to its parked figure: kept ids, three-way against what the parker read; `FigureReturnMatch.swift` matches its rows and columns.
 - `FigureRestoreDiff.swift` — a figure wound back to a checkpoint's op pointer, by id: revives carrying the checkpoint's slice, deletes, moves, cells, settings, pins, picture, folded through the return's shared `Simulation`; `changes` takes the book's `parks`, so a pin live now is never replaced by one inert under the current park; `wentToResearch(since:in:)` tells a restore across a park or resume.
 - `FigureCarry.swift` — what a Collection piece's promotion carries of the figures: its own move, those its text or carried formulas name are copied; the ops re-creating each with its ids, parked again when parked; reads of Research left behind; what staying in the Collection reads (`readByWhatStays`: the piece's own figures kept as copies; `stayingReadsOfCarriedResearch`). `canRecreate` is the one kind test (an unknown kind is refused); a picture missing or changed is listed.
+- `FigureSort.swift` — a table figure's row order sorted by one column (R7c-7); header and total rows stay put.
 - `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin), and a visit's inverses as one all-or-nothing undo.
 
 ### Inbox and capture

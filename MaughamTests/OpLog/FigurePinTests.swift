@@ -241,6 +241,38 @@ final class FigurePinTests: XCTestCase {
         await store.closeFigure(figureId: summary.id)
     }
 
+    /// **A batch takes every formula's entry pins in one read** (report plan
+    /// 7c Task 1): two Research-reading formulas set by one `setCells` each
+    /// take their pin, and one ⌘Z clears both cells and both pins.
+    func test_setCellsPinsEveryResearchFormula_andOneUndoClearsCellsAndPins() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: try external("model.csv", modelCSV))
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        let a2 = CellKey(row: host.state.table.rows[1], column: host.state.table.columns[0])
+        let names = FormulaNames(research: [(item.id, item.title)])
+        guard case .success(let f1) = FormulaParser.parse("research:model!B2*2", in: host.state.table, names: names),
+              case .success(let f2) = FormulaParser.parse("research:model!B3", in: host.state.table, names: names)
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        let um = UndoManager()
+
+        try await host.setCells(
+            [a1: Cell(content: .formula(f1)), a2: Cell(content: .formula(f2))],
+            actionName: "Edit Cells", undoManager: um)
+        XCTAssertEqual(host.state.pins[a1]?.map(\.value), [.number(10)])
+        XCTAssertEqual(host.state.pins[a2]?.map(\.value), [.number(20)])
+
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertNil(host.state.table[a1])
+        XCTAssertNil(host.state.table[a2])
+        XCTAssertNil(host.state.pins[a1], "one ⌘Z clears both pins with their cells")
+        XCTAssertNil(host.state.pins[a2])
+        XCTAssertFalse(um.canUndo)
+        await store.closeFigure(figureId: summary.id)
+    }
+
     /// **A failed entry-pin append is thrown** (review rule 7), as a
     /// refresh's is: the cell landed and stays undoable; no pin did.
     func test_aFailedEntryPinAppendThrows_andTheEditStaysUndoable() async throws {
