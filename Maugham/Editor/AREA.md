@@ -13,6 +13,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+FindNavigation.swift` — line and annotation navigation, and the selection toolbar's placement.
 - `EditorCoordinator+TabCycle.swift` — screenplay Tab / Shift-Tab element cycling.
 - `EditorCoordinator+Insert.swift` — `applyCommandEdit` (Route A for commands) and the Insert menu's receivers.
+- `FigureBirthUndo.swift` — one ⌘Z for a figure line and the figure its command made (`applyCommandEdit`'s `alongside:`): undo sends the figure to the Trash, redo restores the same id, each re-registering the other.
 - `EditorCoordinator+Tables.swift` — pipe tables: Tab and Shift-Tab move by cell, Return adds a row, the table tidies itself, and Edit Table… opens the grid editor (`tableEditor`) and saves it.
 - `EditorCoordinator+Completion.swift` — the completion list's trigger, keys, accept and close paths; `CompletionListView.swift` — the list (a plain `NSView`), `CompletionSource` and the placement maths. Tripwire 5.
 - `ReportInsert.swift` — the pure text Insert Table and Insert Footnote write, and where.

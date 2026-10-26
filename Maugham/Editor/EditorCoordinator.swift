@@ -436,6 +436,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The most recent figure ingest, so a caller (a test) can await it
     /// instead of polling.
     var figureIngestTask: Task<Void, Never>?
+    /// The most recent figure-birth undo or redo's store verb
+    /// (`figureBirthUndo`), so a caller (a test) can await it.
+    var figureBirthUndoTask: Task<Void, Never>?
     /// How a landed figure waits out an input method's composition: a short
     /// sleep, so a composition of a few seconds is outlasted without spinning
     /// (`beginFigureIngest`). A test hands in its own, so nothing waits on a

@@ -63,10 +63,16 @@ extension EditorCoordinator {
     /// selection or text since the request) — it keeps the writer's own
     /// selection, shifted through the edit, and does not scroll. Otherwise it
     /// selects `selection`, as the immediate landing does.
+    ///
+    /// **`alongside`** is handed the undo manager inside the edit's own undo
+    /// group, after the replace and before the step is named, so whatever it
+    /// registers is part of the same ⌘Z — a figure line's `FigureBirthUndo`
+    /// (report plan 7b, R7b-5). Not called when the edit is refused.
     @discardableResult
     func applyCommandEdit(replacing range: NSRange, with replacement: String,
                           selecting selection: NSRange, actionName: String,
-                          landing: CommandLanding = .immediate) -> Bool {
+                          landing: CommandLanding = .immediate,
+                          alongside: ((UndoManager) -> Void)? = nil) -> Bool {
         guard !isDetached, let textView, let storage = textView.textStorage,
               range.location >= 0, NSMaxRange(range) <= storage.length else { return false }
         // The membrane's predicate first: an ended EMPTY group is not dropped,
@@ -107,6 +113,7 @@ extension EditorCoordinator {
         }
         storage.replaceCharacters(in: range, with: replacement)
         textView.didChangeText()
+        if let undo { alongside?(undo) }
         undo?.setActionName(actionName)
         if keepsWritersSelection {
             let kept = Self.selection(writersSelection, shiftedByReplacing: range,
@@ -162,9 +169,27 @@ extension EditorCoordinator {
     /// `applyCommandEdit` for a `ReportInsert.Edit`.
     @discardableResult
     func applyCommandEdit(_ edit: ReportInsert.Edit, actionName: String,
-                          landing: CommandLanding = .immediate) -> Bool {
+                          landing: CommandLanding = .immediate,
+                          alongside: ((UndoManager) -> Void)? = nil) -> Bool {
         applyCommandEdit(replacing: edit.replacedRange, with: edit.replacement,
-                         selecting: edit.selection, actionName: actionName, landing: landing)
+                         selecting: edit.selection, actionName: actionName, landing: landing,
+                         alongside: alongside)
+    }
+
+    /// The `alongside:` registration for a figure line whose figure the
+    /// command just made: one ⌘Z takes back the line and sends the figure to
+    /// the Trash, ⇧⌘Z brings the same figure back (`FigureBirthUndo`). A
+    /// refusal either way is told through `commandFailureReporter`; each store
+    /// verb's task is left in `figureBirthUndoTask` for a test to await.
+    func figureBirthUndo(figureId: String, actionName: String,
+                         store: ProjectStore) -> (UndoManager) -> Void {
+        { [weak self] um in
+            guard let self else { return }
+            FigureBirthUndo.register(
+                on: um, figureId: figureId, actionName: actionName, store: store,
+                report: { [weak self] in self?.commandFailureReporter?($0) },
+                workTaskSink: { [weak self] in self?.figureBirthUndoTask = $0 })
+        }
     }
 
     // MARK: - The Insert menu
