@@ -2,6 +2,8 @@
 
 **Date:** 2026-07-10 · **Status:** Accepted · **Milestone:** unified-undo (Mac v0.18.0 / phone-v0.5.0, schema v3)
 
+**Amended 2026-10-26 by report plan 7d** — decision 6 added: a table's grid keeps a private stack while it is expanded and the fold collapses the visit into one window step.
+
 ## Context
 
 Through v0.17.0, ⌘Z covered typing (AppKit's native `NSTextView` undo) plus exactly one
@@ -93,6 +95,50 @@ a reject/archive has no text footprint, so rewinding text does not un-decide edi
 verdicts. Binder/research file operations keep their own Trash & undo (⌘⌥Z, ADR 0006).
 The phone gets a deliberate **Reopen** button (rejected/archived → `annotationReopen`;
 accepted → full `claudeAcceptRevert` revert with drift confirm), not an undo stack.
+
+### 6. A table's grid edits on a private stack; the fold collapses the visit into one window step *(added 2026-10-26, report plan 7d)*
+
+Decision 1 says every writer-initiated mutation registers on the one native stack. The
+in-place table grid is the exception, for as long as it is expanded, and only for that
+span.
+
+- **While a table's grid is expanded** every write it makes (cells, caption, name, rows and
+  columns, sort, paste, fill, import) registers on the grid controller's own `UndoManager`
+  (`FigureGridController.gridUndo`), not on the window's. ⌘Z and ⇧⌘Z with the grid, its
+  cell editor or its bars holding the keys stop at the grid and run that stack, queued
+  behind writes still landing. Typing not yet committed (a cell, the formula bar, a caption
+  or name) is cancelled the way Esc cancels it, and a read-only grid answers with its
+  reason line. The manuscript text's stack is untouched while the grid has the keys.
+- **At fold the visit becomes ONE step** on the window's stack, "Edit Table"
+  (`FigureVisitUndo`), registered at the moment of folding so text typed afterwards sits
+  above it. It is registered only when the visit wrote or has writes still landing: an
+  empty visit leaves no step, and neither does a teardown or a send to Research. ⌘Z takes
+  the whole visit back through `FigureDocument.undoVisit` in one render; ⇧⌘Z puts it back
+  with the same ids (`redoVisit`). Both are declined whole, with a sentence, when a cell the
+  visit touched has since been written by another device (the drift rule of decision 3,
+  applied to the visit as a unit); a declined undo leaves nothing to redo.
+- **The visit ends before the step acts.** The step's undo and redo await the visit's end,
+  which awaits the fold's own writes and the host's undo work as it stood at the fold (a
+  handle captured then, never a later one). A hop pressed before the visit ends is not
+  published as the host's undo work until it has: a batch (paste, fill, import) plans after
+  that work, and would otherwise await a hop that awaits the visit that awaits the batch.
+  Both halves are pinned, each with a disable experiment that turns it red alone.
+- **Why.** A grid is a sub-editor with its own keys: its writer expects ⌘Z to walk back the
+  cell they just typed, not to rewind the paragraph before the table, and expects to find
+  the table as one thing on the manuscript's stack once they step out. Putting every cell on
+  the window's stack interleaves table edits with text typing, which both surprises and
+  lets an Undo from the text land inside a table the writer is no longer looking at.
+- **Precedent.** ADR 0026 decision 5: a surface with its own keys owns its `UndoManager`
+  while it has them (the canvas; `CanvasEventView` forwards `undo:`/`redo:`), because the
+  window's stack is the wrong history for what the writer is doing there. The grid follows
+  the same routing; unlike the canvas, its visit then re-enters the window's stack as one
+  op-log-backed step, so decision 1 still holds once the writer steps out.
+- **Consequences.** A caption committed at fold sits below the "Edit Table" step (⌘Z takes
+  the table first, then the caption). Pinned in `FigureGridUndoTests` on the real key path
+  (the window's key-equivalent walk, the menu bar's Edit item, the responder chain's
+  taker, validation): a whole visit is one step under the sentence typed after it, the
+  drift decline, ⌘Z in the grid and in a cell editor and the bars, the read-only reason,
+  no step for an empty, torn-down or sent visit, and both halves of the fold's deadlock fix.
 
 ## Consequences
 

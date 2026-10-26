@@ -339,6 +339,53 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         XCTAssertTrue(reopened, "the next expansion opens")
     }
 
+    /// **The batch variant of the same deadlock** (review C1, the deferral
+    /// half): a Fill Down still waiting for its turn at the fold plans itself
+    /// after the host's pending undo work, so a step's hop published as that
+    /// work before the visit ended would be awaited by the fill, which the
+    /// visit awaits, which the hop awaits. The hop is published only once the
+    /// visit has ended, so the ⌘Z completes. (The capture of the fold's own
+    /// handle is pinned by the test above; this one bites on the deferral
+    /// alone.)
+    func test_aCommandZWhileAFillDownIsStillWaitingAtTheFoldCompletes_andTheNextVisitOpens() async throws {
+        let m = try await mount()
+        let (_, c) = try await expanded(m)
+        let top = cell(c, 1, 1)
+        c.handle(.click(top, extend: false))
+        type(m, "5")
+        c.handle(.click(cell(c, 1, 3), extend: false))   // commits the "5"
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table[top]?.content, .value(.number(5)), "premise: the top cell is written")
+        let c2 = c
+        final class Hold { var release: CheckedContinuation<Void, Never>?; var reached = false }
+        let hold = Hold()
+        FigureGridController.writeTurnForTesting = {
+            FigureGridController.writeTurnForTesting = nil
+            await withCheckedContinuation { hold.release = $0; hold.reached = true }
+        }
+        defer { FigureGridController.writeTurnForTesting = nil }
+        c2.handle(.click(top, extend: false))
+        c2.handle(.click(cell(c2, 1, 3), extend: true))
+        c2.performTableCommand(.fillDown)   // held at its turn
+        c2.perform(.done)
+        XCTAssertNil(m.coordinator.figureGrid, "folded")
+        let step = try XCTUnwrap(m.coordinator.lastFigureVisitStep, "a step for the fill still waiting")
+        let held = await finishes(within: 5) { while !hold.reached { await Task.yield() } }
+        XCTAssertTrue(held, "premise: the fill is held at its turn")
+
+        try press(m)   // "Undo Edit Table", before the fill has planned
+        hold.release?.resume()
+
+        let settled = await finishes(within: 5) {
+            await m.coordinator.figureGridFolding?.value
+            await step.settled?.value
+            await c2.host.awaitPendingUndoWork()
+        }
+        XCTAssertTrue(settled, "the fill landed, the visit ended and the ⌘Z took it back — no circular await")
+        let reopened = await finishes(within: 5) { _ = try? await self.expanded(m) }
+        XCTAssertTrue(reopened, "the next expansion opens")
+    }
+
     // MARK: - ⌘Z inside the grid
 
     /// **⌘Z and ⇧⌘Z with the grid having the keys run the grid's own stack**,
