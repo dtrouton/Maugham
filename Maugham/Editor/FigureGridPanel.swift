@@ -35,7 +35,7 @@ enum FigureCardHit {
 /// **The expanded grid's box**: the toolbar, the formula bar, the grid and
 /// the bottom bar stacked in the line's room (spec §6.2). It holds the
 /// controller's views and lays them out; it writes nothing.
-final class FigureGridPanel: NSView {
+final class FigureGridPanel: NSView, NSUserInterfaceValidations {
     /// The space above and below the panel inside the room.
     static let gap: CGFloat = 6
 
@@ -99,15 +99,32 @@ final class FigureGridPanel: NSView {
     /// Spelling panel's Change — would otherwise walk grid → panel → the
     /// manuscript's text view and change the text under the dim. The chain
     /// goes on from the text view's own next responder (its clip view, the
-    /// scroll view, the window), so ⌘Z and ⇧⌘Z still reach the window's
-    /// undo manager, the one the grid's writes register on (R7c-1); the
-    /// text view answers no `undo:` of its own.
+    /// scroll view, the window). ⌘Z and ⇧⌘Z never get that far: the panel
+    /// answers them for the grid's own stack (plan 7d Task 6).
     ///
     /// AppKit walks the chain by the stored link (an overridden getter is
     /// not asked) and sets it when the panel is added, so the coordinator
     /// calls this after mounting and at each re-frame; idempotent.
     func skipTheTextInTheResponderChain() {
         if let text = nextResponder as? NSTextView { nextResponder = text.nextResponder }
+    }
+
+    // MARK: ⌘Z and ⇧⌘Z from the bars (plan 7d Task 6)
+
+    /// The grid's own stack, as the grid answers it.
+    override var undoManager: UndoManager? { gridView.undoManager }
+
+    /// **⌘Z with a bar having the keys** (the formula bar, the caption, the
+    /// name, a toolbar control): the grid's, as from the grid itself — the
+    /// bars' fields answer no `undo:`, so the walk reaches the panel before
+    /// the window, whose `undo:` would run the manuscript's stack.
+    @objc func undo(_ sender: Any?) { gridView.undo(sender) }
+    @objc func redo(_ sender: Any?) { gridView.redo(sender) }
+
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard let action = item.action else { return false }
+        guard FigureGridView.undoSelectors.contains(action) else { return responds(to: action) }
+        return gridView.validateUserInterfaceItem(item)
     }
 
     /// **A key a bar's control left unhandled stops here** (final review

@@ -329,6 +329,22 @@ final class FigureGridBars: NSObject, NSTextFieldDelegate {
         return (take(captionField, committedCaption), take(nameField, committedName))
     }
 
+    /// A caption or name being typed, changed from what was committed.
+    var hasUncommittedFieldEdit: Bool {
+        (captionField.currentEditor() != nil && captionField.stringValue != committedCaption)
+            || (nameField.currentEditor() != nil && nameField.stringValue != committedName)
+    }
+
+    /// **⌘Z over a caption or name being typed** (plan 7d Task 6, R7d-4):
+    /// the field puts back what was committed, as Esc does.
+    func cancelFieldEdit() {
+        for (field, committed) in [(captionField, committedCaption), (nameField, committedName)]
+        where field.currentEditor() != nil {
+            field.stringValue = committed
+            field.abortEditing()
+        }
+    }
+
     func controlTextDidEndEditing(_ notification: Notification) {
         guard !takingPendingEdits else { return }
         switch notification.object as? NSTextField {

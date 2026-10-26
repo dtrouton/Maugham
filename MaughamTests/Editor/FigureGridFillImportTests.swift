@@ -24,7 +24,8 @@ final class FigureGridFillImportTests: XCTestCase {
     private var controllers: [FigureGridController] = []
     private var stores: [DocumentStore] = []
     private var projectStore: ProjectStore?
-    private let um = UndoManager()
+    /// The visit's own undo stack (plan 7d Task 6): the first grid opened.
+    private var um: UndoManager { controllers[0].gridUndo }
 
     override func setUp() async throws {
         projectURL = TestTemp.root.appendingPathComponent("gridfill-\(UUID().uuidString)")
@@ -106,8 +107,7 @@ final class FigureGridFillImportTests: XCTestCase {
         -> FigureGridController {
         let c = try await FigureGridController.open(
             figureId: figureId, store: store, projectStore: projectStore, typography: .defaults,
-            line: .init(number: "Table 1", caption: "Caption", commitCaption: { _ in true }),
-            undoManager: { [um] in um })
+            line: .init(number: "Table 1", caption: "Caption", commitCaption: { _ in true }))
         controllers.append(c)
         await store.awaitOpenFigureRenderForTesting()
         return c

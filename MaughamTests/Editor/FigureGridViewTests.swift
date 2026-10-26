@@ -309,10 +309,16 @@ final class FigureGridViewTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === grid)
     }
 
-    func test_undoAndRedoStayTheWindows() throws {
+    /// **⌘Z and ⇧⌘Z stop at the grid** (plan 7d Task 6): its delegate's
+    /// stack, enabled and titled as the delegate says; with no delegate
+    /// stack the items are off — never the window's, never the text's.
+    func test_undoAndRedoGoToTheDelegate() throws {
         let (grid, _, window) = try mountInText(rows: 5)
-        XCTAssertFalse(grid.responds(to: Selector(("undo:"))), "R7c-1: the window's undo manager answers ⌘Z")
-        XCTAssertFalse(menuTarget(Selector(("undo:")), in: window) === grid)
+        for action in [Selector(("undo:")), Selector(("redo:"))] {
+            XCTAssertTrue(menuTarget(action, in: window) === grid, "\(action) stops at the grid")
+            let item = NSMenuItem(title: "Undo", action: action, keyEquivalent: "z")
+            XCTAssertFalse(grid.validateUserInterfaceItem(item), "the recorder has no stack: off")
+        }
     }
 
     // MARK: The cell editor

@@ -32,8 +32,7 @@ struct FigureGridOpening {
     var figureMayEdit: @MainActor (String) -> Bool
     /// Opens a visit on a figure (`FigureGridController.open`).
     var open: @MainActor (_ figureId: String, _ typography: TypographySettings,
-                          _ line: FigureGridController.Line,
-                          _ undoManager: @escaping @MainActor () -> UndoManager?)
+                          _ line: FigureGridController.Line)
         async throws -> FigureGridController
     /// The window's grid presence (R7c-10), told at expand, at fold and when
     /// what Format ▸ Table may do changes; nil where no menu reads it.
@@ -53,11 +52,11 @@ struct FigureGridOpening {
             figureMayEdit: { [weak store] figureId in
                 store?.posture(forDocId: figureId).allows(.editFigure) ?? false
             },
-            open: { [weak store, weak projectStore] figureId, typography, line, undoManager in
+            open: { [weak store, weak projectStore] figureId, typography, line in
                 guard let store, let projectStore else { throw CancellationError() }
                 return try await FigureGridController.open(
                     figureId: figureId, store: store, projectStore: projectStore,
-                    typography: typography, line: line, undoManager: undoManager)
+                    typography: typography, line: line)
             },
             presence: presence)
     }
@@ -90,15 +89,23 @@ enum FigureGridFoldCause {
     case lineGone
     /// The editor is torn down: detach, a document switch, the window closing.
     case teardown
+    /// The figure is being sent to Research from its grid (plan 7d Task 9,
+    /// R7d-7): it folds first, and the send is not undoable (ruling P1).
+    case sentToResearch
 
     /// The grid cannot stay: an open formula that will not read is said as a
     /// notice carrying its text, never kept in a grid with nowhere to be.
-    var isForced: Bool { self == .navigation || self == .lineGone || self == .teardown }
+    var isForced: Bool { self != .grid && self != .textTookFocus }
     /// The caret goes to the end of the figure line (a line gone leaves it
     /// where the text put it).
     var movesTheCaretToTheLine: Bool { self == .grid }
     /// The text takes the focus, when the grid had it.
-    var focusesTheText: Bool { self == .grid || self == .lineGone || self == .navigation }
+    var focusesTheText: Bool { self != .textTookFocus && self != .teardown }
+    /// **The visit collapses into one window step** (plan 7d Task 6): every
+    /// fold but a teardown (`detach()` clears the window's stack after it,
+    /// so there is nothing to register on) and a send to Research (ruling P1:
+    /// the figure leaves for Research, and the send is not undoable).
+    var collapsesTheVisit: Bool { self != .teardown && self != .sentToResearch }
 }
 
 /// **One expansion**: which figure, which line (its start, carried through
@@ -135,6 +142,9 @@ final class FigureGridExpansion {
     /// The text's selection when last seen, so only a selection that moves
     /// (never one re-set where it was) can take the caret off the line.
     var textSelection: NSRange?
+    /// The host is recording this visit's writes (`beginVisit`), so the
+    /// fold ends it.
+    var recordsAVisit = false
 
     init(figureId: String, lineLocation: Int, path: String, room: CGFloat) {
         self.figureId = figureId
@@ -363,10 +373,11 @@ extension EditorCoordinator {
                       }) else { return false }
                 return self.replaceFigureCaption(ofLineAt: expansion.lineLocation, with: caption)
             })
+        // The fold before this one has ended its visit: a host records one
+        // visit at a time.
+        await figureGridFolding?.value
         do {
-            let controller = try await opening.open(
-                expansion.figureId, typography, line,
-                { [weak self] in self?.undoManagerOverrideForTesting ?? self?.textView?.undoManager })
+            let controller = try await opening.open(expansion.figureId, typography, line)
             guard figureGrid === expansion, !isDetached, let textView else {
                 controller.close()
                 return
@@ -397,6 +408,10 @@ extension EditorCoordinator {
             return
         }
         controller.setAccess(mode, captionMayEdit: figureGridCaptionMayEdit)
+        // The grid's writes register on its own stack and the host records
+        // them, so the fold can collapse them into one window step.
+        controller.host.beginVisit(undoManager: controller.gridUndo)
+        expansion.recordsAVisit = true
         // Format ▸ Table follows the visit: told at once, then whenever what
         // its commands may do changes — never after this expansion folds.
         controller.onMenuStateChange = { [weak self, weak expansion] state in
@@ -526,10 +541,19 @@ extension EditorCoordinator {
     }
 
     /// The teardown: the views off the text view, the line's card back (only
-    /// that paragraph re-laid out; nothing on a teardown), the visit closed
-    /// once its writes have landed, and — when the grid had the focus — the
-    /// text focused, nothing scrolled, the caret at the end of the figure
-    /// line on Esc, Done or a line gone (`FigureGridFoldCause`).
+    /// that paragraph re-laid out; nothing on a teardown), the visit ended
+    /// and closed once its writes have landed, and — when the grid had the
+    /// focus — the text focused, nothing scrolled, the caret at the end of
+    /// the figure line on Esc, Done or a line gone (`FigureGridFoldCause`).
+    ///
+    /// **The visit's one window step is registered here, at the moment of
+    /// folding** (plan 7d Task 6), before anything typed after the fold, so
+    /// the text's next step sits above it (the grid taking the keys already
+    /// ended the text's typing run: typing after the fold, where the typing
+    /// before the visit ended, is a step of its own — Review Focus 2).
+    /// The visit itself ends only once the writes asked before the fold
+    /// (the fold's own commit among them) have landed, and the step awaits
+    /// it (`FigureVisitUndo`).
     private func closeFigureGrid() {
         guard let expansion = figureGrid else { return }
         figureGrid = nil
@@ -545,9 +569,21 @@ extension EditorCoordinator {
         expansion.dim.removeFromSuperview()
         if let controller = expansion.controller {
             controller.didFold()
-            Task { @MainActor in
+            let host = controller.host, recorded = expansion.recordsAVisit
+            let visit = Task { @MainActor () -> FigureVisit? in
                 await controller.settleWrites()
+                await host.awaitPendingUndoWork()
+                let visit = recorded ? host.endVisit() : nil
                 controller.close()
+                return visit
+            }
+            figureGridFolding = Task { _ = await visit.value }
+            lastFigureVisitStep = nil
+            // A visit that has written nothing, with nothing still landing,
+            // is owed no step — so none shows for even a moment.
+            if recorded, cause.collapsesTheVisit, host.visitHasRecorded || controller.writesInFlight > 0,
+               let windowUndo = undoManagerOverrideForTesting ?? textView?.undoManager {
+                lastFigureVisitStep = FigureVisitUndo.register(on: windowUndo, host: host, visit: visit)
             }
         }
         if cause != .teardown { relayoutFigureGridLine() }

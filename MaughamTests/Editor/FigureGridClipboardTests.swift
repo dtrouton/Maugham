@@ -21,7 +21,8 @@ final class FigureGridClipboardTests: XCTestCase {
     private var window: NSWindow?
     private var controllers: [FigureGridController] = []
     private var stores: [DocumentStore] = []
-    private let um = UndoManager()
+    /// The visit's own undo stack (plan 7d Task 6): the first grid opened.
+    private var um: UndoManager { controllers[0].gridUndo }
     private var board: NSPasteboard!
 
     override func setUp() async throws {
@@ -107,8 +108,7 @@ final class FigureGridClipboardTests: XCTestCase {
         -> FigureGridController {
         let c = try await FigureGridController.open(
             figureId: figureId, store: store, projectStore: projectStore, typography: .defaults,
-            line: .init(number: "Table 1", caption: "Caption", commitCaption: { _ in true }),
-            undoManager: { [um] in um })
+            line: .init(number: "Table 1", caption: "Caption", commitCaption: { _ in true }))
         c.pasteboard = board
         controllers.append(c)
         await store.awaitOpenFigureRenderForTesting()

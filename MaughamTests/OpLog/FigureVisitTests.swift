@@ -367,7 +367,8 @@ final class FigureVisitTests: XCTestCase {
         var redone = true
         let said = await notices { redone = await host.redoVisit(visit) }
         XCTAssertFalse(redone)
-        XCTAssertEqual(said, [drifted])
+        XCTAssertEqual(said, ["Couldn't redo the change to the figure — it changed on another device."],
+                       "said as a redo")
         XCTAssertNil(host.state.table.rowIndex(of: row), "the row stays undone")
         XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
         await store.closeFigure(figureId: host.figureId)

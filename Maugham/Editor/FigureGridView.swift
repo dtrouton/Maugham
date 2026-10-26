@@ -35,6 +35,12 @@ protocol FigureGridViewDelegate: AnyObject {
     func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool
     /// ⌘R while the grid has the keys: Fill Right (plan 7d Task 4, R7d-1).
     func figureGridViewFillRight(_ view: FigureGridView)
+    /// The grid's own undo stack (plan 7d Task 6); nil leaves the window's.
+    var figureGridUndoManager: UndoManager? { get }
+    /// Edit ▸ Undo (`redo` false) or Redo at the grid.
+    func figureGridView(_ view: FigureGridView, undo redo: Bool)
+    /// Whether Edit ▸ Undo (Redo) is enabled at the grid, and its title.
+    func figureGridView(_ view: FigureGridView, undoItem redo: Bool) -> FigureGridUndoItem
 }
 
 extension FigureGridViewDelegate {
@@ -42,6 +48,17 @@ extension FigureGridViewDelegate {
     func figureGridView(_ view: FigureGridView, perform action: FigureGridClipboardAction) {}
     func figureGridView(_ view: FigureGridView, mayPerform action: FigureGridClipboardAction) -> Bool { false }
     func figureGridViewFillRight(_ view: FigureGridView) {}
+    var figureGridUndoManager: UndoManager? { nil }
+    func figureGridView(_ view: FigureGridView, undo redo: Bool) {}
+    func figureGridView(_ view: FigureGridView, undoItem redo: Bool) -> FigureGridUndoItem {
+        FigureGridUndoItem(enabled: false, title: redo ? "Redo" : "Undo")
+    }
+}
+
+/// What Edit ▸ Undo or Redo shows at the grid (plan 7d Task 6).
+struct FigureGridUndoItem: Equatable {
+    let enabled: Bool
+    let title: String
 }
 
 /// The Edit menu's clipboard actions the grid answers (plan 7d Task 3).
@@ -384,9 +401,10 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     // to the model; Cut, Copy and Paste to the delegate (plan 7d Task 3),
     // which says whether each is enabled. While a cell edit is open the field
     // editor is first responder and takes them for its own text. Undo and
-    // redo stay the window's (R7c-1). Every other text action (Paste and
-    // Match Style, Transformations, …) finds no taker: the panel's responder
-    // chain skips the manuscript text it sits in.
+    // redo are the grid's own stack (plan 7d Task 6), whoever of the grid,
+    // its cell editor or (through the panel) its bars has the keys. Every
+    // other text action (Paste and Match Style, Transformations, …) finds no
+    // taker: the panel's responder chain skips the manuscript text it sits in.
 
     override func selectAll(_ sender: Any?) {
         delegate?.figureGridView(self, handle: .selectAll)
@@ -395,6 +413,25 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
     @objc func delete(_ sender: Any?) {
         delegate?.figureGridView(self, handle: .deleteBackward)
     }
+
+    // MARK: ⌘Z and ⇧⌘Z (plan 7d Task 6)
+
+    /// **The grid's own stack**, for whatever asks a responder for its undo
+    /// manager. It is NOT what makes ⌘Z reach that stack — `NSWindow` asks
+    /// its delegate, never its first responder (ADR 0026 §5, measured on the
+    /// canvas) — `undo(_:)` and `redo(_:)` below are.
+    override var undoManager: UndoManager? { delegate?.figureGridUndoManager ?? super.undoManager }
+
+    /// **⌘Z with the grid or its cell editor having the keys.** Edit ▸
+    /// Undo's action has no target: AppKit gives it to the first responder in
+    /// the chain that answers it, and the cell editor's field editor and its
+    /// field answer none, so it stops here before the window's `undo:` (which
+    /// would run the window's stack — the manuscript's).
+    @objc func undo(_ sender: Any?) { delegate?.figureGridView(self, undo: false) }
+    @objc func redo(_ sender: Any?) { delegate?.figureGridView(self, undo: true) }
+
+    /// The selectors above, which the panel forwards here from the bars.
+    static let undoSelectors: Set<Selector> = [Selector(("undo:")), Selector(("redo:"))]
 
     @objc func cut(_ sender: Any?) { delegate?.figureGridView(self, perform: .cut) }
     @objc func copy(_ sender: Any?) { delegate?.figureGridView(self, perform: .copy) }
@@ -409,6 +446,15 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         guard let action = item.action else { return false }
         if let clipboard = Self.clipboardActions[action] {
             return delegate?.figureGridView(self, mayPerform: clipboard) ?? false
+        }
+        if Self.undoSelectors.contains(action) {
+            // Titled here: `NSWindow` retitles Undo/Redo from its own manager,
+            // and the action never reaches it (CanvasEventView's precedent).
+            guard let undo = delegate?.figureGridView(self, undoItem: action == Selector(("redo:"))) else {
+                return false
+            }
+            (item as? NSMenuItem)?.title = undo.title
+            return undo.enabled
         }
         return responds(to: action)
     }

@@ -108,8 +108,8 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
     /// **No text action sent from the grid reaches the manuscript**
     /// (re-review I-N1): Paste and Match Style, a transformation, a
     /// substitution — an action with no target walks the responder chain
-    /// from the grid, which skips the text the panel sits in. ⌘Z still
-    /// reaches the window's undo manager (R7c-1).
+    /// from the grid, which skips the text the panel sits in. ⌘Z reaches the
+    /// grid's own undo stack (plan 7d Task 6).
     func test_aTextActionFromTheGridNeverReachesTheManuscript_andUndoStillDoes() async throws {
         let m = try await mount()
         park(m, caret: location(m, "Paragraph 40 of") + 12, showing: location(m, "![Cash]("))
@@ -135,7 +135,8 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
         send(m, "\r", code: 36)
         await c.settleWrites()
         XCTAssertEqual(c.host.state.table[cellKey(c, 1, 1)]?.content, .value(.number(7)))
-        XCTAssertTrue(c.gridView.tryToPerform(Selector(("undo:")), with: nil), "⌘Z reaches the window from the grid")
+        XCTAssertTrue(c.gridView.tryToPerform(Selector(("undo:")), with: nil), "⌘Z is taken at the grid")
+        await c.settleWrites()
         await c.host.awaitPendingUndoWork()
         XCTAssertNil(c.host.state.table[cellKey(c, 1, 1)], "and undoes the grid's write")
         XCTAssertEqual(m.textView.string, text)

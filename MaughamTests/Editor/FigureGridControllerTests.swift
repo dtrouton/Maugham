@@ -23,7 +23,8 @@ final class FigureGridControllerTests: XCTestCase {
     private var controllers: [FigureGridController] = []
     /// The window's document store, held: the store and the hosts hold it weakly.
     private var stores: [DocumentStore] = []
-    private let um = UndoManager()
+    /// The visit's own undo stack (plan 7d Task 6): the first grid opened.
+    private var um: UndoManager { controllers[0].gridUndo }
 
     override func setUp() async throws {
         projectURL = TestTemp.root.appendingPathComponent("gridcontroller-\(UUID().uuidString)")
@@ -96,8 +97,7 @@ final class FigureGridControllerTests: XCTestCase {
         let (store, projectStore, record) = try await openBook()
         let controller = try await FigureGridController.open(
             figureId: record.id, store: store, projectStore: projectStore, typography: .defaults,
-            line: .init(number: "Table 1", caption: "Old caption", commitCaption: commitCaption),
-            undoManager: { [um] in um })
+            line: .init(number: "Table 1", caption: "Old caption", commitCaption: commitCaption))
         controllers.append(controller)
         await store.awaitOpenFigureRenderForTesting()
         let grid = controller.gridView
@@ -195,7 +195,7 @@ final class FigureGridControllerTests: XCTestCase {
         XCTAssertEqual(c.host.state.table[key(c, "B2")]?.content, .value(.number(42)))
         XCTAssertEqual(c.bars.addressLabel.stringValue, "B3", "Return moved down")
         XCTAssertTrue(c.gridView.window?.firstResponder === c.gridView, "the grid has the keys back")
-        XCTAssertTrue(um.canUndo, "on the window's undo manager (R7c-1)")
+        XCTAssertTrue(um.canUndo, "on the grid's own undo stack (plan 7d Task 6)")
     }
 
     /// **Editing in the formula bar is editing the cell**: the bar's text is

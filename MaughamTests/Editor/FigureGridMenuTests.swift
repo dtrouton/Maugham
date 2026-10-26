@@ -221,7 +221,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             try await c.host.setCell(number(x), at: CellKey(row: r[i + 1], column: c.host.state.table.columns[1]))
         }
         await c.settleWrites()
-        let undo = try XCTUnwrap(m.textView.undoManager)
+        let undo = c.gridUndo
         undo.removeAllActions()
 
         select(c, cell(c, 1, 2))

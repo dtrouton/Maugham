@@ -391,6 +391,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// How this surface opens a table figure's grid; nil where it never
     /// expands. Wired by `EditorHost` (`FigureGridOpening.window`).
     var figureGridOpening: FigureGridOpening?
+    /// The last fold's settling: its writes landed, its visit ended and
+    /// closed (plan 7d Task 6). The next visit opens after it; a test awaits it.
+    var figureGridFolding: Task<Void, Never>?
+    /// The window step the last in-place visit collapsed into, if any (a test's handle).
+    var lastFigureVisitStep: FigureVisitUndo?
     /// How many times `figureTrailingRoom` asked the cards (tests read it).
     var trailingFigureRoomLookupCount = 0
 

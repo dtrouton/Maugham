@@ -13,7 +13,10 @@ import MaughamCore
 ///   — one ⌘Z and one render however many cells — the structure verbs, and
 ///   a batch planned against the host (a delete of several rows or columns,
 ///   a paste) through `applyChanges`.
-///   Each registers on the window's `UndoManager` (ruling R7c-1, until 7d).
+///   Each registers on the grid's own `gridUndo` (plan 7d Task 6): ⌘Z and
+///   ⇧⌘Z in the grid, its bars and its cell editor run that stack, never
+///   the window's (`undoInGrid`/`redoInGrid`); an in-place visit's steps
+///   are collapsed into one window step when it folds (the coordinator's).
 /// - **It observes `host.state`** (`withObservationTracking`; the coordinator
 ///   never does, tripwire 6) and advances the values incrementally, repainting
 ///   the visible cells that changed; a `figureCardVersion` edge reseeds
@@ -70,7 +73,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private var names: FormulaNames
     private(set) var line: Line
     private(set) var name: String
-    private let undoManager: @MainActor () -> UndoManager?
+    /// **The grid's private undo stack** (plan 7d Task 6, ADR 0023's
+    /// exception): every write this visit makes registers here; the
+    /// window's stack never sees a grid step while the grid is open.
+    let gridUndo = UndoManager()
 
     /// Told when the grid folds (Esc on a selected cell, Done).
     var onFold: (() -> Void)?
@@ -100,6 +106,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// The last write asked for; each awaits the one before it.
     private var writes: Task<Void, Never>?
+    /// Writes asked for and not yet landed (an undo or redo among them).
+    private(set) var writesInFlight = 0
     private var isClosed = false
 
     /// The pasteboard cut, copy and paste use: the general one; a test sets
@@ -121,28 +129,25 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// the values seeded from the whole book once.
     static func open(
         figureId: String, store: DocumentStore, projectStore: ProjectStore,
-        typography: TypographySettings, line: Line,
-        undoManager: @escaping @MainActor () -> UndoManager?
+        typography: TypographySettings, line: Line
     ) async throws -> FigureGridController {
         let host = try await store.openFigure(figureId: figureId)
         let context = try await store.tableImportContext()
         let controller = FigureGridController(
             host: host, store: store, projectStore: projectStore, typography: typography,
-            locale: context.locale, names: context.names, line: line, undoManager: undoManager)
+            locale: context.locale, names: context.names, line: line)
         let repaint = try await controller.values.reseed()
         controller.gridView.repaint(repaint)
         return controller
     }
 
     private init(host: FigureDocument, store: DocumentStore, projectStore: ProjectStore,
-                 typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line,
-                 undoManager: @escaping @MainActor () -> UndoManager?) {
+                 typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line) {
         self.host = host
         self.store = store
         self.projectStore = projectStore
         self.names = names
         self.line = line
-        self.undoManager = undoManager
         name = projectStore.manifest.figures?.first { $0.id == host.figureId }?.name ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
         gridView = FigureGridView(typography: typography)
@@ -281,10 +286,20 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         performTableCommand(.fillRight)
     }
 
+    var figureGridUndoManager: UndoManager? { gridUndo }
+
+    func figureGridView(_ view: FigureGridView, undo redo: Bool) {
+        if redo { redoInGrid() } else { undoInGrid() }
+    }
+
+    func figureGridView(_ view: FigureGridView, undoItem redo: Bool) -> FigureGridUndoItem {
+        undoItem(redo: redo)
+    }
+
     func figureGridView(_ view: FigureGridView, didResizeColumn column: ColumnID, to width: CGFloat) {
         if let reason = mode.readOnlyReason { return answer(reason) }
-        enqueue { [host, undoManager] in
-            try await host.setColumnWidth(column, Double(width), undoManager: undoManager())
+        enqueue { [host, gridUndo] in
+            try await host.setColumnWidth(column, Double(width), undoManager: gridUndo)
         }
     }
 
@@ -340,6 +355,70 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         model = trial
         execute(effects)
         return effects != [.fieldEditorKeeps]
+    }
+
+    // MARK: Undo (plan 7d Task 6)
+
+    /// **⌘Z at the grid** — the grid, its bars or its cell editor having the
+    /// keys. Typing still open (a cell's, the formula bar's, a caption or
+    /// name changed and not yet committed) is cancelled as Esc cancels it
+    /// (R7d-4): no field keeps an undo history the writer can reach. A
+    /// read-only grid refuses with the reason line (R7d-11). Otherwise the
+    /// grid's last step is taken back, in turn behind every write asked
+    /// before it, so a ⌘Z never takes back the step under one still landing.
+    func undoInGrid() { runUndo(redo: false) }
+
+    /// **⇧⌘Z at the grid**: the last step undone is put back; refused, as
+    /// ⌘Z is, on a read-only grid; nothing while typing is open (its item is
+    /// disabled then).
+    func redoInGrid() { runUndo(redo: true) }
+
+    private func runUndo(redo: Bool) {
+        syncFromHost()
+        if let reason = mode.readOnlyReason { return answer(reason) }
+        if hasOpenTyping {
+            if !redo { cancelOpenTyping() }
+            return
+        }
+        enqueue { [host, gridUndo] in
+            await host.awaitPendingUndoWork()
+            if redo {
+                if gridUndo.canRedo { gridUndo.redo() }
+            } else if gridUndo.canUndo {
+                gridUndo.undo()
+            }
+            await host.awaitPendingUndoWork()
+        }
+    }
+
+    /// **What Edit ▸ Undo and Redo say at the grid**: "Undo Typing" over open
+    /// typing (Redo off), else the grid stack's own titles ("Undo Sort
+    /// Ascending"). A read-only grid keeps them enabled so a press is
+    /// answered with the reason line rather than a silent beep.
+    func undoItem(redo: Bool) -> FigureGridUndoItem {
+        if hasOpenTyping {
+            return redo ? FigureGridUndoItem(enabled: false, title: gridUndo.redoMenuTitle(forUndoActionName: ""))
+                : FigureGridUndoItem(enabled: true, title: gridUndo.undoMenuTitle(forUndoActionName: "Typing"))
+        }
+        return redo ? FigureGridUndoItem(enabled: gridUndo.canRedo, title: gridUndo.redoMenuItemTitle)
+            : FigureGridUndoItem(enabled: gridUndo.canUndo, title: gridUndo.undoMenuItemTitle)
+    }
+
+    /// An edit open in a cell or the formula bar, or a caption or name typed
+    /// and not yet committed.
+    private var hasOpenTyping: Bool {
+        if case .idle = model.edit { return bars.hasUncommittedFieldEdit }
+        return true
+    }
+
+    private func cancelOpenTyping() {
+        if case .idle = model.edit {
+            bars.cancelFieldEdit()
+            gridView.window?.makeFirstResponder(gridView)   // the keys stay the grid's
+            return
+        }
+        bars.clearError()
+        execute(model.reduce(.escape))
     }
 
     /// The reason line, said again.
@@ -412,9 +491,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             }
         case .align(let alignment): restyle("Align Cells") { $0.alignment = alignment }
         case .headerRow(let on):
-            enqueue { [host, undoManager] in try await host.setHeaderRows(on ? 1 : 0, undoManager: undoManager()) }
+            enqueue { [host, gridUndo] in try await host.setHeaderRows(on ? 1 : 0, undoManager: gridUndo) }
         case .totalRow(let on):
-            enqueue { [host, undoManager] in try await host.setTotalRow(on, undoManager: undoManager()) }
+            enqueue { [host, gridUndo] in try await host.setTotalRow(on, undoManager: gridUndo) }
         case .sum: sumAbove()
         case .caption(let caption): commitCaption(caption)
         case .name(let newName): commitName(newName)
@@ -571,12 +650,12 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let table = values.table
         switch command {
         case .deleteRows:
-            enqueue { [weak self, host, undoManager] in
+            enqueue { [weak self, host, gridUndo] in
                 var rows: [RowID] = []
                 do {
                     try await Self.applyPlanned(
                         on: host, actionName: block.rows.count == 1 ? "Delete Row" : "Delete Rows",
-                        undoManager: undoManager()
+                        undoManager: gridUndo
                     ) { state in
                         rows = block.rows.filter { state.table.rowIndex(of: $0) != nil }
                         return rows.map { row in
@@ -591,12 +670,12 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
                 }
             }
         case .deleteColumns:
-            enqueue { [weak self, host, undoManager] in
+            enqueue { [weak self, host, gridUndo] in
                 var columns: [ColumnID] = []
                 do {
                     try await Self.applyPlanned(
                         on: host, actionName: block.columns.count == 1 ? "Delete Column" : "Delete Columns",
-                        undoManager: undoManager()
+                        undoManager: gridUndo
                     ) { state in
                         columns = block.columns.filter { state.table.columnIndex(of: $0) != nil }
                         return columns.map { column in
@@ -614,33 +693,33 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             }
         case .moveRowsUp:
             let above = table.rows[block.firstRow - 1]
-            enqueue { [host, undoManager] in
-                try await host.moveRow(above, after: block.rows.last, undoManager: undoManager())
+            enqueue { [host, gridUndo] in
+                try await host.moveRow(above, after: block.rows.last, undoManager: gridUndo)
             }
         case .moveRowsDown:
             let below = table.rows[block.lastRow + 1]
             let after = block.firstRow == 0 ? nil : table.rows[block.firstRow - 1]
-            enqueue { [host, undoManager] in
-                try await host.moveRow(below, after: after, undoManager: undoManager())
+            enqueue { [host, gridUndo] in
+                try await host.moveRow(below, after: after, undoManager: gridUndo)
             }
         case .moveColumnsLeft:
             let left = table.columns[block.firstColumn - 1]
-            enqueue { [host, undoManager] in
-                try await host.moveColumn(left, after: block.columns.last, undoManager: undoManager())
+            enqueue { [host, gridUndo] in
+                try await host.moveColumn(left, after: block.columns.last, undoManager: gridUndo)
             }
         case .moveColumnsRight:
             let right = table.columns[block.lastColumn + 1]
             let after = block.firstColumn == 0 ? nil : table.columns[block.firstColumn - 1]
-            enqueue { [host, undoManager] in
-                try await host.moveColumn(right, after: after, undoManager: undoManager())
+            enqueue { [host, gridUndo] in
+                try await host.moveColumn(right, after: after, undoManager: gridUndo)
             }
         case .sortAscending, .sortDescending:
             guard let column = model.selection?.anchor.column else { return }
             let ascending = command == .sortAscending
-            enqueue { [weak self, host, undoManager] in
+            enqueue { [weak self, host, gridUndo] in
                 try await host.sortRows(
                     by: column, ascending: ascending, values: { self?.values.value(at: $0) ?? .empty },
-                    actionName: ascending ? "Sort Ascending" : "Sort Descending", undoManager: undoManager())
+                    actionName: ascending ? "Sort Ascending" : "Sort Descending", undoManager: gridUndo)
             }
         default:
             break
@@ -754,13 +833,13 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             case .clear(let keys):
                 clear(keys)
             case .insertRow(let after):
-                enqueue { [weak self, host, undoManager] in
-                    let id = try await host.insertRow(after: after, undoManager: undoManager())
+                enqueue { [weak self, host, gridUndo] in
+                    let id = try await host.insertRow(after: after, undoManager: gridUndo)
                     self?.selectInserted { CellKey(row: id, column: $0.column) }
                 }
             case .insertColumn(let after):
-                enqueue { [weak self, host, undoManager] in
-                    let id = try await host.insertColumn(after: after, undoManager: undoManager())
+                enqueue { [weak self, host, gridUndo] in
+                    let id = try await host.insertColumn(after: after, undoManager: gridUndo)
                     self?.selectInserted { CellKey(row: $0.row, column: id) }
                 }
             case .fold:
@@ -810,11 +889,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             endEdit()
             // Read again when its turn comes, over the cell as the host then holds it.
             let (names, locale) = (names, values.locale)
-            enqueue { [weak self, host, undoManager] in
+            enqueue { [weak self, host, gridUndo] in
                 let table = host.state.table
                 switch FigureCellEntry.cell(from: text, prior: table[cell], table: table, names: names, locale: locale) {
                 case .success(let next):
-                    try await host.setCell(next, at: cell, undoManager: undoManager())
+                    try await host.setCell(next, at: cell, undoManager: gridUndo)
                 case .failure(let error):
                     // The table changed under it (a column it names deleted
                     // elsewhere): the typing is never dropped (R7c-8).
@@ -925,11 +1004,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// fill reads the cells it copies).
     private func write(actionName: String, afterPendingUndo: Bool = false,
                        plan: @escaping (FigureTable) -> [CellKey: Cell?]) {
-        enqueue { [host, undoManager] in
+        enqueue { [host, gridUndo] in
             if afterPendingUndo { await host.awaitPendingUndoWork() }
             let edits = plan(host.state.table)
             guard !edits.isEmpty else { return }
-            try await host.setCells(edits, actionName: actionName, undoManager: undoManager())
+            try await host.setCells(edits, actionName: actionName, undoManager: gridUndo)
         }
     }
 
@@ -1002,9 +1081,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let anchor = CellKey(row: block.rows[0], column: block.columns[0])
         let area = (rows: block.rows.count, columns: block.columns.count)
         let (names, locale, figureId) = (names, values.locale, figureId)
-        enqueue { [weak self, host, undoManager] in
+        enqueue { [weak self, host, gridUndo] in
             var pasted: FigureGridSelection?
-            try await Self.applyPlanned(on: host, actionName: "Paste", undoManager: undoManager()) { state in
+            try await Self.applyPlanned(on: host, actionName: "Paste", undoManager: gridUndo) { state in
                 let cells = FigureGridClipboard.block(
                     from: source, into: figureId, table: state.table, names: names, locale: locale)
                 switch FigurePaste.changes(state: state, anchor: anchor, block: cells, area: area, names: names) {
@@ -1077,7 +1156,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         syncFromHost()
         if let reason = mode.readOnlyReason { return answer(reason) }
         let file = url.lastPathComponent
-        enqueue { [weak self, host, store, undoManager] in
+        enqueue { [weak self, host, store, gridUndo] in
             let text = try await Task.detached { try FigureGridImport.readText(of: url) }.value
             let cells = TableCSV.nonEmptyCellCount(text)
             guard cells <= TableCSV.figureCellLimit else {
@@ -1094,7 +1173,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             }
             var problems: [CSVReadProblem] = []
             try await Self.applyPlanned(on: host, actionName: FigureGridImport.actionName,
-                                        undoManager: undoManager()) { state in
+                                        undoManager: gridUndo) { state in
                 let changes = FigureGridImport.changes(
                     onto: state, read: read.table, names: context.names, problems: read.problems)
                 problems = changes.problems
@@ -1143,7 +1222,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// Writes run in the order asked, each after the one before; a refusal is said.
     private func enqueue(_ act: @escaping @MainActor () async throws -> Void) {
         let previous = writes
+        writesInFlight += 1
         writes = Task { @MainActor [weak self] in
+            defer { self?.writesInFlight -= 1 }
             await previous?.value
             await Self.writeTurnForTesting?()
             do {

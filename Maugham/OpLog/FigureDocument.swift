@@ -1652,10 +1652,13 @@ public final class FigureDocument {
         /// A grid visit holds an op with no inverse (`FigureVisit.reason`).
         case visitHasNoUndo
 
+        /// Why a drifted undo or redo declines.
+        static let changedOnAnotherDevice = "it changed on another device"
+
         var sentence: String {
             switch self {
             case .drifted:
-                "Couldn't undo the change to the figure — it changed on another device."
+                "Couldn't undo the change to the figure — \(Self.changedOnAnotherDevice)."
             case .notPermitted:
                 "Couldn't change the table — this Mac can no longer change this figure."
             case .pictureNotKept:
@@ -1749,14 +1752,15 @@ public final class FigureDocument {
         stillAsWritten: @MainActor (FigureDocument) -> Bool,
         restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
-        recordingFor manager: UndoManager? = nil
+        recordingFor manager: UndoManager? = nil,
+        drifted: FigureUndoDecline = .drifted
     ) async -> Bool {
         guard !isClosed else { return false }
         guard await mayEditHere() else { decline(.notPermitted); return false }
         // After the door's await, so nothing lands between the check
         // and the append. A parked figure folds nothing (ruling P-5).
         guard state.parked == nil else { decline(.parked(state.kind)); return false }
-        guard stillAsWritten(self) else { decline(.drifted); return false }
+        guard stillAsWritten(self) else { decline(drifted); return false }
         do { try await restoring?(self) } catch {
             documentLog.error("figure undo could not restore \(self.figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             decline(.pictureNotKept)
@@ -1811,6 +1815,9 @@ public final class FigureDocument {
         return FigureVisit(ops: ops)
     }
 
+    /// The open visit has recorded a write (the fold's step is owed one).
+    var visitHasRecorded: Bool { !(visitRecord?.isEmpty ?? true) }
+
     private func isVisitManager(_ manager: UndoManager?) -> Bool {
         guard let manager, visitRecord != nil, let visitManager else { return false }
         return manager === visitManager
@@ -1827,12 +1834,14 @@ public final class FigureDocument {
     }
 
     /// **Put an undone visit back**, the same ids again (an insert's row
-    /// revives); declined whole once what the undo wrote changed since.
+    /// revives); declined whole once what the undo wrote changed since, said
+    /// as a redo ("Couldn't redo …").
     @discardableResult
     func redoVisit(_ visit: FigureVisit) async -> Bool {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.redo.map { ($0.kind, $0.payload) },
-                                 stillAsWritten: { FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil })
+                                 stillAsWritten: { FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil },
+                                 drifted: .cannotRedo(FigureUndoDecline.changedOnAnotherDevice))
     }
 
     /// Await the last undo/redo's async hop — a test's wait, and what the
