@@ -10,16 +10,20 @@ import Foundation
 /// break (a Backspace or Delete over the one blank line) is refused.
 ///
 /// Pure and platform-free (tripwire 19): positions are the text's UTF-16, as
-/// `NSRange`. It reads only the lines around the edit, never the document
-/// (it runs on every keystroke).
+/// `NSRange`. It runs on every keystroke, so it reads only the lines around
+/// the edit, and only where one holds `![` does it search the text above for
+/// ``` fences (`isInCode`).
 public enum FigureLineSeparation {
 
     public enum Decision: Equatable, Sendable {
         /// Make this edit instead: `replacement` over the edit's own range,
         /// then the caret at `caret` in the text after it.
         case replace(range: NSRange, replacement: String, caret: Int)
-        /// Make no edit (it would only glue); put the caret at `caret`.
-        case refuse(caret: Int)
+        /// Make no edit (it would only glue). `caret` is where the caret goes
+        /// (the end of the paragraph above, where a Backspace was heading),
+        /// or nil to leave it where it is — always when the line above is a
+        /// figure line, so a held key never lands on it and eats its label.
+        case refuse(caret: Int?)
     }
 
     /// What to do with replacing `range` of `text` by `replacement`, or nil
@@ -33,8 +37,13 @@ public enum FigureLineSeparation {
     /// - a deletion from a figure line's end that would pull the next line
     ///   onto it keeps the line break;
     /// - a figure line and a non-blank line meeting at a seam get a blank
-    ///   line between them — unless they already met before the edit (a
-    ///   heading directly above a figure, an old file), which is left alone.
+    ///   line between them — unless that same line already met it before the
+    ///   edit (a heading directly above a figure, an old file), which is left
+    ///   alone; a line the edit made is never "already" there.
+    ///
+    /// Lines end at any line terminator (`\n`, `\r\n`, `\r`, U+2028…); a
+    /// break it adds is the text's own `\r\n` or `\r`, otherwise `\n`.
+    /// Nothing in code is touched (`isInCode`).
     public static func decide(text: NSString, range: NSRange, replacement: String) -> Decision? {
         let r = replacement as NSString
         guard range.location >= 0, NSMaxRange(range) <= text.length,
@@ -50,78 +59,114 @@ public enum FigureLineSeparation {
         if we < text.length { we = NSMaxRange(text.lineRange(for: NSRange(location: we, length: 0))) }
         we = max(we, end)
         let old = text.substring(with: NSRange(location: ws, length: we - ws)) as NSString
-        guard old.range(of: "![").location != NSNotFound || r.range(of: "![").location != NSNotFound
+        guard old.range(of: "![").location != NSNotFound || r.range(of: "![").location != NSNotFound,
+              !isInCode(lineAt: loc, in: text)
         else { return nil }
 
         let prefix = text.substring(with: NSRange(location: ws, length: loc - ws))
         let suffix = text.substring(with: NSRange(location: end, length: we - end))
         let oldLines = Lines(old)
         let oldLoc = loc - ws, oldEnd = end - ws
+        let eol = oldLines.lineEnding ?? Lines(r).lineEnding ?? "\n"
+        let eolLength = (eol as NSString).length
 
         var edited = replacement
         var caretOffset = r.length   // where the caret lands, inside `edited`
         func window(_ middle: String) -> NSString { (prefix + middle + suffix) as NSString }
 
         // Text run onto a figure line's start goes on a line above it.
-        if let line = oldLines.line(startingAt: oldEnd), oldLines.isFigure(line), !edited.hasSuffix("\n") {
+        if let line = oldLines.line(startingAt: oldEnd), oldLines.isFigure(line), edited.last?.isNewline != true {
             let w = Lines(window(edited))
             let seam = oldLoc + (edited as NSString).length
-            if let at = w.line(containing: seam), !w.isFigure(at) { edited += "\n" }
+            if let at = w.line(containing: seam), !w.isFigure(at) { edited += eol }
         }
         // A deletion from a figure line's end keeps its line break.
         if range.length > 0, let line = oldLines.line(containing: oldLoc),
-           line.contentEnd == oldLoc, oldLines.isFigure(line), !edited.hasPrefix("\n") {
+           line.contentEnd == oldLoc, oldLines.isFigure(line), edited.first?.isNewline != true {
             let w = Lines(window(edited))
             if let at = w.line(containing: oldLoc), !w.isFigure(at) {
-                edited = "\n" + edited
-                caretOffset += 1
+                edited = eol + edited
+                caretOffset += eolLength
             }
         }
 
         // A figure line and a non-blank line meeting at a seam.
         let w = Lines(window(edited))
         let s0 = oldLoc, s1 = oldLoc + (edited as NSString).length
+        // The line before the edit that `l` is, or nil when the edit made it:
+        // a line beginning before the edit is the old line beginning there; one
+        // beginning after it, the old one beginning there; one beginning
+        // inside it, the old line its untouched end belongs to.
+        func oldIndex(of l: Lines.Line) -> Int? {
+            if l.start < s0 { return oldLines.index(startingAt: l.start) }
+            if l.start >= s1 { return oldLines.index(startingAt: l.start - s1 + oldEnd) }
+            if l.contentEnd >= s1 { return oldLines.index(endingAt: l.contentEnd - s1 + oldEnd) }
+            return nil
+        }
         var inserts: [Int] = []
-        var firstGlueUpperEnd: Int?
         for i in 0..<max(w.count - 1, 0) {
             let upper = w[i], lower = w[i + 1]
-            let p = upper.contentEnd   // the newline between them
-            guard p == s0 - 1 || p == s0 || p == s1 - 1 || p == s1 else { continue }
+            let c = upper.contentEnd, e = upper.end   // the terminator between them
+            guard (c <= s0 && s0 <= e) || (c <= s1 && s1 <= e) else { continue }
             guard !w.isBlank(upper), !w.isBlank(lower) else { continue }
             let figureBelow = w.isFigure(lower), figureAbove = w.isFigure(upper)
             guard figureBelow || figureAbove else { continue }
-            // Already met before the edit? Then the edit did not glue them.
-            let alreadyGlued: Bool = {
-                func oldLine(of l: Lines.Line) -> Int? {
-                    if l.start >= s1 { return oldLines.index(startingAt: l.start - s1 + oldEnd) }
-                    if l.contentEnd <= s0 { return oldLines.index(startingAt: l.start) }
-                    return nil
-                }
-                if figureBelow, let j = oldLine(of: lower), oldLines.isFigure(oldLines[j]),
-                   j > 0, !oldLines.isBlank(oldLines[j - 1]) { return true }
-                if figureAbove, let j = oldLine(of: upper), oldLines.isFigure(oldLines[j]),
-                   j + 1 < oldLines.count, !oldLines.isBlank(oldLines[j + 1]) { return true }
-                return false
-            }()
-            if alreadyGlued { continue }
-            let q = (p + 1 >= s0 && p + 1 <= s1) ? p + 1 : p
+            // The same two lines already met before the edit? Then it did not glue them.
+            let u = oldIndex(of: upper), l = oldIndex(of: lower)
+            if let u, let l, l == u + 1, !oldLines.isBlank(oldLines[u]), !oldLines.isBlank(oldLines[l]),
+               (figureBelow && oldLines.isFigure(oldLines[l])) || (figureAbove && oldLines.isFigure(oldLines[u])) {
+                continue
+            }
+            let q: Int
+            if e >= s0 && e <= s1 { q = e } else if c >= s0 && c <= s1 { q = c } else { continue }
             inserts.append(q - s0)
-            if firstGlueUpperEnd == nil { firstGlueUpperEnd = p }
         }
 
         guard edited != replacement || !inserts.isEmpty else { return nil }
-        let caret = caretOffset + inserts.filter { $0 < caretOffset }.count
+        let caret = caretOffset + eolLength * inserts.filter { $0 < caretOffset }.count
         let final = NSMutableString(string: edited)
-        for offset in inserts.sorted(by: >) { final.insert("\n", at: offset) }
+        for offset in inserts.sorted(by: >) { final.insert(eol, at: offset) }
         let result = final as String
 
         if result == text.substring(with: range) {
-            // The edit would only have removed the break: refuse it, and put
-            // the caret at the end of the paragraph above, where a Backspace
-            // was heading.
-            return .refuse(caret: ws + oldLines.lastNonBlankEnd(atOrBefore: oldLoc, otherwise: oldLoc))
+            // The edit would only have removed the break: refuse it, the caret
+            // to the end of the paragraph above — or left where it is when
+            // that line is a figure line.
+            guard let above = oldLines.lastNonBlank(atOrBefore: oldLoc), !oldLines.isFigure(above)
+            else { return .refuse(caret: nil) }
+            return .refuse(caret: ws + above.contentEnd)
         }
         return .replace(range: range, replacement: result, caret: loc + caret)
+    }
+
+    /// True when the line holding `location` is code, where the rule never
+    /// applies and a figure line is not one: inside a ``` fence (the fence
+    /// lines included, counted from the text's start as the parser counts
+    /// them), or indented as code (four spaces or a tab). `ManuscriptChecks`
+    /// asks the same.
+    public static func isInCode(lineAt location: Int, in text: NSString) -> Bool {
+        guard location >= 0, location <= text.length else { return false }
+        var start = 0, end = 0, contentsEnd = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd,
+                          for: NSRange(location: location, length: 0))
+        let line = text.substring(with: NSRange(location: start, length: contentsEnd - start))
+        if isIndentedCode(line) || line.trimmingCharacters(in: .whitespaces).hasPrefix("```") { return true }
+        var fences = 0, search = 0
+        while search < start {
+            let found = text.range(of: "```", range: NSRange(location: search, length: start - search))
+            guard found.location != NSNotFound else { break }
+            var ls = 0, le = 0, lc = 0
+            text.getLineStart(&ls, end: &le, contentsEnd: &lc, for: NSRange(location: found.location, length: 0))
+            if text.substring(with: NSRange(location: ls, length: found.location - ls))
+                .trimmingCharacters(in: .whitespaces).isEmpty { fences += 1 }
+            search = max(le, NSMaxRange(found))
+        }
+        return fences % 2 == 1
+    }
+
+    /// A line indented as code: four spaces or a tab.
+    static func isIndentedCode(_ line: String) -> Bool {
+        line.hasPrefix("    ") || line.hasPrefix("\t")
     }
 
     /// True when `line` (one line, no terminator) alone reads as a figure:
@@ -138,21 +183,27 @@ public enum FigureLineSeparation {
     // MARK: - Lines of a small window
 
     struct Lines {
-        struct Line { let start: Int; let contentEnd: Int }
+        /// One line: its content `start..<contentEnd`, its terminator
+        /// `contentEnd..<end` (empty on the last line).
+        struct Line: Equatable { let start: Int; let contentEnd: Int; let end: Int }
         let text: NSString
         private let lines: [Line]
 
+        /// Split at every line terminator NSString knows (`\n`, `\r\n`, `\r`,
+        /// U+0085, U+2028, U+2029); a text ending in one has an empty last line.
         init(_ text: NSString) {
             self.text = text
             var out: [Line] = []
             var start = 0
             let n = text.length
-            while true {
-                let nl = start < n ? text.range(of: "\n", range: NSRange(location: start, length: n - start)).location
-                                   : NSNotFound
-                if nl == NSNotFound { out.append(Line(start: start, contentEnd: n)); break }
-                out.append(Line(start: start, contentEnd: nl))
-                start = nl + 1
+            while start < n {
+                var s = 0, e = 0, c = 0
+                text.getLineStart(&s, end: &e, contentsEnd: &c, for: NSRange(location: start, length: 0))
+                out.append(Line(start: s, contentEnd: c, end: e))
+                start = e
+            }
+            if out.last.map({ $0.end > $0.contentEnd }) ?? true {
+                out.append(Line(start: n, contentEnd: n, end: n))
             }
             lines = out
         }
@@ -160,22 +211,34 @@ public enum FigureLineSeparation {
         var count: Int { lines.count }
         subscript(i: Int) -> Line { lines[i] }
 
+        /// The break to add: the first terminator's when it is `\r\n` or
+        /// `\r`, `\n` for any other; nil when there is none.
+        var lineEnding: String? {
+            guard let line = lines.first(where: { $0.end > $0.contentEnd }) else { return nil }
+            let t = text.substring(with: NSRange(location: line.contentEnd, length: line.end - line.contentEnd))
+            return t == "\r\n" || t == "\r" ? t : "\n"
+        }
+
         func content(_ line: Line) -> String {
             text.substring(with: NSRange(location: line.start, length: line.contentEnd - line.start))
         }
         func isBlank(_ line: Line) -> Bool {
-            content(line).trimmingCharacters(in: .whitespaces).isEmpty
+            content(line).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        func isFigure(_ line: Line) -> Bool { FigureLineSeparation.isFigureLine(content(line)) }
+        func isFigure(_ line: Line) -> Bool {
+            let c = content(line)
+            return !FigureLineSeparation.isIndentedCode(c) && FigureLineSeparation.isFigureLine(c)
+        }
 
         func index(startingAt location: Int) -> Int? { lines.firstIndex { $0.start == location } }
+        func index(endingAt contentEnd: Int) -> Int? { lines.firstIndex { $0.contentEnd == contentEnd } }
         func line(startingAt location: Int) -> Line? { index(startingAt: location).map { lines[$0] } }
         func line(containing location: Int) -> Line? {
             lines.first { location >= $0.start && location <= $0.contentEnd }
         }
-        /// The end of the last non-blank line ending at or before `location`.
-        func lastNonBlankEnd(atOrBefore location: Int, otherwise: Int) -> Int {
-            lines.last { $0.contentEnd <= location && !isBlank($0) }?.contentEnd ?? otherwise
+        /// The last non-blank line ending at or before `location`.
+        func lastNonBlank(atOrBefore location: Int) -> Line? {
+            lines.last { $0.contentEnd <= location && !isBlank($0) }
         }
     }
 }

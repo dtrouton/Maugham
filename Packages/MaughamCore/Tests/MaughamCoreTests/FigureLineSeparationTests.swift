@@ -23,7 +23,9 @@ final class FigureLineSeparationTests: XCTestCase {
             XCTAssertEqual(r, range, "the rule keeps the edit's own range")
             return (text.replacingCharacters(in: r, with: with), c, true, false)
         case .refuse(let c)?:
-            return (text as String, c, true, true)
+            // nil: the caret stays where it was (the edit's end for a
+            // Backspace, its start for a Delete).
+            return (text as String, c ?? caret, true, true)
         }
     }
 
@@ -85,10 +87,16 @@ final class FigureLineSeparationTests: XCTestCase {
         XCTAssertEqual(r.text, "Prose.\n\n\(fig)")
     }
 
-    func test_backspaceAtTheStartOfTheParagraphBelow_isRefused() {
+    /// Below a figure the refusal never parks the caret on the figure line
+    /// (whole-branch review I3): a held Backspace would eat its label.
+    func test_backspaceAtTheStartOfTheParagraphBelow_isRefusedInPlace() {
         let r = edit("\(fig)\n\n|After.", before: 1, type: "")
         XCTAssertTrue(r.refused)
-        XCTAssertEqual(r.caret, (fig as NSString).length, "the caret to the end of the figure line")
+        XCTAssertEqual(FigureLineSeparation.decide(text: "\(fig)\n\nAfter." as NSString,
+                                                   range: NSRange(location: (fig as NSString).length + 1, length: 1),
+                                                   replacement: ""),
+                       .refuse(caret: nil), "the caret stays at the paragraph's start")
+        XCTAssertEqual(r.caret, at(r.text, "After."))
     }
 
     func test_forwardDeleteOfTheBlankLine_isRefused_theCaretStays() {
@@ -148,6 +156,60 @@ final class FigureLineSeparationTests: XCTestCase {
 
     func test_anOldGluedLineIsLeftAloneByEditsAwayFromIt() {
         XCTAssertFalse(edit("Pro|se.\n\(fig)", type: "x").adjusted)
+    }
+
+    /// Whole-branch review I2: a heading directly above a figure is "already
+    /// glued" only for the heading itself; a line the edit makes between them
+    /// is new, and is kept apart.
+    func test_typingAtColumnZeroUnderAHeading_isKeptApartFromTheFigure() {
+        let r = edit("# H\n|\(fig)", type: "x")
+        XCTAssertEqual(r.text, "# H\nx\n\n\(fig)")
+        XCTAssertEqual(r.caret, at(r.text, "x") + 1)
+    }
+
+    func test_editingAnOldGluedLineBelowAFigure_isLeftAlone() {
+        XCTAssertFalse(edit("\(fig)\n|After.", type: "x").adjusted, "the same neighbour, edited")
+    }
+
+    // MARK: - Line endings (whole-branch review M1)
+
+    func test_crlfTextGetsItsOwnLineEnding() {
+        let r = edit("Prose.\r\n\r\n|\(fig)", type: "x")
+        XCTAssertEqual(r.text, "Prose.\r\n\r\nx\r\n\r\n\(fig)")
+        XCTAssertEqual(r.caret, at(r.text, "x") + 1)
+        let below = edit("\(fig)\r\n|", type: "T")
+        XCTAssertEqual(below.text, "\(fig)\r\n\r\nT")
+    }
+
+    func test_crlfBlankLineIsBlank_backspaceOverItIsRefused() {
+        let r = edit("Prose.\r\n\r\n|\(fig)", before: 2, type: "")
+        XCTAssertTrue(r.refused)
+        XCTAssertEqual(r.caret, 6)
+        XCTAssertFalse(edit("Prose.\r\n\r\n\r\n|\(fig)", before: 2, type: "").adjusted,
+                       "an extra CRLF blank line deletes")
+    }
+
+    func test_aLineSeparatorEndsALine_andTheBreakAddedIsANewline() {
+        let r = edit("\(fig)\u{2028}|", type: "T")
+        XCTAssertEqual(r.text, "\(fig)\u{2028}\nT", "never a bare U+2028 blank line")
+        XCTAssertFalse(edit("Prose.\u{2029}\u{2029}|\(fig)", type: "\n").adjusted)
+    }
+
+    // MARK: - Code (whole-branch review M2)
+
+    func test_insideAFencedCodeBlock_nothingIsTouched() {
+        XCTAssertFalse(edit("```\nProse.\n|\(fig)\n```", type: "x").adjusted)
+        XCTAssertFalse(edit("```\n\(fig)\n|", type: "x").adjusted)
+        XCTAssertTrue(edit("```\ncode\n```\n\nProse.\n\n|\(fig)", type: "x").adjusted,
+                      "after the fence closes the rule applies")
+    }
+
+    func test_anIndentedCodeLineIsNotAFigureLine() {
+        XCTAssertFalse(edit("    Prose.\n|    \(fig)", type: "x").adjusted)
+        XCTAssertFalse(edit("Prose.\n|", type: "    \(fig)").adjusted)
+        XCTAssertTrue(FigureLineSeparation.isInCode(lineAt: 2, in: "    \(fig)" as NSString))
+        XCTAssertTrue(FigureLineSeparation.isInCode(lineAt: 5, in: "```\n\(fig)\n```" as NSString))
+        XCTAssertFalse(FigureLineSeparation.isInCode(lineAt: 0, in: fig as NSString))
     }
 
     func test_whatCountsAsAFigureLine() {
