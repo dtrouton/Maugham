@@ -3,8 +3,9 @@ import MaughamCore
 
 /// **The window's figure cards, in memory** (report plan 7a Task 3): one
 /// `FigureCardModel` per registered figure, built from the book's computed
-/// values. `EditorHost` owns one beside `ReferenceIndexHost`, the same way: a
-/// plain reference, deliberately not observable (tripwire 6). The editor's
+/// values. `EditorHost` owns one, the way the window owns its
+/// `ReferenceIndexHost`: a plain reference, deliberately not observable
+/// (tripwire 6). The editor's
 /// styler and card overlay read it synchronously; nothing here runs per
 /// keystroke.
 ///

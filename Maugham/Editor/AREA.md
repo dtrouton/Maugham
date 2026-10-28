@@ -21,6 +21,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `CitationCompletion.swift` — the citation picker, a `CompletionSource` over the index's sources (`[@`, `;`), and the matching rules the pickers share.
 - `CrossReferenceCompletion.swift` — the cross-reference picker over the index's targets (`@` and a letter at a word start).
 - `ReferenceIndex.swift` — the project's citation sources and cross-reference targets with the editor's numbers (and, per document, `NumbersBefore`: the figures and tables numbered before it, which `figureNumbersBefore` hands the caption number): a pure value built over publishing's pieces; `Maugham/Views/ReferenceIndexHost.swift` caches it.
+- `FigureListing.swift` — the book's figure index: each registered figure's number, lines and cross-references, read off the `ReferenceIndex`.
 - `FigureIngest.swift` + `EditorCoordinator+Figure.swift` — figures a command makes: Insert Figure…, an image drop and an image paste make an image figure in `figures/` (`figureImporter`, `ProjectStore.createImageFigure`), Insert ▸ Table a 3×3 table figure (`tableFigureMaker`, `insertTableFigure`); each writes its line through Route A.
 - `FigureThumbnailOverlay.swift` — the thumbnail drawn under each figure line of a manuscript: the layout maths, the decoded-thumbnail store and cache, and the click-through overlay (which draws table cards too). Tripwires 1, 4.
 - `FigureCardDrawing.swift` — the read-only card under a table figure's line: a pure drawing plan and its painting. Tripwires 1, 4.

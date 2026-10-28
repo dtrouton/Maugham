@@ -60,6 +60,36 @@ struct ReferenceIndex: Equatable, Sendable {
         let order: Int
     }
 
+    /// **One table or figure the book numbers, where its line is** (report
+    /// plan 8a Task 2): what `FigureListing` numbers the registry's figures by.
+    /// Every pipe table and figure line counts, labelled or not, in the order
+    /// `targets` counts them.
+    struct NumberedLine: Equatable, Sendable {
+        enum Kind: Equatable, Sendable { case table, figure }
+        let kind: Kind
+        /// Its number among its kind, from 1: "Table \(ordinal)".
+        let ordinal: Int
+        let docId: String
+        /// The line it starts on in its piece, from 0.
+        let line: Int
+        /// The path written on a figure line, as written; nil for a pipe table.
+        let path: String?
+        /// Its caption; empty for a table with none.
+        let caption: String
+        /// The label this line registered as a target, nil when it carries
+        /// none or its label did not register (wrong kind, or defined before).
+        let targetLabel: ManuscriptLabel?
+    }
+
+    /// **One cross-reference in the text** (report plan 8a Task 2): the piece
+    /// and line a `@tbl:name` or `[@fig:name]` sits on, whether or not it
+    /// names a target.
+    struct CrossReference: Equatable, Sendable {
+        let label: ManuscriptLabel
+        let docId: String
+        let line: Int
+    }
+
     /// Live research items with a key, each key once (the first wins, as
     /// `CitationLibrary` reads them), sorted by `authorsLine` — the title for
     /// a source with no authors — ignoring case and accents, then `label`,
@@ -69,6 +99,10 @@ struct ReferenceIndex: Equatable, Sendable {
     /// on the wrong kind of element, or defined a second time, is not a
     /// target: publishing reports both and registers neither.
     let targets: [Target]
+    /// Every table and figure in publishing order, unlabelled ones included.
+    let numberedLines: [NumberedLine]
+    /// Every cross-reference in publishing order, outside fenced code.
+    let crossReferences: [CrossReference]
     /// Bumps when `sources` or `targets` change (`ReferenceIndexHost`); a
     /// freshly built index is version 0, and the host publishes its first
     /// build as 1 at least, so a host's version 0 means "not built yet".
@@ -95,7 +129,8 @@ struct ReferenceIndex: Equatable, Sendable {
     private let targetIndex: [ManuscriptLabel: Int]
 
     static let empty = ReferenceIndex(sources: [], targets: [], definedLabels: [:],
-                                      numbersBefore: [:], words: .english, version: 0)
+                                      numbersBefore: [:], words: .english,
+                                      numberedLines: [], crossReferences: [], version: 0)
 
     /// The tables and figures numbered before `docId`'s first, or nil when
     /// the index has not read that piece (not built yet, or not in the book).
@@ -130,20 +165,32 @@ struct ReferenceIndex: Equatable, Sendable {
             && numbersBefore == other.numbersBefore && words == other.words
     }
 
+    /// Same lines and cross-references — what the figure listing reads, and
+    /// what moves without `hasSameContents` noticing (a paragraph typed above
+    /// a figure moves its line, and nothing the editor draws).
+    func hasSameLines(as other: ReferenceIndex) -> Bool {
+        numberedLines == other.numberedLines && crossReferences == other.crossReferences
+    }
+
     /// This index's contents at `version`.
     func versioned(_ version: Int) -> ReferenceIndex {
         ReferenceIndex(sources: sources, targets: targets, definedLabels: definedLabels,
-                       numbersBefore: numbersBefore, words: words, version: version)
+                       numbersBefore: numbersBefore, words: words,
+                       numberedLines: numberedLines, crossReferences: crossReferences,
+                       version: version)
     }
 
     private init(sources: [Source], targets: [Target],
                  definedLabels: [String: Set<ManuscriptLabel>],
-                 numbersBefore: [String: NumbersBefore], words: ElementWords, version: Int) {
+                 numbersBefore: [String: NumbersBefore], words: ElementWords,
+                 numberedLines: [NumberedLine], crossReferences: [CrossReference], version: Int) {
         self.sources = sources
         self.targets = targets
         self.definedLabels = definedLabels
         self.numbersBefore = numbersBefore
         self.words = words
+        self.numberedLines = numberedLines
+        self.crossReferences = crossReferences
         self.version = version
         var bySource: [String: Int] = [:]
         for (i, s) in sources.enumerated() where bySource[s.key] == nil { bySource[s.key] = i }
@@ -159,10 +206,18 @@ struct ReferenceIndex: Equatable, Sendable {
     /// `Sendable`, so the host keeps it per piece and re-reads only a piece
     /// whose text changed.
     struct PieceSummary: Equatable, Sendable {
+        /// A table's or figure's `path` is the one written on its figure line
+        /// (nil for a pipe table) and `line` the line it starts on, from 0
+        /// (report plan 8a Task 2).
         enum Element: Equatable, Sendable {
             case heading(text: String, label: ManuscriptLabel?)
-            case table(caption: String?, label: ManuscriptLabel?)
-            case figure(caption: String, label: ManuscriptLabel?)
+            case table(caption: String?, label: ManuscriptLabel?, path: String? = nil, line: Int = 0)
+            case figure(caption: String, label: ManuscriptLabel?, path: String? = nil, line: Int = 0)
+        }
+        /// A cross-reference and the line it sits on, from 0.
+        struct ReferencedLabel: Equatable, Sendable {
+            let label: ManuscriptLabel
+            let line: Int
         }
         /// The piece's top-level headings, tables and figures, in order.
         let elements: [Element]
@@ -170,6 +225,9 @@ struct ReferenceIndex: Equatable, Sendable {
         let definedLabels: Set<ManuscriptLabel>
         /// Every key the piece cites, in first-citation order, each once.
         let citedKeys: [String]
+        /// Every cross-reference outside fenced code, in text order, each
+        /// occurrence (report plan 8a Task 2).
+        let referencedLabels: [ReferencedLabel]
 
         static let empty = PieceSummary(elements: [], definedLabels: [], citedKeys: [])
 
@@ -191,13 +249,16 @@ struct ReferenceIndex: Equatable, Sendable {
                                              label: label))
                     if let label { labels.insert(label) }
                 case .table(_, _, _, let caption, let label):
-                    elements.append(.table(caption: caption, label: label))
+                    elements.append(.table(caption: caption, label: label, path: nil,
+                                           line: lines.lowerBound))
                     if let label { labels.insert(label) }
                 case .figure(let caption, let path, let label):
                     // R7a-1: a table figure's line is a table unless labelled `fig:`.
                     switch ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) {
-                    case .tbl: elements.append(.table(caption: caption, label: label))
-                    case .fig, .sec: elements.append(.figure(caption: caption, label: label))
+                    case .tbl: elements.append(.table(caption: caption, label: label, path: path,
+                                                      line: lines.lowerBound))
+                    case .fig, .sec: elements.append(.figure(caption: caption, label: label, path: path,
+                                                             line: lines.lowerBound))
                     }
                     if let label { labels.insert(label) }
                 case .footnoteDefinition, .other:
@@ -206,23 +267,40 @@ struct ReferenceIndex: Equatable, Sendable {
             }
             var cited: [String] = []
             var seen = Set<String>()
-            let lineStarts = fences.isEmpty ? [] : Self.lineStarts(text)
-            func inFence(_ location: Int) -> Bool {
-                guard !fences.isEmpty else { return false }
-                // The line holding `location`: the last line start at or before it.
+            var referenced: [ReferencedLabel] = []
+            let markers = ManuscriptInlineScanner.scan(text)
+            // Line starts are needed for a fence check or a cross-reference's
+            // line; most prose has neither, and is not walked again.
+            let needsLines = !fences.isEmpty || markers.contains {
+                if case .crossRef = $0.marker { return true } else { return false }
+            }
+            let lineStarts = needsLines ? Self.lineStarts(text) : []
+            /// The line holding `location`: the last line start at or before it.
+            func lineOf(_ location: Int) -> Int {
                 var lo = 0, hi = lineStarts.count
                 while lo < hi {
                     let mid = (lo + hi) / 2
                     if lineStarts[mid] <= location { lo = mid + 1 } else { hi = mid }
                 }
-                let line = lo - 1
+                return lo - 1
+            }
+            func inFence(_ location: Int) -> Bool {
+                guard !fences.isEmpty else { return false }
+                let line = lineOf(location)
                 return fences.contains { $0.contains(line) }
             }
-            for (marker, range) in ManuscriptInlineScanner.scan(text) {
-                guard case .citation(let items) = marker, !inFence(range.location) else { continue }
-                for item in items where seen.insert(item.key).inserted { cited.append(item.key) }
+            for (marker, range) in markers where !inFence(range.location) {
+                switch marker {
+                case .citation(let items):
+                    for item in items where seen.insert(item.key).inserted { cited.append(item.key) }
+                case .crossRef(let label):
+                    referenced.append(ReferencedLabel(label: label, line: lineOf(range.location)))
+                case .footnoteRef:
+                    continue
+                }
             }
-            self.init(elements: elements, definedLabels: labels, citedKeys: cited)
+            self.init(elements: elements, definedLabels: labels, citedKeys: cited,
+                      referencedLabels: referenced)
         }
 
         /// The UTF-16 offset each line starts at (line 0 at 0), splitting on
@@ -237,10 +315,12 @@ struct ReferenceIndex: Equatable, Sendable {
             return starts
         }
 
-        init(elements: [Element], definedLabels: Set<ManuscriptLabel>, citedKeys: [String]) {
+        init(elements: [Element], definedLabels: Set<ManuscriptLabel>, citedKeys: [String],
+             referencedLabels: [ReferencedLabel] = []) {
             self.elements = elements
             self.definedLabels = definedLabels
             self.citedKeys = citedKeys
+            self.referencedLabels = referencedLabels
         }
     }
 
@@ -290,11 +370,16 @@ struct ReferenceIndex: Equatable, Sendable {
         var figures = 0, tables = 0
         var defined: [String: Set<ManuscriptLabel>] = [:]
         var before: [String: NumbersBefore] = [:]
+        var lines: [NumberedLine] = []
+        var crossReferences: [CrossReference] = []
+        /// Registers `label` as a target and returns it, or nil when it does not register.
+        @discardableResult
         func register(_ label: ManuscriptLabel?, _ kind: ManuscriptLabel.Kind,
-                      text: String, detail: String, docId: String) {
-            guard let label, label.kind == kind, registered.insert(label).inserted else { return }
+                      text: String, detail: String, docId: String) -> ManuscriptLabel? {
+            guard let label, label.kind == kind, registered.insert(label).inserted else { return nil }
             targets.append(Target(label: label, text: text, detail: detail, docId: docId,
                                   order: targets.count))
+            return label
         }
         for piece in pieces {
             defined[piece.docId, default: []].formUnion(piece.summary.definedLabels)
@@ -305,15 +390,25 @@ struct ReferenceIndex: Equatable, Sendable {
                 switch element {
                 case .heading(let text, let label):
                     register(label, .sec, text: text, detail: "", docId: piece.docId)
-                case .table(let caption, let label):
+                case .table(let caption, let label, let path, let line):
                     tables += 1
-                    register(label, .tbl, text: "\(words.table) \(tables)", detail: caption ?? "",
-                             docId: piece.docId)
-                case .figure(let caption, let label):
+                    let target = register(label, .tbl, text: "\(words.table) \(tables)",
+                                          detail: caption ?? "", docId: piece.docId)
+                    lines.append(NumberedLine(kind: .table, ordinal: tables, docId: piece.docId,
+                                              line: line, path: path, caption: caption ?? "",
+                                              targetLabel: target))
+                case .figure(let caption, let label, let path, let line):
                     figures += 1
-                    register(label, .fig, text: "\(words.figure) \(figures)", detail: caption,
-                             docId: piece.docId)
+                    let target = register(label, .fig, text: "\(words.figure) \(figures)",
+                                          detail: caption, docId: piece.docId)
+                    lines.append(NumberedLine(kind: .figure, ordinal: figures, docId: piece.docId,
+                                              line: line, path: path, caption: caption,
+                                              targetLabel: target))
                 }
+            }
+            for reference in piece.summary.referencedLabels {
+                crossReferences.append(CrossReference(label: reference.label, docId: piece.docId,
+                                                      line: reference.line))
             }
         }
 
@@ -354,7 +449,8 @@ struct ReferenceIndex: Equatable, Sendable {
             }
         }
         return ReferenceIndex(sources: sources, targets: targets, definedLabels: defined,
-                              numbersBefore: before, words: words, version: 0)
+                              numbersBefore: before, words: words, numberedLines: lines,
+                              crossReferences: crossReferences, version: 0)
     }
 
     /// Every key in the research tree, children walked, each once, in tree

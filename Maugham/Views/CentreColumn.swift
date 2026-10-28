@@ -27,6 +27,9 @@ struct CentreColumn: View {
     let documentStore: DocumentStore
     let canvasModel: CanvasModel
     let editorControl: EditorControl
+    /// The window's reference index (report plan 8a Task 2), handed to the
+    /// manuscript editor; read nowhere here.
+    let referenceIndex: ReferenceIndexHost
     /// The window's table-grid presence (report plan 7c Task 9), handed to
     /// the manuscript editor's grid opening; read nowhere here.
     let figureGridPresence: FigureGridPresence
@@ -184,6 +187,7 @@ struct CentreColumn: View {
                 // hard-locked (lockEditing) via `ProjectWindow.editorMembrane`
                 // mirrored into the control.
                 control: editorControl,
+                referenceIndex: referenceIndex,
                 figureGridPresence: figureGridPresence,
                 figureWindows: figureWindows,
                 // A note written from the margin carries the pass this piece is

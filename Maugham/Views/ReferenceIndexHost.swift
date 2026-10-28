@@ -2,18 +2,22 @@ import Foundation
 import MaughamCore
 
 /// **The window's cached `ReferenceIndex`** (report foundations plan 3b
-/// Task 1). `EditorHost` owns one, the way it owns `EditorHostLoadGeneration`:
-/// a plain reference, deliberately not observable (tripwire 6). The
-/// coordinator reads `index` through a closure; nothing here runs per
+/// Task 1). The project window owns one (report plan 8a Task 2), so the
+/// Figures listing numbers with no editor mounted; `ReferenceIndexWiring`
+/// attaches it and carries the window's edges, and `EditorHost` is handed it
+/// as a plain `let` — a reference, deliberately not observable (tripwire 6).
+/// The coordinator reads `index` through a closure; nothing here runs per
 /// keystroke.
 ///
 /// **What makes it rebuild** (`invalidate(_:)` and `noteSettled`):
-/// - the research tree changing (`.research`; no text is re-read);
-/// - the binder changing, a document switch or the host appearing (`.all`);
+/// - the research tree changing (`.research`; no text is re-read) — the window;
+/// - the binder changing (`.all`) — the window; a document switch (`.all`,
+///   and `.piece` for the piece just left, flushed) — `EditorHost`;
 /// - a closed piece's op log changing (`.piece`, from `maughamAnnotationsChanged`,
-///   which `DocumentStore` posts for a change to a document nothing has open);
+///   which `DocumentStore` posts for a change to a document nothing has open)
+///   — the window;
 /// - the open document's text settling: the coordinator's 350 ms metrics edge,
-///   never a keystroke (`noteSettled`).
+///   never a keystroke (`noteSettled`) — `EditorHost`.
 ///
 /// **What runs where** (whole-branch review I2). One rebuild is three steps:
 /// 1. *Main actor:* the binder's pieces, and the live text of every
@@ -31,7 +35,9 @@ import MaughamCore
 ///
 /// The result is published back on the main actor, and the version bumps only
 /// when the sources or targets actually changed (or on the first build, even
-/// of an empty project), which is when `onVersionChange` fires.
+/// of an empty project), which is when `onVersionChange` fires. A build that
+/// moved only lines (`ReferenceIndex.hasSameLines`) replaces the index at the
+/// same version, so the editor repaints nothing; `onPublish` fires for both.
 ///
 /// Before that first build, `labelsDefined(excluding:)` walks the project
 /// synchronously, so a command minting a label never trusts the empty index
@@ -39,8 +45,9 @@ import MaughamCore
 @MainActor
 final class ReferenceIndexHost {
 
-    /// How the host reads the project. `EditorHost` builds it over its store
-    /// and document store; tests hand in plain closures.
+    /// How the host reads the project. `ReferenceIndexWiring` builds it over
+    /// the window's stores (`window(store:documentStore:)`); tests hand in
+    /// plain closures.
     struct Project {
         var structure: () -> [StructureItem]
         var research: () -> [ResearchItem]
@@ -87,8 +94,12 @@ final class ReferenceIndexHost {
     /// The cached index. Cheap to read; never built on the caller's turn.
     private(set) var index: ReferenceIndex = .empty
     /// Called on the main actor with the new version after a rebuild changed
-    /// the index. `EditorHost` writes it to `EditorControl.referenceIndexVersion`.
+    /// the index. The window writes it to `EditorControl.referenceIndexVersion`.
     var onVersionChange: ((Int) -> Void)?
+    /// Called on the main actor after any build that replaced `index` — a new
+    /// version, or the same version with lines moved. The window refreshes
+    /// its `FigureListingModel` here.
+    var onPublish: (() -> Void)?
 
     private var project: Project?
     private let builder: Builder
@@ -210,10 +221,12 @@ final class ReferenceIndexHost {
         // The first build always publishes, even an empty one, so version 0
         // means "not built yet": the editor's problem marks wait for it
         // rather than calling every key unknown (plan 3b Task 6).
-        guard !hasPublished || !built.hasSameContents(as: index) else { return }
+        let contentsMoved = !hasPublished || !built.hasSameContents(as: index)
+        guard contentsMoved || !built.hasSameLines(as: index) else { return }
         hasPublished = true
-        index = built.versioned(index.version + 1)
-        onVersionChange?(index.version)
+        index = built.versioned(index.version + (contentsMoved ? 1 : 0))
+        if contentsMoved { onVersionChange?(index.version) }
+        onPublish?()
     }
 
     /// Step 1 of a rebuild, on the main actor and from memory only: the

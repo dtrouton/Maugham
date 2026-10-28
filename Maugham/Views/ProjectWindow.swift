@@ -116,6 +116,13 @@ struct ProjectWindow: View {
     /// may do (report plan 7c Task 9, R7c-10). Window-scoped; the editor's
     /// coordinator sets it, the menus read it.
     @State private var figureGridPresence = FigureGridPresence()
+    /// **The window's reference index and figure listing** (report plan 8a
+    /// Task 2): one per window, attached and kept current by
+    /// `ReferenceIndexWiring` whatever the centre shows, so the Figures
+    /// listing numbers with no editor mounted. The index is handed to the
+    /// editor as a plain reference (tripwire 6).
+    @State private var referenceIndex = ReferenceIndexHost()
+    @State private var figureListing = FigureListingModel()
     /// The canvas's scene, scraps, selection, sidecar store and undo recorder.
     /// Owned HERE rather than inside `CanvasView` because the region inspector in
     /// the right-hand column reads and mutates the same scene the centre column
@@ -452,6 +459,10 @@ struct ProjectWindow: View {
         }
         .modifier(SubjectValidationModifier(store: store,
                                             selectedSubject: $selectedSubject))
+        .modifier(ReferenceIndexWiring(
+            url: url, store: store, documentStore: documentStore,
+            referenceIndex: referenceIndex, figureListing: figureListing,
+            control: editorControl, window: window))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
@@ -1254,6 +1265,7 @@ struct ProjectWindow: View {
         CentreColumn(
             store: store, documentStore: documentStore,
             canvasModel: canvasModel, editorControl: editorControl,
+            referenceIndex: referenceIndex,
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, window: window,

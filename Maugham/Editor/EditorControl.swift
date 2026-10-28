@@ -79,8 +79,8 @@ final class EditorControl {
     /// redraw trigger for what the editor draws from the project's sources
     /// and targets (the faint labels and problem marks, Task 6). The index
     /// itself is read through `EditorSurface.ParagraphProviders.referenceIndex`;
-    /// this only says it changed. Written one-way by `EditorHost` alone, off
-    /// `ReferenceIndexHost.onVersionChange`; the research note and statement
+    /// this only says it changed. Written one-way by the window's
+    /// `ReferenceIndexWiring` alone, off `ReferenceIndexHost.onVersionChange`; the research note and statement
     /// hosts have no index and leave it 0. D1-safe: it moves on a research
     /// edit, a binder change, another piece's sync or the open document's
     /// settle (the 350 ms metrics edge), and only when a source or target

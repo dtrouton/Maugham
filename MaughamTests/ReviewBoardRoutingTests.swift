@@ -1286,6 +1286,7 @@ struct ReviewCentreProbeView: View {
 
     @State private var layout: OutlineLayout = .table
     @State private var control = EditorControl()
+    @State private var referenceIndex = ReferenceIndexHost()
 
     private var subject: Binding<BinderSubject?> {
         Binding(get: { box.subject }, set: { box.subject = $0 })
@@ -1346,7 +1347,8 @@ struct ReviewCentreProbeView: View {
 
     private var editor: some View {
         EditorHost(store: store, documentStore: documentStore,
-                   selectedItemId: box.subject?.itemID, control: control)
+                   selectedItemId: box.subject?.itemID, control: control,
+                   referenceIndex: referenceIndex)
             .onAppear { hostLife.appeared() }
             .onDisappear { hostLife.disappeared() }
     }

@@ -441,12 +441,13 @@ private struct TwoEditorProbeView: View {
     let probe: StatementProbeModel
 
     @State private var control = EditorControl()
+    @State private var referenceIndex = ReferenceIndexHost()
 
     var body: some View {
         HStack(spacing: 0) {
             EditorHost(
                 store: store, documentStore: documentStore,
-                selectedItemId: itemId, control: control)
+                selectedItemId: itemId, control: control, referenceIndex: referenceIndex)
             if probe.showsStatementPane {
                 StatementPane(
                     store: store, documentStore: documentStore,

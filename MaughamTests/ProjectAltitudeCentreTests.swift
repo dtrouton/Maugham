@@ -1129,6 +1129,7 @@ private struct AltitudeCentreProbeView: View {
 
     @State private var layout: OutlineLayout
     @State private var control = EditorControl()
+    @State private var referenceIndex = ReferenceIndexHost()
 
     init(store: ProjectStore, documentStore: DocumentStore, persona: Persona,
          probe: BinderSubjectProbe, layout: OutlineLayout, shape: Shape,
@@ -1198,7 +1199,8 @@ private struct AltitudeCentreProbeView: View {
 
     private var editor: some View {
         EditorHost(store: store, documentStore: documentStore,
-                   selectedItemId: probe.subject?.itemID, control: control)
+                   selectedItemId: probe.subject?.itemID, control: control,
+                   referenceIndex: referenceIndex)
             .onAppear { hostLife.appeared() }
             .onDisappear { hostLife.disappeared() }
     }
