@@ -20,8 +20,8 @@ import MaughamCore
 /// key, no claim, every existing phone suite behaviour-neutral.
 ///
 /// The decision is Core's `PersonKeyStoreChoice`, shared with the Mac's
-/// `PersonKeyAccess`; the host flag is this file's, because the phone cannot
-/// import the Mac's `TestHost` — it reads the same three environment keys.
+/// `PersonKeyAccess`; the host flag is Core's `TestProcess.isActive`, the same
+/// answer the Mac's `TestHost` gives.
 enum PhonePersonKeyAccess {
 
     /// Test-only: the store a suite injects. Process-wide, so a suite that

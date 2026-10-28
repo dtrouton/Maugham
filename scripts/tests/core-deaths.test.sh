@@ -63,6 +63,7 @@ cat > bin/swift <<EOF
 #!/bin/bash
 echo "\$*" >> "$W/calls.log"
 if [[ "\$*" == *--parallel* ]]; then cat "$W/1.log"; exit 1; fi
+printf '%b' "\${STUB_RETRY_OUT-\\t Executed 2 tests, with 0 failures (0 unexpected) in 0.1 (0.1) seconds\\n}"
 exit "\${STUB_RETRY_RC:-0}"
 EOF
 chmod +x bin/swift
@@ -75,4 +76,15 @@ out=$(bash scripts/test.sh core 2>&1) || fail "a recovered death must pass the l
 rm calls.log
 set +e; out=$(STUB_RETRY_RC=1 bash scripts/test.sh core 2>&1); code=$?; set -e
 [[ $code -ne 0 ]] || fail "a re-run that fails must fail the leg: $out"
+
+# 6. A re-run that exits 0 must still PROVE it ran every named test, unfailed.
+leg_fails() {   # $1 = what the stub re-run prints, $2 = why
+  set +e; out=$(STUB_RETRY_OUT="$1" bash scripts/test.sh core 2>&1); code=$?; set -e
+  [[ $code -ne 0 && "$out" == *"did not prove itself"* && "$out" == *"core logs kept"* ]] \
+    || fail "$2 must fail the leg: $code $out"
+}
+leg_fails 'error: No matching test cases were run\n' "a filter matching zero tests"
+leg_fails '' "a re-run that printed nothing (exit(0))"
+leg_fails '\t Executed 1 test, with 0 failures (0 unexpected) in 0.1 (0.1) seconds\n' "one of two names run"
+leg_fails '\t Executed 2 tests, with 1 failure (0 unexpected) in 0.1 (0.1) seconds\n' "a reported failure"
 echo ok

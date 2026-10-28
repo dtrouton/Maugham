@@ -186,13 +186,21 @@ run_core() {
       echo "↻ core: $(wc -l <<<"$names" | tr -d ' ') worker(s) died silently (macOS stale-pid SIGKILL —"
       echo "  docs/testing/TROUBLESHOOTING.md, \"A Core test dies with only …\"); re-running them alone:"
       sed 's/^/    /' <<<"$names"
-      rm -f "$log"
-      swift test --package-path "$CORE_PKG" --filter "$(head -1 <<<"$verdict" | cut -d' ' -f2-)"
-      return 0
+      set +e
+      swift test --package-path "$CORE_PKG" --filter "$(head -1 <<<"$verdict" | cut -d' ' -f2-)" 2>&1 | tee "$log.retry"
+      rc=${PIPESTATUS[0]}
+      set -e
+      if [[ $rc -eq 0 ]] && scripts/lib/core-deaths.sh --verify-retry "$log.retry" "$(wc -l <<<"$names" | tr -d ' ')"; then
+        rm -f "$log" "$log.retry"
+        return 0
+      fi
+      [[ $rc -ne 0 ]] || rc=1
+      echo "  core logs kept: $log $log.retry" >&2
+      return "$rc"
       ;;
     over-cap\ *)
       echo "✗ core: ${verdict#over-cap } workers died silently — too many to re-run; see" >&2
-      echo "  docs/testing/TROUBLESHOOTING.md, \"A Core test dies with only …\" (a reboot clears the backlog)." >&2
+      echo "  docs/testing/TROUBLESHOOTING.md, \"A Core test dies with only …\" (a reboot should clear the backlog)." >&2
       ;;
     real-failure\ *)
       echo "✗ core: real failures (plus ${verdict#real-failure } silent death(s), not re-run)." >&2

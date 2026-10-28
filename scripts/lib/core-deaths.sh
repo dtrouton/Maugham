@@ -3,6 +3,7 @@
 # its only failures are workers that macOS killed silently.
 #
 #   scripts/lib/core-deaths.sh <log>
+#   scripts/lib/core-deaths.sh --verify-retry <retry-log> <n>
 #
 # Prints one verdict line, then (for retry) one test name per line:
 #   none                no test started without finishing — fail as usual
@@ -19,6 +20,22 @@
 # for SIGSEGV/SIGTRAP and the runtime prints `Fatal error:`, so those count as
 # real failures here, as does any assertion (`: error: `, `' failed (`).
 set -euo pipefail
+
+# --verify-retry: the re-run counts only if it ran all n named tests and none
+# failed. Exit status alone is not enough: a --filter matching nothing prints
+# "No matching test cases" and exits 0, and so does a test that calls exit(0).
+if [[ "${1:-}" == --verify-retry ]]; then
+  want="$3"
+  executed=$(sed -nE 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\1 \2/p' "$2")
+  most=$(awk 'BEGIN{m=0} $1>m{m=$1} END{print m}' <<<"$executed")
+  failed=$(awk 'BEGIN{f=0} $2>0{f=1} END{print f}' <<<"$executed")
+  if [[ "$most" -eq "$want" && "$failed" -eq 0 ]]; then
+    exit 0
+  fi
+  echo "✗ core: the re-run did not prove itself — wanted $want test(s) executed with 0 failures, saw ${most} executed${executed:+ (failures: $failed)}." >&2
+  exit 1
+fi
+
 LOG="$1"
 CAP="${CORE_DEATH_CAP:-20}"
 
