@@ -129,6 +129,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             var tables: [NSRange] = []
             var figures = false
             var markers: [NSRange] = []
+            var markup: [NSRange] = []
             for token in lastTokens {
                 switch token.kind {
                 case .tableBlock: tables.append(token.range)
@@ -136,10 +137,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 case .citation, .crossReference, .footnoteReference: markers.append(token.range)
                 default: break
                 }
+                if Self.isSpellingExempt(token.kind) { markup.append(token.range) }
             }
             tableBlockRanges = tables.sorted { $0.location < $1.location }
             hasFigureLines = figures
             referenceMarkerTokens = markers.sorted { $0.location < $1.location }
+            spellingExemptRanges = Self.mergedSorted(markup)
             figureThumbnailTokensDidChange()
         }
     }
@@ -152,6 +155,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `lastTokens`, sorted (derived with them): what the label overlay looks
     /// up the visible range in (plan 3b Task 6).
     private(set) var referenceMarkerTokens: [NSRange] = []
+
+    /// The markup in `lastTokens` the spelling checker never marks (sorted,
+    /// overlaps merged; derived with them): see `shouldSetSpellingState`.
+    private(set) var spellingExemptRanges: [NSRange] = []
 
     /// True from a character edit to the text storage until the retokenize
     /// that follows it: `lastTokens` then describe the text BEFORE the edit,
@@ -1781,6 +1788,80 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.figureGrid?.noteEdit(editedRange: range, changeInLength: delta)
             }
         }
+    }
+
+    /// Continuous spell checking marks words only, never the markup the
+    /// tokenizer recognised: a figure line's `![`/`](path)`, a `{#…}` label,
+    /// a citation, cross-reference or footnote marker, a link's URL and other
+    /// syntax punctuation, inline code, a task anchor, a table's pipes — and,
+    /// in prose, a line inside a ``` fence. A caption, a link's text and
+    /// every other word stay checked. Clearing a mark (`0`) is never refused.
+    /// While `lastTokens` describe an earlier text the tokens are not asked
+    /// (the next check after the retokenize decides), so a stale token never
+    /// hides a real misspelling.
+    func textView(_ textView: NSTextView, shouldSetSpellingState value: Int,
+                  range affectedCharRange: NSRange) -> Int {
+        guard value != 0, affectedCharRange.length > 0 else { return value }
+        if !tokensDescribeAnEarlierText,
+           Self.intersectsAny(affectedCharRange, sorted: spellingExemptRanges) { return 0 }
+        if !(mode is ScreenplayMode), Self.isInFencedCode(affectedCharRange.location,
+                                                          in: textView.string as NSString) {
+            return 0
+        }
+        return value
+    }
+
+    /// The token kinds that are markup, not words, to the spelling checker.
+    static func isSpellingExempt(_ kind: Token.Kind) -> Bool {
+        switch kind {
+        case .figureSyntax, .attributeBlock, .citation, .crossReference,
+             .footnoteReference, .footnoteLabel, .code, .syntaxPunctuation,
+             .invisibleAnchor, .tableSyntax:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// `ranges` sorted by location with overlapping or touching ranges merged.
+    static func mergedSorted(_ ranges: [NSRange]) -> [NSRange] {
+        var out: [NSRange] = []
+        for r in ranges.sorted(by: { $0.location < $1.location }) where r.length > 0 {
+            if let last = out.last, r.location <= NSMaxRange(last) {
+                out[out.count - 1].length = max(NSMaxRange(last), NSMaxRange(r)) - last.location
+            } else {
+                out.append(r)
+            }
+        }
+        return out
+    }
+
+    /// Whether `range` shares a character with any of `sorted` (sorted,
+    /// disjoint), by binary search.
+    static func intersectsAny(_ range: NSRange, sorted: [NSRange]) -> Bool {
+        var lo = 0, hi = sorted.count
+        while lo < hi {   // the first range ending after `range` starts
+            let mid = (lo + hi) / 2
+            if NSMaxRange(sorted[mid]) <= range.location { lo = mid + 1 } else { hi = mid }
+        }
+        return lo < sorted.count && sorted[lo].location < NSMaxRange(range)
+    }
+
+    /// Whether the line holding `location` is inside a ``` fence (the fence
+    /// lines included). `FigureLineSeparation.isInCode` counts the fences; an
+    /// indented line it also calls code is prose here (a writer's indented
+    /// paragraph is no code block to the shared parser), so it is not asked.
+    static func isInFencedCode(_ location: Int, in text: NSString) -> Bool {
+        guard location <= text.length, text.range(of: "```").location != NSNotFound else { return false }
+        var start = 0, end = 0, contentsEnd = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd,
+                          for: NSRange(location: location, length: 0))
+        let first = start < contentsEnd ? text.character(at: start) : 0
+        if first == 0x20 || first == 0x09 {
+            let line = text.substring(with: NSRange(location: start, length: contentsEnd - start))
+            if line.hasPrefix("    ") || line.hasPrefix("\t") { return false }
+        }
+        return FigureLineSeparation.isInCode(lineAt: location, in: text)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
