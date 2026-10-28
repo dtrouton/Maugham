@@ -175,10 +175,8 @@ final class IntentStripTests: XCTestCase {
             ["type:ProjectWindow"],
             "the strip is constructed somewhere new; that site must feed it "
             + "statement text too")
-        XCTAssertTrue(
-            try SourceTree.windowCodeLines().contains { $0.contains("IntentStrip.line(") },
-            "ProjectWindow builds the strip's line some other way than the one "
-            + "resolver, so the statement-text path is no longer structural")
+        // …and that it builds the line through `IntentStrip.line(`:
+        // `WiringCensusTests`.
     }
 
     /// **The view's stored inputs are exactly a line and a flag** — the
@@ -587,23 +585,6 @@ final class IntentStripTests: XCTestCase {
             spoken.contains { $0.contains(line) },
             "control: the strip drew nothing at all, so the assertion above "
             + "could not have failed. Found: \(spoken)")
-    }
-
-    /// **The wiring census.** The decision, the flag and the mounting site are
-    /// three files; delete the middle one and every assertion above still
-    /// passes while no writer ever sees the mark.
-    func test_theMarkIsWiredFromTheDecisionToTheOneMountingSite() throws {
-        let window = try SourceTree.windowCodeLines().joined(separator: "\n")
-        XCTAssertTrue(
-            window.contains("IntentDrift.mayTrailDraft("),
-            "the window must ask the one decision rather than write a condition "
-            + "of its own")
-        XCTAssertTrue(
-            window.contains("mayTrailDraft: intentStripMayTrailDraft"),
-            "the flag reaches the strip nowhere; the mark can never be drawn")
-        XCTAssertTrue(
-            window.contains("lastRun(docId:"),
-            "the decision is being fed something other than the standing run")
     }
 
     /// A glyph that does not resolve draws nothing at all and says nothing

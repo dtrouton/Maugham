@@ -13,7 +13,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute`), hidden arm, and its environment's services.
 - `PaletteWallState.swift` — the wall's window state as one value (`showsWall`, `travelPending`, the inspector stash) with its three folds as mutating methods.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
-- `ProjectActiveSheet.swift` — the window's one sheet enum.
+- `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
 - `WindowFlashes.swift` / `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and the rewind sheet.
@@ -26,9 +26,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
 - `CompilerRunModifier.swift` — the run keys' delivery path and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
-- `SubjectValidationModifier.swift` — keeps the subject naming a row that still exists; keyed on the structure.
+- `SubjectValidationModifier.swift` — keeps the subject naming an existing row; keyed on the structure.
 - `ResearchRevealModifier.swift` — an arriving research subject in Plan reveals the column that shows it.
-- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, in a fixed priority.
+- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority.
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout` / `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
 - The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and reaches its `claude` services through its `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
@@ -200,10 +200,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **No SwiftUI ↔ AppKit two-way sync guarded by flags** (tripwire 2): `.onChange` fires after the flag clears. Every `@State` a column writes arrives as a `Binding`; a copy drifts. Prose only (`Maugham/Editor/AREA.md`).
 - **No heavy work inside a synchronous SwiftUI binding setter** (tripwire 3): `EditorIntegrationHarnessTests`.
 - **No uncached per-row computation in list rows or on a body path** (tripwire 4): panes take values; hosts do store, disk and walk work in `.task`. Prose only; source censuses guard named panes (`ReviewBoardPaneTests.test_theSourceReadsNoStoreAtAll`, `DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`).
-- **No `NSPopover` for editor autocomplete** (tripwire 5). Prose only (`Maugham/Editor/AREA.md`).
+- **No `NSPopover` for editor autocomplete** (tripwire 5): `TripwireGrepTests.test_noPopoverInEditorAutocomplete`.
 - **No parallel observable state on `EditorHost`; one `Binding` writes `displayText` exactly once** (tripwire 6): `EditorIntegrationHarnessTests`.
-- **No fourth caller of `EditorSurface.applyExternalText`** (tripwire 7): `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`.
-- **No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)`** (tripwire 9). A gesture attaches to a row's label leaf, never its container: a whole-row `.simultaneousGesture` ate drag initiation. Prose only.
+- **No second caller of `EditorSurface.applyExternalText`** (tripwire 7): `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`.
+- **No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)`** (tripwire 9). A gesture attaches to a row's label leaf, never its container: a whole-row `.simultaneousGesture` ate drag initiation. `TripwireGrepTests.test_noTapGestureInASidebarListFile`, `TreeTravelGestureAttachmentTests.test_noTreeRowCarriesASwiftUITapGesture`.
 - **Move or delete user-editable content only through `DocumentStore`'s typed mover** (`relocate(plan:)`, `relocateUserContent(affectedPaths:perform:)`, `trash(relativePath:using:…)`), which closes and flushes before the FS call; never hand-roll it (tripwire 14): `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover`.
 - **A pane that may show a `ContentUnavailableView` chains `.frame(maxWidth: .infinity, maxHeight: .infinity)` on it, and its outer `VStack` takes `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`** (tripwire 15): otherwise the parent centres the pane and the toolbar floats. `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame`.
 - **A rename-capable row copies `BinderRow`'s shape verbatim**: a `claimFocus()` that sleeps 30ms before focusing, fired from both `.onAppear` and `.onChange(of: renamingItemId)` (tripwire 16). Prose only; `BinderRow.claimFocus()` is canonical.
@@ -304,7 +304,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A pane that needs its window's liveness resolves it through `WindowAccessor`**, never a cached `NSWindow?` read as "closed" when nil (`MaughamEvent.isLive`).
 - **Modal state is owned by the window**: subviews post (`.maughamOpenRewind`) and the window presents.
 - **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts directly through the shared function (`ProjectWindow.selectDetailSegment`).
-- **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so a dismissal hand-off is guarded on WHICH sheet closed (`opensFirstReader(requested:dismissed:)`), and every presentation clears a standing request.
+- **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so `FirstReaderHandoff` acts only when Project Settings closed, and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
 - **New Project's kind is a menu, and a Report asks its shape beneath it**, worded by `ProjectKindName`. **Project Settings' Report section is the pure `ReportSettingsModel`**, written only through `ProjectStore.setProfile`/`setSwitch`: absent for a screenplay, its toggle disabled with the reason for a Collection or a newer build's profile, and its caption says re-initialising the template is a request to Claude that replaces the template files.

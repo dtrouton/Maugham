@@ -1,0 +1,14 @@
+# The Mac tests a local `./scripts/test.sh full` may skip, one per line (xcresult's
+# `Class/test()` spelling); the line count is the ceiling (scripts/lib/skip-gate.sh).
+# A rise fails the gate. Add a name only for a deliberate skip; the reason goes in
+# the commit message.
+EditorCoordinatorCycleTests/test_maughamNavigateToScene_movesCursor()
+NarrowedBookCostTests/test_whatANarrowedBookCosts()
+OpLogGrowthBaselineTests/test_baseline_novel()
+OpLogGrowthBaselineTests/test_baseline_screenplay()
+PostureMissCostTests/test_whatAQueuePaysForItsPostureAfterATrustChange()
+TypingLatencyProbeTests/test_probe_M3_pauseEdgeBatchWithinBudget()
+TypingLatencyProbeTests/test_probe_typingLatencyAt70PageScale()
+TypingLatencyProbeTests/test_probe_typingLatencyAtFullScale()
+TypingLatencyProbeTests/test_probe_typingPerfBaseline()
+UpdateInstallerTests/test_atomicSwap_crossVolume_kernelRejectsRenamexNp()

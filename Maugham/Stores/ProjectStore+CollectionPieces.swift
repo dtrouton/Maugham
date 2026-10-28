@@ -575,7 +575,7 @@ extension ProjectStore {
             #endif
             return
         }
-        try? fm.removeItem(at: staging)
+        try? fm.removeItem(at: staging) // raw-delete: the emptied staging tree
     }
 
     /// Step 2b: create the new project's empty `manuscript/` and `notes/` subfolders

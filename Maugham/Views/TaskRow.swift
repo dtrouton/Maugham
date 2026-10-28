@@ -2,8 +2,10 @@ import SwiftUI
 
 /// A single row in `TasksPane`. Renders the checkbox toggle, body text,
 /// source-kind badge, and a kebab menu (Archive + Delete for pane-created).
-/// Click anywhere on the row dispatches `onJump` for navigation (a NOP for
-/// pane-created project tasks that have no paragraph anchor).
+/// One click on the source badge dispatches `onJump`; double-click or Return
+/// on the row jumps too, through the pane's List primary action — the row
+/// itself carries no tap gesture. Pane-created tasks have no paragraph anchor,
+/// so their badge is not a button.
 ///
 /// Inline tasks (markdown `- [ ]` and Fountain `[[todo:]]`) deliberately
 /// expose no body-edit affordance — their source of truth is the document
@@ -52,10 +54,10 @@ struct TaskRow: View {
         // (count: 2))` made SwiftUI wait to see if a press would resolve
         // as a double-click, eating drag initiation throughout the row
         // interior — the writer could only drag from the row padding
-        // (above/below the body), not from the body text. Jump-to-source
-        // moved to the source-badge icon (single click); double-click on
-        // the body text also jumps as a redundant affordance via
-        // `body_`'s own gesture.
+        // (above/below the body), not from the body text. Jump-to-source is
+        // the badge (one click) and the List's primary action (double-click
+        // or Return, in `TasksPane`). The body text carries no tap gesture
+        // either (tripwire 9): a double-tap there ate the row's select click.
     }
 
     @ViewBuilder
@@ -66,8 +68,7 @@ struct TaskRow: View {
         switch task.kind {
         case .inlineMarkdown, .fountainBoneyard:
             text
-                .help("Edit the document text to change this task. Double-click to jump to source.")
-                .onTapGesture(count: 2) { onJump() }
+                .help("Double-click or press Return to jump to this paragraph; edit the text there to change the task.")
         case .paneCreated:
             text
         }
@@ -75,9 +76,9 @@ struct TaskRow: View {
 
     @ViewBuilder
     private var sourceBadge: some View {
-        // Single-click jumps to the source paragraph. Pane-created tasks
-        // have no paragraph anchor; the badge stays non-interactive for
-        // them (clicking is a no-op via the disabled button style).
+        // One click jumps to the source paragraph. Pane-created tasks
+        // have no paragraph anchor, so their badge is a plain image, not a
+        // button.
         switch task.kind {
         case .inlineMarkdown:
             Button {
@@ -87,7 +88,7 @@ struct TaskRow: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
-            .help("Jump to source paragraph")
+            .help("Jump to source paragraph (or double-click the row)")
         case .fountainBoneyard:
             Button {
                 onJump()
@@ -96,7 +97,7 @@ struct TaskRow: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
-            .help("Jump to source paragraph")
+            .help("Jump to source paragraph (or double-click the row)")
         case .paneCreated:
             Image(systemName: "square.dashed")
                 .foregroundStyle(.secondary)

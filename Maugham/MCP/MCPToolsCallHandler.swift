@@ -53,11 +53,7 @@ public enum MCPToolsCallHandler {
             // MCPResponseBudget itself. Tools that already enforce with a
             // tailored hint (read_document, read_publish_file, …) throw before
             // reaching this point, so this never double-reports them.
-            try MCPResponseBudget.enforce(
-                resultData,
-                hint: "This response exceeds the MCP transport budget. Narrow the "
-                    + "request: use search_text to locate content, add filters to a "
-                    + "list_* call, or read a single item instead of the whole set.")
+            try MCPResponseBudget.enforce(resultData, hint: MCPResponseBudget.genericHint)
             // Default: wrap arbitrary JSON as a text content block.
             let asText = String(data: resultData, encoding: .utf8) ?? "{}"
             let wrapped = AnyJSON.object([
@@ -75,19 +71,25 @@ public enum MCPToolsCallHandler {
             throw MCPRouterError.methodNotFound(name)
         } catch {
             // Tool-handler failure. Convert to structured isError=true result.
-            let payload = toolErrorPayload(for: error)
-            let text = String(data: payload.encodedJSON(), encoding: .utf8) ?? "{}"
-            let envelope = AnyJSON.object([
-                "content": .array([
-                    .object([
-                        "type": .string("text"),
-                        "text": .string(text)
-                    ])
-                ]),
-                "isError": .bool(true)
-            ])
-            return try JSONEncoder().encode(envelope)
+            return try errorEnvelope(toolErrorPayload(for: error))
         }
+    }
+
+    /// The `isError: true` tool result carrying `payload` as its text block.
+    /// Shared with `MCPServer.encodeLine`, whose line backstop answers an
+    /// oversized `tools/call` in this same shape.
+    public static func errorEnvelope(_ payload: MCPError.ToolErrorPayload) throws -> Data {
+        let text = String(data: payload.encodedJSON(), encoding: .utf8) ?? "{}"
+        let envelope = AnyJSON.object([
+            "content": .array([
+                .object([
+                    "type": .string("text"),
+                    "text": .string(text)
+                ])
+            ]),
+            "isError": .bool(true)
+        ])
+        return try JSONEncoder().encode(envelope)
     }
 
     /// Map any error thrown from a tool handler into a structured payload.

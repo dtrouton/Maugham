@@ -129,7 +129,7 @@ through `RulingPerformer.rule`: the piece's craft intent at `.document(id)` by
 default, or one language's edition brief at `.project`. The editor itself
 knows nothing about statements (the toolbar button only posts the window
 command), which is what keeps this out of the binding contract above. It is
-a sheet, not a popover (tripwire 7). `TranslatorsNoteTests` drives the whole
+a sheet, not a popover (tripwire 5). `TranslatorsNoteTests` drives the whole
 act at the op log.
 
 ## Resolved labels and problem underlines (report foundations plan 3b, 2026-10-21)

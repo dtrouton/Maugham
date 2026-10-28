@@ -1529,9 +1529,7 @@ final class PublishPreviewCentreTests: XCTestCase {
         let rule = try SourceTree.declaration(
             named: "static func publishCentre(", under: "Maugham")
 
-        XCTAssertTrue(rule.contains("subjectShowsAltitude("),
-                      "the project-level question is asked of the function that "
-                      + "already answers it")
+        // That it asks `subjectShowsAltitude`: `WiringCensusTests`.
         XCTAssertFalse(rule.contains("selectionIsDocument("),
                        "…and not re-derived from the primitive underneath it, "
                        + "which is how the two would come to disagree")

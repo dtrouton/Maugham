@@ -186,6 +186,24 @@ enum SourceTree {
         return found
     }
 
+    /// `declarationRanges(of:under:base:)` over files already read and masked
+    /// (`maskedSources(under:)`) — for a census asking about many types, which
+    /// would otherwise walk and mask the whole tree once per type. Same
+    /// pattern, same ranges.
+    static func declarationRanges(
+        of typeName: String, in sources: [(path: String, text: String, masked: [UInt8])]
+    ) throws -> [String: [ClosedRange<Int>]] {
+        let regex = try declarationPattern(for: typeName)
+        var found: [String: [ClosedRange<Int>]] = [:]
+        for file in sources where file.text.contains(typeName) {
+            let masked = String(decoding: file.masked, as: UTF8.self)
+            guard masked.contains(typeName) else { continue }   // named only in comments
+            let ranges = declarationRanges(matching: regex, masked: masked, bytes: file.masked)
+            if !ranges.isEmpty { found[file.path] = ranges }
+        }
+        return found
+    }
+
     /// The line ranges of every `regex` match's declaration in one masked file.
     private static func declarationRanges(matching regex: NSRegularExpression, masked: String,
                                           bytes: [UInt8]) -> [ClosedRange<Int>] {
@@ -231,6 +249,38 @@ enum SourceTree {
             return known.first ?? ""
         }
 
+        var candidates: [(path: String, text: String, masked: [UInt8])] = []
+        for file in try swiftFiles(under: root, base: base) {
+            let raw = try read(file, base: base)
+            guard raw.contains(needleText) else { continue }   // necessary, and cheap
+            candidates.append((file, raw, try checkedMask(raw, path: file)))
+        }
+        let body = try declarationBody(containing: needleText, in: candidates, root: root)
+        if let memoKey { lookupMemo.withLock { $0[memoKey] = [body] } }
+        return body
+    }
+
+    /// `declaration(named:under:)` over files already read and masked
+    /// (`maskedSources(under: root)`) — for a census reading many
+    /// declarations, which would otherwise walk the tree once per header.
+    /// Same matching, same errors; `root` only names the tree in them.
+    static func declaration(named header: String,
+                            in sources: [(path: String, text: String, masked: [UInt8])],
+                            root: String) throws -> String {
+        let needleText = withoutAccessModifiers(header)
+        return try declarationBody(containing: needleText,
+                                   in: sources.filter { $0.text.contains(needleText) },
+                                   root: root)
+    }
+
+    /// The one brace-matched declaration whose header line contains
+    /// `needleText`, among `candidates`; throws on none, on more than one, or
+    /// on an unclosed body.
+    private static func declarationBody(
+        containing needleText: String,
+        in candidates: [(path: String, text: String, masked: [UInt8])],
+        root: String
+    ) throws -> String {
         struct Match {
             let file: String
             let text: [UInt8]
@@ -246,11 +296,8 @@ enum SourceTree {
         // modifiers precede the rest.
         let needle = Array(needleText.utf8)
         var matches: [Match] = []
-        for file in try swiftFiles(under: root, base: base) {
-            let raw = try read(file, base: base)
-            guard raw.contains(needleText) else { continue }   // necessary, and cheap
+        for (file, raw, masked) in candidates {
             let text = Array(raw.utf8)
-            let masked = try checkedMask(raw, path: file)
             var lineStart = 0
             while lineStart <= masked.count {
                 let lineEnd = masked[lineStart...].firstIndex(of: newline) ?? masked.count
@@ -277,9 +324,7 @@ enum SourceTree {
                 "SourceTree: the declaration containing '\(needleText)' in '\(match.file)' "
                 + "(root '\(root)') has no brace-matched body.")
         }
-        let body = String(decoding: match.text[match.lineStart...close], as: UTF8.self)
-        if let memoKey { lookupMemo.withLock { $0[memoKey] = [body] } }
-        return body
+        return String(decoding: match.text[match.lineStart...close], as: UTF8.self)
     }
 
     /// The access modifiers `declaration(named:)` ignores. `static`, `final`,

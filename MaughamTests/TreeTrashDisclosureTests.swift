@@ -231,13 +231,7 @@ final class TreeTrashDisclosureTests: XCTestCase {
     /// anything from — asserted at the wiring, because the alternative (a second
     /// alert somewhere down the column) is exactly what this fix removed.
     func test_bothTogglesRouteTheRestoreReportToTheWindowsOwnSink() throws {
-        for path in ["Maugham/Views/BinderPaneToggle.swift",
-                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
-            let text = try source(path)
-            XCTAssertTrue(text.contains("onRestoreOutcome: onRestoreOutcome"),
-                          "\(path): the disclosure must be handed the window's "
-                          + "reporter, or a shortfall has nowhere to go")
-        }
+        // Each toggle handing the disclosure the reporter: `WiringCensusTests`.
         let window = try SourceTree.windowSource()
         XCTAssertEqual(
             window.components(separatedBy: "onRestoreOutcome: { restoreOutcome = $0 }")

@@ -844,11 +844,12 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
          "Maugham/Views/TreeTravel.swift"]
     }
 
-    /// The spellings that re-introduce the bug class. Both, because
+    /// The spellings that re-introduce the bug class: tripwire 9's one list
+    /// (`TripwireGrepTests.tapGestureSpellings`). Both, because
     /// `.onTapGesture(count:)` and a bare `TapGesture(count:)` handed to
     /// `.gesture`/`.simultaneousGesture`/`.highPriorityGesture` were measured
     /// to behave identically here.
-    private static let tapGestureSpellings = ["onTapGesture(", "TapGesture("]
+    private static var tapGestureSpellings: [String] { TripwireGrepTests.tapGestureSpellings }
 
     /// Text with its comment lines removed. **Pure, and separate from
     /// `code(_:)`**, so the planted offender below can be run through the
@@ -1030,6 +1031,13 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
                        "the detector missed a planted copy of the very line "
                        + "that shipped the regression, sitting in code "
                        + "directly beneath a comment about it")
+        let trailingClosure = """
+            \(clean)
+                .onTapGesture { travel() }
+            """
+        XCTAssertEqual(Self.tapGestureOffences(in: trailingClosure), [".onTapGesture"],
+                       "the detector missed the trailing-closure form, which "
+                       + "has no parenthesis after `.onTapGesture`")
     }
 
     /// **The stripper is load-bearing on a REAL file, not just on a fixture.**

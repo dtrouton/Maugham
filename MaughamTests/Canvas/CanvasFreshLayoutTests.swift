@@ -89,8 +89,7 @@ final class CanvasFreshLayoutTests: XCTestCase {
         let code = SourceScan.codeLines(of: try SourceTree.windowSource())
             .joined(separator: "\n")
         XCTAssertEqual(code.components(separatedBy: "CanvasReadOnlyNotice(refusal:").count - 1, 1)
-        XCTAssertTrue(code.contains("if let refusal = canvasModel.sidecarRefusal"))
-        XCTAssertTrue(code.contains("try canvasModel.startFreshLayout()"))
+        // What it is mounted off and wired to: `WiringCensusTests`.
     }
 
     // MARK: - The aside name

@@ -488,12 +488,8 @@ final class ReviewPassEditorTests: XCTestCase {
     ///
     /// Non-vacuity: the helper is read, and both callers are named.
     func test_thePaneSelectionActHasOneSpelling() throws {
-        let act = try SourceTree.declaration(
-            named: "static func selectDetailSegment(", under: "Maugham")
-        XCTAssertTrue(act.contains("showInspector.wrappedValue = true"), "Got:\n\(act)")
-        XCTAssertTrue(act.contains("assistant.dismiss()"), "Got:\n\(act)")
-        XCTAssertTrue(act.contains("detailSegment.wrappedValue = seg"), "Got:\n\(act)")
-
+        // What the act does, and that the receiver calls it:
+        // `WiringCensusTests`.
         let callers = try Self.selectDetailSegmentSites()
         XCTAssertEqual(callers, 3,
                        "the declaration plus its two callers — the key-window "
@@ -503,8 +499,6 @@ final class ReviewPassEditorTests: XCTestCase {
         let receiver = try SourceTree.declaration(
             named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in",
             under: "Maugham")
-        XCTAssertTrue(receiver.contains("ProjectWindow.selectDetailSegment("),
-                      "the receiver calls the shared act. Got:\n\(receiver)")
         XCTAssertFalse(receiver.contains("assistant.dismiss()"),
                        "\u{2026}and keeps no copy of it. Got:\n\(receiver)")
     }

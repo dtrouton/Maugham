@@ -28,6 +28,34 @@ public enum MCPResponseBudget {
     /// type doc for the envelope-overhead arithmetic behind the value.
     public static let maxTextBytes = 900_000
 
+    /// Maximum size, in bytes, of one serialized JSON-RPC response line: the
+    /// unbypassable backstop `MCPServer.encodeLine` applies to every response,
+    /// whichever dispatch path (`tools/call` or a tool's top-level method)
+    /// produced it. `maxTextBytes` stays the primary guard, with a tool's own
+    /// section-scoped hint; this one catches what slips past it (escape-heavy
+    /// text, a `content` envelope composed from several budgets). The worst
+    /// image line (`ImageResponseBuilder`'s 720 KB JPEG: 960 KB base64, about
+    /// 1/64 of it escaped `\/`, plus envelopes) lands near 976 KB, under it.
+    public static let maxLineBytes = 1_000_000
+
+    /// The hint a backstop gives when no tool-specific one fired.
+    public static let genericHint = "This response exceeds the MCP transport budget. Narrow the "
+        + "request: use search_text to locate content, add filters to a "
+        + "list_* call, or read a single item instead of the whole set."
+
+    /// The `payload_too_large` payload for a serialized line over
+    /// `maxLineBytes`: `enforce`'s shape, its counts measured on the line.
+    public static func lineTooLarge(byteCount: Int) -> MCPError.ToolErrorPayload {
+        .init(
+            error: "payload_too_large",
+            message: "Response line is \(byteCount) bytes, over the \(maxLineBytes)-byte MCP transport line budget.",
+            hint: genericHint,
+            fields: [
+                "byte_count": .int(byteCount),
+                "max_bytes": .int(maxLineBytes),
+            ])
+    }
+
     /// Pass-through guard: return `payload` unchanged when it fits the text
     /// budget, otherwise throw a structured `payload_too_large` tool error
     /// carrying `hint` (which should name a section-scoped alternative, e.g.

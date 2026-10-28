@@ -360,21 +360,6 @@ final class TreeFindOverlayTests: XCTestCase {
                        + "write was, and what closing find then had to undo.")
     }
 
-    /// And the positive half, spelled without the body slicing above so the two
-    /// cannot fail for the same reason: deleting the write outright leaves no
-    /// wrong spelling for any census to find — `⌘⌥F` would simply stop doing
-    /// anything.
-    func test_theCommandsHandlerOpensTheOverlay() throws {
-        let lines = try XCTUnwrap(Self.windowFileLines(containing: "(.maughamFindInProject,"),
-                                  "no receiver for ⌘⌥F at all in ProjectWindow")
-        let start = try XCTUnwrap(
-            lines.firstIndex(where: { $0.contains("(.maughamFindInProject,") }),
-            "no receiver for ⌘⌥F at all in ProjectWindow")
-        let body = lines[start..<min(start + 5, lines.count)].joined(separator: "\n")
-        XCTAssertTrue(body.contains("treeFindActive = true"),
-                      "⌘⌥F no longer opens the find overlay")
-    }
-
     /// The lines of the ONE window-family file (by type, `SourceTree.windowSources`)
     /// holding `token`, so a slice after it never runs into another file.
     private static func windowFileLines(containing token: String) throws -> [Substring]? {

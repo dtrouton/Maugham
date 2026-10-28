@@ -335,12 +335,8 @@ final class InsertCommandTests: XCTestCase {
             "A file outside the named list names `answersInsertCommands`. Only EditorHost — "
             + "the Markdown manuscript's editor — may make a surface answer the Insert menu; "
             + "a research note or statement saying true would take a table or a footnote.")
-        let host = try SourceTree.read("Maugham/Views/EditorHost.swift")
-        XCTAssertTrue(host.contains("answersInsertCommands: !DocumentFormat.ofManuscript(path: path).isScreenplay"),
-                      "EditorHost no longer sets the flag, so no manuscript answers Insert")
-        XCTAssertTrue(host.contains("projectLabelsElsewhere: {"),
-                      "EditorHost no longer hands the editor the project's other labels, "
-                      + "so a table label can repeat another chapter's")
+        // That EditorHost does set it (and hands over the project's other
+        // labels) is `WiringCensusTests`' entry for `EditorHost`.
     }
 
     /// Control: a planted research-note file that sets the flag is reported.
