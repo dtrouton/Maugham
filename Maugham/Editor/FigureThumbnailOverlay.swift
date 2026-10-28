@@ -822,6 +822,11 @@ extension EditorCoordinator {
             store.onUpdate = { [weak self] in self?.figureThumbnailOverlay?.needsDisplay = true }
             figureThumbnailStore = store
         }
+        // Never left on a text view SwiftUI replaced (`attach(to:)` is the rule).
+        if let stale = figureThumbnailOverlay, stale.superview !== textView {
+            stale.removeFromSuperview()
+            figureThumbnailOverlay = nil
+        }
         if figureThumbnailOverlay == nil {
             let overlay = FigureThumbnailOverlay(frame: textView.bounds)
             overlay.coordinator = self

@@ -69,6 +69,11 @@ extension EditorCoordinator {
     }
 
     private func installTranslationBadgeOverlayIfNeeded(in textView: NSTextView) {
+        // Never left on a text view SwiftUI replaced (`attach(to:)` is the rule).
+        if let stale = translationBadgeOverlay, stale.superview !== textView {
+            stale.removeFromSuperview()
+            translationBadgeOverlay = nil
+        }
         guard translationBadgeOverlay == nil else { return }
         let overlay = TranslationBadgeOverlayView(frame: textView.bounds)
         overlay.coordinator = self

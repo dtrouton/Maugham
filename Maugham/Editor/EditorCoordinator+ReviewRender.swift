@@ -111,6 +111,9 @@ extension EditorCoordinator {
     }
 
     private func installReviewOverlaysIfNeeded(in textView: NSTextView) {
+        // Never left on a text view SwiftUI replaced (`attach(to:)` is the rule).
+        if let r = markRenderer, r.superview !== textView { r.removeFromSuperview(); markRenderer = nil }
+        if let rail = marginRail, rail.superview !== textView { rail.removeFromSuperview(); marginRail = nil }
         if markRenderer == nil {
             let r = AnnotationMarkRenderer(frame: textView.bounds)
             r.coordinator = self

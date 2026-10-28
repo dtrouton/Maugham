@@ -989,7 +989,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
+    ///
+    /// **SwiftUI may call `makeNSView` again with this same coordinator** (no
+    /// `dismantleNSView` between — a `ProjectWindow` opened onto a selected
+    /// document does it in its first layout pass). Everything bound to the
+    /// previous text view is moved off it first (`releaseTheViewsOf`), and the
+    /// installs below put it on this one.
     func attach(to textView: NSTextView) {
+        if let previous = self.textView, previous !== textView {
+            releaseTheViewsOf(previous)
+        }
         isDetached = false
         self.textView = textView
         // Wire the review selection toolbar's button actions to the annotation
@@ -1022,6 +1031,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         syncFigureThumbnailOverlay()
         // The resolved labels (plan 3b Task 6), above the thumbnails.
         syncReferenceLabelOverlay()
+        // A re-attach in review or translation review: their overlays (and the
+        // dimming, a layout-manager temporary) come back on this text view —
+        // the first attach has none to restore, its posture arrives later.
+        if isReviewMode { syncReviewOverlays() }
+        if isTranslationReview {
+            applyTranslationDimming()
+            syncTranslationBadgeOverlay()
+        }
         if let location = initialCursorLocation {
             let length = (textView.string as NSString).length
             let clamped = max(0, min(location, length))
@@ -1036,6 +1053,30 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
             initialCursorLocation = nil
         }
+    }
+
+    /// **The text view this coordinator was attached to is being replaced**
+    /// (`attach(to:)`): an expanded grid folds as a teardown does (its open
+    /// edit committed — the view it was mounted on is gone), and every view,
+    /// tooltip and open composer bound to the old text view leaves it, so the
+    /// installs re-make them on the new one. The old view stops calling back.
+    private func releaseTheViewsOf(_ old: NSTextView) {
+        forceFoldFigureGrid(.teardown)
+        closeCompletion()
+        annotationComposer?.dismiss()
+        annotationComposer = nil
+        problemTooltips?.removeAll(from: old)
+        problemTooltips = nil
+        let bound: [NSView?] = [figureThumbnailOverlay, referenceLabelOverlay, translationBadgeOverlay,
+                                markRenderer, marginRail]
+        for view in bound { view?.removeFromSuperview() }
+        figureThumbnailOverlay = nil
+        referenceLabelOverlay = nil
+        translationBadgeOverlay = nil
+        markRenderer = nil
+        marginRail = nil
+        if old.delegate === self { old.delegate = nil }
+        if let old = old as? MaughamTextView, old.coordinator === self { old.coordinator = nil }
     }
 
     /// Release the text-view graph and silence the coordinator. Called from

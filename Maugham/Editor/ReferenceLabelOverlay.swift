@@ -550,7 +550,12 @@ extension EditorCoordinator {
     /// Install the label overlay on a surface that shows labels. Idempotent;
     /// called from `attach` after the thumbnails, so it sits above them.
     func syncReferenceLabelOverlay() {
-        guard let textView, showsReferenceMarks, referenceLabelOverlay == nil else { return }
+        guard let textView, showsReferenceMarks else { return }
+        if let stale = referenceLabelOverlay, stale.superview !== textView {
+            stale.removeFromSuperview()   // never left on a replaced text view (`attach(to:)`)
+            referenceLabelOverlay = nil
+        }
+        guard referenceLabelOverlay == nil else { return }
         let overlay = ReferenceLabelOverlay(frame: textView.bounds)
         overlay.coordinator = self
         overlay.associatedTextView = textView
