@@ -1101,7 +1101,7 @@ final class DesignGateTests: XCTestCase {
     /// before `run` (`WiringCensusTests`, `type:DesignGateView`). The
     /// confirmation is minted here over the same verb `run` reaches, and the
     /// promotion must not have run when it exists.
-    func test_pressingFinalizeReachesNoPromotionUntilTheWriterSaysYes() async throws {
+    func test_finalizeAsksBeforeAnyPromotionRuns() async throws {
         let calls = Box(0)
         var actions = DesignGateActions()
         actions.finalize = { proposal in

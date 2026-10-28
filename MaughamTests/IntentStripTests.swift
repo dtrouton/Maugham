@@ -361,7 +361,7 @@ final class IntentStripTests: XCTestCase {
     /// verb is `WiringCensusTests`' `type:IntentStrip` entry, and the verb is
     /// called with nothing pressed (tripwire 33, #120 —
     /// `InspectorIntentAffordanceTests`' shape).
-    func test_clickingTheStripAsksForTheIntentPane() async throws {
+    func test_theStripAsksForTheIntentPane() async throws {
         let line = "A woman walks into the sea."
         let window = mount(AnyView(IntentStrip(line: line)))
 

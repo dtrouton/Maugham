@@ -1277,23 +1277,25 @@ final class DepartmentRunTests: XCTestCase {
     /// **The end-to-end pin for the other loop: the desk's language Run drives
     /// a whole seven-leg ROUND, and the row draws the round it filed.**
     ///
-    /// It exists because nothing else proves the WIRING: the cases above
-    /// drive the decisions and the controls,
-    /// `TranslationPipelineTests` drives the legs, and neither would notice a
-    /// host that passed the wrong closure — or, as before Plan 4, a desk that
-    /// went on calling `translator.runTranslation` and ran a single bare leg
-    /// where the writer asked for a round. The whole path runs: the real
-    /// `DepartmentPaneHost`, the real pane, the button pressed the way a click
-    /// presses it, the real pre-flight, the real `TranslationPipeline`, the
-    /// real `TranslationRoundStore`, the real `.maughamTranslationRoundEnded`
-    /// post — then the desk re-derives and draws the round it just ran, which
-    /// is the loop closing.
+    /// The button-to-verb hop (Run → `run(language:)` → `startRun`) is
+    /// `WiringCensusTests`' (`type:DepartmentPane`, `type:DepartmentPaneHost`),
+    /// and the decisions are the cases above; this test pins the rest, from the
+    /// verb on: `startRun` enters the PIPELINE at leg 1 — not, as before Plan
+    /// 4, a bare `translator.runTranslation` that ran a single leg where the
+    /// writer asked for a round — and the round it files comes back to the
+    /// row. The whole path past the verb is real: the real
+    /// `DepartmentPaneHost` mounted, the real pre-flight (asserted as a
+    /// premise), the real `TranslationPipeline`, the real
+    /// `TranslationRoundStore`, the real `.maughamTranslationRoundEnded` post —
+    /// then the desk re-derives and draws the round it just ran, which is the
+    /// loop closing. Nothing is pressed (tripwire 33, #120); the waits below
+    /// are on the pipeline and the desk's re-derivation.
     ///
     /// **One substitution, stated**: the sessions. Every leg is answered from
     /// `TranslationPipelineTests.FakeWorld`'s script, so no subprocess is
-    /// spawned — what is under test is that a press on the desk drives the
-    /// PIPELINE and that the round it files comes back as a line and a door on
-    /// the row that asked for it.
+    /// spawned — what is under test is that the verb drives the PIPELINE and
+    /// that the round it files comes back as a line and a door on the row
+    /// that asked for it.
     func test_theLanguageRunDrivesTheSevenLegPipelineAndTheRowDrawsTheRound()
     async throws {
         let fixture = try await makeTranslatorFixture(seedLanguage: "es")
@@ -1379,10 +1381,13 @@ final class DepartmentRunTests: XCTestCase {
         }
         pipeline.configure(environment: environment)
 
-        // Windowless (tripwire 33, #120): the desk's kept set is derived as
-        // `derive()` derives it, and Run Whole Book's verb past its refusals
-        // is `startBookRun` over that set (`WiringCensusTests`,
-        // `type:DepartmentPaneHost`: `runBook` hands it `bookDocumentIds`).
+        // Windowless (tripwire 33, #120): Run Whole Book's verb past its
+        // refusals is `startBookRun` over the desk's kept set. `derive()` has
+        // no pure static of its own for that set; it is these two statics'
+        // composition, which `WiringCensusTests` (`type:DepartmentPaneHost`)
+        // pins `derive()` to, so the ORDER asserted below rests on
+        // `EditionStatus.manuscriptDocumentIds` (the manifest's own walk) and
+        // on `scopedDocumentIds`' pins in `DepartmentPaneTests`.
         let book = DepartmentPaneHost.scopedDocumentIds(
             EditionStatus.manuscriptDocumentIds(in: fixture.projectStore.manifest),
             imprint: nil, in: nil)

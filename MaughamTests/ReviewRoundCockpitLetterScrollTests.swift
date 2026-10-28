@@ -20,7 +20,7 @@ import MaughamCore
 /// than a long letter — no accessibility frame walk, which reads a hosting
 /// view's clipped backing rather than the SwiftUI layout, and no
 /// `sizeThatFits`, which cannot report the queue's share beside the strip. The
-/// opened strip is mounted open (`ReviewRoundCockpit.isLetterOpen`), never
+/// opened strip is mounted open (`ReviewRoundCockpit.letterInitiallyOpen`), never
 /// pressed open and waited for (tripwire 33, #120).
 ///
 /// The stack under test mirrors the pane's: the strip, then one greedy view
@@ -250,7 +250,7 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
     /// Mount the strip over a greedy stand-in for the queue, in a window too
     /// short for a long letter, and report what each was laid out at.
     ///
-    /// `expand` mounts the disclosure OPEN — the cockpit's `isLetterOpen`,
+    /// `expand` mounts the disclosure OPEN — the cockpit's `letterInitiallyOpen`,
     /// injected — rather than pressing it and waiting for the layout to follow
     /// (tripwire 33, #120). A mounted read, not `sizeThatFits`: the queue's
     /// share and the published scroll area are what a window lays out, and no
@@ -278,7 +278,7 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
                         .onGeometryChange(for: CGFloat.self) { $0.size.height }
                             action: { box.content = $0 })
                 },
-                isLetterOpen: expand)
+                letterInitiallyOpen: expand)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                     box.strip = $0
                 }
