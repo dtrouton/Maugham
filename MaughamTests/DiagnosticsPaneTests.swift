@@ -1126,9 +1126,13 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.2)
 
-        let notes = await notesPosted(pressing: try button(labelled: "Open Intent", in: window))
+        XCTAssertNoThrow(try button(labelled: "Open Intent", in: window),
+                         "the conformance summary offers Open Intent")
+        // The button's action is this verb (`WiringCensusTests`,
+        // `type:DiagnosticsPane`); called, not pressed (tripwire 33, #120).
+        let notes = notesPosted(by: { MaughamEvent.postDetailSegment(.intent) })
 
-        XCTAssertEqual(notes.count, 1, "pressing Open Intent should post exactly one request")
+        XCTAssertEqual(notes.count, 1, "Open Intent should post exactly one request")
         XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                        DetailSegment.intent.rawValue)
     }
@@ -1718,8 +1722,12 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue((driftIndex ?? .max) < (conformanceIndex ?? -1),
                       "the drift line must sit above the conformance summary")
 
-        let notes = await notesPosted(pressing: try button(labelled: expectedLine, in: window))
-        XCTAssertEqual(notes.count, 1, "pressing the line should post exactly one request")
+        XCTAssertNoThrow(try button(labelled: expectedLine, in: window),
+                         "the drift line is a button")
+        // Its action is Open Intent's verb (`WiringCensusTests`); called, not
+        // pressed (tripwire 33, #120).
+        let notes = notesPosted(by: { MaughamEvent.postDetailSegment(.intent) })
+        XCTAssertEqual(notes.count, 1, "the line should post exactly one request")
         XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                        DetailSegment.intent.rawValue,
                        "the drift line's action is Open Intent's successor \u{2014} the "
@@ -2430,9 +2438,19 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
 
-        let chip = try button(
-            labelled: "\u{201C}She already knew about the letter\u{201D}", in: window)
-        let received = await notesPosted(pressing: chip, on: .maughamNavigateToParagraph)
+        XCTAssertNoThrow(try button(
+            labelled: "\u{201C}She already knew about the letter\u{201D}", in: window),
+            "the diagnostic draws its reference as a chip")
+
+        // The chip's press is `ExcerptChip.jump()`, handing its own ref's
+        // paragraph to the pane's `onJump`, which is `DiagnosticsPane.jump`
+        // (`WiringCensusTests`). Called, not pressed (tripwire 33, #120).
+        var handed: [String] = []
+        ExcerptChip(ref: ref("c3d4", "She already knew about the letter"),
+                    onJump: { handed.append($0) }).jump()
+        XCTAssertEqual(handed, ["c3d4"], "the chip hands on its own reference's paragraph")
+        let received = notesPosted(by: { DiagnosticsPane.jump(toParagraph: "c3d4") },
+                                   on: .maughamNavigateToParagraph)
 
         XCTAssertEqual(received.count, 1, "the chip must post exactly one jump")
         XCTAssertEqual(received.first?.userInfo?["paragraph_id"] as? String, "c3d4")
@@ -4283,7 +4301,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theLettersJumpsGoThroughThePanesOwnNavigation() throws {
         let section = try letterSectionSource()
         XCTAssertTrue(
-            section.contains("onJump: { jump(toParagraph: $0) }"),
+            section.contains("onJump: { Self.jump(toParagraph: $0) }"),
             "the letter must travel through the pane's own navigation, never a "
             + "second `MaughamEvent.post` spelled at the call site: \(section)")
         XCTAssertTrue(
@@ -5284,27 +5302,27 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
     }
 
-    /// What one button press posted, on `name`. A reference box rather than a
-    /// captured local array: the observer's closure is `@Sendable`, and every
-    /// post here is made on the main thread by the button the test just
-    /// pressed.
+    /// What one verb posted, on `name` — captured synchronously, because
+    /// `MaughamEvent.post` is a plain `NotificationCenter` post on the calling
+    /// thread. A reference box rather than a captured local array: the
+    /// observer's closure is `@Sendable`.
     private final class PostBox: @unchecked Sendable {
         private(set) var received: [Notification] = []
         func record(_ note: Notification) { received.append(note) }
     }
 
+    /// The verb a control's action runs, called with no press (tripwire 33,
+    /// #120); the control itself is asserted DRAWN, and the action naming the
+    /// verb is `WiringCensusTests`'.
     private func notesPosted(
-        pressing button: NSObject, on name: Notification.Name = .maughamSetDetailSegment
-    ) async -> [Notification] {
+        by verb: () -> Void, on name: Notification.Name = .maughamSetDetailSegment
+    ) -> [Notification] {
         let box = PostBox()
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the button posts
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the verb posts
             forName: name, object: nil, queue: nil
         ) { box.record($0) }
         defer { NotificationCenter.default.removeObserver(token) }
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(300))
-        pump(0.2)
+        verb()
         return box.received
     }
 

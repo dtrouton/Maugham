@@ -136,6 +136,10 @@ struct ReviewRoundCockpit: View {
     /// project and undo manager — and because Review must open the SAME view
     /// Author draws rather than a second one that could disagree with it.
     var letterDisclosure: (() -> AnyView)? = nil
+    /// Whether the letter's disclosure is open. Closed unless a host says
+    /// otherwise; a test sets it to measure the opened strip with no press
+    /// (tripwire 33, #120). The writer's triangle writes it from then on.
+    @State var isLetterOpen = false
 
     /// **What the writer has asked of the next round on this piece, and where
     /// to file a change to it** (P2 Task 7, spec §3.7) — one value, because the
@@ -719,7 +723,7 @@ struct ReviewRoundCockpit: View {
     private var letterRow: some View {
         if let letterLine {
             if let letterDisclosure {
-                DisclosureGroup {
+                DisclosureGroup(isExpanded: $isLetterOpen) {
                     BoundedHeightLayout(maxHeight: Self.letterDisclosureMaxHeight) {
                         ScrollView(.vertical) {
                             letterDisclosure()

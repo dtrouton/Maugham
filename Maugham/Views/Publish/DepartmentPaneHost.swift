@@ -537,22 +537,44 @@ struct DepartmentPaneHost: View {
             return
         }
         guard let docId = runTarget.docId else { return }
+        Task {
+            let start = await Self.startRun(
+                language: language, docId: docId, pipeline: pipeline,
+                documentStore: documentStore, store: store)
+            if let prompt = start.castPrompt { castPrompt = prompt }
+            notice = start.notice
+        }
+    }
+
+    /// **What Run does once the pre-flight has passed**, windowless (tripwire
+    /// 33, #120) — what the row's Run reaches through `run(language:)`.
+    /// The sheet a nameless edition stands behind, the notice for a chapter
+    /// this Mac's translator may not write, or the pipeline started.
+    struct RunStart: Equatable {
+        var notice: String?
+        var castPrompt: DepartmentCastPrompt?
+    }
+
+    static func startRun(
+        language: String, docId: String, pipeline: TranslationPipeline,
+        documentStore: DocumentStore, store: ProjectStore
+    ) async -> RunStart {
+        var castPrompt: DepartmentCastPrompt?
         // **The translator's door, settled** (P3c Task 8; controller ruling
         // I): a chapter this Mac's translator may not write is refused here,
         // naming it, before a seven-leg round spends a session on words the
         // pipeline would then refuse to write.
-        Task {
-            notice = await Self.startTranslating(
-                [docId], in: documentStore, structure: store.manifest.structure
-            ) { _ in
-                if Self.needsTranslatorName(language: language, in: store.manifest) {
-                    castPrompt = DepartmentCastPrompt(
-                        ask: .nameForRun(language: language, docId: docId))
-                    return
-                }
-                pipeline.run(docId: docId, language: language)
+        let notice = await startTranslating(
+            [docId], in: documentStore, structure: store.manifest.structure
+        ) { _ in
+            if needsTranslatorName(language: language, in: store.manifest) {
+                castPrompt = DepartmentCastPrompt(
+                    ask: .nameForRun(language: language, docId: docId))
+                return
             }
+            pipeline.run(docId: docId, language: language)
         }
+        return RunStart(notice: notice, castPrompt: castPrompt)
     }
 
     // MARK: - The translator's posture (P3c Task 8)
@@ -636,21 +658,36 @@ struct DepartmentPaneHost: View {
             notice = DepartmentRunState.nothingInTheBook
             return
         }
+        Task {
+            let start = await Self.startBookRun(
+                language: language, documentIds: book, pipeline: pipeline,
+                documentStore: documentStore, store: store)
+            if let prompt = start.castPrompt { castPrompt = prompt }
+            notice = start.notice
+        }
+    }
+
+    /// **What Run Whole Book does once its refusals have passed**, windowless
+    /// (tripwire 33, #120) — `startRun`'s sibling over the desk's kept set.
+    static func startBookRun(
+        language: String, documentIds: [String], pipeline: TranslationPipeline,
+        documentStore: DocumentStore, store: ProjectStore
+    ) async -> RunStart {
+        var castPrompt: DepartmentCastPrompt?
         // **Per piece** (P3c Task 8): the chapters this Mac's translator may
         // write are run, and the ones it may not are named and left out —
         // never a round over a chapter whose words the pipeline would refuse.
-        Task {
-            notice = await Self.startTranslating(
-                book, in: documentStore, structure: store.manifest.structure
-            ) { documents in
-                if Self.needsTranslatorName(language: language, in: store.manifest) {
-                    castPrompt = DepartmentCastPrompt(
-                        ask: Self.bookAsk(language: language, documentIds: documents))
-                    return
-                }
-                pipeline.runBook(documentIds: documents, language: language)
+        let notice = await startTranslating(
+            documentIds, in: documentStore, structure: store.manifest.structure
+        ) { documents in
+            if needsTranslatorName(language: language, in: store.manifest) {
+                castPrompt = DepartmentCastPrompt(
+                    ask: bookAsk(language: language, documentIds: documents))
+                return
             }
+            pipeline.runBook(documentIds: documents, language: language)
         }
+        return RunStart(notice: notice, castPrompt: castPrompt)
     }
 
     /// **The sheet a whole-book run stands behind**, with the queue it was

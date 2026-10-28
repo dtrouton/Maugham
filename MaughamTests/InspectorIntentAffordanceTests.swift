@@ -8,12 +8,14 @@ import MaughamCore
 /// The two inspector arms that used to mint a craft-intent research note
 /// (M1A Task 8).
 ///
-/// **The button is pressed, not the closure called.** `InspectorView` and
-/// `PieceInspector` are hosted for real and the control SwiftUI published is
-/// pressed, because the thing this task removes is an affordance and the thing
-/// it puts back is an affordance — a test that calls a function the button
-/// happens to name proves the function, not the button. (The previous milestone
-/// shipped 22 green undo tests against a ⌘Z that could not reach the stack.)
+/// **The button is DRAWN, its action is censused, and its verb is called.**
+/// `InspectorView` and `PieceInspector` are hosted for real and the control
+/// SwiftUI published is found by its label — the thing this task removes is an
+/// affordance and the thing it puts back is an affordance. A test that calls a
+/// function the button happens to name proves the function, not the button, so
+/// the button-to-verb hop is `WiringCensusTests`' `type:IntentAffordanceRow`
+/// entry, and the verb is then called here with nothing pressed (tripwire 33,
+/// #120: the pressed version waited inside its own helper for the post).
 @MainActor
 final class InspectorIntentAffordanceTests: XCTestCase {
 
@@ -82,7 +84,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             throw XCTSkip(
                 "no assistive client could be attached to this process "
                 + "(AXUIElementCopyAttributeValue -> \(error.rawValue)), so SwiftUI "
-                + "never builds the tree this test presses through")
+                + "never builds the tree this test reads")
         }
         return axElements(under: try XCTUnwrap(window.contentView))
     }
@@ -101,34 +103,31 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             + "Buttons found: \(labels)")
     }
 
-    /// Press `button` and return the `.maughamSetDetailSegment` notes it posted.
-    private func notesPosted(pressing button: NSObject) async -> [Notification] {
+    /// The `.maughamSetDetailSegment` notes the affordance's verb posts —
+    /// `MaughamEvent.postDetailSegment(.intent)`, the action
+    /// `IntentAffordanceRow`'s button runs (`WiringCensusTests`). Synchronous:
+    /// the post is a plain `NotificationCenter` post on this thread, so a
+    /// duplicate would already be here when it returns.
+    private func notesPostedByTheAffordance() -> [Notification] {
         var received: [Notification] = []
         // Whether the post would be DELIVERED is asserted separately, through
         // the real `MaughamEvent.shouldDeliver`.
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the button posts
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the verb posts
             forName: .maughamSetDetailSegment, object: nil, queue: nil
         ) { received.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        // The press dispatches through SwiftUI, so the FIRST note is a
-        // condition worth waiting on rather than a fixed window.
-        await pumpUntil(deadline: 5) { !received.isEmpty }
-        // …but `assertAsksForTheIntentPane` also pins `notes.count == 1`, which
-        // is a NEGATIVE assertion (no second, duplicate post). Keep a fixed
-        // window after the first delivery for a duplicate to show up in.
-        await waitOut(0.3)
+        MaughamEvent.postDetailSegment(.intent)
         return received
     }
 
-    /// The one assertion both arms make: the press asked the key window's right
+    /// The one assertion both arms make: the affordance asked the key window's right
     /// column for the Intent pane, in the spelling `MaughamEvent.shouldDeliver`
     /// actually delivers.
     private func assertAsksForTheIntentPane(
         _ notes: [Notification], file: StaticString = #filePath, line: UInt = #line
     ) {
         XCTAssertEqual(notes.count, 1,
-                       "the press should post exactly one segment request",
+                       "the affordance should post exactly one segment request",
                        file: file, line: line)
         guard let note = notes.first else { return }
         XCTAssertEqual(note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
@@ -165,11 +164,12 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             metrics: EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0),
             onOpenProjectSettings: {}, posture: .author)))
 
-        let notes = await notesPosted(pressing: try button(labelled: IntentAffordanceRow.openTitle, in: window))
-        assertAsksForTheIntentPane(notes)
+        XCTAssertNoThrow(try button(labelled: IntentAffordanceRow.openTitle, in: window),
+                         "the project inspector draws the affordance")
+        assertAsksForTheIntentPane(notesPostedByTheAffordance())
 
         XCTAssertTrue(store.manifest.statements.isEmpty,
-                      "pressing the inspector's affordance minted a statement. "
+                      "the inspector's affordance minted a statement. "
                       + "Absence is valid and the pane's empty editor is what "
                       + "mints — the inspector must create nothing (spec §4.3)")
         XCTAssertFalse(
@@ -248,8 +248,9 @@ final class InspectorIntentAffordanceTests: XCTestCase {
         let window = mount(AnyView(PieceInspector(
             store: store, pieceId: piece.id, format: .markdown, posture: .author)))
 
-        assertAsksForTheIntentPane(
-            await notesPosted(pressing: try button(labelled: IntentAffordanceRow.openTitle, in: window)))
+        XCTAssertNoThrow(try button(labelled: IntentAffordanceRow.openTitle, in: window),
+                         "the piece inspector draws the affordance under the piece")
+        assertAsksForTheIntentPane(notesPostedByTheAffordance())
 
         XCTAssertTrue(store.manifest.statements.isEmpty,
                       "the piece inspector minted a statement")

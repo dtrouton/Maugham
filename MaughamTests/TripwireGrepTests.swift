@@ -2429,36 +2429,6 @@ final class TripwireGrepTests: XCTestCase {
         // delete it on rollback — with the same keystroke press as its siblings.
         "StatementDraftHandoffTests.swift test_aMintThatFoundItsStatementNeverRollsItBack",
         "StatementDraftHandoffTests.swift test_aMintThatNeitherBoundNorDepositedLeavesNoStatement",
-        // Found when the arm learned the self-waiting helper (#120), standing
-        // pending their own conversion. Every effect below is a closure append
-        // or a measurement, never a store write. `notesPosted(pressing:)`
-        // records the one scoped post a press makes — the button's whole effect —
-        // and then holds a fixed window so `count == 1` can see a duplicate:
-        "DiagnosticsPaneTests.swift test_driftLine_rendersAboveConformanceSummary_andOpensIntentOnPress",
-        "DiagnosticsPaneTests.swift test_openIntentButton_postsDetailSegmentIntent",
-        "DiagnosticsPaneTests.swift test_pressingAnExcerptChipJumpsToThatParagraph",
-        "InspectorIntentAffordanceTests.swift test_aCollectionPieceInspectorLandsOnThatPiecesIntent",
-        "InspectorIntentAffordanceTests.swift test_theProjectInspectorSendsTheWriterToTheIntentPane",
-        "IntentStripTests.swift test_clickingTheStripAsksForTheIntentPane",
-        // `pressAwaitingConfirmation` waits for the confirmation value the gate
-        // hands its closure — the dialog belongs to the window server:
-        "DesignGateTests.swift test_cancellingTheConfirmationLeavesTheBackupStanding",
-        "DesignGateTests.swift test_confirmingFinalizeRunsTheVerbAndTellsTheRestOfTheWindow",
-        "DesignGateTests.swift test_pressingFinalizeReachesNoPromotionUntilTheWriterSaysYes",
-        // `measure(disclosure:expand:)` presses the letter's disclosure open and
-        // settles a fixed 0.4s before reading heights — a layout measurement:
-        "ReviewRoundCockpitLetterScrollTests.swift test_aLetterLongerThanThePaneScrollsInsteadOfPushingTheQueueOff",
-        "ReviewRoundCockpitLetterScrollTests.swift test_aShortLetterTakesItsOwnHeightAndNotTheCeiling",
-        "ReviewRoundCockpitLetterScrollTests.swift test_theBoundedLetterScrollsRatherThanBeingClipped",
-        // Found when a call to a press-only helper became a press line (#120
-        // review): `pressRowControl` presses a desk row's Run, and the test then
-        // polls the session or the pipeline. The seven-leg test is the desk's
-        // named end-to-end wiring pin; the other three await conversion to
-        // the run decision they assert:
-        "DepartmentRunTests.swift test_aPresetLanguageRunsStraightThroughWithNoSheet",
-        "DepartmentRunTests.swift test_anAlreadyMintedUnlistedLanguageAlsoRunsStraightThrough",
-        "DepartmentRunTests.swift test_runWholeBookQueuesEveryChapterTheDeskSums",
-        "DepartmentRunTests.swift test_theLanguageRunDrivesTheSevenLegPipelineAndTheRowDrawsTheRound",
     ]
 
     /// Every `File.swift test_name` under `dir` whose body presses and then

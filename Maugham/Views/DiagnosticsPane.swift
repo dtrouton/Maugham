@@ -1295,7 +1295,7 @@ struct DiagnosticsPane: View {
                     // value, and the two could disagree about one letter.
                     stage: letter.draftStage),
                 currentText: currentText,
-                onJump: { jump(toParagraph: $0) },
+                onJump: { Self.jump(toParagraph: $0) },
                 // `promote`'s own verb, one layer out: the exercise is the
                 // thing to DO, and a habit with no exercise never draws the
                 // button, so the `?? habit.name` fallback is a belt on a path
@@ -1494,7 +1494,7 @@ struct DiagnosticsPane: View {
                     excerpt: Self.jumpExcerpt(for: note, currentText: currentText),
                     canDispose: offersDurableActions && Self.offersDisposal(posture),
                     failure: answerFailures[note.id],
-                    onJump: { jump(toParagraph: $0) },
+                    onJump: { Self.jump(toParagraph: $0) },
                     onGotIt: { gotIt(note) },
                     onNotThis: { notThis(note) })
                 Divider()
@@ -1644,7 +1644,7 @@ struct DiagnosticsPane: View {
                               && Self.offersAnAnswer(docId: docId, posture: posture),
                           canPromote: offersDurableActions && Self.offersATask(posture),
                           answering: answering, answerFailures: answerFailures,
-                          onJump: { jump(toParagraph: $0) },
+                          onJump: { Self.jump(toParagraph: $0) },
                           onPromote: { promote($0) },
                           onAnswer: { answer($0, to: $1) })
                 Divider()
@@ -1679,7 +1679,7 @@ struct DiagnosticsPane: View {
             canPromote: offersDurableActions && Self.offersATask(posture),
             isSubmitting: answering.contains(diagnostic.id),
             answerFailure: answerFailures[diagnostic.id],
-            onJump: { jump(toParagraph: $0) },
+            onJump: { Self.jump(toParagraph: $0) },
             onPromote: { promote(diagnostic) },
             onAnswer: { answer($0, to: diagnostic) })
     }
@@ -2103,7 +2103,9 @@ struct DiagnosticsPane: View {
         }
     }
 
-    private func jump(toParagraph pid: String) {
+    /// **The jump, windowless** (tripwire 33, #120) — what every excerpt
+    /// chip on the pane reaches through its `onJump`.
+    static func jump(toParagraph pid: String) {
         // Reuses `AnnotationsPane.jump`'s event rather than a copy — span
         // precision is that pane's alone; a diagnostic anchors a whole
         // paragraph.
@@ -2445,9 +2447,15 @@ struct ExcerptChip: View {
     let ref: Diagnostic.Ref
     let onJump: (String) -> Void
 
+    /// What the chip's press does: the jump, with its own reference's
+    /// paragraph — pinned without a press (tripwire 33, #120).
+    func jump() {
+        onJump(ref.paragraphId)
+    }
+
     var body: some View {
         Button {
-            onJump(ref.paragraphId)
+            jump()
         } label: {
             Text("\u{201C}\(ref.excerpt)\u{201D}")
                 .font(.caption)
