@@ -9,7 +9,8 @@ public enum TestWorkspaceError: Error, Equatable {
 /// the writer's real manuscripts (which live in ~/Documents).
 public enum TestWorkspace {
     /// `~/Library/Application Support/<supportFolderName>/TestWorkspace` —
-    /// plus a per-process leaf under XCTest, and ONLY under XCTest.
+    /// plus a per-process leaf in a test process (`TestProcess.isActive`), and
+    /// ONLY there.
     /// Uses the same support-folder idiom as `BuildVariant.mcpSocketPath`.
     ///
     /// **Why the leaf:** the parallel test suite runs classes across worker
@@ -24,7 +25,7 @@ public enum TestWorkspace {
     /// (Claude Desktop driving the dev build's test tools) is one process and
     /// keeps the bare root, unchanged.
     public static var root: URL {
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
+        guard TestProcess.isActive else {
             return base
         }
         return base.appendingPathComponent(
