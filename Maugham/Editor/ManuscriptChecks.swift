@@ -80,6 +80,7 @@ enum ManuscriptChecks {
         let notes = footnotes(in: tokens, text: text)
         problems += notes.problems
         problems += figureLineProblems(in: tokens, text: text, status: figureLineStatus)
+        problems += gluedFigureLineProblems(in: tokens, text: text)
 
         // Labels defined here: twice here, or here and in another piece.
         var seen = Set<ManuscriptLabel>()
@@ -144,6 +145,68 @@ enum ManuscriptChecks {
             }
         }
         return out
+    }
+
+    /// A line that alone would be a figure line but shares its paragraph
+    /// with text (merged from another device, an old file, a composition):
+    /// the parser reads it as an inline image, so it has no figure token.
+    /// The editor keeps a line it is typed beside apart
+    /// (`FigureLineSeparation`); this says the ones that arrived glued.
+    static func gluedFigureLineProblems(in tokens: [Token], text: NSString) -> [Problem] {
+        var figureLines = Set<Int>()
+        var code: [NSRange] = []
+        for token in tokens {
+            if token.kind == .code { code.append(token.range) }
+            if FigureThumbnailLayout.figurePath(closing: token, in: text) != nil {
+                figureLines.insert(text.lineRange(for: NSRange(location: token.range.location, length: 0)).location)
+            }
+        }
+        var out: [Problem] = []
+        var search = 0
+        while search < text.length {
+            let found = text.range(of: "![", range: NSRange(location: search, length: text.length - search))
+            guard found.location != NSNotFound else { break }
+            var start = 0, end = 0, contentsEnd = 0
+            text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd,
+                              for: NSRange(location: found.location, length: 0))
+            search = max(end, NSMaxRange(found))
+            let line = NSRange(location: start, length: contentsEnd - start)
+            guard !figureLines.contains(start),
+                  case .figure(_, let path, _)? = ManuscriptBlocks.parse(
+                      text.substring(with: line).trimmingCharacters(in: .whitespaces)).first?.block,
+                  !code.contains(where: { NSIntersectionRange($0, line).length > 0 }),
+                  sharesAParagraph(line, in: text)
+            else { continue }
+            out.append(Problem(range: line, kind: .figureLineSharesParagraph(path)))
+        }
+        return out
+    }
+
+    /// True when the parser reads `line` inside a paragraph of more than
+    /// one line: the run of non-blank lines around it, parsed alone.
+    private static func sharesAParagraph(_ line: NSRange, in text: NSString) -> Bool {
+        func isBlank(_ r: NSRange) -> Bool {
+            text.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        var first = line.location, last = NSMaxRange(text.lineRange(for: line))
+        while first > 0 {
+            let above = text.lineRange(for: NSRange(location: first - 1, length: 0))
+            if isBlank(above) { break }
+            first = above.location
+        }
+        while last < text.length {
+            let below = text.lineRange(for: NSRange(location: last, length: 0))
+            if isBlank(below) { break }
+            last = NSMaxRange(below)
+        }
+        let run = text.substring(with: NSRange(location: first, length: last - first))
+        let index = text.substring(with: NSRange(location: first, length: line.location - first))
+            .components(separatedBy: "\n").count - 1
+        guard let block = ManuscriptBlocks.parse(run).first(where: { $0.lines.contains(index) }) else {
+            return false
+        }
+        if case .other(.paragraph(let lines)) = block.block { return lines.count > 1 }
+        return false
     }
 
     /// The one problem of a figure line with `path` and `label` whose

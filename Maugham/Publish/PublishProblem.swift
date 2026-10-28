@@ -50,6 +50,10 @@ public struct PublishProblem: Sendable, Hashable {
         /// Publish numbers it as a figure and reads it through the image
         /// door, which refuses a `.csv`, so a Report will not publish it.
         case tableFigureLabelledFig(ManuscriptLabel)
+        /// The editor's only: a line that alone would be a figure line (its
+        /// path the payload) shares its paragraph with text, so it is read as
+        /// an inline image — no card, and no figure when published.
+        case figureLineSharesParagraph(String)
     }
 
     public let kind: Kind
@@ -119,6 +123,11 @@ public struct PublishProblem: Sendable, Hashable {
             return true
         case .figureAmbiguous:
             return false
+        // Publish prints the line as an inline image in its sentence, and
+        // blocks nothing on it: a warning, which the writer fixes with a
+        // blank line.
+        case .figureLineSharesParagraph:
+            return false
         }
     }
 
@@ -163,6 +172,10 @@ public struct PublishProblem: Sendable, Hashable {
         case .tableFigureLabelledFig(let label):
             return "This table figure is labelled \(label.reference), so it is numbered as a figure "
                 + "and a Report won’t publish it; write {#tbl:\(label.name)} to number it as a table."
+        case .figureLineSharesParagraph(let path):
+            let what = ManuscriptLabel.Kind.isTableFigurePath(path) ? "table" : "figure"
+            return "This \(what) line shares a paragraph with text — it won't show or publish as a \(what). "
+                + "Add a blank line above and below it."
         }
     }
 

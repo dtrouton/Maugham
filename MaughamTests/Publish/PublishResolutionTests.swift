@@ -520,6 +520,7 @@ final class PublishResolutionTests: XCTestCase {
         case .figureNotFound(let path): return !ManuscriptLabel.Kind.isTableFigurePath(path)
         case .figureAmbiguous: return false
         case .tableFigureLabelledFig: return true
+        case .figureLineSharesParagraph: return false
         }
     }
 
@@ -530,7 +531,8 @@ final class PublishResolutionTests: XCTestCase {
          .malformedLabel("eq:1"), .figurePathNotLocal("/x.png"), .imageUnreadable("no file"),
          .figureNotFound("figures/x.csv"), .figureNotFound("figures/x.png"),
          .figureAmbiguous("figures/x.csv"),
-         .tableFigureLabelledFig(label("fig:x"))]
+         .tableFigureLabelledFig(label("fig:x")),
+         .figureLineSharesParagraph("figures/x.csv")]
     }
 
     func test_severity_everyKindInEveryProfile() {

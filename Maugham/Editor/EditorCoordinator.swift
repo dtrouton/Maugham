@@ -486,6 +486,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// True while a paste or a drop is handed to AppKit (`asNotTyping`), so a
     /// pasted `@` is never read as typing.
     var isInsertingNotTyping = false
+    /// True while `keepsFigureLinesApart` makes its edit, so the edit's own
+    /// pass through `shouldChangeTextIn` is not judged again.
+    var isApplyingFigureSeparation = false
 
     /// Makes a picture an image figure of this document and returns the
     /// figure path relative to the document (plan 3a Task 6, report plan 6a
@@ -1502,6 +1505,37 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) {
             textView.insertText(result.substitute, replacementRange: result.range)
             return false
+        }
+        // A figure line keeps its own paragraph: an edit that would glue text
+        // to one is made with the break inside it, as one undo step (the
+        // smart-typography shape above), or refused with the caret moved.
+        if keepsFigureLinesApart(in: textView, replacing: affectedCharRange, with: replacementString) {
+            return false
+        }
+        return true
+    }
+
+    /// Applies `FigureLineSeparation` to this edit; true when it was made
+    /// (or refused) here instead. Prose only; never during a command's own
+    /// edit (it places its line itself), an undo or redo (which restores a
+    /// text that was), or an input method's composition, start to commit
+    /// (marked text is never rewritten; `ManuscriptChecks` says a line it glued).
+    private func keepsFigureLinesApart(in textView: NSTextView, replacing range: NSRange,
+                                       with replacement: String) -> Bool {
+        guard !(mode is ScreenplayMode), !isApplyingFigureSeparation, !isApplyingCommandEdit,
+              !textView.hasMarkedText(),
+              textView.undoManager?.isUndoing != true, textView.undoManager?.isRedoing != true,
+              let decision = FigureLineSeparation.decide(text: textView.string as NSString, range: range,
+                                                         replacement: replacement)
+        else { return false }
+        switch decision {
+        case .replace(let range, let replacement, let caret):
+            isApplyingFigureSeparation = true
+            textView.insertText(replacement, replacementRange: range)
+            isApplyingFigureSeparation = false
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+        case .refuse(let caret):
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
         }
         return true
     }

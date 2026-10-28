@@ -195,6 +195,32 @@ final class ManuscriptChecksTests: XCTestCase {
         XCTAssertEqual(unanswered.problems.map(\.kind), [.tableFigureLabelledFig(label("fig:cash"))])
     }
 
+    /// A figure line that arrived glued to text (another device, an old
+    /// file) is said on its own line, in a table's or a figure's words; a
+    /// separated one, one under a heading, and one in code are not.
+    func test_aFigureLineSharingAParagraphIsMarked_aSeparatedOneIsNot() {
+        let table = "![Test Table](figures/table.csv){#tbl:table}"
+        let above = problems("This is me testing.\n\(table)\n")
+        XCTAssertEqual(above.map(\.text), [table])
+        XCTAssertEqual(above.map(\.kind), [.figureLineSharesParagraph("figures/table.csv")])
+        XCTAssertEqual(problems("![Logo](figures/logo.png)\nA sentence below.").map(\.kind),
+                       [.figureLineSharesParagraph("figures/logo.png")], "glued below")
+
+        XCTAssertTrue(problems("This is me testing.\n\n\(table)\n\nAfter.").isEmpty, "separated")
+        XCTAssertTrue(problems("# Results\n\(table)\n").isEmpty, "a heading ends its block")
+        XCTAssertTrue(problems("```\n\(table)\nmore\n```\n").isEmpty, "in code")
+        XCTAssertTrue(problems("See ![icon](i.png) inline.").isEmpty, "an inline image is no figure line")
+
+        XCTAssertEqual(PublishProblem.sentence(for: .figureLineSharesParagraph("figures/table.csv")),
+                       "This table line shares a paragraph with text — it won't show or publish as a table. "
+                       + "Add a blank line above and below it.")
+        XCTAssertEqual(PublishProblem.sentence(for: .figureLineSharesParagraph("figures/logo.png")),
+                       "This figure line shares a paragraph with text — it won't show or publish as a figure. "
+                       + "Add a blank line above and below it.")
+        XCTAssertEqual(EditorCoordinator.problemColor(.figureLineSharesParagraph("figures/table.csv"),
+                                                      profile: .report), .systemOrange, "a warning")
+    }
+
     /// The figure-line kinds follow Publish (whole-branch review I3, M3): in
     /// a Report, a table figure labelled `fig:` (the image door refuses its
     /// `.csv`) and an image path naming no figure (its file went with it)
