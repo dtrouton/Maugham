@@ -72,6 +72,7 @@ extension EditorCoordinator {
     func applyCommandEdit(replacing range: NSRange, with replacement: String,
                           selecting selection: NSRange, actionName: String,
                           landing: CommandLanding = .immediate,
+                          separatingFigureLines: Bool = false,
                           alongside: ((UndoManager) -> Void)? = nil) -> Bool {
         guard !isDetached, let textView, let storage = textView.textStorage,
               range.location >= 0, NSMaxRange(range) <= storage.length else { return false }
@@ -79,6 +80,11 @@ extension EditorCoordinator {
         // so a refusal must not open one (the refusal tests count no step).
         // `shouldChangeText` below still asks the delegate, as before.
         guard commandMayWrite else { return false }
+        var replacement = replacement, selection = selection
+        if separatingFigureLines {
+            (replacement, selection) = separatedInline(replacing: range, with: replacement,
+                                                       selecting: selection, in: storage.string as NSString)
+        }
         // Step 6, around `shouldChangeText` because that is where the text
         // view registers the step. With `groupsByEvent` off for the bracket:
         // left on, `beginUndoGrouping` at level 0 first opens the implicit
@@ -140,6 +146,28 @@ extension EditorCoordinator {
         /// After the event (an async figure): never take the focus; keep the
         /// writer's selection when they have moved on.
         case deferred(writerMoved: Bool)
+    }
+
+    /// An inline command insert (`separatingFigureLines`: a citation, a
+    /// cross-reference, a picked completion — text with no line break) with
+    /// a figure line kept its own paragraph, as typing is
+    /// (`FigureLineSeparation`, whole-branch review M4); its selection moved
+    /// with it. A block-level insert places its own lines and is never asked.
+    private func separatedInline(replacing range: NSRange, with replacement: String,
+                                 selecting selection: NSRange, in text: NSString) -> (String, NSRange) {
+        guard !(mode is ScreenplayMode), replacement.rangeOfCharacter(from: .newlines) == nil,
+              case .replace(_, let separated, let caret)? = FigureLineSeparation.decide(
+                text: text, range: range, replacement: replacement)
+        else { return (replacement, selection) }
+        let end = range.location + (replacement as NSString).length
+        let delta = (separated as NSString).length - (replacement as NSString).length
+        var moved = selection
+        if selection.length == 0, selection.location == end {
+            moved.location = caret
+        } else if selection.location >= end {
+            moved.location += delta
+        }
+        return (separated, moved)
     }
 
     /// `selection` (in the text before the edit) carried through replacing
@@ -414,8 +442,9 @@ extension EditorCoordinator {
         guard source.trigger(in: wouldBe, caret: caret) != nil,
               applyCommandEdit(replacing: NSRange(location: at, length: 0), with: written,
                                selecting: NSRange(location: caret, length: 0),
-                               actionName: source.actionName),
-              let opened = source.trigger(in: textView.string as NSString, caret: caret)
+                               actionName: source.actionName, separatingFigureLines: true),
+              let opened = source.trigger(in: textView.string as NSString,
+                                          caret: textView.selectedRange().location)
         else { return }
         openCompletion(source: source, trigger: opened)
     }

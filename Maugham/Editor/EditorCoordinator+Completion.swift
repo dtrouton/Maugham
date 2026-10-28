@@ -212,7 +212,8 @@ extension EditorCoordinator {
             return true
         }
         return applyCommandEdit(replacing: range, with: insertion, selecting: caret,
-                                actionName: state.source.actionName, landing: .immediate)
+                                actionName: state.source.actionName, landing: .immediate,
+                                separatingFigureLines: true)
     }
 
     /// Asks the open list's source for its rows again at the same trigger —

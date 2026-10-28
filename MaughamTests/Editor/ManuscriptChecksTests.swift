@@ -210,6 +210,17 @@ final class ManuscriptChecksTests: XCTestCase {
         XCTAssertTrue(problems("# Results\n\(table)\n").isEmpty, "a heading ends its block")
         XCTAssertTrue(problems("```\n\(table)\nmore\n```\n").isEmpty, "in code")
         XCTAssertTrue(problems("See ![icon](i.png) inline.").isEmpty, "an inline image is no figure line")
+        XCTAssertTrue(problems("```\n\nProse.\n\(table)\n\n```\n").isEmpty,
+                      "in a fence with blank lines inside it")
+        XCTAssertTrue(problems("Prose.\n    \(table)\n").isEmpty, "an indented code line")
+
+        // A figure line directly under a list item or a blockquote is that
+        // block's lazy continuation in Publish (whole-branch review M6).
+        XCTAssertEqual(problems("- a\n\(table)\n").map(\.kind),
+                       [.figureLineSharesParagraph("figures/table.csv")], "under a list item")
+        XCTAssertEqual(problems("> q\n\(table)\n").map(\.kind),
+                       [.figureLineSharesParagraph("figures/table.csv")], "under a blockquote")
+        XCTAssertTrue(problems("- a\n\n\(table)\n").isEmpty, "a list then a blank line")
 
         XCTAssertEqual(PublishProblem.sentence(for: .figureLineSharesParagraph("figures/table.csv")),
                        "This table line shares a paragraph with text — it won't show or publish as a table. "

@@ -597,6 +597,24 @@ final class MaughamTextView: NSTextView {
         usesPrivateUndoManager ? privateUndoManager : super.undoManager
     }
 
+    /// An input method's commit (marked text replaced by its final text) is
+    /// handed to the coordinator after it lands, in the same event, so a
+    /// figure line it glued text onto is kept apart (whole-branch review I1).
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard hasMarkedText() else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+        let target = replacementRange.location == NSNotFound ? markedRange() : replacementRange
+        let length = ((string as? NSAttributedString)?.string ?? (string as? String) ?? "").utf16.count
+        let before = (self.string as NSString).length
+        super.insertText(string, replacementRange: replacementRange)
+        // Committed only when the composition ended and the text took it.
+        guard !hasMarkedText(), (self.string as NSString).length == before - target.length + length
+        else { return }
+        coordinator?.compositionDidCommit(in: self, at: NSRange(location: target.location, length: length))
+    }
+
     override var acceptsFirstResponder: Bool { true }
     /// The text taking the focus folds an expanded grid (report plan 7c
     /// Task 7) — every `makeFirstResponder(textView)` at once: a click in

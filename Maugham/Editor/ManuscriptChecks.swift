@@ -147,11 +147,14 @@ enum ManuscriptChecks {
         return out
     }
 
-    /// A line that alone would be a figure line but shares its paragraph
-    /// with text (merged from another device, an old file, a composition):
-    /// the parser reads it as an inline image, so it has no figure token.
-    /// The editor keeps a line it is typed beside apart
-    /// (`FigureLineSeparation`); this says the ones that arrived glued.
+    /// A line that alone would be a figure line but is glued to text
+    /// (merged from another device, an old file): it shares a paragraph, so
+    /// the parser reads it as an inline image and it has no figure token; or
+    /// it directly follows a list item or a blockquote, which Publish reads
+    /// as that block's lazy continuation (whole-branch review M6). The editor
+    /// keeps a line it is typed beside apart (`FigureLineSeparation`); this
+    /// says the ones that arrived glued. Never in code — inline code, a
+    /// fence or an indented line (`FigureLineSeparation.isInCode`).
     static func gluedFigureLineProblems(in tokens: [Token], text: NSString) -> [Problem] {
         var figureLines = Set<Int>()
         var code: [NSRange] = []
@@ -171,20 +174,21 @@ enum ManuscriptChecks {
                               for: NSRange(location: found.location, length: 0))
             search = max(end, NSMaxRange(found))
             let line = NSRange(location: start, length: contentsEnd - start)
-            guard !figureLines.contains(start),
-                  case .figure(_, let path, _)? = ManuscriptBlocks.parse(
+            guard case .figure(_, let path, _)? = ManuscriptBlocks.parse(
                       text.substring(with: line).trimmingCharacters(in: .whitespaces)).first?.block,
                   !code.contains(where: { NSIntersectionRange($0, line).length > 0 }),
-                  sharesAParagraph(line, in: text)
+                  !FigureLineSeparation.isInCode(lineAt: start, in: text),
+                  isGlued(line, isAFigure: figureLines.contains(start), in: text)
             else { continue }
             out.append(Problem(range: line, kind: .figureLineSharesParagraph(path)))
         }
         return out
     }
 
-    /// True when the parser reads `line` inside a paragraph of more than
-    /// one line: the run of non-blank lines around it, parsed alone.
-    private static func sharesAParagraph(_ line: NSRange, in text: NSString) -> Bool {
+    /// True when the parser reads `line` inside a paragraph of more than one
+    /// line, or — read as a figure — directly under a list item or a
+    /// blockquote: the run of non-blank lines around it, parsed alone.
+    private static func isGlued(_ line: NSRange, isAFigure: Bool, in text: NSString) -> Bool {
         func isBlank(_ r: NSRange) -> Bool {
             text.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -194,6 +198,7 @@ enum ManuscriptChecks {
             if isBlank(above) { break }
             first = above.location
         }
+        guard first < line.location || !isAFigure else { return false }
         while last < text.length {
             let below = text.lineRange(for: NSRange(location: last, length: 0))
             if isBlank(below) { break }
@@ -202,11 +207,20 @@ enum ManuscriptChecks {
         let run = text.substring(with: NSRange(location: first, length: last - first))
         let index = text.substring(with: NSRange(location: first, length: line.location - first))
             .components(separatedBy: "\n").count - 1
-        guard let block = ManuscriptBlocks.parse(run).first(where: { $0.lines.contains(index) }) else {
+        let blocks = ManuscriptBlocks.parse(run)
+        guard let block = blocks.first(where: { $0.lines.contains(index) }) else { return false }
+        switch block.block {
+        case .other(.paragraph(let lines)):
+            return lines.count > 1
+        case .figure:
+            guard let above = blocks.first(where: { $0.lines.contains(index - 1) }) else { return false }
+            switch above.block {
+            case .other(.list), .other(.blockquote): return true
+            default: return false
+            }
+        default:
             return false
         }
-        if case .other(.paragraph(let lines)) = block.block { return lines.count > 1 }
-        return false
     }
 
     /// The one problem of a figure line with `path` and `label` whose

@@ -486,9 +486,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// True while a paste or a drop is handed to AppKit (`asNotTyping`), so a
     /// pasted `@` is never read as typing.
     var isInsertingNotTyping = false
-    /// True while `keepsFigureLinesApart` makes its edit, so the edit's own
-    /// pass through `shouldChangeTextIn` is not judged again.
+    /// True while `applyFigureSeparation` makes its edit, so the edit's own
+    /// pass through `shouldChangeTextIn` is not judged, transformed or noted
+    /// for completion again (the keystroke it replaces was noted already).
     var isApplyingFigureSeparation = false
+    /// Whether the event being handled is a held key's repeat: a refused
+    /// Backspace then leaves the caret where it is (whole-branch review I3).
+    /// A seam so a test can say so without synthesising an event.
+    var isKeyRepeat: () -> Bool = {
+        guard let event = NSApp.currentEvent, event.type == .keyDown else { return false }
+        return event.isARepeat
+    }
 
     /// Makes a picture an image figure of this document and returns the
     /// figure path relative to the document (plan 3a Task 6, report plan 6a
@@ -1479,6 +1487,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
+        // The figure-line separation's own edit, already judged: make it as it is.
+        if isApplyingFigureSeparation { return true }
 
         // The completion trigger (plan 3b Task 2): what this edit is — a typed
         // character, a deletion, or anything else — read by `textDidChange`.
@@ -1517,12 +1527,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// Applies `FigureLineSeparation` to this edit; true when it was made
     /// (or refused) here instead. Prose only; never during a command's own
-    /// edit (it places its line itself), an undo or redo (which restores a
-    /// text that was), or an input method's composition, start to commit
-    /// (marked text is never rewritten; `ManuscriptChecks` says a line it glued).
+    /// edit (an inline insert asks itself, `applyCommandEdit`), an undo or
+    /// redo (which restores a text that was), or while an input method
+    /// composes — its commit is judged instead (`compositionDidCommit`).
     private func keepsFigureLinesApart(in textView: NSTextView, replacing range: NSRange,
                                        with replacement: String) -> Bool {
-        guard !(mode is ScreenplayMode), !isApplyingFigureSeparation, !isApplyingCommandEdit,
+        guard !(mode is ScreenplayMode), !isApplyingCommandEdit,
               !textView.hasMarkedText(),
               textView.undoManager?.isUndoing != true, textView.undoManager?.isRedoing != true,
               let decision = FigureLineSeparation.decide(text: textView.string as NSString, range: range,
@@ -1530,14 +1540,53 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         else { return false }
         switch decision {
         case .replace(let range, let replacement, let caret):
-            isApplyingFigureSeparation = true
-            textView.insertText(replacement, replacementRange: range)
-            isApplyingFigureSeparation = false
-            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            applyFigureSeparation(in: textView, replacing: range, with: replacement, caret: caret)
         case .refuse(let caret):
-            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            // A held key's repeats stay put: the first press moved the caret
+            // already, and moving it again would delete what is there.
+            if let caret, !isKeyRepeat() { textView.setSelectedRange(NSRange(location: caret, length: 0)) }
         }
         return true
+    }
+
+    /// Makes the separated edit as ONE change, the caret placed BEFORE
+    /// `didChangeText`, so everything `textDidChange` tells — the post-edit
+    /// cursor, the completion trigger, the scroll and typewriter — reads the
+    /// final caret (whole-branch review M3). It joins the event's undo group:
+    /// one ⌘Z takes back the keystroke and the break.
+    private func applyFigureSeparation(in textView: NSTextView, replacing range: NSRange,
+                                       with replacement: String, caret: Int) {
+        guard let storage = textView.textStorage else { return }
+        isApplyingFigureSeparation = true
+        defer { isApplyingFigureSeparation = false }
+        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+        storage.replaceCharacters(in: range, with: replacement)
+        let selection = NSRange(location: min(caret, storage.length), length: 0)
+        textView.setSelectedRange(selection)
+        textView.didChangeText()
+        textView.scrollRangeToVisible(selection)
+    }
+
+    /// An input method's composition committed `committed` (a dead key's é,
+    /// a held key's accent, a CJK commit): judged now as the insert it is,
+    /// in the same event as the commit so one ⌘Z takes back both (whole-branch
+    /// review I1). Called by `MaughamTextView.insertText` after the commit.
+    func compositionDidCommit(in textView: NSTextView, at committed: NSRange) {
+        guard !(mode is ScreenplayMode), !isApplyingCommandEdit, !isApplyingFigureSeparation,
+              !textView.hasMarkedText(), textView.isEditable,
+              EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode, lockEditing: lockEditing,
+                                                  isTranslationReview: isTranslationReview),
+              textView.undoManager?.isUndoing != true, textView.undoManager?.isRedoing != true
+        else { return }
+        let text = textView.string as NSString
+        guard committed.location != NSNotFound, NSMaxRange(committed) <= text.length, committed.length > 0
+        else { return }
+        let string = text.substring(with: committed)
+        let before = text.replacingCharacters(in: committed, with: "") as NSString
+        guard case .replace(_, let replacement, let caret)? = FigureLineSeparation.decide(
+            text: before, range: NSRange(location: committed.location, length: 0), replacement: string)
+        else { return }
+        applyFigureSeparation(in: textView, replacing: committed, with: replacement, caret: caret)
     }
 
     func textView(_ textView: NSTextView,

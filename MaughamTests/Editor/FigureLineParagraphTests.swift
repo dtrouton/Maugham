@@ -37,14 +37,23 @@ final class FigureLineParagraphTests: XCTestCase {
         var caret: Int { textView.selectedRange().location }
     }
 
-    private func mount(_ text: String, mode: any WritingMode = ProseMode()) throws -> Mounted {
+    /// `pickers`: a manuscript surface with the citation and cross-reference
+    /// pickers over `CitationCompletionTests`' library, as `EditorHost` wires it.
+    private func mount(_ text: String, mode: any WritingMode = ProseMode(), pickers: Bool = false,
+                       onPostEditCursor: ((Int) -> Void)? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0 })
-        let configuration = EditorSurfaceConfiguration(
+        var configuration = EditorSurfaceConfiguration(
             presentation: .init(theme: .light, typography: .defaults, mode: mode,
                                 typewriterScroll: false, sentenceFocus: false,
                                 paragraphFocus: false, showElementGutter: false),
             control: EditorControl())
+        configuration.callbacks.onPostEditCursor = onPostEditCursor
+        if pickers {
+            let index = CitationCompletionTests.index()
+            configuration.answersInsertCommands = true
+            configuration.paragraphProviders.referenceIndex = { index }
+        }
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
                                       as: KeyTestWindow.self)
@@ -234,20 +243,150 @@ final class FigureLineParagraphTests: XCTestCase {
         XCTAssertFalse(m.undo.canUndo)
     }
 
-    /// An input method's composition is never rewritten, start to commit:
-    /// the marked text sits where the writer composes it.
-    func test_aCompositionIsLeftAsComposed() throws {
+    // MARK: - Input methods (whole-branch review I1)
+
+    /// A composition is never rewritten while it is open; its commit is
+    /// judged as the insert it is — a dead key's é at a figure line's start
+    /// goes into a paragraph above, in the commit's own event.
+    func test_aCommitAtTheFigureLinesStart_isKeptApart() throws {
         let m = try mount("Prose.\n\n\(fig)")
         caret(m, at: at(m, "![Test"))
+        asOneEvent(m) {
+            m.textView.setMarkedText("´", selectedRange: NSRange(location: 1, length: 0),
+                                     replacementRange: m.textView.selectedRange())
+        }
+        XCTAssertTrue(m.textView.hasMarkedText(), "the composition is still open")
+        XCTAssertEqual(m.string, "Prose.\n\n´\(fig)", "left as composed while open")
+        let marked = m.textView.markedRange()
+        asOneEvent(m) { m.textView.insertText("É", replacementRange: marked) }
+        XCTAssertFalse(m.textView.hasMarkedText())
+        XCTAssertEqual(m.string, "Prose.\n\nÉ\n\n\(fig)", "the commit is kept apart")
+        XCTAssertEqual(m.caret, at(m, "É") + 1, "the caret right after the commit")
+        XCTAssertEqual(m.box.text, m.string)
+    }
+
+    func test_aCommitOnTheEmptyLineAboveAFigure_isKeptApart() throws {
+        let m = try mount("Prose.\n\n\n\(fig)")
+        caret(m, at: at(m, "![Test") - 1)
         asOneEvent(m) {
             m.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
                                      replacementRange: m.textView.selectedRange())
         }
-        XCTAssertTrue(m.textView.hasMarkedText(), "the composition is still open")
-        XCTAssertEqual(m.string, "Prose.\n\nか\(fig)")
+        XCTAssertEqual(m.string, "Prose.\n\nか\n\(fig)", "left as composed while open")
         let marked = m.textView.markedRange()
         asOneEvent(m) { m.textView.insertText("か", replacementRange: marked) }
-        XCTAssertFalse(m.textView.hasMarkedText())
-        XCTAssertEqual(m.string, "Prose.\n\nか\(fig)", "the commit is not rewritten either")
+        XCTAssertEqual(m.string, "Prose.\n\nか\n\n\(fig)")
+        XCTAssertEqual(m.caret, at(m, "か") + 1)
+    }
+
+    // MARK: - A held key (whole-branch review I3)
+
+    /// The first Backspace at a figure line's start moves the caret up; its
+    /// repeats are refused where they are, so holding the key never deletes
+    /// the paragraph above.
+    func test_aHeldBackspaceAtTheFigureLinesStart_repeatsStayPut() throws {
+        let start = "Prose.\n\n\(fig)"
+        let m = try mount(start)
+        var repeating = false
+        m.coordinator.isKeyRepeat = { repeating }
+        caret(m, at: at(m, "![Test"))
+        repeating = true
+        backspace(m)
+        XCTAssertEqual(m.string, start)
+        XCTAssertEqual(m.caret, at(m, "![Test"), "a repeat leaves the caret where it is")
+        backspace(m)
+        XCTAssertEqual(m.string, start)
+        XCTAssertEqual(m.caret, at(m, "![Test"))
+        repeating = false
+        backspace(m)
+        XCTAssertEqual(m.caret, ("Prose." as NSString).length, "a fresh press moves it up")
+    }
+
+    /// Below a figure the refusal leaves the caret at the paragraph's start,
+    /// never on the figure line, where a held key would eat its label.
+    func test_backspaceAtTheParagraphBelowAFigure_isRefusedInPlace() throws {
+        let start = "Prose.\n\n\(fig)\n\nAfter."
+        let m = try mount(start)
+        caret(m, at: at(m, "After."))
+        backspace(m)
+        backspace(m)
+        XCTAssertEqual(m.string, start)
+        XCTAssertEqual(m.caret, at(m, "After."))
+    }
+
+    // MARK: - What the edit tells (whole-branch review M3)
+
+    /// The host hears the final caret, not the one inside the rewritten edit.
+    func test_thePostEditCursorIsTheFinalCaret() throws {
+        var told: [Int] = []
+        let m = try mount("Prose.\n\n\n\(fig)", onPostEditCursor: { told.append($0) })
+        caret(m, at: at(m, "![Test") - 1)
+        type("T", m)
+        XCTAssertEqual(m.string, "Prose.\n\nT\n\n\(fig)")
+        XCTAssertEqual(told, [at(m, "T") + 1], "told once, the caret after T")
+    }
+
+    /// A rewritten keystroke is still the writer's typing: `[@` opens the
+    /// citation picker though its `@` was made with a break after it.
+    func test_aRewrittenKeystrokeStillOpensCompletion() throws {
+        let m = try mount("See [\n\n\(fig)", pickers: true)
+        m.textView.setSelectedRange(NSRange(location: 5, length: 2))
+        type("@", m)
+        XCTAssertEqual(m.string, "See [@\n\n\(fig)")
+        XCTAssertEqual(m.caret, 6)
+        XCTAssertTrue(m.coordinator.isCompletionOpen, "the picker opened on the typed @")
+    }
+
+    // MARK: - Inline commands (whole-branch review M4)
+
+    /// Insert ▸ Citation on the empty line directly above a figure writes
+    /// `[@` with the figure kept apart, the picker open after it.
+    func test_insertCitationAboveAFigure_keepsItApart() throws {
+        let m = try mount("Prose.\n\n\n\(fig)", pickers: true)
+        caret(m, at: at(m, "![Test") - 1)
+        m.coordinator.insertCitation()
+        XCTAssertEqual(m.string, "Prose.\n\n[@\n\n\(fig)")
+        XCTAssertEqual(m.caret, at(m, "[@") + 2)
+        XCTAssertTrue(m.coordinator.isCompletionOpen)
+        m.undo.undo()
+        XCTAssertEqual(m.string, "Prose.\n\n\n\(fig)", "one step")
+    }
+
+    // MARK: - Smart typography (whole-branch review M8)
+
+    /// A smart quote is made through a nested insert; the figure is kept
+    /// apart inside it, and one ⌘Z takes back both.
+    func test_aSmartQuoteAboveAFigure_isKeptApart_oneUndo() throws {
+        let start = "Prose.\n\n\n\(fig)"
+        let m = try mount(start)
+        caret(m, at: at(m, "![Test") - 1)
+        type("\"", m)
+        XCTAssertEqual(m.string, "Prose.\n\n\u{201C}\n\n\(fig)")
+        XCTAssertEqual(m.caret, at(m, "\u{201C}") + 1)
+        m.undo.undo()
+        XCTAssertEqual(m.string, start)
+        XCTAssertFalse(m.undo.canUndo)
+    }
+}
+
+/// The M4 arm of `handleFigureGridCommand` on the path (whole-branch review
+/// M8): a real `FigureGridOpening` and figure marks, Return at a table
+/// figure line's start opens a line above it, and typing there is kept apart.
+@MainActor
+final class FigureLineParagraphGridTests: FigureGridMountedTestCase {
+    func test_returnAtATableFiguresStartThenTyping_withTheGridWired() async throws {
+        let m = try await mount()
+        XCTAssertNotNil(m.coordinator.figureGridOpening, "precondition: the grid is wired")
+        let line = location(m, "![Cash](")
+        XCTAssertFalse(m.coordinator.figureThumbnailMarks.isEmpty, "precondition: the figure has its mark")
+        m.textView.setSelectedRange(NSRange(location: line, length: 0))
+        m.textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertNil(m.coordinator.figureGrid, "Return at the line's start expands nothing")
+        XCTAssertEqual(location(m, "![Cash]("), line + 1, "it opened a line above")
+        XCTAssertEqual(m.textView.selectedRange().location, line + 1, "the caret stays on the figure line")
+        m.textView.insertText("T", replacementRange: m.textView.selectedRange())
+        XCTAssertEqual(m.text.substring(with: NSRange(location: line, length: 8)), "\nT\n\n![Ca",
+                       "T in a paragraph of its own above the figure")
+        XCTAssertEqual(m.textView.selectedRange().location, line + 2, "the caret after T")
     }
 }
