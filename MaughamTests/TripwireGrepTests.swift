@@ -2450,6 +2450,15 @@ final class TripwireGrepTests: XCTestCase {
         "ReviewRoundCockpitLetterScrollTests.swift test_aLetterLongerThanThePaneScrollsInsteadOfPushingTheQueueOff",
         "ReviewRoundCockpitLetterScrollTests.swift test_aShortLetterTakesItsOwnHeightAndNotTheCeiling",
         "ReviewRoundCockpitLetterScrollTests.swift test_theBoundedLetterScrollsRatherThanBeingClipped",
+        // Found when a call to a press-only helper became a press line (#120
+        // review): `pressRowControl` presses a desk row's Run, and the test then
+        // polls the session or the pipeline. The seven-leg test is the desk's
+        // named end-to-end wiring pin; the other three await conversion to
+        // the run decision they assert:
+        "DepartmentRunTests.swift test_aPresetLanguageRunsStraightThroughWithNoSheet",
+        "DepartmentRunTests.swift test_anAlreadyMintedUnlistedLanguageAlsoRunsStraightThrough",
+        "DepartmentRunTests.swift test_runWholeBookQueuesEveryChapterTheDeskSums",
+        "DepartmentRunTests.swift test_theLanguageRunDrivesTheSevenLegPipelineAndTheRowDrawsTheRound",
     ]
 
     /// Every `File.swift test_name` under `dir` whose body presses and then
@@ -2467,9 +2476,15 @@ final class TripwireGrepTests: XCTestCase {
             var pressed = false
             var waited = false
             var inString = false
+            let functions = Self.functionBodies(in: text)
+            // A call to an in-file helper that presses is a press line too, so
+            // a press-only helper followed by an inline wait is the same shape.
+            let pressers = Self.pressingHelpers(in: functions)
             for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
                 let line = String(raw)
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // A comment is not code, even one quoting `"""`.
+                if !inString, trimmed.hasPrefix("//") { continue }
                 // A multi-line literal is not code (the self-checks plant
                 // their offenders in them).
                 let delimiters = Self.stringDelimiterCount(in: trimmed)
@@ -2477,7 +2492,6 @@ final class TripwireGrepTests: XCTestCase {
                     if delimiters % 2 == 1 { inString.toggle() }
                     continue
                 }
-                if trimmed.hasPrefix("//") { continue }
                 if trimmed.hasPrefix("func test_") {
                     let rest = trimmed.dropFirst("func ".count)
                     name = String(rest.prefix { $0 == "_" || $0.isLetter || $0.isNumber })
@@ -2490,10 +2504,11 @@ final class TripwireGrepTests: XCTestCase {
                     continue
                 }
                 guard name != nil else { continue }
-                if Self.isPressCall(trimmed) { pressed = true }
-                else if pressed, Self.isWaitCall(trimmed) { waited = true }
+                if Self.isPressCall(trimmed)
+                    || pressers.contains(where: { Self.calls($0, in: [trimmed]) }) {
+                    pressed = true
+                } else if pressed, Self.isWaitCall(trimmed) { waited = true }
             }
-            let functions = Self.functionBodies(in: text)
             let selfWaiting = Self.selfWaitingPressHelpers(in: functions)
             for function in functions where function.name.hasPrefix("test_") {
                 let hit = "\(url.lastPathComponent) \(function.name)"
@@ -2525,19 +2540,9 @@ final class TripwireGrepTests: XCTestCase {
             names.contains { Self.calls($0, in: [line]) }
         }
         func closure(seed: (String) -> Bool) -> Set<String> {
-            var found = Set(helpers.filter { $0.body.contains(where: seed) }.map(\.name))
-            var grew = true
-            while grew {
-                grew = false
-                for helper in helpers where !found.contains(helper.name)
-                    && helper.body.contains(where: { callsAny(found, $0) }) {
-                    found.insert(helper.name)
-                    grew = true
-                }
-            }
-            return found
+            Self.inFileClosure(of: helpers, seed: seed)
         }
-        let pressers = closure { Self.isPressCall($0) }
+        let pressers = pressingHelpers(in: functions)
         let waiters = closure { line in
             let code = Self.withoutStringLiterals(line)
             return Self.selfWaitTokens.contains { code.contains($0) }
@@ -2559,6 +2564,32 @@ final class TripwireGrepTests: XCTestCase {
                     }
                     if Self.isPressCall(line) || callsAny(pressers, line) { pressed = true }
                 }
+            }
+        }
+        return found
+    }
+
+    /// The helpers among `functions` (one file's) that press: a press line in
+    /// the body, or a call to another such helper.
+    static func pressingHelpers(in functions: [(name: String, body: [String])]) -> Set<String> {
+        inFileClosure(of: functions.filter { !$0.name.hasPrefix("test_") },
+                      seed: { Self.isPressCall($0) })
+    }
+
+    /// The helpers with a body line `seed` accepts, closed under in-file
+    /// calls: a helper calling a found helper is found.
+    private static func inFileClosure(
+        of helpers: [(name: String, body: [String])], seed: (String) -> Bool
+    ) -> Set<String> {
+        var found = Set(helpers.filter { $0.body.contains(where: seed) }.map(\.name))
+        var grew = true
+        while grew {
+            grew = false
+            for helper in helpers where !found.contains(helper.name)
+                && helper.body.contains(where: { line in
+                    found.contains { Self.calls($0, in: [line]) } }) {
+                found.insert(helper.name)
+                grew = true
             }
         }
         return found
@@ -2615,7 +2646,9 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Self-check: fires on a planted press-then-poll, a planted raw perform
-    /// followed by a fixed pump, a planted `try await press(`, and (#120) a
+    /// followed by a fixed pump, a planted `try await press(`, a call to a
+    /// press-only helper followed by an inline wait (past a comment quoting a
+    /// triple quote), and (#120) a
     /// test calling a helper that presses and then polls inside itself, or a
     /// helper of that helper; stays quiet on a mount-and-read test, a press
     /// with no wait, a wait with no press, prose naming both, a press helper
@@ -2647,6 +2680,14 @@ final class TripwireGrepTests: XCTestCase {
             func test_waitsOutAfterAPress() async throws {
                 press(try axButtons(labelled: "Go", in: window)[0])
                 await waitOut(0.3)
+            }
+            // A comment quoting \""" must not hide the code after it.
+            func test_waitsInlineAfterAPressOnlyHelper() async throws {
+                tapGo(in: window)
+                _ = await pumpUntil(deadline: 3) { box.count == 1 }
+            }
+            private func tapGo(in window: NSWindow) {
+                _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
             }
         }
         """.write(to: tmp.appendingPathComponent("SomeSuite.swift"),
@@ -2748,6 +2789,7 @@ final class TripwireGrepTests: XCTestCase {
             "SomeSuite.swift test_awaitsAPressThenWaits",
             "SomeSuite.swift test_pollsAfterAPress",
             "SomeSuite.swift test_sleepsAfterARawPerform",
+            "SomeSuite.swift test_waitsInlineAfterAPressOnlyHelper",
             "SomeSuite.swift test_waitsOutAfterAPress",
         ])
     }
@@ -2916,12 +2958,12 @@ final class TripwireGrepTests: XCTestCase {
         var inString = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if !inString, trimmed.hasPrefix("//") { continue }
             let delimiters = Self.stringDelimiterCount(in: trimmed)
             if inString || delimiters % 2 == 1 {
                 if delimiters % 2 == 1 { inString.toggle() }
                 continue
             }
-            if trimmed.hasPrefix("//") { continue }
             let words = trimmed.split(separator: " ")
             guard let at = words.firstIndex(of: "class"), at + 1 < words.count else { continue }
             let modifiers: Set<Substring> = ["final", "private", "fileprivate", "internal",
@@ -2977,12 +3019,14 @@ final class TripwireGrepTests: XCTestCase {
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // A comment first: one quoting `"""` must not open a literal.
+            if !inString, trimmed.hasPrefix("//") { continue }
             let delimiters = Self.stringDelimiterCount(in: trimmed)
             if inString || delimiters % 2 == 1 {
                 if delimiters % 2 == 1 { inString.toggle() }
                 continue
             }
-            if trimmed.isEmpty || trimmed.hasPrefix("//") { continue }
+            if trimmed.isEmpty { continue }
             let indent = line.prefix { $0 == " " }.count
             if let open = current, indent <= open.indent, !trimmed.hasPrefix(")") {
                 result.append((open.name, open.body))

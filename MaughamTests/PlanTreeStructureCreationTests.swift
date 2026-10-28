@@ -72,7 +72,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
             try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
 
             XCTAssertEqual(store.manifest.structure.count, 1,
-                           "\(type): pressing New Document in Plan's tree must "
+                           "\(type): New Document's verb, drawn in Plan's tree, must "
                            + "add a document — Plan is where §2 says structure "
                            + "is produced")
             XCTAssertEqual(store.manifest.structure.first?.type, .document)
