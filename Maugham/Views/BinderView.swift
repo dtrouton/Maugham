@@ -417,23 +417,36 @@ struct BinderView: View {
     }
 
     private func addItem(parent: StructureItem?, kind: StructureItemKind) async {
+        do {
+            let item = try await Self.addItem(parent: parent, kind: kind, in: store)
+            renamingItemId = item.id  // immediately go to rename mode
+            selectedSubject = .item(item.id)
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    /// **New Document / New Group's verb, windowless** — what every creation
+    /// button and menu item in the tree runs, pinned without a press
+    /// (tripwire 33, `PlanTreeStructureCreationTests`): a document or group
+    /// inside `parent` when it is a group, beside it otherwise, at the root
+    /// for `nil`. The view's own `addItem` adds the rename and the selection.
+    static func addItem(parent: StructureItem?, kind: StructureItemKind,
+                        in store: ProjectStore) async throws -> StructureItem {
         let parentId: String? = {
             guard let parent else { return nil }
-            return parent.type == .group ? parent.id : findParentId(of: parent.id)
+            return parent.type == .group
+                ? parent.id
+                : findParent(childId: parent.id, in: store.manifest.structure, parent: nil)
         }()
         let title: String
         switch kind {
         case .document: title = "New Document"
         case .group:    title = "New Group"
         }
-        do {
-            let item = try await store.addStructureItem(
-                parentId: parentId, title: title, kind: kind)
-            renamingItemId = item.id  // immediately go to rename mode
-            selectedSubject = .item(item.id)
-        } catch {
-            pendingError = error.localizedDescription
-        }
+        let item = try await store.addStructureItem(
+            parentId: parentId, title: title, kind: kind)
+        return item
     }
 
     /// Empty-state shown when `store.manifest.structure` has zero items —

@@ -1603,13 +1603,23 @@ struct DiagnosticsPane: View {
         guard let document = activeDocument() else { return }
         answerFailures[annotation.id] = nil
         Task {
-            do {
-                try await document.rejectAnnotation(
-                    id: annotation.id, undoManager: undoManager)
-            } catch {
-                documentLog.error("\u{201C}Not this\u{201D} failed for \(annotation.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                answerFailures[annotation.id] = Self.dispositionRefusal(error)
+            if let failure = await Self.notThis(annotationId: annotation.id, in: document, undoManager: undoManager) {
+                answerFailures[annotation.id] = failure
             }
+        }
+    }
+
+    /// **Not this's verb, windowless** — what the row's button runs, pinned
+    /// without a press (tripwire 33): the annotation layer's own reject, and
+    /// nil when it settled, else the sentence the row shows.
+    static func notThis(annotationId: String, in document: Document,
+                        undoManager: UndoManager?) async -> String? {
+        do {
+            try await document.rejectAnnotation(id: annotationId, undoManager: undoManager)
+            return nil
+        } catch {
+            documentLog.error("\u{201C}Not this\u{201D} failed for \(annotationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return dispositionRefusal(error)
         }
     }
 

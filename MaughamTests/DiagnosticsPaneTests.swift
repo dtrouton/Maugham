@@ -2980,36 +2980,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             compilerFingerprint: "continuity\u{1f}\(body)\u{1f}\(paragraphId ?? "")\u{1f}")
     }
 
-    /// Press a real button through the accessibility tree and poll until the
-    /// verb it starts has landed — both dispositions hop to a `Task`, so a
-    /// synchronous read would see the pane before the op log has moved.
-    ///
-    /// **Polls rather than sleeps** (review, Important 3): a fixed sleep is a
-    /// bet on how long an op-log append takes, and this suite's tests run in
-    /// parallel worker processes against a machine that may be hosting several
-    /// other gates.
-    ///
-    /// **Genuinely `async`, unlike `waitUntil`** — this file's synchronous
-    /// idiom pumps only the main run loop, which is the right tool for
-    /// catching up to a render that follows an already-applied, synchronous
-    /// state change. What this waits on is different in kind: a real
-    /// asynchronous disposition (`Document.acceptAnnotation`/
-    /// `rejectAnnotation`) that hops off the main actor to append to the op
-    /// log. A tight synchronous pump loop measurably starved that hop — the
-    /// first version of this fix reused `waitUntil` and every disposition
-    /// test timed out at its full budget with the row never moving. Yielding
-    /// with a real `await Task.sleep` between polls, as the fixed-sleep
-    /// version this replaced did by construction, is what actually lets the
-    /// op log's write land.
-    private func press(
-        _ label: String, in window: NSWindow, timeout: TimeInterval = 5,
-        until settled: () -> Bool
-    ) async throws {
-        let target = try button(labelled: label, in: window)
-        _ = target.perform(NSSelectorFromString("accessibilityPerformPress"))
-        try await waitUntilAsync(timeout: timeout) { settled() }
-    }
-
     /// `waitUntil`'s async sibling: polls `condition`, yielding with a real
     /// `await Task.sleep` between attempts rather than only pumping the main
     /// run loop, so a condition gated on genuine off-main-actor async work
@@ -3026,7 +2996,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// The note's status now, or `nil` if it is not in the projection at all —
-    /// non-throwing, because it is also the polling predicate `press` waits on.
+    /// non-throwing, so a caller can ask after a note that may have left.
     private func statusIfPresent(
         of annotationId: String, in document: Document
     ) -> AnnotationStatus? {
@@ -3182,7 +3152,12 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// **Not this is one gesture and asks for nothing.** The reason-carrying
-    /// decline belongs to Review's queue; wet ink gets a no.
+    /// decline belongs to Review's queue; wet ink gets a no. Pinned on the
+    /// verb the row's button runs (`DiagnosticsPane.notThis`), with no press
+    /// (#120, tripwire 33 — `test_gotItSettlesTheNote`'s shape): the verb takes
+    /// no reason, so there is no field for the gesture to open, and the row
+    /// draws none. The row leaving once its note settles is
+    /// `test_aNoteSettledElsewhereLeavesTheViewWithoutAnotherCheck`.
     func test_notThisDeclinesInOneGestureWithNoReasonField() async throws {
         let document = try await makeMultiParagraphDocument()
         let paragraphId = try XCTUnwrap(document.sequence.first)
@@ -3196,20 +3171,27 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
-
-        try await press("Not this", in: window) {
-            self.statusIfPresent(of: noteId, in: document) != .open
-        }
-
-        XCTAssertEqual(try status(of: noteId, in: document), .rejected)
+        XCTAssertNoThrow(try button(labelled: "Not this", in: window), "the row offers Not this")
         XCTAssertTrue(revealedFields(in: window).isEmpty,
-                      "Not this opened a field \u{2014} the reasons are Review's")
-        XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
-                       "got \(allLabels(in: window))")
+                      "the row drew a field \u{2014} the reasons are Review's")
+
+        let failure = await DiagnosticsPane.notThis(
+            annotationId: noteId, in: document, undoManager: UndoManager())
+
+        XCTAssertNil(failure, "it settled")
+        XCTAssertEqual(try status(of: noteId, in: document), .rejected)
+        XCTAssertNil(
+            document.annotations(filter: AnnotationFilter(statuses: nil))
+                .first { $0.id == noteId }?.userResponse,
+            "the decline carried a reason \u{2014} the reasons are Review's")
     }
 
-    /// ⌘Z reaches the decline through the pane's own undo manager — the
-    /// annotation layer's existing machinery, wired rather than reimplemented.
+    /// ⌘Z reaches the decline through the undo manager the verb is handed —
+    /// the annotation layer's existing machinery, wired rather than
+    /// reimplemented. Windowless (#120, tripwire 33): the pane hands the verb
+    /// its own `undoManager` (`WiringCensusTests`, `type:DiagnosticsPane`), and
+    /// the undo's async hop is awaited through `awaitPendingUndoWork`, not
+    /// polled.
     func test_undoAfterNotThisReopensTheNote() async throws {
         let document = try await makeMultiParagraphDocument()
         let paragraphId = try XCTUnwrap(document.sequence.first)
@@ -3221,27 +3203,17 @@ final class DiagnosticsPaneTests: XCTestCase {
             on: document, run: run, body: "Has anyone said how long yet?",
             paragraphId: paragraphId)
 
-        let window = mount(wetInkPane(document: document, store: store))
-        pump(0.3)
-        try await press("Not this", in: window) {
-            self.statusIfPresent(of: noteId, in: document) != .open
-        }
+        let undoManager = UndoManager()
+        let failure = await DiagnosticsPane.notThis(
+            annotationId: noteId, in: document, undoManager: undoManager)
+        XCTAssertNil(failure, "control: the decline landed")
         XCTAssertEqual(try status(of: noteId, in: document), .rejected,
                        "control: the decline landed")
 
-        let undoManager = try XCTUnwrap(
-            window.undoManager,
-            "the hosted pane has no undo manager, so nothing could have been "
-            + "registered through it")
         XCTAssertTrue(undoManager.canUndo,
                       "the decline registered no undo action at all")
         undoManager.undo()
-        // Polled, not slept, and genuinely async for the same reason `press`
-        // is: the undo handler hops the reopen onto a task off the main
-        // actor, and only a real `await` between polls reliably lets it land.
-        try await waitUntilAsync {
-            self.statusIfPresent(of: noteId, in: document) == .open
-        }
+        await document.awaitPendingUndoWork()
 
         XCTAssertEqual(try status(of: noteId, in: document), .open,
                        "\u{2318}Z after Not this must reopen the note")
@@ -3580,15 +3552,20 @@ final class DiagnosticsPaneTests: XCTestCase {
         let second = try await mintNote(
             on: document, run: run, body: "The second question.", paragraphId: paragraphId)
 
+        // Settled through the rows' own verbs, then mounted and read (#120,
+        // tripwire 33): the pressed version waited on the op log and read the
+        // window without waiting for SwiftUI's re-render. A row leaving under
+        // a mounted pane is `test_aNoteSettledElsewhereLeavesTheViewWithoutAnotherCheck`.
+        let undoManager = UndoManager()
+        let gotIt = await DiagnosticsPane.gotIt(
+            annotationId: first, in: document, undoManager: undoManager)
+        let notThis = await DiagnosticsPane.notThis(
+            annotationId: second, in: document, undoManager: undoManager)
+        XCTAssertNil(gotIt, "control: Got it settled the first")
+        XCTAssertNil(notThis, "control: Not this settled the second")
+
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
-
-        try await press("Got it", in: window) {
-            self.statusIfPresent(of: first, in: document) != .open
-        }
-        try await press("Not this", in: window) {
-            self.statusIfPresent(of: second, in: document) != .open
-        }
 
         let labels = allLabels(in: window)
         XCTAssertFalse(labels.contains("THIS CHECK"),
