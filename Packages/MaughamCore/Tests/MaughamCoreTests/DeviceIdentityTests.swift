@@ -197,30 +197,48 @@ final class DeviceIdentityTests: XCTestCase {
 
     // MARK: - DeviceState
 
-    /// The per-process leaf is the `TestWorkspace.root` idiom verbatim: present
-    /// under XCTest (where the Mac suite runs classes across worker PROCESSES,
-    /// so a shared directory would have one worker's mint answer another's
-    /// `current`) and absent everywhere else. `swift test` does not set
-    /// `XCTestConfigurationFilePath`, so this test sees both shapes depending on
-    /// which gate is running it — and asserts the one it is actually in.
-    func test_theDeviceDirectoryIsPerWorkerUnderXCTestAndBareOtherwise() throws {
-        var directory = DeviceState.directory
+    /// The per-process leaf is the `TestWorkspace.root` idiom verbatim, and it
+    /// is taken in EVERY test process — the Mac and phone hosts and these
+    /// `swift test` workers alike (`TestProcess.isActive`). `swift test` sets
+    /// no XCTest variable, so until 2026-10-28 this suite took the bare path:
+    /// the LIVE dev app's device folder, its Enclave key and its 12 MB
+    /// registry cache. A test process must never answer `base`.
+    func test_aTestProcessTakesAPerProcessLeafAndNeverTheLiveFolder() throws {
+        XCTAssertTrue(TestProcess.isActive,
+            "a process running XCTest must know it is one, with or without "
+            + "Xcode's environment")
+        let directory = DeviceState.directory
 
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            XCTAssertEqual(directory.lastPathComponent,
-                           "xctest-worker-\(ProcessInfo.processInfo.processIdentifier)",
-                "Under XCTest the device directory takes a per-process leaf, exactly "
-                + "as TestWorkspace.root does — parallel workers must not share key "
-                + "material.")
-            directory = directory.deletingLastPathComponent()
-        }
+        XCTAssertNotEqual(directory.standardizedFileURL, DeviceState.base.standardizedFileURL,
+            "a test process answered the live app's own device folder")
+        XCTAssertEqual(directory.lastPathComponent,
+                       "xctest-worker-\(ProcessInfo.processInfo.processIdentifier)",
+            "Every test process takes a per-process leaf, exactly as "
+            + "TestWorkspace.root does — parallel workers must not share key "
+            + "material, and none may touch the live app's.")
 
-        XCTAssertEqual(directory.lastPathComponent, "device")
-        XCTAssertEqual(directory.deletingLastPathComponent().lastPathComponent,
+        let parent = directory.deletingLastPathComponent()
+        XCTAssertEqual(parent.lastPathComponent, "device")
+        XCTAssertEqual(parent.deletingLastPathComponent().lastPathComponent,
                        BuildVariant.current.supportFolderName)
         XCTAssertEqual(
-            directory.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent,
+            parent.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent,
             "Application Support")
+        XCTAssertEqual(TestWorkspace.root.lastPathComponent, directory.lastPathComponent,
+            "the workspace and the device folder answer the same predicate")
+    }
+
+    /// The rule over its inputs: any one XCTest variable, or XCTest loaded,
+    /// is a test process; nothing at all is the live app.
+    func test_theTestProcessRuleReadsTheEnvironmentOrTheLoadedXCTest() {
+        XCTAssertFalse(TestProcess.isActive(environment: [:], xctestLoaded: false),
+            "the live app — no variable, no XCTest — must keep the bare paths")
+        XCTAssertTrue(TestProcess.isActive(environment: [:], xctestLoaded: true),
+            "swift test's workers carry no variable but have XCTest loaded")
+        for key in ["XCTestConfigurationFilePath", "XCTestSessionIdentifier", "XCTestBundlePath"] {
+            XCTAssertTrue(TestProcess.isActive(environment: [key: "x"], xctestLoaded: false), key)
+        }
+        XCTAssertFalse(TestProcess.isActive(environment: ["PATH": "/usr/bin"], xctestLoaded: false))
     }
 
     /// The two shapes agree on everything but the leaf — pinned by rebuilding
@@ -315,7 +333,7 @@ final class DeviceIdentityTests: XCTestCase {
 
 /// The per-process test leaf is swept (the whole-branch review's M2).
 ///
-/// `DeviceState.directory` mints an `xctest-worker-<pid>` leaf under XCTest, and
+/// `DeviceState.directory` mints an `xctest-worker-<pid>` leaf in a test process, and
 /// nothing ever removed one: seven workers a gate, dozens of gates a day, a key
 /// blob and a state file each, under Application Support forever. The isolation
 /// is right and stays; the housekeeping was missing.

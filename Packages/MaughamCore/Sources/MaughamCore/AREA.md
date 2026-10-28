@@ -217,14 +217,15 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `DeviceIdentity.swift` — one actor's Secure Enclave signing key and stable device id (tripwire 35).
 - `DeviceIdentity+Testing.swift` — software test signers, quarantined by name (tripwire 36).
 - `LocalIdentities.swift` — this device's actor identities, minted lazily on first naming.
-- `DeviceState.swift` — the path of this device's own key material under Application Support.
+- `DeviceState.swift` — where this device's key material lives.
 - `ULID.swift` — monotonic sortable 26-character ids.
 - `StableHash.swift` — launch-stable FNV-1a hashing for on-disk ids; never `hashValue`.
 - `ISO8601Fast.swift` — hand parser for the two ISO 8601 shapes Maugham writes.
 - `SafeRelativePath.swift` — the one path checker for synced paths: resolves an untrusted project-relative path, refusing escapes from the root (lexical, to read); `resolveForChange` also checks the folder chain on disk (to write, move or delete); also a plain file name, one file in a folder, a doc id in a file name. Tripwire 58.
 - `ContentHash.swift` — a file's SHA-256 prefix, the name a figure image carries.
 - `DotfileScan.swift` — name-based dotfile test for scans that must ignore the BSD hidden flag.
-- `TestWorkspace.swift` — dev-only throwaway root that fences mutating test MCP tools.
+- `TestWorkspace.swift` — throwaway root fencing test MCP-tools.
+- `TestProcess.swift` — the one is-this-a-test-process predicate (tripwire 19).
 - `IntegrityChecks.swift` — pure consistency checks over already-loaded ops, checkpoints and filenames.
 - `ProjectIntegrity.swift` — the live project health report (parse skips, dangling checkpoints, conflict twins).
 - `MerkleManifest.swift` — per-file SHA-256 plus root hash over a set of files.

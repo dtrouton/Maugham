@@ -15,21 +15,18 @@
 # the guard. MAUGHAM_TEST_DRY_RUN=1 (exactly 1) prints the test commands instead of
 # running them (the guard still runs; it is what the self-test exercises).
 #
-# RUN CORE THROUGH `core`, NOT A BARE `swift test`, WHILE ANY OTHER GATE MAY
-# BE UP (2026-09-25, P3c plan 2 Task 9). Every `xcodebuild test` — Mac or
-# phone scheme, any session's — SIGKILLs every process on the machine NAMED
-# `xctest` as it starts testing, and `swift test --parallel` runs each Core
-# test in its own `xctest` process. The victim is whichever Core test happened
-# to be alive: the run exits 1, `Note: Some test targets reported failures`,
-# and the only output is that test's `Test Case '…' started.` with nothing
-# after it — no assertion, no crash report, a different test each time, green
-# alone and on a re-run. Measured with a decoy: a copy of /bin/sleep named
-# `xctest` was killed (status 137) ~2 s before an unrelated `xcodebuild test`
-# printed "Testing started", while the same binary under another name lived.
-# The `core` mode takes the gate lock, so it queues behind this script's gates
-# (and they behind it); a RAW `xcodebuild test` from another session bypasses
-# the lock and can still kill it — re-run before believing a red Core test
-# that matches that signature.
+# A CORE WORKER CAN DIE SILENTLY, AND THE CORE LEG RE-RUNS IT ONCE (2026-10-28).
+# `swift test --parallel` runs each Core test in its own fresh `xctest`
+# process. macOS SIGKILLs a fresh worker at its first NSFileCoordinator claim
+# when RunningBoard still lists its recycled pid as a suspended extension; the
+# backlog of such stale records grows with uptime. SwiftPM then prints only
+# that test's `Test Case '…' started.` and exits 1. When those silent deaths
+# are the ONLY failures (scripts/lib/core-deaths.sh decides; at most 20), the
+# leg names them and re-runs just them, once, in one process; it passes only
+# if they pass. Any assertion or crash fails as before. A rarer cause of the
+# same line is an `xcodebuild test` starting elsewhere, which kills processes
+# named `xctest`; `core` takes the gate lock so this script's own gates never
+# overlap it. docs/testing/TROUBLESHOOTING.md, "A Core test dies with only …".
 #
 # fast skips exactly one thing, documented in docs/testing/TROUBLESHOOTING.md
 # ("The suite is slow while iterating"):
@@ -163,9 +160,54 @@ run_cmd() {
   fi
 }
 
+CORE_PKG="Packages/MaughamCore"
+
+# The Core leg, with the one-shot re-run of silently killed workers (header).
 run_core() {
   echo "▸ MaughamCore package tests (swift test --parallel)"
-  run_cmd swift test --parallel --package-path Packages/MaughamCore
+  if [[ "${MAUGHAM_TEST_DRY_RUN:-}" == 1 ]]; then
+    run_cmd swift test --parallel --package-path "$CORE_PKG"
+    return 0
+  fi
+  local log rc verdict names
+  log=$(mktemp "${TMPDIR:-/tmp}/maugham-core.XXXXXX")
+  set +e
+  swift test --parallel --package-path "$CORE_PKG" 2>&1 | tee "$log"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [[ $rc -eq 0 ]]; then
+    rm -f "$log"
+    return 0
+  fi
+  verdict=$(scripts/lib/core-deaths.sh "$log")
+  case "$verdict" in
+    retry\ *)
+      names=$(tail -n +2 <<<"$verdict")
+      echo "↻ core: $(wc -l <<<"$names" | tr -d ' ') worker(s) died silently (macOS stale-pid SIGKILL —"
+      echo "  docs/testing/TROUBLESHOOTING.md, \"A Core test dies with only …\"); re-running them alone:"
+      sed 's/^/    /' <<<"$names"
+      set +e
+      swift test --package-path "$CORE_PKG" --filter "$(head -1 <<<"$verdict" | cut -d' ' -f2-)" 2>&1 | tee "$log.retry"
+      rc=${PIPESTATUS[0]}
+      set -e
+      if [[ $rc -eq 0 ]] && scripts/lib/core-deaths.sh --verify-retry "$log.retry" "$(wc -l <<<"$names" | tr -d ' ')"; then
+        rm -f "$log" "$log.retry"
+        return 0
+      fi
+      [[ $rc -ne 0 ]] || rc=1
+      echo "  core logs kept: $log $log.retry" >&2
+      return "$rc"
+      ;;
+    over-cap\ *)
+      echo "✗ core: ${verdict#over-cap } workers died silently — too many to re-run; see" >&2
+      echo "  docs/testing/TROUBLESHOOTING.md, \"A Core test dies with only …\" (a reboot should clear the backlog)." >&2
+      ;;
+    real-failure\ *)
+      echo "✗ core: real failures (plus ${verdict#real-failure } silent death(s), not re-run)." >&2
+      ;;
+  esac
+  echo "  core log kept: $log" >&2
+  return "$rc"
 }
 
 # The skipped tests in a result bundle, checked against the committed baseline.
