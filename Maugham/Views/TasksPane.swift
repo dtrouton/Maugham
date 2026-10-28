@@ -155,55 +155,21 @@ struct TasksPane: View {
 
     // MARK: Toolbar
 
-    @ViewBuilder
+    /// The toolbar, built from values (`TasksPaneToolbar`, #122) so a test can
+    /// measure it against the column's floor without a store.
     private var toolbar: some View {
-        HStack(spacing: 6) {
-            Picker("Scope", selection: $scope) {
-                Text("Doc").tag(ScopeChoice.document)
-                Text("Project").tag(ScopeChoice.project)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .labelsHidden()
-
-            Spacer(minLength: 4)
-
-            AdaptiveFilterRow(
-                items: TaskStatusFilterItem.allCases,
-                selection: $statusFilter)
-                .layoutPriority(1)
-
-            Spacer(minLength: 4)
-
+        TasksPaneToolbar(
+            scope: $scope,
+            statusFilter: $statusFilter,
             // **Hidden where the posture offers no task anywhere this pane
             // could file one** (P3c Task 8) — never greyed for that reason;
             // the pre-existing "no document for Doc scope" disable is a
             // different fact and stays.
-            if creation.offersAny {
-                Button {
-                    presentCreateSheet()
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .help("New task")
-                .disabled(newTaskButtonDisabled)
-            }
-
-            if mayArchiveInScope {
-                Menu {
-                    Button("Archive all done") {
-                        archiveAllDone(in: scope, undoManager: undoManager)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Bulk actions")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+            showsNewTask: creation.offersAny,
+            newTaskDisabled: newTaskButtonDisabled,
+            showsBulkMenu: mayArchiveInScope,
+            onNewTask: { presentCreateSheet() },
+            onArchiveAllDone: { archiveAllDone(in: scope, undoManager: undoManager) })
     }
 
     private var newTaskButtonDisabled: Bool {
@@ -289,6 +255,9 @@ struct TasksPane: View {
                     .tag(task.id)
             }
             .listStyle(.sidebar)
+            // `.sidebar` stays for drag-to-reorder; its material fill does not
+            // — no other right-column pane paints one (#122).
+            .scrollContentBackground(.hidden)
             // The List's own primary action: double-click on a row, or
             // Return with one selected, jumps to its paragraph — no tap
             // gesture on the row (tripwire 9). Right-click offers the same.

@@ -145,13 +145,25 @@ struct RightColumn: View {
             // it (the spike note). It is here so that a pane whose content cannot
             // break DRAWS inside its column instead of over the prose. Nothing
             // guards it; this comment is why it stays.
-            .frame(width: width)
+            //
+            // **Leading, not centred** (#122). A centred frame put the overflow
+            // of a too-wide pane on BOTH sides, so the clip cut the pane's
+            // leading edge and pushed the resize handle out of reach. Leading
+            // keeps the handle and the pane's start where they belong and spends
+            // any overflow on the trailing edge alone. This is the safety net;
+            // the rule is that every pane fits (`RightColumnPaneWidthTests`).
+            .frame(width: width, alignment: .leading)
             .clipped()
             .navigationSplitViewColumnWidth(width)
         } else {
             ProjectWindow.hiddenDetailColumn
         }
     }
+
+    /// The resize handle's gutter. A pane gets the column's width less this,
+    /// so the narrowest a pane is ever drawn is
+    /// `UIState.detailColumnWidthRange.lowerBound - resizeHandleWidth`.
+    static let resizeHandleWidth: CGFloat = 8
 
     /// The right column's own resize affordance, on its leading edge.
     ///
@@ -170,7 +182,7 @@ struct RightColumn: View {
     /// than a debounce racing a persona change.
     private func detailResizeHandle(documentStore: DocumentStore) -> some View {
         Color.clear
-            .frame(width: 8)
+            .frame(width: Self.resizeHandleWidth)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .onHover { inside in

@@ -232,6 +232,9 @@ struct InboxPane: View {
                     row(entry)
                 }
                 .listStyle(.inset)
+                // No fill of its own: the right column's panes share one
+                // background (#122).
+                .scrollContentBackground(.hidden)
             }
         }
         // Tripwire #15: empty-state panes need BOTH the inner ContentUnavailableView
@@ -452,6 +455,7 @@ struct InboxPane: View {
                 }
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
         }
     }
 
