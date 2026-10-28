@@ -1,3 +1,4 @@
+// Static-only by rule (#116): no instance members — instance state stays in the root.
 import SwiftUI
 import MaughamCore
 

@@ -282,7 +282,7 @@ struct DepartmentPane: View {
             // and mint cases crashed on an empty button array). This is
             // narrower than "two `.sheet` modifiers on one view" — three
             // stacked `.sheet(item:)` modifiers already coexist on one view
-            // in `AnnotationsPane.swift` and `InboxPane.swift`. Each sheet
+            // in `AnnotationsPaneDialogs.swift` and `InboxPane.swift`. Each sheet
             // here still gets a view of its own.
             desk
                 .sheet(isPresented: $showingCompileSheet) {

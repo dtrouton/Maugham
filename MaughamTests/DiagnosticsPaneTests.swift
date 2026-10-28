@@ -4429,7 +4429,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_bothHostsDecideTheOfferThroughTheOneBuilder() throws {
         for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try readSource(path)
+            let source = try hostSource(path)
             XCTAssertTrue(
                 source.contains("TurnClauseOffer.handler("),
                 "\(path) must reach the one builder")
@@ -4887,7 +4887,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_bothHostsCommitTheAskThroughTheOneFunction() throws {
         for path in ["Maugham/Views/DiagnosticsPaneHeader.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try readSource(path)
+            let source = try hostSource(path)
             XCTAssertTrue(
                 source.contains("AskField.commit("),
                 "\(path) must go through the shared commit")
@@ -5029,7 +5029,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_bothHostsTakeTheLedgerVerbsFromTheOneBuilder() throws {
         for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try readSource(path)
+            let source = try hostSource(path)
             XCTAssertTrue(
                 source.contains("LessonOffer.handlers("),
                 "\(path) must build its ledger closures with the shared builder")
@@ -5336,6 +5336,15 @@ final class DiagnosticsPaneTests: XCTestCase {
             .deletingLastPathComponent()
         return try String(
             contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// A letter host's code. Review's host is the whole `AnnotationsPane`
+    /// split (#116 F11): its letter lives in a child file, and a ban must see
+    /// every file the pane is made of.
+    private func hostSource(_ relativePath: String) throws -> String {
+        relativePath == "Maugham/Views/AnnotationsPane.swift"
+            ? try AnnotationsPaneSource.surfaceSource()
+            : try readSource(relativePath)
     }
 }
 

@@ -109,7 +109,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `AdaptiveFilterRow.swift` — the filter row that degrades labels to icons.
 
 ### Annotations queue and Review
-- `AnnotationsPane.swift` — the queue: rows (`AnnotationRow`, `AnnotationRowVerbs`, `AnnotationRowPolicy`), the cockpit mount, `PassOrderNudgeRow`, `letterVoice`.
+- `AnnotationsPane.swift` — the queue, composed. Children: `AnnotationsPaneStrips.swift` (cockpit, `PassOrderNudgeRow`), `AnnotationsPaneQueues.swift` (both scopes, bulk bar), `AnnotationListView.swift` (mountable alone), `AnnotationRow.swift` (`AnnotationRow`, `AnnotationRowVerbs`, `AnnotationRowPolicy`), `AnnotationsPaneVerbs.swift`, `AnnotationsPaneDialogs.swift`, `AnnotationsPaneStatics.swift` (`letterVoice`).
 - `AnnotationAuthorPresentation.swift` — how an annotation's author is shown; `AnnotationAuthorFilter`.
 - `AnnotationBulkActions.swift` — multiselect's plan, honest counts and executor.
 - `AnnotationQueueOrder.swift` — queue order and `AnnotationTriageFilter`.
