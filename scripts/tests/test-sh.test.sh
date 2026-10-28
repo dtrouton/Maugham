@@ -56,6 +56,12 @@ out=$(run phone); [[ "$out" == *"$REGEN"* ]] || fail "missing project did not re
 [[ $(gens) -eq 4 ]] || fail "gen count: $(cat gen.log)"
 out=$(run core); [[ "$out" != *"$REGEN"* ]] || fail "core must not touch the project"
 
+# full runs the skip gate after the Mac run, except under CI.
+out=$(env -u CI bash scripts/test.sh full 2>&1)
+grep -q '^DRYRUN.*skip_gate .*maugham-full-.*\.xcresult$' <<<"$out" || fail "full must run the skip gate: $out"
+out=$(CI=1 run full)
+[[ "$out" == *"skip gate: off under CI"* && "$out" != *skip_gate* ]] || fail "CI must turn the skip gate off: $out"
+
 # Dry run is MAUGHAM_TEST_DRY_RUN=1 exactly: any other value runs the real tools.
 out=$(MAUGHAM_TEST_DRY_RUN=0 run only Foo)
 [[ "$out" == *"REAL xcodebuild"* && "$out" != *DRYRUN* ]] || fail "DRY_RUN=0 must not dry-run: $out"

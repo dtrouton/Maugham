@@ -404,15 +404,6 @@ final class CanvasUnreadableTests: XCTestCase {
                        "never faster than once a minute, and never gives up while shown")
     }
 
-    /// The canvas centre hands the notice the model's retry verb. (Textual:
-    /// SwiftUI's inset has no windowless seam.)
-    func test_theCanvasCentreWiresTryAgainToTheModel() throws {
-        let code = SourceScan.codeLines(of: try SourceTree.windowSource())
-            .joined(separator: "\n")
-        XCTAssertTrue(code.contains("tryAgain: { canvasModel.retryUnreadable() }"),
-                      "the verb's answer reaches the notice, not discarded")
-    }
-
     // MARK: - Fix round (#88 review)
 
     /// A press that still couldn't read says so, in these words; a press that

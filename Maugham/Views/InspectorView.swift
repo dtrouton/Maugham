@@ -143,7 +143,11 @@ struct InspectorView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 240, idealWidth: 280)
+        // No minimum of its own: the right column sets the width, and a pane
+        // is drawn at the column less its resize handle. The old `minWidth:
+        // 240` was 8pt wider than that at the floor (#122). Not `minWidth: 0`
+        // either: that hides an overflow from `RightColumnPaneWidthTests`.
+        .frame(idealWidth: 280)
         .onChange(of: selectedItemId) { _, _ in loadDraftIfNeeded() }
         .task { loadDraftIfNeeded() }
         // Keyed on the PROJECT, not the selection: who may write in this book

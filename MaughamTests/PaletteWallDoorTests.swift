@@ -273,22 +273,6 @@ final class PaletteWallDoorTests: XCTestCase {
                       + "\(hits). `showsPaletteWall` replaced every one of these.")
     }
 
-    /// The subject-change close, wired rather than merely described — a
-    /// planted-offender-style existence check, not a behavioural drive: SwiftUI
-    /// `.onChange` handlers inside a `private` `ViewModifier` are not reachable
-    /// from a test any other way (the same reason the ORIGINAL palette↔canvas
-    /// race had no direct mounted test, only the pure-function halves and this
-    /// suite's `PromotionCommandTests` sibling's token census).
-    func test_theWallModifierClosesOnASubjectChange() throws {
-        let text = try SourceTree.declaration(
-            named: "struct PaletteWallModifier: ViewModifier {", under: "Maugham")
-        XCTAssertTrue(
-            text.contains(".onChange(of: selectedSubject) { _, _ in")
-            && text.contains("if paletteWall.showsWall { paletteWall.showsWall = false }"),
-            "PaletteWallModifier must close the wall on any subject change — "
-            + "the door's own contract")
-    }
-
     // MARK: - A persona change closes the wall, whoever wrote the persona (I3)
 
     /// **The rule, folded.** Dropping the stash rather than restoring it is what

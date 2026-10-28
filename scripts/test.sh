@@ -38,6 +38,11 @@
 #     before merge/tag, which is why full includes it. Skipping the base class
 #     name does nothing — XCTest schedules the concrete subclasses.
 #
+# full also fails when more tests SKIP than scripts/skip-baseline.txt names (one
+# test per line; the count is the ceiling). A rise names the new skips; a fall
+# passes and names the stale lines to delete. Local-only: CI set turns it off.
+# docs/testing/TROUBLESHOOTING.md, "The full gate fails on the skip count".
+#
 # full skips NOTHING. The old MCPServerLifecycleTests skip was retired
 # 2026-08-08: those three wall-clock MCP tests failed only under a saturated
 # single-process serial suite, and per-class parallel workers removed the
@@ -163,6 +168,12 @@ run_core() {
   run_cmd swift test --parallel --package-path Packages/MaughamCore
 }
 
+# The skipped tests in a result bundle, checked against the committed baseline.
+skip_gate() {
+  xcrun xcresulttool get test-results tests --path "$1" > "$1.tests.json"
+  scripts/lib/skip-gate.sh "$1.tests.json" scripts/skip-baseline.txt
+}
+
 # A PARKED TEST MUST BE KILLED AND NAMED, not left to eat the gate.
 #
 # CI has passed these two since it was written; local runs did not, and the
@@ -197,6 +208,15 @@ case "$MODE" in
     run_cmd xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
       CODE_SIGNING_ALLOWED=NO $TIMEOUTS \
       -resultBundlePath "$BUNDLE"
+    # The skip gate: more skips than scripts/skip-baseline.txt names fails.
+    # Local-only — the baseline is this Mac's environment; CI never runs `full`,
+    # and CI=… set (any value) skips the check in case it ever does.
+    if [[ -n "${CI:-}" ]]; then
+      echo "▸ skip gate: off under CI"
+    else
+      echo "▸ skip gate (scripts/skip-baseline.txt)"
+      run_cmd skip_gate "$BUNDLE"
+    fi
     ;;
   core)
     run_core

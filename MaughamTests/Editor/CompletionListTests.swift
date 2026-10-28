@@ -670,16 +670,6 @@ final class CompletionListTests: XCTestCase {
         assertOpen(m)                       // typing after it is typing
     }
 
-    /// The paste and the drop take the not-typing road (no test may paste on
-    /// the shared pasteboard or synthesise a drop, so the wiring is read).
-    func test_thePasteAndTheDropAreReadAsNotTyping() throws {
-        let surface = try SourceTree.read("Maugham/Editor/EditorSurface.swift")
-        XCTAssertTrue(surface.contains("coordinator.asNotTyping { pasteAsTyped(sender) }"),
-                      "MaughamTextView.paste no longer marks its edit as not typing")
-        XCTAssertTrue(surface.contains("coordinator.asNotTyping { super.performDragOperation(sender) }"),
-                      "a text drop no longer marks its edit as not typing")
-    }
-
     /// M5: a caret-following scroll that carries the trigger out of view closes.
     func test_aFollowingScrollThatLosesTheTriggerCloses() throws {
         let m = try mount(String(repeating: "A line of prose.\n", count: 200))

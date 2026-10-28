@@ -1380,31 +1380,12 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "Got:\n\(menu)")
     }
 
-    /// **The header is given the CHOSEN reader and both verbs.** The pane
-    /// defaults `reader` to `.nobody` and both closures to no-ops, so a
-    /// host that forgot to wire them would draw a picker that changes nothing
-    /// and a header naming a reader the run was not briefed on — neither of
-    /// which any assertion on values can see.
-    func test_theWindowGivesTheHeaderTheChosenReaderAndItsTwoVerbs() throws {
-        let toggle = try Self.source(of: "Views/DetailPaneToggle.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private var diagnosticsPane: some View {", in: toggle))
-
-        XCTAssertTrue(arm.contains("choice: ds.uiState.authorReaderChoice"),
-                      "the header reads the writer's CHOICE, not the default "
-                      + "rule \u{2014} the same resolution the run makes. "
-                      + "Got:\n\(arm)")
-        XCTAssertTrue(arm.contains("ds?.setAuthorReaderChoice("),
-                      "\u{2026}and the picker writes it through the one verb. "
-                      + "Got:\n\(arm)")
-        XCTAssertTrue(arm.contains("onOpenProjectSettings: onOpenProjectSettings"),
-                      "\u{2026}and the define item reaches the window's sheet. "
-                      + "Got:\n\(arm)")
-
-        let window = try SourceTree.windowSource()
-        XCTAssertTrue(
-            window.contains("onOpenProjectSettings: openProjectSettings"),
-            "the window opens the sheet the define item asks for")
+    /// **Project Settings is opened from exactly one place** — counted across
+    /// every view, so a second opener in a sibling is caught. That the header
+    /// is given the CHOSEN reader and both verbs (the pane defaults them to
+    /// `.nobody` and no-ops, which no assertion on values can see) is
+    /// `WiringCensusTests`' entry for `DetailPaneToggle.diagnosticsPane`.
+    func test_projectSettingsHasOneOpener() throws {
         XCTAssertEqual(
             try Self.projectSettingsOpeners(), 1,
             "Project Settings is opened from exactly one place — counted across "
@@ -1444,20 +1425,42 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     /// **And a stale request dies at the next presentation**, which is the
     /// other half: without it the flag survives with no sheet on screen and
-    /// the guard above only narrows which dismissal it fires at.
-    func test_everySheetPresentationClearsAStaleHandoff() throws {
-        let change = try SourceTree.declaration(
-            named: "onChange(of: activeSheet) { _, presented in", under: "Maugham")
-        XCTAssertTrue(change.contains("describeFirstReaderRequested = false"),
-                      "a presentation clears the pending hand-off. Got:\n\(change)")
-        XCTAssertTrue(change.contains("presentedSheet = presented"),
-                      "\u{2026}and records what is up, since `onDismiss` is told "
-                      + "nothing. Got:\n\(change)")
+    /// the guard above only narrows which dismissal it fires at. Driven
+    /// through `FirstReaderHandoff`, the value the window holds and calls from
+    /// its `activeSheet` change, its Describe\u{2026} closure and its
+    /// `onDismiss` (those three calls are `WiringCensusTests`' entry for
+    /// `ProjectWindow`).
+    func test_everySheetPresentationClearsAStaleHandoff() {
+        // The race the guard was written for: Describe… lands after Escape
+        // closed Project Settings, and the next sheet up is a foreign one.
+        var handoff = FirstReaderHandoff()
+        handoff.sheetPresented(.projectSettings)
+        XCTAssertFalse(handoff.sheetDismissed(), "Escape: nothing was requested")
+        handoff.describeRequested()
+        handoff.sheetPresented(.claudeDesktop)
+        XCTAssertFalse(handoff.requested, "a presentation clears the stale request")
+        XCTAssertFalse(handoff.sheetDismissed(),
+                       "closing Claude Desktop does not hand the writer on")
 
-        let dismiss = try SourceTree.declaration(
-            named: "func openFirstReaderIfRequested() {", under: "Maugham")
-        XCTAssertTrue(dismiss.contains("Self.opensFirstReader("),
-                      "the dismissal asks the one decision. Got:\n\(dismiss)")
+        // …and a stale request does not survive into Project Settings' next
+        // presentation either: it has to be pressed again in THAT sheet.
+        handoff.describeRequested()
+        handoff.sheetPresented(.projectSettings)
+        XCTAssertFalse(handoff.sheetDismissed(),
+                       "a request from before this presentation is not this sheet's")
+    }
+
+    /// The hand-off's own path: pressed in Project Settings, acted on at its
+    /// dismissal, once.
+    func test_aDescribePressInProjectSettingsHandsOnAtItsDismissalOnce() {
+        var handoff = FirstReaderHandoff()
+        handoff.sheetPresented(.projectSettings)
+        handoff.describeRequested()
+        handoff.sheetPresented(nil)   // `activeSheet` going nil is not a presentation
+        XCTAssertTrue(handoff.requested, "a nil change clears nothing")
+        XCTAssertTrue(handoff.sheetDismissed(), "Project Settings closed after Describe\u{2026}")
+        XCTAssertEqual(handoff, FirstReaderHandoff(), "the dismissal spends the request and the sheet")
+        XCTAssertFalse(handoff.sheetDismissed(), "\u{2026}so a second dismissal hands nobody on")
     }
 
     /// **The reader line is never a door to Review** (two loops P1 Task 7).
@@ -5219,11 +5222,10 @@ final class DiagnosticsPaneTests: XCTestCase {
             .values.reduce(0, +)
     }
 
-    /// **The planted control for the window reads** (foundations plan 2): the
-    /// sheet watcher is found in an `extension ProjectWindow`, and the opener
-    /// count sees a second opener in a sibling view while a comment naming one
-    /// is not counted.
-    func test_theWatcherIsFoundAcrossAnExtensionAndTheCountReachesSiblingViews() throws {
+    /// **The planted control for the opener count** (foundations plan 2): it
+    /// sees a second opener in a sibling view, while a comment naming one is
+    /// not counted.
+    func test_theOpenerCountReachesSiblingViews() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
@@ -5231,23 +5233,10 @@ final class DiagnosticsPaneTests: XCTestCase {
                 func openProjectSettings() { activeSheet = .projectSettings }
             }
             """,
-            "Maugham/Views/ProjectWindow+Sheets.swift": """
-            extension ProjectWindow {
-                var watched: some View {
-                    content.onChange(of: activeSheet) { _, presented in
-                        presentedSheet = presented
-                    }
-                }
-            }
-            """,
             "Maugham/Views/SomeSiblingView.swift": """
             struct SomeSiblingView { func g() { activeSheet = .projectSettings } }
             """,
         ])
-        let change = try SourceTree.declaration(
-            named: "onChange(of: activeSheet) { _, presented in", under: "Maugham", base: base)
-        XCTAssertTrue(change.contains("presentedSheet = presented"),
-                      "the watcher is found in the extension")
         XCTAssertEqual(try Self.projectSettingsOpeners(base: base), 2,
                        "the window's opener and the sibling's")
     }

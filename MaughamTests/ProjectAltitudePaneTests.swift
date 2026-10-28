@@ -76,20 +76,6 @@ final class ProjectAltitudePaneTests: XCTestCase {
 
     // MARK: - The title prop reaches the pane from its one production mount
 
-    /// The prop is only load-bearing if the one production call site actually
-    /// passes something other than a literal. `ProjectWindow`'s centre-column
-    /// overlay is the pane's only mount since stage 3a Task 6 deleted the
-    /// right-pane `.outline` arm this test used to read instead — pinned so a
-    /// future edit cannot quietly go back to a fixed string.
-    func test_theCentreMountPassesTheProjectsOwnTitle() throws {
-        let code = try SourceTree.windowCodeLines()
-
-        XCTAssertTrue(
-            code.contains { $0.contains("title: store.manifest.title") },
-            "the centre's altitude mount must hand the pane the project's own "
-            + "name, not a hardcoded pane label")
-    }
-
     // MARK: - Data derivation unchanged (tripwire 4: no per-row I/O, documents only)
 
     /// `TreeWalk.collect(..., where: { $0.type == .document })` is unchanged

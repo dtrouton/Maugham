@@ -155,55 +155,21 @@ struct TasksPane: View {
 
     // MARK: Toolbar
 
-    @ViewBuilder
+    /// The toolbar, built from values (`TasksPaneToolbar`, #122) so a test can
+    /// measure it against the column's floor without a store.
     private var toolbar: some View {
-        HStack(spacing: 6) {
-            Picker("Scope", selection: $scope) {
-                Text("Doc").tag(ScopeChoice.document)
-                Text("Project").tag(ScopeChoice.project)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .labelsHidden()
-
-            Spacer(minLength: 4)
-
-            AdaptiveFilterRow(
-                items: TaskStatusFilterItem.allCases,
-                selection: $statusFilter)
-                .layoutPriority(1)
-
-            Spacer(minLength: 4)
-
+        TasksPaneToolbar(
+            scope: $scope,
+            statusFilter: $statusFilter,
             // **Hidden where the posture offers no task anywhere this pane
             // could file one** (P3c Task 8) — never greyed for that reason;
             // the pre-existing "no document for Doc scope" disable is a
             // different fact and stays.
-            if creation.offersAny {
-                Button {
-                    presentCreateSheet()
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .help("New task")
-                .disabled(newTaskButtonDisabled)
-            }
-
-            if mayArchiveInScope {
-                Menu {
-                    Button("Archive all done") {
-                        archiveAllDone(in: scope, undoManager: undoManager)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Bulk actions")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+            showsNewTask: creation.offersAny,
+            newTaskDisabled: newTaskButtonDisabled,
+            showsBulkMenu: mayArchiveInScope,
+            onNewTask: { presentCreateSheet() },
+            onArchiveAllDone: { archiveAllDone(in: scope, undoManager: undoManager) })
     }
 
     private var newTaskButtonDisabled: Bool {
@@ -289,6 +255,21 @@ struct TasksPane: View {
                     .tag(task.id)
             }
             .listStyle(.sidebar)
+            // `.sidebar` stays for drag-to-reorder; its material fill does not
+            // — no other right-column pane paints one (#122).
+            .scrollContentBackground(.hidden)
+            // The List's own primary action: double-click on a row, or
+            // Return with one selected, jumps to its paragraph — no tap
+            // gesture on the row (tripwire 9). Right-click offers the same.
+            .contextMenu(forSelectionType: String.self, menu: { ids in
+                if let task = Self.jumpTarget(for: ids, in: currentPool()) {
+                    Button("Jump to Source") { jumpToParagraph(task) }
+                }
+            }, primaryAction: { ids in
+                if let task = Self.jumpTarget(for: ids, in: currentPool()) {
+                    jumpToParagraph(task)
+                }
+            })
         }
     }
 
@@ -606,6 +587,21 @@ struct TasksPane: View {
     }
 
     // MARK: - Navigation
+
+    /// The task a double-click or Return on the list jumps to: exactly one
+    /// selected id, found in `tasks`, of a kind anchored to a paragraph.
+    /// Nil for an empty or multiple selection, an unknown id, or a
+    /// pane-created task (it has no paragraph).
+    static func jumpTarget(for selection: Set<String>, in tasks: [WriterTask]) -> WriterTask? {
+        guard selection.count == 1, let id = selection.first,
+              let task = tasks.first(where: { $0.id == id }),
+              task.anchor?.paragraphId != nil
+        else { return nil }
+        switch task.kind {
+        case .inlineMarkdown, .fountainBoneyard: return task
+        case .paneCreated: return nil
+        }
+    }
 
     private func jumpToParagraph(_ task: WriterTask) {
         guard let anchor = task.anchor,

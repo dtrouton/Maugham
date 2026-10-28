@@ -20,6 +20,7 @@ Older code comments cite CLAUDE.md for "the third confounder", "the runner-parit
 | MaughamCore's tests did not run | [read](#maughamcores-tests-did-not-run) |
 | A MaughamCore change is green in one scheme only, or the simulator says "Busy" | [read](#a-maughamcore-change-is-green-in-one-scheme-only-or-the-simulator-says-busy) |
 | The suite is slow while iterating | [read](#the-suite-is-slow-while-iterating) |
+| The full gate fails on the skip count | [read](#the-full-gate-fails-on-the-skip-count) |
 | A mounted-view test is red on CI only | [read](#a-mounted-view-test-is-red-on-ci-only) |
 | A build fails in Release only | [read](#a-build-fails-in-release-only) |
 | Phantom "Undefined symbol" after a signature change | [read](#phantom-undefined-symbol-after-a-signature-change) |
@@ -89,6 +90,10 @@ The `./gen.sh` line of CLAUDE.md's command block carried this comment in full:
 ## The suite is slow while iterating
 
 **Iterating? Skip the mounted-canvas suites until the end.** The `CanvasViewMounting*` family mounts a real window per test and costs ~70s across the three of them — about a sixth of the suite's total EXECUTION time (the wall cost is smaller now that the three classes spread across workers) — while every other canvas suite together finishes in ~37s. It is **three classes over one shared base**, `CanvasViewMountingCase` (harness only, no tests): `CanvasViewMountingSurfaceTests` (the mount, the cards, the accessibility tree), `CanvasViewMountingEditingTests` (typing, undo, save, Escape, ⌫, selection) and `CanvasViewMountingRegionTests` (sweeps, regions, membership, lines) — split 2026-08-08 so Xcode's per-class parallel scheduling can put them on three workers instead of pinning the suite's wall time to one. **`-skip-testing:` and `-only-testing:` take the CONCRETE class names; naming the base does nothing.** When the change doesn't touch the canvas view/event/undo/save wiring, add all three skips during iteration — or just run `./scripts/test.sh`, which carries them. It is NOT optional before calling work done: run the full suite before merge/tag. The suite already runs on shortened real clocks (`makeModel()`, 2026-08-08) — the remaining cost is the per-test window mount, so don't try to claw it back with shorter pumps.
+
+## The full gate fails on the skip count
+
+**`./scripts/test.sh full` fails when more Mac tests skip than `scripts/skip-baseline.txt` names**, and lists the skips it does not hold. A new skip is usually an environment gone missing (tectonic, the mcp binary, an AX client, a second volume): restore it and re-run. If the skip is deliberate, add its `Class/test()` line and give the reason in the commit message. Fewer skips pass with a hint to delete the stale lines. The check is local-only: `CI` set turns it off.
 
 ## A mounted-view test is red on CI only
 

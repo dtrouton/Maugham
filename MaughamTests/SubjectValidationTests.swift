@@ -575,33 +575,6 @@ final class SubjectValidationTests: XCTestCase {
 
     // MARK: - The sweep is reachable from the window
 
-    /// **The half a mounted test cannot see.** Every mounted case above attaches
-    /// `SubjectValidationModifier` itself, so they stay green with the window
-    /// not attaching it at all — measured, by deleting the line from
-    /// `ProjectWindow.body` and watching all sixteen pass. This codebase has
-    /// found three unreachable halves by counting callers rather than by any
-    /// test going red, so the attachment is asserted where it is made.
-    ///
-    /// A source scan rather than a mounted `ProjectWindow`: the window needs a
-    /// project on disk, an MCP registry and a load, and none of that is what is
-    /// in doubt — whether one line is present is.
-    func test_theWindowAttachesTheSweep() throws {
-        // The window's code by type, comments out: a doc comment naming the
-        // attachment is not the attachment.
-        let source = try SourceTree.windowCodeLines().joined(separator: "\n")
-        XCTAssertTrue(source.contains("SubjectValidationModifier(store: store,"),
-                      "ProjectWindow does not attach the sweep, so nothing in "
-                      + "production validates the subject on a structure change")
-
-        // The control: the same scan over a copy with the attachment removed
-        // must fail, so a rename of the modifier cannot leave this passing on a
-        // doc-comment mention.
-        let planted = source.replacingOccurrences(
-            of: "SubjectValidationModifier(store: store,", with: "// removed")
-        XCTAssertFalse(planted.contains("SubjectValidationModifier(store: store,"),
-                       "the planted offender did not fire")
-    }
-
     // MARK: - Fixtures
 
     private func groupedStructure() -> [StructureItem] {

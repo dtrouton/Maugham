@@ -207,11 +207,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let rule = try SourceTree.declaration(
             named: "static func reviewCentreShowsBoard(", under: "Maugham")
 
-        XCTAssertTrue(rule.contains("subjectShowsAltitude("),
-                      "the project-level question is asked of the function that "
-                      + "already answers it")
-        XCTAssertTrue(rule.contains("showsTheReviewBoard"),
-                      "…and the persona question of the predicate that names it")
+        // That it asks `subjectShowsAltitude` and `showsTheReviewBoard`:
+        // `WiringCensusTests`.
         XCTAssertFalse(rule.contains("selectionIsDocument("),
                        "…and not re-derived from the primitive underneath it, "
                        + "which is how the two would come to disagree")
@@ -254,13 +251,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
             Self.reviewNameGates(in: "guard persona == .review else { return false }").isEmpty,
             "the scanner cannot see a planted name-gate, so its silence above "
             + "says nothing")
-
-        XCTAssertTrue(
-            try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
-                .contains("showsTheReviewBoard"),
-            "the window decides something about Review's centre and must ASK "
-            + "the predicate — a file that neither names the persona nor asks "
-            + "the question has stopped deciding")
+        // That the window ASKS the predicate: `WiringCensusTests`.
     }
 
     /// Every review-name gate under `root`, file by file (`reviewNameGates`).
@@ -921,16 +912,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// `.task` and `.maughamAnnotationsChanged` — the second being what makes a
     /// closed piece's synced-in note reach the number on screen.
     func test_theCountsAreRecomputedOffTheBodyPathAndOnTheEvent() throws {
-        let arm = try SourceTree.declaration(
-            named: "func manuscriptEditor(", under: "Maugham")
-
-        XCTAssertTrue(arm.contains(".task { refreshOpenNotes(store: store) }"),
-                      "the board must recount when it appears")
-        XCTAssertTrue(arm.contains(".onProjectEvent(.maughamAnnotationsChanged"),
-                      "…and when the project says its notes changed — through "
-                      + "the receive helper that owns the scope filter and the "
-                      + "closed-window liveness guard (ADR 0021)")
-
+        // That the board recounts on appear and on the event:
+        // `WiringCensusTests`' entry for `manuscriptEditor`.
         let refresh = try SourceTree.declaration(
             named: "func refreshOpenNotes(", under: "Maugham")
         XCTAssertEqual(

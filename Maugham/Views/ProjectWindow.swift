@@ -59,27 +59,10 @@ struct ProjectWindow: View {
     /// behaves exactly as it did before there was a binding here.
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var activeSheet: ProjectActiveSheet?
-    /// **A Describe… press in Project Settings, waiting for the sheet to close.**
-    ///
-    /// `MaughamEvent.postDetailSegment` is scoped `.keyWindow`, and the sheet's
-    /// window is key while it is up, so the request is recorded and acted on
-    /// from the `.sheet`'s `onDismiss`. **The hand-off WRITES the segment
-    /// through `selectDetailSegment`; it does not post it** — `onDismiss` runs
-    /// before key status returns, so a `.keyWindow` post would be dropped.
-    ///
-    /// **Guarded twice**: `describeFirstReader`'s two awaits leave a window in
-    /// which the writer can Escape before the request is recorded, and the
-    /// request then stands over a sheet that is already gone — so every
-    /// presentation clears it (`activeSheet`'s `onChange`, which also mirrors
-    /// what is up into `presentedSheet`), and the dismissal that acts on it
-    /// must be Project Settings' own (`opensFirstReader`) — otherwise closing
-    /// any other sheet would jump the right column to her statement.
-    @State private var describeFirstReaderRequested = false
-    /// **Which sheet is up** — `onDismiss` is told nothing about what closed,
-    /// and the decision above turns on it. Mirrored from `activeSheet` rather
-    /// than read from it, because by the time `onDismiss` runs `activeSheet`
-    /// is already nil.
-    @State private var presentedSheet: ProjectActiveSheet?
+    /// The Describe… hand-off across this window's one `.sheet(item:onDismiss:)`
+    /// — see `FirstReaderHandoff` for why it waits for the dismissal and why
+    /// only Project Settings' own dismissal acts on it.
+    @State private var firstReaderHandoff = FirstReaderHandoff()
     @State private var showInspector: Bool = true
     /// The right column's one width. Restored from `UIState` in `load()`;
     /// written back by the column's own drag handle and by nothing else — see
@@ -238,19 +221,14 @@ struct ProjectWindow: View {
                 .animation(.easeInOut(duration: 0.2), value: flashes.mcpBanner.title)
                 .navigationTitle(store.manifest.title)
                 .onChange(of: activeSheet) { _, presented in
-                    // A presentation is the one moment every sheet has in
-                    // common, so it is where a stale hand-off dies.
-                    if presented != nil {
-                        describeFirstReaderRequested = false
-                        presentedSheet = presented
-                    }
+                    firstReaderHandoff.sheetPresented(presented)
                 }
                 .sheet(item: $activeSheet, onDismiss: openFirstReaderIfRequested) { sheet in
                     switch sheet {
                     case .projectSettings:
                         ProjectSettingsSheet(
                             store: store,
-                            onDescribeFirstReader: { describeFirstReaderRequested = true })
+                            onDescribeFirstReader: { firstReaderHandoff.describeRequested() })
                     case .claudeDesktop:
                         HelpClaudeDesktopSheet()
                     case .translatorsNote(let target):
@@ -2486,16 +2464,11 @@ struct ProjectWindow: View {
     }
 
     /// Hand the writer to the first reader's statement, once Project Settings
-    /// has actually closed — see `describeFirstReaderRequested` for why the
-    /// act cannot happen while the sheet is up, and why it is a direct write
-    /// rather than a post.
+    /// has actually closed — see `FirstReaderHandoff` for why the act cannot
+    /// happen while the sheet is up, and why it is a direct write rather than
+    /// a post.
     private func openFirstReaderIfRequested() {
-        let dismissed = presentedSheet
-        let opens = Self.opensFirstReader(
-            requested: describeFirstReaderRequested, dismissed: dismissed)
-        describeFirstReaderRequested = false
-        presentedSheet = nil
-        guard opens else { return }
+        guard firstReaderHandoff.sheetDismissed() else { return }
         Self.selectDetailSegment(
             .firstReader,
             showInspector: $showInspector,

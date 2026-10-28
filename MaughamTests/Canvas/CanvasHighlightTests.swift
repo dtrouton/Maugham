@@ -641,22 +641,9 @@ final class CanvasHighlightTests: XCTestCase {
     /// The behavioural half is one line and is asserted below it: whatever else
     /// changes, that value must resolve to the undimmed board.
     func test_escapeWritesTheSameSubjectTheProjectRowDoes() throws {
-        let row = CanvasSourceCensus.commentsStripped(
-            try CanvasSourceCensus.source(at: "Maugham/Views/BinderView.swift"))
-        XCTAssertTrue(row.contains(".tag(BinderSubject.project)"),
-                      "the project row no longer tags `BinderSubject.project`, so "
-                      + "the value Escape writes is no longer the row's value — "
-                      + "whichever of the two moved, they have to move together")
-
-        let window = CanvasSourceCensus.commentsStripped(
-            try SourceTree.windowSource())
-        XCTAssertTrue(window.contains("selectTheProjectRow: { selectedSubject = .project }"),
-                      "the canvas's way out of the dim does not write "
-                      + "`.project` into the window's subject. §4.1: Escape IS the "
-                      + "keyboard spelling of the project row — a second value that "
-                      + "merely undims would leave the tree still showing a chapter "
-                      + "selected while the board says otherwise")
-
+        // The two spellings — the row's `.tag` and the window's Escape
+        // closure — are `WiringCensusTests`' entries for `BinderView` and the
+        // window: whichever of the two moves, they have to move together.
         XCTAssertEqual(CanvasSubject.resolve(.project, in: structure(), research: research()),
                        .wholeProject,
                        "and the value both of them write is the undimmed board")

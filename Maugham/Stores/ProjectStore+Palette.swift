@@ -167,7 +167,7 @@ extension ProjectStore {
     /// Write `text` to the project-relative `path` through the same
     /// NSFileCoordinator path research-note saves use
     /// (`DocumentStore.performFileSave`), so palette card writes don't race
-    /// iCloud sync on a cloud-synced project (tripwire 7 / A1-High). Falls
+    /// iCloud sync on a cloud-synced project (tripwire 17 / A1-High). Falls
     /// back to a direct write when `documentStore` is nil (unit-test
     /// contexts with no store wiring) — mirrors `saveManifest`'s
     /// documentStore-present/absent split. This is the ONE allowed write

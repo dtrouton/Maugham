@@ -463,7 +463,7 @@ extension ProjectStore {
         if let path = item.path { await trashUnsentWorkingCopy(item, at: path) }
         if let sidecar = try? ResearchTableSidecar.fileURL(forItem: item.id, in: url),
            FileManager.default.fileExists(atPath: sidecar.path) {
-            do { try FileManager.default.removeItem(at: sidecar) } catch {
+            do { try FileManager.default.removeItem(at: sidecar) } catch { // raw-delete: derived sidecar under .maugham/research-tables/
                 projectStoreLog.error(
                     "sendToResearch: a failed send's sidecar was not removed: \(error.localizedDescription, privacy: .public)")
             }

@@ -59,20 +59,36 @@ struct CompilerRunModifier: ViewModifier {
     /// kills a session already warm when the writer turns Claude off.
     let mcpEnabled: Bool
 
+    /// **What a run key asks the compiler for** — pure, so which verb a
+    /// keystroke is can be asserted with no window (tripwire 33). Both keys
+    /// mint their kind from the persona here: a cold read in Review is a cold
+    /// ROUND, not an ordinary check.
+    struct RunKeyRequest: Equatable {
+        let docId: String
+        let kind: RunKind
+        let freshEyes: Bool
+    }
+
+    static func request(freshEyes: Bool, persona: Persona, docId: String) -> RunKeyRequest {
+        RunKeyRequest(docId: docId, kind: RunKind.of(persona: persona), freshEyes: freshEyes)
+    }
+
+    private func send(_ request: RunKeyRequest) {
+        roster.compiler.runRequested(
+            docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)
+    }
+
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in
-                roster.compiler.runRequested(
-                    docId: activeDocId, kind: RunKind.of(persona: persona))
+                send(Self.request(freshEyes: false, persona: persona, docId: activeDocId))
             }
             // The cold read (⌘⇧R). A second arm rather than a branch inside
             // the first: the two keystrokes are two promises, and the
             // orchestrator is the one place that knows what the difference
             // costs.
             .onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in
-                roster.compiler.runRequested(
-                    docId: activeDocId, kind: RunKind.of(persona: persona),
-                    freshEyes: true)
+                send(Self.request(freshEyes: true, persona: persona, docId: activeDocId))
             }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
                 roster.shutdownAll()

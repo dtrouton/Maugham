@@ -199,10 +199,10 @@ final class ProjectStatisticsWindowSessionTests: XCTestCase {
 
     /// The view's keep-check reads the LIVE window after the acquire, never a
     /// copy taken before it (a copy is routinely nil when `.task` starts).
-    func test_theViewsKeepCheckReadsTheLiveWindow() throws {
+    func test_theViewsKeepCheckDoesNotSnapshotTheWindow() throws {
         let source = try SourceTree.sourceOfType("ProjectStatisticsWindow", under: ["Maugham"])
-        XCTAssertTrue(source.contains("cancelled: Task.isCancelled, window: self.window"),
-                      "load()'s keep-check must read self.window inside the closure")
+        // That the keep-check reads `self.window` inside the closure:
+        // `WiringCensusTests`.
         XCTAssertFalse(source.contains("let window = self.window"),
                        "load() must not snapshot the window before the acquire")
     }

@@ -465,7 +465,7 @@ extension ProjectStore {
             return false
         }
 
-        try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: fileURL) // raw-delete: an empty, unopened statement (see doc-comment)
         return true
     }
 

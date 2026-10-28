@@ -630,53 +630,30 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(runner.sends.count, 0)
     }
 
-    /// **The wiring census.** The two ends of the path above are a menu item in
-    /// `MaughamApp` and a subscription in `CompilerRunModifier`, neither of
-    /// which a test can mount. Delete either and every assertion in this file
-    /// still passes while ⌘R does nothing at all — this is what says so.
-    func test_theRunCommandIsWiredFromTheMenuToTheWindow() throws {
-        let app = try source(at: "Maugham/MaughamApp.swift")
-        XCTAssertTrue(app.contains("MaughamEvent.postCompilerRun()"),
-                      "the menu item must post through the typed wrapper (tripwire 21)")
-        XCTAssertTrue(app.contains(#".keyboardShortcut("r", modifiers: .command)"#),
-                      "…and carry ⌘R, which was verified unbound at implementation time")
-
-        let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
-        // Read from masked code, as `windowCode` is below, so a comment
-        // naming a token does not count.
-        let modifierCode = String(decoding: SourceTree.mask(modifier), as: UTF8.self)
-        for token in [".onKeyWindowCommand(.maughamRunCompiler",
-                      "roster.compiler.runRequested(",
-                      // **The kind is MINTED here, not chosen here** (two
-                      // loops P1). A literal `.check` in this arm would leave
-                      // every assertion in this file green over a ⌘R pressed
-                      // in Review that filed itself as a check — the persona
-                      // is the input, and this is the only site that has one.
-                      "kind: RunKind.of(persona: persona)",
-                      ".onGlobalEvent(.maughamAppWillTerminate)",
-                      "roster.shutdownAll()"] {
-            XCTAssertTrue(modifierCode.contains(token),
-                          "CompilerRunModifier is missing \(token)")
+    /// **Which verb a run key is.** Both keys mint their kind from the
+    /// window's persona, and only the cold read asks for fresh eyes. A
+    /// literal `.check` in either arm would leave every assertion in this file
+    /// green over a ⌘R pressed in Review that filed itself as a check. The
+    /// two ends no test can mount — the menu items in `MaughamApp` and the
+    /// arms that hand this request to the roster — are `WiringCensusTests`'
+    /// entries for `CompilerRunModifier` and `FocusedRunButtons`.
+    func test_eachRunKeyAsksForItsPersonasKindAndOnlyTheColdReadIsFresh() {
+        for persona in Persona.allCases {
+            XCTAssertEqual(
+                CompilerRunModifier.request(freshEyes: false, persona: persona, docId: docId),
+                .init(docId: docId, kind: RunKind.of(persona: persona), freshEyes: false),
+                "\u{2318}R in \(persona)")
+            XCTAssertEqual(
+                CompilerRunModifier.request(freshEyes: true, persona: persona, docId: docId),
+                .init(docId: docId, kind: RunKind.of(persona: persona), freshEyes: true),
+                "\u{2318}\u{21e7}R in \(persona)")
         }
-        XCTAssertFalse(modifierCode.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
-                       "the scan reads the file rather than always answering true")
-
-        let window = try SourceTree.windowSource()
-        // The second token is the window's borrow going back on close
-        // (foundations plan 3, Task 3b): the registry detaches the window's
-        // services and closes the session on its last borrow — the chain
-        // `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
-        // follows to `roster.detachAll()`. Read from masked code, so a
-        // comment naming it does not count.
-        let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
-        for token in ["CompilerRunModifier(", "Task { await sessions.release(lease) }",
-                      "SaveFlashOverlay(isShowing: $flashes.showingCompiler"] {
-            XCTAssertTrue(windowCode.contains(token),
-                          "ProjectWindow is missing \(token) — without the first the "
-                          + "modifier is never mounted, without the second a closed "
-                          + "window keeps its session and its stores alive, and without "
-                          + "the third the keystroke is unacknowledged")
-        }
+        XCTAssertEqual(
+            CompilerRunModifier.request(freshEyes: true, persona: .review, docId: docId).kind,
+            .round, "a cold read in Review is a cold ROUND")
+        XCTAssertEqual(
+            CompilerRunModifier.request(freshEyes: false, persona: .author, docId: docId).kind,
+            .check, "control: Author's \u{2318}R is a check")
     }
 
     // MARK: - Refusal
@@ -3940,33 +3917,6 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(flashed, 0, "a cancelled wait is not a failed one")
     }
 
-    /// The production mount is what turns the closure into a capsule. The
-    /// helper's own census (`ReviewBoardPaneTests`) reads its wait; this reads
-    /// the sentence, because a deferral that expires into an empty closure
-    /// would satisfy every other assertion in this file.
-    func test_theProductionMountFlashesTheDroppedRound() throws {
-        // The helper's whole brace-matched body, found by symbol wherever the
-        // window's extensions put it — no character budget, which silently
-        // stopped asserting once when a comment above the call grew (this
-        // branch's own fix wave). Throws when the declaration is gone.
-        let body = try SourceTree.declaration(
-            named: "func runRoundWhenPieceOpens(", under: "Maugham")
-        XCTAssertTrue(body.contains("onTimedOut:"),
-                      "the mount must supply the expiry's sentence. Got:\n\(body)")
-        XCTAssertTrue(body.contains(".show(.pieceWouldNotOpen)"),
-                      "\u{2026}and it goes through the window's one flash path "
-                      + "with the acknowledgment's own case. Got:\n\(body)")
-        // Minor 6 (2026-08-18 review): the closure outlives the turn by the
-        // deferral's whole 5s bound, so it captures the flash rather than the
-        // window — beside two capture lists written for exactly that reason.
-        // Asserted here because a later hand simplifying it back to a bare
-        // `showCompilerFlash(…)` would still satisfy everything above while
-        // holding `store`, `documentStore` and `compiler` for those 5s.
-        XCTAssertTrue(body.contains("[flash = compilerFlash]"),
-                      "the expiry closure must capture the flash sink, not "
-                      + "`self`. Got:\n\(body)")
-    }
-
     /// **A cancelled wait says so, and says it promptly.** `Task.sleep` throws
     /// on cancellation and the loop swallows that with `try?`, so without the
     /// `Task.isCancelled` check at the loop head a cancelled wait would spin at
@@ -5064,32 +5014,6 @@ final class CompilerRunCommandTests: XCTestCase {
     ) -> (docId: String, failure: CompilerRunFailure)? {
         guard case .failed(let docId, _, let failure, _) = state else { return nil }
         return (docId, failure)
-    }
-
-    /// **The wiring census, Fresh Eyes' half.** Same reasoning as ⌘R's: the
-    /// menu item and the modifier's subscription are the two ends no test can
-    /// mount, and deleting either leaves every assertion below green over a
-    /// keystroke that does nothing.
-    func test_theFreshEyesCommandIsWiredFromTheMenuToTheWindow() throws {
-        let app = try source(at: "Maugham/MaughamApp.swift")
-        XCTAssertTrue(app.contains("MaughamEvent.postCompilerFreshEyes()"),
-                      "the menu item must post through the typed wrapper (tripwire 21)")
-        XCTAssertTrue(app.contains(#".keyboardShortcut("r", modifiers: [.command, .shift])"#),
-                      "…and carry ⌘⇧R, which was verified unbound at implementation time")
-
-        let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
-        for token in [".onKeyWindowCommand(.maughamFreshEyesCompiler",
-                      "freshEyes: true",
-                      // ⌘⇧R mints its kind from the persona exactly as ⌘R
-                      // does — a cold read in Review is a cold ROUND.
-                      "kind: RunKind.of(persona: persona)"] {
-            XCTAssertTrue(modifier.contains(token),
-                          "CompilerRunModifier is missing \(token) \u{2014} without it "
-                          + "⌘⇧R reaches no orchestrator, or reaches it as an "
-                          + "ordinary ⌘R")
-        }
-        XCTAssertFalse(modifier.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
-                       "the scan reads the file rather than always answering true")
     }
 
     /// **The discriminator.** A ⌘R over unchanged prose is an empty delta and

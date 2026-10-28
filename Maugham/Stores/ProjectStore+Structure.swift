@@ -468,7 +468,7 @@ extension ProjectStore {
     /// shape) corrupted manuscripts on every rename: for a CLOSED doc the `.md`
     /// diverged from its op log (the reconciler had to guess on the next load);
     /// for an OPEN doc the live `Document` re-materialized and clobbered the
-    /// raw write (tripwires 7 + 14, finding 0.1).
+    /// raw write (tripwires 14 + 20, finding 0.1).
     ///
     /// Per-doc failures (a transient load or close that throws) are logged via
     /// `projectStoreLog` and skipped — one bad doc must not abort propagation
