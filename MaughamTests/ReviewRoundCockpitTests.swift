@@ -1365,7 +1365,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// drawing one; nothing enforces the converse, which is why the list sits
     /// beside the rule rather than in prose somewhere else.
     static let oneSpellingSurfaces = [
-        "Views/DiagnosticsPane.swift",
+        "Views/DiagnosticsPaneCopy.swift",
         "Views/Review/ReviewRoundCockpit.swift",
         "Views/Publish/DepartmentRunState.swift",
         "Views/Publish/DepartmentDesignRow.swift",

@@ -137,7 +137,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FirstReaderRuling.swift` — answer the first reader's note into her statement; `RulingDestination`. **→ Compiler**
 
 ### Compiler surfaces (→ Compiler: "Ingest, the sidecar and the mint", "Streaming and the preview", "The derivation trigger and the bible")
-- `DiagnosticsPane.swift` — Author's compiler report; the reader picker; `DiagnosticsPostures`.
+- `DiagnosticsPane.swift` — Author's compiler report, composed; `DiagnosticsPostures`. Children: `DiagnosticsPaneHeader.swift` (the reader picker), `DiagnosticsPaneSections.swift` (sections, rows), `DiagnosticsPaneCopy.swift` / `DiagnosticsPaneVerbs.swift` (pure statics).
 - `AskField.swift` — Ask about…, one field shape in two homes.
 - `CompilerModelMenu.swift` — the depth picker in both homes.
 

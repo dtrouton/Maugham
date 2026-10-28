@@ -1357,7 +1357,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// wrote nothing, or a "Define a first reader…" that opened the wrong
     /// thing — and the four pure functions above pin everything else.
     func test_theReaderMenusItemsWriteTheChoiceAndOpenNothingButSettings() throws {
-        let source = try Self.source(of: "Views/DiagnosticsPane.swift")
+        let source = try Self.source(of: "Views/DiagnosticsPaneHeader.swift")
         let menu = try XCTUnwrap(
             Self.declaration(named: "private var readerMenu: some View {", in: source),
             "the header must carry a readable reader menu for this census to "
@@ -1380,7 +1380,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         // The define item stands only while she is unnamed: once she has a
         // name her own row is in the list above, and a second door to Settings
         // beneath it would be an offer to define somebody already defined.
-        XCTAssertTrue(menu.contains("if !Self.hasFirstReader(manifest) {"),
+        XCTAssertTrue(menu.contains("if !DiagnosticsPane.hasFirstReader(manifest) {"),
                       "Got:\n\(menu)")
     }
 
@@ -1916,7 +1916,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     func test_jump_postsTheSameEventAnnotationsRowUses() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try readSource("Maugham/Views/DiagnosticsPaneVerbs.swift")
         XCTAssertTrue(source.contains(".maughamNavigateToParagraph"),
                      "DiagnosticsPane must reuse AnnotationsPane.jump's event, not a copy")
         XCTAssertTrue(source.contains(#"["paragraph_id": pid]"#))
@@ -2795,7 +2795,9 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// cancels — are asserted at the source. Named functions rather than
     /// spelled-out bodies, so a rename fails this rather than a reformat.
     func test_theReplyFieldCommitsOnReturnAndCancelsOnEscape() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        // The field is `DiagnosticRow`'s, the commit the pane's own `answer`.
+        let source = try readSource("Maugham/Views/DiagnosticsPaneSections.swift")
+            + readSource("Maugham/Views/DiagnosticsPane.swift")
         XCTAssertTrue(
             source.contains(".onSubmit { commit() }"),
             "return must commit the answer \u{2014} a field with no submit verb is a "
@@ -4282,7 +4284,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// they must move the moment the writer changes the roster — which is the
     /// opposite of the rule for a letter that has already been written.
     func test_control_theHeaderLineStaysOnTheLiveReader() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try readSource("Maugham/Views/DiagnosticsPaneHeader.swift")
         XCTAssertTrue(
             source.contains(#"static func readerCopy(for reader: AuthorReader) -> String {"#),
             "find the header's copy by name if it moved")
@@ -4883,7 +4885,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// **Both homes commit through the one function**, so neither can refuse a
     /// long ask in different words or trim it differently.
     func test_bothHostsCommitTheAskThroughTheOneFunction() throws {
-        for path in ["Maugham/Views/DiagnosticsPane.swift",
+        for path in ["Maugham/Views/DiagnosticsPaneHeader.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
             let source = try readSource(path)
             XCTAssertTrue(
