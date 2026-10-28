@@ -292,8 +292,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A pane's growing content is a reason to compress or scroll THAT pane, never to raise the window's minimum height** (`ProjectWindow.windowHeightFloor`, 540): `TreeScrollStabilityTests.test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`. `.doesNotRaiseTheWindowFloor()` measures the first subview only.
 - **A strip in a non-scrolling pane stack demands its height as a MINIMUM**; bound inline content with a ceiling (`BoundedHeightLayout`, `ReviewRoundCockpit.letterDisclosureMaxHeight`) (`ReviewRoundCockpitLetterScrollTests`).
 - **No control on a narrow-column toolbar carries writer-typed text on its critical path; labels are icons**, with the name in `.help`. `.frame(maxWidth:)` does not bound a `.fixedSize()` label's ideal.
-- **Every `ViewThatFits` variant is reachable in the column's range; the last, drawn regardless, fits** (`AnnotationsQueueToolbarWidthTests`). Measure with `sizeThatFits(in:)`, never a frame walk.
-- **Every right-column pane fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), clipped leading-aligned; lists hide their background.
+- **Every `ViewThatFits` variant is reachable in range; the last, drawn regardless, fits** (`AnnotationsQueueToolbarWidthTests`). Measure with `NSHostingController.sizeThatFits(in:)`, never a frame walk.
+- **Every `DetailPaneToggle` pane fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
 - **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
 - **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss (✕/Escape, document, subject, a pane change without a persona change) clears `studied`; hide (persona veto, ⌘⌥I, ⌘\) only takes it off screen.

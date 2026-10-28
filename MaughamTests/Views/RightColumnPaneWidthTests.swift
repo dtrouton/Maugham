@@ -145,6 +145,17 @@ final class RightColumnPaneWidthTests: XCTestCase {
                 "\(variant) wants \(ideal)pt and the widest pane is "
                 + "\(Self.ceiling)pt: it can never be drawn")
         }
+        // …and each fallback is REACHED: the icon row only where the worded
+        // row no longer fits, the two rows only where the icon row does not
+        // fit the floor.
+        let labels = Self.idealWidth(of: tasksToolbar(variant: .oneRowLabels))
+        let icons = Self.idealWidth(of: tasksToolbar(variant: .oneRowIcons))
+        XCTAssertGreaterThan(labels, icons,
+            "the worded row (\(labels)pt) must be wider than the icon row "
+            + "(\(icons)pt), or the icon row is never drawn")
+        XCTAssertGreaterThan(icons, Self.floor,
+            "the icon row (\(icons)pt) fits the \(Self.floor)pt floor, so the "
+            + "two-row fallback is never drawn")
         let atCeiling = Self.size(of: tasksToolbar(), proposing: Self.ceiling)
         let stacked = Self.size(of: tasksToolbar(variant: .twoRows), proposing: Self.ceiling)
         XCTAssertLessThan(atCeiling.height, stacked.height,
@@ -158,6 +169,9 @@ final class RightColumnPaneWidthTests: XCTestCase {
     /// `DetailPaneToggle` over real stores, with `InspectorView` as its
     /// inspector arm — so the pane picker and each pane's header are measured
     /// together, and a new pane joins by existing.
+    ///
+    /// Before #122 it failed on two panes: Tasks (the one-row toolbar, 392pt)
+    /// and the Inspector (`InspectorView`'s `minWidth: 240`), both at 232pt.
     ///
     /// Each pane is measured in its first-render state over a fresh novel with
     /// one open document. What it cannot see: content a pane loads in a

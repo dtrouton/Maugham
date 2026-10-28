@@ -4,8 +4,8 @@ import SwiftUI
 ///
 /// Doc/Project, the status filter, New task (+) and the … menu. On one row
 /// they want more than the right column's floor, and an over-wide row
-/// inflates the pane: `RightColumn` then crops it on both edges (Denver's
-/// smoke, the … menu half off screen).
+/// inflated the pane, and `RightColumn` cropped it on both edges until #122
+/// made its clip leading-aligned (Denver's smoke, the … menu half off screen).
 ///
 /// So it is a `ViewThatFits` over three variants, widest first: one row with
 /// worded filters, one row with icon filters, and two rows — Doc/Project, +
