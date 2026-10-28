@@ -385,7 +385,14 @@ struct EditorHost: View {
             // re-appears, `.task`/`.onChange(of: selectedItemId)` see
             // loadedItemId != item.id and reload — no stuck "Loading…".
             if let doc = document, let path = priorLoadedPath {
-                Task { await doc.close() }
+                // The window's reference index outlives this host (report
+                // plan 8a Task 2): the piece just left is read again from its
+                // flushed op log, or the listing keeps its text as of the
+                // last settle — the switch path's own edge, mirrored.
+                Task { [referenceIndex] in
+                    await doc.close()
+                    referenceIndex.invalidate(.piece(doc.docId))
+                }
                 documentStore.unregister(path: path)
             }
             document = nil

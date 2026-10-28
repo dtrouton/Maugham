@@ -67,18 +67,18 @@ final class FigureListingTests: XCTestCase {
         XCTAssertEqual(rows.map(\.usedIn), [[use("a", 4)], [use("a", 6)]])
     }
 
-    func test_aFigureWithNoLineIsListedLastWithADash() {
+    func test_aFigureWithNoLineIsListedLastWithADash() throws {
         let rows = listing([("a", "![Cash](../figures/cash.csv){#tbl:cash}")],
                            records: [Self.spare, Self.cash])
         XCTAssertEqual(rows.map(\.figureId), [Self.cash.id, Self.spare.id])
-        let unused = try? XCTUnwrap(rows.last)
-        XCTAssertEqual(unused?.number, "—")
-        XCTAssertEqual(unused?.number, FigureListing.unusedNumber)
-        XCTAssertEqual(unused?.usedIn, [])
-        XCTAssertEqual(unused?.referencedFrom, [])
-        XCTAssertNil(unused?.pieceOfLine)
-        XCTAssertEqual(unused?.caption, "")
-        XCTAssertEqual(unused?.isUnused, true)
+        let unused = try XCTUnwrap(rows.last)
+        XCTAssertEqual(unused.number, "—")
+        XCTAssertEqual(unused.number, FigureListing.unusedNumber)
+        XCTAssertEqual(unused.usedIn, [])
+        XCTAssertEqual(unused.referencedFrom, [])
+        XCTAssertNil(unused.pieceOfLine)
+        XCTAssertEqual(unused.caption, "")
+        XCTAssertTrue(unused.isUnused)
     }
 
     /// A line whose path names no record is not listed, but it is still a

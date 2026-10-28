@@ -12,9 +12,17 @@ import MaughamCore
 final class FigureListingModel {
     /// The figures in listing order (`FigureListing.build`).
     private(set) var rows: [FigureListing.Row] = []
+    /// `rows` by figure id, rebuilt with them: a tree row asks per row.
+    @ObservationIgnored private var byId: [String: FigureListing.Row] = [:]
 
-    /// The row for one figure, nil when the registry has none.
-    func row(forFigureId id: String) -> FigureListing.Row? { rows.first { $0.figureId == id } }
+    /// The row for one figure, nil when the registry has none. O(1).
+    func row(forFigureId id: String) -> FigureListing.Row? {
+        _ = rows   // observe the rows, which `byId` mirrors
+        return byId[id]
+    }
+
+    /// No project: no rows.
+    func clear() { set([]) }
 
     /// Rebuild from `index` and `store`'s registry; writes only a change, so a
     /// reader is not invalidated by a rebuild that moved nothing it shows.
@@ -25,7 +33,13 @@ final class FigureListingModel {
         }
         let next = FigureListing.build(index: index, records: store.manifest.figures ?? [],
                                        documentPathOf: { paths[$0] })
-        if next != rows { rows = next }
+        set(next)
+    }
+
+    private func set(_ next: [FigureListing.Row]) {
+        guard next != rows else { return }
+        rows = next
+        byId = Dictionary(next.map { ($0.figureId, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
 
@@ -79,7 +93,10 @@ struct ReferenceIndexWiring: ViewModifier {
             .onChange(of: store?.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
             .onChange(of: store?.manifest.structure) { _, _ in
                 referenceIndex.invalidate(.all)
-                refreshListing()   // a piece's path is what its lines resolve against
+                // A piece's path is what its lines resolve against, and a
+                // path-only change may leave the index as it is. A piece moved
+                // to another depth can show "—" until the rebuild lands.
+                refreshListing()
             }
             // A figure made, renamed or removed changes the rows with no text moving.
             .onChange(of: store?.manifest.figures) { _, _ in refreshListing() }
@@ -97,6 +114,7 @@ struct ReferenceIndexWiring: ViewModifier {
     private func attach() {
         guard let store, let documentStore else {
             referenceIndex.attach(nil)
+            figureListing.clear()
             return
         }
         let control = control, listing = figureListing, host = referenceIndex

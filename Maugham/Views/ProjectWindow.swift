@@ -348,6 +348,11 @@ struct ProjectWindow: View {
                     Task { await sessions.release(lease) }
                 }
                 lease = nil
+                // Explicit, not left to the wiring's `.onChange` in a husk
+                // SwiftUI may never re-evaluate: the index's closures hold
+                // both stores, and a drain in flight would still build.
+                referenceIndex.attach(nil)
+                figureListing.clear()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil

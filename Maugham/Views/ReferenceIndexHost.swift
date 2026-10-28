@@ -102,6 +102,9 @@ final class ReferenceIndexHost {
     var onPublish: (() -> Void)?
 
     private var project: Project?
+    /// Whether the host is pointed at a project (`attach`); a detached host
+    /// builds nothing.
+    var isAttached: Bool { project != nil }
     private let builder: Builder
 
     private struct Entry {
