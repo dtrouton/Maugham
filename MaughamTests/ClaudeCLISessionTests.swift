@@ -148,7 +148,11 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     /// Write an executable bash script that impersonates `claude` in
     /// `--input-format stream-json --output-format stream-json` mode.
-    private func makeFakeCLI(mode: FakeMode, maxStallSeconds: Int = 10) throws -> URL {
+    /// `chatterInterval` is the gap between the chatter modes' lines (seconds);
+    /// `maxStallSeconds` caps a flagged loop in wall seconds at any interval.
+    private func makeFakeCLI(mode: FakeMode, maxStallSeconds: Int = 10,
+                             chatterInterval: Double = 0.1) throws -> URL {
+        let maxTicks = Int((Double(maxStallSeconds) / chatterInterval).rounded())
         let url = tempDir.appendingPathComponent("fake-claude")
         let script = """
         #!/bin/bash
@@ -203,17 +207,17 @@ final class ClaudeCLISessionTests: XCTestCase {
           fi
           if [ "$MODE" = "chatterWhileFlagged" ]; then
             waited=0
-            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
+            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxTicks) ]; do
               printf '%s\\n' '{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50,"session_id":"fake-session","uuid":"00000000-0000-0000-0000-000000000000"}'
-              sleep 0.1
+              sleep \(chatterInterval)
               waited=$((waited+1))
             done
           fi
           if [ "$MODE" = "stderrChatterWhileFlagged" ]; then
             waited=0
-            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
+            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxTicks) ]; do
               echo "retrying in 1s (attempt $waited)" >&2
-              sleep 0.1
+              sleep \(chatterInterval)
               waited=$((waited+1))
             done
           fi
@@ -612,29 +616,29 @@ final class ClaudeCLISessionTests: XCTestCase {
     /// which the classifier otherwise ignores — so the turn is allowed to
     /// finish (spec §2: liveness, not wall clock).
     ///
-    /// **Margin**: the fixture writes a line every 0.1 s against a 1.5 s
-    /// silence budget, so fourteen consecutive lines would have to be lost to
-    /// scheduling before this stalls — 15×. The gate runs seven XCTest
-    /// workers in parallel (docs/testing/TROUBLESHOOTING.md, "A test fails in
-    /// the parallel suite but passes alone") and every one of them can
-    /// hold the CPU while this fixture's `sleep` loop waits, which is exactly
-    /// the in-suite/in-isolation confounder a 5× margin would surface as a
-    /// mystery flake.
+    /// **Margin**: the fixture writes a line every 0.5 s for 11 s against a
+    /// 5 s silence budget. The chatter is 2.2× the budget, so without the
+    /// lines the run WOULD stall; the budget is 10× the line interval, so ten
+    /// consecutive lines would have to be lost to scheduling before this
+    /// stalls. The gate runs seven XCTest workers in parallel (docs/testing/
+    /// TROUBLESHOOTING.md, "A test fails in the parallel suite but passes
+    /// alone") and a starved child (load average 7+) can go quiet for over
+    /// 1.5 s, which the old 1.5 s budget read as silence (#107).
     func test_aChildStillWritingIsNotKilled() async throws {
-        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged, maxStallSeconds: 20, chatterInterval: 0.5)
         try Data().write(to: slowFlagURL)
         // A silence budget shorter than the chatter's total, a ceiling far off.
-        let session = makeSession(cli: cli, silenceTimeout: 1.5, runTimeout: 20)
+        let session = makeSession(cli: cli, silenceTimeout: 5, runTimeout: 30)
 
         let flag = slowFlagURL
         Task.detached {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 11_000_000_000)
             try? FileManager.default.removeItem(at: flag)
         }
         let event = await session.send(message: "chatty", systemPreamble: nil)
 
         XCTAssertEqual(event, .resultText("FAKE RESULT"),
-            "3 s of chatter at 0.1 s a line against a 1.5 s silence budget must not be a stall")
+            "11 s of chatter at 0.5 s a line against a 5 s silence budget must not be a stall")
         session.shutdown()
     }
 
@@ -644,24 +648,24 @@ final class ClaudeCLISessionTests: XCTestCase {
     /// exists to keep the pipe from wedging, therefore says the child is
     /// alive on the same discipline the stdout reader uses.
     ///
-    /// **Margin**: a line every 0.1 s against a 1.5 s budget, for 3 s — the
-    /// same 15× as `test_aChildStillWritingIsNotKilled`, and for the same
-    /// reason (seven parallel XCTest workers: docs/testing/TROUBLESHOOTING.md,
-    /// "A test fails in the parallel suite but passes alone").
+    /// **Margin**: the same ratios as `test_aChildStillWritingIsNotKilled` —
+    /// a line every 0.5 s for 11 s against a 5 s budget (2.2× chatter, 10×
+    /// interval) — and for the same reason: a starved child went quiet past
+    /// the old 1.5 s budget on CI (#107).
     func test_stderrCountsAsLiveness() async throws {
-        let cli = try makeFakeCLI(mode: .stderrChatterWhileFlagged)
+        let cli = try makeFakeCLI(mode: .stderrChatterWhileFlagged, maxStallSeconds: 20, chatterInterval: 0.5)
         try Data().write(to: slowFlagURL)
-        let session = makeSession(cli: cli, silenceTimeout: 1.5, runTimeout: 20)
+        let session = makeSession(cli: cli, silenceTimeout: 5, runTimeout: 30)
 
         let flag = slowFlagURL
         Task.detached {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 11_000_000_000)
             try? FileManager.default.removeItem(at: flag)
         }
         let event = await session.send(message: "noisy on stderr", systemPreamble: nil)
 
         XCTAssertEqual(event, .resultText("FAKE RESULT"),
-            "3 s of stderr at 0.1 s a line, stdout silent, must not read as a stall")
+            "11 s of stderr at 0.5 s a line, stdout silent, must not read as a stall")
         session.shutdown()
     }
 
