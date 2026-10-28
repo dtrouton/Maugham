@@ -243,25 +243,18 @@ final class FigureWindowSurfaceTests: XCTestCase {
     }
 
     /// **A close never hangs on a window's writes** (final review I3): past
-    /// its bound, `settle` answers false and the session says so — an edit
-    /// is never lost in silence.
-    func test_aCloseWaitsBoundedForTheWindowsWrites_andSaysWhenTheyDidNotLand() async throws {
+    /// its bound, `settle` answers false and the session logs it (no surface
+    /// outlives the project window, ruling N1); writes that land settle.
+    func test_aCloseWaitsBoundedForTheWindowsWrites() async throws {
         let project = try await openProject()
         let windows = project.session.figureWindows
         let stuck = Task { @MainActor in _ = try? await Task.sleep(for: .seconds(30)) }
         defer { stuck.cancel() }
         windows.track(stuck)
         let started = ContinuousClock.now
-        var said: [String] = []
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
-            forName: .maughamDocumentNotice, object: nil, queue: nil
-        ) { note in
-            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { said.append(m) }
-        }
-        defer { NotificationCenter.default.removeObserver(token) }
-        await project.session.settleFigureWindows(within: .milliseconds(200))
+        let landedInTime = await project.session.settleFigureWindows(within: .milliseconds(200))
+        XCTAssertFalse(landedInTime)
         XCTAssertLessThan(ContinuousClock.now - started, .seconds(5), "bounded")
-        XCTAssertEqual(said, [FigureWindows.unsettledSentence])
 
         let landed = Task { @MainActor in }
         windows.track(landed)

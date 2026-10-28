@@ -292,8 +292,7 @@ final class ProjectSession {
     /// **The figure windows' last writes land first** (final review I3):
     /// each closed figure window's commit and writes are awaited before the
     /// store closes — bounded by `figureWindowsSettleLimit`, so the close
-    /// can never hang; one that has not landed by then is said, never lost
-    /// in silence.
+    /// can never hang; one that has not landed by then is logged.
     func close() async {
         figureWindows.closeAll()
         await settleFigureWindows(within: Self.figureWindowsSettleLimit)
@@ -304,11 +303,16 @@ final class ProjectSession {
     /// How long a close waits for the figure windows' last writes.
     static let figureWindowsSettleLimit: Duration = .seconds(5)
 
-    /// The figure windows' last writes, awaited within `limit`; said when
-    /// they did not land in time (`FigureWindows.unsettledSentence`).
-    func settleFigureWindows(within limit: Duration) async {
-        guard await !figureWindows.settle(within: limit) else { return }
+    /// The figure windows' last writes, awaited within `limit`; logged when
+    /// they did not land in time. **Log-only, deliberately**: a project's
+    /// notices render only in its project window, which is already gone at
+    /// a close, and there is no app-level surface that outlives it (final
+    /// re-review N1) — so nothing here claims the writer is told. Answers
+    /// whether they landed.
+    @discardableResult
+    func settleFigureWindows(within limit: Duration) async -> Bool {
+        guard await !figureWindows.settle(within: limit) else { return true }
         documentLog.error("project close: a figure window's writes had not landed within \(String(describing: limit), privacy: .public)")
-        MaughamEvent.postNotice(FigureWindows.unsettledSentence, projectURL: url)
+        return false
     }
 }

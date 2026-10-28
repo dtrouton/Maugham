@@ -1640,7 +1640,7 @@ public final class FigureDocument {
 
     /// Why an undo or redo did not happen — said, never swallowed.
     enum FigureUndoDecline: Equatable {
-        /// Another device changed what the op wrote since.
+        /// What the op wrote has changed since (here or on another device).
         case drifted
         /// This Mac may no longer change this figure.
         case notPermitted
@@ -1661,13 +1661,15 @@ public final class FigureDocument {
         /// because the visit's undo cannot tell which (final review I4).
         case visitChanged(redo: Bool)
 
-        /// Why a drifted undo or redo declines.
-        static let changedOnAnotherDevice = "it changed on another device"
+        /// Why a drifted undo or redo declines — neutral, as the visit's is
+        /// (final re-review N2): the change since may be this Mac's own (its
+        /// figure window, another undo, a restore) as well as another device's.
+        static let changedSince = "it has changed since"
 
         var sentence: String {
             switch self {
             case .drifted:
-                "Couldn't undo the change to the figure — \(Self.changedOnAnotherDevice)."
+                "Couldn't undo the change to the figure — \(Self.changedSince)."
             case .notPermitted:
                 "Couldn't change the table — this Mac can no longer change this figure."
             case .pictureNotKept:

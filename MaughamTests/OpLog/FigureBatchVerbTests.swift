@@ -232,7 +232,7 @@ final class FigureBatchVerbTests: XCTestCase {
             um.undo()
             await host.awaitPendingUndoWork()
         }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it has changed since."])
         XCTAssertEqual(host.state.table[a1], text("a"), "the untouched cell is not undone alone")
         XCTAssertEqual(host.state.table[b2], text("later"))
         XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
@@ -410,7 +410,7 @@ final class FigureBatchVerbTests: XCTestCase {
             um.undo()
             await host.awaitPendingUndoWork()
         }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it has changed since."])
         XCTAssertEqual(host.state.table.rows, order)
         XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
         await store.closeFigure(figureId: host.figureId)
@@ -586,7 +586,7 @@ final class FigureBatchVerbTests: XCTestCase {
             um.undo()
             await host.awaitPendingUndoWork()
         }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it has changed since."])
         XCTAssertEqual(host.state.table.rows.last, new, "the row stays")
         XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
         await store.closeFigure(figureId: host.figureId)

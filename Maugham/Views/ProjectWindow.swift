@@ -434,9 +434,11 @@ struct ProjectWindow: View {
         }
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
-            // give us only ~100ms before terminating us. The figure windows
-            // finish first — an open cell edit committed — and their writes
-            // are awaited, briefly, before the store closes (final review I3).
+            // give us only ~100ms before terminating us, and nothing defers
+            // the quit. The figure windows finish first — an open cell edit's
+            // commit is asked — and the close is ordered after their writes,
+            // but the process may end before either lands: ⌘Q stays
+            // best-effort for an edit still open in a table (ruling N1).
             if let ds = documentStore {
                 let session = session
                 session?.figureWindows.closeAll()

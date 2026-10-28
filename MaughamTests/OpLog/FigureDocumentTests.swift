@@ -425,7 +425,7 @@ final class FigureDocumentTests: XCTestCase {
         try await theirOp(doc, .figureCellSet, FigureOpPayload(cell: key, next: text("theirs"), prior: nil))
         let count = try ops(of: record.id).count
         let said = await notices { um.redo(); await doc.awaitPendingUndoWork() }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it has changed since."])
         XCTAssertNotNil(doc.state.table.rowIndex(of: row), "the row stands")
         XCTAssertEqual(doc.state.table[key], text("theirs"), "and their cell with it")
         XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
@@ -445,7 +445,7 @@ final class FigureDocumentTests: XCTestCase {
         XCTAssertNotNil(doc.state.table.rowIndex(of: row), "precondition: their revive arrived")
         let count = try ops(of: record.id).count
         let said = await notices { um.undo(); await doc.awaitPendingUndoWork() }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it has changed since."])
         XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
         await doc.close()
     }
@@ -477,7 +477,7 @@ final class FigureDocumentTests: XCTestCase {
             um.undo()
             await doc.awaitPendingUndoWork()
         }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it has changed since."])
         XCTAssertEqual(doc.state.table[key], text("theirs"), "their value stands")
         XCTAssertEqual(try ops(of: record.id).count, count, "nothing was appended")
         await doc.close()
@@ -510,7 +510,7 @@ final class FigureDocumentTests: XCTestCase {
         let doc = try await load(record.id)
         let um = UndoManager()
         um.groupsByEvent = false
-        let declined = "Couldn't undo the change to the figure — it changed on another device."
+        let declined = "Couldn't undo the change to the figure — it has changed since."
 
         // A row another device typed into.
         um.beginUndoGrouping()

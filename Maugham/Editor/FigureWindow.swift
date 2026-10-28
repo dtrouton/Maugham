@@ -298,7 +298,7 @@ final class FigureWindows {
     /// **Every closed window's last writes have landed** — what a project's
     /// close awaits before its `DocumentStore` closes (final review I3).
     /// Bounded, so it can never hang the close: false when `limit` passed
-    /// first (the caller says so — an edit is never lost in silence).
+    /// first (the caller logs it).
     func settle(within limit: Duration) async -> Bool {
         let pending = finishing
         guard !pending.isEmpty else { return true }
@@ -314,10 +314,6 @@ final class FigureWindows {
             }
         }
     }
-
-    /// What a project close says when a window's last edit had not landed in time.
-    static let unsettledSentence =
-        "A table edit was still being saved when the project closed, and may not have been kept. Reopen the table to check it."
 
     private func recount() {
         let ids = Set(closers.keys.map(\.figureId))

@@ -94,6 +94,11 @@ enum FigureGridImport {
         "“\(file)” matches the table already — nothing changed."
     }
 
+    /// The table's total row was switched off by the import (a file has none).
+    static func totalRowOffSentence(_ file: String) -> String {
+        "Imported “\(file)”; the total row was switched off — a file has none, so its last row stays data."
+    }
+
     /// The grid closed (folded, or its window closed) before the import ran.
     static func closedSentence(_ file: String) -> String {
         "Couldn't import “\(file)” — the table was closed first."

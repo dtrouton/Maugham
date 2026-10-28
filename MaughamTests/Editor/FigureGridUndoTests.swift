@@ -626,8 +626,14 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         let before = c.host.state.table
         c.handle(.click(cell(c, 2, 1), extend: false))
         c.handle(.click(cell(c, 3, 2), extend: true))
+        // One batch reaches the host — one render — never a delete per
+        // column (whose steps a test's run loop could fold into one group).
+        var renders = 0
+        DocumentStore.figureHostAppendedForTesting = { if $0 == c.figureId { renders += 1 } }
         c.performTableCommand(.deleteColumns)
         await c.settleWrites()
+        DocumentStore.figureHostAppendedForTesting = nil
+        XCTAssertEqual(renders, 1, "one applyChanges batch for both columns")
         XCTAssertEqual(c.host.state.table.columns, [before.columns[0]], "B and C went")
         XCTAssertEqual(c.gridUndo.undoActionName, "Delete Columns")
         c.gridUndo.undo()

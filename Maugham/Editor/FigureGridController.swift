@@ -1243,17 +1243,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
                 read = .init(table: table, problems: problems)
             }
             var problems: [CSVReadProblem] = []
-            var planned = false
+            var planned = false, totalRowOff = false
             try await Self.applyPlanned(on: host, actionName: FigureGridImport.actionName,
                                         undoManager: gridUndo) { state in
                 let changes = FigureGridImport.changes(
                     onto: state, read: read.table, names: names, problems: read.problems)
                 problems = changes.problems
                 planned = !changes.ops.isEmpty
+                totalRowOff = changes.ops.contains { $0.payload.settings == .totalRow(false, prior: true) }
                 return changes.ops
             }
             guard planned else {
                 return MaughamEvent.postNotice(FigureGridImport.unchangedSentence(file), projectURL: projectURL)
+            }
+            if totalRowOff {
+                MaughamEvent.postNotice(FigureGridImport.totalRowOffSentence(file), projectURL: projectURL)
             }
             if !problems.isEmpty { self?.sayKeptAsText(problems.count, file) }
         }

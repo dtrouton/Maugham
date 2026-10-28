@@ -427,9 +427,13 @@ final class FigureGridFillImportTests: XCTestCase {
         let before = c.host.state.table
         um.removeAllActions()
 
-        _ = try choose("a,b\n1,2\n3,4\n", for: c)
-        c.performTableCommand(.importCSV)
-        await c.settleWrites()
+        let url = try choose("a,b\n1,2\n3,4\n", for: c)
+        let said = try await notices {
+            c.performTableCommand(.importCSV)
+            await c.settleWrites()
+        }
+        XCTAssertEqual(said, ["Imported “\(url.lastPathComponent)”; the total row was switched off — "
+                              + "a file has none, so its last row stays data."], "said in the moment")
         XCTAssertFalse(c.host.state.table.hasTotalRow, "the file's last row is data")
         XCTAssertEqual(content(c, "A3"), .value(.number(3)))
         XCTAssertEqual(um.undoActionName, FigureGridImport.actionName)
