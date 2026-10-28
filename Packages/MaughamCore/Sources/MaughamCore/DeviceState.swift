@@ -8,13 +8,16 @@ import Foundation
 /// entitlement, nothing an installer or a profile can revoke. Its protection is
 /// the enclave, not the filesystem — the bytes are useless off this machine.
 public enum DeviceState {
-    /// The device directory, plus a per-process leaf under XCTest and ONLY
-    /// under XCTest — the `TestWorkspace.root` idiom verbatim, and for the same
-    /// reason: the Mac suite runs classes across worker PROCESSES, so a shared
-    /// directory would have one worker's fresh mint answering another worker's
-    /// `current`. The live app is one process and keeps the bare path.
+    /// The device directory, plus a per-process leaf in a test process and
+    /// ONLY there (`TestProcess.isActive`) — the `TestWorkspace.root` idiom
+    /// verbatim, and for the same reason: tests run across worker PROCESSES, so
+    /// a shared directory would have one worker's fresh mint answering another
+    /// worker's `current`. That includes MaughamCore's own `swift test`
+    /// workers, which until 2026-10-28 took the bare path — the LIVE dev app's
+    /// folder — loading its Enclave key and rewriting its device state. The
+    /// live app is one process and keeps the bare path.
     public static var directory: URL {
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
+        guard TestProcess.isActive else {
             return base
         }
         if sweepFlag.claim() { sweepDeadWorkerLeaves(in: base) }

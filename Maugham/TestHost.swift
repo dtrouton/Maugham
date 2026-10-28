@@ -24,17 +24,12 @@ import MaughamCore
 /// an alert panel, a popover or the app's own Welcome scene would do the same.
 /// The sweep catches each on its first update; a sheet is caught as it begins.
 ///
-/// Detection reads the environment XCTest injects into its host — the
-/// configuration-file path (every Xcode) and the session identifier (parallel
-/// workers) — never a build flag, so the same Debug binary a developer runs by
-/// hand keeps its Dock icon and its windows.
+/// Detection is MaughamCore's `TestProcess.isActive` (the environment XCTest
+/// injects into its host, or XCTest loaded in the process) — never a build
+/// flag, so the same Debug binary a developer runs by hand keeps its Dock icon
+/// and its windows.
 enum TestHost {
-    static var isActive: Bool {
-        let env = ProcessInfo.processInfo.environment
-        return env["XCTestConfigurationFilePath"] != nil
-            || env["XCTestSessionIdentifier"] != nil
-            || env["XCTestBundlePath"] != nil
-    }
+    static var isActive: Bool { TestProcess.isActive }
 
     // MARK: - The socket this process may bind
 

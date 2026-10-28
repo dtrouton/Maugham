@@ -43,7 +43,7 @@ Older code comments cite CLAUDE.md for "the third confounder", "the runner-parit
 
 ## A Core test dies with only "Test Case … started."
 
-**A red Core `swift test --parallel` whose only output is one test's `Test Case '…' started.` — no assertion, no crash report, a different trivial test each time, green on a re-run — is an `xcodebuild test` starting somewhere on this Mac, not your branch.** Every `xcodebuild test` (either scheme, any session) SIGKILLs every process NAMED `xctest` as it begins testing, and SwiftPM's parallel runner hosts each Core test in one (proven 2026-09-25 with a decoy: `/bin/sleep` copied as `xctest` died with 137 two seconds before an unrelated run's "Testing started"; the same binary under its own name lived). Run Core through `./scripts/test.sh core`, which takes the gate lock, rather than a bare `swift test`; a raw `xcodebuild` from another session still bypasses it.
+**A red Core `swift test --parallel` whose only output is one test's `Test Case '…' started.` is usually macOS, not your branch, and `./scripts/test.sh core` now re-runs such tests once by name (`scripts/lib/core-deaths.sh`).** Each Core test runs in a fresh `xctest` process; macOS SIGKILLs one at its first `NSFileCoordinator` claim when RunningBoard still lists its recycled pid as a suspended extension. Proven 2026-10-28: exit status 9, all 28 victim pids in RunningBoard's "running-suspended" set, and a package of bare `NSFileCoordinator` tests died the same way. The stale records grow with uptime; a reboot should clear them. Any SIGKILL prints that bare line, with no crash report. Rarer: an `xcodebuild test` starting elsewhere kills processes named `xctest`. CI's fresh runner runs Core without the re-run.
 
 ## "The test runner hung before establishing connection" on several workers
 
@@ -81,7 +81,7 @@ The `./gen.sh` line of CLAUDE.md's command block carried this comment in full:
 
 ## MaughamCore's tests did not run
 
-**MaughamCore's package tests belong to NO scheme.** Until 2026-08-08 they ran nowhere — not locally, not in CI (the "Mac app + MaughamCore" comment this section used to carry was false). CI's `core-tests` job and both `test.sh` modes now run them; run `./scripts/test.sh core` after touching `Packages/MaughamCore` (a bare `swift test` bypasses the gate lock — see the xctest-kill bullet below).
+**MaughamCore's package tests belong to NO scheme.** Until 2026-08-08 they ran nowhere — not locally, not in CI (the "Mac app + MaughamCore" comment this section used to carry was false). CI's `core-tests` job and both `test.sh` modes now run them; run `./scripts/test.sh core` after touching `Packages/MaughamCore` (a bare `swift test` bypasses the gate lock and the re-run above).
 
 ## A MaughamCore change is green in one scheme only, or the simulator says "Busy"
 
