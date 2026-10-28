@@ -177,8 +177,10 @@ enum ManuscriptChecks {
             guard case .figure(_, let path, _)? = ManuscriptBlocks.parse(
                       text.substring(with: line).trimmingCharacters(in: .whitespaces)).first?.block,
                   !code.contains(where: { NSIntersectionRange($0, line).length > 0 }),
-                  !FigureLineSeparation.isInCode(lineAt: start, in: text),
-                  isGlued(line, isAFigure: figureLines.contains(start), in: text)
+                  // The local test first: `isInCode` searches from the text's
+                  // start, so it runs only for a line that is glued.
+                  isGlued(line, isAFigure: figureLines.contains(start), in: text),
+                  !FigureLineSeparation.isInCode(lineAt: start, in: text)
             else { continue }
             out.append(Problem(range: line, kind: .figureLineSharesParagraph(path)))
         }
