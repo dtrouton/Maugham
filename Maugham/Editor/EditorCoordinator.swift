@@ -143,6 +143,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             hasFigureLines = figures
             referenceMarkerTokens = markers.sorted { $0.location < $1.location }
             spellingExemptRanges = Self.mergedSorted(markup)
+            textHasFenceCache = nil
             figureThumbnailTokensDidChange()
         }
     }
@@ -159,6 +160,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The markup in `lastTokens` the spelling checker never marks (sorted,
     /// overlaps merged; derived with them): see `shouldSetSpellingState`.
     private(set) var spellingExemptRanges: [NSRange] = []
+    /// Whether the text `lastTokens` describe holds a ``` at all, asked once
+    /// per retokenize on the first spelling mark (cleared by `lastTokens`):
+    /// a fence-free document never pays the fence scan.
+    private var textHasFenceCache: Bool?
 
     /// True from a character edit to the text storage until the retokenize
     /// that follows it: `lastTokens` then describe the text BEFORE the edit,
@@ -1795,18 +1800,24 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// a citation, cross-reference or footnote marker, a link's URL and other
     /// syntax punctuation, inline code, a task anchor, a table's pipes — and,
     /// in prose, a line inside a ``` fence. A caption, a link's text and
-    /// every other word stay checked. Clearing a mark (`0`) is never refused.
-    /// While `lastTokens` describe an earlier text the tokens are not asked
-    /// (the next check after the retokenize decides), so a stale token never
-    /// hides a real misspelling.
+    /// every other word stay checked. Only the spelling bit is refused: a
+    /// grammar mark stays, and clearing a mark (`0`) is never refused. While
+    /// `lastTokens` describe an earlier text nothing is refused (the next
+    /// check after the retokenize decides), so a stale token never hides a
+    /// real misspelling.
     func textView(_ textView: NSTextView, shouldSetSpellingState value: Int,
                   range affectedCharRange: NSRange) -> Int {
-        guard value != 0, affectedCharRange.length > 0 else { return value }
-        if !tokensDescribeAnEarlierText,
-           Self.intersectsAny(affectedCharRange, sorted: spellingExemptRanges) { return 0 }
-        if !(mode is ScreenplayMode), Self.isInFencedCode(affectedCharRange.location,
-                                                          in: textView.string as NSString) {
-            return 0
+        let spelling = NSAttributedString.SpellingState.spelling.rawValue
+        guard value & spelling != 0, affectedCharRange.length > 0,
+              !tokensDescribeAnEarlierText else { return value }
+        if Self.intersectsAny(affectedCharRange, sorted: spellingExemptRanges) {
+            return value & ~spelling
+        }
+        guard !(mode is ScreenplayMode) else { return value }
+        let text = textView.string as NSString
+        if textHasFenceCache == nil { textHasFenceCache = text.range(of: "```").location != NSNotFound }
+        if textHasFenceCache == true, Self.isInFencedCode(affectedCharRange.location, in: text) {
+            return value & ~spelling
         }
         return value
     }
@@ -1852,7 +1863,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// indented line it also calls code is prose here (a writer's indented
     /// paragraph is no code block to the shared parser), so it is not asked.
     static func isInFencedCode(_ location: Int, in text: NSString) -> Bool {
-        guard location <= text.length, text.range(of: "```").location != NSNotFound else { return false }
+        guard location <= text.length else { return false }
         var start = 0, end = 0, contentsEnd = 0
         text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd,
                           for: NSRange(location: location, length: 0))

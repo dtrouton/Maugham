@@ -21,7 +21,7 @@ final class SpellingMarkupTests: XCTestCase {
 
         ![Tabel of results](figures/tabel_4xq.csv){#tbl:tabel_4xq}
 
-        As [@smithqq2020] showed, see [the sitee](https://exmple.com/qqzz), `codez`, @tbl:tabel_4xq and a note[^qqnote].
+        As [@smithqqz] showed, see [the sitee](https://exmple.com/qqzz), `codez`, @tbl:tabel_4xq and a note[^qqnote].
 
         ## Methods {#sec:methqq}
 
@@ -59,7 +59,7 @@ final class SpellingMarkupTests: XCTestCase {
             ("tabel_4xq", 0),   // the figure's path
             ("csv", 0),
             ("tabel_4xq", 1),   // its {#tbl:…} label
-            ("smithqq2020", 0), // a citation key
+            ("smithqqz", 0), // a citation key
             ("exmple", 0),      // a link's URL
             ("qqzz", 0),
             ("codez", 0),       // inline code
@@ -83,10 +83,22 @@ final class SpellingMarkupTests: XCTestCase {
         XCTAssertEqual(asks(harness, range(of: "resuls"), value: 2), 2)
     }
 
+    /// Only the spelling bit is refused on markup: a grammar mark over a
+    /// sentence holding a citation stays, alone or beside a spelling mark.
+    func test_aGrammarMarkOverMarkupIsKept() {
+        let harness = mount()
+        let spelling = NSAttributedString.SpellingState.spelling.rawValue
+        let grammar = NSAttributedString.SpellingState.grammar.rawValue
+        let sentence = range(of: "As [@smithqqz] showed")
+        XCTAssertEqual(asks(harness, sentence, value: grammar), grammar)
+        XCTAssertEqual(asks(harness, range(of: "smithqqz"), value: spelling | grammar), grammar)
+        XCTAssertEqual(asks(harness, range(of: "fenzed"), value: spelling | grammar), grammar)
+    }
+
     func test_clearingAMarkIsNeverRefused() {
         let harness = mount()
         XCTAssertEqual(asks(harness, range(of: "tabel_4xq"), value: 0), 0)
-        XCTAssertEqual(asks(harness, range(of: "smithqq2020"), value: 0), 0)
+        XCTAssertEqual(asks(harness, range(of: "smithqqz"), value: 0), 0)
     }
 
     /// Between a character edit and its retokenize the tokens describe the
@@ -94,7 +106,7 @@ final class SpellingMarkupTests: XCTestCase {
     /// real misspelling), and the next check after the retokenize decides.
     func test_staleTokensAreNotAsked() {
         let harness = mount()
-        let citation = range(of: "smithqq2020")
+        let citation = range(of: "smithqqz")
         harness.textView.textStorage!.replaceCharacters(in: NSRange(location: 0, length: 0), with: "X")
         XCTAssertTrue(harness.coordinator.tokensDescribeAnEarlierText)
         XCTAssertEqual(asks(harness, NSRange(location: citation.location + 1, length: citation.length)), 1)
@@ -120,13 +132,31 @@ final class SpellingMarkupTests: XCTestCase {
     func test_theRealCheckerMarksWordsAndNotMarkup() {
         let harness = mount()
         let tv = harness.textView
-        let results = NSSpellChecker.shared.check(
+        let checker = NSSpellChecker.shared
+        let (language, identifies) = (checker.language(), checker.automaticallyIdentifiesLanguages)
+        checker.automaticallyIdentifiesLanguages = false
+        XCTAssertTrue(checker.setLanguage("en"), "the English dictionary is available")
+        defer {
+            checker.setLanguage(language)
+            checker.automaticallyIdentifiesLanguages = identifies
+        }
+        let results = checker.check(
             Self.text, range: NSRange(location: 0, length: (Self.text as NSString).length),
             types: NSTextCheckingResult.CheckingType.spelling.rawValue,
             options: [.orthography: NSOrthography.defaultOrthography(forLanguage: "en")],
             inSpellDocumentWithTag: tv.spellCheckerDocumentTag,
-            orthography: nil, wordCount: nil)
-        for result in results where result.resultType == .spelling {
+            orthography: nil, wordCount: nil
+        ).filter { $0.resultType == .spelling }
+        // The checker skips a URL and an `@key` on its own, so the link and
+        // the citation are pinned by the delegate tests alone.
+        let markup = [("tabel_4xq", 0), ("tabel_4xq", 1), ("qqnote", 0), ("fenzed", 0)]
+        // Not vacuous: without the veto the checker WOULD mark each of them.
+        for (word, n) in markup {
+            let r = range(of: word, n)
+            XCTAssertTrue(results.contains { NSIntersectionRange($0.range, r).length > 0 },
+                          "control: the checker reports \(word) #\(n)")
+        }
+        for result in results {
             tv.setSpellingState(NSAttributedString.SpellingState.spelling.rawValue, range: result.range)
         }
         func marked(_ r: NSRange) -> Bool {
@@ -139,8 +169,7 @@ final class SpellingMarkupTests: XCTestCase {
         }
         XCTAssertTrue(marked(range(of: "resuls")), "control: the checker marks a prose misspelling")
         XCTAssertTrue(marked(range(of: "Tabel")), "the caption is checked")
-        for (word, n) in [("tabel_4xq", 0), ("tabel_4xq", 1), ("smithqq2020", 0),
-                          ("exmple", 0), ("qqnote", 0), ("fenzed", 0)] {
+        for (word, n) in markup {
             XCTAssertFalse(marked(range(of: word, n)), "\(word) #\(n) is markup")
         }
     }
