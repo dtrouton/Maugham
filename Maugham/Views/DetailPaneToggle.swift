@@ -749,14 +749,14 @@ struct DetailPaneToggle<Inspector: View>: View {
                 store: store,
                 documentStore: ds,
                 scope: $annotationScope,
-                onTravel: { docId in
+                onTravel: { subject in
                     // Travelling to a piece is the window's SUBJECT write and
                     // nothing else. No persona rides along: Review's centre
                     // shows documents, so a reviewer clicking a note about
                     // another chapter must land there with their notes still
                     // beside them (`ManuscriptNavigation`'s ruling, and
                     // `AnnotationScopeTests`' census over this closure).
-                    selectedSubject = .item(docId)
+                    selectedSubject = subject
                 },
                 // The round cockpit's two stores (M4 P2 Task 3) — the same
                 // pair the Diagnostics arm takes, and `nil` in a host that

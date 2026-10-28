@@ -26,7 +26,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
 - `CompilerRunModifier.swift` — the run keys' delivery path and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
-- `SubjectValidationModifier.swift` — keeps the subject naming an existing row; keyed on the structure.
+- `SubjectValidationModifier.swift` — keeps the subject naming an existing row; keyed on the structure, research and figure ids, and asks a figure subject's stream whether it is parked.
 - `ResearchRevealModifier.swift` — an arriving research subject in Plan reveals the column that shows it.
 - `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority.
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout` / `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
@@ -192,7 +192,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Persona.swift` — the four personas and their predicates (`panes`, `defaultPane`, `centresTheCanvas`, `showsManuscriptDocuments`, `previewsThePublishedBook`, `showsTheReviewBoard`, `editsResearchInTheCentre`, `showsPaletteWall`, `showsExports`, `showsIntentStrip`).
 - `DetailSegment.swift` — the right-pane modes, with icon and help text.
 - `PersonaMemory.swift` — each persona's remembered right-pane segment, in `UIState`.
-- `BinderSubject.swift` — the window's one subject: `.project`, `.item(id)`, `.research(id)`.
+- `BinderSubject.swift` — the window's one subject: `.project`, `.item(id)`, `.research(id)`, `.figure(id)`.
 - `TreePane.swift` — which tree the left column mounts (`TreePane(for:)`).
 
 ## Rules

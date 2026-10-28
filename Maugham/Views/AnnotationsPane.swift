@@ -23,10 +23,10 @@ struct AnnotationsPane: View {
     /// than the pane's own, so Task 9's board click-through can set it from
     /// outside — and not persisted (a scope is a glance, not a home).
     @Binding var scope: AnnotationScope
-    /// Travel to another piece. The window's SUBJECT write and nothing else:
+    /// Travel to another piece or a figure. The window's SUBJECT write and nothing else:
     /// Review's centre shows documents, so this navigation never moves the
     /// persona (the ejection trap — `ManuscriptNavigation`).
-    let onTravel: (String) -> Void
+    let onTravel: (BinderSubject) -> Void
     /// **The window's compiler and its sidecar — the round cockpit's two
     /// stores** (M4 P2 Task 3). Optional because this pane serves hosts that
     /// surface no compiler at all (the probe mounts, and any caller predating
@@ -1506,10 +1506,8 @@ struct AnnotationsPane: View {
             rowDocId: docId, activeDocId: document?.docId) {
         case .jump:
             jump(annotation)
-        case .travel(let piece):
-            onTravel(piece)
-        case .stay:
-            break
+        case .travel(let subject):
+            onTravel(subject)
         }
     }
 

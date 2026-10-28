@@ -90,6 +90,9 @@ struct StatementPane: View {
             // Permanent, not interim: unlike `validSubject`, there is no
             // research-tree validation this could grow into.
             return .project
+        case .figure:
+            // A figure carries no craft intent either, for the same reason.
+            return .project
         }
     }
 

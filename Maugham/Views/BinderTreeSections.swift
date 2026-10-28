@@ -1309,7 +1309,7 @@ enum BinderTreeSelection {
     static func subject(_ current: BinderSubject?,
                         whenListWrites written: BinderSubject?) -> BinderSubject? {
         switch written {
-        case .project, .item, .research: return written
+        case .project, .item, .research, .figure: return written
         case .none: return current
         }
     }
@@ -1368,6 +1368,7 @@ enum BinderTreeSelection {
         subject: BinderSubject?,
         structure: [StructureItem],
         research: [ResearchItem],
+        figures: [String],
         single: (BinderSubject?, BinderSubject?) -> BinderSubject? = {
             BinderTreeSelection.subject($0, whenListWrites: $1)
         }
@@ -1390,20 +1391,27 @@ enum BinderTreeSelection {
         // Otherwise the first of what is left, in the order the TREE draws —
         // never `Set.first`, which is whatever hashing yields today.
         return (written,
-                ordered(written, structure: structure, research: research).first
+                ordered(written, structure: structure, research: research,
+                        figures: figures).first
                     ?? subject)
     }
 
     /// A selection in the order the tree draws it: the project row, then the
-    /// structure in tree order, then research — and nothing else, because it is
-    /// built by walking those two trees. That is what prunes a dead id.
+    /// structure in tree order, then the figures, then research — and nothing
+    /// else, because it is built by walking those lists. That is what prunes a
+    /// dead id.
+    ///
+    /// - Parameter figures: the figure ids in the order the Figures section
+    ///   draws them (the section sits between the manuscript and Research).
     static func ordered(_ selection: Set<BinderSubject>,
                         structure: [StructureItem],
-                        research: [ResearchItem]) -> [BinderSubject] {
+                        research: [ResearchItem],
+                        figures: [String]) -> [BinderSubject] {
         var out: [BinderSubject] = []
         if selection.contains(.project) { out.append(.project) }
         out += TreeWalk.collect(in: structure, where: { selection.contains(.item($0.id)) })
             .map { BinderSubject.item($0.id) }
+        out += figures.filter { selection.contains(.figure($0)) }.map(BinderSubject.figure)
         // The research half is `ResearchSelectionSync`'s, called rather than
         // restated — it is the ordering the two research panes have always used
         // and the one their batch verbs were built on.
@@ -1433,6 +1441,14 @@ enum BinderTreeSelection {
             in: research)
     }
 
+    /// The figure ids in the order the tree draws them, for `ordered`. Until
+    /// the Figures section exists (report plan 8a Task 4) this is the
+    /// registry's order; that task points it at the section's rows.
+    @MainActor
+    static func drawnFigureOrder(_ store: ProjectStore) -> [String] {
+        (store.manifest.figures ?? []).map(\.id)
+    }
+
     /// The tree's `List(selection:)` binding, for the two hosts whose rows are
     /// all their own. `SceneNavigatorPane` builds its own out of the same parts
     /// — see its `listSelection`.
@@ -1447,7 +1463,8 @@ enum BinderTreeSelection {
                     written: written, stored: state.selection,
                     subject: subject.wrappedValue,
                     structure: store.manifest.structure,
-                    research: store.manifest.research)
+                    research: store.manifest.research,
+                    figures: drawnFigureOrder(store))
                 state.selection = next.selection
                 subject.wrappedValue = next.subject
             })

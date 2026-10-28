@@ -938,7 +938,7 @@ private struct OptionalSubjectValidation: ViewModifier {
 
     func body(content: Content) -> some View {
         content.modifier(SubjectValidationModifier(
-            store: store, selectedSubject: $selectedSubject))
+            store: store, documentStore: nil, selectedSubject: $selectedSubject))
     }
 }
 

@@ -38,7 +38,9 @@ public struct UIState: Codable, Equatable, Sendable {
     /// **A research subject writes a THIRD key, `selectedResearchItemId`, on the
     /// same principle** (stage-2a Task 1): a build that has never heard of it
     /// writes and reads neither of the other two, so it sees no selection at
-    /// all rather than misreading a research id as a structure item id.
+    /// all rather than misreading a research id as a structure item id. A
+    /// figure subject writes a FOURTH, `selectedFigureId` (report plan 8a), the
+    /// same way.
     public var selectedSubject: BinderSubject?
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
@@ -262,7 +264,7 @@ public struct UIState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, selectedSubjectIsProject,
-             selectedResearchItemId,
+             selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
@@ -283,6 +285,11 @@ public struct UIState: Codable, Equatable, Sendable {
             try c.encode(true, forKey: .selectedSubjectIsProject)
         case .research(let id):
             try c.encode(id, forKey: .selectedResearchItemId)
+        case .figure(let id):
+            // Its own key, so a build that predates figure subjects reads the
+            // file as "no subject" and lands on the project row — never on a
+            // structure or research row that happened to share the id.
+            try c.encode(id, forKey: .selectedFigureId)
         case nil:
             break
         }
@@ -324,6 +331,8 @@ public struct UIState: Codable, Equatable, Sendable {
             self.selectedSubject = .item(id)
         } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedResearchItemId) {
             self.selectedSubject = .research(id)
+        } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedFigureId) {
+            self.selectedSubject = .figure(id)
         } else {
             self.selectedSubject = nil
         }

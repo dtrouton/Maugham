@@ -127,6 +127,12 @@ enum CanvasSubject: Hashable {
         switch subject {
         case nil, .project:
             return .wholeProject
+        case .figure:
+            // A figure lights no card — it has none on the board — and names
+            // no piece, so to the canvas it means what the project means: the
+            // whole board, undimmed. The Plan persona keeps the canvas in the
+            // centre beside the figure (report plan 8a).
+            return .wholeProject
         case .research(let id):
             // §4: a research item IS a subject and lights its own card. The
             // unresolvable arm is the `.item` arm's, for the `.item` arm's

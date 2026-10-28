@@ -50,20 +50,19 @@ enum AnnotationScopePolicy {
         /// The row belongs to the piece already centred: the existing
         /// paragraph/annotation navigation, exactly as document scope does it.
         case jump
-        /// The row belongs to another piece: take the window there. A SUBJECT
-        /// write and nothing else — Review's centre shows documents, so this
-        /// navigation must never move the persona (`ManuscriptNavigation`, and
-        /// the ejection trap the whole of M3 is written around).
-        case travel(String)
-        /// The row belongs to a figure: nothing to travel to yet.
-        case stay
+        /// The row belongs to another piece, or to a figure: take the window
+        /// there. A SUBJECT write and nothing else — Review's centre shows
+        /// documents, so this navigation must never move the persona
+        /// (`ManuscriptNavigation`, and the ejection trap the whole of M3 is
+        /// written around).
+        case travel(BinderSubject)
     }
 
     static func click(rowDocId: String, activeDocId: String?) -> Click {
-        // A figure's notes are read here; there is no figure surface to
-        // travel to yet (report plan 7), and a figure id is no subject.
-        if DocumentClass.isFigureDocId(rowDocId) { return .stay }
-        return rowDocId == activeDocId ? .jump : .travel(rowDocId)
+        // A figure's stream id is a figure subject (report plan 8a), never a
+        // piece and never a jump: no editor shows a figure's paragraphs.
+        if DocumentClass.isFigureDocId(rowDocId) { return .travel(.figure(rowDocId)) }
+        return rowDocId == activeDocId ? .jump : .travel(.item(rowDocId))
     }
 
     /// **Multiselect and the bulk bar are document-scope only.**

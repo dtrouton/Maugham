@@ -286,12 +286,25 @@ final class AnnotationScopeTests: XCTestCase {
             .jump)
         XCTAssertEqual(
             AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: "ch1"),
-            .travel("ch2"))
+            .travel(.item("ch2")))
         // Nothing open at all: the click is still a travel, which is what opens
         // the piece the row belongs to.
         XCTAssertEqual(
             AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: nil),
-            .travel("ch2"))
+            .travel(.item("ch2")))
+    }
+
+    /// **A figure's note travels to the figure** (report plan 8a): its stream
+    /// id is a figure subject, never a piece, and never a jump — the editor
+    /// shows no figure's paragraphs, even when the row's id were somehow the
+    /// active one.
+    func test_aFiguresNoteTravelsToTheFigureSubject() {
+        XCTAssertEqual(
+            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "ch1"),
+            .travel(.figure("fig-0a1b2c3d")))
+        XCTAssertEqual(
+            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "fig-0a1b2c3d"),
+            .travel(.figure("fig-0a1b2c3d")))
     }
 
     /// **The pane's own file writes no persona.** Mirrors
@@ -319,8 +332,10 @@ final class AnnotationScopeTests: XCTestCase {
             "the annotations arm must still be a readable declaration")
         let code = SourceScan.codeLines(of: arm).joined(separator: "\n")
 
-        XCTAssertTrue(code.contains("selectedSubject = .item("),
-                      "travelling to a piece IS the window's subject write")
+        XCTAssertTrue(code.contains("onTravel: { subject in")
+                        && code.contains("selectedSubject = subject"),
+                      "travelling to a piece or a figure IS the window's subject "
+                      + "write — the subject the pure rule chose, unchanged")
         XCTAssertFalse(code.contains("persona"),
                        "the queue's travel closure moves the window's PERSONA — "
                        + "the ejection trap the whole of M3 is written around")

@@ -222,8 +222,9 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
                        "filed last, under the registry's name")
         XCTAssertEqual(sections.last?.id, figureId)
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: figureId, activeDocId: "doc-c1"), .stay,
-            "a figure id is no subject to travel to")
+            AnnotationScopePolicy.click(rowDocId: figureId, activeDocId: "doc-c1"),
+            .travel(.figure(figureId)),
+            "a figure's note travels to the figure")
     }
 
     func test_aClosedDocsNotesComeFromItsOpLog() async throws {

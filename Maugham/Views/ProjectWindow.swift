@@ -462,7 +462,7 @@ struct ProjectWindow: View {
                     wordCount: 0, characterCount: 0, readingMinutes: 0)
             }
         }
-        .modifier(SubjectValidationModifier(store: store,
+        .modifier(SubjectValidationModifier(store: store, documentStore: documentStore,
                                             selectedSubject: $selectedSubject))
         .modifier(ReferenceIndexWiring(
             url: url, store: store, documentStore: documentStore,
@@ -1611,6 +1611,11 @@ struct ProjectWindow: View {
                 .map(TreeScrollTarget.row)
         case .item, .project:
             return .row(subject)
+        case .figure:
+            // `matchSubject` makes no figure subject (a search matches text,
+            // and a figure's cells are not searched), so this arm is reached
+            // by no match today; it scrolls to the row's own tag.
+            return .row(subject)
         }
     }
 
@@ -2300,9 +2305,19 @@ struct ProjectWindow: View {
     /// REPAIRS a subject and does not choose one, so a writer who deselected is
     /// left alone; that guard lives at the sweep's call site
     /// (`SubjectValidationModifier`).
+    ///
+    /// **A figure** is valid while the registry lists it and it is not parked
+    /// in Research (report plan 8a): a removed figure and one sent to Research
+    /// both leave the Figures section, so a subject naming either repairs to
+    /// `.project`. `parked` is what the caller KNOWS is parked — parking lives
+    /// in the figure's stream, not the record, so the restore and the sweep
+    /// pass `[]` and `SubjectValidationModifier` asks the stream and calls
+    /// again with the answer.
     static func validSubject(_ subject: BinderSubject?,
                              in structure: [StructureItem],
-                             research: [ResearchItem]) -> BinderSubject {
+                             research: [ResearchItem],
+                             figures: [FigureRecord],
+                             parked: Set<String>) -> BinderSubject {
         switch subject {
         case .project:
             return .project
@@ -2313,6 +2328,10 @@ struct ProjectWindow: View {
         case .research(let id) where TreeWalk.contains(id: id, in: research):
             return .research(id)
         case .research:
+            return .project
+        case .figure(let id) where !parked.contains(id) && figures.contains(where: { $0.id == id }):
+            return .figure(id)
+        case .figure:
             return .project
         }
     }
@@ -2585,9 +2604,11 @@ struct ProjectWindow: View {
             //
             // The subject goes through the one rule that decides where a freshly
             // opened window lands; `.project` always answers, so no `if let`.
+            // A parked figure is repaired by the sweep once it has asked
+            // the figure's stream (`SubjectValidationModifier`).
             self.selectedSubject = Self.validSubject(
                 ds.uiState.selectedSubject, in: s.manifest.structure,
-                research: s.manifest.research)
+                research: s.manifest.research, figures: s.manifest.figures ?? [], parked: [])
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
