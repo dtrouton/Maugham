@@ -14,10 +14,10 @@ final class DocBudgetTests: XCTestCase {
         "CLAUDE.md": 3_087,  // hard cap 4,000 words
         "docs/tripwires.md": 7_778,
         "docs/testing/TROUBLESHOOTING.md": 4_506,
-        "docs/INDEX.md": 454,
+        "docs/INDEX.md": 466,
         "Maugham/Canvas/AREA.md": 7_951,
         "Maugham/OpLog/AREA.md": 7_994,
-        "Maugham/Views/AREA.md": 7_994,
+        "Maugham/Views/AREA.md": 7_682,
         "Maugham/Compiler/AREA.md": 7_891,
         "Maugham/Stores/AREA.md": 7_994,
         "Maugham/MCP/AREA.md": 6_068,

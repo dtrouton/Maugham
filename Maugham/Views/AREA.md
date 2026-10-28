@@ -251,41 +251,44 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A double-click on a tree row travels to Author only where the centre is the canvas** (`TreeTravel.treeTravelDestination`), through `applyPersonaChange`, never `ManuscriptNavigation`. It posts `.maughamTreeTravel` with the row's own tag, never `state.selection`. The rows it reaches are `TreeTravelGestureAttachmentTests.expectations`.
 
 ### The subject and the tree
-- **The tree is the window's single subject-picker** (`BinderSubject`, no `rawValue`, no `init(String)`): a second picker beside it is two controls that can disagree.
-- **Every tree's `List` selects through `BinderTreeSelection`, never `List(selection: $selectedSubject)`**: AppKit writes `nil` when an untagged placeholder row is clicked, and the binding refuses it (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`).
-- **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`**: one-way counters both ways (tripwire 2), censused in `PromotionCommandTests`; ⇧Tab only where `ProjectWindow.binderTakesTheKeyboardBack`; a rename keeps Tab (`PlanBinderTabTests`).
-- **The subject is DERIVED from the tree's selection set**: an anchor that leaves is replaced by the first remaining row in tree order (`ordered`, never `Set.first`). There is no sweep of the set; `SubjectValidationModifier` is the one rule about dead ids.
-- **Only a homogeneous research selection batches**: a set holding the project row or a chapter degrades every research verb to the row it was aimed at.
+*Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
+- **The tree is the window's single subject-picker** (`BinderSubject`, no `rawValue`, no `init(String)`).
+- **Every tree's `List` selects through `BinderTreeSelection`, never `List(selection: $selectedSubject)`** (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`).
+- **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`** (`PromotionCommandTests`, `PlanBinderTabTests`).
+- **The subject is DERIVED from the tree's selection set**; `SubjectValidationModifier` is the one rule about dead ids.
+- **Only a homogeneous research selection batches**.
 - **The five dead strip spellings — `BinderSegment`, `binderSegments(`, `binderHome(`, `findActive`, `selectedResearchId` — never return to production code**: `TripwireGrepTests.test_noProductionSpellingOfTheDeadStripSurvives`.
-- **Find is `ProjectWindow.treeFindActive`, window `@State` a persona switch does not touch, replacing the left column**; `ProjectSearchView.close()` (✕ and Escape) is its one exit, reaching `applyCloseFind`. Closing find moves nobody.
-- **⌘⌥O selects the project row; ⌘⌥R / ⌘⌥P reveal the tree's Research / Palette sections** — none opens a `DetailSegment`. ⌘⌥R/⌘⌥P are no-ops while find covers the tree; ⌘⌥O still acts (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
+- **Find is `ProjectWindow.treeFindActive`, window `@State`**; `ProjectSearchView.close()` is its one exit.
+- **⌘⌥O selects the project row; ⌘⌥R / ⌘⌥P reveal the tree's Research / Palette sections** (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
 
 ### Tree furniture
-- **Mounting the sections takes both halves**: the rows inside the host's `List`, and the presentations (sheets, alert, deferred rename) outside it via `.binderTreeSections(…)`: `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections`.
+*Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
+- **Mounting the sections takes both halves** (rows inside the `List`, presentations outside via `.binderTreeSections(…)`): `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections`.
 - **Every tree sheet mounts from `BinderTreeSectionsPresentations`, never from a row**; a row only sets state.
-- **Every row acts through the one `BinderTreeVerbs` value**, including a fold's; `perform` surfaces a store failure in the shared alert, never `try?`.
-- **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`); `refuseDrop` returns `false` and logs why.
-- **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**: it answers the row the tree can now show (the shared row, or the owning piece's row for a piece-scoped note).
-- **Arrival is visible**: every tree host calls `consumingTreeScrollRequests` after the `ScrollViewReader` wrapping its `List`, with both triggers (`.onChange` and `.task`): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
-- **A piece fold's rows carry no `.id`**: a linked fold draws a tag twice, and `scrollTo` over two identical ids is ambiguous.
-- **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`): its rows are shared items drawn twice, and two rename fields race tripwire 16's focus claim.
-- **New Group at a piece's root has no store API** (`ResearchScope` routes note / asset / link only); a `+` menu on a fold row must not offer it until one exists.
-- **A drop is classified by LOOKUP in the manifest, never by the shape of an id**, and an unknown id refuses loudly (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`). Every mounted drop target calls the classifier (`TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
+- **Every row acts through the one `BinderTreeVerbs` value**; `perform` surfaces a store failure, never `try?`.
+- **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`).
+- **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**.
+- **Arrival is visible** (`consumingTreeScrollRequests`, both triggers): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
+- **A piece fold's rows carry no `.id`**.
+- **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`).
+- **New Group at a piece's root has no store API** (`ResearchScope` routes note / asset / link only).
+- **A drop is classified by LOOKUP in the manifest, never by the shape of an id**. Every mounted drop target calls the classifier (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`, `TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
 - **External drops route through `TreeDropIntent.classifyExternal`** to the same creation verbs as Add File and paste.
-- **Every drop closure returns `Bool` down to the row's `.dropDestination`**; a `Void` closure accepts and discards: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`, `test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
-- **`TreeSectionDerivation` takes manifest values only** (no store, no disk); use the by-item overload on the body path (tripwire 4). A Collection's piece-scoped roots never leak into the shared list (`TreeSectionDerivationTests`).
+- **Every drop closure returns `Bool` down to the row's `.dropDestination`**: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`, `test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
+- **`TreeSectionDerivation` takes manifest values only** (`TreeSectionDerivationTests`).
 - **Link Research… is offered only where `researchRouting(for:)` answers `.sharedPlusLink`** (`ResearchLinkPickerTests`).
-- **`TreeScrollProbe` installs only in a dev build outside xctest** (`MAUGHAM_TREE_SCROLL_PROBE=0` disables it); trust its `settled` lines, never `installed`.
+- **`TreeScrollProbe` installs only in a dev build outside xctest** (`MAUGHAM_TREE_SCROLL_PROBE=0` disables it).
 
 ### Research subjects and the palette wall
+*Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt`.
 - **Where the centre is the canvas, a research subject never swaps the centre out**; it previews in the right column. Elsewhere it takes the centre.
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
-- **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre` (a locked editor, not an unmounted one).
-- **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when an arriving subject previews there; `openResearchItem` and `handleShowLatestMCPNote` call it explicitly; `load()`'s restore does not force the pane. 
-- **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`), and is window `@State`, not persisted.
-- **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`), and drops the stash rather than restoring it.
-- **In Plan the Open Wall door travels**: `pressPaletteWallDoor` arms `travelPending`, writes the persona, opens nothing and writes no subject; `PaletteWallModifier`'s `.onChange(of: persona)` consumes it immediately AFTER `closePaletteWallOnPersonaChange`, in the same handler.
+- **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.
+- **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject previews there; `load()`'s restore does not force the pane.
+- **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`).
+- **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`),.
+- **In Plan the Open Wall door travels**: `pressPaletteWallDoor` arms `travelPending`, writes the persona, opens nothing, writes no subject; `PaletteWallModifier` consumes it AFTER `closePaletteWallOnPersonaChange`.
 - **The door's tooltip and its press ask one spelling, `paletteWallDoorTravels`** (`PaletteWallDoorTests`, driven with real mouse events).
 
 ### Layout and sizing
