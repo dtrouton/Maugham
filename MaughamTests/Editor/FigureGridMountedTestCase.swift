@@ -64,23 +64,36 @@ class FigureGridMountedTestCase: XCTestCase {
 
     /// A novel, a `rows`×3 table figure `t` in its chapter, the window's
     /// figure cards filled, and a manuscript editor over `text` wired as
-    /// `EditorHost` wires it.
+    /// `EditorHost` wires it. `sharing` mounts a second project window's
+    /// editor on that one's project — the same stores, so the same figure
+    /// hosts (final review I1) — with cards of its own.
     func mount(_ text: String = document, rows: Int = 3, makeFigure: Bool = true,
                        height: CGFloat = 500, presence: FigureGridPresence? = nil,
                        windows: FigureWindows? = nil, openWindow: (@MainActor (String) -> Void)? = nil,
+                       sharing: Mounted? = nil,
                        beforeMaking: (@MainActor () -> Void)? = nil) async throws -> Mounted {
-        let url = try await ProjectFactory.createNovelProject(
-            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
-        let store = try await ProjectStore.load(from: url)
-        let ds = try await DocumentStore.open(url: store.url)
-        store.documentStore = ds
-        ds.projectStore = store
-        documentStores.append(ds)
+        let store: ProjectStore
+        let ds: DocumentStore
+        var figure = sharing?.figure
+        if let sharing {
+            store = sharing.store
+            ds = try XCTUnwrap(store.documentStore)
+        } else {
+            let url = try await ProjectFactory.createNovelProject(
+                named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+            store = try await ProjectStore.load(from: url)
+            ds = try await DocumentStore.open(url: store.url)
+            store.documentStore = ds
+            ds.projectStore = store
+            documentStores.append(ds)
+        }
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let path = try XCTUnwrap(chapter.path)
-        let figure = makeFigure
-            ? try await store.createFigure(kind: .table, name: "t", piece: chapter.id, rows: rows, columns: 3)
-            : nil
+        if sharing == nil {
+            figure = makeFigure
+                ? try await store.createFigure(kind: .table, name: "t", piece: chapter.id, rows: rows, columns: 3)
+                : nil
+        }
         let cards = FigureCardCache()
         ds.attachFigureCardCache(cards)
         cards.attach(FigureCardCache.Source(read: { [weak ds] in await ds?.figureCardInputs() }))

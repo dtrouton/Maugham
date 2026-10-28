@@ -434,9 +434,16 @@ struct ProjectWindow: View {
         }
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
-            // give us only ~100ms before terminating us.
+            // give us only ~100ms before terminating us. The figure windows
+            // finish first — an open cell edit committed — and their writes
+            // are awaited, briefly, before the store closes (final review I3).
             if let ds = documentStore {
-                Task { await ds.close() }
+                let session = session
+                session?.figureWindows.closeAll()
+                Task {
+                    await session?.settleFigureWindows(within: .seconds(1))
+                    await ds.close()
+                }
             }
         }
         .onKeyWindowCommand(.maughamShowProjectStatistics, window: window) { _ in

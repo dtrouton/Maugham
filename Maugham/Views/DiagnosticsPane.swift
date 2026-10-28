@@ -1547,17 +1547,28 @@ struct DiagnosticsPane: View {
     private func gotIt(_ annotation: Annotation) {
         guard let document = activeDocument() else { return }
         answerFailures[annotation.id] = nil
+        let undoManager = undoManager
         Task {
-            do {
-                try await document.acceptAnnotation(
-                    id: annotation.id, undoManager: undoManager)
-            } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
-                documentLog.error("\u{201C}Got it\u{201D} refused for \(annotation.id, privacy: .public): the suggestion's anchor is gone")
-                answerFailures[annotation.id] = Self.anchorLostRefusal
-            } catch {
-                documentLog.error("\u{201C}Got it\u{201D} failed for \(annotation.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                answerFailures[annotation.id] = Self.dispositionRefusal(error)
+            if let failure = await Self.gotIt(annotationId: annotation.id, in: document, undoManager: undoManager) {
+                answerFailures[annotation.id] = failure
             }
+        }
+    }
+
+    /// **Got it's verb, windowless** — what the row's button runs, pinned
+    /// without a press (tripwire 33): the annotation layer's own accept, and
+    /// nil when it settled, else the sentence the row shows.
+    static func gotIt(annotationId: String, in document: Document,
+                      undoManager: UndoManager?) async -> String? {
+        do {
+            try await document.acceptAnnotation(id: annotationId, undoManager: undoManager)
+            return nil
+        } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
+            documentLog.error("\u{201C}Got it\u{201D} refused for \(annotationId, privacy: .public): the suggestion's anchor is gone")
+            return anchorLostRefusal
+        } catch {
+            documentLog.error("\u{201C}Got it\u{201D} failed for \(annotationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return dispositionRefusal(error)
         }
     }
 

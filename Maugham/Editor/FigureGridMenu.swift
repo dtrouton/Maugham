@@ -215,7 +215,7 @@ struct FigureTableMenuState: Equatable {
     var knowsItsPiece = false
 
     static func of(table: FigureTable, selection: FigureGridSelection?, mode: FigureGridGate.Mode,
-                   knowsItsPiece: Bool = true) -> Self {
+                   knowsItsPiece: Bool) -> Self {
         var state = Self()
         state.mayEdit = mode == .editable
         state.knowsItsPiece = knowsItsPiece

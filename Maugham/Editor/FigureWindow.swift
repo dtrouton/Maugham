@@ -25,7 +25,13 @@ struct FigureWindowKey: Codable, Hashable {
 /// `ProjectSession`. A figure window registers here instead of borrowing the
 /// session, with the verb that closes it; the session closes every one when
 /// its last project window detaches (`ProjectSession.detachWindow`), and at
-/// its close. `isOpen` is what a card asks before it says "Editing in window".
+/// its close — awaiting each one's last writes, bounded (`settle`).
+///
+/// **One grid per host, anywhere** (R7d-9, final review I1): every grid on
+/// the project's figures is here — a figure window, or a grid expanded in
+/// place in any project window (`holdInPlace`). A figure held by one grid is
+/// never expanded by another: its card says so (`heldElsewhere`) and a
+/// double-click or Return brings the grid that has it front (`focus`).
 @MainActor
 @Observable
 final class FigureWindows {
@@ -46,7 +52,52 @@ final class FigureWindows {
         var caption: String
         var piece: String?
         var typography: TypographySettings
+        /// The opening editor's explicit review mode (⌘⌥⇧R): the window's
+        /// grid is read-only while it is on (final review I2), following
+        /// that editor's toggle (`reviewModeChanged`).
+        var isReviewMode = false
+        /// The editor that handed it over, so its review toggle reaches the window.
+        var from: ObjectIdentifier? = nil
     }
+
+    /// **Where a figure's grid is open, seen from another grid's card.**
+    enum Elsewhere: Equatable {
+        /// In a figure window (or one asked for and still opening).
+        case window
+        /// Expanded in place in another project window.
+        case anotherWindow
+
+        /// What the card says over itself.
+        var cardLabel: String {
+            switch self {
+            case .window: FigureThumbnailOverlay.editingInWindow
+            case .anotherWindow: FigureThumbnailOverlay.editingInAnotherWindow
+            }
+        }
+    }
+
+    /// **A grid expanded in place** on a figure, in some project window
+    /// (final review I1): held from the expansion to its fold.
+    struct InPlaceHold: Hashable {
+        let figureId: String
+        fileprivate let serial: Int
+    }
+
+    /// The figures expanded in place now, each with its one hold.
+    private(set) var inPlaceHolds: [String: InPlaceHold] = [:]
+    @ObservationIgnored private var inPlaceFocusers: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// The visit each figure's last in-place fold is still ending, so the
+    /// next grid to expand it — in any window — begins its own after it.
+    @ObservationIgnored private var visitsEnding: [String: Task<Void, Never>] = [:]
+    /// Figures ⤢ asked a window for, not yet registered (`handOff` → `opened`):
+    /// held meanwhile, so a double-click in the gap does not expand in place
+    /// (T9 review M3). A window that never comes stops holding after a moment.
+    @ObservationIgnored private var windowsOpening: [String: ContinuousClock.Instant] = [:]
+    static let openingGrace: Duration = .seconds(3)
+    /// Each window's finish (its open edit committed, its writes asked).
+    @ObservationIgnored private var finishers: [Registration: @MainActor () -> Void] = [:]
+    /// Windows' last writes still landing; `settle` awaits them.
+    @ObservationIgnored private var finishing: [Task<Void, Never>] = []
 
     /// **The share is view-only** — set by the project windows' editors from
     /// their control plane whenever it changes (`EditorCoordinator.
@@ -73,37 +124,113 @@ final class FigureWindows {
 
     func isOpen(_ figureId: String) -> Bool { openFigureIds.contains(figureId) }
 
+    /// Is any grid open on `figureId` — a window, one asked for, or in place?
+    func isHeld(_ figureId: String) -> Bool { heldElsewhere(figureId, besides: nil) != nil }
+
+    /// **Where `figureId`'s grid is open, other than `own`** (the asking
+    /// editor's own hold): nil when no other grid has it.
+    func heldElsewhere(_ figureId: String, besides own: InPlaceHold?) -> Elsewhere? {
+        if isOpen(figureId) || isWindowOpening(figureId) { return .window }
+        if let hold = inPlaceHolds[figureId], hold != own { return .anotherWindow }
+        return nil
+    }
+
+    /// Anything held at all (a card's cheap first question).
+    var holdsAny: Bool { !openFigureIds.isEmpty || !inPlaceHolds.isEmpty }
+
+    private func isWindowOpening(_ figureId: String) -> Bool {
+        guard let asked = windowsOpening[figureId] else { return false }
+        return ContinuousClock.now - asked < Self.openingGrace
+    }
+
     /// A figure window is open on `figureId`; `close` closes it, `focus`
-    /// brings it front and makes it key.
+    /// brings it front and makes it key, `finish` ends its visit (an open
+    /// edit committed, its writes asked) before a project close awaits them.
     func opened(_ figureId: String, focus: @escaping @MainActor () -> Void = {},
+                finish: @escaping @MainActor () -> Void = {},
                 close: @escaping @MainActor () -> Void) -> Registration {
         serial += 1
         let registration = Registration(figureId: figureId, serial: serial)
         closers[registration] = close
         focusers[registration] = focus
+        finishers[registration] = finish
+        windowsOpening[figureId] = nil
         recount()
         return registration
     }
 
     /// The window holding `registration` went. A second call does nothing.
+    /// The last window on a figure takes its hand-off with it, so a later
+    /// window never inherits a stale piece or typography (T9 review M5).
     func closed(_ registration: Registration) {
         focusers[registration] = nil
+        finishers[registration] = nil
         guard closers.removeValue(forKey: registration) != nil else { return }
+        if !closers.keys.contains(where: { $0.figureId == registration.figureId }) {
+            handoffs[registration.figureId] = nil
+        }
         recount()
     }
 
-    /// **R7d-9**: the window open on `figureId` comes front and takes the
-    /// keys — a double-click or Return on its card asks this instead of
-    /// expanding. False when no window is open on it.
+    /// **R7d-9**: the grid open on `figureId` comes front and takes the keys
+    /// — its figure window, or the project window it is expanded in. A
+    /// double-click or Return on its card asks this instead of expanding.
+    /// False when no grid is open on it.
     @discardableResult
     func focus(_ figureId: String) -> Bool {
-        guard let focus = focusers.first(where: { $0.key.figureId == figureId })?.value else { return false }
+        if let focus = focusers.first(where: { $0.key.figureId == figureId })?.value {
+            focus()
+            return true
+        }
+        guard let hold = inPlaceHolds[figureId], let focus = inPlaceFocusers[hold] else { return false }
         focus()
         return true
     }
 
-    /// The grid about to open `figureId` in a window leaves what it knows.
-    func handOff(_ figureId: String, _ handoff: Handoff) { handoffs[figureId] = handoff }
+    // MARK: Grids in place (final review I1)
+
+    /// **A grid is expanding `figureId` in place**; `focus` brings its
+    /// project window front with the grid's keys. Nil — expand nothing —
+    /// when another grid already has the figure.
+    func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void) -> InPlaceHold? {
+        guard !isHeld(figureId) else { return nil }
+        serial += 1
+        let hold = InPlaceHold(figureId: figureId, serial: serial)
+        inPlaceHolds[figureId] = hold
+        inPlaceFocusers[hold] = focus
+        return hold
+    }
+
+    /// The grid holding `hold` folded; `visitEnding` is its visit still
+    /// ending, which the next grid on the figure awaits. A second call does nothing.
+    func releaseInPlace(_ hold: InPlaceHold, visitEnding: Task<Void, Never>?) {
+        inPlaceFocusers[hold] = nil
+        guard inPlaceHolds[hold.figureId] == hold else { return }
+        inPlaceHolds[hold.figureId] = nil
+        if let visitEnding { visitsEnding[hold.figureId] = visitEnding }
+    }
+
+    /// The last in-place visit on `figureId` has ended (at once when none is ending).
+    func visitEnded(_ figureId: String) async {
+        await visitsEnding[figureId]?.value
+    }
+
+    /// The grid about to open `figureId` in a window leaves what it knows;
+    /// the figure is held from now until the window registers.
+    func handOff(_ figureId: String, _ handoff: Handoff) {
+        handoffs[figureId] = handoff
+        if !isOpen(figureId) { windowsOpening[figureId] = .now }
+    }
+
+    /// **An editor's review toggle flipped**: each window it opened follows
+    /// it — read-only while it is on (final review I2).
+    func reviewModeChanged(_ isReviewMode: Bool, from editor: ObjectIdentifier) {
+        for (figureId, var handoff) in handoffs where handoff.from == editor && handoff.isReviewMode != isReviewMode {
+            handoff.isReviewMode = isReviewMode
+            handoffs[figureId] = handoff
+            for (listener, listening) in listeners where listener.figureId == figureId { listening.access() }
+        }
+    }
 
     /// What the last grid to open `figureId` in a window left, if any (its
     /// number and caption as last told).
@@ -143,19 +270,69 @@ final class FigureWindows {
         for listening in listeners.values { listening.access() }
     }
 
-    /// The project's last window went: every figure window closes. Forgotten
-    /// first, so a window's own `closed` arriving during its close is a no-op.
+    /// The project's last window went: every figure window finishes its
+    /// visit (an open edit committed, its writes asked — `settle` awaits
+    /// them), then closes. Forgotten first, so a window's own `closed`
+    /// arriving during its close is a no-op.
     func closeAll() {
-        let closing = Array(closers.values)
+        let closing = Array(closers.values), finishing = Array(finishers.values)
         closers = [:]
         focusers = [:]
+        finishers = [:]
+        handoffs = [:]
+        windowsOpening = [:]
         recount()
+        for finish in finishing { finish() }
         for close in closing { close() }
     }
+
+    /// A window's last writes, landing after it closed (`FigureWindowGrid.finish`).
+    func track(_ finishing: Task<Void, Never>) {
+        self.finishing.append(finishing)
+        Task { @MainActor [weak self] in
+            await finishing.value
+            self?.finishing.removeAll { $0 == finishing }
+        }
+    }
+
+    /// **Every closed window's last writes have landed** — what a project's
+    /// close awaits before its `DocumentStore` closes (final review I3).
+    /// Bounded, so it can never hang the close: false when `limit` passed
+    /// first (the caller says so — an edit is never lost in silence).
+    func settle(within limit: Duration) async -> Bool {
+        let pending = finishing
+        guard !pending.isEmpty else { return true }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = ResumeOnce(continuation)
+            Task { @MainActor in
+                for task in pending { await task.value }
+                once.resume(true)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                once.resume(false)
+            }
+        }
+    }
+
+    /// What a project close says when a window's last edit had not landed in time.
+    static let unsettledSentence =
+        "A table edit was still being saved when the project closed, and may not have been kept. Reopen the table to check it."
 
     private func recount() {
         let ids = Set(closers.keys.map(\.figureId))
         if ids != openFigureIds { openFigureIds = ids }
+    }
+}
+
+/// A continuation resumed by whichever of its racers comes first.
+@MainActor
+private final class ResumeOnce {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+    func resume(_ value: Bool) {
+        continuation?.resume(returning: value)
+        continuation = nil
     }
 }
 
@@ -178,7 +355,9 @@ final class FigureWindows {
 ///   again (a park); the gate is asked of the window's door (`.editFigure`,
 ///   observed by the controller), the host (parked, closed) and the share
 ///   as the project windows last told it (`FigureWindows.shareIsReadOnly`).
-///   There is no review mode here.
+///   Review mode is the opening editor's (`Handoff.isReviewMode`): ⤢ from a
+///   review-mode grid opens it read-only, and it follows that editor's
+///   toggle (final review I2).
 /// - **Done closes the window**, and ⌘W; Esc with nothing to cancel does
 ///   nothing. Send to Research closes it first (R7d-7).
 /// - **Closing ends the visit** (`finish`, from the window's `willClose`):
@@ -292,22 +471,27 @@ final class FigureWindowGrid {
         controller?.refreshLine(number: number, caption: caption)
     }
 
-    /// **The gate, asked again** over the window's door, the host and the
-    /// share. The caption stays locked (R7d-6).
+    /// **The gate, asked again** over the window's door, the host, the share
+    /// and the opening editor's review mode. The caption stays locked (R7d-6).
     func refreshAccess() {
         guard let controller, !isFinished else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
-            shareIsReadOnly: windows?.shareIsReadOnly ?? false, isReviewMode: false, isTranslationReview: false)
-        let access: FigureGridGate.Mode = mode == .noExpand ? .readOnly(.closed) : mode
-        guard access != controller.mode || controller.captionMayEdit else { return }
-        controller.setAccess(access, captionMayEdit: false)
+            shareIsReadOnly: windows?.shareIsReadOnly ?? false,
+            isReviewMode: windows?.handoff(for: controller.figureId)?.isReviewMode ?? false,
+            isTranslationReview: false)
+        // `.noExpand` is translation review's alone, which a window never is.
+        guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }
+        controller.setAccess(mode, captionMayEdit: false)
     }
 
     /// **The window is closing**: an open edit that reads is committed, one
     /// that will not is said with its text; the visit closes once its
-    /// writes have landed. No step is registered anywhere (R7d-5). Once only.
+    /// writes have landed — tracked by the project's `FigureWindows`, so a
+    /// project close awaits it before its store closes (final review I3).
+    /// Then the grid lets its views and stack go. No step is registered
+    /// anywhere (R7d-5). Once only.
     func finish() {
         guard !isFinished else { return }
         isFinished = true
@@ -324,10 +508,16 @@ final class FigureWindowGrid {
         controller.foldForced()
         controller.didFold()
         panel?.removeFromSuperview()
-        finishing = Task { @MainActor in
+        let finishing = Task { @MainActor [weak self] in
             await controller.settleWrites()
             controller.close()
+            // A closed scene's state may be kept: hold no grid, view or stack (M11).
+            self?.controller = nil
+            self?.panel = nil
+            self?.perform = nil
         }
+        self.finishing = finishing
+        windows?.track(finishing)
     }
 }
 
@@ -447,6 +637,8 @@ struct FigureWindow: View {
         }
         let entry = session.figureWindows.opened(key.figureId, focus: { [weak window] in
             window?.makeKeyAndOrderFront(nil)
+        }, finish: { [grid] in
+            grid.finish()
         }, close: { [weak window] in
             window?.close()
         })

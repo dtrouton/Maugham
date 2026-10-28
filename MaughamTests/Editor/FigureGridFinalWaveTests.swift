@@ -116,8 +116,13 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
         let (_, c) = try await expanded(m)
         let text = m.textView.string
         let caret = m.textView.selectedRange()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("PASTED", forType: .string)
+        // A private board, never the general one (the developer's clipboard):
+        // the walk below pins that no text view takes these actions at all.
+        let board = NSPasteboard(name: .init("figure-grid-final-wave-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setString("PASTED", forType: .string)
+        c.pasteboard = board
 
         for action in [#selector(NSTextView.pasteAsPlainText(_:)), #selector(NSTextView.pasteAsRichText(_:)),
                        #selector(NSResponder.uppercaseWord(_:)), #selector(NSResponder.capitalizeWord(_:)),

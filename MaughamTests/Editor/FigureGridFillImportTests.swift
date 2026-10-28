@@ -326,19 +326,19 @@ final class FigureGridFillImportTests: XCTestCase {
         let (c, _, _, _) = try await openGrid()
         let opsBefore = try ops(of: c.figureId)
         let row = Array(repeating: "1", count: 101).joined(separator: ",")
-        _ = try choose(Array(repeating: row, count: 100).joined(separator: "\n"), named: "big.csv", for: c)
+        let bigURL = try choose(Array(repeating: row, count: 100).joined(separator: "\n"), named: "big.csv", for: c)
         let big = try await notices {
             c.performTableCommand(.importCSV)
             await c.settleWrites()
         }
-        XCTAssertTrue(big.contains { $0.contains("10,100") && $0.contains("big.csv") && $0.contains("10,000") }, "\(big)")
+        XCTAssertEqual(big, ["Couldn't import “\(bigURL.lastPathComponent)” — 10,100 cells are more than a table can hold (10,000)."])
 
-        _ = try choose("", named: "empty.csv", for: c)
+        let emptyURL = try choose("", named: "empty.csv", for: c)
         let empty = try await notices {
             c.performTableCommand(.importCSV)
             await c.settleWrites()
         }
-        XCTAssertTrue(empty.contains { $0.contains("empty.csv") && $0.contains("no cells") }, "\(empty)")
+        XCTAssertEqual(empty, ["Couldn't import “\(emptyURL.lastPathComponent)” — it holds no cells."])
         XCTAssertEqual(try ops(of: c.figureId), opsBefore, "nothing written")
         XCTAssertFalse(um.canUndo)
     }
@@ -366,13 +366,79 @@ final class FigureGridFillImportTests: XCTestCase {
     /// A cell the read kept as text (a formula that would not read) is said.
     func test_cellsKeptAsTextAreSaid() async throws {
         let (c, _, _, _) = try await openGrid()
-        _ = try choose("a,b\n=nosuch!A1,2\n", named: "odd.csv", for: c)
+        let odd = try choose("a,b\n=nosuch!A1,2\n", named: "odd.csv", for: c)
         let seen = try await notices {
             c.performTableCommand(.importCSV)
             await c.settleWrites()
         }
-        XCTAssertTrue(seen.contains { $0.contains("odd.csv") && $0.contains("1 cell") }, "\(seen)")
+        XCTAssertEqual(seen, ["Imported “\(odd.lastPathComponent)”; 1 cell couldn't be read as a formula and was kept as text."])
         XCTAssertEqual(content(c, "A2"), .value(.text("=nosuch!A1")))
+    }
+
+    /// **A file the table already holds** is said, and writes nothing (T4
+    /// review M3): no step, no op.
+    func test_anIdenticalImportSaysSoAndWritesNothing() async throws {
+        let (c, _, _, _) = try await openGrid(rows: 2, columns: 2)
+        await type(c, "A1", "north")
+        await type(c, "B1", "south")
+        await type(c, "A2", "east")
+        await type(c, "B2", "west")
+        um.removeAllActions()
+        let opsBefore = try ops(of: c.figureId)
+        let same = try choose("north,south\neast,west\n", named: "same.csv", for: c)
+        let said = try await notices {
+            c.performTableCommand(.importCSV)
+            await c.settleWrites()
+        }
+        XCTAssertEqual(said, ["“\(same.lastPathComponent)” matches the table already — nothing changed."])
+        XCTAssertEqual(try ops(of: c.figureId), opsBefore, "nothing written")
+        XCTAssertFalse(um.canUndo, "no step")
+    }
+
+    /// **A file chosen after the grid folded** (the sheet still up when it
+    /// went) is said, never dropped in silence, and writes nothing (T4 M5).
+    func test_aFileChosenAfterTheGridFoldedIsSaid() async throws {
+        let (c, _, _, _) = try await openGrid()
+        let url = TestTemp.root.appendingPathComponent("import-\(UUID().uuidString)-late.csv")
+        try "a,b\n1,2\n".write(to: url, atomically: true, encoding: .utf8)
+        var answer: (@MainActor (URL?) -> Void)?
+        c.chooseImportFile = { answer = $0 }
+        c.performTableCommand(.importCSV)
+        let chosen = try XCTUnwrap(answer, "premise: the panel is up")
+        c.didFold()
+        let opsBefore = try ops(of: c.figureId)
+        let said = try await notices {
+            chosen(url)
+            await c.settleWrites()
+        }
+        XCTAssertEqual(said, ["Couldn't import “\(url.lastPathComponent)” — the table was closed first."])
+        XCTAssertEqual(try ops(of: c.figureId), opsBefore)
+    }
+
+    /// **An import into a table with a total row** (final review M7): the
+    /// file has no total row, so the table's is switched off — the file's
+    /// last row stays data, never silently made the total — and one ⌘Z puts
+    /// the total row back with the cells.
+    func test_anImportIntoATotalRowTableSwitchesTheTotalRowOff() async throws {
+        let (c, _, _, _) = try await openGrid(rows: 3, columns: 2)
+        c.performTableCommand(.totalRow)
+        await c.settleWrites()
+        XCTAssertTrue(c.host.state.table.hasTotalRow, "premise: a total row")
+        let before = c.host.state.table
+        um.removeAllActions()
+
+        _ = try choose("a,b\n1,2\n3,4\n", for: c)
+        c.performTableCommand(.importCSV)
+        await c.settleWrites()
+        XCTAssertFalse(c.host.state.table.hasTotalRow, "the file's last row is data")
+        XCTAssertEqual(content(c, "A3"), .value(.number(3)))
+        XCTAssertEqual(um.undoActionName, FigureGridImport.actionName)
+
+        um.undo()
+        await c.host.awaitPendingUndoWork()
+        await c.settleWrites()
+        XCTAssertTrue(c.host.state.table.hasTotalRow, "one ⌘Z puts the total row back")
+        XCTAssertEqual(c.host.state.table.rows, before.rows)
     }
 }
 

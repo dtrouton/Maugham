@@ -121,6 +121,11 @@ struct FigureVisit: Equatable {
 
     /// What the writer is told when a visit cannot be taken back as one step.
     static let noUndoSentence = "Couldn't undo the table's changes as one step — one of them can't be undone."
+    /// What the writer is told when something the visit touched has changed
+    /// since — neutral: it may be this Mac's own figure window (final review I4).
+    static func changedSentence(redo: Bool) -> String {
+        "Couldn't \(redo ? "redo" : "undo") the table edit — it has changed since."
+    }
 
     /// False when one of `ops` has no inverse: a visit is taken back whole or
     /// not at all (`FigureInverse.compensating`), and `reason` says so.
@@ -1651,6 +1656,10 @@ public final class FigureDocument {
         case parked(FigureKind?)
         /// A grid visit holds an op with no inverse (`FigureVisit.reason`).
         case visitHasNoUndo
+        /// What a whole visit touched has changed since — by this Mac's own
+        /// figure window, an undo, a restore, or another device: neutral,
+        /// because the visit's undo cannot tell which (final review I4).
+        case visitChanged(redo: Bool)
 
         /// Why a drifted undo or redo declines.
         static let changedOnAnotherDevice = "it changed on another device"
@@ -1671,6 +1680,8 @@ public final class FigureDocument {
                 FigureParkedRefused.notice(for: kind)
             case .visitHasNoUndo:
                 FigureVisit.noUndoSentence
+            case .visitChanged(let redo):
+                FigureVisit.changedSentence(redo: redo)
             }
         }
     }
@@ -1796,14 +1807,19 @@ public final class FigureDocument {
     /// visit, until `endVisit`. Any other writer — a checkpoint restore, a
     /// return, another undo manager, another device — is not recorded: where
     /// it touches what the visit wrote, the visit's undo declines as drifted.
-    /// Visits don't nest: a begin while one is open keeps the open one.
-    func beginVisit(undoManager: UndoManager) {
+    /// Visits don't nest: a begin while one is open keeps the open one and
+    /// answers false — the caller does not own a visit, and must neither
+    /// count on its writes being recorded nor end the open one (final review
+    /// I1: two grids on one host).
+    @discardableResult
+    func beginVisit(undoManager: UndoManager) -> Bool {
         guard visitRecord == nil else {
             documentLog.error("figure \(self.figureId, privacy: .public): a visit began while one was open; the open one goes on")
-            return
+            return false
         }
         visitRecord = []
         visitManager = undoManager
+        return true
     }
 
     /// **Stop recording**: the visit, or nil when it recorded nothing. A
@@ -1813,6 +1829,14 @@ public final class FigureDocument {
         defer { visitRecord = nil; visitManager = nil }
         guard let ops = visitRecord, !ops.isEmpty else { return nil }
         return FigureVisit(ops: ops)
+    }
+
+    /// **Stop recording the visit `manager` owns**: as `endVisit()`, but
+    /// only when the open visit is `manager`'s — a grid that did not begin
+    /// the open visit never ends it (nil, the visit going on).
+    func endVisit(ownedBy manager: UndoManager) -> FigureVisit? {
+        guard visitRecord != nil, visitManager === manager else { return nil }
+        return endVisit()
     }
 
     /// The open visit has recorded a write (the fold's step is owed one).
@@ -1830,7 +1854,8 @@ public final class FigureDocument {
     func undoVisit(_ visit: FigureVisit) async -> Bool {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.undo.map { ($0.kind, $0.payload) },
-                                 stillAsWritten: { FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil })
+                                 stillAsWritten: { FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil },
+                                 drifted: .visitChanged(redo: false))
     }
 
     /// **Put an undone visit back**, the same ids again (an insert's row
@@ -1841,7 +1866,7 @@ public final class FigureDocument {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.redo.map { ($0.kind, $0.payload) },
                                  stillAsWritten: { FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil },
-                                 drifted: .cannotRedo(FigureUndoDecline.changedOnAnotherDevice))
+                                 drifted: .visitChanged(redo: true))
     }
 
     /// Await the last undo/redo's async hop — a test's wait, and what the

@@ -288,9 +288,27 @@ final class ProjectSession {
     /// the point: each service's environment holds closures over both
     /// stores, so a session left configured would keep the project graph —
     /// and its `claude` subprocess — alive past the close.
+    ///
+    /// **The figure windows' last writes land first** (final review I3):
+    /// each closed figure window's commit and writes are awaited before the
+    /// store closes — bounded by `figureWindowsSettleLimit`, so the close
+    /// can never hang; one that has not landed by then is said, never lost
+    /// in silence.
     func close() async {
         figureWindows.closeAll()
+        await settleFigureWindows(within: Self.figureWindowsSettleLimit)
         roster.detachAll()
         await documentStore.close()
+    }
+
+    /// How long a close waits for the figure windows' last writes.
+    static let figureWindowsSettleLimit: Duration = .seconds(5)
+
+    /// The figure windows' last writes, awaited within `limit`; said when
+    /// they did not land in time (`FigureWindows.unsettledSentence`).
+    func settleFigureWindows(within limit: Duration) async {
+        guard await !figureWindows.settle(within: limit) else { return }
+        documentLog.error("project close: a figure window's writes had not landed within \(String(describing: limit), privacy: .public)")
+        MaughamEvent.postNotice(FigureWindows.unsettledSentence, projectURL: url)
     }
 }

@@ -102,9 +102,11 @@ Decision 1 says every writer-initiated mutation registers on the one native stac
 in-place table grid is the exception, for as long as it is expanded, and only for that
 span.
 
-- **While a table's grid is expanded** every write it makes (cells, caption, name, rows and
-  columns, sort, paste, fill, import) registers on the grid controller's own `UndoManager`
-  (`FigureGridController.gridUndo`), not on the window's. ⌘Z and ⇧⌘Z with the grid, its
+- **While a table's grid is expanded** every write it makes to the figure (cells, rows and
+  columns, settings, sort, paste, fill, import) registers on the grid controller's own
+  `UndoManager` (`FigureGridController.gridUndo`), not on the window's. The caption is the
+  figure line's text: its commit goes through Route A onto the window's stack ("Edit
+  Caption"). The name goes through `renameFigure`, which registers no undo. ⌘Z and ⇧⌘Z with the grid, its
   cell editor or its bars holding the keys stop at the grid and run that stack, queued
   behind writes still landing. Typing not yet committed (a cell, the formula bar, a caption
   or name) is cancelled the way Esc cancels it, and a read-only grid answers with its
@@ -114,9 +116,15 @@ span.
   above it. It is registered only when the visit wrote or has writes still landing: an
   empty visit leaves no step, and neither does a teardown or a send to Research. ⌘Z takes
   the whole visit back through `FigureDocument.undoVisit` in one render; ⇧⌘Z puts it back
-  with the same ids (`redoVisit`). Both are declined whole, with a sentence, when a cell the
-  visit touched has since been written by another device (the drift rule of decision 3,
-  applied to the visit as a unit); a declined undo leaves nothing to redo.
+  with the same ids (`redoVisit`). Both are declined whole, with a neutral sentence ("Couldn't undo the table
+  edit — it has changed since."), when anything the visit touched has changed since — by
+  this Mac's own figure window, another undo, a restore, or another device; the visit
+  cannot tell which (the drift rule of decision 3, applied to the visit as a unit). A
+  declined undo leaves nothing to redo.
+- **One grid per host, in every window.** A host records one visit at a time, so a figure
+  is open in one grid at once across the project's windows (`FigureWindows`): a second
+  expansion focuses the grid that has it. `beginVisit` answers whether it began a visit,
+  and only the stack that owns the visit ends it (`endVisit(ownedBy:)`).
 - **The visit ends before the step acts.** The step's undo and redo await the visit's end,
   which awaits the fold's own writes and the host's undo work as it stood at the fold (a
   handle captured then, never a later one). A hop pressed before the visit ends is not

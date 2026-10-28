@@ -37,10 +37,11 @@ struct FigureGridOpening {
     /// The window's grid presence (R7c-10), told at expand, at fold and when
     /// what Format ▸ Table may do changes; nil where no menu reads it.
     var presence: FigureGridPresence?
-    /// **The project's figure windows** (plan 7d Task 9, R7d-9): a figure
-    /// open in one is never expanded here — its card says "Editing in
-    /// window", and a double-click or Return brings that window front. Nil
-    /// where no window can open (⤢ is hidden then).
+    /// **The project's grids** (plan 7d Task 9, R7d-9; final review I1): a
+    /// figure open in a figure window, or expanded in place in another
+    /// project window, is never expanded here — its card says where it is
+    /// being edited, and a double-click or Return brings that grid front.
+    /// Nil where no window can open (⤢ is hidden then).
     var windows: FigureWindows?
     /// The piece this document is, whose Research Send to Research puts the
     /// table in by default (R7d-7) — asked when a grid mounts; nil (no piece,
@@ -50,9 +51,10 @@ struct FigureGridOpening {
     /// figure's window — the key window's post, which the project window
     /// answers with `openWindow` (`FigureWindowOpenModifier`).
     var openWindow: @MainActor (String) -> Void = { MaughamEvent.postOpenFigureWindow(figureId: $0) }
-    /// A figure's name in the book's list, so its line's label (`tbl:name`)
-    /// is found in the `ReferenceIndex` for an open figure window.
-    var figureName: @MainActor (String) -> String? = { _ in nil }
+    /// A figure's record in the book's list — its name, so its line's label
+    /// (`tbl:name`) is found in the `ReferenceIndex` for an open figure
+    /// window, and its piece, where that label must be defined.
+    var figureRecord: @MainActor (String) -> FigureRecord? = { _ in nil }
 
     /// The window's: its stores, its grid presence, its project's figure
     /// windows, the document's project-relative path and its piece id.
@@ -80,8 +82,8 @@ struct FigureGridOpening {
                 guard let piece, projectStore?.isResearchScopeTarget(piece) == true else { return nil }
                 return piece
             },
-            figureName: { [weak projectStore] figureId in
-                projectStore?.manifest.figures?.first { $0.id == figureId }?.name
+            figureRecord: { [weak projectStore] figureId in
+                projectStore?.manifest.figures?.first { $0.id == figureId }
             })
     }
 
@@ -181,9 +183,12 @@ final class FigureGridExpansion {
     /// The text's selection when last seen, so only a selection that moves
     /// (never one re-set where it was) can take the caret off the line.
     var textSelection: NSRange?
-    /// The host is recording this visit's writes (`beginVisit`), so the
-    /// fold ends it.
+    /// The host is recording this visit's writes — its `beginVisit` began
+    /// one, owned by this grid's stack — so the fold ends it. Never set
+    /// without owning the visit (final review I1).
     var recordsAVisit = false
+    /// This expansion's place among the project's grids (final review I1).
+    var hold: FigureWindows.InPlaceHold?
 
     init(figureId: String, lineLocation: Int, path: String, room: CGFloat) {
         self.figureId = figureId
@@ -305,9 +310,10 @@ extension EditorCoordinator {
               let figureId = opening.tableFigureId(mark.path) else { return false }
         let model = figureCardModel?(mark.path)
         if let model, model.kind != .table, model.kind != .parked { return false }   // removed, ambiguous
-        // R7d-9: one grid per host — a figure open in a window is edited
-        // there; its card brings that window front instead of expanding.
-        if let windows = opening.windows, windows.isOpen(figureId) {
+        // R7d-9: one grid per host, anywhere — a figure open in a figure
+        // window, or expanded in another project window, is edited there;
+        // its card brings that grid front instead of expanding (I1).
+        if let windows = opening.windows, windows.heldElsewhere(figureId, besides: figureGrid?.hold) != nil {
             windows.focus(figureId)
             return true
         }
@@ -321,11 +327,18 @@ extension EditorCoordinator {
             foldFigureGrid(commit: true)
             guard figureGrid == nil else { return false }
         }
+        // This grid holds the figure from now until it folds.
+        var hold: FigureWindows.InPlaceHold?
+        if let windows = opening.windows {
+            hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focusFigureGrid() })
+            guard hold != nil else { return false }
+        }
         let rows = model.map { $0.shownRowCount + $0.moreRows } ?? FigureGridExpansion.defaultRows
         let expansion = FigureGridExpansion(
             figureId: figureId, lineLocation: mark.lineRange.location, path: mark.path,
             room: FigureGridPanel.room(rows: rows, typography: typography))
         expansion.textSelection = textView.selectedRange()
+        expansion.hold = hold
         figureGrid = expansion
         opening.presence?.expanded()   // the Insert menu stands down (R7c-10)
         textView.addSubview(expansion.dim)
@@ -418,9 +431,11 @@ extension EditorCoordinator {
                       }) else { return false }
                 return self.replaceFigureCaption(ofLineAt: expansion.lineLocation, with: caption)
             })
-        // The fold before this one has ended its visit: a host records one
+        // The fold before this one has ended its visit — here, and the last
+        // in-place visit on this figure in any window: a host records one
         // visit at a time.
         await figureGridFolding?.value
+        await opening.windows?.visitEnded(expansion.figureId)
         do {
             let controller = try await opening.open(expansion.figureId, typography, line)
             guard figureGrid === expansion, !isDetached, let textView else {
@@ -468,8 +483,8 @@ extension EditorCoordinator {
         }
         // The grid's writes register on its own stack and the host records
         // them, so the fold can collapse them into one window step.
-        controller.host.beginVisit(undoManager: controller.gridUndo)
-        expansion.recordsAVisit = true
+        // Only a visit this grid began is its own to end (final review I1).
+        expansion.recordsAVisit = controller.host.beginVisit(undoManager: controller.gridUndo)
         // Format ▸ Table follows the visit: told at once, then whenever what
         // its commands may do changes — never after this expansion folds.
         controller.onMenuStateChange = { [weak self, weak expansion] state in
@@ -490,6 +505,14 @@ extension EditorCoordinator {
         layoutFigureGrid()
         controller.gridView.reloadData()
         textView.window?.makeFirstResponder(controller.gridView)
+    }
+
+    /// **Another card on this figure asked for its grid** (R7d-9): this
+    /// window comes front with the grid's keys.
+    private func focusFigureGrid() {
+        guard let textView, let window = textView.window else { return }
+        window.makeKeyAndOrderFront(nil)
+        if let grid = figureGrid?.controller?.gridView { window.makeFirstResponder(grid) }
     }
 
     /// "Table 2": the line's number in the book, as the margin shows it.
@@ -531,17 +554,19 @@ extension EditorCoordinator {
               let opening = figureGridOpening, let windows = opening.windows else { return }
         foldFigureGrid(commit: true)
         guard figureGrid !== expansion else { return }
+        // Review mode carries into the window (final review I2).
         windows.handOff(expansion.figureId, .init(
             number: controller.line.number, caption: controller.line.caption, piece: controller.researchPiece,
-            typography: typography))
+            typography: typography, isReviewMode: isManualReviewMode, from: ObjectIdentifier(self)))
         windows.setShareIsReadOnly(shareIsReadOnly)
         opening.openWindow(expansion.figureId)
     }
 
-    /// **The project's figure windows changed** (opened or closed): the cards
-    /// repaint, so each says "Editing in window" exactly while its window is
-    /// open; and a figure that opened in a window while expanded here (from
-    /// another project window) folds — never two grids on one host (R7d-9).
+    /// **The project's grids changed** (a figure window opened or closed, a
+    /// grid expanded or folded in place anywhere): the cards repaint, so each
+    /// says where it is being edited exactly while it is; and a figure that
+    /// opened in a window while expanded here folds — never two grids on one
+    /// host (R7d-9).
     /// Observed from `figureGridOpening`'s set, re-armed after each change.
     func observeFigureWindows() {
         guard let windows = figureGridOpening?.windows else {
@@ -554,6 +579,7 @@ extension EditorCoordinator {
         windows.setShareIsReadOnly(shareIsReadOnly)
         withObservationTracking {
             _ = windows.openFigureIds
+            _ = windows.inPlaceHolds
         } onChange: { [weak self] in
             // The list is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
@@ -568,20 +594,39 @@ extension EditorCoordinator {
     }
 
     /// **The figure windows' lines follow the book** (concern 1's ruling):
-    /// at each `ReferenceIndex` version, each figure open in a window is
-    /// told its line's "Table N" and caption as the index has them — the
-    /// whole book's, so a figure line in a piece this editor does not show,
-    /// or a table added in an earlier piece, still reaches it. A figure line
-    /// with no label is not a target, and keeps what it was handed.
+    /// at each `ReferenceIndex` version, each figure open in a window is told
+    /// its line's "Table N" and caption. Where this editor shows the
+    /// figure's line, from that line — labelled or not, read as the margin
+    /// reads it (final review M2); otherwise from the whole book's index by
+    /// the figure's label (`tbl:name`), so a figure line in a piece this
+    /// editor does not show still reaches it — only a label defined in the
+    /// figure's own piece, never a hand-typed one elsewhere that happens to
+    /// match its name.
     func refreshFigureWindowLines() {
         guard let opening = figureGridOpening, let windows = opening.windows,
-              !windows.openFigureIds.isEmpty, let index = referenceIndex?() else { return }
+              !windows.openFigureIds.isEmpty else { return }
+        let index = referenceIndex?()
         for figureId in windows.openFigureIds {
-            guard let name = opening.figureName(figureId),
-                  let label = ManuscriptLabel(reference: "\(ManuscriptLabel.Kind.tbl.rawValue):\(name)"),
-                  let target = index.target(for: label) else { continue }
+            if let mark = figureThumbnailMarks.first(where: { opening.tableFigureId($0.path) == figureId }) {
+                windows.lineChanged(figureId, number: figureGridNumber(atLine: mark.lineRange.location),
+                                    caption: figureGridCaption(atLine: mark.lineRange.location))
+                continue
+            }
+            guard let index, let record = opening.figureRecord(figureId),
+                  let target = Self.figureWindowTarget(for: record, in: index) else { continue }
             windows.lineChanged(figureId, number: target.text, caption: target.detail)
         }
+    }
+
+    /// **A figure's line in the book's index**: the target its label
+    /// (`tbl:name`) names, only where that label is defined in the figure's
+    /// own piece — a hand-typed label elsewhere that happens to match its
+    /// name is another line (final review M2). Pure.
+    static func figureWindowTarget(for record: FigureRecord, in index: ReferenceIndex) -> ReferenceIndex.Target? {
+        guard let label = ManuscriptLabel(reference: "\(ManuscriptLabel.Kind.tbl.rawValue):\(record.name)"),
+              let target = index.target(for: label),
+              record.piece == nil || target.docId == record.piece else { return nil }
+        return target
     }
 
     private func figureWindowsChanged() {
@@ -704,10 +749,12 @@ extension EditorCoordinator {
             // The host's undo work as it stands now — never a later handle,
             // which may be this visit's own step awaiting this very task.
             let undoWork = host._lastUndoWorkTask
+            let gridUndo = controller.gridUndo
             let visit = Task { @MainActor () -> FigureVisit? in
                 await controller.settleWrites()
                 await undoWork?.value
-                let visit = recorded ? host.endVisit() : nil
+                // Only the visit this grid's stack owns (final review I1).
+                let visit = recorded ? host.endVisit(ownedBy: gridUndo) : nil
                 controller.close()
                 return visit
             }
@@ -719,6 +766,11 @@ extension EditorCoordinator {
                let windowUndo = undoManagerOverrideForTesting ?? textView?.undoManager {
                 lastFigureVisitStep = FigureVisitUndo.register(on: windowUndo, host: host, visit: visit)
             }
+        }
+        // The figure is free for another grid, which begins its visit once
+        // this one's has ended.
+        if let hold = expansion.hold {
+            figureGridOpening?.windows?.releaseInPlace(hold, visitEnding: figureGridFolding)
         }
         if cause != .teardown { relayoutFigureGridLine() }
         figureThumbnailOverlay?.needsDisplay = true

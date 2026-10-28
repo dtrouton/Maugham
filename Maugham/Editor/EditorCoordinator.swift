@@ -1239,11 +1239,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     /// The explicit review toggle (`EditorControl.isManualReviewMode`).
-    /// Self-guarded (D2); only the figure grid's gate reads it.
+    /// Self-guarded (D2); only the figure grids' gates read it.
     func setManualReviewMode(_ enabled: Bool) {
         guard isManualReviewMode != enabled else { return }
         isManualReviewMode = enabled
         refreshFigureGridAccess()
+        // The figure windows this editor opened follow it (final review I2).
+        figureGridOpening?.windows?.reviewModeChanged(enabled, from: ObjectIdentifier(self))
     }
 
     /// Whether a checkbox click may flip its bracket: the membrane's answer

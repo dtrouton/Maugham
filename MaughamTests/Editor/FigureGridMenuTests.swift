@@ -51,13 +51,13 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let a2 = CellKey(row: table.rows[1], column: table.columns[0])
         let selection = FigureGridSelection(anchor: a2, focus: a2)
 
-        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.reviewMode))
+        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.reviewMode), knowsItsPiece: true)
         for command in FigureTableMenu.commands {
             XCTAssertFalse(readOnly.isEnabled(command), "\(command) is enabled on a read-only grid")
         }
         XCTAssertTrue(readOnly.isOn(.headerRow), "the header row is still ticked")
 
-        let none = FigureTableMenuState.of(table: table, selection: nil, mode: .editable)
+        let none = FigureTableMenuState.of(table: table, selection: nil, mode: .editable, knowsItsPiece: true)
         let enabledWithNone = FigureTableMenu.commands.filter(none.isEnabled)
         XCTAssertEqual(enabledWithNone, [.headerRow, .totalRow, .insertRowAbove, .insertRowBelow,
                                          .insertColumnLeft, .insertColumnRight, .importCSV,
@@ -66,7 +66,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         XCTAssertFalse(pieceless.isEnabled(.sendTo(.piece)), "no piece: Shared alone (R7d-7)")
         XCTAssertTrue(pieceless.isEnabled(.sendTo(.shared)))
 
-        let editable = FigureTableMenuState.of(table: table, selection: selection, mode: .editable)
+        let editable = FigureTableMenuState.of(table: table, selection: selection, mode: .editable, knowsItsPiece: true)
         for command: FigureTableCommand in [.format(.percent), .moreDecimals, .align(.right), .sum,
                                              .deleteRows, .deleteColumns, .moveRowsDown, .moveColumnsRight,
                                              .sortAscending, .sortDescending, .fillDown, .fillRight,
@@ -89,7 +89,8 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         func state(_ r0: Int, _ c0: Int, _ r1: Int, _ c1: Int) -> FigureTableMenuState {
             .of(table: table, selection: FigureGridSelection(
                 anchor: CellKey(row: table.rows[r0], column: table.columns[c0]),
-                focus: CellKey(row: table.rows[r1], column: table.columns[c1])), mode: .editable)
+                focus: CellKey(row: table.rows[r1], column: table.columns[c1])), mode: .editable,
+                knowsItsPiece: true)
         }
         let header = state(0, 0, 0, 0)
         XCTAssertFalse(header.isEnabled(.moveRowsDown))
@@ -110,7 +111,8 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let plain = FigureTable(rows: 2, columns: 1)
         let everything = FigureTableMenuState.of(table: plain, selection: FigureGridSelection(
             anchor: CellKey(row: plain.rows[0], column: plain.columns[0]),
-            focus: CellKey(row: plain.rows[1], column: plain.columns[0])), mode: .editable)
+            focus: CellKey(row: plain.rows[1], column: plain.columns[0])), mode: .editable,
+            knowsItsPiece: true)
         XCTAssertFalse(everything.isEnabled(.deleteRows), "every row")
         XCTAssertFalse(everything.isEnabled(.deleteColumns), "the only column")
     }

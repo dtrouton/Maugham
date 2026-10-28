@@ -12589,6 +12589,13 @@ final class TripwireGrepTests: XCTestCase {
         "PartialRestorePicker.swift": ["buildRestoreOp(": 1, "restoreToCheckpoint(": 1],
         "TestEditTool.swift": ["setFullText(": 1],
         // Figures (report plan 6a): each asks posture before it writes.
+        // **Undo paths are not counted at their callers** (final review M10):
+        // `registerFigureUndo`'s closures and `FigureVisitUndo`'s
+        // `undoVisit(`/`redoVisit(` reach the op log only through
+        // `appendCompensation`, inside this file, which asks the figure's
+        // door (`mayEditHere`) and the drift guard before it appends — the
+        // mint there is this file's one `Op(…figure:` — so pressing ⌘Z is
+        // not a new writer, wherever the step was registered.
         "FigureDocument.swift": [
             figureOpMintSpelling: 1,
             "setCell(": 1, "moveRow(": 1, "moveColumn(": 1,

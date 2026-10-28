@@ -1186,8 +1186,14 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     var chooseImportFile: (@MainActor (_ chosen: @escaping @MainActor (URL?) -> Void) -> Void)?
 
     private func chooseFileToImport() {
+        let projectURL = host.projectURL
         let chosen: @MainActor (URL?) -> Void = { [weak self] url in
-            guard let self, let url, !self.isClosed else { return }
+            guard let url else { return }   // cancelled
+            // The grid folded while the panel was up: said, never dropped (T4 M5).
+            guard let self, !self.isClosed, !self.isFolded else {
+                return MaughamEvent.postNotice(FigureGridImport.closedSentence(url.lastPathComponent),
+                                               projectURL: projectURL)
+            }
             self.importCSV(from: url)
         }
         if let chooseImportFile { return chooseImportFile(chosen) }
@@ -1203,38 +1209,51 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         }
     }
 
-    /// **Import `url`'s cells over the table** (R7d-8): read off the main
-    /// actor, then matched onto the host as it is when the write's turn comes
-    /// (`FigureGridImport.changes`) and written as one visit and one ⌘Z.
-    /// Refused with a notice, writing nothing: a read-only grid (the reason
-    /// line), a file that will not read or holds no cells, more cells than a
-    /// table may hold. Cells the read kept as text are said after.
+    /// **Import `url`'s cells over the table** (R7d-8): read, counted and
+    /// parsed off the main actor (`FigureGridImport.read`), then matched
+    /// onto the host as it is when the write's turn comes
+    /// (`FigureGridImport.changes`, bounded by the cell limit) and written as
+    /// one visit and one ⌘Z. Refused with a notice, writing nothing: a
+    /// read-only grid (the reason line), a grid already folded, a file that
+    /// will not read or holds no cells, more cells than a table may hold. A
+    /// file the table already matches is said, as are cells the read kept as
+    /// text.
     func importCSV(from url: URL) {
         syncFromHost()
         if let reason = mode.readOnlyReason { return answer(reason) }
         let file = url.lastPathComponent
+        let projectURL = host.projectURL
+        guard !isFolded, let store else {
+            return MaughamEvent.postNotice(FigureGridImport.closedSentence(file), projectURL: projectURL)
+        }
         enqueue { [weak self, host, store, gridUndo] in
-            let text = try await Task.detached { try FigureGridImport.readText(of: url) }.value
-            let cells = TableCSV.nonEmptyCellCount(text)
-            guard cells <= TableCSV.figureCellLimit else {
-                return MaughamEvent.postNotice(
-                    "Couldn't import “\(file)” — \(cells.formatted()) cells are more than a table can hold "
-                        + "(\(TableCSV.figureCellLimit.formatted())).", projectURL: host.projectURL)
-            }
-            guard let store else { return }
             let context = try await store.tableImportContext()
-            let read = TableCSV.read(text, locale: context.locale, names: context.names)
-            guard !read.table.rows.isEmpty, !read.table.columns.isEmpty else {
-                return MaughamEvent.postNotice("Couldn't import “\(file)” — it holds no cells.",
-                                               projectURL: host.projectURL)
+            let (locale, names) = (context.locale, context.names)
+            let outcome = try await Task.detached {
+                try FigureGridImport.read(url, locale: locale, names: names)
+            }.value
+            let read: FigureGridImport.Read
+            switch outcome {
+            case .tooManyCells(let cells):
+                return MaughamEvent.postNotice(FigureGridImport.tooManyCellsSentence(file, cells: cells),
+                                               projectURL: projectURL)
+            case .noCells:
+                return MaughamEvent.postNotice(FigureGridImport.noCellsSentence(file), projectURL: projectURL)
+            case .read(let table, let problems):
+                read = .init(table: table, problems: problems)
             }
             var problems: [CSVReadProblem] = []
+            var planned = false
             try await Self.applyPlanned(on: host, actionName: FigureGridImport.actionName,
                                         undoManager: gridUndo) { state in
                 let changes = FigureGridImport.changes(
-                    onto: state, read: read.table, names: context.names, problems: read.problems)
+                    onto: state, read: read.table, names: names, problems: read.problems)
                 problems = changes.problems
+                planned = !changes.ops.isEmpty
                 return changes.ops
+            }
+            guard planned else {
+                return MaughamEvent.postNotice(FigureGridImport.unchangedSentence(file), projectURL: projectURL)
             }
             if !problems.isEmpty { self?.sayKeptAsText(problems.count, file) }
         }

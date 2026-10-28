@@ -272,7 +272,7 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
             try press(m)
             await c.host.awaitPendingUndoWork()
         }
-        XCTAssertEqual(said, ["Couldn't undo the change to the figure — it changed on another device."])
+        XCTAssertEqual(said, ["Couldn't undo the table edit — it has changed since."])
         XCTAssertEqual(c.host.state, state, "declined whole: nothing written")
 
         // The visit was never taken back, so ⇧⌘Z has nothing to put back.
@@ -590,6 +590,52 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         }
         XCTAssertFalse(um.canUndo, "removed once the visit is known")
         XCTAssertEqual(said, [FigureVisit.noUndoSentence])
+    }
+
+    /// **A step whose table is no longer open here** (final review M7): its
+    /// ⌘Z says so with `FigureVisitUndo.notOpenSentence` and writes nothing.
+    func test_aStepWhoseTableIsNoLongerOpenSaysSo() async throws {
+        let m = try await mount()
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        let (_, c) = try await expanded(m)
+        typeCell(m, c, cell(c, 1, 1), "5")
+        try asOneEvent(m) { send(m, "\u{1B}", code: 53) }
+        await settled(m)
+        XCTAssertEqual(undo.undoActionName, FigureVisitUndo.actionName, "premise: the visit's step")
+        let ds = try XCTUnwrap(m.store.documentStore)
+        await ds.closeFigure(figureId: c.figureId)
+        XCTAssertTrue(c.host.isClosed, "premise: the host closed")
+        let said = await notices {
+            undo.undo()
+            await c.host.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(said, ["Couldn't undo the table's changes — the table is no longer open."])
+        XCTAssertEqual(FigureVisitUndo.notOpenSentence, said.first)
+    }
+
+    /// **A delete of several columns in the grid is one ⌘Z on the grid's own
+    /// stack** (T2 review M3): B:C go as one step, and one ⌘Z there brings
+    /// both back with their cells.
+    func test_aMultiColumnDeleteInTheGridIsOneUndoOnItsStack() async throws {
+        let m = try await mount()
+        let (_, c) = try await expanded(m)
+        // The cells written outside the grid's stack, so its one step is the delete's.
+        try await c.host.setCell(Cell(content: number(2)), at: cell(c, 2, 1))
+        try await c.host.setCell(Cell(content: number(3)), at: cell(c, 3, 1))
+        await c.hostSync?.value
+        let before = c.host.state.table
+        c.handle(.click(cell(c, 2, 1), extend: false))
+        c.handle(.click(cell(c, 3, 2), extend: true))
+        c.performTableCommand(.deleteColumns)
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table.columns, [before.columns[0]], "B and C went")
+        XCTAssertEqual(c.gridUndo.undoActionName, "Delete Columns")
+        c.gridUndo.undo()
+        await c.settleWrites()
+        await c.host.awaitPendingUndoWork()
+        XCTAssertFalse(c.gridUndo.canUndo, "one step")
+        XCTAssertEqual(c.host.state.table.columns, before.columns, "one ⌘Z brought both back")
+        XCTAssertEqual(c.host.state.table.cells, before.cells, "with their cells")
     }
 
     // MARK: - The keyboard's own path

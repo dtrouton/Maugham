@@ -539,12 +539,17 @@ final class FigureThumbnailOverlay: NSView {
     /// The cell strings of each card the last draw found, row-major (the
     /// mounted tests' reading of a content-only change).
     private(set) var lastCardStrings: [[String]] = []
-    /// How many cards the last draw found open in a figure window, each
-    /// drawn faint under "Editing in window" (plan 7d Task 9, R7d-9).
+    /// How many cards the last draw found open in another grid — a figure
+    /// window, or another project window's in-place grid — each drawn faint
+    /// under where it is being edited (plan 7d Task 9, R7d-9; final review I1).
     private(set) var lastCardsInWindow = 0
+    /// What each of those cards said, in drawing order.
+    private(set) var lastHeldLabels: [String] = []
 
     /// What a table card open in a figure window says over itself.
     static let editingInWindow = "Editing in window"
+    /// What a table card expanded in another project window says over itself.
+    static let editingInAnotherWindow = "Editing in another window"
 
     /// Each card's plan at the origin, kept while its model, the column and
     /// the font are unchanged, so a scroll measures no text (tripwire 4).
@@ -623,6 +628,7 @@ final class FigureThumbnailOverlay: NSView {
         lastDrawn = []
         lastCardStrings = []
         lastCardsInWindow = 0
+        lastHeldLabels = []
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
@@ -655,13 +661,14 @@ final class FigureThumbnailOverlay: NSView {
         let rowHeight = FigureCardMetrics.rowHeight(for: typography)
 
         let expandedLine = coordinator.figureGrid?.lineLocation
-        // The figures open in a window (R7d-9), asked of the card's path only
-        // while one is open.
+        // The figures another grid holds (R7d-9, I1), asked of the card's
+        // path only while one is held; this editor's own grid is not another.
         let opening = coordinator.figureGridOpening
-        let inWindow: (String) -> Bool = { path in
-            guard let windows = opening?.windows, !windows.openFigureIds.isEmpty,
-                  let figureId = opening?.tableFigureId(path) else { return false }
-            return windows.isOpen(figureId)
+        let ownHold = coordinator.figureGrid?.hold
+        let heldLabel: (String) -> String? = { path in
+            guard let windows = opening?.windows, windows.holdsAny,
+                  let figureId = opening?.tableFigureId(path) else { return nil }
+            return windows.heldElsewhere(figureId, besides: ownHold)?.cardLabel
         }
         for mark in visible {
             guard mark.lineRange.length > 0, NSMaxRange(mark.lineRange) <= storage.length else { continue }
@@ -680,8 +687,12 @@ final class FigureThumbnailOverlay: NSView {
                                    font: cardFont, rowHeight: rowHeight) {
                 lastDrawn.append(.card(model.kind))
                 lastCardStrings.append(plan.cells.map(\.string))
-                let editedInWindow = model.kind == .table && inWindow(mark.path)
-                if editedInWindow { lastCardsInWindow += 1 }
+                let held = model.kind == .table ? heldLabel(mark.path) : nil
+                let editedInWindow = held != nil
+                if let held {
+                    lastCardsInWindow += 1
+                    lastHeldLabels.append(held)
+                }
                 let room = FigureCardDrawing.heldRoom(
                     lineBottom: lineBottom,
                     fragmentBottom: layoutManager.lineFragmentRect(forGlyphAt: lastGlyph,
@@ -693,7 +704,7 @@ final class FigureThumbnailOverlay: NSView {
                     let clip = FigureCardDrawing.clip(for: frame, lineBottom: lineBottom, heldRoom: room)
                     drawCard(plan, at: CGPoint(x: columnX, y: lineBottom), clip: clip,
                              font: cardFont, alpha: editedInWindow ? alpha * 0.3 : alpha)
-                    if editedInWindow { drawEditingInWindow(in: frame.intersection(clip), alpha: alpha) }
+                    if let held { drawHeldLabel(held, in: frame.intersection(clip), alpha: alpha) }
                 }
                 continue
             }
@@ -761,13 +772,13 @@ final class FigureThumbnailOverlay: NSView {
         context.restoreGState()
     }
 
-    /// "Editing in window", centred over a card drawn faint.
-    private func drawEditingInWindow(in frame: CGRect, alpha: CGFloat) {
+    /// Where the table is being edited, centred over a card drawn faint.
+    private func drawHeldLabel(_ label: String, in frame: CGRect, alpha: CGFloat) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(alpha),
         ]
-        let text = Self.editingInWindow as NSString
+        let text = label as NSString
         let size = text.size(withAttributes: attrs)
         text.draw(at: NSPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2),
                   withAttributes: attrs)

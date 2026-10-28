@@ -3141,9 +3141,15 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     /// **Got it settles the note.** One gesture, the annotation layer's own
     /// accept underneath — so Review's queue and the next round's briefing see
-    /// exactly what the writer did, and the row leaves because the view is a
-    /// filter over open notes rather than a list it has to prune.
-    func test_gotItSettlesTheNoteAndTheRowLeaves() async throws {
+    /// exactly what the writer did. Pinned on the verb the row's button runs
+    /// (`DiagnosticsPane.gotIt`), with no press: the pressed version polled
+    /// the note's status and then read the window's accessibility tree
+    /// without waiting for SwiftUI's re-render, so under load it read the
+    /// row before the render removed it (failed twice in report plan 7d's
+    /// gates). The row leaving once its note settles is
+    /// `test_aNoteSettledElsewhereLeavesTheViewWithoutAnotherCheck`; here the
+    /// button is only asserted drawn.
+    func test_gotItSettlesTheNote() async throws {
         let document = try await makeMultiParagraphDocument()
         let paragraphId = try XCTUnwrap(document.sequence.first)
         let store = DiagnosticsStore(
@@ -3156,13 +3162,12 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
-        XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
-                      "control: the row is on screen before the press")
+        XCTAssertNoThrow(try button(labelled: "Got it", in: window), "the row offers Got it")
 
-        try await press("Got it", in: window) {
-            self.statusIfPresent(of: noteId, in: document) != .open
-        }
+        let undoManager = UndoManager()
+        let failure = await DiagnosticsPane.gotIt(annotationId: noteId, in: document, undoManager: undoManager)
 
+        XCTAssertNil(failure, "it settled")
         XCTAssertEqual(try status(of: noteId, in: document), .accepted,
                        "Got it must reach the annotation's own accept, not a "
                        + "second record of the writer's answer")
@@ -3170,9 +3175,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             document.annotations(filter: AnnotationFilter(statuses: [.open]))
                 .allSatisfy { $0.id != noteId },
             "\u{2026}and the queue in Review must see it settled")
-        XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
-                       "the row stayed after the writer took the note; got "
-                       + "\(allLabels(in: window))")
+        XCTAssertTrue(undoManager.canUndo, "through the pane's undo manager")
     }
 
     /// **Not this is one gesture and asks for nothing.** The reason-carrying

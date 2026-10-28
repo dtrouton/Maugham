@@ -120,7 +120,9 @@ final class FigureVisitTests: XCTestCase {
     /// The grid's own undo manager: the visit records what is written on it.
     private let grid = UndoManager()
 
-    private let drifted = "Couldn't undo the change to the figure — it changed on another device."
+    /// Neutral (final review I4): a visit cannot tell this Mac's own figure
+    /// window from another device.
+    private let drifted = "Couldn't undo the table edit — it has changed since."
 
     // MARK: - Recording
 
@@ -367,7 +369,7 @@ final class FigureVisitTests: XCTestCase {
         var redone = true
         let said = await notices { redone = await host.redoVisit(visit) }
         XCTAssertFalse(redone)
-        XCTAssertEqual(said, ["Couldn't redo the change to the figure — it changed on another device."],
+        XCTAssertEqual(said, ["Couldn't redo the table edit — it has changed since."],
                        "said as a redo")
         XCTAssertNil(host.state.table.rowIndex(of: row), "the row stays undone")
         XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")

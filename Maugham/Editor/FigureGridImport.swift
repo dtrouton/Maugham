@@ -53,6 +53,52 @@ enum FigureGridImport {
         return String(data: data, encoding: .windowsCP1252) ?? ""
     }
 
+    /// **A file, read for import** — off the main actor: its text, its
+    /// non-empty cells counted (refused past `TableCSV.figureCellLimit`
+    /// before anything is parsed), then parsed with the book's locale and
+    /// names (T4 review M1).
+    enum Outcome: Sendable {
+        case tooManyCells(Int)
+        case noCells
+        case read(FigureTable, [CSVReadProblem])
+    }
+
+    /// What `read` parsed: the table and the cells it kept as text.
+    struct Read {
+        let table: FigureTable
+        let problems: [CSVReadProblem]
+    }
+
+    nonisolated static func read(_ url: URL, locale: TableLocale, names: FormulaNames) throws -> Outcome {
+        let text = try readText(of: url)
+        let cells = TableCSV.nonEmptyCellCount(text)
+        guard cells <= TableCSV.figureCellLimit else { return .tooManyCells(cells) }
+        let read = TableCSV.read(text, locale: locale, names: names)
+        guard !read.table.rows.isEmpty, !read.table.columns.isEmpty else { return .noCells }
+        return .read(read.table, read.problems)
+    }
+
+    // MARK: What the writer is told
+
+    static func tooManyCellsSentence(_ file: String, cells: Int) -> String {
+        "Couldn't import “\(file)” — \(cells.formatted()) cells are more than a table can hold "
+            + "(\(TableCSV.figureCellLimit.formatted()))."
+    }
+
+    static func noCellsSentence(_ file: String) -> String {
+        "Couldn't import “\(file)” — it holds no cells."
+    }
+
+    /// The file holds exactly what the table does: nothing to write (T4 M3).
+    static func unchangedSentence(_ file: String) -> String {
+        "“\(file)” matches the table already — nothing changed."
+    }
+
+    /// The grid closed (folded, or its window closed) before the import ran.
+    static func closedSentence(_ file: String) -> String {
+        "Couldn't import “\(file)” — the table was closed first."
+    }
+
     /// **The header rows the imported table takes** (R7d-8, `TableCSV`'s
     /// detection): a header when the read found one (a text-only first row
     /// over numbers); none when the file's first row holds anything but text
@@ -71,7 +117,9 @@ enum FigureGridImport {
     }
 
     /// **What the import appends onto `state`**: the matched return's ops,
-    /// then the header setting when it changes. Every change states what it
+    /// then the header setting when it changes, then a total row switched
+    /// off — a file has none, and its last row is data, never silently made
+    /// the table's total (final review M7). Every change states what it
     /// replaces, so its ⌘Z puts the table back as it was.
     static func changes(onto state: FigureState, read: FigureTable, names: FormulaNames,
                         problems: [CSVReadProblem]) -> FigureReturnDiff.Changes {
@@ -80,11 +128,16 @@ enum FigureGridImport {
             from: state, onto: state, to: read, sidecar: nil, names: names, problems: problems,
             mintRow: { let id = TableID.mint(excluding: used); used.insert(id); return RowID(id) },
             mintColumn: { let id = TableID.mint(excluding: used); used.insert(id); return ColumnID(id) })
-        let after = FigureReturnDiff.applied(changes.ops, onto: state)?.table.headerRows ?? state.table.headerRows
+        let applied = FigureReturnDiff.applied(changes.ops, onto: state)?.table ?? state.table
         let header = headerRows(read: read, current: state.table.headerRows)
-        if header != after {
+        if header != applied.headerRows {
             changes.ops.append(FigureReturnDiff.Change(
-                kind: .figureSettings, payload: FigureOpPayload(settings: .headerRows(header, prior: after))))
+                kind: .figureSettings,
+                payload: FigureOpPayload(settings: .headerRows(header, prior: applied.headerRows))))
+        }
+        if applied.hasTotalRow {
+            changes.ops.append(FigureReturnDiff.Change(
+                kind: .figureSettings, payload: FigureOpPayload(settings: .totalRow(false, prior: true))))
         }
         return changes
     }
