@@ -1339,7 +1339,7 @@ final class DetailColumnWidthTests: XCTestCase {
             "    detailResizeHandle(documentStore: documentStore)",
             "    inspectorPane(store: store, documentStore: documentStore)",
             "}",
-            ".frame(width: width)",
+            ".frame(width: width, alignment: .leading)",
             ".clipped()",
             ".navigationSplitViewColumnWidth(width)"
         ]
@@ -1360,7 +1360,8 @@ final class DetailColumnWidthTests: XCTestCase {
             Self.framesItsContentToItsDeclaredWidth(
                 window: window,
                 column: column.map {
-                    $0 == ".frame(width: width)" ? ".frame(width: 320)" : $0
+                    $0 == ".frame(width: width, alignment: .leading)"
+                        ? ".frame(width: 320, alignment: .leading)" : $0
                 }),
             "a frame on some other width is not the column's width, and the "
             + "two disagreeing is a pane laid out for a column it is not in")
@@ -1399,6 +1400,18 @@ final class DetailColumnWidthTests: XCTestCase {
                     "let mine = ProjectWindow.effectiveDetailColumnWidth(persisted: 1,"
                 ]),
             "the column lays out with the width it was handed and no other")
+
+        // 6. The frame on the right width but CENTRED — the spelling that
+        //    shipped until #122. A pane wider than the column overflowed both
+        //    sides, so the clip cut its leading edge and the resize handle.
+        XCTAssertFalse(
+            Self.framesItsContentToItsDeclaredWidth(
+                window: window,
+                column: column.map {
+                    $0 == ".frame(width: width, alignment: .leading)"
+                        ? ".frame(width: width)" : $0
+                }),
+            "a centred frame crops an over-wide pane on both edges (#122)")
     }
 
     /// **The rules above are only the writer's rules if the gesture calls
@@ -1599,7 +1612,8 @@ final class DetailColumnWidthTests: XCTestCase {
 
     /// Whether `code` binds the effective detail width to a name exactly once
     /// and applies **that name** to both the content's `.frame(width:)` and the
-    /// column modifier.
+    /// column modifier. The frame is leading-aligned (#122): a centred one
+    /// crops an over-wide pane on both edges, taking the resize handle with it.
     ///
     /// Takes the lines rather than the file, so the planted offenders above run
     /// through this exact scan and not a second copy of it — the idiom this
@@ -1633,7 +1647,7 @@ final class DetailColumnWidthTests: XCTestCase {
         return handed
             && column.contains { $0.contains("let width: Double") }
             && !column.contains { $0.contains("effectiveDetailColumnWidth(") }
-            && column.contains { $0.contains(".frame(width: width)") }
+            && column.contains { $0.contains(".frame(width: width, alignment: .leading)") }
             && column.contains { $0.contains(".navigationSplitViewColumnWidth(width)") }
     }
 

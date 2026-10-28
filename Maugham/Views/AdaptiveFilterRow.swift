@@ -25,10 +25,24 @@ struct AdaptiveFilterRow<Item: FilterRowItem>: View {
     /// Labels with `count <= keepShortLabels` stay as text even in icon
     /// mode (default: 3 — handles "All" naturally).
     var keepShortLabels: Int = 3
+    /// `.adaptive` picks labels or icons by width. A caller with a
+    /// `ViewThatFits` of its own pins one mode per variant: an outer
+    /// `ViewThatFits` measures this row's IDEAL, which is always the labelled
+    /// one, so a nested fallback is invisible to it.
+    var layout: Layout = .adaptive
+
+    enum Layout { case adaptive, labels, icons }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
+        switch layout {
+        case .adaptive:
+            ViewThatFits(in: .horizontal) {
+                row(useIcons: false)
+                row(useIcons: true)
+            }
+        case .labels:
             row(useIcons: false)
+        case .icons:
             row(useIcons: true)
         }
     }
