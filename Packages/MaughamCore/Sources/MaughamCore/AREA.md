@@ -88,6 +88,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ParagraphParser.swift` — splits anchored Markdown into paragraphs by blank lines; the per-keystroke hot path.
 - `MarkdownBlockParser.swift` — `MarkdownBlock` and the one block-level Markdown parser every surface shares.
 - `ManuscriptBlocks.swift` — the report block layer over that parser: labelled headings, captioned tables, figures, footnote definitions.
+- `FigureLineSeparation.swift` — a figure line keeps its own paragraph: the rule the editor applies to each edit, over the lines around it.
 - `TableText.swift` — the one pipe-table formatter, and its cell lookups.
 - `TableClipboard.swift` — spreadsheet cells as tab-separated text, read and written by Excel's quoting.
 - `ManuscriptLabel.swift` — `ManuscriptLabel` (`fig`/`tbl`/`sec`) and `ManuscriptAttributes.split`, the trailing `{#kind:name}` reader.
