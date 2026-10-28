@@ -70,6 +70,14 @@ final class EditorReattachWindowTests: XCTestCase {
         let filled = await pumpUntil(deadline: 10) { c.figureCardModel?("../figures/t.csv")?.kind == .table }
         XCTAssertTrue(filled, "premise: the window's cards filled")
 
+        // The editor the writer sees is the live one: attached, focused, its
+        // caret where the document opened (not where `string =` left it).
+        await pumpUntil(deadline: 1) { false }
+        XCTAssertFalse(c.isDetached, "the live coordinator is not detached")
+        XCTAssertTrue(tv.delegate === c)
+        XCTAssertEqual(tv.selectedRange(), NSRange(location: 0, length: 0), "the caret at the opened cursor")
+        XCTAssertTrue(window.firstResponder === tv, "the editor has the keys")
+
         let overlay = try XCTUnwrap(c.figureThumbnailOverlay, "the coordinator has a figure overlay")
         XCTAssertTrue(overlay.superview === tv, "on the text view the writer edits")
         XCTAssertEqual(tv.subviews.filter { $0 is FigureThumbnailOverlay }.count, 1)

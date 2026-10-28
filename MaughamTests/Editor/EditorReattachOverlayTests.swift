@@ -86,6 +86,60 @@ final class EditorReattachOverlayTests: XCTestCase {
         XCTAssertEqual(harness.textView.subviews.count, 0, "nothing is left on the discarded view")
     }
 
+    /// The writer's place moves with the coordinator: the second text view
+    /// takes the first one's caret (not the default `string =` left it), and
+    /// its own selection changes before it is attached are not recorded.
+    func test_aSecondAttachKeepsTheCaret_andRecordsNoForeignSelection() throws {
+        let harness = harness()
+        let c = harness.coordinator
+        harness.textView.setSelectedRange(NSRange(location: 7, length: 0))
+        var recorded: [Int] = []
+        c.onCursorChanged = { recorded.append($0) }
+
+        let tv = secondTextView(text: Self.text, coordinator: c)
+        tv.setSelectedRange(NSRange(location: (Self.text as NSString).length, length: 0))
+        XCTAssertEqual(recorded, [], "a text view not yet attached records no cursor")
+        c.attach(to: tv)
+
+        XCTAssertEqual(tv.selectedRange(), NSRange(location: 7, length: 0), "the caret where the writer was")
+        XCTAssertEqual(recorded.last, 7)
+    }
+
+    /// The control is observed once however often `makeNSView` hands it over.
+    func test_observingTheSameControlTwiceArmsOneChain() async throws {
+        let harness = harness()
+        let c = harness.coordinator
+        let control = EditorControl()
+        c.observeControl(control)
+        c.observeControl(control)   // makeNSView, second call
+        await pumpUntil(deadline: 0.3) { false }
+        let before = c.applyControlCount
+        control.typewriterScroll.toggle()
+        await pumpUntil(deadline: 0.3) { false }
+        XCTAssertEqual(c.applyControlCount - before, 1, "one apply per change, not one per make")
+    }
+
+    /// SwiftUI's teardown of the DISCARDED view's representable must not
+    /// detach the coordinator now editing the new one; a table tidy pending
+    /// on the old view is dropped.
+    func test_aDiscardedViewsTeardownLeavesTheLiveCoordinatorAttached() throws {
+        let harness = harness()
+        let c = harness.coordinator
+        c.tableTidy.anchor = 3
+        c.tableTidy.pendingAnchor = 3
+        let tv = secondTextView(text: Self.text, coordinator: c)
+        c.attach(to: tv)
+        XCTAssertNil(c.tableTidy.anchor, "the old view's table anchor is forgotten")
+        XCTAssertNil(c.tableTidy.pendingAnchor)
+
+        EditorSurface.dismantleNSView(harness.scrollView, coordinator: c)
+        XCTAssertFalse(c.isDetached, "the old view's teardown does not detach the live coordinator")
+        XCTAssertTrue(tv.delegate === c)
+        let live = try XCTUnwrap(tv.enclosingScrollView)
+        EditorSurface.dismantleNSView(live, coordinator: c)
+        XCTAssertTrue(c.isDetached, "control: the live view's own teardown still detaches")
+    }
+
     /// Attaching the same text view again keeps every overlay in place.
     func test_reattachingTheSameTextViewKeepsItsOverlays() throws {
         let harness = harness()
@@ -125,5 +179,32 @@ final class EditorReattachGridTests: FigureGridMountedTestCase {
         XCTAssertNil(grid.dim.superview, "and its dimming")
         await m.coordinator.figureGridFolding?.value
         XCTAssertTrue(m.coordinator.figureThumbnailOverlay?.superview === tv)
+    }
+
+    /// Insert ▸ Table in flight when the text view is replaced: the old
+    /// view's storage is gone, so the made figure lands nowhere — it goes to
+    /// the Trash and the writer is told, as for a document left (R7b-6).
+    func test_anInsertTableInFlightWhenTheTextViewIsReplacedIsTold() async throws {
+        final class Holder { var replace: (@MainActor () -> Void)? }
+        let holder = Holder()
+        let m = try await mount("Intro", makeFigure: false, beforeMaking: { holder.replace?() })
+        let frame = NSRect(x: 0, y: 0, width: 700, height: 500)
+        let tv = MaughamTextView(frame: frame)
+        _ = tv.layoutManager
+        let sv = NSScrollView(frame: frame)
+        sv.documentView = tv
+        let window = TestWindow.make(contentRect: frame, contentView: sv, present: .unshown)
+        addTeardownBlock { @MainActor in window.close() }
+        holder.replace = {
+            tv.string = m.textView.string
+            tv.delegate = m.coordinator
+            m.coordinator.attach(to: tv)
+        }
+        m.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        let task = try XCTUnwrap(m.coordinator.insertTableFigure())
+        await task.value
+        XCTAssertEqual(tv.string, "Intro", "no line lands in the new view at an old view's point")
+        XCTAssertEqual(m.box.reported.count, 1, "the writer is told: \(m.box.reported)")
+        XCTAssertNil(m.coordinator.figureGrid)
     }
 }

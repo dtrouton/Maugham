@@ -1061,7 +1061,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// tooltip and open composer bound to the old text view leaves it, so the
     /// installs re-make them on the new one. The old view stops calling back.
     private func releaseTheViewsOf(_ old: NSTextView) {
+        // The writer's place: the new view's selection is whatever `string =`
+        // left, so the caret the old view held is restored by the attach (with
+        // the deferred scroll and focus, on the NEW view).
+        if initialCursorLocation == nil { initialCursorLocation = old.selectedRange().location }
         forceFoldFigureGrid(.teardown)
+        // The old view's table anchors (parity with `applyExternalText`/`detach`).
+        // A figure ingest or Insert ▸ Table in flight is not re-bound: it asks
+        // `waitOutComposition`, which answers `.gone` for a replaced text view,
+        // so it lands nothing and says so (R7b-6).
+        tableTidy.anchor = nil
+        tableTidy.cancelPending()
         closeCompletion()
         annotationComposer?.dismiss()
         annotationComposer = nil
@@ -1381,9 +1391,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// control change that doesn't trigger a layout pass (e.g. the async iCloud
     /// role resolve) still reaches the membrane here.
     func observeControl(_ control: EditorControl) {
+        // `makeNSView` may hand the same control over again on this coordinator
+        // (`attach(to:)`): one observation chain per control, never two.
+        if self.control === control, isObservingControl { return }
         self.control = control
+        isObservingControl = true
         armControlObservation()
     }
+    /// Whether an observation chain over `control` is armed (it re-arms itself).
+    private var isObservingControl = false
 
     private func armControlObservation() {
         guard let control else { return }
@@ -1770,6 +1786,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         guard let textView = notification.object as? NSTextView,
               !isApplyingExternalUpdate else { return }
+        // A text view `makeNSView` built but `attach(to:)` has not yet taken:
+        // its default selection is not the writer's.
+        if let attached = self.textView, attached !== textView { return }
         // Clear lastCycleTarget when cursor moves to a different line.
         if let lineRange = lastCycleTargetLineRange {
             let cursor = textView.selectedRange().location

@@ -433,6 +433,9 @@ struct EditorSurface: NSViewRepresentable {
     /// retention rather than an ARC cycle.
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: EditorCoordinator) {
         MainActor.assumeIsolated {
+            // A view SwiftUI discarded after making another on this coordinator
+            // (`attach(to:)`) tears down only itself.
+            guard coordinator.textView == nil || coordinator.textView === scrollView.documentView else { return }
             coordinator.detach()
         }
     }
@@ -944,8 +947,9 @@ final class MaughamTextView: NSTextView {
         // its async work so a coordinator SwiftUI has not yet released holds
         // nothing heavy and does no work. `detach()` is idempotent, so the flip
         // path (dismantle + this) is safe.
-        if newWindow == nil {
-            coordinator?.detach()
+        if newWindow == nil, let coordinator,
+           coordinator.textView == nil || coordinator.textView === self {
+            coordinator.detach()
         }
     }
 

@@ -213,11 +213,16 @@ final class MaughamEventLivenessTests: XCTestCase {
     /// argument is unused by dismantleNSView, so a bare NSScrollView suffices.
     func test_dismantleNSView_callsDetach() {
         let w = makeWindow()
-        let (coordinator, _) = makeAttachedCoordinator(in: w)
+        let (coordinator, tv) = makeAttachedCoordinator(in: w)
         XCTAssertFalse(coordinator.isDetached)
         XCTAssertNotNil(coordinator.textView)
 
-        EditorSurface.dismantleNSView(NSScrollView(), coordinator: coordinator)
+        // The scroll view SwiftUI dismantles holds the coordinator's text view
+        // (a discarded one holding another does not detach it —
+        // `EditorReattachOverlayTests`).
+        let scrollView = NSScrollView()
+        scrollView.documentView = tv
+        EditorSurface.dismantleNSView(scrollView, coordinator: coordinator)
 
         XCTAssertTrue(coordinator.isDetached,
             "dismantleNSView must flip isDetached via detach()")
