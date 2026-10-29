@@ -144,8 +144,12 @@ extension ProjectWindow {
                                      subject: BinderSubject?,
                                      showInspector: inout Bool,
                                      detailSegment: inout DetailSegment) {
+        // A figure beside the canvas reveals the same column
+        // (`figureSubjectPlacement`, report plan 8a Task 5).
         guard researchSubjectPlacement(persona: persona, subject: subject)
-            .previewsInTheRightColumn else { return }
+            .previewsInTheRightColumn
+            || figureSubjectPlacement(persona: persona, subject: subject)
+                .besideFigureID != nil else { return }
         showInspector = true
         detailSegment = .inspector
     }

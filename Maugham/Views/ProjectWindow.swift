@@ -1275,7 +1275,7 @@ struct ProjectWindow: View {
         CentreColumn(
             store: store, documentStore: documentStore,
             canvasModel: canvasModel, editorControl: editorControl,
-            referenceIndex: referenceIndex,
+            referenceIndex: referenceIndex, figureListing: figureListing,
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, window: window,
@@ -1465,7 +1465,9 @@ struct ProjectWindow: View {
         guard !showsPaletteWallCentre(showsPaletteWall: showsPaletteWall,
                                       persona: persona) else { return false }
         guard researchSubjectPlacement(persona: persona,
-                                       subject: subject).centreItemID == nil
+                                       subject: subject).centreItemID == nil,
+              figureSubjectPlacement(persona: persona,
+                                     subject: subject).centreFigureID == nil
         else { return false }
         return !subjectShowsAltitude(persona: persona, subject: subject,
                                      structure: structure)
@@ -1787,6 +1789,7 @@ struct ProjectWindow: View {
         RightColumn(
             store: store, documentStore: documentStore, projectRoot: url,
             canvasModel: canvasModel, editorControl: editorControl,
+            figureListing: figureListing,
             publishCentre: publishCentre, assistant: assistant,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
             persona: persona, isNoChromeOn: isNoChromeOn,

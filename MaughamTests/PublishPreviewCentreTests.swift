@@ -2037,6 +2037,8 @@ struct PublishCentreProbeView: View {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !box.persona.editsResearchInTheCentre)
+        case .figure:
+            EmptyView()   // the probe's subjects are never figures
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })

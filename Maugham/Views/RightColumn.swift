@@ -34,6 +34,8 @@ struct RightColumn: View {
     let projectRoot: URL
     let canvasModel: CanvasModel
     let editorControl: EditorControl
+    /// The window's figure rows, read by the figure arm beside the canvas.
+    let figureListing: FigureListingModel
     let publishCentre: PublishCentreModel
     /// What pin is being studied — the window's model, which the References
     /// pane writes and the study arm below is a function of.
@@ -305,7 +307,10 @@ struct RightColumn: View {
     private func researchOrSubject(store: ProjectStore) -> some View {
         let placement = ProjectWindow.researchSubjectPlacement(
             persona: persona, subject: selectedSubject)
-        if let id = placement.inspectedItemID {
+        if let figureID = ProjectWindow.figureSubjectPlacement(
+            persona: persona, subject: selectedSubject).besideFigureID {
+            FigureSubjectPlaceholder(figureID: figureID, listing: figureListing)
+        } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,
                 showsPreview: placement.previewsInTheRightColumn)

@@ -17,6 +17,8 @@ enum CentreRoute: Equatable {
     case paletteWall
     /// A research item that takes the centre (`researchSubjectPlacement`).
     case research(id: String)
+    /// A figure that takes the centre (`figureSubjectPlacement`).
+    case figure(id: String)
     /// The planning canvas — mounted once, in a branch of its own.
     case canvas
     /// A Collection's placeholder for a linked-project reference piece.
@@ -79,6 +81,9 @@ extension ProjectWindow {
         }
         if let id = researchSubjectPlacement(persona: persona, subject: subject).centreItemID {
             return .research(id: id)
+        }
+        if let id = figureSubjectPlacement(persona: persona, subject: subject).centreFigureID {
+            return .figure(id: id)
         }
         let piece = referencePiece(for: subject, in: structure)
         switch editorRoute(persona: persona, projectType: projectType,

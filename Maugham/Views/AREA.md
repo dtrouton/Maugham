@@ -73,6 +73,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeScrollProbe.swift` — a dev-build-only diagnostic.
 
 ### Research and the palette
+- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and the figure placeholder.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor (`lockEditing` for read-only).
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.
@@ -475,7 +476,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 Checks: the compiler, `PersonaPaneRegistryTests`, `DetailPaneTogglePersonaTests`, `DocSyncTests`.
 
 ### Add a centre route
-1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case placed after `.canvas` (never before it).
+1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` (never before it) — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer that is `besideTheCanvas` in Plan.
 2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named predicate (a `Persona` predicate, composed with `subjectShowsAltitude` if it is project-level), never a persona name.
 3. `Maugham/Views/CentreColumn.swift` — draw it in `editorPane`'s switch, or for a cover in `manuscriptEditor`'s cover switch. Pass values and closures; reach no store from the surface's body.
 4. `Maugham/Views/ProjectWindow.swift` — `showsStatusFooter` if the surface hides the document.
@@ -485,7 +486,7 @@ Checks: `CentreRouteTests`, `ProjectAltitudeCentreTests` (host lifetimes), `Regi
 
 ### Add a right-column inspector
 1. `Maugham/Views/ProjectWindow.swift` — a case in `InspectorRoute` and its answer in `inspectorRoute(persona:projectType:)`, keeping the canvas check above the project-type split.
-2. `Maugham/Views/RightColumn.swift` — its arm in `researchOrSubject`'s switch, handing the view `posture(id)` if it offers verbs.
+2. `Maugham/Views/RightColumn.swift` — its arm in `researchOrSubject`'s switch (a Plan subject beside the canvas asks its placement there and `revealResearchColumn`), handing the view `posture(id)` if it offers verbs.
 3. The view in its own file; it reads values, resolves heavy state one leaf down (never `canvasModel.scene`).
 4. If it writes pass states: join `PersonaPaneRegistryTests.passStateWritingFiles`.
 5. `MaughamTests/Canvas/CanvasRouteTests.swift` — exhaustive over persona × project type.

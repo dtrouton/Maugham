@@ -30,6 +30,8 @@ struct CentreColumn: View {
     /// The window's reference index (report plan 8a Task 2), handed to the
     /// manuscript editor; read nowhere here.
     let referenceIndex: ReferenceIndexHost
+    /// The window's figure rows (report plan 8a), read by the figure route.
+    let figureListing: FigureListingModel
     /// The window's table-grid presence (report plan 7c Task 9), handed to
     /// the manuscript editor's grid opening; read nowhere here.
     let figureGridPresence: FigureGridPresence
@@ -122,6 +124,8 @@ struct CentreColumn: View {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
                                   readOnly: !persona.editsResearchInTheCentre)
+        case .figure(let id):
+            FigureSubjectPlaceholder(figureID: id, listing: figureListing)
         case .canvas:
             canvasCentre(store: store, documentStore: documentStore)
         case .reference(let piece):
