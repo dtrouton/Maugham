@@ -181,8 +181,8 @@ final class CompilerOrchestrator {
         var projectId: String
         /// The model each run is spawned against.
         var model: String
-        /// **Close the writer's burst before `reading` is asked**; awaited at
-        /// the top of every run. Never throws: a stale delta checks real prose,
+        /// **Close the writer's burst before `reading` is asked**; awaited
+        /// first in `acknowledgeAndPrepare`. Never throws: a stale delta checks real prose,
         /// a refused run checks none.
         var prepareForRun: @MainActor (String) async -> Void
         /// The live document, or `nil` when the subject is not a manuscript
@@ -589,7 +589,7 @@ final class CompilerOrchestrator {
         let model = environment.model
 
         // Before the derivation, or a second ⌘R in those seconds would run the
-        // same delta twice.
+        // same delta twice. The counts feed the header at once (requirement 5).
         runState = .running(docId: docId, kind: kind, checking: DeltaCounts(of: delta))
         // The writer's wait starts at the keystroke.
         runStartedAt = Date()
@@ -706,8 +706,8 @@ final class CompilerOrchestrator {
                 liveParagraphText: { [weak self] paragraphId in
                     self?.environment?.liveParagraphText(docId, paragraphId)
                 },
-                // The run's own dose: a question the short letter drops never
-                // shows mid-check.
+                // The run's own dose (constraint 24): a question the short
+                // letter drops never shows mid-check.
                 dosage: run.dosage)
             else { continue }
             run.outcome = DiagnosticIngest.combining(run.outcome, section)
@@ -772,7 +772,7 @@ final class CompilerOrchestrator {
         stage: DraftStage?, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?,
         openInOtherLanesNoteIds: [String]?, timing: RunTiming?
     ) -> CompilerRun {
-        // **The letter's stamps** (§3.4, §3.8): the run's own facts, never the
+        // **The letter's stamps** (§3.4; §3.8, constraint 23): the run's own facts, never the
         // model's echo; no letter, no stamp. The stage line stays on the line
         // after the ask
         // (`CompilerRunCommandTests.test_theStageIsStampedBesideTheAskInTheOneRecordSpelling`).
@@ -974,7 +974,7 @@ final class CompilerOrchestrator {
                         // `passlessEditorName`'s one production use.
                         editorName: editorName))
             }
-            // See the doc comment.
+            // Generation re-check: see `finish`'s doc.
             guard runGeneration == generation else { return }
 
             let run = Self.record(

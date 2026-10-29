@@ -129,7 +129,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **The record remembers who read**: `CompilerRun.readerName` (a check's; `nil` for a round). A standing letter's surfaces read `run.readerName ?? reader.editorName`; the header and empty state stay on the LIVE reader. A pass's resolved name signs its notes (`CompilerMintContext.editorName`).
 
 ### The run's order
-- **A run's first act is to close the writer's burst, then read**: `Environment.prepareForRun` is awaited at the top of `runRequested`, before `reading` (fresh prose sits in the `PendingBuffer` until a pause). It cannot throw; a failed flush costs the run its newest paragraphs, never the writer's words.
+- **A run's first act is to close the writer's burst, then read**: `Environment.prepareForRun` is awaited after `runRequested`'s refusals, in `acknowledgeAndPrepare`, before `reading` (fresh prose sits in the `PendingBuffer` until a pause). It cannot throw; a failed flush costs the run its newest paragraphs, never the writer's words.
 - **The flush hop is covered by `isRunning`** (a double ⌘R is one run) **and abandoned by generation** on `shutdown()`.
 - **The derivation is the run's second suspension**, before the send, and carries `runGeneration`: the toggle going off mid-derivation abandons the run.
 - **`beginRun` calls `commitPendingAsk(docId:kind:)` with its own kind, then reads `ask(docId:kind:)`**, so an unsubmitted worry reaches the run it was typed for and never the other loop's. `beginRun` is the one line every trigger passes.
