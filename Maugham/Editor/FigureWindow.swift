@@ -288,6 +288,16 @@ final class FigureWindows {
         _ = await settle(within: .seconds(5))
     }
 
+    /// **Each figure's refused sends, counted** (observed): a Send to
+    /// Research asked from outside the grids folds them first
+    /// (`foldGrids(on:)`); when the store then refuses it, the figure is
+    /// still where it was, so a grid that left for the send — the centre's —
+    /// takes it again (final review M4).
+    private(set) var sendsRefused: [String: Int] = [:]
+
+    /// A send that folded `figureId`'s grids was refused.
+    func sendRefused(_ figureId: String) { sendsRefused[figureId, default: 0] &+= 1 }
+
     /// The last in-place visit on `figureId` has ended (at once when none is ending).
     func visitEnded(_ figureId: String) async {
         await visitsEnding[figureId]?.value
@@ -354,9 +364,11 @@ final class FigureWindows {
     /// them), then closes. Forgotten first, so a window's own `closed`
     /// arriving during its close is a no-op.
     func closeAll() {
-        // The holds that give way (the centre's) end their visits too: an
-        // open edit committed, its writes tracked for `settle`.
-        for yield in Array(inPlaceYielders.values) { yield() }
+        // The holds that give way (the centre's) leave for good, as a send
+        // folds them: an open edit committed, its writes tracked for
+        // `settle` — and never taking the figure again against the store
+        // that is closing (final review M3).
+        for hold in Array(inPlaceYielders.keys) { inPlaceFolders[hold]?() }
         let closing = Array(closers.values), finishing = Array(finishers.values)
         closers = [:]
         focusers = [:]
@@ -502,10 +514,14 @@ final class FigureWindowGrid {
     private(set) var reseeding: Task<Void, Never>?
     private(set) var isFinished = false
     private weak var store: DocumentStore?
+    private weak var projectStore: ProjectStore?
     private weak var windows: FigureWindows?
     private var listener: FigureWindows.Listener?
-    /// The window's figure cards, filled from the store's triggers.
-    private var cards: FigureCardCache?
+    /// The window's figure cards, filled from the store's triggers and the
+    /// manifest's edges (a test reads them).
+    private(set) var cards: FigureCardCache?
+    /// The next look at the registry and Research (`watchTheManifest`).
+    private var manifestWatch: Task<Void, Never>?
     /// The line as last told, for a visit still opening.
     private var line: (number: String, caption: String)?
     private var frame: Frame?
@@ -535,6 +551,7 @@ final class FigureWindowGrid {
               frame: Frame, close: @escaping @MainActor () -> Void) {
         guard opening == nil, !isFinished else { return }
         self.store = store
+        self.projectStore = projectStore
         self.windows = windows
         self.frame = frame
         if frame.listensForTheLine {
@@ -644,6 +661,37 @@ final class FigureWindowGrid {
         store.attachFigureCardCache(cards)
         cards.attach(FigureCardCache.Source(read: { [weak store] in await store?.figureCardInputs() }))
         self.cards = cards
+        watchTheManifest()
+    }
+
+    /// The registry or Research as the cards last heard them.
+    private struct ManifestEdges: Equatable {
+        let figures: [FigureRecord]?
+        let research: [ResearchItem]
+    }
+
+    /// **The registry and Research, watched** — the edges every card owner
+    /// carries (`FigureCardCacheTests.cardCacheOwners`): a figure made,
+    /// renamed or removed here reaches no store trigger, and Research
+    /// changing moves a pin's source (its flag) and a `research:` formula's
+    /// value, which no figure op announces. Either refills the cards.
+    /// Re-armed after each change, until the visit finishes.
+    private func watchTheManifest(seen: ManifestEdges? = nil) {
+        guard !isFinished, let projectStore else { return }
+        let now = ManifestEdges(figures: projectStore.manifest.figures, research: projectStore.manifest.research)
+        if let seen, seen != now { cards?.invalidate() }
+        withObservationTracking {
+            _ = projectStore.manifest.figures
+            _ = projectStore.manifest.research
+        } onChange: { [weak self] in
+            // The manifest is the main actor's: its change is announced there.
+            MainActor.assumeIsolated {
+                guard let self, !self.isFinished else { return }
+                self.manifestWatch = Task { @MainActor [weak self] in
+                    self?.watchTheManifest(seen: now)
+                }
+            }
+        }
     }
 
     /// **The figure line's "Table N" and caption changed** in the book.
@@ -685,6 +733,7 @@ final class FigureWindowGrid {
         container.onWindowChange = nil
         presence.folded()
         if let listener { windows?.stopListening(listener) }
+        manifestWatch?.cancel()
         if let cards {
             cards.attach(nil)
             store?.detachFigureCardCache(cards)

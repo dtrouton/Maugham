@@ -103,4 +103,29 @@ final class FigureWindowFreshnessTests: FigureGridMountedTestCase {
         await c.postureChange?.value
         XCTAssertEqual(c.mode, .readOnly(.notYours))
     }
+
+    /// **I1: Research changing refills the window's cards** — the grid's own
+    /// manifest edge (`watchTheManifest`), the centre's grid's too: a pin's
+    /// source and a `research:` formula's value move with Research, which no
+    /// figure op announces. Counted as fills of the grid's own cache, cut off
+    /// from the store's triggers; Research moves in memory only.
+    func test_researchChangingRefillsTheWindowsCards() async throws {
+        let m = try await mount()
+        let folder = temp.url.appendingPathComponent("outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let csv = folder.appendingPathComponent("budget.csv")
+        try Data("A,B\n1,2\n".utf8).write(to: csv)
+        _ = try await m.store.addResearchAsset(parentId: nil, fromURL: csv)
+        let c = try await openGrid(m, try XCTUnwrap(m.figure?.id))
+        _ = c
+        let grid = try XCTUnwrap(grids.last)
+        let cards = try XCTUnwrap(grid.cards)
+        let filled = await RunLoopPump.until(deadline: 5) { cards.fills > 0 }
+        XCTAssertTrue(filled, "premise: the window's cards filled")
+        let before = await FigureInspectorTests.fillsHearingOnlyTheOwner(cards, store: try XCTUnwrap(m.store.documentStore))
+        // In memory only, as an adopted manifest moves it: no op, no file event.
+        m.store.manifest.research[0].title = "budget 2"
+        let refilled = await RunLoopPump.until(deadline: 5) { cards.fills > before }
+        XCTAssertTrue(refilled, "a Research change refills the window's cards")
+    }
 }

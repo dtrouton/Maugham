@@ -975,6 +975,11 @@ final class BinderTreeSectionsState {
     /// shape): what the rows' Research / changed tags and the parked test
     /// read, memory only. Attached by `FigureSectionWiring`.
     @ObservationIgnored let figureCards = FigureCardCache()
+    /// **The tree's cards' version, observed** — moved by each fill that
+    /// changed a card (`figureCardsChanged`), so a reader with no cache of
+    /// its own re-asks at the cards' rate: the figure inspector's Reads
+    /// from Research (final review I2). Nothing in the tree reads it.
+    var figureCardsVersion = 0
     /// The listing as last told, so a card fill can rebuild the rows.
     @ObservationIgnored var figureListingRows: [FigureListing.Row] = []
     /// The store the cards are attached to, so a new one detaches the old.

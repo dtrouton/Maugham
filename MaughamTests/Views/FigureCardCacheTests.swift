@@ -386,26 +386,155 @@ final class FigureCardCacheTests: XCTestCase {
         withExtendedLifetime(projectStore) {}
     }
 
-    // MARK: - EditorHost's watches
+    // MARK: - Every card owner's watches
 
-    /// The manifest watches in `EditorHost` whose closure must refill the
-    /// cards: the registry (a local create/rename/remove) and Research (a
-    /// pin's source moving its card's flag). Each answer names a fault.
-    static func watchFaults(in source: String) -> [String] {
-        ["store.manifest.figures", "store.manifest.research"].compactMap { key in
-            guard let start = source.range(of: ".onChange(of: \(key))") else {
-                return "no .onChange(of: \(key))"
+    /// One watch a card owner must carry: a SwiftUI `.onChange(of: key)`
+    /// whose closure says `refill`, or a function that reads each of `reads`
+    /// and says `refill` (an AppKit owner's `withObservationTracking`).
+    enum CardEdge {
+        case onChange(String, refill: String)
+        case watch(function: String, reads: [String], refill: String)
+    }
+
+    /// **A `FigureCardCache` owner** (final review I1): the type whose
+    /// declaration builds the cache, the type that wires it, and the edges
+    /// that wiring must carry — the registry (a local create, rename or
+    /// remove reaches no store trigger) and Research (a pin's source moving
+    /// its card's flag, a `research:` formula's value). The store's own
+    /// triggers reach every attached cache already.
+    struct CardCacheOwner {
+        let builder: String
+        let wiring: String
+        let edges: [CardEdge]
+    }
+
+    static let cardCacheOwners: [CardCacheOwner] = [
+        CardCacheOwner(builder: "EditorHost", wiring: "EditorHost", edges: [
+            .onChange(".onChange(of: store.manifest.figures)", refill: "figureCards.invalidate()"),
+            .onChange(".onChange(of: store.manifest.research)", refill: "figureCards.invalidate()"),
+        ]),
+        CardCacheOwner(builder: "BinderTreeSectionsState", wiring: "FigureSectionWiring", edges: [
+            .onChange(".onChange(of: store?.manifest.figures)", refill: "treeState.figureCards.invalidate()"),
+            .onChange(".onChange(of: store?.manifest.research)", refill: "treeState.figureCards.invalidate()"),
+        ]),
+        CardCacheOwner(builder: "FigureWindowGrid", wiring: "FigureWindowGrid", edges: [
+            .watch(function: "func watchTheManifest(",
+                   reads: ["projectStore.manifest.figures", "projectStore.manifest.research"],
+                   refill: "cards?.invalidate()"),
+        ]),
+    ]
+
+    /// The edges `source` misses, each named.
+    static func watchFaults(in source: String, edges: [CardEdge]) -> [String] {
+        edges.compactMap { edge in
+            switch edge {
+            case .onChange(let key, let refill):
+                guard let start = source.range(of: key) else { return "no \(key)" }
+                let rest = source[start.upperBound...]
+                // The closure runs until the next modifier line, or the function's end.
+                let next = rest.range(of: #"\n[ \t]*\."#, options: .regularExpression)?.lowerBound
+                let close = rest.range(of: "\n    }")?.lowerBound
+                let end = [next, close].compactMap { $0 }.min() ?? rest.endIndex
+                return rest[..<end].contains(refill) ? nil : "\(key) does not refill the figure cards"
+            case .watch(let function, let reads, let refill):
+                guard let start = source.range(of: function) else { return "no \(function)" }
+                let rest = source[start.upperBound...]
+                let body = rest.range(of: "\n    }\n").map { rest[..<$0.lowerBound] } ?? rest
+                let missing = reads.filter { !body.contains($0) }
+                if !missing.isEmpty { return "\(function) does not read \(missing.joined(separator: ", "))" }
+                return body.contains(refill) ? nil : "\(function) does not refill the figure cards"
             }
-            let rest = source[start.upperBound...]
-            let body = rest.range(of: "\n        .").map { rest[..<$0.lowerBound] } ?? rest
-            return body.contains("figureCards.invalidate()")
-                ? nil : ".onChange(of: \(key)) does not refill the figure cards"
         }
     }
 
-    func test_editorHostRefillsTheCardsWhenTheRegistryOrResearchChanges() throws {
-        let source = try SourceTree.read("Maugham/Views/EditorHost.swift")
-        XCTAssertEqual(Self.watchFaults(in: source), [])
+    /// **Every owner, over `base`'s `Maugham/`**: a `FigureCardCache()` built
+    /// in a type no row names (keyed by type, so a split file never hides
+    /// one), and each row's wiring missing an edge.
+    static func cardOwnerFaults(base: URL = SourceTree.repoRoot,
+                                owners: [CardCacheOwner] = cardCacheOwners) throws -> [String] {
+        var hits: [SourceTree.Hit] = []
+        for file in try SourceTree.maskedSources(under: "Maugham", base: base) {
+            let lines = String(decoding: file.masked, as: UTF8.self)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+            for (index, line) in lines.enumerated() where line.contains("FigureCardCache()") {
+                hits.append(SourceTree.Hit(file: (file.path as NSString).lastPathComponent, line: index + 1))
+            }
+        }
+        let keys = Set(owners.map { SourceTree.typeKeyPrefix + $0.builder })
+        let builders = try SourceTree.keyedByType(
+            hits, typeKeys: keys, in: [base.appendingPathComponent("Maugham", isDirectory: true)])
+        var faults = builders.subtracting(keys).sorted().map { "\($0) builds a FigureCardCache no owner row names" }
+        for owner in owners {
+            let source = try SourceTree.sourceOfType(owner.wiring, under: ["Maugham"], base: base)
+            faults += watchFaults(in: source, edges: owner.edges).map { "\(owner.wiring): \($0)" }
+        }
+        return faults
+    }
+
+    func test_everyCardOwnerRefillsWhenTheRegistryOrResearchChanges() throws {
+        XCTAssertEqual(try Self.cardOwnerFaults(), [])
+    }
+
+    /// The census fires on a planted tree: an owner missing its Research
+    /// edge, and a cache built in a type no row names — and its control, the
+    /// same tree with the edge and no stray cache, is clean.
+    func test_theOwnerCensusFiresOnAPlantedOffender() throws {
+        let owners = [
+            CardCacheOwner(builder: "TreeState", wiring: "TreeWiring", edges: [
+                .onChange(".onChange(of: store?.manifest.figures)", refill: "treeState.figureCards.invalidate()"),
+                .onChange(".onChange(of: store?.manifest.research)", refill: "treeState.figureCards.invalidate()"),
+            ]),
+            CardCacheOwner(builder: "Grid", wiring: "Grid", edges: [
+                .watch(function: "func watchTheManifest(",
+                       reads: ["projectStore.manifest.figures", "projectStore.manifest.research"],
+                       refill: "cards?.invalidate()"),
+            ]),
+        ]
+        let state = "final class TreeState {\n    let figureCards = FigureCardCache()\n}\n"
+        let wiring = { (research: String) in """
+            struct TreeWiring {
+                func body(content: Content) -> some View {
+                    content
+                        .onChange(of: store?.manifest.figures) { _, _ in treeState.figureCards.invalidate() }
+                        \(research)
+                        .onChange(of: typography) { _, _ in }
+                }
+            }
+
+            """ }
+        let grid = { (reads: String) in """
+            final class Grid {
+                private func watchTheBook() {
+                    let cards = FigureCardCache()
+                }
+
+                private func watchTheManifest(seen: Int? = nil) {
+                    if seen != nil { cards?.invalidate() }
+                    withObservationTracking {
+                        _ = projectStore.manifest.figures
+                        \(reads)
+                    } onChange: { }
+                }
+            }
+
+            """ }
+        let planted = try SourceTree.plantedTree([
+            "Maugham/TreeState.swift": state,
+            "Maugham/TreeWiring.swift": wiring(".onChange(of: store?.manifest.research) { _, _ in referenceIndex.invalidate() }"),
+            "Maugham/Grid.swift": grid(""),
+            "Maugham/Stray.swift": "struct Stray {\n    let cards = FigureCardCache()\n}\n",
+        ])
+        XCTAssertEqual(try Self.cardOwnerFaults(base: planted, owners: owners), [
+            "Stray.swift builds a FigureCardCache no owner row names",
+            "TreeWiring: .onChange(of: store?.manifest.research) does not refill the figure cards",
+            "Grid: func watchTheManifest( does not read projectStore.manifest.research",
+        ])
+        let control = try SourceTree.plantedTree([
+            "Maugham/TreeState.swift": state,
+            "Maugham/TreeWiring.swift": wiring(".onChange(of: store?.manifest.research) { _, _ in treeState.figureCards.invalidate() }"),
+            "Maugham/Grid.swift": grid("_ = projectStore.manifest.research"),
+        ])
+        XCTAssertEqual(try Self.cardOwnerFaults(base: control, owners: owners), [])
     }
 
     /// `EditorHost` hands the editor the cached card (never a fill) by the
@@ -419,24 +548,5 @@ final class FigureCardCacheTests: XCTestCase {
         ] {
             XCTAssertTrue(source.contains(needle), "EditorHost no longer says: \(needle)")
         }
-    }
-
-    func test_theWatchCensusFiresOnAPlantedOffender() {
-        let planted = """
-                .onChange(of: store.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
-                .onChange(of: store.manifest.figures) { _, _ in figureCards.invalidate() }
-                .onAppear { }
-        """
-        XCTAssertEqual(Self.watchFaults(in: planted),
-                       [".onChange(of: store.manifest.research) does not refill the figure cards"])
-        let control = """
-                .onChange(of: store.manifest.research) { _, _ in
-                    referenceIndex.invalidate(.research)
-                    figureCards.invalidate()
-                }
-                .onChange(of: store.manifest.figures) { _, _ in figureCards.invalidate() }
-                .onAppear { }
-        """
-        XCTAssertEqual(Self.watchFaults(in: control), [])
     }
 }

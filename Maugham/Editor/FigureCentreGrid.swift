@@ -29,6 +29,9 @@ final class FigureCentreMount {
     /// The centre left the figure (the subject moved on, or the grid sent it
     /// to Research): it never takes it again.
     private(set) var hasLeft = false
+    /// The centre left for a send asked from outside it
+    /// (`FigureWindows.foldGrids`), which may yet be refused.
+    @ObservationIgnored private var leftForASend = false
 
     @ObservationIgnored private var hold: FigureWindows.InPlaceHold?
     @ObservationIgnored private var focusedTheHolder = false
@@ -68,7 +71,7 @@ final class FigureCentreMount {
     func take() {
         guard !hasLeft, grid == nil, let store, let projectStore else { return }
         guard let hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focus() },
-                                             fold: { [weak self] in self?.leave() },
+                                             fold: { [weak self] in self?.leaveForASend() },
                                              yield: { [weak self] in self?.yieldToAWindow() },
                                              grid: { [weak self] in self?.grid?.controller }) else {
             heldElsewhere()
@@ -146,10 +149,32 @@ final class FigureCentreMount {
     /// closed, the grid sent it to Research, or a send from outside folds it
     /// (`FigureWindows.foldGrids`). Once only.
     func leave() {
+        leftForASend = false
         guard !hasLeft else { return }
         hasLeft = true
         retry?.cancel()
         release()
+    }
+
+    /// **The centre's grid folds for a send** (`FigureWindows.foldGrids`, a
+    /// row's or the inspector's Send to Research; and the project's close,
+    /// `closeAll`): it leaves as `leave` does, but a refused send brings it
+    /// back (`sendWasRefused`).
+    func leaveForASend() {
+        guard !hasLeft else { return }
+        leave()
+        leftForASend = true
+    }
+
+    /// **The send the centre folded for was refused** (final review M4): the
+    /// figure is still the subject, so the centre takes it again rather than
+    /// staying blank — without pulling the keys from wherever they are.
+    func sendWasRefused() {
+        guard hasLeft, leftForASend else { return }
+        hasLeft = false
+        leftForASend = false
+        focusedTheHolder = true
+        take()
     }
 
     /// The grid finishes its visit and the hold goes, with the visit still
@@ -272,6 +297,7 @@ struct FigureCentreGrid: View {
                           isReviewMode: next.isReviewMode, shareIsReadOnly: next.shareIsReadOnly)
         }
         .onChange(of: holders) { _, _ in mount?.reconsider() }
+        .onChange(of: figureWindows.sendsRefused[figureId]) { _, _ in mount?.sendWasRefused() }
         // The close itself, as a figure window's: the visit ends (its open
         // edit committed, its writes tracked for the project's close) before
         // the window gives its borrow back.

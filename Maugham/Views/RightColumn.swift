@@ -85,6 +85,8 @@ struct RightColumn: View {
     var drawsFigure: (String) -> Bool = { _ in false }
     /// `BinderTreeSectionsState.revealFigure`, before a figure travel lands.
     var revealFigure: (String) -> Void = { _ in }
+    /// The window's tree, whose cards pace the figure inspector's pin reads.
+    var figureTree: BinderTreeSectionsState? = nil
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -346,8 +348,8 @@ struct RightColumn: View {
     private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
         let inspector = FigureInspector(
             figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
-            figureWindows: figureWindows, control: editorControl, persona: persona, window: window,
-            select: { selectedSubject = $0 },
+            figureWindows: figureWindows, figureTree: figureTree, control: editorControl, persona: persona,
+            window: window, select: { selectedSubject = $0 },
             showNotes: { id in
                 annotationScopeRequest = .project(focusPiece: id)
                 detailSegment = .annotations

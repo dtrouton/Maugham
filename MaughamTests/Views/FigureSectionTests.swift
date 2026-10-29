@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Observation
 @testable import Maugham
 @testable import MaughamCore
 
@@ -268,6 +269,33 @@ final class FigureSectionTests: XCTestCase {
         let rest = source[start.lowerBound...]
         guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
         return String(rest[..<end.upperBound])
+    }
+
+    // MARK: - Typing above a figure (final review M6)
+
+    /// **A line index moving redraws no tree**: typing above a figure line
+    /// moves its `usedIn` line index on each settle; the rows keep what they
+    /// draw, so `figureRows` is not written and no tree host is told. A row
+    /// whose drawn fields move (its number) is written — the control.
+    func test_aLineIndexMovingDoesNotRewriteTheRows() {
+        let state = state(listing)
+        let moved = listing.map { row in
+            FigureListing.Row(figureId: row.figureId, kind: row.kind, name: row.name, caption: row.caption,
+                              number: row.number,
+                              usedIn: row.usedIn.map { FigureListing.Use(docId: $0.docId, lineIndex: $0.lineIndex + 7) },
+                              referencedFrom: row.referencedFrom, pieceOfLine: row.pieceOfLine)
+        }
+        var told = false
+        withObservationTracking { _ = state.figureRows } onChange: { told = true }
+        state.refreshFigureRows(listing: moved)
+        XCTAssertFalse(told, "only line indexes moved: the rows were not rewritten")
+
+        let renumbered = [FigureListing.Row(
+            figureId: cash.figureId, kind: .table, name: "cash", caption: cash.caption, number: "Table 3",
+            usedIn: cash.usedIn, referencedFrom: [], pieceOfLine: cash.pieceOfLine)] + Array(listing.dropFirst())
+        state.refreshFigureRows(listing: renumbered)
+        XCTAssertTrue(told, "control: a number moving rewrites them")
+        XCTAssertEqual(state.figureRows.first?.listing.number, "Table 3")
     }
 }
 

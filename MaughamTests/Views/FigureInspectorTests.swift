@@ -551,6 +551,221 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertTrue(review, "the Review persona")
     }
 
+    /// `cards`, cut off from the store's own triggers (a late presenter
+    /// pass over the figure's files), its fills counted once idle — so a
+    /// later fill can only be the owner's manifest edge.
+    static func fillsHearingOnlyTheOwner(_ cards: FigureCardCache, store: DocumentStore) async -> Int {
+        store.detachFigureCardCache(cards)
+        await cards.idle()
+        return cards.fills
+    }
+
+    /// A CSV outside the book, added to Research: `manifest.research` moves.
+    private func addResearchTable(_ m: Mounted, _ name: String) async throws {
+        let folder = temp.url.appendingPathComponent("outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let csv = folder.appendingPathComponent("\(name).csv")
+        try Data("A,B\n1,2\n".utf8).write(to: csv)
+        _ = try await m.store.addResearchAsset(parentId: nil, fromURL: csv)
+    }
+
+    /// **I1: Research changing refills the tree's cards** — the edge the
+    /// tree's wiring carries (`FigureSectionWiring`), in a window with no
+    /// editor, so no other cache's edge can stand in for it. The cards are
+    /// cut off from the store's triggers and Research moves in memory only,
+    /// as an adopted manifest moves it, so nothing but the edge refills them.
+    func test_researchChangingRefillsTheTreesCards() async throws {
+        let m = try await mount()
+        let ds = try XCTUnwrap(m.store.documentStore)
+        try await addResearchTable(m, "budget")
+        let tree = BinderTreeSectionsState()
+        probeWindows.append(TestWindow.mount(
+            AnyView(TreeWiringProbe(box: WindowBox(), store: m.store, documentStore: ds, tree: tree)),
+            size: CGSize(width: 320, height: 240)))
+        let filled = await pumpUntil(deadline: 5) { tree.figureCards.fills > 0 }
+        XCTAssertTrue(filled, "premise: the tree's cards filled")
+        let before = await Self.fillsHearingOnlyTheOwner(tree.figureCards, store: ds)
+        m.store.manifest.research[0].title = "budget 2"
+        let refilled = await pumpUntil(deadline: 5) { tree.figureCards.fills > before }
+        XCTAssertTrue(refilled, "a Research change refills the tree's cards")
+    }
+
+    /// **I2: the pins reload at the cards' rate, never for a figure reading
+    /// nothing from Research, and the latest load wins.** The tree's cards
+    /// say which figures read Research; a figure that reads none is shown
+    /// none with no read of its host. The load key moves with the cards'
+    /// version and with Research, not with an op that changes no card. A load
+    /// overtaken while it awaited — by a later load, or its task's
+    /// cancellation — lands nothing.
+    func test_thePinsReloadAtTheCardsRate_skipAFigureReadingNothing_andTheLatestLoadWins() async throws {
+        let m = try await mount()
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let plain = try XCTUnwrap(m.figure)
+        let (item, summary) = try await summaryReadingModel(m)
+        let tree = BinderTreeSectionsState()
+        FigureSectionWiring.attach(tree, to: ds)
+        await tree.figureCards.idle()
+        XCTAssertEqual(tree.figureCards.readsFromResearch(figureId: summary.id), true)
+        XCTAssertEqual(tree.figureCards.readsFromResearch(figureId: plain.id), false)
+        XCTAssertEqual(tree.figureCardsVersion, tree.figureCards.version, "the version is the tree's to observe")
+
+        // A figure reading nothing: no host read.
+        let plainModel = FigureInspectorModel(figureId: plain.id)
+        await plainModel.loadPins(store: m.store, documentStore: ds,
+                                  readsFromResearch: tree.figureCards.readsFromResearch(figureId: plain.id))
+        XCTAssertEqual(plainModel.pinReads, 0, "nothing read for a figure reading nothing from Research")
+        XCTAssertEqual(plainModel.sources, [])
+
+        // The key: Research moves it; the cards' version moves it.
+        let key = { FigureInspector.LoadKey(figureId: summary.id, cards: tree.figureCardsVersion,
+                                            research: m.store.manifest.research) }
+        let first = key()
+        try await addResearchTable(m, "budget")
+        XCTAssertNotEqual(key(), first, "Research changing moves the key")
+
+        // The latest load wins.
+        let model = FigureInspectorModel(figureId: summary.id)
+        await model.loadPins(store: m.store, documentStore: ds, readsFromResearch: true)
+        XCTAssertEqual(model.sources.first?.status, .current, "premise")
+        var held: CheckedContinuation<Void, Never>?
+        var holding = true
+        model.beforeLandingForTesting = { kind in
+            guard kind == .pins, holding else { return }
+            holding = false
+            await withCheckedContinuation { held = $0 }
+        }
+        try rewriteModel(m, item, "Year,Revenue\n2025,15\n2026,20\n")
+        // An earlier load reads "changed" and waits; Research is put back; a
+        // later load reads "current" and lands first.
+        let earlier = Task { await model.loadPins(store: m.store, documentStore: ds, readsFromResearch: true) }
+        let waiting = await pumpUntil(deadline: 5) { held != nil }
+        XCTAssertTrue(waiting, "premise: the earlier load read and is waiting to land")
+        try rewriteModel(m, item, "Year,Revenue\n2025,10\n2026,20\n")
+        await model.loadPins(store: m.store, documentStore: ds, readsFromResearch: true)
+        XCTAssertEqual(model.sources.first?.status, .current, "the later load landed")
+        held?.resume()
+        await earlier.value
+        XCTAssertEqual(model.sources.first?.status, .current, "the earlier load, overtaken, landed nothing")
+
+        // A cancelled load lands nothing either.
+        holding = true
+        held = nil
+        try rewriteModel(m, item, "Year,Revenue\n2025,15\n2026,20\n")
+        let cancelled = Task { await model.loadPins(store: m.store, documentStore: ds, readsFromResearch: true) }
+        let parked = await pumpUntil(deadline: 5) { held != nil }
+        XCTAssertTrue(parked)
+        cancelled.cancel()
+        held?.resume()
+        await cancelled.value
+        XCTAssertEqual(model.sources.first?.status, .current, "a cancelled load landed nothing")
+        tree.detachFigureCards()
+    }
+
+    /// **M2: the notes' latest load wins** — two annotation changes, the
+    /// earlier read finishing last, leave the later read's notes.
+    func test_theNotesLatestLoadWins() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        func note(_ id: String, _ body: String, _ at: Double) async throws {
+            try await OpLogStore(projectURL: m.store.url).append(Op(
+                opId: id, docId: figure.id, at: Date(timeIntervalSince1970: at),
+                device: "mac", session: "s", kind: .claudeComment, changes: [],
+                provenance: Op.Provenance(sessionId: "s", annotationBody: body,
+                                          figureRowId: "r1", figureColId: "c1")))
+        }
+        try await note("01FFF1", "first", 1_700_000_000)
+        let model = FigureInspectorModel(figureId: figure.id)
+        var held: CheckedContinuation<Void, Never>?
+        var holding = true
+        model.beforeLandingForTesting = { kind in
+            guard kind == .notes, holding else { return }
+            holding = false
+            await withCheckedContinuation { held = $0 }
+        }
+        let earlier = Task { await model.loadNotes(store: m.store) }
+        let waiting = await pumpUntil(deadline: 5) { held != nil }
+        XCTAssertTrue(waiting, "premise: the earlier read is waiting to land")
+        try await note("01FFF2", "second", 1_700_000_100)
+        await model.loadNotes(store: m.store)
+        XCTAssertEqual(model.notes.map(\.body), ["first", "second"])
+        held?.resume()
+        await earlier.value
+        XCTAssertEqual(model.notes.map(\.body), ["first", "second"], "the earlier read, overtaken, landed nothing")
+    }
+
+    /// **M1: a refused name can be sent again.** Return then the focus
+    /// leaving send it once; the rename's answer (here a refusal: the name
+    /// is taken) forgets it, so retyping it sends it again — and so does the
+    /// registry's name moving.
+    func test_aRefusedNameCanBeSentAgain() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        _ = try await m.store.createFigure(kind: .table, name: "tax", piece: nil)
+        let model = FigureInspectorModel(figureId: figure.id)
+        XCTAssertTrue(model.takesTheName("tax"))
+        XCTAssertFalse(model.takesTheName("tax"), "Return, then the focus leaving: sent once")
+        await FigureInspector.rename(to: "tax", actions: actions(m, model: model), model: model,
+                                     current: { m.store.manifest.figures?.first { $0.id == figure.id }?.name },
+                                     revert: { _ in }).value
+        XCTAssertNotNil(model.message, "premise: refused")
+        XCTAssertTrue(model.takesTheName("tax"), "after the refusal the same name is sent again")
+        model.forgetTheCommittedName()   // the registry's name moved
+        XCTAssertTrue(model.takesTheName("tax"))
+    }
+
+    /// **M7: Import and Refresh act through this window's grid only.** A grid
+    /// open on the figure in another window is not acted through: that
+    /// window comes front and the line says to do it there; from the grid's
+    /// own window, Import reaches it.
+    func test_importAndRefreshActThroughThisWindowsGridOnly() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let windows = FigureWindows()
+        let grid = FigureWindowGrid()
+        var focused = 0
+        let registration = windows.opened(figure.id, focus: { focused += 1 }, grid: { [weak grid] in
+            grid?.isFinished == false ? grid?.controller : nil
+        }, close: {})
+        grid.open(figureId: figure.id, store: ds, projectStore: m.store, windows: windows, close: {})
+        await grid.opening?.value
+        let controller = try XCTUnwrap(grid.controller)
+        let gridsWindow: NSWindow = TestWindow.make(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            contentView: NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        gridsWindow.contentView?.addSubview(grid.container)
+        let thisWindow: NSWindow = TestWindow.make(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            contentView: NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        probeWindows += [gridsWindow, thisWindow]
+        var asked = 0
+        controller.chooseImportFile = { chosen in
+            asked += 1
+            chosen(nil)
+        }
+
+        let model = FigureInspectorModel(figureId: figure.id)
+        let here = FigureInspector.actions(store: m.store, figureWindows: windows, control: EditorControl(),
+                                           persona: .author, model: model, window: thisWindow)
+        XCTAssertEqual(here.gridReach(figure.id), .inAnotherWindow)
+        XCTAssertEqual(FigureInspector.refusal(mayEdit: true, reach: .inAnotherWindow), FigureActions.openInThatWindow)
+        XCTAssertFalse(here.importFromCSV(figure.id), "not acted through from another window")
+        XCTAssertEqual(asked, 0)
+        XCTAssertEqual(model.message, FigureActions.openInThatWindow, "said")
+        XCTAssertEqual(focused, 1, "and that window comes front")
+        XCTAssertNil(here.refreshPins(figure.id), "Refresh likewise")
+        XCTAssertEqual(focused, 2)
+
+        let there = FigureInspector.actions(store: m.store, figureWindows: windows, control: EditorControl(),
+                                            persona: .author, model: model, window: gridsWindow)
+        XCTAssertEqual(there.gridReach(figure.id), .here)
+        XCTAssertTrue(there.importFromCSV(figure.id), "control: from the grid's own window it acts")
+        XCTAssertEqual(asked, 1)
+        grid.finish()
+        windows.closed(registration)
+        await grid.finishing?.value
+    }
+
     // MARK: - Send to Research
 
     @Observable

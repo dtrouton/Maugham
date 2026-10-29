@@ -482,6 +482,42 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let landed = await windows.settle(within: .seconds(5))
         XCTAssertTrue(landed)
         XCTAssertEqual(c.host.state.table[a3]?.content, .value(.number(3)), "the open edit was committed")
+        // The centre left for good (M3): a run-loop pass later — the view's
+        // holders edge has run — it has not taken the figure back against
+        // the store that is closing.
+        let retaken = await RunLoopPump.until(deadline: 1) { windows.inPlaceHolds[c.figureId] != nil }
+        XCTAssertFalse(retaken, "the centre never re-takes the figure after closeAll")
+        XCTAssertNil(Self.gridView(in: centre.window.contentView), "and draws no grid")
+    }
+
+    /// **M4: a send from outside the grid, refused, gives the centre its
+    /// grid back.** `foldGrids` folds the centre before the store is asked;
+    /// the store refuses; the figure is still the subject, so the centre
+    /// takes it again rather than drawing nothing. A send that lands leaves
+    /// it folded — the control is the tree's send test above.
+    func test_aRefusedSendFromOutsideTheGridGivesTheCentreItsGridBack() async throws {
+        let m = try await mount()
+        let windows = FigureWindows()
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        struct Refused: Error {}
+        ProjectStore.beforeSendParksForTesting = { _ in throw Refused() }
+        defer { ProjectStore.beforeSendParksForTesting = nil }
+        var said: String?
+        let actions = FigureActions(store: m.store, figureWindows: windows, typography: .defaults,
+                                    report: { said = $0 })
+        let row = FigureListing.Row(figureId: c.figureId, kind: .table, name: "t", caption: "",
+                                    number: FigureListing.unusedNumber, usedIn: [], referencedFrom: [],
+                                    pieceOfLine: nil)
+        await actions.sendToResearch(row, to: .shared)?.value
+        XCTAssertNotNil(said, "premise: the send was refused")
+        XCTAssertNotNil(m.store.manifest.figures?.first { $0.id == c.figureId },
+                        "premise: the figure is still registered")
+        let back = await RunLoopPump.until(deadline: 5) {
+            windows.inPlaceHolds[c.figureId] != nil
+                && (Self.gridView(in: centre.window.contentView)?.delegate as? FigureGridController) != nil
+        }
+        XCTAssertTrue(back, "the centre took the figure again and draws its grid")
     }
 
     // MARK: - Read-only reasons
@@ -656,6 +692,14 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         XCTAssertEqual(FigureSubjectSurface.shows(later, projectURL: m.store.url, hasFigureWindows: true),
                        .nameAndNumber, "a kind from a later build keeps the name and number")
         XCTAssertEqual(FigureSubjectSurface.shows(m.figure, projectURL: m.store.url, hasFigureWindows: true), .grid)
+
+        // M5: resolved once per path, never per body pass.
+        let urls = FigureImageURLCache()
+        XCTAssertEqual(urls.url(of: record, in: m.store.url), url)
+        XCTAssertEqual(urls.url(of: record, in: m.store.url), url)
+        XCTAssertEqual(urls.resolutions, 1, "a second pass resolves nothing")
+        XCTAssertNil(urls.url(of: outside, in: m.store.url), "a new path is resolved again")
+        XCTAssertEqual(urls.resolutions, 2)
 
         let windows = FigureWindows()
         let centre = try centre(m, windows: windows, figureId: record.id)

@@ -1808,7 +1808,8 @@ struct ProjectWindow: View {
             drawsFigure: { [treeState] in
                 treeState.drawsFigure($0, projectType: store.manifest.type)
             },
-            revealFigure: { [treeState] in treeState.revealFigure($0) })
+            revealFigure: { [treeState] in treeState.revealFigure($0) },
+            figureTree: treeState)
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.

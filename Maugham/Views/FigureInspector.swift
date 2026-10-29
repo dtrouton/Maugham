@@ -147,11 +147,16 @@ enum FigureUseTravel {
 /// **What the figure inspector shows that costs a read** (report plan 8a
 /// Task 7): the figure's pins by source (`FigureDocument.pinStatus` through
 /// the window's host — never in a body, loaded on appear and again when the
-/// window's figure revision moves), the Compare rows (`comparePins`, when the
+/// tree's cards move or Research changes, and not at all for a figure that
+/// reads nothing from Research), the Compare rows (`comparePins`, when the
 /// sheet opens), and the notes and suggestions on the figure's stream — that
 /// stream alone, read off the main actor (`ProjectStore.figureNotes`), on
 /// appear and when an annotation change names the figure, never on a figure
 /// write and never the project walk. Plus the line a refusal is said on.
+///
+/// **The latest load wins** (final review I2, M2): each load is numbered,
+/// and one that a later load (or its task's cancellation) overtook while it
+/// awaited lands nothing.
 @MainActor
 @Observable
 final class FigureInspectorModel {
@@ -162,33 +167,86 @@ final class FigureInspectorModel {
     private(set) var notes: [Annotation] = []
     /// A refusal or failure, said under the actions.
     var message: String?
+    /// **The name last sent to the store**, so Return and then the focus
+    /// leaving do not send it twice. Cleared when the rename's answer lands
+    /// (accepted or refused) and when the registry's name moves, so a retry
+    /// of the same name is sent again (final review M1).
+    @ObservationIgnored private(set) var committedName: String?
+
+    /// The loads, each numbered; only the latest may land.
+    enum Load { case pins, notes, comparisons }
+    @ObservationIgnored private var generations: [Load: Int] = [:]
+    /// How many pin reads went to the figure's host (a test counts them).
+    @ObservationIgnored private(set) var pinReads = 0
+    /// Test seam: awaited after a load's read and before it lands.
+    @ObservationIgnored var beforeLandingForTesting: ((Load) async -> Void)?
 
     init(figureId: String) { self.figureId = figureId }
 
+    /// A new load of `kind`: its number.
+    private func begin(_ kind: Load) -> Int {
+        let next = (generations[kind] ?? 0) &+ 1
+        generations[kind] = next
+        return next
+    }
+
+    /// May the load numbered `generation` land? Only if no later load began
+    /// and its task was not cancelled.
+    private func lands(_ kind: Load, _ generation: Int) async -> Bool {
+        await beforeLandingForTesting?(kind)
+        return generations[kind] == generation && !Task.isCancelled
+    }
+
     /// The pins (through the figure's host, opened for the read when no grid
-    /// holds it). A figure that will not open shows none.
-    func loadPins(store: ProjectStore, documentStore: DocumentStore) async {
+    /// holds it). A figure that will not open shows none. `readsFromResearch`
+    /// is the tree's cards' answer (`FigureCardCache.readsFromResearch`):
+    /// false — nothing it reads is in Research — shows none without a read.
+    func loadPins(store: ProjectStore, documentStore: DocumentStore, readsFromResearch: Bool? = nil) async {
+        let generation = begin(.pins)
+        guard readsFromResearch != false else {
+            if !sources.isEmpty { sources = [] }
+            return
+        }
+        pinReads += 1
         let read = try? await documentStore.withFigureHost(figureId) { host in
             (await host.pinStatus(), host.state.pins)
         }
+        guard await lands(.pins, generation) else { return }
         sources = FigurePinSourceRow.build(status: read?.0 ?? [:], pins: read?.1 ?? [:],
                                            title: { Self.sourceTitle($0, in: store) })
     }
 
     /// The notes on the figure's own stream, read off the main actor.
     func loadNotes(store: ProjectStore) async {
-        notes = Self.ordered(await store.figureNotes(figureId))
+        let generation = begin(.notes)
+        let read = await store.figureNotes(figureId)
+        guard await lands(.notes, generation) else { return }
+        notes = Self.ordered(read)
     }
 
     /// Compare: each pinned cell a refresh would change, old beside new.
     func loadComparisons(store: ProjectStore, documentStore: DocumentStore) async {
+        let generation = begin(.comparisons)
         let read = try? await documentStore.withFigureHost(figureId) { host in
             (await host.comparePins(), host.state.table)
         }
+        guard await lands(.comparisons, generation) else { return }
         comparisons = FigurePinComparisonRow.build(
             read?.0 ?? [], table: read?.1 ?? FigureTable(rows: 0, columns: 0),
             sourceTitle: { Self.sourceTitle($0, in: store) })
     }
+
+    /// **Send `name`?** False when it is the one already sent and not yet
+    /// answered (Return, then the focus leaving); else it is remembered.
+    func takesTheName(_ name: String) -> Bool {
+        guard name != committedName else { return false }
+        committedName = name
+        return true
+    }
+
+    /// The rename's answer landed, or the registry's name moved: the next
+    /// commit of any name is sent.
+    func forgetTheCommittedName() { committedName = nil }
 
     /// Notes oldest first.
     static func ordered(_ notes: [Annotation]) -> [Annotation] {
@@ -227,6 +285,10 @@ struct FigureInspector: View {
     let documentStore: DocumentStore
     let listing: FigureListingModel
     let figureWindows: FigureWindows?
+    /// The window's tree, whose cards' version and Research answer pace the
+    /// pins' reload (nil: a window with no tree, which keys on the store's
+    /// figure revision instead).
+    let figureTree: BinderTreeSectionsState?
     let control: EditorControl
     let persona: Persona
     /// The project window, whose annotation changes reload the notes.
@@ -238,20 +300,19 @@ struct FigureInspector: View {
 
     @State private var model: FigureInspectorModel
     @State private var draftName = ""
-    /// The name last sent to the store, so Return and the focus leaving do
-    /// not send it twice.
-    @State private var committedName: String?
     @FocusState private var nameFocused: Bool
     @State private var showsCompare = false
 
     init(figureId: String, store: ProjectStore, documentStore: DocumentStore, listing: FigureListingModel,
-         figureWindows: FigureWindows?, control: EditorControl, persona: Persona, window: NSWindow?,
+         figureWindows: FigureWindows?, figureTree: BinderTreeSectionsState? = nil,
+         control: EditorControl, persona: Persona, window: NSWindow?,
          select: @escaping (BinderSubject) -> Void, showNotes: @escaping (String) -> Void) {
         self.figureId = figureId
         self.store = store
         self.documentStore = documentStore
         self.listing = listing
         self.figureWindows = figureWindows
+        self.figureTree = figureTree
         self.control = control
         self.persona = persona
         self.window = window
@@ -262,14 +323,15 @@ struct FigureInspector: View {
 
     /// The one helper (`FigureActions`), as the inspector hands it what it knows.
     static func actions(store: ProjectStore, figureWindows: FigureWindows?, control: EditorControl,
-                        persona: Persona, model: FigureInspectorModel) -> FigureActions {
+                        persona: Persona, model: FigureInspectorModel, window: NSWindow? = nil) -> FigureActions {
         FigureActions(store: store, figureWindows: figureWindows, typography: control.typography,
                       windowRefusesWrites: { FigureActions.windowRefusesWrites(control: control, persona: persona) },
-                      report: { [weak model] in model?.message = $0 })
+                      report: { [weak model] in model?.message = $0 }, window: window)
     }
 
     private var actions: FigureActions {
-        Self.actions(store: store, figureWindows: figureWindows, control: control, persona: persona, model: model)
+        Self.actions(store: store, figureWindows: figureWindows, control: control, persona: persona, model: model,
+                     window: window)
     }
     private var record: FigureRecord? { store.manifest.figures?.first { $0.id == figureId } }
     /// The listing's row, or the registry's figure as an unused one.
@@ -280,9 +342,17 @@ struct FigureInspector: View {
                                  number: FigureListing.unusedNumber, usedIn: [], referencedFrom: [],
                                  pieceOfLine: nil)
     }
-    private struct LoadKey: Equatable {
+    /// **When the pins reload** (final review I2): the tree's cards moved
+    /// (a fill that changed a card — coalesced, never per op of some other
+    /// figure's host) or Research changed (a source renamed, added or gone).
+    struct LoadKey: Equatable {
         let figureId: String
-        let revision: Int
+        let cards: Int
+        let research: [ResearchItem]
+    }
+    private var loadKey: LoadKey {
+        LoadKey(figureId: figureId, cards: figureTree?.figureCardsVersion ?? documentStore.figureRevision,
+                research: store.manifest.research)
     }
 
     var body: some View {
@@ -310,9 +380,12 @@ struct FigureInspector: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // The pins move with the figure (any write, a park, a trust change).
-        .task(id: LoadKey(figureId: figureId, revision: documentStore.figureRevision)) {
-            await model.loadPins(store: store, documentStore: documentStore)
+        // The pins move with the cards (a write, a park, a trust change, a
+        // source moving) and with Research; a figure reading nothing from
+        // Research is not read at all.
+        .task(id: loadKey) {
+            await model.loadPins(store: store, documentStore: documentStore,
+                                 readsFromResearch: figureTree?.figureCards.readsFromResearch(figureId: figureId))
         }
         // The notes: the figure's own stream, on appear and when an
         // annotation change names it — not on every figure write.
@@ -321,7 +394,10 @@ struct FigureInspector: View {
             guard FigureInspectorModel.names(figureId, note) else { return }
             Task { await model.loadNotes(store: store) }
         }
-        .onChange(of: record?.name, initial: true) { _, name in draftName = name ?? "" }
+        .onChange(of: record?.name, initial: true) { _, name in
+            draftName = name ?? ""
+            model.forgetTheCommittedName()
+        }
         .sheet(isPresented: $showsCompare) {
             FigurePinsCompare(model: model, refusal: refreshRefusal,
                               load: { await model.loadComparisons(store: store, documentStore: documentStore) },
@@ -333,7 +409,7 @@ struct FigureInspector: View {
     /// Why Refresh is not offered, nil when it is (this Mac may edit the
     /// figure and a grid has it open, whose stack takes the step).
     private var refreshRefusal: String? {
-        Self.refusal(mayEdit: actions.mayEdit(figureId), hasGrid: actions.hasGrid(figureId))
+        Self.refusal(mayEdit: actions.mayEdit(figureId), reach: actions.gridReach(figureId))
     }
 
     // MARK: Sections
@@ -428,7 +504,8 @@ struct FigureInspector: View {
     private func actionsSection(_ row: FigureListing.Row) -> some View {
         let mayEdit = actions.mayEdit(figureId)
         let offered = Self.offered(mayEdit: mayEdit, kind: row.kind)
-        let importRefusal = Self.refusal(mayEdit: mayEdit, hasGrid: actions.hasGrid(figureId))
+        let reach = actions.gridReach(figureId)
+        let importRefusal = Self.refusal(mayEdit: mayEdit, reach: reach)
         VStack(alignment: .leading, spacing: 6) {
             if offered.contains(.openInWindow) {
                 Button("Open in Window") { actions.openInWindow(row) }
@@ -442,9 +519,10 @@ struct FigureInspector: View {
                 .fixedSize()
             }
             if offered.contains(.importCSV) {
-                // Shown while no grid can take it, disabled, with the reason.
+                // Shown while no grid can take it, disabled, with the reason;
+                // a grid in another window: pressed, that window comes front.
                 Button(FigureTableCommand.importCSV.title) { actions.importFromCSV(figureId) }
-                    .disabled(importRefusal != nil)
+                    .disabled(reach == .none)
                 if let importRefusal {
                     Text(importRefusal).font(.caption).foregroundStyle(.secondary)
                 }
@@ -463,14 +541,15 @@ struct FigureInspector: View {
             draftName = record?.name ?? ""
             return
         }
-        guard trimmed != committedName else { return }   // Return, then the focus leaving
-        committedName = trimmed
+        guard model.takesTheName(trimmed) else { return }   // Return, then the focus leaving
         Self.rename(to: trimmed, actions: actions, model: model, current: { record?.name },
                     revert: { draftName = $0 })
     }
 
     /// **Rename**: the store's verb; a refusal is said (`model.message`) and
-    /// the field is put back to the name the registry holds. Answers the work.
+    /// the field is put back to the name the registry holds. Once answered,
+    /// the name sent is forgotten, so the same name can be tried again.
+    /// Answers the work.
     @discardableResult
     static func rename(to name: String, actions: FigureActions, model: FigureInspectorModel,
                        current: @escaping @MainActor () -> String?,
@@ -479,6 +558,7 @@ struct FigureInspector: View {
         let work = actions.rename(model.figureId, to: name)
         return Task { @MainActor in
             await work.value
+            model.forgetTheCommittedName()
             revert(current() ?? name)
         }
     }
@@ -509,9 +589,18 @@ struct FigureInspector: View {
     /// Why Import and Refresh cannot act now, nil when they can: they write
     /// on the open grid's stack, as this Mac's edit.
     static func refusal(mayEdit: Bool, hasGrid: Bool) -> String? {
+        refusal(mayEdit: mayEdit, reach: hasGrid ? .here : .none)
+    }
+
+    /// The same, where the grid may be open in another window: they act
+    /// through this window's grid only (final review M7).
+    static func refusal(mayEdit: Bool, reach: FigureActions.GridReach) -> String? {
         guard mayEdit else { return "This figure is read-only here." }
-        guard hasGrid else { return FigureActions.openTheTableFirst }
-        return nil
+        switch reach {
+        case .here: return nil
+        case .none: return FigureActions.openTheTableFirst
+        case .inAnotherWindow: return FigureActions.openInThatWindow
+        }
     }
 
     /// "Table 2 · Chapter 3"; an unused figure "— · unused".

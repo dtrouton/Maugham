@@ -57,6 +57,8 @@ final class FigureCardCache {
 
     /// Bumps once per fill that changed a card (and on the first fill).
     private(set) var version = 0
+    /// Every fill that landed, changed or not (a test counts them).
+    private(set) var fills = 0
     /// Called on the main actor with the new version after a fill changed a
     /// card. `EditorHost` writes it to the editor's control plane
     /// (`EditorControl.figureCardVersion`, plan 7a Task 4).
@@ -64,6 +66,9 @@ final class FigureCardCache {
 
     private var source: Source?
     private var models: [String: FigureCardModel] = [:]
+    /// The figures whose formulas read Research — a Research table or a
+    /// parked figure, pinned or not — as of the last fill.
+    private var researchReaders: Set<String> = []
     /// The registry as of the last fill: line lookups resolve against it, so
     /// what a line shows moves only with `version`.
     private var records: [FigureRecord] = []
@@ -94,6 +99,7 @@ final class FigureCardCache {
         filling = nil
         dirty = false
         models.removeAll()
+        researchReaders.removeAll()
         records.removeAll()
         departed.removeAll()
         index = FigureLineResolution.Index([])
@@ -115,6 +121,16 @@ final class FigureCardCache {
     /// (not filled yet, unreadable, or not registered). Memory only.
     func model(forFigureId figureId: String) -> FigureCardModel? {
         models[figureId]
+    }
+
+    /// **Does figure `figureId` read anything from Research?** — whether
+    /// some formula of it reads a Research table or a parked figure
+    /// (`FigurePins.reads`, what its host's `pinStatus` answers over): false
+    /// means its pin status is empty, so the inspector reads nothing for it.
+    /// Nil before the first fill, or for a figure no fill read. Memory only.
+    func readsFromResearch(figureId: String) -> Bool? {
+        guard hasFilled, models[figureId] != nil else { return nil }
+        return researchReaders.contains(figureId)
     }
 
     /// **The card under a figure line**, resolved here so no caller resolves
@@ -190,10 +206,20 @@ final class FigureCardCache {
     }
 
     private func apply(_ inputs: FigureCardInputs) {
+        fills += 1
         var next: [String: FigureCardModel] = [:]
+        var readers: Set<String> = []
+        let tables = inputs.workbook?.tables ?? [:]
+        let parked = inputs.states.reduce(into: [String: FigureTable]()) { out, entry in
+            if entry.value.parked != nil, let table = tables[entry.key] { out[entry.key] = table }
+        }
         for record in inputs.records where next[record.id] == nil {
             guard let state = inputs.states[record.id] else { continue }
             let id = record.id, book = inputs.workbook
+            if state.parked == nil, state.kind == .table,
+               !FigurePins.reads(of: state.table, parked: parked, tables: tables).isEmpty {
+                readers.insert(id)
+            }
             next[id] = FigureCardModel.build(
                 figureId: id, state: state,
                 values: { book?.value(at: CellAddress(table: id, key: $0)) ?? .empty },
@@ -204,7 +230,7 @@ final class FigureCardCache {
         }
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let moved = next != models || after != before
+        let moved = next != models || after != before || readers != researchReaders
         let first = !hasFilled
         for record in records where after[record.id] == nil {
             departed.append((record, models[record.id]))
@@ -214,6 +240,7 @@ final class FigureCardCache {
             departed.removeFirst(departed.count - Self.departedLimit)
         }
         models = next
+        researchReaders = readers
         records = inputs.records
         index = FigureLineResolution.Index(inputs.records)
         hasFilled = true

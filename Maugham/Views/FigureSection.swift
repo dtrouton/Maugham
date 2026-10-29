@@ -18,6 +18,23 @@ struct FigureTreeRow: Equatable, Identifiable {
     /// What the row reads as: the caption the book gives it, else its name.
     var title: String { listing.caption.isEmpty ? listing.name : listing.caption }
 
+    /// **What the tree draws of the row, and acts on** (final review M6):
+    /// the listing less its line indexes — typing above a figure line moves
+    /// those on every settle, and no row shows or uses one (the count and the
+    /// filter ask which pieces, the menu the number, caption and piece).
+    struct Drawn: Equatable {
+        let figureId: String, kind: FigureKind, name: String, caption: String, number: String
+        let pieces: [String]
+        let pieceOfLine: String?
+        let readsResearch: Bool, pinChanged: Bool
+    }
+
+    var drawn: Drawn {
+        Drawn(figureId: listing.figureId, kind: listing.kind, name: listing.name, caption: listing.caption,
+              number: listing.number, pieces: listing.usedIn.map(\.docId), pieceOfLine: listing.pieceOfLine,
+              readsResearch: readsResearch, pinChanged: pinChanged)
+    }
+
     /// The listing's rows, in its order, tagged by each figure's card; a
     /// figure whose card says it is parked in Research is left out (D8-1). A
     /// figure with no card yet (the first fill not landed, or its stream
@@ -124,7 +141,10 @@ extension BinderTreeSectionsState {
     }
 
     /// The tree's cards filled.
-    func figureCardsChanged() { rebuildFigureRows() }
+    func figureCardsChanged() {
+        figureCardsVersion = figureCards.version
+        rebuildFigureRows()
+    }
 
     /// The window let its project go: the cards stop and drop what they held.
     func detachFigureCards() {
@@ -137,7 +157,8 @@ extension BinderTreeSectionsState {
     private func rebuildFigureRows() {
         let next = FigureTreeRow.build(listing: figureListingRows,
                                        card: figureCards.model(forFigureId:))
-        guard next != figureRows else { return }
+        // Only what a row draws: a line index moving redraws no tree.
+        guard next.map(\.drawn) != figureRows.map(\.drawn) else { return }
         figureRows = next
         figureCounts = FigureCount.byPiece(next)
         // A piece that no longer uses a figure filters to nothing: let it go.
@@ -273,6 +294,9 @@ struct FigureSectionWiring: ViewModifier {
             }
             // A figure made, renamed or removed: the cards refill.
             .onChange(of: store?.manifest.figures) { _, _ in treeState.figureCards.invalidate() }
+            // Research changing moves a pin's source (the **changed** and
+            // **Research** tags) and a `research:` formula's value: refill.
+            .onChange(of: store?.manifest.research) { _, _ in treeState.figureCards.invalidate() }
             .onChange(of: figureWindows.map(ObjectIdentifier.init), initial: true) { _, _ in
                 treeState.figureWindows = figureWindows
             }

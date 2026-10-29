@@ -64,6 +64,9 @@ struct FigureSubjectSurface: View {
     let persona: Persona
     let window: NSWindow?
 
+    /// The image figure's file, resolved once per path, never per body pass.
+    @State private var imageURLs = FigureImageURLCache()
+
     /// What a figure subject shows: pure over the record, the book and
     /// whether the window has figure windows.
     enum Shows: Equatable {
@@ -72,12 +75,13 @@ struct FigureSubjectSurface: View {
         case nameAndNumber
     }
 
-    static func shows(_ record: FigureRecord?, projectURL: URL, hasFigureWindows: Bool) -> Shows {
+    static func shows(_ record: FigureRecord?, projectURL: URL, hasFigureWindows: Bool,
+                      resolve: (FigureRecord, URL) -> URL? = FigureImageSubject.fileURL(of:in:)) -> Shows {
         switch record?.kind {
         case .table?:
             return hasFigureWindows ? .grid : .nameAndNumber
         case .image?:
-            guard let record, let url = FigureImageSubject.fileURL(of: record, in: projectURL) else {
+            guard let record, let url = resolve(record, projectURL) else {
                 return .nameAndNumber
             }
             return .image(url)
@@ -88,7 +92,8 @@ struct FigureSubjectSurface: View {
 
     var body: some View {
         let record = store.manifest.figures?.first(where: { $0.id == figureID })
-        switch Self.shows(record, projectURL: store.url, hasFigureWindows: figureWindows != nil) {
+        switch Self.shows(record, projectURL: store.url, hasFigureWindows: figureWindows != nil,
+                          resolve: imageURLs.url(of:in:)) {
         case .grid:
             if let figureWindows {
                 FigureCentreGrid(
@@ -128,6 +133,26 @@ struct FigureImageSubject: View {
                 .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// **An image figure's file, resolved once per record path** (final review
+/// M5): `SafeRelativePath.resolve` touches the disk (the root's symlinks),
+/// so a body pass asks this, which resolves again only when the record's
+/// path or the book moved. Memory only after that.
+@MainActor
+final class FigureImageURLCache {
+    private var key: (path: String, root: URL)?
+    private var resolved: URL?
+    /// How many times the path was resolved (a test counts them).
+    private(set) var resolutions = 0
+
+    func url(of record: FigureRecord, in projectURL: URL) -> URL? {
+        if let key, key.path == record.path, key.root == projectURL { return resolved }
+        resolutions += 1
+        key = (record.path, projectURL)
+        resolved = FigureImageSubject.fileURL(of: record, in: projectURL)
+        return resolved
     }
 }
 

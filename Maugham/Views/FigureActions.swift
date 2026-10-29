@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 /// **What can be done to a figure from outside its grid** (report plan 8a
@@ -16,7 +17,10 @@ import MaughamCore
 ///   (`FigureWindows.gridController(on:)`) — the centre's, an editor's in
 ///   place, or a figure window's — so their writes are that grid's own
 ///   steps, one ⌘Z each on its stack. With no grid open neither is offered:
-///   nothing is written, so there is no ⌘Z to answer for.
+///   nothing is written, so there is no ⌘Z to answer for. **This window's
+///   grid only** (final review M7): a grid open in another window is not
+///   acted through from here — that window comes front and the line says
+///   to do it there, so its refusal and its stack are where the writer is.
 @MainActor
 struct FigureActions {
     let store: ProjectStore
@@ -27,6 +31,9 @@ struct FigureActions {
     /// asked when a menu is built).
     var windowRefusesWrites: () -> Bool = { false }
     let report: (String) -> Void
+    /// The window this helper acts for (the inspector's project window); nil
+    /// takes the grid wherever it is open.
+    var window: NSWindow? = nil
 
     // MARK: Who may write
 
@@ -75,7 +82,9 @@ struct FigureActions {
 
     /// **Send to Research** (R7d-7): every grid on the figure folds and its
     /// writes land, then the park, which removes the figure's line from its
-    /// piece. Not undoable (ruling P-8); a refusal is reported. Answers the
+    /// piece. Not undoable (ruling P-8); a refusal is reported, and the
+    /// centre's grid, folded for it, takes the figure again
+    /// (`FigureWindows.sendRefused`). Answers the
     /// work, which a test awaits; nil when the piece destination has no piece.
     @discardableResult
     func sendToResearch(_ row: FigureListing.Row,
@@ -91,7 +100,11 @@ struct FigureActions {
         let windows = figureWindows, figureId = row.figureId, store = store
         return run {
             await windows?.foldGrids(on: figureId)
-            _ = try await store.sendToResearch(figureId: figureId, scope: scope)
+            do { _ = try await store.sendToResearch(figureId: figureId, scope: scope) } catch {
+                // Refused: the figure stays, and a grid folded for it comes back.
+                windows?.sendRefused(figureId)
+                throw error
+            }
         }
     }
 
@@ -117,26 +130,57 @@ struct FigureActions {
 
     /// The line said where Import or Refresh has no grid to act through.
     static let openTheTableFirst = "Open the table to import or refresh it."
+    /// The line said where the figure's grid is open in another window.
+    static let openInThatWindow = "The table is open in another window: import or refresh it there."
 
-    /// **Import from CSV…** through the grid open on the figure: its panel,
-    /// its matching, one ⌘Z on its stack (R7d-8). With no grid open, nothing
-    /// is asked and `openTheTableFirst` is reported; answers false.
+    /// **Where the grid open on a figure is**, seen from `window`: here
+    /// (this window's — the centre's, an editor's in place, or any grid when
+    /// the helper has no window), in another window, or nowhere. Observed,
+    /// as `hasGrid` is.
+    enum GridReach: Equatable { case here, inAnotherWindow, none }
+
+    func gridReach(_ figureId: String) -> GridReach {
+        guard let grid = openGrid(figureId) else { return .none }
+        guard let window, let gridWindow = grid.gridView.window, gridWindow !== window else { return .here }
+        return .inAnotherWindow
+    }
+
+    /// This window's grid on the figure; elsewhere, that window comes front
+    /// and the line says so; nowhere, the line says to open it when
+    /// `sayingNone`. Nil unless here.
+    private func gridHere(_ figureId: String, sayingNone: Bool) -> FigureGridController? {
+        switch gridReach(figureId) {
+        case .here:
+            return openGrid(figureId)
+        case .inAnotherWindow:
+            report(Self.openInThatWindow)
+            figureWindows?.focus(figureId)
+            return nil
+        case .none:
+            if sayingNone { report(Self.openTheTableFirst) }
+            return nil
+        }
+    }
+
+    /// **Import from CSV…** through this window's grid on the figure: its
+    /// panel, its matching, one ⌘Z on its stack (R7d-8). Answers false — and
+    /// asks nothing — with no grid open (`openTheTableFirst`) or one open in
+    /// another window (`openInThatWindow`, which comes front).
     @discardableResult
     func importFromCSV(_ figureId: String) -> Bool {
-        guard let grid = openGrid(figureId) else {
-            report(Self.openTheTableFirst)
-            return false
-        }
+        guard let grid = gridHere(figureId, sayingNone: true) else { return false }
         grid.performTableCommand(.importCSV)
         return true
     }
 
-    /// **Refresh from Research** through the grid open on the figure: every
-    /// pin re-read, one step on that grid's stack. Nil — nothing asked — with
-    /// no grid open, or when the grid refused (its reason line says why).
+    /// **Refresh from Research** through this window's grid on the figure:
+    /// every pin re-read, one step on that grid's stack. Nil — nothing asked —
+    /// with no grid open (Compare offers no Refresh then), with the grid in
+    /// another window (said as Import says it), or when the grid refused (its
+    /// reason line says why).
     @discardableResult
     func refreshPins(_ figureId: String) -> Task<Void, Never>? {
-        openGrid(figureId)?.refreshPinsFromResearch()
+        gridHere(figureId, sayingNone: false)?.refreshPinsFromResearch()
     }
 
     /// `BinderTreeVerbs.perform`'s shape — a failure reaches `report` —
