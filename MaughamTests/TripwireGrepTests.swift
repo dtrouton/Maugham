@@ -12958,6 +12958,13 @@ final class TripwireGrepTests: XCTestCase {
         // by `FigureDocument.resumeFromResearch`, behind the figure's door
         // (report plan 6b Task 8).
         "FigureReturnDiff.swift": [figureOpMintSpelling: 1],
+        // The tree's figure row (report plan 8a Task 4): Send to Research and
+        // Rename are offered only where the posture allows `.editFigure`
+        // (`FigureSectionVerbs.mayEdit`), and each store verb asks the
+        // figure's door (and, for a send, its line's) itself. The row's own
+        // count is its menu calling the verb's closure.
+        "FigureSection.swift": ["sendToResearch(": 2, "renameFigure(": 1],
+        "FigureRow.swift": ["sendToResearch(": 1],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.

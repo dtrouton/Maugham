@@ -20,6 +20,7 @@ private let _binderTreeSectionsLog = Logger(
 /// already tagged with, so a scroll target for a row and that row's own
 /// `.id()`/`.tag()` are the same value by construction.
 enum TreeScrollTarget: Hashable {
+    case figuresHeader
     case researchHeader
     case paletteHeader
     case row(BinderSubject)
@@ -79,6 +80,9 @@ struct BinderTreeSections: View {
     var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
+        // Between the manuscript the host drew and Research (spec §7), and
+        // only where the project has a figure that is not parked (D8-1).
+        figuresSection
         researchSection
         paletteSection
     }
@@ -466,7 +470,7 @@ struct BinderTreeSections: View {
     /// windowlessly in `SectionChevronTests`, because the mounted click that
     /// used to be the only witness was tripwire 33's click-then-wait shape and
     /// went red on the release runner.
-    private func sectionChevron(_ title: String,
+    func sectionChevron(_ title: String,
                                 section: BinderTreeSection) -> some View {
         let isExpanded = state.isExpanded(section)
         return Button {
@@ -891,7 +895,7 @@ struct BinderTreeVerbs {
 /// get right is one value in two places rather than five.
 /// The tree's two collapsible sections — which header a chevron belongs to.
 enum BinderTreeSection: CaseIterable {
-    case research, palette
+    case figures, research, palette
 }
 
 @MainActor
@@ -952,10 +956,38 @@ final class BinderTreeSectionsState {
     /// this existed, so a fresh window looks the same as it always did.
     var researchSectionExpanded: Bool = true
     var paletteSectionExpanded: Bool = true
+    /// The Figures section's twin of the two above (report plan 8a Task 4).
+    var figuresSectionExpanded: Bool = true
+
+    // MARK: The Figures section (report plan 8a Task 4; FigureSection.swift)
+
+    /// **The Figures section's rows, cached** (tripwire 4): the window's
+    /// `FigureListingModel` rows with each figure's card tags, parked figures
+    /// left out. Written only by `rebuildFigureRows` — on a listing change
+    /// and on a card fill — never built in a body.
+    var figureRows: [FigureTreeRow] = []
+    /// Each piece's figure count, from `figureRows`, rebuilt with them.
+    var figureCounts: [String: FigureCount] = [:]
+    /// **The piece the section is filtered to**, by document id; nil shows
+    /// every figure. Set by a piece row's count, cleared by the header's chip.
+    var pieceFilter: String?
+    /// The tree's own figure cards (the `FigureWindowGrid.watchTheBook()`
+    /// shape): what the rows' Research / changed tags and the parked test
+    /// read, memory only. Attached by `FigureSectionWiring`.
+    @ObservationIgnored let figureCards = FigureCardCache()
+    /// The listing as last told, so a card fill can rebuild the rows.
+    @ObservationIgnored var figureListingRows: [FigureListing.Row] = []
+    /// The store the cards are attached to, so a new one detaches the old.
+    @ObservationIgnored weak var figureCardsStore: DocumentStore?
+    /// The project's grids, for a row's Open in Window and Send to Research.
+    @ObservationIgnored weak var figureWindows: FigureWindows?
+    /// The editor's typography, handed to a figure window a row opens.
+    @ObservationIgnored var figureTypography: TypographySettings = .defaults
 
     /// Whether `section` is open — the flag its header's chevron reads.
     func isExpanded(_ section: BinderTreeSection) -> Bool {
         switch section {
+        case .figures: return figuresSectionExpanded
         case .research: return researchSectionExpanded
         case .palette: return paletteSectionExpanded
         }
@@ -967,6 +999,7 @@ final class BinderTreeSectionsState {
     /// (`SectionChevronTests`, windowless).
     func toggleExpansion(of section: BinderTreeSection) {
         switch section {
+        case .figures: figuresSectionExpanded.toggle()
         case .research: researchSectionExpanded.toggle()
         case .palette: paletteSectionExpanded.toggle()
         }
@@ -1018,6 +1051,7 @@ final class BinderTreeSectionsState {
     func consumePendingScroll(with proxy: ScrollViewProxy) {
         guard let target = scrollRequest else { return }
         switch target {
+        case .figuresHeader: proxy.scrollTo(TreeScrollTarget.figuresHeader, anchor: .center)
         case .researchHeader: proxy.scrollTo(TreeScrollTarget.researchHeader, anchor: .center)
         case .paletteHeader: proxy.scrollTo(TreeScrollTarget.paletteHeader, anchor: .center)
         case .row(let subject): proxy.scrollTo(subject, anchor: .center)
@@ -1441,12 +1475,12 @@ enum BinderTreeSelection {
             in: research)
     }
 
-    /// The figure ids in the order the tree draws them, for `ordered`. Until
-    /// the Figures section exists (report plan 8a Task 4) this is the
-    /// registry's order; that task points it at the section's rows.
+    /// The figure ids in the order the tree draws them, for `ordered`: the
+    /// Figures section's drawn rows (a parked figure, or one the piece filter
+    /// hides, draws none).
     @MainActor
-    static func drawnFigureOrder(_ store: ProjectStore) -> [String] {
-        (store.manifest.figures ?? []).map(\.id)
+    static func drawnFigureOrder(_ state: BinderTreeSectionsState) -> [String] {
+        state.drawnFigureRows.map(\.id)
     }
 
     /// The tree's `List(selection:)` binding, for the two hosts whose rows are
@@ -1464,7 +1498,7 @@ enum BinderTreeSelection {
                     subject: subject.wrappedValue,
                     structure: store.manifest.structure,
                     research: store.manifest.research,
-                    figures: drawnFigureOrder(store))
+                    figures: drawnFigureOrder(state))
                 state.selection = next.selection
                 subject.wrappedValue = next.subject
             })

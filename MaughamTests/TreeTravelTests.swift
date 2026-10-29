@@ -837,6 +837,8 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
         ["Maugham/Views/BinderRow.swift",
          "Maugham/Views/PieceRow.swift",
          "Maugham/Views/ResearchRow.swift",
+         "Maugham/Views/FigureRow.swift",
+         "Maugham/Views/FigureSection.swift",
          "Maugham/Views/BinderTreeSections.swift",
          "Maugham/Views/BinderView.swift",
          "Maugham/Views/CollectionPiecesPane.swift",

@@ -229,7 +229,7 @@ struct SceneNavigatorPane: View {
                     subject: selectedSubject,
                     structure: store.manifest.structure,
                     research: store.manifest.research,
-                    figures: BinderTreeSelection.drawnFigureOrder(store),
+                    figures: BinderTreeSelection.drawnFigureOrder(treeState),
                     // One row written is still this pane's own rule, unchanged
                     // — including the `nil` an untagged slugline writes.
                     single: { Self.subject($0, whenListWrites: $1,

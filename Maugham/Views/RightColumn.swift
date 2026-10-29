@@ -72,6 +72,9 @@ struct RightColumn: View {
     let openPromotedArtifact: (_ itemId: String) -> Void
     /// The drawing door's posture for one document.
     let posture: (_ docId: String?) -> Posture
+    /// Whether the tree's Figures section draws a figure
+    /// (`BinderTreeSectionsState.drawsFigure`), for the annotation queue.
+    var drawsFigure: (String) -> Bool = { _ in false }
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -259,7 +262,8 @@ struct RightColumn: View {
             },
             // The Diagnostics header's "Define a first reader…" — the same
             // hand-off `InspectorView`'s "Project Settings…" gets.
-            onOpenProjectSettings: openProjectSettings
+            onOpenProjectSettings: openProjectSettings,
+            drawsFigure: drawsFigure
         ) {
             researchOrSubject(store: store)
         }

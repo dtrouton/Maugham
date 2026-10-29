@@ -222,7 +222,8 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
                        "filed last, under the registry's name")
         XCTAssertEqual(sections.last?.id, figureId)
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: figureId, activeDocId: "doc-c1"),
+            AnnotationScopePolicy.click(rowDocId: figureId, activeDocId: "doc-c1",
+                                        drawsFigure: { $0 == figureId }),
             .travel(.figure(figureId)),
             "a figure's note travels to the figure")
     }

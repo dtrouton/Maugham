@@ -27,6 +27,10 @@ struct AnnotationsPane: View {
     /// Review's centre shows documents, so this navigation never moves the
     /// persona (the ejection trap — `ManuscriptNavigation`).
     let onTravel: (BinderSubject) -> Void
+    /// Whether the tree's Figures section draws a row for a figure: a figure
+    /// note's click travels only to one (report plan 8a Task 4). The window
+    /// hands in `BinderTreeSectionsState.drawsFigure`; nothing draws by default.
+    var drawsFigure: (String) -> Bool = { _ in false }
     /// **The window's compiler and its sidecar — the round cockpit's two
     /// stores** (M4 P2 Task 3). Optional because this pane serves hosts that
     /// surface no compiler at all (the probe mounts, and any caller predating
@@ -1503,11 +1507,13 @@ struct AnnotationsPane: View {
     /// ruling behind it).
     private func click(docId: String, annotation: Annotation) {
         switch AnnotationScopePolicy.click(
-            rowDocId: docId, activeDocId: document?.docId) {
+            rowDocId: docId, activeDocId: document?.docId, drawsFigure: drawsFigure) {
         case .jump:
             jump(annotation)
         case .travel(let subject):
             onTravel(subject)
+        case .stay:
+            break
         }
     }
 

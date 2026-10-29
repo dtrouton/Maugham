@@ -282,15 +282,15 @@ final class AnnotationScopeTests: XCTestCase {
 
     func test_aRowOfThePieceAlreadyCentredJumpsAndAnyOtherTravels() {
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: "ch1", activeDocId: "ch1"),
+            AnnotationScopePolicy.click(rowDocId: "ch1", activeDocId: "ch1", drawsFigure: { _ in true }),
             .jump)
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: "ch1"),
+            AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: "ch1", drawsFigure: { _ in true }),
             .travel(.item("ch2")))
         // Nothing open at all: the click is still a travel, which is what opens
         // the piece the row belongs to.
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: nil),
+            AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: nil, drawsFigure: { _ in true }),
             .travel(.item("ch2")))
     }
 
@@ -299,12 +299,32 @@ final class AnnotationScopeTests: XCTestCase {
     /// shows no figure's paragraphs, even when the row's id were somehow the
     /// active one.
     func test_aFiguresNoteTravelsToTheFigureSubject() {
+        let drawn: (String) -> Bool = { $0 == "fig-0a1b2c3d" }
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "ch1"),
+            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "ch1",
+                                        drawsFigure: drawn),
             .travel(.figure("fig-0a1b2c3d")))
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "fig-0a1b2c3d"),
+            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "fig-0a1b2c3d",
+                                        drawsFigure: drawn),
             .travel(.figure("fig-0a1b2c3d")))
+    }
+
+    /// **A figure the tree draws no row for keeps the window where it is**
+    /// (report plan 8a Task 4): a parked figure, one the piece filter hides,
+    /// or any figure in a project that shows no Figures section. Travelling
+    /// there would land on a subject the window repairs to the project row,
+    /// taking the writer off her piece.
+    func test_aNoteOnAFigureTheTreeDoesNotDrawStays() {
+        XCTAssertEqual(
+            AnnotationScopePolicy.click(rowDocId: "fig-0a1b2c3d", activeDocId: "ch1",
+                                        drawsFigure: { _ in false }),
+            .stay)
+        // A piece's note is not asked about figures at all.
+        XCTAssertEqual(
+            AnnotationScopePolicy.click(rowDocId: "ch2", activeDocId: "ch1",
+                                        drawsFigure: { _ in false }),
+            .travel(.item("ch2")))
     }
 
     /// **The pane's own file writes no persona.** Mirrors

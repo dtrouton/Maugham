@@ -56,12 +56,22 @@ enum AnnotationScopePolicy {
         /// (`ManuscriptNavigation`, and the ejection trap the whole of M3 is
         /// written around).
         case travel(BinderSubject)
+        /// A figure the tree's Figures section draws no row for (parked, or
+        /// filtered out, or a project that shows no section): nothing moves.
+        /// Travelling there would land on a subject the window repairs to
+        /// the project row, taking the writer off her piece.
+        case stay
     }
 
-    static func click(rowDocId: String, activeDocId: String?) -> Click {
+    /// - Parameter drawsFigure: whether the tree's Figures section draws a
+    ///   row for a figure (`BinderTreeSectionsState.drawsFigure`).
+    static func click(rowDocId: String, activeDocId: String?,
+                      drawsFigure: (String) -> Bool) -> Click {
         // A figure's stream id is a figure subject (report plan 8a), never a
         // piece and never a jump: no editor shows a figure's paragraphs.
-        if DocumentClass.isFigureDocId(rowDocId) { return .travel(.figure(rowDocId)) }
+        if DocumentClass.isFigureDocId(rowDocId) {
+            return drawsFigure(rowDocId) ? .travel(.figure(rowDocId)) : .stay
+        }
         return rowDocId == activeDocId ? .jump : .travel(.item(rowDocId))
     }
 

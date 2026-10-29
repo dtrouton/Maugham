@@ -81,6 +81,51 @@ final class BinderTreeSectionsTests: XCTestCase {
             "the project row, the script row, the two sluglines, then both sections")
     }
 
+    // MARK: - The Figures section (report plan 8a Task 4)
+
+    /// Two figures the window's listing would give: one numbered, one unused.
+    private func plantedFigures() -> BinderTreeSectionsState {
+        let state = BinderTreeSectionsState()
+        state.refreshFigureRows(listing: [
+            FigureListing.Row(figureId: "fig-0a1b2c3d", kind: .table, name: "cash",
+                              caption: "Cash", number: "Table 1", usedIn: [],
+                              referencedFrom: [], pieceOfLine: nil),
+            FigureListing.Row(figureId: "fig-1a1b2c3d", kind: .table, name: "spare",
+                              caption: "", number: FigureListing.unusedNumber, usedIn: [],
+                              referencedFrom: [], pieceOfLine: nil)])
+        return state
+    }
+
+    /// **Between the manuscript and Research** (spec §7), in the tree's one
+    /// `List`, and a figure row is a subject of the window like any other —
+    /// selected through `List(selection:)`, tagged `.figure(id)`.
+    func test_theNovelTreeDrawsTheFiguresSectionBetweenItsChaptersAndResearch() async throws {
+        let store = try await novel(notes: ["Ships", "Tides"], cards: ["Harbour"])
+        let (window, probe) = try await hostBinder(store: store, treeState: plantedFigures())
+        let table = try XCTUnwrap(firstTableView(in: window))
+
+        let chapters = store.manifest.structure.count
+        XCTAssertEqual(table.numberOfRows, 1 + chapters + (1 + 2) + (1 + 2) + (1 + 1),
+                       "the project row, the chapters, the Figures section (header + two "
+                       + "figures), then Research and Palette")
+
+        await select(row: 1 + chapters + 1, in: table,
+                     until: { probe.subject == .figure("fig-0a1b2c3d") })
+        XCTAssertEqual(probe.subject, .figure("fig-0a1b2c3d"),
+                       "the first figure row is the Figures section's first row")
+    }
+
+    /// A screenplay's manuscript holds no figures: the same rows draw nothing.
+    func test_theScreenplayTreeDrawsNoFiguresSection() async throws {
+        let store = try await screenplay(notes: ["Ships", "Tides"], cards: ["Harbour"])
+        let (window, _, _) = try await hostNavigator(store: store, script: Self.twoScenes,
+                                                     treeState: plantedFigures())
+        let table = try XCTUnwrap(firstTableView(in: window))
+
+        XCTAssertEqual(table.numberOfRows, 1 + 1 + 2 + (1 + 2) + (1 + 1),
+                       "the screenplay tree is what it was: no Figures section")
+    }
+
     /// **The palette group is not research.** It is a research group on disk —
     /// `addPaletteCard` writes under `research/palette/` — so a tree that renders
     /// `manifest.research` raw shows it twice: once as a group in Research and
@@ -808,11 +853,12 @@ final class BinderTreeSectionsTests: XCTestCase {
     // MARK: - Hosting and driving
 
     private func hostBinder(
-        store: ProjectStore
+        store: ProjectStore, treeState: BinderTreeSectionsState? = nil
     ) async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(
-            BinderSectionsProbeView(store: store, probe: probe)))
+            BinderSectionsProbeView(store: store, probe: probe,
+                                    treeState: treeState ?? BinderTreeSectionsState())))
         return (window, probe)
     }
 
@@ -826,13 +872,15 @@ final class BinderTreeSectionsTests: XCTestCase {
     }
 
     private func hostNavigator(
-        store: ProjectStore, script: FountainScript?
+        store: ProjectStore, script: FountainScript?,
+        treeState: BinderTreeSectionsState? = nil
     ) async throws -> (NSWindow, BinderSubjectProbe, String?) {
         let probe = BinderSubjectProbe()
         let documentID = TreeWalk.first(
             in: store.manifest.structure, where: { $0.type == .document })?.id
         let window = try await mount(AnyView(NavigatorSectionsProbeView(
-            store: store, probe: probe, script: script, documentID: documentID)))
+            store: store, probe: probe, script: script, documentID: documentID,
+            treeState: treeState ?? BinderTreeSectionsState())))
         return (window, probe, documentID)
     }
 
@@ -881,7 +929,7 @@ private struct BinderSectionsProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
 
-    let treeState = BinderTreeSectionsState()
+    var treeState = BinderTreeSectionsState()
 
     var body: some View {
         BinderView(store: store,
@@ -914,7 +962,7 @@ private struct NavigatorSectionsProbeView: View {
     let probe: BinderSubjectProbe
     let script: FountainScript?
     let documentID: String?
-    let treeState = BinderTreeSectionsState()
+    var treeState = BinderTreeSectionsState()
 
     var body: some View {
         SceneNavigatorPane(

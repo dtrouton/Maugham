@@ -353,6 +353,7 @@ struct ProjectWindow: View {
                 // both stores, and a drain in flight would still build.
                 referenceIndex.attach(nil)
                 figureListing.clear()
+                treeState.detachFigureCards()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
@@ -468,6 +469,10 @@ struct ProjectWindow: View {
             url: url, store: store, documentStore: documentStore,
             referenceIndex: referenceIndex, figureListing: figureListing,
             control: editorControl, window: window))
+        .modifier(FigureSectionWiring(
+            store: store, documentStore: documentStore, listing: figureListing,
+            treeState: treeState, figureWindows: session?.figureWindows,
+            typography: effectiveTypography))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
@@ -1795,7 +1800,10 @@ struct ProjectWindow: View {
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             openProjectSettings: openProjectSettings,
             openPromotedArtifact: openPromotedArtifact,
-            posture: { postureDrawn(forDocId: $0) })
+            posture: { postureDrawn(forDocId: $0) },
+            drawsFigure: { [treeState] in
+                treeState.drawsFigure($0, projectType: store.manifest.type)
+            })
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.

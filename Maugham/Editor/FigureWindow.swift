@@ -86,6 +86,8 @@ final class FigureWindows {
     /// The figures expanded in place now, each with its one hold.
     private(set) var inPlaceHolds: [String: InPlaceHold] = [:]
     @ObservationIgnored private var inPlaceFocusers: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// Each in-place grid's forced fold, for a send asked from outside it.
+    @ObservationIgnored private var inPlaceFolders: [InPlaceHold: @MainActor () -> Void] = [:]
     /// The visit each figure's last in-place fold is still ending, so the
     /// next grid to expand it — in any window — begins its own after it.
     @ObservationIgnored private var visitsEnding: [String: Task<Void, Never>] = [:]
@@ -190,14 +192,17 @@ final class FigureWindows {
     // MARK: Grids in place (final review I1)
 
     /// **A grid is expanding `figureId` in place**; `focus` brings its
-    /// project window front with the grid's keys. Nil — expand nothing —
-    /// when another grid already has the figure.
-    func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void) -> InPlaceHold? {
+    /// project window front with the grid's keys, `fold` folds it as a send
+    /// to Research does (`foldGrids(on:)`). Nil — expand nothing — when
+    /// another grid already has the figure.
+    func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void,
+                     fold: @escaping @MainActor () -> Void = {}) -> InPlaceHold? {
         guard !isHeld(figureId) else { return nil }
         serial += 1
         let hold = InPlaceHold(figureId: figureId, serial: serial)
         inPlaceHolds[figureId] = hold
         inPlaceFocusers[hold] = focus
+        inPlaceFolders[hold] = fold
         return hold
     }
 
@@ -205,9 +210,22 @@ final class FigureWindows {
     /// ending, which the next grid on the figure awaits. A second call does nothing.
     func releaseInPlace(_ hold: InPlaceHold, visitEnding: Task<Void, Never>?) {
         inPlaceFocusers[hold] = nil
+        inPlaceFolders[hold] = nil
         guard inPlaceHolds[hold.figureId] == hold else { return }
         inPlaceHolds[hold.figureId] = nil
         if let visitEnding { visitsEnding[hold.figureId] = visitEnding }
+    }
+
+    /// **Every grid on `figureId` folds, and its writes land** (report plan
+    /// 8a Task 4): what a Send to Research asked from outside a grid (a tree
+    /// row) awaits first, as the grid's own send folds its frame first
+    /// (R7d-7) — a window closes (its `willClose` finishes the visit), an
+    /// in-place grid force-folds. Bounded by `settle`, so it never hangs.
+    func foldGrids(on figureId: String) async {
+        if let hold = inPlaceHolds[figureId], let fold = inPlaceFolders[hold] { fold() }
+        for (registration, close) in closers where registration.figureId == figureId { close() }
+        await visitEnded(figureId)
+        _ = await settle(within: .seconds(5))
     }
 
     /// The last in-place visit on `figureId` has ended (at once when none is ending).

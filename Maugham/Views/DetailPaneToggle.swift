@@ -113,6 +113,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `InspectorView` already takes a closure of this exact shape from the
     /// same host.
     var onOpenProjectSettings: () -> Void = {}
+    /// Whether the tree's Figures section draws a figure — the annotation
+    /// queue's figure click travels only to one (report plan 8a Task 4).
+    var drawsFigure: (String) -> Bool = { _ in false }
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// **Whether a visual-language proposal is standing** (translation
@@ -158,6 +161,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         onSetActivePass: @escaping (String, String) -> Void = { _, _ in },
         onSetPassState: @escaping (String, String, PassState?) -> Void = { _, _, _ in },
         onOpenProjectSettings: @escaping () -> Void = {},
+        drawsFigure: @escaping (String) -> Bool = { _ in false },
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -184,6 +188,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.onSetActivePass = onSetActivePass
         self.onSetPassState = onSetPassState
         self.onOpenProjectSettings = onOpenProjectSettings
+        self.drawsFigure = drawsFigure
         self.inspectorContent = inspectorContent
     }
 
@@ -758,6 +763,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                     // `AnnotationScopeTests`' census over this closure).
                     selectedSubject = subject
                 },
+                drawsFigure: drawsFigure,
                 // The round cockpit's two stores (M4 P2 Task 3) — the same
                 // pair the Diagnostics arm takes, and `nil` in a host that
                 // surfaces no compiler, which draws no strip.

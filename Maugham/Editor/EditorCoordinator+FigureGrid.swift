@@ -330,7 +330,11 @@ extension EditorCoordinator {
         // This grid holds the figure from now until it folds.
         var hold: FigureWindows.InPlaceHold?
         if let windows = opening.windows {
-            hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focusFigureGrid() })
+            hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focusFigureGrid() },
+                                       fold: { [weak self] in
+                guard let self, self.figureGrid?.figureId == figureId else { return }
+                self.forceFoldFigureGrid(.sentToResearch)
+            })
             guard hold != nil else { return false }
         }
         let rows = model.map { $0.shownRowCount + $0.moreRows } ?? FigureGridExpansion.defaultRows
