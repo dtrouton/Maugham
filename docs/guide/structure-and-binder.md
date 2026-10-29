@@ -45,7 +45,7 @@ A chapter you deleted and then let go of — by emptying Trash, deleting it from
 
 ### Figures in the binder
 
-Once a project has a figure (a table or an image made with Insert), a **Figures** section appears at the foot of the binder, with the Research and Palette sections. A project with no figures shows none, and a figure in the Trash is not listed. Each row shows the figure's number in the book's own words ("Table 2", "Figure 1"; "—" until a line uses it), its caption or name, and small tags: **Research** (it reads values pinned from Research), **changed** (a source it reads has changed) and **unused** (no line uses it).
+Once a project has a figure (a table or an image made with Insert), a **Figures** section appears at the foot of the binder, with the Research and Palette sections. A project with no figures shows none, and a figure in the Trash or sent to Research is not listed. Each row shows the figure's number in the book's own words ("Table 2", "Figure 1"; "—" until a line uses it), its caption or name, and small tags: **Research** (it reads values pinned from Research), **changed** (a source it reads has changed) and **unused** (no line uses it).
 
 - **Select a figure** to bring it forward. In Author and Review a table's grid takes the centre column (read-only in Review), and an image is shown large. In Plan the figure appears beside the planning canvas, in the right column, with its inspector beneath; the canvas stays where it is. In Publish nothing moves, since the centre is the book.
 - **Filter by piece.** A piece row that holds figures shows how many; click the count and the Figures section lists only that piece's figures. The chip in the section's header clears the filter.
