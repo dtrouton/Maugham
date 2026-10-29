@@ -501,22 +501,15 @@ final class AnnotationScopeTests: XCTestCase {
 
     /// **`AnnotationsPaneSource.surfaceFiles` is every file the pane is split
     /// into** (#116 F11), so a census reading the surface cannot go blind to a
-    /// new child file. Every listed file exists, and every `AnnotationsPane*`
-    /// file in `Maugham/Views/` is listed.
+    /// new child file: every `Annotation*.swift` in `Maugham/Views/` is either
+    /// the pane's or named in `notThePane`, and every listed file exists.
     func test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto() throws {
-        let listed = Set(AnnotationsPaneSource.surfaceFiles)
-        XCTAssertEqual(listed.count, AnnotationsPaneSource.surfaceFiles.count,
-                       "no file is listed twice")
-        for file in listed {
-            XCTAssertNoThrow(try AnnotationsPaneSource.source(of: file),
-                             "\(file) is listed but does not exist")
-        }
-        let onDisk = try FileManager.default
-            .contentsOfDirectory(atPath: AnnotationsPaneSource.viewsDir.path)
-            .filter { $0.hasPrefix("AnnotationsPane") && $0.hasSuffix(".swift") }
-        XCTAssertFalse(onDisk.isEmpty, "control: the scan found the pane's files")
-        XCTAssertEqual(Set(onDisk).subtracting(listed), [],
-                       "a file of the pane is missing from `surfaceFiles`, so "
-                       + "every census reading the surface is blind to it")
+        let problems = try PaneSurfaceClassification.problems(
+            prefix: "Annotation", dir: AnnotationsPaneSource.viewsDir,
+            surface: AnnotationsPaneSource.surfaceFiles,
+            notThePane: AnnotationsPaneSource.notThePane)
+        XCTAssertEqual(problems, [],
+                       "every Annotation*.swift must be classified, or each "
+                       + "census reading the pane's surface is blind to it")
     }
 }

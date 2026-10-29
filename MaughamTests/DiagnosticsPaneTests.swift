@@ -2459,7 +2459,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     // MARK: - Tripwire 15
 
     func test_everyContentUnavailableViewChainsFullFrame() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try DiagnosticsPaneSource.surfaceSource()
         let occurrences = source.components(separatedBy: "ContentUnavailableView(").count - 1
         let chained = source.components(
             separatedBy: ".frame(maxWidth: .infinity, maxHeight: .infinity)").count - 1
@@ -2796,8 +2796,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// spelled-out bodies, so a rename fails this rather than a reformat.
     func test_theReplyFieldCommitsOnReturnAndCancelsOnEscape() throws {
         // The field is `DiagnosticRow`'s, the commit the pane's own `answer`.
-        let source = try readSource("Maugham/Views/DiagnosticsPaneSections.swift")
-            + readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try DiagnosticsPaneSource.surfaceSource()
         XCTAssertTrue(
             source.contains(".onSubmit { commit() }"),
             "return must commit the answer \u{2014} a field with no submit verb is a "
@@ -4885,7 +4884,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// **Both homes commit through the one function**, so neither can refuse a
     /// long ask in different words or trim it differently.
     func test_bothHostsCommitTheAskThroughTheOneFunction() throws {
-        for path in ["Maugham/Views/DiagnosticsPaneHeader.swift",
+        for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
             let source = try hostSource(path)
             XCTAssertTrue(
@@ -5338,13 +5337,31 @@ final class DiagnosticsPaneTests: XCTestCase {
             contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
-    /// A letter host's code. Review's host is the whole `AnnotationsPane`
-    /// split (#116 F11): its letter lives in a child file, and a ban must see
-    /// every file the pane is made of.
+    /// A letter host's code: each host is its whole pane (#116 F11). Each
+    /// pane is split across files, and a ban must see every one of them.
     private func hostSource(_ relativePath: String) throws -> String {
-        relativePath == "Maugham/Views/AnnotationsPane.swift"
-            ? try AnnotationsPaneSource.surfaceSource()
-            : try readSource(relativePath)
+        switch relativePath {
+        case "Maugham/Views/AnnotationsPane.swift":
+            return try AnnotationsPaneSource.surfaceSource()
+        case "Maugham/Views/DiagnosticsPane.swift":
+            return try DiagnosticsPaneSource.surfaceSource()
+        default:
+            return try readSource(relativePath)
+        }
+    }
+
+    /// **`DiagnosticsPaneSource.surfaceFiles` is every file the pane is split
+    /// into** (#116 F11): every `Diagnostic*.swift` in `Maugham/Views/` is the
+    /// pane's or named in `notThePane`, so a census reading the surface cannot
+    /// go blind to a new child file.
+    func test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto() throws {
+        let problems = try PaneSurfaceClassification.problems(
+            prefix: "Diagnostic", dir: DiagnosticsPaneSource.viewsDir,
+            surface: DiagnosticsPaneSource.surfaceFiles,
+            notThePane: DiagnosticsPaneSource.notThePane)
+        XCTAssertEqual(problems, [],
+                       "every Diagnostic*.swift must be classified, or each "
+                       + "census reading the pane's surface is blind to it")
     }
 }
 

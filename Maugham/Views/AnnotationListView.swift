@@ -108,6 +108,17 @@ struct AnnotationListView: View {
 /// not the host's, and a verb that reached for the host's would answer a note
 /// about Chapter Nine by editing whatever is centred. `AnnotationsPane.rowWiring`
 /// builds the pane's.
+///
+/// A host that only SHOWS a stream's notes takes `readOnly(manifest:onJump:)`:
+///
+/// ```swift
+/// LazyVStack(spacing: 0) {
+///     AnnotationListView(
+///         annotations: notes, docId: docId, document: document,
+///         livePids: Set(document?.sequence ?? []), ledgerText: nil,
+///         wiring: .readOnly(manifest: store.manifest))
+/// }
+/// ```
 struct AnnotationRowWiring {
     /// The local writer's display name, for `AnnotationOwnership.isOwn`.
     let localName: String
@@ -133,4 +144,31 @@ struct AnnotationRowWiring {
     let onReopen: (Document, Annotation) -> Void
     /// A click on the row, `(docId, note)`: jump, travel or stay.
     let onJump: (String, Annotation) -> Void
+}
+
+extension AnnotationRowWiring {
+    /// **A wiring that offers nothing**: every row verb is hidden
+    /// (`rowVerbs` answers no verb, the local writer's own note included) and
+    /// every verb closure does nothing, so a row draws no control a press
+    /// would waste. `manifest` must be given, as `AnnotationRow` requires;
+    /// `onJump` is the host's click, a no-op unless it passes one.
+    static func readOnly(
+        manifest: ProjectManifest?,
+        onJump: @escaping (String, Annotation) -> Void = { _, _ in }
+    ) -> AnnotationRowWiring {
+        let nothing = AnnotationRowVerbs(
+            acceptOrReject: false, dispose: false, answerAsRuling: false,
+            makeChoice: false, keepAsLesson: false, ownNote: false)
+        let ignore: (Document, Annotation) -> Void = { _, _ in }
+        return AnnotationRowWiring(
+            localName: "", stetFlourishIds: [], manifest: manifest,
+            rowVerbs: { _, _, _ in nothing },
+            onToggleSelection: { _ in },
+            onAccept: ignore, onReject: ignore, onStet: ignore,
+            onTriage: { _, _, _ in },
+            onArchive: ignore, onReply: ignore, onAnswerAsRuling: ignore,
+            onMakeChoice: ignore, onKeepAsLesson: ignore, onEdit: ignore,
+            onWithdraw: ignore, onRevert: ignore, onReopen: ignore,
+            onJump: onJump)
+    }
 }

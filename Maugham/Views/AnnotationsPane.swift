@@ -598,6 +598,10 @@ struct AnnotationsPane: View {
     /// The centred document's queue — `AnnotationsDocumentQueue`, handed the
     /// rows this pane's lens leaves and the selection it holds.
     private func documentQueue(_ document: Document) -> some View {
+        // The pane keeps its own read of the revision `ledgerText` observes:
+        // a Keep from this queue takes its own button off the row, and that
+        // must re-render the pane, not only the child that calls the closure.
+        _ = letterLedgerRevision
         let rows = visibleAnnotations(of: document)
         return AnnotationsDocumentQueue(
             document: document, rows: rows,
@@ -618,6 +622,10 @@ struct AnnotationsPane: View {
     /// Every piece's notes — `AnnotationsProjectQueue`, over the one snapshot
     /// read, the sections this pane's lens leaves and its footnote.
     private func projectScope(focusPiece: String?) -> some View {
+        // The pane keeps its own read of the revision `ledgerText` observes:
+        // a Keep from this queue takes its own button off the row, and that
+        // must re-render the pane, not only the child that calls the closure.
+        _ = letterLedgerRevision
         let snapshot = projectSnapshot
         return AnnotationsProjectQueue(
             focusPiece: focusPiece, scope: scope, snapshot: snapshot,

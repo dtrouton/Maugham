@@ -1363,7 +1363,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "premise: the shared spelling exists and answers")
 
         for path in Self.oneSpellingSurfaces {
-            let violations = Self.oneSpellingViolations(in: try Self.source(of: path))
+            // Author's report draws its dead run from `DiagnosticsPaneCopy`,
+            // but a restated arm anywhere in that pane is the same second
+            // account, so its entry reads the whole pane (#116 F11).
+            let source = path == "Views/DiagnosticsPaneCopy.swift"
+                ? try DiagnosticsPaneSource.surfaceSource()
+                : try Self.source(of: path)
+            let violations = Self.oneSpellingViolations(in: source)
             XCTAssertEqual(
                 violations, [],
                 "\(path) \(violations.joined(separator: "; ")) \u{2014} a second "
@@ -1855,13 +1861,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// second answer to where a letter goes — the defect `TurnClauseOffer`
     /// already exists to prevent for the offer beside it.
     func test_bothHostsKeepThroughTheOneVerb() throws {
-        // The queue's side is the whole pane: the press lives with its cockpit
-        // child, and a note filed anywhere else in the pane is still a second
-        // answer (#116 F11).
+        // Each side is its whole pane: the press lives in one file, and a note
+        // filed anywhere else in the pane is still a second answer (#116 F11).
         let hosts = [
             ("the AnnotationsPane files", try AnnotationsPaneSource.surfaceSource()),
-            ("Maugham/Views/DiagnosticsPane.swift",
-             try readSource("Maugham/Views/DiagnosticsPane.swift")),
+            ("the DiagnosticsPane files", try DiagnosticsPaneSource.surfaceSource()),
         ]
         for (file, source) in hosts {
             XCTAssertTrue(source.contains("onKeep: LetterKeep.handler("),

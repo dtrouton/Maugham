@@ -7,7 +7,9 @@ import Foundation
 /// (`surfaceSource()`), so a token that moves into a child is still seen. A
 /// census about one declaration reads the file that declares it
 /// (`source(of:)`). The list is checked, not trusted:
-/// `AnnotationScopeTests.test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto`.
+/// `AnnotationScopeTests.test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto`
+/// classifies every `Annotation*.swift` in `Maugham/Views/` as the pane's or
+/// as `notThePane`.
 enum AnnotationsPaneSource {
 
     /// Every name here is a file in `Maugham/Views/`.
@@ -20,6 +22,14 @@ enum AnnotationsPaneSource {
         "AnnotationsPaneQueues.swift",
         "AnnotationListView.swift",
         "AnnotationRow.swift",
+    ]
+
+    /// The `Annotation*.swift` files in `Maugham/Views/` that are NOT the pane:
+    /// pure helpers it calls, each with its own tests.
+    static let notThePane: [String] = [
+        "AnnotationAuthorPresentation.swift",
+        "AnnotationBulkActions.swift",
+        "AnnotationQueueOrder.swift",
     ]
 
     static var viewsDir: URL {
