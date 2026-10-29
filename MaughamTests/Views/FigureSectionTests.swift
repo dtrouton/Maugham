@@ -334,6 +334,43 @@ final class FigureSectionVerbTests: XCTestCase {
         XCTAssertEqual(verbs.sendDestinations(for: state.figureRows[0]), [.piece, .shared])
     }
 
+    /// **Open in Window over the centre** (the figure the tree selected): the
+    /// centre's hold gives way to a window, so the verb hands off — the
+    /// centre yields at once — rather than only focusing it. An editor's grid
+    /// in place does not give way: the verb brings it front.
+    func test_openInWindowPassesOverTheCentresHoldButFocusesAnEditorsGrid() async throws {
+        let (documentStore, store) = try await openBook()
+        defer { withExtendedLifetime(documentStore) {} }
+        let state = BinderTreeSectionsState()
+        let windows = FigureWindows()
+        state.figureWindows = windows
+        state.refreshFigureRows(listing: [
+            FigureListing.Row(figureId: "fig-0a1b2c3d", kind: .table, name: "cash", caption: "",
+                              number: "Table 1", usedIn: [], referencedFrom: [], pieceOfLine: nil),
+            FigureListing.Row(figureId: "fig-1b2c3d4e", kind: .table, name: "tax", caption: "",
+                              number: "Table 2", usedIn: [], referencedFrom: [], pieceOfLine: nil)])
+        let verbs = FigureSectionVerbs(store: store, state: state)
+        var acts: [String] = []
+        var centre: FigureWindows.InPlaceHold?
+        centre = windows.holdInPlace("fig-0a1b2c3d", focus: { acts.append("centre focused") }, fold: {},
+                                     yield: {
+            acts.append("centre yields")
+            if let hold = centre { windows.releaseInPlace(hold, visitEnding: nil) }
+        })
+        _ = windows.holdInPlace("fig-1b2c3d4e", focus: { acts.append("editor focused") }, fold: {})
+
+        verbs.openInWindow(state.figureRows[0])
+        XCTAssertEqual(acts, ["centre yields"], "the centre gives way; it is not merely focused")
+        XCTAssertNotNil(windows.handoff(for: "fig-0a1b2c3d"), "a window is asked for")
+        XCTAssertNil(windows.inPlaceHolds["fig-0a1b2c3d"])
+        XCTAssertEqual(windows.heldElsewhere("fig-0a1b2c3d", besides: nil), .window, "held by the window opening")
+
+        acts = []
+        verbs.openInWindow(state.figureRows[1])
+        XCTAssertEqual(acts, ["editor focused"], "an editor's grid in place is brought front")
+        XCTAssertNil(windows.handoff(for: "fig-1b2c3d4e"), "no window over it")
+    }
+
     /// **Send to Research from the row**: the figure parks, the tree's cards
     /// refill, its row leaves, and with the last figure the section goes.
     func test_sendToResearchFromTheRowParksItAndTheSectionLetsItGo() async throws {

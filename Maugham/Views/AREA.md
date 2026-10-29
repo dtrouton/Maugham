@@ -73,7 +73,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeScrollProbe.swift` — a dev-build-only diagnostic.
 
 ### Research and the palette
-- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`), read-only where `editsFigures` is false or ⌘⌥⇧R is on; else its name and number.
+- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`), read-only where `editsFigures` is false or ⌘⌥⇧R is on; an image large (`FigureImageSubject`, its file through `SafeRelativePath`); else its name and number.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor (`lockEditing` for read-only).
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.

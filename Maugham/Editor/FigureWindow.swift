@@ -88,6 +88,9 @@ final class FigureWindows {
     @ObservationIgnored private var inPlaceFocusers: [InPlaceHold: @MainActor () -> Void] = [:]
     /// Each in-place grid's forced fold, for a send asked from outside it.
     @ObservationIgnored private var inPlaceFolders: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// The holds that give way to a figure window (the centre's), each with
+    /// its yield: the visit ends and the hold goes, synchronously.
+    @ObservationIgnored private var inPlaceYielders: [InPlaceHold: @MainActor () -> Void] = [:]
     /// The visit each figure's last in-place fold is still ending, so the
     /// next grid to expand it — in any window — begins its own after it.
     @ObservationIgnored private var visitsEnding: [String: Task<Void, Never>] = [:]
@@ -157,6 +160,7 @@ final class FigureWindows {
         focusers[registration] = focus
         finishers[registration] = finish
         windowsOpening[figureId] = nil
+        yieldInPlace(figureId)
         recount()
         return registration
     }
@@ -177,14 +181,17 @@ final class FigureWindows {
     /// **R7d-9**: the grid open on `figureId` comes front and takes the keys
     /// — its figure window, or the project window it is expanded in. A
     /// double-click or Return on its card asks this instead of expanding.
-    /// False when no grid is open on it.
+    /// False when no grid is open on it. `passingOverAYieldingHold`: a hold
+    /// that gives way to a window (the centre's) is not answered, so Open in
+    /// Window opens one.
     @discardableResult
-    func focus(_ figureId: String) -> Bool {
+    func focus(_ figureId: String, passingOverAYieldingHold: Bool = false) -> Bool {
         if let focus = focusers.first(where: { $0.key.figureId == figureId })?.value {
             focus()
             return true
         }
         guard let hold = inPlaceHolds[figureId], let focus = inPlaceFocusers[hold] else { return false }
+        if passingOverAYieldingHold, inPlaceYielders[hold] != nil { return false }
         focus()
         return true
     }
@@ -194,16 +201,28 @@ final class FigureWindows {
     /// **A grid is expanding `figureId` in place**; `focus` brings its
     /// project window front with the grid's keys, `fold` folds it as a send
     /// to Research does (`foldGrids(on:)`). Nil — expand nothing — when
-    /// another grid already has the figure.
+    /// another grid already has the figure. `yield`, for a hold that gives
+    /// way to a figure window (the centre's): run synchronously when a window
+    /// is handed the figure or registers on it, and when the project's last
+    /// window goes (`closeAll`) — its visit ends and its hold goes before the
+    /// window's grid awaits `visitEnded`.
     func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void,
-                     fold: @escaping @MainActor () -> Void) -> InPlaceHold? {
+                     fold: @escaping @MainActor () -> Void,
+                     yield: (@MainActor () -> Void)? = nil) -> InPlaceHold? {
         guard !isHeld(figureId) else { return nil }
         serial += 1
         let hold = InPlaceHold(figureId: figureId, serial: serial)
         inPlaceHolds[figureId] = hold
         inPlaceFocusers[hold] = focus
         inPlaceFolders[hold] = fold
+        inPlaceYielders[hold] = yield
         return hold
+    }
+
+    /// The hold on `figureId` gives way, if it is one that does.
+    private func yieldInPlace(_ figureId: String) {
+        guard let hold = inPlaceHolds[figureId], let yield = inPlaceYielders[hold] else { return }
+        yield()
     }
 
     /// The grid holding `hold` folded; `visitEnding` is its visit still
@@ -211,6 +230,7 @@ final class FigureWindows {
     func releaseInPlace(_ hold: InPlaceHold, visitEnding: Task<Void, Never>?) {
         inPlaceFocusers[hold] = nil
         inPlaceFolders[hold] = nil
+        inPlaceYielders[hold] = nil
         guard inPlaceHolds[hold.figureId] == hold else { return }
         inPlaceHolds[hold.figureId] = nil
         if let visitEnding { visitsEnding[hold.figureId] = visitEnding }
@@ -238,6 +258,7 @@ final class FigureWindows {
     func handOff(_ figureId: String, _ handoff: Handoff) {
         handoffs[figureId] = handoff
         if !isOpen(figureId) { windowsOpening[figureId] = .now }
+        yieldInPlace(figureId)
     }
 
     /// **An editor's review toggle flipped**: each window it opened follows
@@ -293,6 +314,9 @@ final class FigureWindows {
     /// them), then closes. Forgotten first, so a window's own `closed`
     /// arriving during its close is a no-op.
     func closeAll() {
+        // The holds that give way (the centre's) end their visits too: an
+        // open edit committed, its writes tracked for `settle`.
+        for yield in Array(inPlaceYielders.values) { yield() }
         let closing = Array(closers.values), finishing = Array(finishers.values)
         closers = [:]
         focusers = [:]
@@ -404,6 +428,10 @@ final class FigureWindowGrid {
         /// The line follows `FigureWindows.lineChanged` (a window); the centre's
         /// follows its listing instead (`refreshLine`).
         var listensForTheLine = true
+        /// Format ▸ Table is armed only while the grid has the window's keys
+        /// (the centre, which sits mounted while the writer types in the tree
+        /// or a scrap); a window's grid is armed for its life.
+        var armsTheMenuOnlyWithTheKeys = false
 
         /// A figure window's: what the opening grid handed over, the share
         /// as the project windows last told it, review mode the opening editor's.
@@ -439,6 +467,8 @@ final class FigureWindowGrid {
     /// The line as last told, for a visit still opening.
     private var line: (number: String, caption: String)?
     private var frame: Frame?
+    /// The window's first responder, watched while the frame arms the menu only with the keys.
+    private var keysWatch: NSKeyValueObservation?
 
     /// `presence` is the frame's: a window's own, or the project window's
     /// (the centre), which Format ▸ Table reads.
@@ -503,21 +533,59 @@ final class FigureWindowGrid {
         controller.bars.doneButton.isHidden = !(frame?.offersDone ?? true)
         controller.onSendToResearch = close   // the window goes first (R7d-7)
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
-        controller.onMenuStateChange = { [weak self] state in
-            guard let self, !self.isFinished else { return }
-            self.presence.show(state)
-        }
+        controller.onMenuStateChange = { [weak self] _ in self?.showPresence() }
         if let line { controller.refreshLine(number: line.number, caption: line.caption) }
-        perform = { [weak controller] command in controller?.performTableCommand(command) }
+        perform = { [weak self] command in
+            guard let self, self.isArmed else { return }
+            self.controller?.performTableCommand(command)
+        }
         refreshAccess()
-        presence.expanded()
-        presence.show(controller.menuState)
         watchTheBook()
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
+        watchTheKeys()
         if frame?.takesTheKeysAtMount ?? true { container.window?.makeFirstResponder(controller.gridView) }
+        showPresence()
+    }
+
+    /// **The grid, its cell editor or its bars have the window's keys.**
+    var hasTheKeys: Bool {
+        guard let panel, let responder = container.window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: panel)
+    }
+
+    /// Format ▸ Table may reach the grid now.
+    private var isArmed: Bool {
+        !isFinished && (!(frame?.armsTheMenuOnlyWithTheKeys ?? false) || hasTheKeys)
+    }
+
+    /// The window's presence says what Format ▸ Table may do while the grid
+    /// is armed, and nothing while it is not.
+    private func showPresence() {
+        guard let controller, !isFinished else { return }
+        if isArmed {
+            presence.expanded()
+            presence.show(controller.menuState)
+        } else {
+            presence.folded()
+        }
+    }
+
+    /// The keys moving in or out of the grid re-arm the menu (a frame that
+    /// arms it only with the keys), whichever window the container is in.
+    private func watchTheKeys() {
+        guard frame?.armsTheMenuOnlyWithTheKeys ?? false else { return }
+        let observe = { [weak self] (window: NSWindow?) in
+            guard let self else { return }
+            self.keysWatch = window?.observe(\.firstResponder, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.showPresence() }
+            }
+            self.showPresence()
+        }
+        container.onWindowChange = observe
+        observe(container.window)
     }
 
     /// The window's own card cache over the store, as a project window's:
@@ -569,6 +637,8 @@ final class FigureWindowGrid {
         guard !isFinished else { return }
         isFinished = true
         opening?.cancel()
+        keysWatch = nil
+        container.onWindowChange = nil
         presence.folded()
         if let listener { windows?.stopListening(listener) }
         if let cards {
@@ -613,6 +683,14 @@ final class FigureWindowGridContainer: NSView {
     override var isFlipped: Bool { true }
 
     var message: String { label.stringValue }
+
+    /// Told when the container moves to another window (or none).
+    var onWindowChange: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?(window)
+    }
 
     func show(message: String) {
         label.stringValue = message

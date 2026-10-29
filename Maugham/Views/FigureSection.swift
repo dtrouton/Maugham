@@ -246,7 +246,7 @@ struct FigureSectionVerbs {
     /// window opens on it, handed the number and caption the listing gives.
     func openInWindow(_ row: FigureTreeRow) {
         if let windows = state.figureWindows {
-            if windows.focus(row.id) { return }
+            if windows.focus(row.id, passingOverAYieldingHold: true) { return }
             windows.handOff(row.id, .init(number: row.listing.number, caption: row.listing.caption,
                                           piece: piece(of: row), typography: state.figureTypography))
         }

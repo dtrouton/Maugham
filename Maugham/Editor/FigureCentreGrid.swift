@@ -32,6 +32,7 @@ final class FigureCentreMount {
 
     @ObservationIgnored private var hold: FigureWindows.InPlaceHold?
     @ObservationIgnored private var focusedTheHolder = false
+    @ObservationIgnored private var retry: Task<Void, Never>?
     @ObservationIgnored private let windows: FigureWindows
     @ObservationIgnored private let presence: FigureGridPresence
     @ObservationIgnored private weak var store: DocumentStore?
@@ -67,8 +68,9 @@ final class FigureCentreMount {
     func take() {
         guard !hasLeft, grid == nil, let store, let projectStore else { return }
         guard let hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focus() },
-                                             fold: { [weak self] in self?.leave() }) else {
-            elsewhere = windows.heldElsewhere(figureId, besides: nil)
+                                             fold: { [weak self] in self?.leave() },
+                                             yield: { [weak self] in self?.yieldToAWindow() }) else {
+            heldElsewhere()
             if !focusedTheHolder {
                 focusedTheHolder = true
                 windows.focus(figureId)
@@ -85,7 +87,8 @@ final class FigureCentreMount {
             number: line.number, caption: line.caption, piece: piece, typography: typography,
             isReviewMode: { [weak self] in self?.isReviewMode ?? true },
             shareIsReadOnly: { [weak self] in self?.shareIsReadOnly ?? true },
-            takesTheKeysAtMount: false, offersDone: false, listensForTheLine: false)
+            takesTheKeysAtMount: false, offersDone: false, listensForTheLine: false,
+            armsTheMenuOnlyWithTheKeys: true)
         // Send to Research from the grid: the centre lets the figure go first (R7d-7).
         grid.open(figureId: figureId, store: store, projectStore: projectStore, windows: windows,
                   frame: frame, close: { [weak self] in self?.leave() })
@@ -99,13 +102,43 @@ final class FigureCentreMount {
         guard !hasLeft else { return }
         if grid != nil {
             guard windows.isOpen(figureId) else { return }
-            release()
-            elsewhere = .window
+            yieldToAWindow()
         } else if windows.isHeld(figureId) {
-            elsewhere = windows.heldElsewhere(figureId, besides: nil)
+            heldElsewhere()
         } else {
             take()
         }
+    }
+
+    /// **A figure window is handed the figure, or registers on it**
+    /// (`FigureWindows.handOff`/`opened`, synchronously, before its grid
+    /// awaits `visitEnded`): the visit ends and the hold goes, so the
+    /// window's grid begins after the centre's last write. The centre takes
+    /// the figure back when the window lets it go.
+    func yieldToAWindow() {
+        guard !hasLeft, grid != nil else { return }
+        release()
+        heldElsewhere()
+    }
+
+    /// Another grid has the figure: say so, and — when only a window still
+    /// opening holds it, which no observed value marks as it lapses — look
+    /// again once its grace has passed, so a window that never comes does not
+    /// leave the centre saying so for ever.
+    private func heldElsewhere() {
+        elsewhere = windows.heldElsewhere(figureId, besides: nil)
+        guard elsewhere != nil, !windows.isOpen(figureId), windows.inPlaceHolds[figureId] == nil else { return }
+        retry?.cancel()
+        retry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: FigureWindows.openingGrace + .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            self?.reconsider()
+        }
+    }
+
+    /// The holder comes front: the "Editing in another window" line's click.
+    func goToTheHolder() {
+        windows.focus(figureId)
     }
 
     /// **The centre leaves the figure** — the subject moved on, the window
@@ -114,6 +147,7 @@ final class FigureCentreMount {
     func leave() {
         guard !hasLeft else { return }
         hasLeft = true
+        retry?.cancel()
         release()
     }
 
@@ -156,10 +190,10 @@ final class FigureCentreMount {
         }
     }
 
-    /// **Format ▸ Table**, while the centre's grid has the keys.
+    /// **Format ▸ Table**, while the centre's grid has the keys (the grid
+    /// itself refuses it otherwise: `armsTheMenuOnlyWithTheKeys`).
     func perform(_ command: FigureTableCommand) {
-        guard presence.holdsTheKeys, let perform = grid?.perform else { return }
-        perform(command)
+        grid?.perform?(command)
     }
 }
 
@@ -214,8 +248,11 @@ struct FigureCentreGrid: View {
             if let grid = mount?.grid {
                 FigureWindowGridHost(container: grid.container)
                     .id(ObjectIdentifier(grid))
-            } else if let elsewhere = mount?.elsewhere {
-                Text(elsewhere.cardLabel)
+            } else if let mount, mount.elsewhere != nil {
+                // The card's words and the card's act: the click brings the
+                // grid that has the figure front.
+                Button(FigureThumbnailOverlay.editingInAnotherWindow) { mount.goToTheHolder() }
+                    .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
             }
         }

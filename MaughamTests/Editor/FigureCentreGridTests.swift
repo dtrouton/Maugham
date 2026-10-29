@@ -181,11 +181,18 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let bound = try XCTUnwrap(find(NSApp.mainMenu), "premise: the menu bar has Edit ▸ Undo/Redo",
                                   file: file, line: line)
         XCTAssertEqual(bound.keyEquivalent.lowercased(), "z", file: file, line: line)
+        // Who the item's target-less action reaches, validated as the menu
+        // validates it, then sent up the chain by AppKit's own walk.
         var responder = window.firstResponder
         while let current = responder, !current.responds(to: action) { responder = current.nextResponder }
         let target = try XCTUnwrap(responder, "something answers \(action)", file: file, line: line)
+        // A copy, so the app's own item is never retitled by a test.
         let item = NSMenuItem(title: bound.title, action: action, keyEquivalent: bound.keyEquivalent)
-        XCTAssertTrue(NSApp.sendAction(action, to: target, from: item), file: file, line: line)
+        let enabled = (target as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item)
+            ?? (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+        XCTAssertTrue(enabled, "\(item.title) is enabled at \(target)", file: file, line: line)
+        let first = try XCTUnwrap(window.firstResponder, file: file, line: line)
+        XCTAssertTrue(first.tryToPerform(action, with: item), "the responder chain answers", file: file, line: line)
         return target
     }
 
@@ -215,8 +222,8 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let figureId = try XCTUnwrap(m.figure?.id)
 
         XCTAssertNotNil(windows.inPlaceHolds[figureId], "the centre holds the figure in place")
-        XCTAssertTrue(centre.presence.holdsTheKeys, "Format ▸ Table reads the centre's grid")
-        XCTAssertEqual(centre.presence.menu, c.menuState)
+        XCTAssertFalse(centre.presence.holdsTheKeys, "Format ▸ Table is not armed while the keys are elsewhere")
+        XCTAssertNil(centre.presence.menu)
         XCTAssertTrue(c.bars.doneButton.isHidden, "the centre has nothing to close")
         XCTAssertTrue(c.bars.openInWindow.isHidden)
         XCTAssertFalse(c.bars.captionField.isEditable, "the caption is the text's (R7d-6)")
@@ -229,6 +236,8 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let a1 = cell(c, 1, 1)
         typeOpen(centre, c, a1, "42")
         XCTAssertTrue(centre.window.firstResponder === c.gridView.cellEditor.currentEditor(), "typing in the cell")
+        XCTAssertTrue(centre.presence.holdsTheKeys, "with the keys, Format ▸ Table reads the centre's grid")
+        XCTAssertEqual(centre.presence.menu, c.menuState)
         centre.window.sendEvent(key(centre.window, "\r", code: 36))
         await c.settleWrites()
         XCTAssertEqual(c.host.state.table[a1]?.content, .value(.number(42)))
@@ -403,21 +412,76 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         XCTAssertEqual(c.figureId, figureId)
     }
 
-    /// A figure window opening on the figure takes it from the centre (never
-    /// two grids on one host); its close gives it back.
-    func test_aFigureWindowOpeningOnTheFigureTakesItFromTheCentre() async throws {
+    /// **I3: a figure window opening takes the figure from the centre
+    /// before its own grid opens** — as `FigureWindow.seat()` does it,
+    /// `opened` then a real `FigureWindowGrid.open`, in one turn — while the
+    /// centre has an edit open whose write is slow to land: the centre's
+    /// visit ends and its hold goes synchronously, the window's grid begins
+    /// only after that write, the edit lands once, and there is never a
+    /// second controller mounted beside the first. The window's close gives
+    /// the figure back.
+    func test_aFigureWindowOpeningTakesTheFigureFromTheCentreBeforeItsGridOpens() async throws {
+        let m = try await mount()
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let windows = FigureWindows()
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        let b2 = cell(c, 2, 2)
+        typeOpen(centre, c, b2, "5")
+        var appended = 0
+        DocumentStore.figureHostAppendedForTesting = { _ in appended += 1 }
+        FigureGridController.writeTurnForTesting = { try? await Task.sleep(for: .milliseconds(300)) }
+        defer { FigureGridController.writeTurnForTesting = nil }
+
+        let windowGrid = FigureWindowGrid()
+        let registration = windows.opened(c.figureId, close: {})
+        XCTAssertNil(windows.inPlaceHolds[c.figureId], "the centre let the figure go before the window's grid opens")
+        XCTAssertTrue(c.isFolded, "the centre's grid is off screen")
+        windowGrid.open(figureId: c.figureId, store: ds, projectStore: m.store, windows: windows, close: {})
+        await windowGrid.opening?.value
+        let w = try XCTUnwrap(windowGrid.controller, windowGrid.container.message)
+        XCTAssertEqual(w.host.state.table[b2]?.content, .value(.number(5)),
+                       "the window's grid opened after the centre's write landed")
+        XCTAssertEqual(appended, 1, "the edit landed once")
+        XCTAssertNil(Self.gridView(in: centre.window.contentView), "one grid on the host")
+
+        windowGrid.finish()
+        await windowGrid.finishing?.value
+        windows.closed(registration)
+        let back = try await mounted(centre)
+        XCTAssertNotNil(windows.inPlaceHolds[back.figureId], "the centre takes it again")
+    }
+
+    /// **A window asked for that never comes** leaves the centre saying
+    /// nothing for ever: once the opening grace lapses, it takes the figure.
+    func test_aWindowThatNeverComesGivesTheFigureBackToTheCentre() async throws {
+        let m = try await mount()
+        let windows = FigureWindows()
+        let figureId = try XCTUnwrap(m.figure?.id)
+        windows.handOff(figureId, .init(number: "—", caption: "", piece: nil, typography: .defaults))
+        let centre = try centre(m, windows: windows)
+        XCTAssertEqual(windows.heldElsewhere(figureId, besides: nil), .window, "premise: a window is opening")
+        let taken = await RunLoopPump.until(deadline: TimeInterval(FigureWindows.openingGrace.components.seconds) + 3) {
+            windows.inPlaceHolds[figureId] != nil
+        }
+        XCTAssertTrue(taken, "the centre took the figure when the window did not come")
+        _ = try await mounted(centre)
+    }
+
+    /// **⌘Q** (`closeAll`, the project's last window going) ends the
+    /// centre's visit too: its open edit is committed and `settle` awaits it.
+    func test_closeAllEndsTheCentresVisitAndCommitsItsOpenEdit() async throws {
         let m = try await mount()
         let windows = FigureWindows()
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
-        let registration = windows.opened(c.figureId, close: {})
-        let yielded = await RunLoopPump.until(deadline: 5) { windows.inPlaceHolds[c.figureId] == nil }
-        XCTAssertTrue(yielded, "the centre let the figure go to the window")
-        XCTAssertNil(Self.gridView(in: centre.window.contentView))
-
-        windows.closed(registration)
-        let back = try await mounted(centre)
-        XCTAssertNotNil(windows.inPlaceHolds[back.figureId], "the centre takes it again")
+        let a3 = cell(c, 1, 3)
+        typeOpen(centre, c, a3, "3")
+        windows.closeAll()
+        XCTAssertNil(windows.inPlaceHolds[c.figureId], "the centre's hold went with the close")
+        let landed = await windows.settle(within: .seconds(5))
+        XCTAssertTrue(landed)
+        XCTAssertEqual(c.host.state.table[a3]?.content, .value(.number(3)), "the open edit was committed")
     }
 
     // MARK: - Read-only reasons
@@ -427,13 +491,15 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// share is read-only.
     func test_reviewPersonaAndTheReviewToggleAndAViewOnlyShareAreReadOnly() async throws {
         let m = try await mount()
-        let review = try centre(m, windows: FigureWindows(), persona: .review)
+        let windows = FigureWindows()
+        let review = try centre(m, windows: windows, persona: .review)
         let r = try await mounted(review)
         XCTAssertEqual(r.mode, .readOnly(.reviewMode))
         XCTAssertFalse(r.bars.nameField.isEditable)
         review.box.figureId = nil
+        let released = await RunLoopPump.until(deadline: 5) { windows.inPlaceHolds[r.figureId] == nil }
+        XCTAssertTrue(released, "premise: the review centre let the figure go")
 
-        let windows = FigureWindows()
         let author = try centre(m, windows: windows)
         let c = try await mounted(author)
         XCTAssertEqual(c.mode, .editable)
@@ -470,14 +536,16 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     // MARK: - Format ▸ Table
 
-    /// **Format ▸ Table reaches the centre's grid** while its window is key,
-    /// and not while it is not.
-    func test_formatTableReachesTheCentreGridWhileItsWindowIsKey() async throws {
+    /// **Format ▸ Table reaches the centre's grid** while the grid has the
+    /// keys and its window is key, and not while its window is not.
+    func test_formatTableReachesTheCentreGridWhileItHasTheKeysAndItsWindowIsKey() async throws {
         let m = try await mount()
         m.window.reportsKey = false
         let windows = FigureWindows()
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
+        XCTAssertTrue(windows.focus(c.figureId))
+        XCTAssertTrue(centre.window.firstResponder === c.gridView, "the grid has the keys")
         c.handle(.click(cell(c, 1, 1), extend: false))
         let rows = c.host.state.table.rows.count
 
@@ -490,6 +558,38 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         MaughamEvent.postFigureTableCommand(.insertRowBelow)
         await c.settleWrites()
         XCTAssertEqual(c.host.state.table.rows.count, rows + 1, "a centre whose window is not key takes nothing")
+    }
+
+    /// **I1: keys in a text field, a Format ▸ Table chord delivered, nothing
+    /// written** — the centre sits mounted while the writer types elsewhere
+    /// (the tree, a rename field, a scrap), and the menu is not armed for it.
+    func test_formatTableWritesNothingWhileTheKeysAreInATextField() async throws {
+        let m = try await mount()
+        m.window.reportsKey = false
+        let windows = FigureWindows()
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        XCTAssertTrue(windows.focus(c.figureId))
+        c.handle(.click(cell(c, 1, 1), extend: false))
+        XCTAssertTrue(centre.presence.holdsTheKeys, "premise: armed with the keys")
+        let field = NSTextField(string: "rename")
+        field.frame = CGRect(x: 0, y: 0, width: 120, height: 22)
+        try XCTUnwrap(centre.window.contentView).addSubview(field)
+        XCTAssertTrue(centre.window.makeFirstResponder(field))
+        XCTAssertFalse(centre.presence.holdsTheKeys, "the keys left the grid: the menu stands down")
+        XCTAssertNil(centre.presence.menu)
+        let rows = c.host.state.table.rows.count, before = c.host.state.table.cells
+
+        MaughamEvent.postFigureTableCommand(.insertRowBelow)
+        MaughamEvent.postFigureTableCommand(.fillDown)
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table.rows.count, rows, "no row inserted")
+        XCTAssertEqual(c.host.state.table.cells, before, "no cell written")
+        XCTAssertFalse(c.gridUndo.canUndo)
+
+        XCTAssertTrue(windows.focus(c.figureId))
+        XCTAssertTrue(centre.presence.holdsTheKeys, "the keys back: armed again")
+        field.removeFromSuperview()
     }
 
     // MARK: - The line from the listing
@@ -526,5 +626,44 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let followed = await RunLoopPump.until(deadline: 5) { c.bars.numberLabel.stringValue == "—" }
         XCTAssertTrue(followed, "the bar follows the listing")
         index.attach(nil)
+    }
+
+    // MARK: - An image figure
+
+    /// **An image figure shows its picture large**, read-only, with its
+    /// number and name: no grid, no hold; its file resolved inside the book
+    /// (a path that would leave it shows the name and number only).
+    func test_anImageFigureShowsItsPictureLargeAndTakesNoGrid() async throws {
+        let m = try await mount()
+        let png = temp.url.appendingPathComponent("photo.png")
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 4, height: 4).fill(); image.unlockFocus()
+        let data = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation))?
+            .representation(using: .png, properties: [:]))
+        try data.write(to: png)
+        let record = try await m.store.createImageFigure(fromURL: png, piece: nil)
+        let url = try XCTUnwrap(FigureImageSubject.fileURL(of: record, in: m.store.url))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "the figure's own file")
+        XCTAssertEqual(FigureSubjectSurface.shows(record, projectURL: m.store.url, hasFigureWindows: true),
+                       .image(url), "an image shows its picture")
+        var outside = record
+        outside.path = "../elsewhere.png"
+        XCTAssertNil(FigureImageSubject.fileURL(of: outside, in: m.store.url), "never outside the book")
+        XCTAssertEqual(FigureSubjectSurface.shows(outside, projectURL: m.store.url, hasFigureWindows: true),
+                       .nameAndNumber)
+        var later = record
+        later.kind = .unknown("chart")
+        XCTAssertEqual(FigureSubjectSurface.shows(later, projectURL: m.store.url, hasFigureWindows: true),
+                       .nameAndNumber, "a kind from a later build keeps the name and number")
+        XCTAssertEqual(FigureSubjectSurface.shows(m.figure, projectURL: m.store.url, hasFigureWindows: true), .grid)
+
+        let windows = FigureWindows()
+        let centre = try centre(m, windows: windows, figureId: record.id)
+        let host = try XCTUnwrap(centre.window.contentView)
+        let drawn = await RunLoopPump.until(deadline: 5) { host.fittingSize.height > 0 }
+        XCTAssertTrue(drawn)
+        XCTAssertNil(Self.gridView(in: host), "an image opens no grid")
+        XCTAssertNil(windows.inPlaceHolds[record.id], "and holds nothing")
+        XCTAssertFalse(centre.presence.holdsTheKeys)
     }
 }
