@@ -4,8 +4,9 @@ import MaughamCore
 /// What a figure row's context menu offers and does (`FigureSectionVerbs`):
 /// a value, so a test calls the action a menu item would.
 struct FigureRowActions {
-    /// The posture lets this Mac edit the figure (Send to Research, Rename).
-    let mayEdit: Bool
+    /// Whether the posture lets this Mac edit the figure (Send to Research,
+    /// Rename) — asked by the context menu's builder, never per render.
+    let mayEdit: () -> Bool
     /// Send to Research's scopes, in menu order.
     let sendDestinations: [FigureResearchDestination]
     let openInWindow: () -> Void
@@ -111,7 +112,7 @@ struct FigureRow: View {
     @ViewBuilder
     private var menu: some View {
         Button("Open in Window", action: actions.openInWindow)
-        if actions.mayEdit {
+        if actions.mayEdit() {
             SwiftUI.Menu(FigureTableMenu.sendToResearchTitle) {
                 ForEach(actions.sendDestinations, id: \.self) { destination in
                     Button(destination.title) { actions.sendToResearch(destination) }

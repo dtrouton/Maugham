@@ -31,6 +31,9 @@ struct AnnotationsPane: View {
     /// note's click travels only to one (report plan 8a Task 4). The window
     /// hands in `BinderTreeSectionsState.drawsFigure`; nothing draws by default.
     var drawsFigure: (String) -> Bool = { _ in false }
+    /// Shows a figure's row in the tree before a travel lands on it
+    /// (`BinderTreeSectionsState.revealFigure`: lifts a piece filter hiding it).
+    var revealFigure: (String) -> Void = { _ in }
     /// **The window's compiler and its sidecar — the round cockpit's two
     /// stores** (M4 P2 Task 3). Optional because this pane serves hosts that
     /// surface no compiler at all (the probe mounts, and any caller predating
@@ -1511,6 +1514,7 @@ struct AnnotationsPane: View {
         case .jump:
             jump(annotation)
         case .travel(let subject):
+            if case .figure(let id) = subject { revealFigure(id) }
             onTravel(subject)
         case .stay:
             break

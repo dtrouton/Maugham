@@ -310,9 +310,10 @@ final class AnnotationScopeTests: XCTestCase {
             .travel(.figure("fig-0a1b2c3d")))
     }
 
-    /// **A figure the tree draws no row for keeps the window where it is**
-    /// (report plan 8a Task 4): a parked figure, one the piece filter hides,
-    /// or any figure in a project that shows no Figures section. Travelling
+    /// **A figure the tree has no row for keeps the window where it is**
+    /// (report plan 8a Task 4): a parked figure, or any figure in a project
+    /// that shows no Figures section. (One a piece filter hides still has a
+    /// row — `drawsFigure` answers true and the travel lifts the filter.) Travelling
     /// there would land on a subject the window repairs to the project row,
     /// taking the writer off her piece.
     func test_aNoteOnAFigureTheTreeDoesNotDrawStays() {

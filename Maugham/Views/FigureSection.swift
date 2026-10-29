@@ -80,11 +80,24 @@ extension BinderTreeSectionsState {
         projectType.holdsFigures && !figureRows.isEmpty
     }
 
-    /// Whether the section draws a row for `figureId` now — a figure note's
-    /// click travels only to one (`AnnotationScopePolicy.click`), so it never
-    /// lands on a subject the window would repair away or the tree not show.
+    /// Whether the section has a row for `figureId` — not parked, in a
+    /// project that shows the section — whatever the piece filter hides: a
+    /// figure note's click travels only to one (`AnnotationScopePolicy.click`),
+    /// so it never lands on a subject the window would repair away, and a
+    /// glance filter never makes the click dead (`revealFigure` lifts it).
     func drawsFigure(_ figureId: String, projectType: ProjectType) -> Bool {
-        showsFigures(projectType: projectType) && drawnFigureRows.contains { $0.id == figureId }
+        showsFigures(projectType: projectType) && figureRows.contains { $0.id == figureId }
+    }
+
+    /// **A figure subject arriving from outside the tree** (a note's click):
+    /// the figure counterpart of `reveal` — a piece filter that hides it is
+    /// lifted, the section opens, and the tree scrolls to its row. Only ever
+    /// opens; a figure the section has no row for moves nothing.
+    func revealFigure(_ figureId: String) {
+        guard figureRows.contains(where: { $0.id == figureId }) else { return }
+        if !drawnFigureRows.contains(where: { $0.id == figureId }) { pieceFilter = nil }
+        figuresSectionExpanded = true
+        scrollRequest = .row(.figure(figureId))
     }
 
     /// The count a piece row shows, nil at none or where the section is not shown.
@@ -205,7 +218,7 @@ struct FigureSectionVerbs {
     func actions(for row: FigureTreeRow) -> FigureRowActions {
         let id = row.id
         return FigureRowActions(
-            mayEdit: mayEdit(id),
+            mayEdit: { mayEdit(id) },
             sendDestinations: sendDestinations(for: row),
             openInWindow: { openInWindow(row) },
             sendToResearch: { _ = sendToResearch(row, to: $0) },

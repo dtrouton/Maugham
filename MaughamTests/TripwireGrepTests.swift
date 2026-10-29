@@ -2621,6 +2621,10 @@ final class TripwireGrepTests: XCTestCase {
         "SceneNavigatorProjectRowTests.swift test_clickingASceneNavigatesAndTakesTheSubjectOffTheProject",
         // A hit area: the chevron's four edges, a fresh window per sample.
         "SectionChevronTests.swift test_theWholeChevronIsClickableTopToBottom",
+        // The real delivery path: the piece row's figure count is the first
+        // `Button` inside a `.draggable` tree row — only a real click shows the
+        // button, not the row's drag or selection, takes it (plan 8a review I2).
+        "BinderTreeSectionsTests.swift test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing",
         // A hit area: a click on the row's NAME selects (stage 3b's regression,
         // invisible to a `rect.midX` click) — and, with the watcher installed,
         // stays one click: the persona does not move.

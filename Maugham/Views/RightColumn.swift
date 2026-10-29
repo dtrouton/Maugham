@@ -75,6 +75,8 @@ struct RightColumn: View {
     /// Whether the tree's Figures section draws a figure
     /// (`BinderTreeSectionsState.drawsFigure`), for the annotation queue.
     var drawsFigure: (String) -> Bool = { _ in false }
+    /// `BinderTreeSectionsState.revealFigure`, before a figure travel lands.
+    var revealFigure: (String) -> Void = { _ in }
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -263,7 +265,8 @@ struct RightColumn: View {
             // The Diagnostics header's "Define a first reader…" — the same
             // hand-off `InspectorView`'s "Project Settings…" gets.
             onOpenProjectSettings: openProjectSettings,
-            drawsFigure: drawsFigure
+            drawsFigure: drawsFigure,
+            revealFigure: revealFigure
         ) {
             researchOrSubject(store: store)
         }

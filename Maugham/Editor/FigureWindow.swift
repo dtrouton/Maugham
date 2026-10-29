@@ -196,7 +196,7 @@ final class FigureWindows {
     /// to Research does (`foldGrids(on:)`). Nil — expand nothing — when
     /// another grid already has the figure.
     func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void,
-                     fold: @escaping @MainActor () -> Void = {}) -> InPlaceHold? {
+                     fold: @escaping @MainActor () -> Void) -> InPlaceHold? {
         guard !isHeld(figureId) else { return nil }
         serial += 1
         let hold = InPlaceHold(figureId: figureId, serial: serial)

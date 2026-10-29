@@ -116,6 +116,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// Whether the tree's Figures section draws a figure — the annotation
     /// queue's figure click travels only to one (report plan 8a Task 4).
     var drawsFigure: (String) -> Bool = { _ in false }
+    /// Shows that figure's row in the tree before the travel lands.
+    var revealFigure: (String) -> Void = { _ in }
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// **Whether a visual-language proposal is standing** (translation
@@ -162,6 +164,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         onSetPassState: @escaping (String, String, PassState?) -> Void = { _, _, _ in },
         onOpenProjectSettings: @escaping () -> Void = {},
         drawsFigure: @escaping (String) -> Bool = { _ in false },
+        revealFigure: @escaping (String) -> Void = { _ in },
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -189,6 +192,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.onSetPassState = onSetPassState
         self.onOpenProjectSettings = onOpenProjectSettings
         self.drawsFigure = drawsFigure
+        self.revealFigure = revealFigure
         self.inspectorContent = inspectorContent
     }
 
@@ -764,6 +768,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                     selectedSubject = subject
                 },
                 drawsFigure: drawsFigure,
+                revealFigure: revealFigure,
                 // The round cockpit's two stores (M4 P2 Task 3) — the same
                 // pair the Diagnostics arm takes, and `nil` in a host that
                 // surfaces no compiler, which draws no strip.

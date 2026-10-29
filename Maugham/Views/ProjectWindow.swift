@@ -1803,7 +1803,8 @@ struct ProjectWindow: View {
             posture: { postureDrawn(forDocId: $0) },
             drawsFigure: { [treeState] in
                 treeState.drawsFigure($0, projectType: store.manifest.type)
-            })
+            },
+            revealFigure: { [treeState] in treeState.revealFigure($0) })
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.

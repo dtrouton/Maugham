@@ -158,8 +158,8 @@ final class FigureSectionTests: XCTestCase {
         XCTAssertEqual(state.scrollRequest, .figuresHeader)
         XCTAssertEqual(state.drawnFigureRows.map(\.id), [cash.figureId])
         XCTAssertEqual(BinderTreeSelection.drawnFigureOrder(state), [cash.figureId])
-        XCTAssertFalse(state.drawsFigure(map.figureId, projectType: .novel),
-                       "a figure the filter hides is not drawn")
+        XCTAssertTrue(state.drawsFigure(map.figureId, projectType: .novel),
+                      "a figure the filter hides still has a row: a note's click travels to it")
 
         state.clearFigureFilter()
         XCTAssertNil(state.pieceFilter)
@@ -171,6 +171,41 @@ final class FigureSectionTests: XCTestCase {
                           "\(host)'s piece row count does not filter the section")
             XCTAssertTrue(source.contains("figureCount: treeState.figureCountText("), host)
         }
+    }
+
+    /// **A note's travel to a figure the filter hides lifts the filter**
+    /// (review I1): the figure counterpart of `reveal` — the section opens,
+    /// the tree scrolls to the row; a figure the section has no row for (a
+    /// parked one) moves nothing.
+    func test_revealingAFigureTheFilterHidesLiftsTheFilterAndOpensTheSection() {
+        let state = state(listing)
+        state.showFigures(inPiece: "doc-b")
+        state.figuresSectionExpanded = false
+        state.scrollRequest = nil
+
+        state.revealFigure(cash.figureId)
+        XCTAssertEqual(state.pieceFilter, "doc-b", "a figure the filter shows keeps the filter")
+        XCTAssertTrue(state.figuresSectionExpanded)
+        XCTAssertEqual(state.scrollRequest, .row(.figure(cash.figureId)))
+
+        state.revealFigure(map.figureId)
+        XCTAssertNil(state.pieceFilter, "the filter hid the figure: lifted")
+        XCTAssertTrue(state.drawnFigureRows.contains { $0.id == map.figureId })
+        XCTAssertEqual(state.scrollRequest, .row(.figure(map.figureId)))
+
+        state.showFigures(inPiece: "doc-b")
+        state.scrollRequest = nil
+        state.revealFigure("fig-99999999")
+        XCTAssertEqual(state.pieceFilter, "doc-b", "no row for it: nothing moves")
+        XCTAssertNil(state.scrollRequest)
+    }
+
+    /// The pane reveals before it travels, and the window hands it the tree's reveal.
+    func test_theQueuesFigureTravelRevealsTheRowFirst() throws {
+        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        XCTAssertTrue(pane.contains("if case .figure(let id) = subject { revealFigure(id) }\n            onTravel(subject)"))
+        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        XCTAssertTrue(window.contains("revealFigure: { [treeState] in treeState.revealFigure($0) }"))
     }
 
     func test_aFilterOnAPieceThatNoLongerUsesAFigureLetsGo() {
