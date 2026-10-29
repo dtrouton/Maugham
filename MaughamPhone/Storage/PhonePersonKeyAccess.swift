@@ -20,23 +20,19 @@ import MaughamCore
 /// key, no claim, every existing phone suite behaviour-neutral.
 ///
 /// The decision is Core's `PersonKeyStoreChoice`, shared with the Mac's
-/// `PersonKeyAccess`; the host flag is this file's, because the phone cannot
-/// import the Mac's `TestHost` — it reads the same three environment keys.
+/// `PersonKeyAccess`; the host flag is Core's `TestProcess.isActive`, the same
+/// answer the Mac's `TestHost` gives.
 enum PhonePersonKeyAccess {
 
     /// Test-only: the store a suite injects. Process-wide, so a suite that
     /// sets it clears it in `tearDown`.
     nonisolated(unsafe) static var storeForTesting: (any PersonKeyStore)?
 
-    /// Whether this process is an XCTest host — the environment XCTest
-    /// injects, never a build flag, so the Debug app a developer runs by hand
-    /// is not mistaken for one. The same three keys as the Mac's `TestHost`.
-    static var isTestHost: Bool {
-        let env = ProcessInfo.processInfo.environment
-        return env["XCTestConfigurationFilePath"] != nil
-            || env["XCTestSessionIdentifier"] != nil
-            || env["XCTestBundlePath"] != nil
-    }
+    /// Whether this process is an XCTest host — MaughamCore's
+    /// `TestProcess.isActive`, never a build flag, so the Debug app a developer
+    /// runs by hand is not mistaken for one. The same answer as the Mac's
+    /// `TestHost`.
+    static var isTestHost: Bool { TestProcess.isActive }
 
     /// The store this process uses.
     static var store: any PersonKeyStore {

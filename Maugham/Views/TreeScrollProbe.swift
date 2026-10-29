@@ -70,7 +70,7 @@ enum TreeScrollProbeGate {
     ///
     /// `BuildVariant.dev` is the Debug configuration (`project.yml`), which is
     /// also what the xctest hosts build — so the variant alone would install
-    /// this in all 4,600 of them. `XCTestCase` being loadable is the
+    /// this in all 4,600 of them. Core's `TestProcess.isActive` is the
     /// discriminator, and it is checked ONCE at first touch rather than per
     /// body pass.
     ///
@@ -78,7 +78,7 @@ enum TreeScrollProbeGate {
     /// build too, for a session that wants a quiet Console.
     static let isEnabled: Bool = {
         guard BuildVariant.current == .dev else { return false }
-        guard NSClassFromString("XCTestCase") == nil else { return false }
+        guard !TestProcess.isActive else { return false }
         guard ProcessInfo.processInfo.environment["MAUGHAM_TREE_SCROLL_PROBE"] != "0"
         else { return false }
         return true
