@@ -34,6 +34,14 @@ struct RightColumn: View {
     let projectRoot: URL
     let canvasModel: CanvasModel
     let editorControl: EditorControl
+    /// The window's figure rows, read by the figure arm and its inspector.
+    let figureListing: FigureListingModel
+    /// The window's table-grid presence and the project's figure windows,
+    /// for the figure grid beside the canvas (report plan 8a Task 6).
+    let figureGridPresence: FigureGridPresence
+    let figureWindows: FigureWindows?
+    /// The project window, whose Format ▸ Table posts reach that grid.
+    let window: NSWindow?
     let publishCentre: PublishCentreModel
     /// What pin is being studied — the window's model, which the References
     /// pane writes and the study arm below is a function of.
@@ -72,6 +80,13 @@ struct RightColumn: View {
     let openPromotedArtifact: (_ itemId: String) -> Void
     /// The drawing door's posture for one document.
     let posture: (_ docId: String?) -> Posture
+    /// Whether the tree's Figures section draws a figure
+    /// (`BinderTreeSectionsState.drawsFigure`), for the annotation queue.
+    var drawsFigure: (String) -> Bool = { _ in false }
+    /// `BinderTreeSectionsState.revealFigure`, before a figure travel lands.
+    var revealFigure: (String) -> Void = { _ in }
+    /// The window's tree, whose cards pace the figure inspector's pin reads.
+    var figureTree: BinderTreeSectionsState? = nil
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -259,7 +274,9 @@ struct RightColumn: View {
             },
             // The Diagnostics header's "Define a first reader…" — the same
             // hand-off `InspectorView`'s "Project Settings…" gets.
-            onOpenProjectSettings: openProjectSettings
+            onOpenProjectSettings: openProjectSettings,
+            drawsFigure: drawsFigure,
+            revealFigure: revealFigure
         ) {
             researchOrSubject(store: store)
         }
@@ -279,8 +296,8 @@ struct RightColumn: View {
         }
     }
 
-    /// **The right column's outermost question: is the window about a research
-    /// item?** It sits ABOVE `inspectorRoute` — above the canvas too — because
+    /// **The right column's outermost question: is the window about a figure
+    /// (its inspector, `figureSubject`) or a research item?** It sits ABOVE `inspectorRoute` — above the canvas too — because
     /// in Plan the canvas keeps the centre, so a research click that did not
     /// reach this column would change nothing anywhere. `inspectorRoute` and
     /// `canvasCollapse` are left alone: the ⌘\ collapse must not answer
@@ -298,7 +315,9 @@ struct RightColumn: View {
     private func researchOrSubject(store: ProjectStore) -> some View {
         let placement = ProjectWindow.researchSubjectPlacement(
             persona: persona, subject: selectedSubject)
-        if let id = placement.inspectedItemID {
+        if let figureID = selectedSubject?.figureID {
+            figureSubject(figureID, store: store)
+        } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,
                 showsPreview: placement.previewsInTheRightColumn)
@@ -317,6 +336,37 @@ struct RightColumn: View {
                     onOpenProjectSettings: openProjectSettings,
                     posture: posture(selectedSubject?.itemID))
             }
+        }
+    }
+
+    /// **A figure subject's arm** (report plan 8a Task 7): its inspector, in
+    /// every persona. In Plan, where the canvas keeps the centre, the figure
+    /// itself stays where Task 6 put it — above, in this column — with its
+    /// inspector beneath, each taking half; elsewhere the figure is the
+    /// centre's (or, in Publish, nowhere) and the inspector has the column.
+    @ViewBuilder
+    private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
+        let inspector = FigureInspector(
+            figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
+            figureWindows: figureWindows, figureTree: figureTree, control: editorControl, persona: persona,
+            window: window, select: { selectedSubject = $0 },
+            showNotes: { id in
+                annotationScopeRequest = .project(focusPiece: id)
+                detailSegment = .annotations
+            })
+            .id(figureID)
+        if ProjectWindow.figureSubjectPlacement(persona: persona, subject: selectedSubject).besideFigureID != nil {
+            VStack(spacing: 0) {
+                FigureSubjectSurface(
+                    figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
+                    presence: figureGridPresence, listing: figureListing, control: editorControl,
+                    persona: persona, window: window)
+                    .frame(maxHeight: .infinity)
+                Divider()
+                inspector.frame(maxHeight: .infinity)
+            }
+        } else {
+            inspector
         }
     }
 

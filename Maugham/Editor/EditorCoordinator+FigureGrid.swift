@@ -330,7 +330,13 @@ extension EditorCoordinator {
         // This grid holds the figure from now until it folds.
         var hold: FigureWindows.InPlaceHold?
         if let windows = opening.windows {
-            hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focusFigureGrid() })
+            hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focusFigureGrid() },
+                                       fold: { [weak self] in
+                guard let self, self.figureGrid?.figureId == figureId else { return }
+                self.forceFoldFigureGrid(.sentToResearch)
+            }, grid: { [weak self] in
+                self?.figureGrid?.figureId == figureId ? self?.figureGrid?.controller : nil
+            })
             guard hold != nil else { return false }
         }
         let rows = model.map { $0.shownRowCount + $0.moreRows } ?? FigureGridExpansion.defaultRows
@@ -453,6 +459,7 @@ extension EditorCoordinator {
     private func mountFigureGrid(_ controller: FigureGridController, in expansion: FigureGridExpansion,
                                  on textView: NSTextView) {
         expansion.controller = controller
+        figureGridOpening?.windows?.gridsChanged()   // its visit is open (the figure inspector's Import)
         controller.onFold = { [weak self, weak expansion] in
             guard let self, let expansion, self.figureGrid === expansion else { return }
             self.closeFigureGrid()

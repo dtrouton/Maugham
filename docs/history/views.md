@@ -193,3 +193,33 @@ To make room for the `FigureCardCache.swift` Map row under the 8,000-word cap:
 
 - `showsStatusFooter` needs no Publish clause of its own because Publish's cover only covers altitude (`PublishPreviewCentreTests.test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`).
 - At altitude, clicking a card or table row writes `selectedSubject`, which lands on the same `EditorHost`.
+
+## Moved from the guide by report plan 8a Task 1 (2026-10-28)
+
+The rationale clauses of "The subject and the tree", "Tree furniture" and "Research subjects and the palette wall", cut to make room for plan 8a's Figures surfaces. Each rule's statement and its pinning test stay in the guide; these are the clauses that were cut (a leading `:`, `;` or `,` is the join to the rule), word for word:
+
+- ": a second picker beside it is two controls that can disagree."
+- ": AppKit writes `nil` when an untagged placeholder row is clicked, and the binding refuses it (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`)."
+- ": one-way counters both ways (tripwire 2), censused in `PromotionCommandTests`; ⇧Tab only where `ProjectWindow.binderTakesTheKeyboardBack`; a rename keeps Tab (`PlanBinderTabTests`)."
+- ": an anchor that leaves is replaced by the first remaining row in tree order (`ordered`, never `Set.first`). There is no sweep of the set; `SubjectValidationModifier` is the one rule about dead ids."
+- ": a set holding the project row or a chapter degrades every research verb to the row it was aimed at."
+- " a persona switch does not touch, replacing the left column**; `ProjectSearchView.close()` (✕ and Escape) is its one exit, reaching `applyCloseFind`. Closing find moves nobody."
+- " — none opens a `DetailSegment`. ⌘⌥R/⌘⌥P are no-ops while find covers the tree; ⌘⌥O still acts (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`)."
+- ": the rows inside the host's `List`, and the presentations (sheets, alert, deferred rename) outside it via `.binderTreeSections(…)`:"
+- ", including a fold's; `perform` surfaces a store failure in the shared alert, never `try?`."
+- " and defers the rename until the manifest shows the new row** (`pendingRenameId`); `refuseDrop` returns `false` and logs why."
+- ": it answers the row the tree can now show (the shared row, or the owning piece's row for a piece-scoped note)."
+- ": every tree host calls `consumingTreeScrollRequests` after the `ScrollViewReader` wrapping its `List`, with both triggers (`.onChange` and `.task`):"
+- ": a linked fold draws a tag twice, and `scrollTo` over two identical ids is ambiguous."
+- ": its rows are shared items drawn twice, and two rename fields race tripwire 16's focus claim."
+- "; a `+` menu on a fold row must not offer it until one exists."
+- ", and an unknown id refuses loudly (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`). Every mounted drop target calls the classifier ("
+- "; a `Void` closure accepts and discards:"
+- " (no store, no disk); use the by-item overload on the body path (tripwire 4). A Collection's piece-scoped roots never leak into the shared list (`TreeSectionDerivationTests`)."
+- "; trust its `settled` lines, never `installed`."
+- " (a locked editor, not an unmounted one)"
+- ": `revealResearchColumn` moves the right column to the inspector when an arriving subject previews there; `openResearchItem` and `handleShowLatestMCPNote` call it explicitly; `load()`'s restore does not force the pane. "
+- ", and is window `@State`, not persisted"
+- " and drops the stash rather than restoring it"
+- " writes the persona, opens nothing and writes no subject; `PaletteWallModifier`'s `.onChange(of: persona)` consumes it immediately AFTER `closePaletteWallOnPersonaChange`, in the same handler."
+

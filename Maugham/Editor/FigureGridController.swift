@@ -1178,6 +1178,27 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         if selection.focus != selection.anchor { execute(model.reduce(.click(selection.focus, extend: true))) }
     }
 
+    // MARK: Refresh from Research (report plan 8a Task 7)
+
+    /// **Refresh** (spec §4.3): the figure inspector's Compare sheet asks the
+    /// grid open on the figure, so the refresh is one step on THIS grid's
+    /// stack (`refreshPins`, one ⌘Z, ruling P-8), in turn behind every write
+    /// asked before it. An open edit is committed first, and one that will
+    /// not read stops it (R7c-8); a read-only grid answers with its reason
+    /// and writes nothing. Answers the write (a test awaits it), nil when
+    /// nothing was asked.
+    @discardableResult
+    func refreshPinsFromResearch() -> Task<Void, Never>? {
+        syncFromHost()
+        if let reason = mode.readOnlyReason {
+            answer(reason)
+            return nil
+        }
+        guard !isFolded, commitOpenEdit() else { return nil }
+        enqueue { [host, gridUndo] in try await host.refreshPins(undoManager: gridUndo) }
+        return writes
+    }
+
     // MARK: Import from CSV (plan 7d Task 4)
 
     /// Shows the open panel and answers the chosen file (nil: cancelled). A

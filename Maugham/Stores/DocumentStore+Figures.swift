@@ -156,8 +156,10 @@ extension DocumentStore {
         figureCardCaches.remove(cache)
     }
 
-    /// Every attached window's figure cards refill (final review I1).
+    /// Every attached window's figure cards refill (final review I1), and
+    /// `figureRevision` moves for the readers that hold no cache.
     func invalidateFigureCards() {
+        figureRevision &+= 1
         for cache in figureCardCaches.allObjects { cache.invalidate() }
     }
 

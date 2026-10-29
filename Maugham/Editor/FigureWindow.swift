@@ -86,6 +86,19 @@ final class FigureWindows {
     /// The figures expanded in place now, each with its one hold.
     private(set) var inPlaceHolds: [String: InPlaceHold] = [:]
     @ObservationIgnored private var inPlaceFocusers: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// Each in-place grid's forced fold, for a send asked from outside it.
+    @ObservationIgnored private var inPlaceFolders: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// The holds that give way to a figure window (the centre's), each with
+    /// its yield: the visit ends and the hold goes, synchronously.
+    @ObservationIgnored private var inPlaceYielders: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// **Moves whenever a grid's visit opens or goes** (observed): its
+    /// controller mounts after an await, which no registry above is seen to
+    /// change, so a surface that offers an act through the open grid (the
+    /// figure inspector's Import and Refresh) asks `hasGrid(on:)`, which reads
+    /// this. Bumped by `gridsChanged()`.
+    private(set) var gridRevision = 0
+    /// Each in-place grid's visit, once it has opened (`gridController(on:)`).
+    @ObservationIgnored private var inPlaceGrids: [InPlaceHold: @MainActor () -> FigureGridController?] = [:]
     /// The visit each figure's last in-place fold is still ending, so the
     /// next grid to expand it — in any window — begins its own after it.
     @ObservationIgnored private var visitsEnding: [String: Task<Void, Never>] = [:]
@@ -96,6 +109,8 @@ final class FigureWindows {
     static let openingGrace: Duration = .seconds(3)
     /// Each window's finish (its open edit committed, its writes asked).
     @ObservationIgnored private var finishers: [Registration: @MainActor () -> Void] = [:]
+    /// Each window's grid visit, once it has opened.
+    @ObservationIgnored private var windowGrids: [Registration: @MainActor () -> FigureGridController?] = [:]
     /// Windows' last writes still landing; `settle` awaits them.
     @ObservationIgnored private var finishing: [Task<Void, Never>] = []
 
@@ -148,13 +163,16 @@ final class FigureWindows {
     /// edit committed, its writes asked) before a project close awaits them.
     func opened(_ figureId: String, focus: @escaping @MainActor () -> Void = {},
                 finish: @escaping @MainActor () -> Void = {},
+                grid: (@MainActor () -> FigureGridController?)? = nil,
                 close: @escaping @MainActor () -> Void) -> Registration {
         serial += 1
         let registration = Registration(figureId: figureId, serial: serial)
         closers[registration] = close
         focusers[registration] = focus
         finishers[registration] = finish
+        windowGrids[registration] = grid
         windowsOpening[figureId] = nil
+        yieldInPlace(figureId)
         recount()
         return registration
     }
@@ -165,6 +183,8 @@ final class FigureWindows {
     func closed(_ registration: Registration) {
         focusers[registration] = nil
         finishers[registration] = nil
+        windowGrids[registration] = nil
+        gridsChanged()
         guard closers.removeValue(forKey: registration) != nil else { return }
         if !closers.keys.contains(where: { $0.figureId == registration.figureId }) {
             handoffs[registration.figureId] = nil
@@ -175,14 +195,17 @@ final class FigureWindows {
     /// **R7d-9**: the grid open on `figureId` comes front and takes the keys
     /// — its figure window, or the project window it is expanded in. A
     /// double-click or Return on its card asks this instead of expanding.
-    /// False when no grid is open on it.
+    /// False when no grid is open on it. `passingOverAYieldingHold`: a hold
+    /// that gives way to a window (the centre's) is not answered, so Open in
+    /// Window opens one.
     @discardableResult
-    func focus(_ figureId: String) -> Bool {
+    func focus(_ figureId: String, passingOverAYieldingHold: Bool = false) -> Bool {
         if let focus = focusers.first(where: { $0.key.figureId == figureId })?.value {
             focus()
             return true
         }
         guard let hold = inPlaceHolds[figureId], let focus = inPlaceFocusers[hold] else { return false }
+        if passingOverAYieldingHold, inPlaceYielders[hold] != nil { return false }
         focus()
         return true
     }
@@ -190,25 +213,90 @@ final class FigureWindows {
     // MARK: Grids in place (final review I1)
 
     /// **A grid is expanding `figureId` in place**; `focus` brings its
-    /// project window front with the grid's keys. Nil — expand nothing —
-    /// when another grid already has the figure.
-    func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void) -> InPlaceHold? {
+    /// project window front with the grid's keys, `fold` folds it as a send
+    /// to Research does (`foldGrids(on:)`). Nil — expand nothing — when
+    /// another grid already has the figure. `yield`, for a hold that gives
+    /// way to a figure window (the centre's): run synchronously when a window
+    /// is handed the figure or registers on it, and when the project's last
+    /// window goes (`closeAll`) — its visit ends and its hold goes before the
+    /// window's grid awaits `visitEnded`.
+    func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void,
+                     fold: @escaping @MainActor () -> Void,
+                     yield: (@MainActor () -> Void)? = nil,
+                     grid: (@MainActor () -> FigureGridController?)? = nil) -> InPlaceHold? {
         guard !isHeld(figureId) else { return nil }
         serial += 1
         let hold = InPlaceHold(figureId: figureId, serial: serial)
         inPlaceHolds[figureId] = hold
         inPlaceFocusers[hold] = focus
+        inPlaceFolders[hold] = fold
+        inPlaceYielders[hold] = yield
+        inPlaceGrids[hold] = grid
+        gridsChanged()
         return hold
+    }
+
+    /// **Is a grid's visit open on `figureId` now?** Observed: a view asking
+    /// it is redrawn when a grid mounts or goes (`gridRevision`).
+    func hasGrid(on figureId: String) -> Bool { gridController(on: figureId) != nil }
+
+    /// A grid's visit opened (its controller mounted) or ended: `hasGrid` moves.
+    func gridsChanged() { gridRevision &+= 1 }
+
+    /// **The visit of the grid open on `figureId`**, wherever it is — in
+    /// place (the centre's, an editor's) or in a figure window — once it has
+    /// opened; nil when no grid has the figure. The figure inspector's
+    /// Import from CSV and Refresh act through it, so their writes land on
+    /// that grid's own stack (report plan 8a Task 7).
+    func gridController(on figureId: String) -> FigureGridController? {
+        _ = gridRevision   // observed: the answer moves with it
+        if let hold = inPlaceHolds[figureId], let controller = inPlaceGrids[hold]?() { return controller }
+        for (registration, grid) in windowGrids where registration.figureId == figureId {
+            if let controller = grid() { return controller }
+        }
+        return nil
+    }
+
+    /// The hold on `figureId` gives way, if it is one that does.
+    private func yieldInPlace(_ figureId: String) {
+        guard let hold = inPlaceHolds[figureId], let yield = inPlaceYielders[hold] else { return }
+        yield()
     }
 
     /// The grid holding `hold` folded; `visitEnding` is its visit still
     /// ending, which the next grid on the figure awaits. A second call does nothing.
     func releaseInPlace(_ hold: InPlaceHold, visitEnding: Task<Void, Never>?) {
         inPlaceFocusers[hold] = nil
+        inPlaceFolders[hold] = nil
+        inPlaceYielders[hold] = nil
+        inPlaceGrids[hold] = nil
+        gridsChanged()
         guard inPlaceHolds[hold.figureId] == hold else { return }
         inPlaceHolds[hold.figureId] = nil
         if let visitEnding { visitsEnding[hold.figureId] = visitEnding }
     }
+
+    /// **Every grid on `figureId` folds, and its writes land** (report plan
+    /// 8a Task 4): what a Send to Research asked from outside a grid (a tree
+    /// row) awaits first, as the grid's own send folds its frame first
+    /// (R7d-7) — a window closes (its `willClose` finishes the visit), an
+    /// in-place grid force-folds. Bounded by `settle`, so it never hangs.
+    func foldGrids(on figureId: String) async {
+        if let hold = inPlaceHolds[figureId], let fold = inPlaceFolders[hold] { fold() }
+        for (registration, close) in closers where registration.figureId == figureId { close() }
+        await visitEnded(figureId)
+        _ = await settle(within: .seconds(5))
+    }
+
+    /// **Each figure's refused sends, counted** (observed): a Send to
+    /// Research asked from outside the grids folds them first
+    /// (`foldGrids(on:)`); when the store then refuses it, the figure is
+    /// still where it was, so a grid that left for the send — the centre's —
+    /// takes it again (final review M4).
+    private(set) var sendsRefused: [String: Int] = [:]
+
+    /// A send that folded `figureId`'s grids was refused.
+    func sendRefused(_ figureId: String) { sendsRefused[figureId, default: 0] &+= 1 }
 
     /// The last in-place visit on `figureId` has ended (at once when none is ending).
     func visitEnded(_ figureId: String) async {
@@ -220,6 +308,7 @@ final class FigureWindows {
     func handOff(_ figureId: String, _ handoff: Handoff) {
         handoffs[figureId] = handoff
         if !isOpen(figureId) { windowsOpening[figureId] = .now }
+        yieldInPlace(figureId)
     }
 
     /// **An editor's review toggle flipped**: each window it opened follows
@@ -275,10 +364,17 @@ final class FigureWindows {
     /// them), then closes. Forgotten first, so a window's own `closed`
     /// arriving during its close is a no-op.
     func closeAll() {
+        // The holds that give way (the centre's) leave for good, as a send
+        // folds them: an open edit committed, its writes tracked for
+        // `settle` — and never taking the figure again against the store
+        // that is closing (final review M3).
+        for hold in Array(inPlaceYielders.keys) { inPlaceFolders[hold]?() }
         let closing = Array(closers.values), finishing = Array(finishers.values)
         closers = [:]
         focusers = [:]
         finishers = [:]
+        windowGrids = [:]
+        gridsChanged()
         handoffs = [:]
         windowsOpening = [:]
         recount()
@@ -361,9 +457,49 @@ private final class ResumeOnce {
 ///
 /// Format ▸ Table reaches it through `presence` (the window's focused value)
 /// and `perform`.
+///
+/// **One type, two frames** (report plan 8a Task 6): the figure window, and
+/// the centre column (`FigureCentreGrid`), which hands it its own `Frame` —
+/// the line from the window's figure listing, its own review and share
+/// answers, no Done, and the keys left where they are at mount.
 @MainActor
 final class FigureWindowGrid {
-    let presence = FigureGridPresence()
+    /// **What the frame the grid mounts in supplies**: the bottom bar's line
+    /// at open, the piece Send to Research defaults to, the typography, and
+    /// the review and share answers the gate reads each time it is asked.
+    struct Frame {
+        var number: String
+        var caption: String
+        var piece: String?
+        var typography: TypographySettings
+        var isReviewMode: @MainActor () -> Bool
+        var shareIsReadOnly: @MainActor () -> Bool
+        /// The grid takes the keys when it mounts (a window); the centre
+        /// leaves them where the writer has them (the tree).
+        var takesTheKeysAtMount = true
+        /// Done is offered (a window closes); the centre has nothing to close.
+        var offersDone = true
+        /// The line follows `FigureWindows.lineChanged` (a window); the centre's
+        /// follows its listing instead (`refreshLine`).
+        var listensForTheLine = true
+        /// Format ▸ Table is armed only while the grid has the window's keys
+        /// (the centre, which sits mounted while the writer types in the tree
+        /// or a scrap); a window's grid is armed for its life.
+        var armsTheMenuOnlyWithTheKeys = false
+
+        /// A figure window's: what the opening grid handed over, the share
+        /// as the project windows last told it, review mode the opening editor's.
+        @MainActor static func window(_ figureId: String, windows: FigureWindows) -> Frame {
+            let handoff = windows.handoff(for: figureId)
+            return Frame(
+                number: handoff?.number ?? ElementWords.english.table, caption: handoff?.caption ?? "",
+                piece: handoff?.piece, typography: handoff?.typography ?? .defaults,
+                isReviewMode: { [weak windows] in windows?.handoff(for: figureId)?.isReviewMode ?? false },
+                shareIsReadOnly: { [weak windows] in windows?.shareIsReadOnly ?? false })
+        }
+    }
+
+    let presence: FigureGridPresence
     var perform: (@MainActor (FigureTableCommand) -> Void)?
     /// The view the panel is mounted in (the window's content).
     let container = FigureWindowGridContainer()
@@ -378,41 +514,68 @@ final class FigureWindowGrid {
     private(set) var reseeding: Task<Void, Never>?
     private(set) var isFinished = false
     private weak var store: DocumentStore?
+    private weak var projectStore: ProjectStore?
     private weak var windows: FigureWindows?
     private var listener: FigureWindows.Listener?
-    /// The window's figure cards, filled from the store's triggers.
-    private var cards: FigureCardCache?
+    /// The window's figure cards, filled from the store's triggers and the
+    /// manifest's edges (a test reads them).
+    private(set) var cards: FigureCardCache?
+    /// The next look at the registry and Research (`watchTheManifest`).
+    private var manifestWatch: Task<Void, Never>?
     /// The line as last told, for a visit still opening.
     private var line: (number: String, caption: String)?
+    private var frame: Frame?
+    /// The window's first responder, watched while the frame arms the menu only with the keys.
+    private var keysWatch: NSKeyValueObservation?
+
+    /// `presence` is the frame's: a window's own, or the project window's
+    /// (the centre), which Format ▸ Table reads.
+    init(presence: FigureGridPresence? = nil) {
+        self.presence = presence ?? FigureGridPresence()
+    }
 
     /// **Open the visit** on `figureId` through the project window's stores,
     /// with what the opening grid handed over (`windows.handoff`); the grid
     /// mounts when it has opened. `close` closes the window. Once only.
     func open(figureId: String, store: DocumentStore, projectStore: ProjectStore, windows: FigureWindows,
               close: @escaping @MainActor () -> Void) {
+        open(figureId: figureId, store: store, projectStore: projectStore, windows: windows,
+             frame: .window(figureId, windows: windows), close: close)
+    }
+
+    /// **Open the visit in `frame`**: after the figure's last in-place visit
+    /// has ended (`FigureWindows.visitEnded`), so a grid that let the figure
+    /// go a moment ago has landed its writes first. `close` is Done's and
+    /// Send to Research's. Once only.
+    func open(figureId: String, store: DocumentStore, projectStore: ProjectStore, windows: FigureWindows,
+              frame: Frame, close: @escaping @MainActor () -> Void) {
         guard opening == nil, !isFinished else { return }
         self.store = store
+        self.projectStore = projectStore
         self.windows = windows
-        let handoff = windows.handoff(for: figureId)
-        listener = windows.listen(figureId, line: { [weak self] number, caption in
-            self?.refreshLine(number: number, caption: caption)
-        }, access: { [weak self] in
-            self?.refreshAccess()
-        })
+        self.frame = frame
+        if frame.listensForTheLine {
+            listener = windows.listen(figureId, line: { [weak self] number, caption in
+                self?.refreshLine(number: number, caption: caption)
+            }, access: { [weak self] in
+                self?.refreshAccess()
+            })
+        }
         let line = FigureGridController.Line(
-            number: handoff?.number ?? ElementWords.english.table,
-            caption: handoff?.caption ?? "",
+            number: frame.number, caption: frame.caption,
             commitCaption: { _ in false })   // R7d-6: the caption is the text's
-        opening = Task { @MainActor [weak self] in
+        opening = Task { @MainActor [weak self, weak windows] in
+            await windows?.visitEnded(figureId)
             do {
+                guard let self, !self.isFinished else { return }
                 let controller = try await FigureGridController.open(
                     figureId: figureId, store: store, projectStore: projectStore,
-                    typography: handoff?.typography ?? .defaults, line: line)
-                guard let self, !self.isFinished else {
+                    typography: frame.typography, line: line)
+                guard !self.isFinished else {
                     controller.close()
                     return
                 }
-                self.mount(controller, piece: handoff?.piece, close: close)
+                self.mount(controller, piece: frame.piece, close: close)
             } catch {
                 guard let self, !self.isFinished else { return }
                 self.container.show(message: "The table couldn\u{2019}t be opened: \(error.localizedDescription)")
@@ -424,25 +587,65 @@ final class FigureWindowGrid {
                        close: @escaping @MainActor () -> Void) {
         self.controller = controller
         controller.researchPiece = piece
-        controller.foldsOnEscape = false   // Esc closes no window
+        controller.foldsOnEscape = false   // Esc closes no window, and leaves no centre
         controller.onFold = close   // Done
+        controller.bars.doneButton.isHidden = !(frame?.offersDone ?? true)
         controller.onSendToResearch = close   // the window goes first (R7d-7)
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
-        controller.onMenuStateChange = { [weak self] state in
-            guard let self, !self.isFinished else { return }
-            self.presence.show(state)
-        }
+        controller.onMenuStateChange = { [weak self] _ in self?.showPresence() }
         if let line { controller.refreshLine(number: line.number, caption: line.caption) }
-        perform = { [weak controller] command in controller?.performTableCommand(command) }
+        perform = { [weak self] command in
+            guard let self, self.isArmed else { return }
+            self.controller?.performTableCommand(command)
+        }
         refreshAccess()
-        presence.expanded()
-        presence.show(controller.menuState)
         watchTheBook()
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
-        container.window?.makeFirstResponder(controller.gridView)
+        windows?.gridsChanged()   // its visit is open: Import and Refresh may reach it
+        watchTheKeys()
+        if frame?.takesTheKeysAtMount ?? true { container.window?.makeFirstResponder(controller.gridView) }
+        showPresence()
+    }
+
+    /// **The grid, its cell editor or its bars have the window's keys.**
+    var hasTheKeys: Bool {
+        guard let panel, let responder = container.window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: panel)
+    }
+
+    /// Format ▸ Table may reach the grid now.
+    private var isArmed: Bool {
+        !isFinished && (!(frame?.armsTheMenuOnlyWithTheKeys ?? false) || hasTheKeys)
+    }
+
+    /// The window's presence says what Format ▸ Table may do while the grid
+    /// is armed, and nothing while it is not.
+    private func showPresence() {
+        guard let controller, !isFinished else { return }
+        if isArmed {
+            presence.expanded()
+            presence.show(controller.menuState)
+        } else {
+            presence.folded()
+        }
+    }
+
+    /// The keys moving in or out of the grid re-arm the menu (a frame that
+    /// arms it only with the keys), whichever window the container is in.
+    private func watchTheKeys() {
+        guard frame?.armsTheMenuOnlyWithTheKeys ?? false else { return }
+        let observe = { [weak self] (window: NSWindow?) in
+            guard let self else { return }
+            self.keysWatch = window?.observe(\.firstResponder, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.showPresence() }
+            }
+            self.showPresence()
+        }
+        container.onWindowChange = observe
+        observe(container.window)
     }
 
     /// The window's own card cache over the store, as a project window's:
@@ -458,6 +661,37 @@ final class FigureWindowGrid {
         store.attachFigureCardCache(cards)
         cards.attach(FigureCardCache.Source(read: { [weak store] in await store?.figureCardInputs() }))
         self.cards = cards
+        watchTheManifest()
+    }
+
+    /// The registry or Research as the cards last heard them.
+    private struct ManifestEdges: Equatable {
+        let figures: [FigureRecord]?
+        let research: [ResearchItem]
+    }
+
+    /// **The registry and Research, watched** — the edges every card owner
+    /// carries (`FigureCardCacheTests.cardCacheOwners`): a figure made,
+    /// renamed or removed here reaches no store trigger, and Research
+    /// changing moves a pin's source (its flag) and a `research:` formula's
+    /// value, which no figure op announces. Either refills the cards.
+    /// Re-armed after each change, until the visit finishes.
+    private func watchTheManifest(seen: ManifestEdges? = nil) {
+        guard !isFinished, let projectStore else { return }
+        let now = ManifestEdges(figures: projectStore.manifest.figures, research: projectStore.manifest.research)
+        if let seen, seen != now { cards?.invalidate() }
+        withObservationTracking {
+            _ = projectStore.manifest.figures
+            _ = projectStore.manifest.research
+        } onChange: { [weak self] in
+            // The manifest is the main actor's: its change is announced there.
+            MainActor.assumeIsolated {
+                guard let self, !self.isFinished else { return }
+                self.manifestWatch = Task { @MainActor [weak self] in
+                    self?.watchTheManifest(seen: now)
+                }
+            }
+        }
     }
 
     /// **The figure line's "Table N" and caption changed** in the book.
@@ -467,17 +701,19 @@ final class FigureWindowGrid {
         controller?.refreshLine(number: number, caption: caption)
     }
 
-    /// **The gate, asked again** over the window's door, the host, the share
-    /// and the opening editor's review mode. The caption stays locked (R7d-6).
+    /// **The gate, asked again** over the window's door, the host, and the
+    /// frame's share and review answers (a window's: the share as the project
+    /// windows last told it, the opening editor's review mode). The caption
+    /// stays locked (R7d-6).
     func refreshAccess() {
         guard let controller, !isFinished else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
-            shareIsReadOnly: windows?.shareIsReadOnly ?? false,
-            isReviewMode: windows?.handoff(for: controller.figureId)?.isReviewMode ?? false,
+            shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
+            isReviewMode: frame?.isReviewMode() ?? false,
             isTranslationReview: false)
-        // `.noExpand` is translation review's alone, which a window never is.
+        // `.noExpand` is translation review's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }
         controller.setAccess(mode, captionMayEdit: false)
     }
@@ -491,9 +727,13 @@ final class FigureWindowGrid {
     func finish() {
         guard !isFinished else { return }
         isFinished = true
+        windows?.gridsChanged()   // a finished visit takes no Import or Refresh
         opening?.cancel()
+        keysWatch = nil
+        container.onWindowChange = nil
         presence.folded()
         if let listener { windows?.stopListening(listener) }
+        manifestWatch?.cancel()
         if let cards {
             cards.attach(nil)
             store?.detachFigureCardCache(cards)
@@ -504,11 +744,13 @@ final class FigureWindowGrid {
         controller.foldForced()
         controller.didFold()
         panel?.removeFromSuperview()
+        let windows = windows
         let finishing = Task { @MainActor [weak self] in
             await controller.settleWrites()
             controller.close()
             // A closed scene's state may be kept: hold no grid, view or stack (M11).
             self?.controller = nil
+            windows?.gridsChanged()
             self?.panel = nil
             self?.perform = nil
         }
@@ -537,6 +779,14 @@ final class FigureWindowGridContainer: NSView {
 
     var message: String { label.stringValue }
 
+    /// Told when the container moves to another window (or none).
+    var onWindowChange: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?(window)
+    }
+
     func show(message: String) {
         label.stringValue = message
         label.isHidden = false
@@ -561,8 +811,8 @@ final class FigureWindowGridContainer: NSView {
     }
 }
 
-/// The container, as SwiftUI shows it.
-private struct FigureWindowGridHost: NSViewRepresentable {
+/// The container, as SwiftUI shows it — a figure window's, or the centre's.
+struct FigureWindowGridHost: NSViewRepresentable {
     let container: FigureWindowGridContainer
     func makeNSView(context: Context) -> FigureWindowGridContainer { container }
     func updateNSView(_ nsView: FigureWindowGridContainer, context: Context) {}
@@ -635,6 +885,8 @@ struct FigureWindow: View {
             window?.makeKeyAndOrderFront(nil)
         }, finish: { [grid] in
             grid.finish()
+        }, grid: { [weak grid] in
+            grid?.isFinished == false ? grid?.controller : nil
         }, close: { [weak window] in
             window?.close()
         })

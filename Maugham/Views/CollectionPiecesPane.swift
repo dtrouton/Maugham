@@ -181,7 +181,11 @@ struct CollectionPiecesPane: View {
                 treeVerbs.routeExternalDrop(
                     providers: providers, position: position,
                     target: .pieceRow(piece.id))
-            })
+            },
+            // `BinderView.row(for:)`'s figure count, the same two reads.
+            figureCount: treeState.figureCountText(
+                forPiece: piece.id, projectType: store.manifest.type),
+            onShowFigures: { treeState.showFigures(inPiece: piece.id) })
             .contextMenu {
                 // Only what the posture allows (P3c Task 8) — `BinderView`'s
                 // `TreeStructureVerbs`, one decision for both trees. Promoting a

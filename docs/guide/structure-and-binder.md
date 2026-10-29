@@ -43,6 +43,14 @@ If gaps appear in numbering after deletes, **Tidy Filenames** (right-click a gro
 
 A chapter you deleted and then let go of — by emptying Trash, deleting it from Trash permanently, or leaving it there for 30 days — is not offered back here, on this Mac or, once the record of it has synced, on any other. Its history stays in the book's files, as it always has.
 
+### Figures in the binder
+
+Once a project has a figure (a table or an image made with Insert), a **Figures** section appears at the foot of the binder, with the Research and Palette sections. A project with no figures shows none, and a figure in the Trash or sent to Research is not listed. Each row shows the figure's number in the book's own words ("Table 2", "Figure 1"; "—" until a line uses it), its caption or name, and small tags: **Research** (it reads values pinned from Research), **changed** (a source it reads has changed) and **unused** (no line uses it).
+
+- **Select a figure** to bring it forward. In Author and Review a table's grid takes the centre column (read-only in Review), and an image is shown large. In Plan the figure appears beside the planning canvas, in the right column, with its inspector beneath; the canvas stays where it is. In Publish nothing moves, since the centre is the book.
+- **Filter by piece.** A piece row that holds figures shows how many; click the count and the Figures section lists only that piece's figures. The chip in the section's header clears the filter.
+- **Right-click a figure** for **Open in Window**, **Send to Research** (this piece's Research or Shared Research) and **Rename**. In a read-only share, in review mode, or where this Mac may not change figures, only Open in Window is offered.
+
 ### The Inspector
 
 Click an item to see its metadata:

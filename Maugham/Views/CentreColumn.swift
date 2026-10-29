@@ -27,11 +27,16 @@ struct CentreColumn: View {
     let documentStore: DocumentStore
     let canvasModel: CanvasModel
     let editorControl: EditorControl
+    /// The window's reference index (report plan 8a Task 2), handed to the
+    /// manuscript editor; read nowhere here.
+    let referenceIndex: ReferenceIndexHost
+    /// The window's figure rows (report plan 8a), read by the figure route.
+    let figureListing: FigureListingModel
     /// The window's table-grid presence (report plan 7c Task 9), handed to
-    /// the manuscript editor's grid opening; read nowhere here.
+    /// the manuscript editor's grid opening and the figure route's grid.
     let figureGridPresence: FigureGridPresence
     /// The project's figure windows (plan 7d Task 9), handed to the same
-    /// opening; read nowhere here.
+    /// opening and the figure route's grid (one grid per host).
     let figureWindows: FigureWindows?
     @Bindable var publishCentre: PublishCentreModel
     let designer: DesignerOrchestrator
@@ -119,6 +124,11 @@ struct CentreColumn: View {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
                                   readOnly: !persona.editsResearchInTheCentre)
+        case .figure(let id):
+            FigureSubjectSurface(
+                figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
+                presence: figureGridPresence, listing: figureListing, control: editorControl,
+                persona: persona, window: window)
         case .canvas:
             canvasCentre(store: store, documentStore: documentStore)
         case .reference(let piece):
@@ -184,6 +194,7 @@ struct CentreColumn: View {
                 // hard-locked (lockEditing) via `ProjectWindow.editorMembrane`
                 // mirrored into the control.
                 control: editorControl,
+                referenceIndex: referenceIndex,
                 figureGridPresence: figureGridPresence,
                 figureWindows: figureWindows,
                 // A note written from the margin carries the pass this piece is

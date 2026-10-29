@@ -24,6 +24,16 @@ extension ProjectType {
         }
     }
 
+    /// True when the project's manuscript is prose, which is where a figure
+    /// (an image, a table, a chart) can be placed. A screenplay and an
+    /// `.unknown` kind hold none.
+    public var holdsFigures: Bool {
+        switch self {
+        case .shortStory, .novel, .collection: return true
+        case .screenplay, .unknown: return false
+        }
+    }
+
     /// The SF Symbol that stands for this kind of project.
     public var symbolName: String {
         switch self {

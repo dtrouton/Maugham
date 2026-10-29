@@ -34,6 +34,20 @@ final class ProjectKindSitePinsTests: XCTestCase {
         }
     }
 
+    /// The kinds whose manuscript is prose, where a figure can be placed.
+    private func holdsFiguresExpected(_ type: ProjectType) -> Bool {
+        switch type {
+        case .shortStory, .novel, .collection: return true
+        case .screenplay, .unknown: return false
+        }
+    }
+
+    func test_holdsFigures_isTrueForProseKindsOnly() {
+        for type in everyKind {
+            XCTAssertEqual(type.holdsFigures, holdsFiguresExpected(type), "\(type)")
+        }
+    }
+
     // MARK: - ProjectWindow's routes
 
     func test_binderShell_isCollectionForACollectionOnly() {

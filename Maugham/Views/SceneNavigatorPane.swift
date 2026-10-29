@@ -229,6 +229,7 @@ struct SceneNavigatorPane: View {
                     subject: selectedSubject,
                     structure: store.manifest.structure,
                     research: store.manifest.research,
+                    figures: BinderTreeSelection.drawnFigureOrder(treeState),
                     // One row written is still this pane's own rule, unchanged
                     // — including the `nil` an untagged slugline writes.
                     single: { Self.subject($0, whenListWrites: $1,
@@ -257,6 +258,9 @@ struct SceneNavigatorPane: View {
         case .project: return .project
         case .item(let id): return id == documentID ? .item(id) : nil
         case .research(let id): return .research(id)
+        // A figure passes through for the research case's reason: the
+        // sections at this list's foot are where a figure row would be.
+        case .figure(let id): return .figure(id)
         case .none: return nil
         }
     }
@@ -276,7 +280,7 @@ struct SceneNavigatorPane: View {
         switch written {
         case .item(let id):
             return id == documentID ? .item(id) : current
-        case .project, .research, .none:
+        case .project, .research, .figure, .none:
             return BinderTreeSelection.subject(current, whenListWrites: written)
         }
     }
@@ -316,7 +320,9 @@ struct SceneNavigatorPane: View {
                         whenNavigatingTo documentID: String?) -> BinderSubject? {
         switch current {
         case .item: return current
-        case .project, .research, .none:
+        // A figure subject is reclaimed with the research one: no editor is
+        // mounted under it either, so the scene post would reach nothing.
+        case .project, .research, .figure, .none:
             return documentID.map(BinderSubject.item) ?? current
         }
     }

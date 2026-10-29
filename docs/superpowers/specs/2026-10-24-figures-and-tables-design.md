@@ -275,6 +275,11 @@ An assistant suggestion or note anchored to a cell shows a dot on that cell, bot
 
 ## 7. The Figures area
 
+Denver, 2026-10-28:
+- **The middle path:** the section shows only when the project has a figure. Piece folds do not list figures. Instead a piece row shows a count of the figures its text uses, and clicking it filters the section to that piece.
+- **Drag to Research confirms:** dropping a figure on Research asks once, because Send to Research is not undoable.
+- **Research CSVs edit in the grid in plan 8:** undo works while the grid is open, and the guide says saved changes are not versioned until plan 9.
+
 - **Tree section.** A new section between the manuscript and Research, in every project kind that has a manuscript (a capability query, tripwire 55). Each row shows the number ("Table 2", "Fig 1", or "—" when unused), the name or caption, and tags:
   - **Research:** has pins;
   - **changed:** a pin or snapshot source moved on;

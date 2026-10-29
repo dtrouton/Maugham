@@ -76,7 +76,8 @@ final class BinderSubjectTests: XCTestCase {
     }
 
     func test_everySubjectRoundTrips() throws {
-        for subject in [BinderSubject.project, .item("doc-1"), .research("r-1"), nil]
+        for subject in [BinderSubject.project, .item("doc-1"), .research("r-1"),
+                        .figure("fig-0a1b2c3d"), nil]
             as [BinderSubject?] {
             var state = UIState.empty
             state.selectedSubject = subject
@@ -99,6 +100,30 @@ final class BinderSubjectTests: XCTestCase {
         XCTAssertNil(object?["selectedItemId"])
         XCTAssertNil(object?["selectedSubjectIsProject"])
         XCTAssertEqual(object?["selectedResearchItemId"] as? String, "r-1")
+    }
+
+    /// **The fourth key, the same way** (report plan 8a): a figure subject is
+    /// written under its own `selectedFigureId` and under none of the other
+    /// three, so a build that predates figures restores no selection and lands
+    /// on the project row rather than on a row that shares the id.
+    func test_theFigureSubjectWritesItsOwnKeyAndNoOther() throws {
+        var state = UIState.empty
+        state.selectedSubject = .figure("fig-0a1b2c3d")
+        let object = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(state)) as? [String: Any]
+        XCTAssertNil(object?["selectedItemId"])
+        XCTAssertNil(object?["selectedSubjectIsProject"])
+        XCTAssertNil(object?["selectedResearchItemId"])
+        XCTAssertEqual(object?["selectedFigureId"] as? String, "fig-0a1b2c3d")
+    }
+
+    /// A file written before figure subjects — a research subject, no
+    /// `selectedFigureId` — still decodes to what it said.
+    func test_aFileFromBeforeFigureSubjectsStillDecodes() throws {
+        let json = Data(#"{"schemaVersion":5,"selectedResearchItemId":"r-7"}"#.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertEqual(decoded.selectedSubject, .research("r-7"))
+        XCTAssertNil(decoded.selectedSubject?.figureID)
     }
 
     /// An older build's file — no `selectedResearchItemId` key at all — must

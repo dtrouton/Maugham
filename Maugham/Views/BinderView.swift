@@ -312,7 +312,12 @@ struct BinderView: View {
                 treeVerbs.routeExternalDrop(
                     providers: providers, position: position,
                     target: .pieceRow(item.id))
-            }
+            },
+            // The figures this chapter's text uses (D8-1), read off the
+            // tree's cached rows; pressing it filters the Figures section.
+            figureCount: treeState.figureCountText(
+                forPiece: item.id, projectType: store.manifest.type),
+            onShowFigures: { treeState.showFigures(inPiece: item.id) }
         )
         .contextMenu {
             // **Only what the posture allows, hidden rather than greyed** (P3c

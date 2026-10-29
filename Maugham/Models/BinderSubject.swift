@@ -56,6 +56,14 @@ public enum BinderSubject: Hashable, Sendable {
     /// accessor, the mirror of `itemID`.
     case research(String)
 
+    /// A figure (a table or a figure) of the project's registry, by
+    /// `FigureRecord.id` — the Figures section's leaf (report plan 8a).
+    /// Neither `itemID` nor `researchID` answers for it: a figure id is no
+    /// structure node and no research item. `figureID` is its own one-way
+    /// accessor. A subject naming a record that is gone or parked repairs to
+    /// `.project` (`ProjectWindow.validSubject`).
+    case figure(String)
+
     /// The structure-item id this subject names, or `nil` when it names the
     /// project or a research item.
     ///
@@ -66,7 +74,7 @@ public enum BinderSubject: Hashable, Sendable {
         switch self {
         case .project: return nil
         case .item(let id): return id
-        case .research: return nil
+        case .research, .figure: return nil
         }
     }
 
@@ -74,8 +82,17 @@ public enum BinderSubject: Hashable, Sendable {
     /// project or a structure item. The mirror of `itemID`.
     public var researchID: String? {
         switch self {
-        case .project, .item: return nil
+        case .project, .item, .figure: return nil
         case .research(let id): return id
+        }
+    }
+
+    /// The figure-record id this subject names, or `nil` for every other
+    /// case. The mirror of `itemID` and `researchID`.
+    public var figureID: String? {
+        switch self {
+        case .project, .item, .research: return nil
+        case .figure(let id): return id
         }
     }
 

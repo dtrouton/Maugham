@@ -53,6 +53,16 @@ struct EditorHost: View {
     /// Control-plane model owned by ProjectWindow, threaded ONE-WAY to the
     /// EditorSurface/coordinator (ADR 0017).
     var control: EditorControl
+    /// **The window's reference index** (plan 3b Task 1; the window's since
+    /// report plan 8a Task 2, so the Figures listing numbers with no editor
+    /// mounted): the project's sources and targets, cached and rebuilt off the
+    /// main thread. A plain reference handed down, never observed by this body
+    /// (tripwire 6): its redraw trigger reaches the editor one-way through
+    /// `control.referenceIndexVersion` (`ReferenceIndexWiring` writes it), and
+    /// the coordinator reads the value through the `referenceIndex` provider.
+    /// This host feeds it the editor's edges only: a settle and a document
+    /// switch.
+    let referenceIndex: ReferenceIndexHost
     /// The window's table-grid presence (report plan 7c Task 9, R7c-10),
     /// passed through to the grid opening — the coordinator sets it, the
     /// window's menus read it. Never read here (tripwire 6).
@@ -113,16 +123,9 @@ struct EditorHost: View {
     /// `PendingBuffer`. Only "a newer load has started since mine" refuses that,
     /// and it is correct whichever of the two returns first.
     @State private var loads = EditorHostLoadGeneration()
-    /// **The window's reference index** (plan 3b Task 1): the project's
-    /// sources and targets, cached and rebuilt off the main thread. A plain
-    /// reference like `loads`, deliberately not observable (tripwire 6): its
-    /// redraw trigger reaches the editor one-way through
-    /// `control.referenceIndexVersion`, and the coordinator reads the value
-    /// through the `referenceIndex` provider.
-    @State private var referenceIndex = ReferenceIndexHost()
     /// **The window's figure cards** (report plan 7a Task 3): each figure's
     /// card, filled off the typing path, read synchronously by the editor. A
-    /// plain reference like `referenceIndex`, never observed by this body.
+    /// plain reference like `loads`, never observed by this body.
     @State private var figureCards = FigureCardCache()
 
     /// **What a document that did not open is showing**, instead of an eternal
@@ -350,22 +353,15 @@ struct EditorHost: View {
         .onChange(of: currentItem?.path) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
-        // The reference index's two manifest inputs (plan 3b Task 1). Research
-        // is not text; the binder decides publishing order. Neither reads the
-        // text binding (tripwires 2, 6).
-        // Research changing can move a figure's pin status (its card's flag).
-        .onChange(of: store.manifest.research) { _, _ in
-            referenceIndex.invalidate(.research)
-            figureCards.invalidate()
-        }
-        .onChange(of: store.manifest.structure) { _, _ in referenceIndex.invalidate(.all) }
+        // The reference index's manifest edges are the window's
+        // (`ReferenceIndexWiring`). Research changing can move a figure's pin
+        // status (its card's flag); it never reads the text binding
+        // (tripwires 2, 6).
+        .onChange(of: store.manifest.research) { _, _ in figureCards.invalidate() }
         // A figure made, renamed or removed here changes the registry
         // without a presenter pass.
         .onChange(of: store.manifest.figures) { _, _ in figureCards.invalidate() }
-        .onAppear {
-            attachReferenceIndex()
-            attachFigureCards()
-        }
+        .onAppear { attachFigureCards() }
         .onDisappear {
             // EditorHost's `.onDisappear` fires only on document-abandonment
             // paths: leaving the manuscript/scenes/find segment (a fresh
@@ -389,7 +385,14 @@ struct EditorHost: View {
             // re-appears, `.task`/`.onChange(of: selectedItemId)` see
             // loadedItemId != item.id and reload — no stuck "Loading…".
             if let doc = document, let path = priorLoadedPath {
-                Task { await doc.close() }
+                // The window's reference index outlives this host (report
+                // plan 8a Task 2): the piece just left is read again from its
+                // flushed op log, or the listing keeps its text as of the
+                // last settle — the switch path's own edge, mirrored.
+                Task { [referenceIndex] in
+                    await doc.close()
+                    referenceIndex.invalidate(.piece(doc.docId))
+                }
                 documentStore.unregister(path: path)
             }
             document = nil
@@ -402,7 +405,6 @@ struct EditorHost: View {
             // re-derived.
             recoveryPaneModel?.stopWatching()
             recoveryPaneModel = nil
-            referenceIndex.attach(nil)
             detachFigureCards()
             loadedItemId = nil
             priorLoadedPath = nil
@@ -444,11 +446,8 @@ struct EditorHost: View {
         // the waiting state back and the NEXT arrival tries again; a piece
         // syncing in arrives as a burst of files, not as one.
         .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
-            // A piece's op log moved (another device's sync of a closed
-            // piece, or a note): the reference index asks that piece again.
-            if let changed = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String {
-                referenceIndex.invalidate(.piece(changed))
-            }
+            // (The reference index's own re-read of that piece is the
+            // window's: `ReferenceIndexWiring`.)
             guard case .waitingForPiece(let waitingFor, _) = loadOutcome,
                   note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
                     == waitingFor
@@ -737,33 +736,6 @@ struct EditorHost: View {
             return "iCloud is still downloading it — it isn’t broken, and "
                  + "moving it now would fight that download"
         }
-    }
-
-    /// Point the window's reference index at this project (plan 3b Task 1).
-    /// Every read is the store's own: the binder and research off the
-    /// manifest, a piece's live text when a `Document` has it open, else its
-    /// op-log-derived text behind the derived cache's token (tripwire 20), and
-    /// the default book's element words from the publish config. A new
-    /// version reaches the editor one-way, through `control`.
-    private func attachReferenceIndex() {
-        let control = control
-        referenceIndex.onVersionChange = { control.referenceIndexVersion = $0 }
-        referenceIndex.attach(ReferenceIndexHost.Project(
-            structure: { [store] in store.manifest.structure },
-            research: { [store] in store.manifest.research },
-            liveText: { [documentStore] path in documentStore.document(for: path)?.displayText },
-            // Off the main actor, once per rebuild: one listing of the ops
-            // directory for every closed piece asked (whole-branch review I2).
-            tokens: { [url = store.url] docIds in
-                DerivedManuscriptCache.tokens(forDocIds: docIds, in: url)
-            },
-            derivedText: { [store] docId in
-                try? store.derivedCache.displayText(forDocId: docId, in: store.url)
-            },
-            words: { [url = store.url] in
-                let config = (try? PublishConfigStore.read(in: url)) ?? nil
-                return ElementWords.forBody(config?.metadata ?? PublishConfig.Metadata())
-            }))
     }
 
     /// Point the window's figure cards at this project (report plan 7a Task

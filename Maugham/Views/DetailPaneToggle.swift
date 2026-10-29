@@ -113,6 +113,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `InspectorView` already takes a closure of this exact shape from the
     /// same host.
     var onOpenProjectSettings: () -> Void = {}
+    /// Whether the tree's Figures section draws a figure — the annotation
+    /// queue's figure click travels only to one (report plan 8a Task 4).
+    var drawsFigure: (String) -> Bool = { _ in false }
+    /// Shows that figure's row in the tree before the travel lands.
+    var revealFigure: (String) -> Void = { _ in }
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// **Whether a visual-language proposal is standing** (translation
@@ -158,6 +163,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         onSetActivePass: @escaping (String, String) -> Void = { _, _ in },
         onSetPassState: @escaping (String, String, PassState?) -> Void = { _, _, _ in },
         onOpenProjectSettings: @escaping () -> Void = {},
+        drawsFigure: @escaping (String) -> Bool = { _ in false },
+        revealFigure: @escaping (String) -> Void = { _ in },
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -184,6 +191,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.onSetActivePass = onSetActivePass
         self.onSetPassState = onSetPassState
         self.onOpenProjectSettings = onOpenProjectSettings
+        self.drawsFigure = drawsFigure
+        self.revealFigure = revealFigure
         self.inspectorContent = inspectorContent
     }
 
@@ -749,15 +758,17 @@ struct DetailPaneToggle<Inspector: View>: View {
                 store: store,
                 documentStore: ds,
                 scope: $annotationScope,
-                onTravel: { docId in
+                onTravel: { subject in
                     // Travelling to a piece is the window's SUBJECT write and
                     // nothing else. No persona rides along: Review's centre
                     // shows documents, so a reviewer clicking a note about
                     // another chapter must land there with their notes still
                     // beside them (`ManuscriptNavigation`'s ruling, and
                     // `AnnotationScopeTests`' census over this closure).
-                    selectedSubject = .item(docId)
+                    selectedSubject = subject
                 },
+                drawsFigure: drawsFigure,
+                revealFigure: revealFigure,
                 // The round cockpit's two stores (M4 P2 Task 3) — the same
                 // pair the Diagnostics arm takes, and `nil` in a host that
                 // surfaces no compiler, which draws no strip.

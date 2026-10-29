@@ -214,6 +214,14 @@ public final class DocumentStore {
     /// alive, and one window closing leaves the others refreshing.
     @ObservationIgnored let figureCardCaches = NSHashTable<FigureCardCache>.weakObjects()
 
+    /// **Some figure's state may have moved** — bumped by every figure
+    /// trigger that refills the cards (`invalidateFigureCards`: an open host's
+    /// op, the presenter's figure pass, a trust change). Observable, for a
+    /// reader with no `FigureCardCache` that must re-ask something async:
+    /// the window's subject sweep asks whether its figure is now parked
+    /// (`SubjectValidationModifier`). A count, nothing else.
+    var figureRevision = 0
+
     /// The deferred render of every table figure at window open (R-6a-11);
     /// cancelled by `close()`.
     var _openFigureRenderTask: Task<Void, Never>?

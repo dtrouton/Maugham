@@ -9,15 +9,16 @@ final class ProjectTypeCapabilityTests: XCTestCase {
         let type: ProjectType
         let primaryFormat: DocumentFormat
         let holdsPieces: Bool
+        let holdsFigures: Bool
         let symbolName: String
     }
 
     private let table: [Row] = [
-        Row(type: .shortStory, primaryFormat: .markdown, holdsPieces: false, symbolName: "doc.text"),
-        Row(type: .novel, primaryFormat: .markdown, holdsPieces: false, symbolName: "book.closed"),
-        Row(type: .screenplay, primaryFormat: .fountain, holdsPieces: false, symbolName: "film"),
-        Row(type: .collection, primaryFormat: .markdown, holdsPieces: true, symbolName: "books.vertical"),
-        Row(type: .unknown, primaryFormat: .markdown, holdsPieces: false, symbolName: "questionmark.folder"),
+        Row(type: .shortStory, primaryFormat: .markdown, holdsPieces: false, holdsFigures: true, symbolName: "doc.text"),
+        Row(type: .novel, primaryFormat: .markdown, holdsPieces: false, holdsFigures: true, symbolName: "book.closed"),
+        Row(type: .screenplay, primaryFormat: .fountain, holdsPieces: false, holdsFigures: false, symbolName: "film"),
+        Row(type: .collection, primaryFormat: .markdown, holdsPieces: true, holdsFigures: true, symbolName: "books.vertical"),
+        Row(type: .unknown, primaryFormat: .markdown, holdsPieces: false, holdsFigures: false, symbolName: "questionmark.folder"),
     ]
 
     func test_everyCase_answersEveryCapability() {
@@ -26,6 +27,7 @@ final class ProjectTypeCapabilityTests: XCTestCase {
         for row in table {
             XCTAssertEqual(row.type.primaryFormat, row.primaryFormat, "\(row.type).primaryFormat")
             XCTAssertEqual(row.type.holdsPieces, row.holdsPieces, "\(row.type).holdsPieces")
+            XCTAssertEqual(row.type.holdsFigures, row.holdsFigures, "\(row.type).holdsFigures")
             XCTAssertEqual(row.type.symbolName, row.symbolName, "\(row.type).symbolName")
         }
     }

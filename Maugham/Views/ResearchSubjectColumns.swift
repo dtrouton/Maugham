@@ -114,9 +114,10 @@ extension ProjectWindow {
     }
 
     /// **Showing the column the placement chose** (stage 2b final review's
-    /// Critical).
+    /// Critical) — for a research item or a figure alike: a figure beside the
+    /// canvas (`figureSubjectPlacement`) reveals the same column.
     ///
-    /// `besideTheCanvas` says the right column previews the item. It does not
+    /// `besideTheCanvas` says the right column previews the item (or figure). It does not
     /// make that column VISIBLE, and in Plan it is not: `Persona.panes` opens
     /// Plan on `.inbox`, and `ResearchSubjectInspector` is mounted by
     /// `DetailPaneToggle`'s `.inspector` arm alone. So every correct piece of
@@ -137,15 +138,19 @@ extension ProjectWindow {
     ///
     /// `inout` and static so the whole rule is drivable without a window, and so
     /// the three sites that reveal — the subject observer
-    /// (`ResearchRevealModifier`) and the two forced entries (`openResearchItem`,
+    /// (`ResearchRevealModifier`, which a figure subject inherits) and the two forced entries (`openResearchItem`,
     /// `handleShowLatestMCPNote`) — cannot come to disagree about what revealing
     /// means.
     static func revealResearchColumn(persona: Persona,
                                      subject: BinderSubject?,
                                      showInspector: inout Bool,
                                      detailSegment: inout DetailSegment) {
+        // A figure beside the canvas reveals the same column
+        // (`figureSubjectPlacement`, report plan 8a Task 5).
         guard researchSubjectPlacement(persona: persona, subject: subject)
-            .previewsInTheRightColumn else { return }
+            .previewsInTheRightColumn
+            || figureSubjectPlacement(persona: persona, subject: subject)
+                .besideFigureID != nil else { return }
         showInspector = true
         detailSegment = .inspector
     }

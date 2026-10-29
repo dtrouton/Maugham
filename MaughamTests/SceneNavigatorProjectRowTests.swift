@@ -118,6 +118,7 @@ private struct ForeignResearchProjectionOffender: View {
                 case .project: return .project
                 case .item(let id): return id == "doc-1" ? .item(id) : nil
                 case .research: return nil   // the Task 1 rule, kept past its date
+                case .figure: return nil      // the offender draws no figure row
                 case .none: return nil
                 }
             },
@@ -126,6 +127,7 @@ private struct ForeignResearchProjectionOffender: View {
                 case .project: probe.subject = .project
                 case .item(let id): if id == "doc-1" { probe.subject = .item(id) }
                 case .research: break        // swallowed — the defect
+                case .figure: break
                 case .none: break
                 }
             })) {

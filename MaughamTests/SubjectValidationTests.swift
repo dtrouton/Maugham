@@ -32,7 +32,7 @@ private struct SubjectValidationProbeView: View {
     var body: some View {
         Color.clear
             .modifier(SubjectValidationModifier(
-                store: harness.store,
+                store: harness.store, documentStore: nil,
                 selectedSubject: Binding(get: { harness.subject },
                                          set: { harness.subject = $0 })))
     }
@@ -85,7 +85,7 @@ final class SubjectValidationTests: XCTestCase {
                        "fixture assumption: removing the group removes its child")
 
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .project,
             "the subject named a row that left with its group")
     }
@@ -109,7 +109,7 @@ final class SubjectValidationTests: XCTestCase {
                        "…and that subject names nothing")
 
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .project,
             "the rule under test must not agree with the plant here")
     }
@@ -128,7 +128,7 @@ final class SubjectValidationTests: XCTestCase {
         XCTAssertNil(planted(.item("doc-1"), afterDeleting: "doc-1"),
                      "the plant moves the window off the deleted document")
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .project,
             "and so does the rule — to a subject rather than to none")
     }
@@ -137,7 +137,7 @@ final class SubjectValidationTests: XCTestCase {
     func test_somebodyElsesDeleteLeavesTheSubjectAlone() {
         let after = TreeWalk.remove(id: "doc-2", in: groupedStructure())
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .item("doc-1"))
     }
 
@@ -150,10 +150,10 @@ final class SubjectValidationTests: XCTestCase {
             ProjectWindow.validSubject(.project,
                                        in: TreeWalk.remove(id: "grp",
                                                            in: groupedStructure()),
-                                       research: []),
+                                       research: [], figures: [], parked: []),
             .project)
         XCTAssertEqual(
-            ProjectWindow.validSubject(.project, in: [], research: []), .project)
+            ProjectWindow.validSubject(.project, in: [], research: [], figures: [], parked: []), .project)
     }
 
     /// **Plant: containment over the extracted id.** *"Take the subject's item
@@ -185,7 +185,7 @@ final class SubjectValidationTests: XCTestCase {
         // The rule under test asks about the SUBJECT, not about an id extracted
         // from one, which is the whole reason `.project` survives it.
         XCTAssertEqual(
-            ProjectWindow.validSubject(.project, in: structure, research: []),
+            ProjectWindow.validSubject(.project, in: structure, research: [], figures: [], parked: []),
             .project)
     }
 
@@ -213,7 +213,7 @@ final class SubjectValidationTests: XCTestCase {
             CanvasSubject.resolve(plantedAnswer, in: structure, research: []).dimsTheBoard,
             "…and that is what puts the canvas into the dim without a click")
 
-        let real = ProjectWindow.validSubject(.project, in: structure, research: [])
+        let real = ProjectWindow.validSubject(.project, in: structure, research: [], figures: [], parked: [])
         XCTAssertEqual(real, .project)
         XCTAssertFalse(CanvasSubject.resolve(real, in: structure, research: []).dimsTheBoard)
     }
@@ -225,7 +225,7 @@ final class SubjectValidationTests: XCTestCase {
     /// the value is byte-identical and there is no change to deliver.
     func test_theTriggerIsBlindToTitlesOrderAndNesting() {
         let base = groupedStructure()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: base, research: [])
+        let fingerprint = SubjectValidationModifier.fingerprint(of: base, research: [], figures: [])
 
         var renamed = TreeWalk.mutate(id: "doc-1", in: base) { item in
             var item = item
@@ -234,7 +234,7 @@ final class SubjectValidationTests: XCTestCase {
             return item
         }
         XCTAssertEqual(
-            SubjectValidationModifier.fingerprint(of: renamed, research: []), fingerprint,
+            SubjectValidationModifier.fingerprint(of: renamed, research: [], figures: []), fingerprint,
             "a rename must be invisible to the trigger")
 
         // Reorder within the group.
@@ -244,7 +244,7 @@ final class SubjectValidationTests: XCTestCase {
             return group
         }
         XCTAssertEqual(
-            SubjectValidationModifier.fingerprint(of: renamed, research: []), fingerprint,
+            SubjectValidationModifier.fingerprint(of: renamed, research: [], figures: []), fingerprint,
             "a reorder moves no id in or out")
 
         // Reparent everything to the root — the drop case.
@@ -255,7 +255,7 @@ final class SubjectValidationTests: XCTestCase {
                 return item
             }
         XCTAssertEqual(
-            SubjectValidationModifier.fingerprint(of: flattened, research: []), fingerprint,
+            SubjectValidationModifier.fingerprint(of: flattened, research: [], figures: []), fingerprint,
             "a reparent moves no id in or out")
     }
 
@@ -264,22 +264,22 @@ final class SubjectValidationTests: XCTestCase {
     /// one perfectly.
     func test_theTriggerMovesWhenAnIdLeavesOrArrives() {
         let base = groupedStructure()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: base, research: [])
+        let fingerprint = SubjectValidationModifier.fingerprint(of: base, research: [], figures: [])
 
         XCTAssertNotEqual(
             SubjectValidationModifier.fingerprint(
-                of: TreeWalk.remove(id: "doc-1", in: base), research: []),
+                of: TreeWalk.remove(id: "doc-1", in: base), research: [], figures: []),
             fingerprint)
         XCTAssertNotEqual(
             SubjectValidationModifier.fingerprint(
-                of: TreeWalk.remove(id: "grp", in: base), research: []),
+                of: TreeWalk.remove(id: "grp", in: base), research: [], figures: []),
             fingerprint,
             "removing the group removes three ids, not one")
         XCTAssertNotEqual(
             SubjectValidationModifier.fingerprint(
                 of: base + [StructureItem(id: "doc-3", title: "Chapter 3",
                                           type: .document, path: "manuscript/03.md")],
-                research: []),
+                research: [], figures: []),
             fingerprint)
     }
 
@@ -289,8 +289,8 @@ final class SubjectValidationTests: XCTestCase {
     /// identical to the trigger.
     func test_anEmptyStructureIsNotTheAbsenceOfAStructure() {
         XCTAssertNotEqual(
-            SubjectValidationModifier.fingerprint(of: [], research: []),
-            SubjectValidationModifier.fingerprint(of: groupedStructure(), research: []))
+            SubjectValidationModifier.fingerprint(of: [], research: [], figures: []),
+            SubjectValidationModifier.fingerprint(of: groupedStructure(), research: [], figures: []))
     }
 
     /// **The research half of the trigger, mirroring the structure half above.**
@@ -300,7 +300,7 @@ final class SubjectValidationTests: XCTestCase {
     func test_theTriggerIsBlindToResearchTitlesOrderAndNesting() {
         let structure = groupedStructure()
         let base = groupedResearch()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base)
+        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base, figures: [])
 
         let renamed = TreeWalk.mutate(id: "r-1", in: base) { item in
             var item = item
@@ -309,7 +309,7 @@ final class SubjectValidationTests: XCTestCase {
             return item
         }
         XCTAssertEqual(
-            SubjectValidationModifier.fingerprint(of: structure, research: renamed),
+            SubjectValidationModifier.fingerprint(of: structure, research: renamed, figures: []),
             fingerprint, "a research rename must be invisible to the trigger")
     }
 
@@ -320,7 +320,7 @@ final class SubjectValidationTests: XCTestCase {
     func test_theResearchTriggerIsBlindToItsOwnRescope() {
         let structure = groupedStructure()
         let base = groupedResearch()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base)
+        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base, figures: [])
 
         // Reparent the note out of its group to the root — what a cross-group
         // `moveResearchItem` produces: the id survives, only its position moves.
@@ -334,7 +334,7 @@ final class SubjectValidationTests: XCTestCase {
                        TreeWalk.collectIds(in: base).sorted(),
                        "fixture assumption: a rescope keeps every id")
         XCTAssertEqual(
-            SubjectValidationModifier.fingerprint(of: structure, research: rescoped),
+            SubjectValidationModifier.fingerprint(of: structure, research: rescoped, figures: []),
             fingerprint, "a rescope must not fire the sweep")
     }
 
@@ -343,11 +343,11 @@ final class SubjectValidationTests: XCTestCase {
     func test_theTriggerMovesWhenAResearchIdLeavesOrArrives() {
         let structure = groupedStructure()
         let base = groupedResearch()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base)
+        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base, figures: [])
 
         XCTAssertNotEqual(
             SubjectValidationModifier.fingerprint(
-                of: structure, research: TreeWalk.remove(id: "r-1", in: base)),
+                of: structure, research: TreeWalk.remove(id: "r-1", in: base), figures: []),
             fingerprint)
     }
 

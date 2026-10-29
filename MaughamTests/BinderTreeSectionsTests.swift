@@ -81,6 +81,117 @@ final class BinderTreeSectionsTests: XCTestCase {
             "the project row, the script row, the two sluglines, then both sections")
     }
 
+    // MARK: - The Figures section (report plan 8a Task 4)
+
+    /// Two figures the window's listing would give: one numbered, one unused.
+    private func plantedFigures() -> BinderTreeSectionsState {
+        let state = BinderTreeSectionsState()
+        state.refreshFigureRows(listing: [
+            FigureListing.Row(figureId: "fig-0a1b2c3d", kind: .table, name: "cash",
+                              caption: "Cash", number: "Table 1", usedIn: [],
+                              referencedFrom: [], pieceOfLine: nil),
+            FigureListing.Row(figureId: "fig-1a1b2c3d", kind: .table, name: "spare",
+                              caption: "", number: FigureListing.unusedNumber, usedIn: [],
+                              referencedFrom: [], pieceOfLine: nil)])
+        return state
+    }
+
+    /// **Between the manuscript and Research** (spec §7), in the tree's one
+    /// `List`, and a figure row is a subject of the window like any other —
+    /// selected through `List(selection:)`, tagged `.figure(id)`.
+    func test_theNovelTreeDrawsTheFiguresSectionBetweenItsChaptersAndResearch() async throws {
+        let store = try await novel(notes: ["Ships", "Tides"], cards: ["Harbour"])
+        let (window, probe) = try await hostBinder(store: store, treeState: plantedFigures())
+        let table = try XCTUnwrap(firstTableView(in: window))
+
+        let chapters = store.manifest.structure.count
+        XCTAssertEqual(table.numberOfRows, 1 + chapters + (1 + 2) + (1 + 2) + (1 + 1),
+                       "the project row, the chapters, the Figures section (header + two "
+                       + "figures), then Research and Palette")
+
+        await select(row: 1 + chapters + 1, in: table,
+                     until: { probe.subject == .figure("fig-0a1b2c3d") })
+        XCTAssertEqual(probe.subject, .figure("fig-0a1b2c3d"),
+                       "the first figure row is the Figures section's first row")
+    }
+
+    /// **The piece row's figure count takes its own click** (review I2): it
+    /// is the first `Button` inside a `.draggable` tree row, and `.draggable`
+    /// is known to intercept a child control (BinderRow's rename split). A
+    /// real click at the count's centre must filter the section to the
+    /// chapter and must not select the chapter's row.
+    ///
+    /// The count is found by its focus-ring view inside the chapter's row, so
+    /// the click lands where the button is drawn on whatever display this runs.
+    func test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing() async throws {
+        let store = try await novel(notes: [], cards: [])
+        let chapter = try XCTUnwrap(TreeWalk.first(in: store.manifest.structure,
+                                                   where: { $0.type == .document }))
+        let state = BinderTreeSectionsState()
+        state.refreshFigureRows(listing: [
+            FigureListing.Row(figureId: "fig-0a1b2c3d", kind: .table, name: "cash",
+                              caption: "Cash", number: "Table 1",
+                              usedIn: [FigureListing.Use(docId: chapter.id, lineIndex: 0)],
+                              referencedFrom: [], pieceOfLine: chapter.id)])
+        let (window, probe) = try await hostBinder(store: store, treeState: state)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        let rowIndex = 1 + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
+        let rowRect = table.convert(table.rect(ofRow: rowIndex), to: nil)
+        // The count is the row's one control: SwiftUI mounts a focus-ring view
+        // for a `Button(.plain)` (as for the section chevrons), which is where
+        // the button is drawn on whatever display this runs.
+        var all: [NSView] = []
+        collect(NSView.self, in: try XCTUnwrap(window.contentView), into: &all)
+        let rings = all.map { $0.convert($0.bounds, to: nil) }
+            .enumerated().filter { String(describing: type(of: all[$0.offset])).contains("FocusRing") }
+            .map(\.element).filter { $0.intersects(rowRect) }
+        XCTAssertEqual(rings.count, 1, "the chapter row draws one control, its count: \(rings)")
+        let ring = try XCTUnwrap(rings.first)
+        let point = CGPoint(x: ring.midX, y: ring.midY)
+        let subjectBefore = probe.subject
+
+        clickCount(at: point, in: window)
+        await pumpUntil(deadline: 3) { state.pieceFilter != nil }
+
+        XCTAssertEqual(state.pieceFilter, chapter.id,
+                       "the click on the count did not reach its button — the row's "
+                       + "drag or selection took it")
+        XCTAssertEqual(probe.subject, subjectBefore,
+                       "the count's click selected the chapter row; it must select nothing")
+
+        // Control: the same click on the row's title, away from the count, does
+        // select it — so "selects nothing" above is the button's doing, not a
+        // click that never reached the table.
+        clickCount(at: CGPoint(x: rowRect.minX + 60, y: rowRect.midY), in: window)
+        await pumpUntil(deadline: 3) { probe.subject == .item(chapter.id) }
+        XCTAssertEqual(probe.subject, .item(chapter.id))
+    }
+
+    /// One real click (down, up) at `point`, in window coordinates.
+    private func clickCount(at point: CGPoint, in window: NSWindow) {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0) {
+                window.sendEvent(event)
+            }
+        }
+    }
+
+    /// A screenplay's manuscript holds no figures: the same rows draw nothing.
+    func test_theScreenplayTreeDrawsNoFiguresSection() async throws {
+        let store = try await screenplay(notes: ["Ships", "Tides"], cards: ["Harbour"])
+        let (window, _, _) = try await hostNavigator(store: store, script: Self.twoScenes,
+                                                     treeState: plantedFigures())
+        let table = try XCTUnwrap(firstTableView(in: window))
+
+        XCTAssertEqual(table.numberOfRows, 1 + 1 + 2 + (1 + 2) + (1 + 1),
+                       "the screenplay tree is what it was: no Figures section")
+    }
+
     /// **The palette group is not research.** It is a research group on disk —
     /// `addPaletteCard` writes under `research/palette/` — so a tree that renders
     /// `manifest.research` raw shows it twice: once as a group in Research and
@@ -808,11 +919,12 @@ final class BinderTreeSectionsTests: XCTestCase {
     // MARK: - Hosting and driving
 
     private func hostBinder(
-        store: ProjectStore
+        store: ProjectStore, treeState: BinderTreeSectionsState? = nil
     ) async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(
-            BinderSectionsProbeView(store: store, probe: probe)))
+            BinderSectionsProbeView(store: store, probe: probe,
+                                    treeState: treeState ?? BinderTreeSectionsState())))
         return (window, probe)
     }
 
@@ -826,13 +938,15 @@ final class BinderTreeSectionsTests: XCTestCase {
     }
 
     private func hostNavigator(
-        store: ProjectStore, script: FountainScript?
+        store: ProjectStore, script: FountainScript?,
+        treeState: BinderTreeSectionsState? = nil
     ) async throws -> (NSWindow, BinderSubjectProbe, String?) {
         let probe = BinderSubjectProbe()
         let documentID = TreeWalk.first(
             in: store.manifest.structure, where: { $0.type == .document })?.id
         let window = try await mount(AnyView(NavigatorSectionsProbeView(
-            store: store, probe: probe, script: script, documentID: documentID)))
+            store: store, probe: probe, script: script, documentID: documentID,
+            treeState: treeState ?? BinderTreeSectionsState())))
         return (window, probe, documentID)
     }
 
@@ -881,7 +995,7 @@ private struct BinderSectionsProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
 
-    let treeState = BinderTreeSectionsState()
+    var treeState = BinderTreeSectionsState()
 
     var body: some View {
         BinderView(store: store,
@@ -914,7 +1028,7 @@ private struct NavigatorSectionsProbeView: View {
     let probe: BinderSubjectProbe
     let script: FountainScript?
     let documentID: String?
-    let treeState = BinderTreeSectionsState()
+    var treeState = BinderTreeSectionsState()
 
     var body: some View {
         SceneNavigatorPane(

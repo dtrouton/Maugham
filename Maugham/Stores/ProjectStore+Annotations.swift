@@ -297,25 +297,11 @@ extension ProjectStore {
         // when a window holds the figure: `FigureDocument` projects no notes.
         // A figure has no paragraphs, so no sequence is recorded.
         for figure in manifest.figures ?? [] {
-            let amendmentPermits = AmendmentPermits()
-            guard let ops = try? OpLogStore.loadSyncMerged(
-                forDocId: figure.id, in: url, trust: trust,
-                facts: facts,
-                amendmentPermits: amendmentPermits)
-            else {
+            guard let notes = Self.figureAnnotations(figure.id, in: url, trust: trust, facts: facts) else {
                 unreadable.append(figure.id)
                 continue
             }
-            annotations.append(contentsOf: AnnotationAggregation.allAnnotations(
-                ops: ops, paragraphs: [:],
-                amendments: .judged(
-                    by: trust, permits: amendmentPermits.resolved,
-                    insideTheUnsignedSnapshot:
-                        amendmentPermits.resolvedInsideTheUnsignedSnapshot,
-                    class: {
-                        DocumentClass.resolve(docId: figure.id, facts: facts)
-                    }))
-                .map { ProjectAnnotation(docId: figure.id, annotation: $0) })
+            annotations.append(contentsOf: notes.map { ProjectAnnotation(docId: figure.id, annotation: $0) })
         }
 
         let snapshot = ProjectAnnotationsSnapshot(
@@ -325,6 +311,43 @@ extension ProjectStore {
         _projectAnnotationsCache = snapshot
         _projectAnnotationsCacheKey = key
         return snapshot
+    }
+
+    /// **One figure's notes** — its stream judged as the walk judges it,
+    /// nil when the stream will not read. Nonisolated: the figure inspector
+    /// reads it off the main actor (`figureNotes`), the walk inline.
+    nonisolated static func figureAnnotations(
+        _ figureId: String, in url: URL, trust: TrustTable, facts: DocumentClass.Facts
+    ) -> [Annotation]? {
+        let amendmentPermits = AmendmentPermits()
+        guard let ops = try? OpLogStore.loadSyncMerged(
+            forDocId: figureId, in: url, trust: trust,
+            facts: facts,
+            amendmentPermits: amendmentPermits)
+        else { return nil }
+        return AnnotationAggregation.allAnnotations(
+            ops: ops, paragraphs: [:],
+            amendments: .judged(
+                by: trust, permits: amendmentPermits.resolved,
+                insideTheUnsignedSnapshot:
+                    amendmentPermits.resolvedInsideTheUnsignedSnapshot,
+                class: {
+                    DocumentClass.resolve(docId: figureId, facts: facts)
+                }))
+    }
+
+    /// **The notes on ONE figure's stream** (report plan 8a Task 7, the
+    /// figure inspector): the trust resolve and the stream's read off the
+    /// main actor, never the project walk — a figure's own writes move that
+    /// walk's key, so asking it per write would re-derive every closed piece.
+    /// Empty when the stream will not read.
+    func figureNotes(_ figureId: String) async -> [Annotation] {
+        let url = url, facts = DocumentClass.Facts(manifest), identities = LocalIdentities.current
+        return await Task.detached(priority: .userInitiated) {
+            let trust = (try? TrustResolution.resolve(projectURL: url, identities: identities))
+                ?? TrustResolution.rememberedOrKeyless(projectURL: url, identities: identities)
+            return Self.figureAnnotations(figureId, in: url, trust: trust, facts: facts) ?? []
+        }.value
     }
 
     /// Open documents by doc id. `Document.docId` IS the manifest item's id

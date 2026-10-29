@@ -27,14 +27,23 @@ import MaughamCore
 /// place, and the restore's ruling — *a subject nobody chose is `.project`* —
 /// already fixed that place. `nil` would also leave the binder with no row
 /// highlighted, which is a state the project row exists to make unnecessary.
+///
+/// **A figure subject has a second way to die: parking** (report plan 8a).
+/// Send to Research keeps the record and parks the figure in its stream, so
+/// no manifest fingerprint can see it. While the subject is a figure, the
+/// sweep also asks the stream (`DocumentStore.figureIsParked`) whenever a
+/// figure trigger moves `DocumentStore.figureRevision` — here or on another
+/// Mac — and repairs through the same `validSubject` with the answer.
 struct SubjectValidationModifier: ViewModifier {
     let store: ProjectStore?
+    let documentStore: DocumentStore?
     @Binding var selectedSubject: BinderSubject?
 
     func body(content: Content) -> some View {
         content
             .onChange(of: store.map {
-                Self.fingerprint(of: $0.manifest.structure, research: $0.manifest.research)
+                Self.fingerprint(of: $0.manifest.structure, research: $0.manifest.research,
+                                 figures: $0.manifest.figures ?? [])
             }) {
                 oldValue, newValue in
                 // The structure APPEARING is not the structure changing, and nor
@@ -53,8 +62,37 @@ struct SubjectValidationModifier: ViewModifier {
                 // tree. Choosing is the restore's job and the writer's.
                 selectedSubject = ProjectWindow.validSubject(
                     subject, in: store.manifest.structure,
-                    research: store.manifest.research)
+                    research: store.manifest.research,
+                    figures: store.manifest.figures ?? [], parked: [])
             }
+            // Keyed only while the subject is a figure, so no other subject
+            // observes the figure revision.
+            .task(id: parkCheckKey) { await repairIfParked() }
+    }
+
+    /// The parked question's trigger: the figure and the revision, nil for
+    /// any other subject (no task).
+    private var parkCheckKey: ParkCheckKey? {
+        guard let figureId = selectedSubject?.figureID else { return nil }
+        return ParkCheckKey(figureId: figureId, revision: documentStore?.figureRevision)
+    }
+
+    struct ParkCheckKey: Equatable {
+        let figureId: String
+        let revision: Int?
+    }
+
+    /// Ask the figure's stream whether it is parked; if it is, and the
+    /// subject still names it, repair. An unreadable stream answers nothing
+    /// (a figure that cannot be told apart is left as the writer chose it).
+    private func repairIfParked() async {
+        guard let store, let documentStore, let figureId = selectedSubject?.figureID,
+              let parked = try? await documentStore.figureIsParked(figureId), parked,
+              !Task.isCancelled, selectedSubject == .figure(figureId) else { return }
+        selectedSubject = ProjectWindow.validSubject(
+            .figure(figureId), in: store.manifest.structure,
+            research: store.manifest.research,
+            figures: store.manifest.figures ?? [], parked: [figureId])
     }
 
     /// The trigger: the SET of structure ids UNION the set of research ids,
@@ -93,12 +131,17 @@ struct SubjectValidationModifier: ViewModifier {
     /// back. The two id spaces are joined into one sorted list rather than
     /// hashed separately and combined, so an id moving between the two trees
     /// (which does not happen today) could never cancel out against itself.
+    ///
+    /// **The figure registry's ids join them** (report plan 8a): a figure
+    /// removed here or on another Mac leaves the registry, and a rename keeps
+    /// its id, so the same blindness holds.
     static func fingerprint(
-        of structure: [StructureItem], research: [ResearchItem]
+        of structure: [StructureItem], research: [ResearchItem], figures: [FigureRecord]
     ) -> String {
         // A control character, so no id can spell the separator and make two
         // different trees hash alike.
         let ids = TreeWalk.collectIds(in: structure) + TreeWalk.collectIds(in: research)
+            + figures.map(\.id)
         return StableHash.fnv1a64Hex(ids.sorted().joined(separator: "\u{1}"))
     }
 }

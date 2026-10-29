@@ -344,6 +344,34 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             + "test exists rather than a comment saying an arm would be worse")
     }
 
+    /// **The figure arm's lifetime** (report plan 8a Task 6): a figure is an
+    /// arm of its own, as a research subject is — the editor leaves while the
+    /// figure takes the centre and comes back after — and the arm's grid
+    /// holds the figure while it is mounted and lets it go when the subject
+    /// moves on, so no hold outlives the surface that took it.
+    func test_aFigureSubjectMountsItsGridInItsOwnArm_andLeavingReleasesIt() async throws {
+        let store = try await novel()
+        let chapter = try Self.firstDocument(in: store)
+        let mount = try await host(store: store, subject: .item(chapter.id))
+        let figure = try await store.createFigure(kind: .table, name: "t", piece: chapter.id, rows: 3, columns: 3)
+        await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
+        XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the editor is up")
+
+        mount.probe.subject = .figure(figure.id)
+        await pumpUntil(deadline: 5) { !self.collect(FigureGridView.self, in: mount.window).isEmpty }
+        XCTAssertFalse(collect(FigureGridView.self, in: mount.window).isEmpty, "the figure arm mounts its grid")
+        XCTAssertNotNil(mount.figureWindows.inPlaceHolds[figure.id], "holding the figure")
+        XCTAssertTrue(textViews(in: mount.window).isEmpty, "the editor is not under it")
+        XCTAssertEqual(mount.hostLife.disappearances, 1, "an arm of its own, as research is")
+
+        mount.probe.subject = .item(chapter.id)
+        await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
+        XCTAssertNil(mount.figureWindows.inPlaceHolds[figure.id], "leaving the figure let it go")
+        XCTAssertTrue(collect(FigureGridView.self, in: mount.window).isEmpty, "the grid unmounted")
+        XCTAssertEqual(mount.hostLife.appearances, 2, "the editor came back")
+        _ = await mount.figureWindows.settle(within: .seconds(5))
+    }
+
     /// **The overlay is what the centre of the column hit-tests to.** The
     /// placeholder underneath leaves no view and no accessibility element to
     /// look for (see this file's doc comment), so coverage is measured the way
@@ -695,6 +723,8 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         let window: NSWindow
         let probe: BinderSubjectProbe
         let hostLife: EditorHostLifeCounter
+        /// The project's figure windows, which the figure arm's grid holds in.
+        let figureWindows: FigureWindows
     }
 
     /// The centre column alone, wired the way `editorPane` wires it: every
@@ -717,6 +747,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
 
         let probe = BinderSubjectProbe(subject)
         let life = EditorHostLifeCounter()
+        let figureWindows = FigureWindows()
         // `EditorHost` reads `UserPreferences` out of the environment, and a
         // missing environment value is a trap in SwiftUI's own accessor rather
         // than a nil — the whole test process goes down. Its own defaults suite,
@@ -727,7 +758,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         let root = AltitudeCentreProbeView(
             store: store, documentStore: documentStore, persona: persona,
             probe: probe, layout: layout, shape: shape, hostLife: life,
-            canvasModel: CanvasModel())
+            canvasModel: CanvasModel(), figureWindows: figureWindows)
             .environment(preferences)
 
         let window = TestWindow.mount(AnyView(root),
@@ -735,7 +766,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                                       as: SilentTestWindow.self)
         windows.append(window)
         pump(0.1)
-        return Mount(window: window, probe: probe, hostLife: life)
+        return Mount(window: window, probe: probe, hostLife: life, figureWindows: figureWindows)
     }
 
     // MARK: - Reading the mounted window
@@ -1126,13 +1157,17 @@ private struct AltitudeCentreProbeView: View {
     let shape: Shape
     let hostLife: EditorHostLifeCounter
     let canvasModel: CanvasModel
+    let figureWindows: FigureWindows
 
     @State private var layout: OutlineLayout
     @State private var control = EditorControl()
+    @State private var referenceIndex = ReferenceIndexHost()
+    @State private var figurePresence = FigureGridPresence()
+    @State private var figureListing = FigureListingModel()
 
     init(store: ProjectStore, documentStore: DocumentStore, persona: Persona,
          probe: BinderSubjectProbe, layout: OutlineLayout, shape: Shape,
-         hostLife: EditorHostLifeCounter, canvasModel: CanvasModel) {
+         hostLife: EditorHostLifeCounter, canvasModel: CanvasModel, figureWindows: FigureWindows) {
         self.store = store
         self.documentStore = documentStore
         self.persona = persona
@@ -1140,6 +1175,7 @@ private struct AltitudeCentreProbeView: View {
         self.shape = shape
         self.hostLife = hostLife
         self.canvasModel = canvasModel
+        self.figureWindows = figureWindows
         _layout = State(initialValue: layout)
     }
 
@@ -1166,6 +1202,11 @@ private struct AltitudeCentreProbeView: View {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !persona.editsResearchInTheCentre)
+        case .figure(let id):
+            FigureSubjectSurface(
+                figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
+                presence: figurePresence, listing: figureListing, control: control,
+                persona: persona, window: nil)
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })
@@ -1198,7 +1239,8 @@ private struct AltitudeCentreProbeView: View {
 
     private var editor: some View {
         EditorHost(store: store, documentStore: documentStore,
-                   selectedItemId: probe.subject?.itemID, control: control)
+                   selectedItemId: probe.subject?.itemID, control: control,
+                   referenceIndex: referenceIndex)
             .onAppear { hostLife.appeared() }
             .onDisappear { hostLife.disappeared() }
     }

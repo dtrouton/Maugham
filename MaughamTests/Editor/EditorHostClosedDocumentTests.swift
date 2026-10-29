@@ -80,7 +80,8 @@ final class EditorHostClosedDocumentTests: XCTestCase {
         defaultsSuites.append(suite)
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
         let root = EditorHost(store: store, documentStore: ds,
-                              selectedItemId: item.id, control: EditorControl())
+                              selectedItemId: item.id, control: EditorControl(),
+                              referenceIndex: ReferenceIndexHost())
             .environment(preferences)
         let window = TestWindow.mount(AnyView(root),
                                       size: CGSize(width: 800, height: 600),

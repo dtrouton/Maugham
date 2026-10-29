@@ -39,6 +39,7 @@ final class BinderTreeMultiselectTests: XCTestCase {
     /// `[c1, c2]` in the structure; `[a, g[b], c]` in research.
     private var structure: [StructureItem] { [doc("c1"), doc("c2")] }
     private var research: [ResearchItem] { [note("a"), group("g", [note("b")]), note("c")] }
+    private var figures: [String] { ["fig-00000002", "fig-00000001"] }
 
     private func resolve(
         written: Set<BinderSubject>,
@@ -47,7 +48,7 @@ final class BinderTreeMultiselectTests: XCTestCase {
     ) -> (selection: Set<BinderSubject>, subject: BinderSubject?) {
         BinderTreeSelection.resolved(
             written: written, stored: stored, subject: subject,
-            structure: structure, research: research)
+            structure: structure, research: research, figures: figures)
     }
 
     // MARK: - A single row is stage 2a's rule, unchanged
@@ -138,13 +139,33 @@ final class BinderTreeMultiselectTests: XCTestCase {
     func test_orderIsTheProjectThenTheStructureThenResearchAsDrawn() {
         let ordered = BinderTreeSelection.ordered(
             [.research("c"), .item("c2"), .project, .research("a"), .item("c1")],
-            structure: structure, research: research)
+            structure: structure, research: research, figures: figures)
         XCTAssertEqual(ordered,
                        [.project, .item("c1"), .item("c2"),
                         .research("a"), .research("c")],
                        "the project row heads every tree, its documents follow, "
                        + "and the Research and Palette sections are furniture at "
                        + "the foot — the order is the one the writer sees")
+    }
+
+    /// **The Figures section sits between the manuscript and Research**, and
+    /// its rows keep the order the section draws, not the ids' order.
+    func test_figuresComeAfterTheStructureAndBeforeResearchInDrawnOrder() {
+        let ordered = BinderTreeSelection.ordered(
+            [.research("a"), .figure("fig-00000001"), .item("c1"),
+             .figure("fig-00000002"), .figure("fig-gone")],
+            structure: structure, research: research, figures: figures)
+        XCTAssertEqual(ordered,
+                       [.item("c1"), .figure("fig-00000002"), .figure("fig-00000001"),
+                        .research("a")],
+                       "a figure the section does not draw is dropped like any dead id")
+    }
+
+    /// A figure row written alone is a subject, like every tagged row.
+    func test_aSingleFigureRowBecomesTheSubject() {
+        let next = resolve(written: [.figure("fig-00000001")], subject: .item("c1"))
+        XCTAssertEqual(next.subject, .figure("fig-00000001"))
+        XCTAssertEqual(next.selection, [.figure("fig-00000001")])
     }
 
     /// **This is where a dead id dies.** The order is built by WALKING the live
@@ -154,7 +175,7 @@ final class BinderTreeMultiselectTests: XCTestCase {
     func test_orderDropsIdsTheManifestNoLongerHolds() {
         let ordered = BinderTreeSelection.ordered(
             [.research("a"), .research("gone"), .item("c9")],
-            structure: structure, research: research)
+            structure: structure, research: research, figures: figures)
         XCTAssertEqual(ordered, [.research("a")])
     }
 

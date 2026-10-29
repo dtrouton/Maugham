@@ -116,6 +116,13 @@ struct ProjectWindow: View {
     /// may do (report plan 7c Task 9, R7c-10). Window-scoped; the editor's
     /// coordinator sets it, the menus read it.
     @State private var figureGridPresence = FigureGridPresence()
+    /// **The window's reference index and figure listing** (report plan 8a
+    /// Task 2): one per window, attached and kept current by
+    /// `ReferenceIndexWiring` whatever the centre shows, so the Figures
+    /// listing numbers with no editor mounted. The index is handed to the
+    /// editor as a plain reference (tripwire 6).
+    @State private var referenceIndex = ReferenceIndexHost()
+    @State private var figureListing = FigureListingModel()
     /// The canvas's scene, scraps, selection, sidecar store and undo recorder.
     /// Owned HERE rather than inside `CanvasView` because the region inspector in
     /// the right-hand column reads and mutates the same scene the centre column
@@ -341,6 +348,12 @@ struct ProjectWindow: View {
                     Task { await sessions.release(lease) }
                 }
                 lease = nil
+                // Explicit, not left to the wiring's `.onChange` in a husk
+                // SwiftUI may never re-evaluate: the index's closures hold
+                // both stores, and a drain in flight would still build.
+                referenceIndex.attach(nil)
+                figureListing.clear()
+                treeState.detachFigureCards()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
@@ -450,8 +463,16 @@ struct ProjectWindow: View {
                     wordCount: 0, characterCount: 0, readingMinutes: 0)
             }
         }
-        .modifier(SubjectValidationModifier(store: store,
+        .modifier(SubjectValidationModifier(store: store, documentStore: documentStore,
                                             selectedSubject: $selectedSubject))
+        .modifier(ReferenceIndexWiring(
+            url: url, store: store, documentStore: documentStore,
+            referenceIndex: referenceIndex, figureListing: figureListing,
+            control: editorControl, window: window))
+        .modifier(FigureSectionWiring(
+            store: store, documentStore: documentStore, listing: figureListing,
+            treeState: treeState, figureWindows: session?.figureWindows,
+            typography: effectiveTypography, control: editorControl, persona: persona))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
@@ -1254,6 +1275,7 @@ struct ProjectWindow: View {
         CentreColumn(
             store: store, documentStore: documentStore,
             canvasModel: canvasModel, editorControl: editorControl,
+            referenceIndex: referenceIndex, figureListing: figureListing,
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, window: window,
@@ -1443,7 +1465,9 @@ struct ProjectWindow: View {
         guard !showsPaletteWallCentre(showsPaletteWall: showsPaletteWall,
                                       persona: persona) else { return false }
         guard researchSubjectPlacement(persona: persona,
-                                       subject: subject).centreItemID == nil
+                                       subject: subject).centreItemID == nil,
+              figureSubjectPlacement(persona: persona,
+                                     subject: subject).centreFigureID == nil
         else { return false }
         return !subjectShowsAltitude(persona: persona, subject: subject,
                                      structure: structure)
@@ -1593,6 +1617,11 @@ struct ProjectWindow: View {
                                     projectType: store.manifest.type)
                 .map(TreeScrollTarget.row)
         case .item, .project:
+            return .row(subject)
+        case .figure:
+            // `matchSubject` makes no figure subject (a search matches text,
+            // and a figure's cells are not searched), so this arm is reached
+            // by no match today; it scrolls to the row's own tag.
             return .row(subject)
         }
     }
@@ -1760,6 +1789,8 @@ struct ProjectWindow: View {
         RightColumn(
             store: store, documentStore: documentStore, projectRoot: url,
             canvasModel: canvasModel, editorControl: editorControl,
+            figureListing: figureListing,
+            figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
             publishCentre: publishCentre, assistant: assistant,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
             persona: persona, isNoChromeOn: isNoChromeOn,
@@ -1773,7 +1804,12 @@ struct ProjectWindow: View {
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             openProjectSettings: openProjectSettings,
             openPromotedArtifact: openPromotedArtifact,
-            posture: { postureDrawn(forDocId: $0) })
+            posture: { postureDrawn(forDocId: $0) },
+            drawsFigure: { [treeState] in
+                treeState.drawsFigure($0, projectType: store.manifest.type)
+            },
+            revealFigure: { [treeState] in treeState.revealFigure($0) },
+            figureTree: treeState)
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.
@@ -2283,9 +2319,19 @@ struct ProjectWindow: View {
     /// REPAIRS a subject and does not choose one, so a writer who deselected is
     /// left alone; that guard lives at the sweep's call site
     /// (`SubjectValidationModifier`).
+    ///
+    /// **A figure** is valid while the registry lists it and it is not parked
+    /// in Research (report plan 8a): a removed figure and one sent to Research
+    /// both leave the Figures section, so a subject naming either repairs to
+    /// `.project`. `parked` is what the caller KNOWS is parked — parking lives
+    /// in the figure's stream, not the record, so the restore and the sweep
+    /// pass `[]` and `SubjectValidationModifier` asks the stream and calls
+    /// again with the answer.
     static func validSubject(_ subject: BinderSubject?,
                              in structure: [StructureItem],
-                             research: [ResearchItem]) -> BinderSubject {
+                             research: [ResearchItem],
+                             figures: [FigureRecord],
+                             parked: Set<String>) -> BinderSubject {
         switch subject {
         case .project:
             return .project
@@ -2296,6 +2342,10 @@ struct ProjectWindow: View {
         case .research(let id) where TreeWalk.contains(id: id, in: research):
             return .research(id)
         case .research:
+            return .project
+        case .figure(let id) where !parked.contains(id) && figures.contains(where: { $0.id == id }):
+            return .figure(id)
+        case .figure:
             return .project
         }
     }
@@ -2568,9 +2618,11 @@ struct ProjectWindow: View {
             //
             // The subject goes through the one rule that decides where a freshly
             // opened window lands; `.project` always answers, so no `if let`.
+            // A parked figure is repaired by the sweep once it has asked
+            // the figure's stream (`SubjectValidationModifier`).
             self.selectedSubject = Self.validSubject(
                 ds.uiState.selectedSubject, in: s.manifest.structure,
-                research: s.manifest.research)
+                research: s.manifest.research, figures: s.manifest.figures ?? [], parked: [])
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible

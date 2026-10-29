@@ -138,26 +138,34 @@ final class SectionChevronTests: XCTestCase {
     /// the census's one click representative for this header).
     func test_eachSectionsChevronTogglesItsOwnFlagAndOnlyItsOwn() {
         for section in BinderTreeSection.allCases {
-            for (research, palette) in [(true, true), (true, false),
-                                        (false, true), (false, false)] {
-                let state = BinderTreeSectionsState()
-                state.researchSectionExpanded = research
-                state.paletteSectionExpanded = palette
+            for figures in [true, false] {
+                for (research, palette) in [(true, true), (true, false),
+                                            (false, true), (false, false)] {
+                    let state = BinderTreeSectionsState()
+                    state.figuresSectionExpanded = figures
+                    state.researchSectionExpanded = research
+                    state.paletteSectionExpanded = palette
 
-                state.toggleExpansion(of: section)
+                    state.toggleExpansion(of: section)
 
-                let expectResearch = section == .research ? !research : research
-                let expectPalette = section == .palette ? !palette : palette
-                XCTAssertEqual(state.researchSectionExpanded, expectResearch,
-                               "toggling \(section) from (research: \(research), "
-                               + "palette: \(palette)) left Research wrong")
-                XCTAssertEqual(state.paletteSectionExpanded, expectPalette,
-                               "toggling \(section) from (research: \(research), "
-                               + "palette: \(palette)) left Palette wrong")
-                XCTAssertEqual(state.isExpanded(.research), expectResearch,
-                               "Research's chevron reads a different flag from the one it writes")
-                XCTAssertEqual(state.isExpanded(.palette), expectPalette,
-                               "Palette's chevron reads a different flag from the one it writes")
+                    let start = "toggling \(section) from (figures: \(figures), "
+                        + "research: \(research), palette: \(palette))"
+                    let expectFigures = section == .figures ? !figures : figures
+                    let expectResearch = section == .research ? !research : research
+                    let expectPalette = section == .palette ? !palette : palette
+                    XCTAssertEqual(state.figuresSectionExpanded, expectFigures,
+                                   "\(start) left Figures wrong")
+                    XCTAssertEqual(state.researchSectionExpanded, expectResearch,
+                                   "\(start) left Research wrong")
+                    XCTAssertEqual(state.paletteSectionExpanded, expectPalette,
+                                   "\(start) left Palette wrong")
+                    XCTAssertEqual(state.isExpanded(.figures), expectFigures,
+                                   "Figures' chevron reads a different flag from the one it writes")
+                    XCTAssertEqual(state.isExpanded(.research), expectResearch,
+                                   "Research's chevron reads a different flag from the one it writes")
+                    XCTAssertEqual(state.isExpanded(.palette), expectPalette,
+                                   "Palette's chevron reads a different flag from the one it writes")
+                }
             }
         }
     }

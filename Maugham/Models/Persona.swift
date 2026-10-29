@@ -629,6 +629,20 @@ public extension Persona {
         }
     }
 
+    /// **The one spelling of "this persona's figure grid may be changed"**
+    /// (report plan 8a Task 6): false for `.review`, whose grid opens
+    /// read-only with the review reason. A fact of its own beside
+    /// `editsResearchInTheCentre`, for that predicate's reason: a figure is
+    /// not research, and two facts that agree today are still two. Publish
+    /// never mounts the grid (`figureSubjectPlacement`); `true` is the literal
+    /// answer.
+    var editsFigures: Bool {
+        switch self {
+        case .review: return false
+        case .plan, .author, .publish: return true
+        }
+    }
+
     /// **The one spelling of "this persona's centre studies a pinned
     /// reference beside the prose."** Denver's 2026-08-14 ruling (spec §9)
     /// closes the M2-era held decision: a reviewer adjudicating a pin needs

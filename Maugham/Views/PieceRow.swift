@@ -26,6 +26,13 @@ struct PieceRow: View {
     /// and no file URL (`DropClassification`). Returns whether it was accepted,
     /// like `onDrop`.
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
+    /// **The figures this piece's text uses** ("2 tables, 1 figure"; report
+    /// plan 8a Task 4, D8-1), nil at none — `BinderTreeSectionsState
+    /// .figureCountText`. Pressing it filters the Figures section to this
+    /// piece (`onShowFigures`) and selects nothing: a `Button(.plain)` inside
+    /// the row, tripwire 9's button rule.
+    var figureCount: String? = nil
+    var onShowFigures: () -> Void = {}
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -71,6 +78,9 @@ struct PieceRow: View {
                     // a gesture — see BinderRow's twin and TreeTravel.swift.
                     .treeTravelOnDoubleClick(.item(piece.id))
                 Spacer()
+                if let figureCount {
+                    FigureCountButton(text: figureCount, action: onShowFigures)
+                }
                 // The presence question and the colour question are both
                 // `StatusSwatch`'s (M3 P1 Task 4). This guard used to read the
                 // raw legacy string, which stops being written this task — a
