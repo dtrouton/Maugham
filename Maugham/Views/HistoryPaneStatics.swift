@@ -20,6 +20,17 @@ extension HistoryPane {
         return map
     }
 
+    /// Index of ops by op_id for `HistoryRow`'s sourceAnnotationId lookups
+    /// (used to surface the body of an annotation whose archive row
+    /// otherwise only shows "paragraph deleted"). Built once per body pass by
+    /// the timeline and captured by every row (tripwire 4); a duplicated id
+    /// resolves to the LATER op, as the per-lookup map always did.
+    static func opsIndex(_ ops: [Op]) -> [String: Op] {
+        var map: [String: Op] = [:]
+        for op in ops { map[op.opId] = op }
+        return map
+    }
+
     /// The notice shown when checkpoint device files can't be read — nil when
     /// everything read cleanly. Static so the copy is pinnable without a
     /// window mount (the `predecessorIndex` pattern).

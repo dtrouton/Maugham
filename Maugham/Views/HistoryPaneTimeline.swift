@@ -31,15 +31,6 @@ struct HistoryTimeline: View {
             .filter { filter.matches($0) }
     }
 
-    /// Index of ops by op_id for HistoryRow's sourceAnnotationId lookups
-    /// (used to surface the body of an annotation whose archive row
-    /// otherwise only shows "paragraph deleted").
-    private var opsByOpId: [String: Op] {
-        var map: [String: Op] = [:]
-        for op in ops { map[op.opId] = op }
-        return map
-    }
-
     private var emptyTitle: String {
         switch filter {
         case .all:         return "No history yet"
@@ -72,7 +63,10 @@ struct HistoryTimeline: View {
     }
 
     var body: some View {
-        if entries.isEmpty && trustEventLines.isEmpty {
+        // Filtered ONCE per body pass: the empty test, the Revert question
+        // and the rows all read this one array (tripwire 4).
+        let rows = entries
+        if rows.isEmpty && trustEventLines.isEmpty {
             ContentUnavailableView(
                 emptyTitle,
                 systemImage: emptySymbol,
@@ -84,13 +78,16 @@ struct HistoryTimeline: View {
                 // never per row (tripwire 4: no per-row computation in
                 // list rows without caching).
                 let predecessors = HistoryPane.predecessorIndex(ops: ops)
+                // The same for the op index a lifecycle row resolves its
+                // creation op through: built here, never per lookup.
+                let opsIndex = HistoryPane.opsIndex(ops)
                 // What this Mac may do FROM history, asked once per body
                 // pass (P3c whole-branch fix wave, C1): a reviewer reads
                 // every row and is offered no rewind and no revert.
                 let offersRewind = HistoryPane.offersRewind(
                     documentStore?.posture(forDocId: activeDocId))
                 let offersRevert = HistoryPane.offersRevert(
-                    for: entries, docIds: allDocIds,
+                    for: rows, docIds: allDocIds,
                     mayWrite: PartialRestorePicker.mayWrite(through: documentStore))
                 // The book's own entries lead the document's (ruling C).
                 // They are FEW — an admission, a revocation, a claim — and
@@ -105,11 +102,11 @@ struct HistoryTimeline: View {
                 VStack(spacing: 0) {
                     projectSection
                     LazyVStack(spacing: 0) {
-                        ForEach(entries) { entry in
+                        ForEach(rows) { entry in
                             HistoryRow(
                                 entry: entry,
                                 expanded: expanded.contains(entry.id),
-                                lookupOp: { id in opsByOpId[id] },
+                                lookupOp: { opsIndex[$0] },
                                 rewindTarget: {
                                     if case .op(let op) = entry {
                                         return predecessors[op.opId]
