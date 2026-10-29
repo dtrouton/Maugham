@@ -161,7 +161,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TranslatorsNote.swift` — Translator's note… (⌘⌥C).
 
 ### History, rewind, checkpoints, restore
-- `HistoryPane.swift` — the forensic timeline, its notices, the project section; `HeldLineNoticeRow`, `SetAsideRecordsDisclosure`. Tripwire 50.
+- `HistoryPane.swift` — forensic timeline. Children: `HistoryPaneNotices.swift` (`HeldLineNoticeRow`, `SetAsideRecordsDisclosure`), `HistoryPaneTimeline.swift`, `HistoryRow.swift`, `HistoryPaneVerbs.swift` (tripwire 50), `HistoryPaneStatics.swift`.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
 - `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, a document its piece's, each behind its own `.editFigure` door through `withFigureHost`, re-checked against the live registry; the sheet names those refused or part-restored.
@@ -434,7 +434,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
 
 ### History, recovery and rewind
-- **`HistoryPane` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).
+- **`HistoryPaneVerbs` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).
 - **Every History notice is a `static`**, pinnable without mounting; count them, never a number in prose.
 - **History never performs a load of its own**: provenance counts are read off the open `Document`.
 - **Disk reads happen in `reload()`, never `body`** (tripwire 4).

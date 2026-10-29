@@ -12254,7 +12254,7 @@ final class TripwireGrepTests: XCTestCase {
         "schemaVersion = ProjectManifest.narrowingSchemaVersion": [
             "type:DocumentStore": 2,
         ],
-        "documentStore.sendHeldWordsToInbox(": ["HistoryPane.swift": 1],
+        "documentStore.sendHeldWordsToInbox(": ["type:HistoryPaneVerbs": 1],
     ]
 
     /// Every line naming `pattern` under `roots`, comments excluded.
