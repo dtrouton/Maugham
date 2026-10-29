@@ -56,6 +56,10 @@ struct TranslationReveal: Equatable, Sendable {
     /// The edition to reveal the paragraph in, or `nil` for the source text.
     let language: String?
     let paragraphId: String
+    /// Where in the paragraph the caret lands, in UTF-16 units of its display
+    /// text; nil (every reveal before report plan 8a Task 7) is its start. A
+    /// figure's Used-in link names a line inside a paragraph of several.
+    var offset: Int? = nil
 
     /// The payload keys — one spelling, shared by `post`, `decode` and the two
     /// posts `perform` makes. `languageKey` and `paragraphIdKey` are also what
@@ -64,6 +68,9 @@ struct TranslationReveal: Equatable, Sendable {
     static let docIdKey = "document_id"
     static let languageKey = "language"
     static let paragraphIdKey = "paragraph_id"
+    /// Also `.maughamNavigateToParagraph`'s optional offset, which
+    /// `EditorCoordinator`'s receiver reads.
+    static let offsetKey = MaughamEvent.paragraphOffsetKey
 
     /// What the window has to do before the reveal can be performed.
     enum Step: Equatable, Sendable {
@@ -87,12 +94,19 @@ struct TranslationReveal: Equatable, Sendable {
     /// A source reveal carries no language key at all, rather than a key with
     /// nothing in it.
     static func post(_ reveal: TranslationReveal) {
+        MaughamEvent.post(.maughamRevealTranslation, to: .keyWindow, payload: payload(reveal))
+    }
+
+    /// The reveal's payload — `post`'s, and a poster that posts through its
+    /// own closure (`FigureUseTravel.perform`).
+    static func payload(_ reveal: TranslationReveal) -> [String: Any] {
         var payload: [String: Any] = [
             docIdKey: reveal.docId,
             paragraphIdKey: reveal.paragraphId,
         ]
         if let language = reveal.language { payload[languageKey] = language }
-        MaughamEvent.post(.maughamRevealTranslation, to: .keyWindow, payload: payload)
+        if let offset = reveal.offset { payload[offsetKey] = offset }
+        return payload
     }
 
     /// The document and the paragraph, or nothing: a reveal missing either
@@ -106,7 +120,7 @@ struct TranslationReveal: Equatable, Sendable {
         else { return nil }
         return TranslationReveal(
             docId: docId, language: userInfo?[languageKey] as? String,
-            paragraphId: paragraphId)
+            paragraphId: paragraphId, offset: userInfo?[offsetKey] as? Int)
     }
 
     /// **Whether the window must wait for a translated surface before the
@@ -178,6 +192,14 @@ struct TranslationReveal: Equatable, Sendable {
             await ready()
         }
         guard !Task.isCancelled else { return }
-        post(.maughamNavigateToParagraph, [paragraphIdKey: reveal.paragraphId])
+        post(.maughamNavigateToParagraph, navigatePayload(reveal))
+    }
+
+    /// The paragraph navigation's payload: the paragraph, and the offset in
+    /// it when the reveal names one.
+    static func navigatePayload(_ reveal: TranslationReveal) -> [String: Any] {
+        var payload: [String: Any] = [paragraphIdKey: reveal.paragraphId]
+        if let offset = reveal.offset { payload[offsetKey] = offset }
+        return payload
     }
 }

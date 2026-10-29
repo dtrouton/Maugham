@@ -840,7 +840,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // intra-paragraph offset through the notification to land
             // exactly on the task line; for now, paragraph start is
             // close enough and avoids the surprising selection.
-            let cursor = NSRange(location: range.location, length: 0)
+            //
+            // An offset (`MaughamEvent.paragraphOffsetKey`: a figure's Used-in
+            // link naming a line inside a paragraph of several) moves the
+            // caret that far into the paragraph, never past its end.
+            let offset = (note.userInfo?[MaughamEvent.paragraphOffsetKey] as? Int).map { max(0, min($0, range.length)) } ?? 0
+            let cursor = NSRange(location: range.location + offset, length: 0)
             self.forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
             textView.setSelectedRange(cursor)
             textView.scrollRangeToVisible(range)

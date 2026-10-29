@@ -220,7 +220,7 @@ struct FigureSectionVerbs {
         let state = state
         return FigureActions(
             store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
-            shareIsReadOnly: { state.figureWindows?.shareIsReadOnly ?? false },
+            windowRefusesWrites: { state.figureWritesRefused },
             report: { state.pendingError = $0 })
     }
 
@@ -257,6 +257,11 @@ struct FigureSectionWiring: ViewModifier {
     let treeState: BinderTreeSectionsState
     let figureWindows: FigureWindows?
     let typography: TypographySettings
+    /// The window's control plane (the share, ⌘⌥⇧R) and persona: the one
+    /// answer to whether this window refuses figure writes, shared with the
+    /// inspector (`FigureActions.windowRefusesWrites`).
+    let control: EditorControl
+    let persona: Persona
 
     func body(content: Content) -> some View {
         content
@@ -272,6 +277,8 @@ struct FigureSectionWiring: ViewModifier {
                 treeState.figureWindows = figureWindows
             }
             .onChange(of: typography, initial: true) { _, next in treeState.figureTypography = next }
+            .onChange(of: FigureActions.windowRefusesWrites(control: control, persona: persona),
+                      initial: true) { _, refused in treeState.figureWritesRefused = refused }
     }
 
     /// Point the tree's cards at `documentStore` (or at none), each fill

@@ -48,7 +48,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     /// The chapter's text: prose, the figure's line, a paragraph of two lines,
     /// and a cross-reference to the figure's label.
     private static let chapterText =
-        "Prose before.\n\n![Cash flow](../figures/t.csv){#tbl:t}\n\nOne line\nand another.\n\nAs @tbl:t shows."
+        "Prose before.\n\n![Cash flow](../figures/t.csv){#tbl:t}\n\nOne line\nand another.\n\nA first line\nAs @tbl:t shows."
 
     /// The chapter written with `chapterText` and bootstrapped into its op log.
     private func writeChapter(_ m: Mounted) async throws -> (docId: String, path: String) {
@@ -74,8 +74,9 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     }
 
     private func actions(_ m: Mounted, windows: FigureWindows? = nil, control: EditorControl = EditorControl(),
-                         model: FigureInspectorModel) -> FigureActions {
-        FigureInspector.actions(store: m.store, figureWindows: windows, control: control, model: model)
+                         persona: Persona = .author, model: FigureInspectorModel) -> FigureActions {
+        FigureInspector.actions(store: m.store, figureWindows: windows, control: control, persona: persona,
+                                model: model)
     }
 
     /// A Research table `model` and a figure `summary` whose A1 reads
@@ -131,7 +132,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertEqual(FigureInspector.numberAndSection(row, structure: m.store.manifest.structure),
                        "Table 1 \u{00B7} \(title)", "the book's number and the piece holding the line")
         XCTAssertEqual(row.usedIn, [FigureListing.Use(docId: docId, lineIndex: 2)])
-        XCTAssertEqual(row.referencedFrom, [FigureListing.Use(docId: docId, lineIndex: 7)])
+        XCTAssertEqual(row.referencedFrom, [FigureListing.Use(docId: docId, lineIndex: 8)])
         XCTAssertEqual(FigureInspector.useTitle(row.usedIn[0], structure: m.store.manifest.structure),
                        "\(title), line 3")
         let unused = FigureListing.Row(figureId: "fig-x", kind: .table, name: "x", caption: "",
@@ -143,7 +144,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let (item, summary) = try await summaryReadingModel(m)
         let model = FigureInspectorModel(figureId: summary.id)
         let ds = try XCTUnwrap(m.store.documentStore)
-        await model.load(store: m.store, documentStore: ds)
+        await model.loadPins(store: m.store, documentStore: ds)
         XCTAssertEqual(model.sources.map(\.title), ["model"])
         XCTAssertEqual(model.sources.first?.range, "B2", "the pinned cell, in A1")
         XCTAssertEqual(model.sources.first?.status, .current)
@@ -151,12 +152,12 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertNotNil(model.sources.first?.pinnedAt)
 
         try rewriteModel(m, item, "Year,Revenue\n2025,15\n2026,20\n")
-        await model.load(store: m.store, documentStore: ds)
+        await model.loadPins(store: m.store, documentStore: ds)
         XCTAssertEqual(model.sources.first?.statusText, "changed", "the source moved on")
 
         // A figure with no pins reads from nothing.
         let plain = FigureInspectorModel(figureId: figure.id)
-        await plain.load(store: m.store, documentStore: ds)
+        await plain.loadPins(store: m.store, documentStore: ds)
         XCTAssertEqual(plain.sources, [])
     }
 
@@ -179,20 +180,41 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertNil(rows[0].range, "no pin recorded on it")
     }
 
-    /// The notes are the project walk's, filtered to the figure's stream, oldest first.
-    func test_theNotesAreTheFiguresStreamsOnly() {
-        func note(_ id: String, at: TimeInterval) -> Annotation {
-            Annotation(id: id, kind: .comment, paragraphId: nil, body: "Check \(id)", suggestedText: nil,
-                       priorText: nil, createdAt: Date(timeIntervalSince1970: at), createdBySession: nil,
-                       status: .open, userResponse: nil, resolvedAt: nil, isStale: false)
+    /// **The notes are the figure stream's own**, read off the main actor
+    /// (`ProjectStore.figureNotes`), oldest first — and reading them, or
+    /// writing the figure, never runs the project's annotation walk (I3).
+    func test_theNotesAreTheFiguresStreamOnly_andNoWriteRunsTheProjectWalk() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        for (id, body, at) in [("01FFF2", "second", 1_700_000_100.0), ("01FFF1", "first", 1_700_000_000.0)] {
+            try await OpLogStore(projectURL: m.store.url).append(Op(
+                opId: id, docId: figure.id, at: Date(timeIntervalSince1970: at),
+                device: "mac", session: "s", kind: .claudeComment, changes: [],
+                provenance: Op.Provenance(sessionId: "s", annotationBody: body,
+                                          figureRowId: "r1", figureColId: "c1")))
         }
-        let snapshot = ProjectAnnotationsSnapshot(annotations: [
-            ProjectAnnotation(docId: "fig-0a1b2c3d", annotation: note("n2", at: 20)),
-            ProjectAnnotation(docId: "doc-a", annotation: note("n9", at: 5)),
-            ProjectAnnotation(docId: "fig-0a1b2c3d", annotation: note("n1", at: 10)),
-        ], unreadableDocIds: [], sequences: [:])
-        XCTAssertEqual(FigureInspectorModel.notes(on: "fig-0a1b2c3d", in: snapshot).map(\.id), ["n1", "n2"])
+        let walks = m.store._debugAnnotationsRebuildCount
+        let model = FigureInspectorModel(figureId: figure.id)
+        await model.loadNotes(store: m.store)
+        XCTAssertEqual(model.notes.map(\.body), ["first", "second"], "the figure's stream, oldest first")
         XCTAssertEqual(FigureInspector.kindTitle(.suggestedChange), "Suggestion")
+
+        // A cell write (the figure revision moves) and both loads: no walk.
+        try await ds.withFigureHost(figure.id) { host in
+            let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+            try await host.setCell(Cell(content: .value(.number(7))), at: a1)
+        }
+        await model.loadPins(store: m.store, documentStore: ds)
+        await model.loadNotes(store: m.store)
+        XCTAssertEqual(m.store._debugAnnotationsRebuildCount, walks, "no project annotation walk")
+
+        let named = Notification(name: .maughamAnnotationsChanged, object: nil,
+                                 userInfo: [MaughamEvent.annotationDocIdKey: figure.id])
+        let other = Notification(name: .maughamAnnotationsChanged, object: nil,
+                                 userInfo: [MaughamEvent.annotationDocIdKey: "doc-a"])
+        XCTAssertTrue(FigureInspectorModel.names(figure.id, named), "a change on its stream reloads the notes")
+        XCTAssertFalse(FigureInspectorModel.names(figure.id, other), "another piece's does not")
     }
 
     // MARK: - Rename
@@ -225,17 +247,18 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
 
     // MARK: - Used in
 
-    /// The line → paragraph walk over the op log's paragraphs: a paragraph of
-    /// several lines holds each, the blank between two is the next one's.
-    func test_aLineIsFoundInItsParagraph() {
+    /// The line → place walk over the op log's paragraphs: a paragraph of
+    /// several lines holds each at its offset, the blank between two is the
+    /// next one's start.
+    func test_aLineIsPlacedInItsParagraphAtItsOffset() {
         let paragraphs = ["a1b2": "Prose.", "c3d4": "![Cash](../figures/t.csv)", "e5f6": "One\ntwo"]
         let sequence = ["a1b2", "c3d4", "e5f6"]
-        let at = { FigureUseTravel.paragraphId(atLine: $0, paragraphs: paragraphs, sequence: sequence) }
-        XCTAssertEqual(at(0), "a1b2")
-        XCTAssertEqual(at(1), "c3d4")
-        XCTAssertEqual(at(2), "c3d4")
-        XCTAssertEqual(at(4), "e5f6")
-        XCTAssertEqual(at(5), "e5f6")
+        let at = { FigureUseTravel.place(atLine: $0, paragraphs: paragraphs, sequence: sequence) }
+        XCTAssertEqual(at(0), .init(paragraphId: "a1b2", offset: 0))
+        XCTAssertEqual(at(1), .init(paragraphId: "c3d4", offset: 0), "the blank is the next one's start")
+        XCTAssertEqual(at(2), .init(paragraphId: "c3d4", offset: 0))
+        XCTAssertEqual(at(4), .init(paragraphId: "e5f6", offset: 0))
+        XCTAssertEqual(at(5), .init(paragraphId: "e5f6", offset: 4), "the second line, after \"One\\n\"")
         XCTAssertNil(at(6))
         XCTAssertNil(at(-1))
     }
@@ -282,11 +305,21 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
                        "the caret is on the figure's line")
         XCTAssertTrue(m.window.firstResponder === m.textView)
 
+        // The cross-reference sits on the SECOND line of its paragraph: the
+        // reveal carries the line's offset, and it survives the reveal's
+        // payload (what `TranslationReviewModifier` decodes) and the reveal's
+        // own navigation (`TranslationReveal.perform`, which the window runs
+        // once the piece's document is up — production's landing path).
         let reference = FigureUseTravel.destination(for: row.referencedFrom[0], store: m.store, documentStore: ds)
-        FigureUseTravel.perform(reference, select: { _ in },
-                                post: { MaughamEvent.post($0, to: .keyWindow, payload: $1) })
-        XCTAssertEqual(m.textView.selectedRange().location, location(m, "As @tbl:t"),
-                       "the cross-reference's line")
+        guard case .paragraph(let referenceReveal) = reference else { return XCTFail("a paragraph: \(reference)") }
+        XCTAssertEqual(referenceReveal.offset, ("A first line\n" as NSString).length)
+        XCTAssertEqual(TranslationReveal.decode(TranslationReveal.payload(referenceReveal)), referenceReveal,
+                       "the offset rides the reveal's payload")
+        m.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        await TranslationReveal.perform(referenceReveal,
+                                        post: { MaughamEvent.post($0, to: .keyWindow, payload: $1) })
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: location(m, "As @tbl:t"), length: 0),
+                       "the caret is on the cross-reference's line, not its paragraph's first")
 
         // A line the op log cannot place selects the piece alone.
         var selected: BinderSubject?
@@ -346,7 +379,58 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         await windows.visitEnded(summary.id)
         XCTAssertNil(actions.openGrid(summary.id))
         XCTAssertNil(actions.refreshPins(summary.id), "no grid open: Refresh is not asked")
+        XCTAssertNil(model.message)
         XCTAssertFalse(actions.importFromCSV(summary.id), "nor Import")
+        XCTAssertEqual(model.message, FigureActions.openTheTableFirst, "an Import with no grid is said, not dropped")
+    }
+
+    /// **Whether a grid is open is observed** (I2): the centre's controller
+    /// mounts after an await, and a view asking `hasGrid` is told when it
+    /// does — and again when the grid goes — so Import and Refresh follow the
+    /// grid rather than whatever the inspector last drew.
+    func test_aGridOpeningOrGoingIsSeenByAViewAskingHasGrid() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let windows = FigureWindows()
+        let actions = actions(m, windows: windows, model: FigureInspectorModel(figureId: figure.id))
+        let centre = FigureCentreMount(
+            figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
+            projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
+            isReviewMode: false, shareIsReadOnly: false)
+        centre.take()
+        XCTAssertNil(centre.grid?.controller, "premise: the hold is taken, the visit still opening")
+
+        var told = false
+        XCTAssertFalse(withObservationTracking { actions.hasGrid(figure.id) } onChange: { told = true })
+        await centre.grid?.opening?.value
+        XCTAssertTrue(told, "the visit opening is observed")
+        XCTAssertTrue(actions.hasGrid(figure.id))
+        XCTAssertNil(FigureInspector.refusal(mayEdit: true, hasGrid: actions.hasGrid(figure.id)))
+
+        told = false
+        XCTAssertTrue(withObservationTracking { actions.hasGrid(figure.id) } onChange: { told = true })
+        centre.leave()
+        XCTAssertTrue(told, "the grid going is observed")
+        XCTAssertFalse(actions.hasGrid(figure.id))
+        XCTAssertEqual(FigureInspector.refusal(mayEdit: true, hasGrid: false), FigureActions.openTheTableFirst)
+        await windows.visitEnded(figure.id)
+
+        // A figure window's grid, once finished, answers no grid.
+        let grid = FigureWindowGrid()
+        let registration = windows.opened(figure.id, grid: { [weak grid] in
+            grid?.isFinished == false ? grid?.controller : nil
+        }, close: {})
+        grid.open(figureId: figure.id, store: ds, projectStore: m.store, windows: windows, close: {})
+        await grid.opening?.value
+        XCTAssertTrue(actions.hasGrid(figure.id), "a window's grid is found")
+        told = false
+        _ = withObservationTracking { actions.hasGrid(figure.id) } onChange: { told = true }
+        grid.finish()
+        XCTAssertTrue(told)
+        XCTAssertFalse(actions.hasGrid(figure.id), "a finished window grid takes no Import")
+        windows.closed(registration)
+        await grid.finishing?.value
     }
 
     /// Import from CSV goes to the open grid's import: its panel is asked.
@@ -385,23 +469,86 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let figure = try XCTUnwrap(m.figure)
         let model = FigureInspectorModel(figureId: figure.id)
         XCTAssertTrue(actions(m, model: model).mayEdit(figure.id), "control: the book's author")
-        XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .table, hasGrid: true),
+        XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .table),
                        [.openInWindow, .sendToResearch, .importCSV])
-        XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .table, hasGrid: false),
-                       [.openInWindow, .sendToResearch])
-        XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .image, hasGrid: true),
-                       [.openInWindow, .sendToResearch])
-        XCTAssertEqual(FigureInspector.offered(mayEdit: false, kind: .table, hasGrid: true), [.openInWindow])
+        XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .image), [.openInWindow, .sendToResearch])
+        XCTAssertEqual(FigureInspector.offered(mayEdit: false, kind: .table), [.openInWindow])
+        XCTAssertEqual(FigureInspector.refusal(mayEdit: false, hasGrid: true), "This figure is read-only here.",
+                       "Compare's Refresh says why in Review")
 
+        // The window's own refusal: one answer, for the inspector and the tree.
         let viewOnly = EditorControl()
         viewOnly.shareIsReadOnly = true
+        let manualReview = EditorControl()
+        manualReview.isManualReviewMode = true
         XCTAssertFalse(actions(m, control: viewOnly, model: model).mayEdit(figure.id), "a view-only share")
+        XCTAssertFalse(actions(m, control: manualReview, model: model).mayEdit(figure.id), "⌘⌥⇧R")
+        XCTAssertFalse(actions(m, persona: .review, model: model).mayEdit(figure.id), "the Review persona")
+        XCTAssertTrue(actions(m, persona: .plan, model: model).mayEdit(figure.id), "control: Plan edits figures")
+        let tree = BinderTreeSectionsState()
+        tree.figureWritesRefused = FigureActions.windowRefusesWrites(control: viewOnly, persona: .plan)
+        XCTAssertFalse(FigureSectionVerbs(store: m.store, state: tree).shared.mayEdit(figure.id),
+                       "the tree's row refuses on the same answer")
 
         try await samWritesTheChapter(m)
         XCTAssertFalse(actions(m, model: model).mayEdit(figure.id), "another author's piece")
-        let tree = BinderTreeSectionsState()
-        XCTAssertFalse(FigureSectionVerbs(store: m.store, state: tree).shared.mayEdit(figure.id),
+        XCTAssertFalse(FigureSectionVerbs(store: m.store, state: BinderTreeSectionsState()).shared.mayEdit(figure.id),
                        "the tree's row asks the same helper")
+    }
+
+    @Observable
+    @MainActor
+    final class WindowBox {
+        var control = EditorControl()
+        var persona: Persona = .plan
+    }
+
+    /// The tree wired as `ProjectWindow` wires it, in a window with no editor.
+    private struct TreeWiringProbe: View {
+        let box: WindowBox
+        let store: ProjectStore
+        let documentStore: DocumentStore
+        let tree: BinderTreeSectionsState
+        var body: some View {
+            Color.clear.modifier(FigureSectionWiring(
+                store: store, documentStore: documentStore, listing: FigureListingModel(), treeState: tree,
+                figureWindows: nil, typography: .defaults, control: box.control, persona: box.persona))
+        }
+    }
+
+    /// **I1: a Plan window with no editor on a view-only share** — the tree's
+    /// row hears the share from the window's control plane, as the inspector
+    /// does, so it offers no Send to Research or Rename; the share lifting,
+    /// it offers them again. ⌘⌥⇧R and the Review persona the same.
+    func test_theTreeHearsTheWindowsShareAndReviewWithNoEditorMounted() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let tree = BinderTreeSectionsState()
+        let box = WindowBox()
+        box.control.shareIsReadOnly = true
+        probeWindows.append(TestWindow.mount(
+            AnyView(TreeWiringProbe(box: box, store: m.store, documentStore: ds, tree: tree)),
+            size: CGSize(width: 320, height: 240)))
+        let verbs = FigureSectionVerbs(store: m.store, state: tree)
+        let refused = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
+        XCTAssertTrue(refused, "a view-only share reaches the tree")
+        XCTAssertFalse(verbs.actions(for: FigureTreeRow(listing: FigureListing.Row(
+            figureId: figure.id, kind: .table, name: "t", caption: "", number: "—", usedIn: [],
+            referencedFrom: [], pieceOfLine: nil), readsResearch: false, pinChanged: false)).mayEdit())
+
+        box.control.shareIsReadOnly = false
+        let lifted = await pumpUntil(deadline: 5) { !tree.figureWritesRefused }
+        XCTAssertTrue(lifted)
+        XCTAssertTrue(verbs.shared.mayEdit(figure.id), "control: the share lifted")
+
+        box.control.isManualReviewMode = true
+        let reviewing = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
+        XCTAssertTrue(reviewing, "⌘⌥⇧R")
+        box.control.isManualReviewMode = false
+        box.persona = .review
+        let review = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
+        XCTAssertTrue(review, "the Review persona")
     }
 
     // MARK: - Send to Research

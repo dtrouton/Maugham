@@ -983,6 +983,10 @@ final class BinderTreeSectionsState {
     @ObservationIgnored weak var figureWindows: FigureWindows?
     /// The editor's typography, handed to a figure window a row opens.
     @ObservationIgnored var figureTypography: TypographySettings = .defaults
+    /// The window refuses figure writes (a view-only share, ⌘⌥⇧R, a persona
+    /// that edits no figures — `FigureActions.windowRefusesWrites`), as the
+    /// inspector asks it; asked by a row's menu builder.
+    @ObservationIgnored var figureWritesRefused = false
 
     /// Whether `section` is open — the flag its header's chevron reads.
     func isExpanded(_ section: BinderTreeSection) -> Bool {

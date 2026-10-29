@@ -472,7 +472,7 @@ struct ProjectWindow: View {
         .modifier(FigureSectionWiring(
             store: store, documentStore: documentStore, listing: figureListing,
             treeState: treeState, figureWindows: session?.figureWindows,
-            typography: effectiveTypography))
+            typography: effectiveTypography, control: editorControl, persona: persona))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,

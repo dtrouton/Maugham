@@ -37,12 +37,14 @@ struct FigurePinComparisonRow: Equatable, Identifiable {
 /// re-reads every pin in the figure as one step on the stack of the grid open
 /// on it (`FigureActions.refreshPins` → `FigureGridController
 /// .refreshPinsFromResearch` → `FigureDocument.refreshPins`). Refresh is
-/// offered only where this Mac may edit the figure and a grid has it open;
-/// otherwise the sheet says why. The rows are read when the sheet opens, and
+/// offered only where this Mac may edit the figure (the posture, and the
+/// window's own refusal — Review, ⌘⌥⇧R, a view-only share) and a grid has it
+/// open; otherwise the sheet says why. The rows are read when the sheet opens, and
 /// again after a refresh.
 struct FigurePinsCompare: View {
     let model: FigureInspectorModel
-    let mayRefresh: Bool
+    /// Why Refresh cannot act (`FigureInspector.refusal`), nil when it can.
+    let refusal: String?
     let load: () async -> Void
     let refresh: () -> Task<Void, Never>?
     let done: () -> Void
@@ -74,9 +76,8 @@ struct FigurePinsCompare: View {
             } else {
                 ProgressView().controlSize(.small)
             }
-            if !mayRefresh {
-                Text("Open the table, with permission to edit it, to refresh.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if let refusal {
+                Text(refusal).font(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()
@@ -91,7 +92,7 @@ struct FigurePinsCompare: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!mayRefresh || refreshing || (model.comparisons?.isEmpty ?? true))
+                .disabled(refusal != nil || refreshing || (model.comparisons?.isEmpty ?? true))
             }
         }
         .padding()

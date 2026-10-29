@@ -99,6 +99,11 @@ enum MaughamEvent {
     /// the other read nil.
     static let annotationDocIdKey = "doc_id"
 
+    /// Payload key for `.maughamNavigateToParagraph`'s optional caret offset
+    /// into the paragraph (UTF-16, display text) — posted by
+    /// `TranslationReveal`, read by `EditorCoordinator` (report plan 8a Task 7).
+    static let paragraphOffsetKey = "paragraph_offset"
+
     /// **The one spelling of the annotations-changed post** (M3 P2 Task 9).
     ///
     /// Six callers — four append sites on `Document`, the merge that brought

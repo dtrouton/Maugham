@@ -61,68 +61,81 @@ struct FigurePinSourceRow: Equatable, Identifiable {
 /// **A "Used in" link, followed** (spec §7): the piece is selected and the
 /// caret lands on the line — through the window's one path that selects a
 /// piece, waits for its document and then scrolls (`TranslationReveal`'s
-/// source reveal, as a publish problem's row uses it), on the paragraph
-/// holding the line. A line the op log cannot place selects the piece alone.
+/// source reveal, as a publish problem's row uses it), at the line's offset
+/// in the paragraph holding it (`TranslationReveal.offset`). A line the op
+/// log cannot place selects the piece alone.
 enum FigureUseTravel {
 
     enum Destination: Equatable {
-        /// Select the piece, then land on the paragraph holding the line.
+        /// Select the piece, then land on the line in the paragraph holding it.
         case paragraph(TranslationReveal)
         /// The piece alone: no paragraph holds the line (the text moved on).
         case piece(BinderSubject)
     }
 
-    /// The paragraph holding `line` (from 0) of the display text `sequence`
-    /// joins with a blank line between paragraphs (`Document.displayText`'s
-    /// shape, task anchors stripped). A line in the blank between two
-    /// paragraphs is the next one's; past the end, nil. Pure.
-    static func paragraphId(atLine line: Int, paragraphs: [String: String],
-                            sequence: [String]) -> String? {
+    /// A line's place in the op log's text: its paragraph, and where the line
+    /// starts in it (UTF-16 units of the paragraph's display text).
+    struct Place: Equatable {
+        let paragraphId: String
+        let offset: Int
+    }
+
+    /// Where `line` (from 0) sits in the display text `sequence` joins with a
+    /// blank line between paragraphs (`Document.displayText`'s shape, task
+    /// anchors stripped). A line in the blank between two paragraphs is the
+    /// next one's start; past the end, nil. Pure.
+    static func place(atLine line: Int, paragraphs: [String: String],
+                      sequence: [String]) -> Place? {
         guard line >= 0 else { return nil }
         var start = 0
         for id in sequence {
             guard let text = paragraphs[id] else { continue }
-            let stripped = MarkdownDisplayFilter.stripTaskAnchorsInline(text)
-            let breaks = stripped.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-            if line <= start + breaks { return id }
-            start += breaks + 2
+            let lines = MarkdownDisplayFilter.stripTaskAnchorsInline(text)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+            if line < start + lines.count {
+                let within = max(0, line - start)
+                let offset = lines.prefix(within).reduce(0) { $0 + $1.utf16.count + 1 }
+                return Place(paragraphId: id, offset: offset)
+            }
+            start += lines.count + 1
         }
         return nil
     }
 
     /// Where `use` takes the window: the piece's open `Document` answers the
-    /// paragraph when one is open (its live text, the text the index read),
-    /// else the op log's derived state (tripwire 20).
+    /// place when one is open (its live text, the text the index read), else
+    /// the op log's derived state (tripwire 20).
     @MainActor
     static func destination(for use: FigureListing.Use, store: ProjectStore,
                             documentStore: DocumentStore?) -> Destination {
-        let pid: String?
+        let place: Place?
         if let open = documentStore?.document(forDocId: use.docId) {
-            pid = paragraphId(atLine: use.lineIndex, paragraphs: open.paragraphs, sequence: open.sequence)
+            place = Self.place(atLine: use.lineIndex, paragraphs: open.paragraphs, sequence: open.sequence)
         } else if let state = try? store.derivedCache.state(forDocId: use.docId, in: store.url) {
-            pid = paragraphId(atLine: use.lineIndex, paragraphs: state.paragraphs, sequence: state.sequence)
+            place = Self.place(atLine: use.lineIndex, paragraphs: state.paragraphs, sequence: state.sequence)
         } else {
-            pid = nil
+            place = nil
         }
-        guard let pid else { return .piece(.item(use.docId)) }
-        return .paragraph(TranslationReveal(docId: use.docId, language: nil, paragraphId: pid))
+        guard let place else { return .piece(.item(use.docId)) }
+        return .paragraph(TranslationReveal(docId: use.docId, language: nil, paragraphId: place.paragraphId,
+                                            offset: place.offset == 0 ? nil : place.offset))
     }
 
     /// **The travel, posted**: the reveal (the window selects the piece and,
-    /// once its document is up, scrolls), then the paragraph's navigation —
-    /// which, from a persona whose centre shows no manuscript (Plan), takes
-    /// the window to Author first (`ManuscriptNavigation`), so the reveal has
-    /// an editor to land in; with no editor on that piece yet it moves no
-    /// caret. A piece alone is a subject write. `post` is production's
-    /// `MaughamEvent.post(_:to: .keyWindow, payload:)`.
+    /// once its document is up, navigates to the paragraph at the line's
+    /// offset — `TranslationReveal.perform`), then the same navigation at
+    /// once — which, from a persona whose centre shows no manuscript (Plan),
+    /// takes the window to Author first (`ManuscriptNavigation`), so the
+    /// reveal has an editor to land in; with no editor on that piece yet it
+    /// moves no caret. A piece alone is a subject write. `post` is
+    /// production's `MaughamEvent.post(_:to: .keyWindow, payload:)`.
     @MainActor
     static func perform(_ destination: Destination, select: (BinderSubject) -> Void,
                         post: (Notification.Name, [String: Any]) -> Void) {
         switch destination {
         case .paragraph(let reveal):
-            post(.maughamRevealTranslation, [TranslationReveal.docIdKey: reveal.docId,
-                                             TranslationReveal.paragraphIdKey: reveal.paragraphId])
-            post(.maughamNavigateToParagraph, [TranslationReveal.paragraphIdKey: reveal.paragraphId])
+            post(.maughamRevealTranslation, TranslationReveal.payload(reveal))
+            post(.maughamNavigateToParagraph, TranslationReveal.navigatePayload(reveal))
         case .piece(let subject):
             select(subject)
         }
@@ -135,9 +148,10 @@ enum FigureUseTravel {
 /// Task 7): the figure's pins by source (`FigureDocument.pinStatus` through
 /// the window's host — never in a body, loaded on appear and again when the
 /// window's figure revision moves), the Compare rows (`comparePins`, when the
-/// sheet opens), and the notes and suggestions on the figure's stream (the
-/// project's annotation walk, filtered to it). Plus the line a refusal is
-/// said on.
+/// sheet opens), and the notes and suggestions on the figure's stream — that
+/// stream alone, read off the main actor (`ProjectStore.figureNotes`), on
+/// appear and when an annotation change names the figure, never on a figure
+/// write and never the project walk. Plus the line a refusal is said on.
 @MainActor
 @Observable
 final class FigureInspectorModel {
@@ -152,14 +166,18 @@ final class FigureInspectorModel {
     init(figureId: String) { self.figureId = figureId }
 
     /// The pins (through the figure's host, opened for the read when no grid
-    /// holds it) and the notes. A figure that will not open shows none.
-    func load(store: ProjectStore, documentStore: DocumentStore) async {
+    /// holds it). A figure that will not open shows none.
+    func loadPins(store: ProjectStore, documentStore: DocumentStore) async {
         let read = try? await documentStore.withFigureHost(figureId) { host in
             (await host.pinStatus(), host.state.pins)
         }
         sources = FigurePinSourceRow.build(status: read?.0 ?? [:], pins: read?.1 ?? [:],
                                            title: { Self.sourceTitle($0, in: store) })
-        notes = Self.notes(on: figureId, in: store.listAnnotationsAcrossProject())
+    }
+
+    /// The notes on the figure's own stream, read off the main actor.
+    func loadNotes(store: ProjectStore) async {
+        notes = Self.ordered(await store.figureNotes(figureId))
     }
 
     /// Compare: each pinned cell a refresh would change, old beside new.
@@ -172,10 +190,14 @@ final class FigureInspectorModel {
             sourceTitle: { Self.sourceTitle($0, in: store) })
     }
 
-    /// The notes on the figure's stream, oldest first.
-    static func notes(on figureId: String, in snapshot: ProjectAnnotationsSnapshot) -> [Annotation] {
-        snapshot.annotations.filter { $0.docId == figureId }.map(\.annotation)
-            .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    /// Notes oldest first.
+    static func ordered(_ notes: [Annotation]) -> [Annotation] {
+        notes.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    }
+
+    /// Does an annotations-changed post name this figure? (Its notes reload.)
+    static func names(_ figureId: String, _ note: Notification) -> Bool {
+        note.userInfo?[MaughamEvent.annotationDocIdKey] as? String == figureId
     }
 
     /// A source's name: the Research item's title, a parked figure's name,
@@ -206,6 +228,9 @@ struct FigureInspector: View {
     let listing: FigureListingModel
     let figureWindows: FigureWindows?
     let control: EditorControl
+    let persona: Persona
+    /// The project window, whose annotation changes reload the notes.
+    let window: NSWindow?
     /// The window's subject-picker, for a Used-in link that can only select its piece.
     let select: (BinderSubject) -> Void
     /// Notes' "Show in Notes": the queue, widened, at this figure.
@@ -213,10 +238,14 @@ struct FigureInspector: View {
 
     @State private var model: FigureInspectorModel
     @State private var draftName = ""
+    /// The name last sent to the store, so Return and the focus leaving do
+    /// not send it twice.
+    @State private var committedName: String?
+    @FocusState private var nameFocused: Bool
     @State private var showsCompare = false
 
     init(figureId: String, store: ProjectStore, documentStore: DocumentStore, listing: FigureListingModel,
-         figureWindows: FigureWindows?, control: EditorControl,
+         figureWindows: FigureWindows?, control: EditorControl, persona: Persona, window: NSWindow?,
          select: @escaping (BinderSubject) -> Void, showNotes: @escaping (String) -> Void) {
         self.figureId = figureId
         self.store = store
@@ -224,6 +253,8 @@ struct FigureInspector: View {
         self.listing = listing
         self.figureWindows = figureWindows
         self.control = control
+        self.persona = persona
+        self.window = window
         self.select = select
         self.showNotes = showNotes
         _model = State(initialValue: FigureInspectorModel(figureId: figureId))
@@ -231,14 +262,14 @@ struct FigureInspector: View {
 
     /// The one helper (`FigureActions`), as the inspector hands it what it knows.
     static func actions(store: ProjectStore, figureWindows: FigureWindows?, control: EditorControl,
-                        model: FigureInspectorModel) -> FigureActions {
+                        persona: Persona, model: FigureInspectorModel) -> FigureActions {
         FigureActions(store: store, figureWindows: figureWindows, typography: control.typography,
-                      shareIsReadOnly: { control.shareIsReadOnly },
+                      windowRefusesWrites: { FigureActions.windowRefusesWrites(control: control, persona: persona) },
                       report: { [weak model] in model?.message = $0 })
     }
 
     private var actions: FigureActions {
-        Self.actions(store: store, figureWindows: figureWindows, control: control, model: model)
+        Self.actions(store: store, figureWindows: figureWindows, control: control, persona: persona, model: model)
     }
     private var record: FigureRecord? { store.manifest.figures?.first { $0.id == figureId } }
     /// The listing's row, or the registry's figure as an unused one.
@@ -279,22 +310,30 @@ struct FigureInspector: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // The pins move with the figure (any write, a park, a trust change).
         .task(id: LoadKey(figureId: figureId, revision: documentStore.figureRevision)) {
-            await model.load(store: store, documentStore: documentStore)
+            await model.loadPins(store: store, documentStore: documentStore)
+        }
+        // The notes: the figure's own stream, on appear and when an
+        // annotation change names it — not on every figure write.
+        .task(id: figureId) { await model.loadNotes(store: store) }
+        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
+            guard FigureInspectorModel.names(figureId, note) else { return }
+            Task { await model.loadNotes(store: store) }
         }
         .onChange(of: record?.name, initial: true) { _, name in draftName = name ?? "" }
         .sheet(isPresented: $showsCompare) {
-            FigurePinsCompare(model: model, mayRefresh: mayRefresh,
+            FigurePinsCompare(model: model, refusal: refreshRefusal,
                               load: { await model.loadComparisons(store: store, documentStore: documentStore) },
                               refresh: { actions.refreshPins(figureId) },
                               done: { showsCompare = false })
         }
     }
 
-    /// Refresh is offered where this Mac may edit the figure and a grid has
-    /// it open, whose stack takes the step.
-    private var mayRefresh: Bool {
-        record?.kind == .table && actions.mayEdit(figureId) && actions.openGrid(figureId) != nil
+    /// Why Refresh is not offered, nil when it is (this Mac may edit the
+    /// figure and a grid has it open, whose stack takes the step).
+    private var refreshRefusal: String? {
+        Self.refusal(mayEdit: actions.mayEdit(figureId), hasGrid: actions.hasGrid(figureId))
     }
 
     // MARK: Sections
@@ -305,6 +344,9 @@ struct FigureInspector: View {
             if actions.mayEdit(figureId) {
                 TextField("", text: $draftName, onCommit: commitName)
                     .textFieldStyle(.plain)
+                    .focused($nameFocused)
+                    // Leaving the field commits it, as Return does.
+                    .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
             } else {
                 Text(row.name)
             }
@@ -384,8 +426,9 @@ struct FigureInspector: View {
 
     @ViewBuilder
     private func actionsSection(_ row: FigureListing.Row) -> some View {
-        let offered = Self.offered(mayEdit: actions.mayEdit(figureId), kind: row.kind,
-                                   hasGrid: actions.openGrid(figureId) != nil)
+        let mayEdit = actions.mayEdit(figureId)
+        let offered = Self.offered(mayEdit: mayEdit, kind: row.kind)
+        let importRefusal = Self.refusal(mayEdit: mayEdit, hasGrid: actions.hasGrid(figureId))
         VStack(alignment: .leading, spacing: 6) {
             if offered.contains(.openInWindow) {
                 Button("Open in Window") { actions.openInWindow(row) }
@@ -399,7 +442,12 @@ struct FigureInspector: View {
                 .fixedSize()
             }
             if offered.contains(.importCSV) {
+                // Shown while no grid can take it, disabled, with the reason.
                 Button(FigureTableCommand.importCSV.title) { actions.importFromCSV(figureId) }
+                    .disabled(importRefusal != nil)
+                if let importRefusal {
+                    Text(importRefusal).font(.caption).foregroundStyle(.secondary)
+                }
             }
             if let message = model.message {
                 Text(message).font(.caption).foregroundStyle(.red)
@@ -415,6 +463,8 @@ struct FigureInspector: View {
             draftName = record?.name ?? ""
             return
         }
+        guard trimmed != committedName else { return }   // Return, then the focus leaving
+        committedName = trimmed
         Self.rename(to: trimmed, actions: actions, model: model, current: { record?.name },
                     revert: { draftName = $0 })
     }
@@ -444,15 +494,24 @@ struct FigureInspector: View {
 
     enum Action: Equatable { case openInWindow, sendToResearch, importCSV }
 
-    /// What the actions row offers: Open in Window always; Send to Research
-    /// and Import (a table's, with a grid open to import into) only where
-    /// this Mac may edit the figure (the posture and the share).
-    static func offered(mayEdit: Bool, kind: FigureKind, hasGrid: Bool) -> [Action] {
+    /// What the actions row offers: Open in Window always; Send to Research,
+    /// and a table's Import, only where this Mac may edit the figure (the
+    /// posture and the window's own refusal). Import is enabled only while a
+    /// grid is open on it (`refusal`).
+    static func offered(mayEdit: Bool, kind: FigureKind) -> [Action] {
         var out: [Action] = [.openInWindow]
         guard mayEdit else { return out }
         out.append(.sendToResearch)
-        if kind == .table && hasGrid { out.append(.importCSV) }
+        if kind == .table { out.append(.importCSV) }
         return out
+    }
+
+    /// Why Import and Refresh cannot act now, nil when they can: they write
+    /// on the open grid's stack, as this Mac's edit.
+    static func refusal(mayEdit: Bool, hasGrid: Bool) -> String? {
+        guard mayEdit else { return "This figure is read-only here." }
+        guard hasGrid else { return FigureActions.openTheTableFirst }
+        return nil
     }
 
     /// "Table 2 · Chapter 3"; an unused figure "— · unused".
@@ -461,7 +520,8 @@ struct FigureInspector: View {
         return "\(row.number) \u{00B7} \(FigureSectionVerbs.pieceTitle(piece, in: structure))"
     }
 
-    /// "Chapter 3, line 12" — the line counted from 1, as the writer reads it.
+    /// "Chapter 3, line 12" — the line counted from 1, as the writer reads
+    /// it; the link lands on that line (`FigureUseTravel.Place.offset`).
     static func useTitle(_ use: FigureListing.Use, structure: [StructureItem]) -> String {
         "\(FigureSectionVerbs.pieceTitle(use.docId, in: structure)), line \(use.lineIndex + 1)"
     }

@@ -9,8 +9,9 @@ import MaughamCore
 /// line).
 ///
 /// - **Who may write** is the posture's one door (tripwires 47, 51:
-///   `.editFigure`) and the share: a figure this Mac may not edit, or a
-///   view-only share, offers Open in Window alone (Review Focus 5).
+///   `.editFigure`) and the window's own refusal (`windowRefusesWrites`: a
+///   view-only share, ⌘⌥⇧R, the Review persona): either offers Open in
+///   Window alone (Review Focus 5).
 /// - **Import and Refresh act through the grid open on the figure**
 ///   (`FigureWindows.gridController(on:)`) — the centre's, an editor's in
 ///   place, or a figure window's — so their writes are that grid's own
@@ -22,16 +23,27 @@ struct FigureActions {
     let figureWindows: FigureWindows?
     /// The editor's typography, handed to a window this opens.
     let typography: TypographySettings
-    /// Whether the window's share is view-only (asked when a menu is built).
-    var shareIsReadOnly: () -> Bool = { false }
+    /// Whether the window refuses figure writes (`windowRefusesWrites`,
+    /// asked when a menu is built).
+    var windowRefusesWrites: () -> Bool = { false }
     let report: (String) -> Void
 
     // MARK: Who may write
 
-    /// The posture's one door and the share: Send to Research, Rename and
-    /// Import are offered only when this answers true.
+    /// **Does the window itself refuse figure writes?** A view-only share,
+    /// the explicit review toggle (⌘⌥⇧R), or a persona that edits no figures
+    /// (Review) — what the centre grid opens read-only for
+    /// (`FigureSubjectSurface`). ONE answer, read off the window's control
+    /// plane, for the tree's row (through `FigureSectionWiring`) and the
+    /// inspector alike.
+    static func windowRefusesWrites(control: EditorControl, persona: Persona) -> Bool {
+        control.shareIsReadOnly || control.isManualReviewMode || !persona.editsFigures
+    }
+
+    /// The posture's one door and the window's own refusal: Send to
+    /// Research, Rename and Import are offered only when this answers true.
     func mayEdit(_ figureId: String) -> Bool {
-        guard !shareIsReadOnly() else { return false }
+        guard !windowRefusesWrites() else { return false }
         return store.documentStore?.posture(forDocId: figureId).allows(.editFigure) ?? false
     }
 
@@ -96,11 +108,25 @@ struct FigureActions {
         figureWindows?.gridController(on: figureId)
     }
 
+    /// Whether a grid's visit is open on the figure — observed
+    /// (`FigureWindows.hasGrid`), so a view offering Import or Refresh is
+    /// redrawn when the grid mounts or goes.
+    func hasGrid(_ figureId: String) -> Bool {
+        figureWindows?.hasGrid(on: figureId) ?? false
+    }
+
+    /// The line said where Import or Refresh has no grid to act through.
+    static let openTheTableFirst = "Open the table to import or refresh it."
+
     /// **Import from CSV…** through the grid open on the figure: its panel,
-    /// its matching, one ⌘Z on its stack (R7d-8). False with no grid open.
+    /// its matching, one ⌘Z on its stack (R7d-8). With no grid open, nothing
+    /// is asked and `openTheTableFirst` is reported; answers false.
     @discardableResult
     func importFromCSV(_ figureId: String) -> Bool {
-        guard let grid = openGrid(figureId) else { return false }
+        guard let grid = openGrid(figureId) else {
+            report(Self.openTheTableFirst)
+            return false
+        }
         grid.performTableCommand(.importCSV)
         return true
     }

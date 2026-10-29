@@ -91,6 +91,12 @@ final class FigureWindows {
     /// The holds that give way to a figure window (the centre's), each with
     /// its yield: the visit ends and the hold goes, synchronously.
     @ObservationIgnored private var inPlaceYielders: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// **Moves whenever a grid's visit opens or goes** (observed): its
+    /// controller mounts after an await, which no registry above is seen to
+    /// change, so a surface that offers an act through the open grid (the
+    /// figure inspector's Import and Refresh) asks `hasGrid(on:)`, which reads
+    /// this. Bumped by `gridsChanged()`.
+    private(set) var gridRevision = 0
     /// Each in-place grid's visit, once it has opened (`gridController(on:)`).
     @ObservationIgnored private var inPlaceGrids: [InPlaceHold: @MainActor () -> FigureGridController?] = [:]
     /// The visit each figure's last in-place fold is still ending, so the
@@ -178,6 +184,7 @@ final class FigureWindows {
         focusers[registration] = nil
         finishers[registration] = nil
         windowGrids[registration] = nil
+        gridsChanged()
         guard closers.removeValue(forKey: registration) != nil else { return }
         if !closers.keys.contains(where: { $0.figureId == registration.figureId }) {
             handoffs[registration.figureId] = nil
@@ -225,8 +232,16 @@ final class FigureWindows {
         inPlaceFolders[hold] = fold
         inPlaceYielders[hold] = yield
         inPlaceGrids[hold] = grid
+        gridsChanged()
         return hold
     }
+
+    /// **Is a grid's visit open on `figureId` now?** Observed: a view asking
+    /// it is redrawn when a grid mounts or goes (`gridRevision`).
+    func hasGrid(on figureId: String) -> Bool { gridController(on: figureId) != nil }
+
+    /// A grid's visit opened (its controller mounted) or ended: `hasGrid` moves.
+    func gridsChanged() { gridRevision &+= 1 }
 
     /// **The visit of the grid open on `figureId`**, wherever it is — in
     /// place (the centre's, an editor's) or in a figure window — once it has
@@ -234,6 +249,7 @@ final class FigureWindows {
     /// Import from CSV and Refresh act through it, so their writes land on
     /// that grid's own stack (report plan 8a Task 7).
     func gridController(on figureId: String) -> FigureGridController? {
+        _ = gridRevision   // observed: the answer moves with it
         if let hold = inPlaceHolds[figureId], let controller = inPlaceGrids[hold]?() { return controller }
         for (registration, grid) in windowGrids where registration.figureId == figureId {
             if let controller = grid() { return controller }
@@ -254,6 +270,7 @@ final class FigureWindows {
         inPlaceFolders[hold] = nil
         inPlaceYielders[hold] = nil
         inPlaceGrids[hold] = nil
+        gridsChanged()
         guard inPlaceHolds[hold.figureId] == hold else { return }
         inPlaceHolds[hold.figureId] = nil
         if let visitEnding { visitsEnding[hold.figureId] = visitEnding }
@@ -345,6 +362,7 @@ final class FigureWindows {
         focusers = [:]
         finishers = [:]
         windowGrids = [:]
+        gridsChanged()
         handoffs = [:]
         windowsOpening = [:]
         recount()
@@ -569,6 +587,7 @@ final class FigureWindowGrid {
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
+        windows?.gridsChanged()   // its visit is open: Import and Refresh may reach it
         watchTheKeys()
         if frame?.takesTheKeysAtMount ?? true { container.window?.makeFirstResponder(controller.gridView) }
         showPresence()
@@ -660,6 +679,7 @@ final class FigureWindowGrid {
     func finish() {
         guard !isFinished else { return }
         isFinished = true
+        windows?.gridsChanged()   // a finished visit takes no Import or Refresh
         opening?.cancel()
         keysWatch = nil
         container.onWindowChange = nil
@@ -675,11 +695,13 @@ final class FigureWindowGrid {
         controller.foldForced()
         controller.didFold()
         panel?.removeFromSuperview()
+        let windows = windows
         let finishing = Task { @MainActor [weak self] in
             await controller.settleWrites()
             controller.close()
             // A closed scene's state may be kept: hold no grid, view or stack (M11).
             self?.controller = nil
+            windows?.gridsChanged()
             self?.panel = nil
             self?.perform = nil
         }
@@ -815,7 +837,7 @@ struct FigureWindow: View {
         }, finish: { [grid] in
             grid.finish()
         }, grid: { [weak grid] in
-            grid?.controller
+            grid?.isFinished == false ? grid?.controller : nil
         }, close: { [weak window] in
             window?.close()
         })

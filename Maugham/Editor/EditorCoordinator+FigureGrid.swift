@@ -459,6 +459,7 @@ extension EditorCoordinator {
     private func mountFigureGrid(_ controller: FigureGridController, in expansion: FigureGridExpansion,
                                  on textView: NSTextView) {
         expansion.controller = controller
+        figureGridOpening?.windows?.gridsChanged()   // its visit is open (the figure inspector's Import)
         controller.onFold = { [weak self, weak expansion] in
             guard let self, let expansion, self.figureGrid === expansion else { return }
             self.closeFigureGrid()

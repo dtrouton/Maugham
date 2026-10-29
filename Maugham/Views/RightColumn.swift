@@ -346,7 +346,7 @@ struct RightColumn: View {
     private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
         let inspector = FigureInspector(
             figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
-            figureWindows: figureWindows, control: editorControl,
+            figureWindows: figureWindows, control: editorControl, persona: persona, window: window,
             select: { selectedSubject = $0 },
             showNotes: { id in
                 annotationScopeRequest = .project(focusPiece: id)
