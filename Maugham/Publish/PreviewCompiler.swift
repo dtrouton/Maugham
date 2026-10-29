@@ -15,7 +15,7 @@ public struct PreviewCompiler {
         "Preview shows PDF and EPUB; Word files open in Word."
 
     /// The log excerpt prefix of a known format the preview does not render
-    /// — distinct from `CompileOrchestrator.unproducibleFormatLogExcerpt`,
+    /// — distinct from `PublishOrchestrator.unproducibleFormatLogExcerpt`,
     /// which names a format this build cannot produce at all.
     nonisolated static let unpreviewableFormatLogExcerpt = "unpreviewable_format: "
 
@@ -72,7 +72,7 @@ public struct PreviewCompiler {
     /// P2: one half of the pair `LanguageSet` reconciles; see `languages`.
     public let language: String?
     /// P2: the languages this preview renders, one complete body each — the
-    /// same argument `CompileOrchestrator.compile` takes, reconciled with
+    /// same argument `PublishOrchestrator.compile` takes, reconciled with
     /// `language` by the same `LanguageSet`. `nil` (or empty) leaves `language`
     /// to speak alone, which is every caller that predates this branch.
     public let languages: [String]?
@@ -123,7 +123,7 @@ public struct PreviewCompiler {
                 message: refusal.message,
                 contextLines: ["No preview file was written."])
             return Result(outputPath: "", warnings: [], errors: [diag],
-                          logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt
+                          logExcerpt: PublishOrchestrator.unproducibleFormatLogExcerpt
                               + format.rawValue)
         }
         // A format this build produces but the preview does not render (Word)
@@ -175,7 +175,7 @@ public struct PreviewCompiler {
             return Result(outputPath: "", warnings: [], errors: [diag])
         }
 
-        // Imprint resolution, a two-line twin of `CompileOrchestrator.compile`'s
+        // Imprint resolution, a two-line twin of `PublishOrchestrator.compile`'s
         // door (Task 6): the unknown-name check first, then `resolved`. It is a
         // twin rather than a shared helper because the two entry points differ
         // in what they do on failure — the orchestrator can refuse before it
@@ -251,7 +251,7 @@ public struct PreviewCompiler {
         // absent still surfaces from `PDFCompiler` as it does today. What this
         // refuses is a config that is malformed on its face. Same shape as the
         // unknown-name refusal above, and the same `invalid_config:` excerpt
-        // `CompileOrchestrator.compile` fails with.
+        // `PublishOrchestrator.compile` fails with.
         let configErrors = PublishConfigValidator.validate(config)
         if !configErrors.isEmpty {
             let diags = configErrors.map {
@@ -269,7 +269,7 @@ public struct PreviewCompiler {
 
         // F5: previews are where template iteration lives, so refresh the
         // project's app-owned EMISSION.md here too — same unconditional
-        // overwrite of that ONE file as `CompileOrchestrator.compile`, never
+        // overwrite of that ONE file as `PublishOrchestrator.compile`, never
         // touching template.tex/preamble/partials/config.json/style files.
         try EmissionContract.renderProjectCopy(appVersion: maughamVersion)
             .write(to: projectURL.appendingPathComponent(
@@ -479,7 +479,7 @@ struct FilteredASTSource: ProjectASTBuilder.Source {
 /// **The edition's own book**: drops the pieces the EDITION excludes — the
 /// writer's `include: false` and an imprint's dropped sections, together
 /// `PublishConfig.excludedSectionIDs` (a denylist). Every door wraps its body
-/// with one (`CompileOrchestrator`, `Republisher`, and a default preview), so
+/// with one (`PublishOrchestrator`, `Republisher`, and a default preview), so
 /// the emitters and every downstream record see only the included pieces.
 ///
 /// It IS the book it publishes (R-S15): its `resolutionScope` is itself and it

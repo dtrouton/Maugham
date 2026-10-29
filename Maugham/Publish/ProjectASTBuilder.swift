@@ -31,7 +31,7 @@ public enum ProjectASTBuilder {
 
     public protocol Source {
         /// THROWS when a piece's history is unreadable (RULING-54): a compile
-        /// must fail loudly — through `CompileOrchestrator`'s DurableProgress
+        /// must fail loudly — through `PublishOrchestrator`'s DurableProgress
         /// catch — rather than emit a book silently missing the chapters an
         /// unreadable op-log file held. Non-throwing sources satisfy this
         /// requirement unchanged.

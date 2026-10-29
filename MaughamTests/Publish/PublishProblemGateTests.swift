@@ -84,8 +84,8 @@ final class PublishProblemGateTests: XCTestCase {
         return Fixture(store: store, stores: stores, pieceID: item.id, path: path, url: url)
     }
 
-    private func orchestrator(_ fx: Fixture) -> CompileOrchestrator {
-        CompileOrchestrator(
+    private func orchestrator(_ fx: Fixture) -> PublishOrchestrator {
+        PublishOrchestrator(
             projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
             configStore: fx.stores.configStore, publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore, jobManager: fx.stores.jobManager,
@@ -129,7 +129,7 @@ final class PublishProblemGateTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("a Report with an unknown key must refuse: \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt), excerpt)
         let diag = try XCTUnwrap(errors.first { $0.message.contains("nobody") }, "\(errors)")
         XCTAssertEqual(diag.level, .error)
         XCTAssertEqual(diag.pieceID, fx.pieceID)
@@ -156,7 +156,7 @@ final class PublishProblemGateTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("a Report's dry run reports the refusal a compile would meet: \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt), excerpt)
         XCTAssertEqual(problemDiagnostics(errors).map(\.paragraphID), [paragraph])
         let pubs = try await fx.stores.publicationStore.load()
         XCTAssertTrue(pubs.isEmpty)
@@ -228,9 +228,9 @@ final class PublishProblemGateTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("an occupied destination fails the compile: \(outcome)")
         }
-        XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt),
+        XCTAssertFalse(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt),
                        "a fault, not a problem refusal: \(excerpt)")
-        XCTAssertTrue(CompileOrchestrator.reachedTheProblemGate(logExcerpt: excerpt),
+        XCTAssertTrue(PublishOrchestrator.reachedTheProblemGate(logExcerpt: excerpt),
                       "a compiler failure after the gate says so, so the desk's open list clears: \(excerpt)")
         XCTAssertEqual(errors.count, 2, "\(errors.map(\.message))")
         XCTAssertNil(errors.first?.pieceID, "the tool's own error comes first: \(errors)")
@@ -353,7 +353,7 @@ final class PublishProblemGateTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("a reference into excluded text must refuse: \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt), excerpt)
         let problems = problemDiagnostics(errors)
         XCTAssertEqual(problems.map(\.message), ["No figure is labelled fig:draftchart."])
         XCTAssertEqual(problems.first?.paragraphID, try paragraphID(containing: "@fig:draftchart", in: fx))
@@ -395,7 +395,7 @@ final class PublishProblemGateTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("the republish must refuse: \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt), excerpt)
         XCTAssertEqual(problemDiagnostics(errors).map(\.paragraphID), [paragraph])
         XCTAssertEqual(problemDiagnostics(errors).first?.level, .error)
         let pubs = try await fx.stores.publicationStore.load()
@@ -419,7 +419,7 @@ final class PublishProblemGateTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("an unstageable image fails a Report: \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt), excerpt)
         let diag = try XCTUnwrap(problemDiagnostics(errors).first, "\(errors)")
         XCTAssertEqual(diag.level, .error)
         XCTAssertEqual(diag.paragraphID, try paragraphID(containing: "chart.png", in: fx))

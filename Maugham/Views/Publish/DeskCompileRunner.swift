@@ -4,7 +4,7 @@ import Observation
 /// **The desk's own compile** (imprints P3 Task 4).
 ///
 /// Until this file there was no way to make a book from inside Maugham. The
-/// only production construction of `CompileOrchestrator` was `CompileTool`'s,
+/// only production construction of `PublishOrchestrator` was `CompileTool`'s,
 /// which means every book this app has ever produced was asked for by Claude
 /// over the MCP socket. The Publish desk gets the verb here.
 ///
@@ -24,7 +24,7 @@ import Observation
 final class DeskCompileRunner {
 
     /// **What a press asks for.** Deliberately narrower than
-    /// `CompileOrchestrator.compile`: no `label`, no `version`, no `dryRun`, no
+    /// `PublishOrchestrator.compile`: no `label`, no `version`, no `dryRun`, no
     /// legacy singular `language`. A desk that could pin a version or burn a
     /// dry run would be a second control surface for decisions the catalog and
     /// the config already own.
@@ -91,7 +91,7 @@ final class DeskCompileRunner {
         let stores = PublishingStores.sharedFor(
             projectID: ProjectIdentifier.id(for: projectURL), projectURL: projectURL)
         self.stores = stores
-        let orchestrator = CompileOrchestrator(
+        let orchestrator = PublishOrchestrator(
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: projectStore,

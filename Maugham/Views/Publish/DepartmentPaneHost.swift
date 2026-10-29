@@ -1225,7 +1225,7 @@ struct DepartmentPaneHost: View {
     /// sheet offers checked and the one `LanguageSet` substitutes back to the
     /// untranslated body.
     ///
-    /// **Resolved, and that is the whole point.** `CompileOrchestrator` builds
+    /// **Resolved, and that is the whole point.** `PublishOrchestrator` builds
     /// its `LanguageSet` with `sourceTag: config.metadata.language` off the
     /// config it has already put through `resolved(imprint:pieceIDs:)` — and
     /// says so in its own comment, "because an imprint may spell the book's own

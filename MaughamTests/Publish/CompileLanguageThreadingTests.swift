@@ -59,8 +59,8 @@ final class CompileLanguageThreadingTests: XCTestCase {
 
     // MARK: - helpers
 
-    private func makeOrchestrator() -> CompileOrchestrator {
-        CompileOrchestrator(
+    private func makeOrchestrator() -> PublishOrchestrator {
+        PublishOrchestrator(
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(projectStore: store),
             configStore: stores.configStore,
@@ -72,7 +72,7 @@ final class CompileLanguageThreadingTests: XCTestCase {
     }
 
     private func completedPublication(
-        _ outcome: CompileOrchestrator.Outcome,
+        _ outcome: PublishOrchestrator.Outcome,
         file: StaticString = #filePath, line: UInt = #line
     ) throws -> Publication {
         guard case .completed(let pub, _) = outcome else {
@@ -172,7 +172,7 @@ final class CompileLanguageThreadingTests: XCTestCase {
 
     // Orchestrator-level companion to the two PDFCompiler-direct tests above:
     // the direct tests prove PDFCompiler writes `\MaughamLanguage` correctly
-    // in isolation, but don't prove `CompileOrchestrator.compile` actually
+    // in isolation, but don't prove `PublishOrchestrator.compile` actually
     // threads `language` through to PDFCompiler in the production call path.
     func test_rule5_orchestratorPdfCompile_threadsLanguageToMetadataTexAndFilename() async throws {
         // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.

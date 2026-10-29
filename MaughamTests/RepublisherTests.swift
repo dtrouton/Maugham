@@ -32,7 +32,7 @@ final class RepublisherTests: XCTestCase {
         try await configStore.save(PublishConfig(metadata: .init(title: "Repub", author: "T")))
 
         // 1. Initial compile creates v0.1 + snapshot.
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -105,7 +105,7 @@ final class RepublisherTests: XCTestCase {
 
         // 1. Initial Spanish-edition compile renders v0.1 + a snapshot whose
         //    Publication.language is "es".
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore,
@@ -160,7 +160,7 @@ final class RepublisherTests: XCTestCase {
     }
 
     /// A real novel project with two paragraphs, wired with the plain
-    /// (non-shared) stores `Republisher`/`CompileOrchestrator` take directly,
+    /// (non-shared) stores `Republisher`/`PublishOrchestrator` take directly,
     /// matching this file's existing construction style. `translateAll`
     /// controls whether the second paragraph gets an `es` translation record
     /// at all — `false` leaves it permanently missing, for round-3's
@@ -235,7 +235,7 @@ final class RepublisherTests: XCTestCase {
         let ids = fx.doc.sequence
 
         // 1. Gated compile with FULL "es" coverage succeeds.
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: fx.store, language: "es"),
@@ -290,7 +290,7 @@ final class RepublisherTests: XCTestCase {
     func testRepublish_succeedsAndCarriesLanguage_whenNoEditsSinceGatedCompile() async throws {
         let fx = try await makeGatedRepubFixture()
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: fx.store, language: "es"),
@@ -347,7 +347,7 @@ final class RepublisherTests: XCTestCase {
         // 1. Initial compile under allow_stale: ids[1] has no translation
         //    record at all, so it falls back to source text — demoted to a
         //    warning, not a block.
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: fx.store, language: "es"),
@@ -418,7 +418,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -549,7 +549,7 @@ final class RepublisherTests: XCTestCase {
     func testRepublish_surfacesFountainDriftWarning() async throws {
         let fx = try await makeFountainRepubFixture()
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: fx.store, language: "es"),
@@ -610,7 +610,7 @@ final class RepublisherTests: XCTestCase {
         try await configStore.save(PublishConfig(metadata: .init(title: "Led", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -660,7 +660,7 @@ final class RepublisherTests: XCTestCase {
         try await configStore.save(PublishConfig(metadata: .init(title: "Evt", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -705,7 +705,7 @@ final class RepublisherTests: XCTestCase {
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
         // 1. Initial compile creates the original .epub publication.
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -766,7 +766,7 @@ final class RepublisherTests: XCTestCase {
     // the gate's own state rather than on a refusal: what they falsify is a
     // LEAKED reservation, which would wedge the triple for the life of the
     // app. (The refusal wording and the reserve-before-compile ordering are
-    // pinned on the compile path, in `CompileOrchestratorTests`.)
+    // pinned on the compile path, in `PublishOrchestratorTests`.)
 
     private struct RepubSrc: ProjectASTBuilder.Source {
         func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
@@ -782,7 +782,7 @@ final class RepublisherTests: XCTestCase {
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
         let gate = PublishMintGate()
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: RepubSrc(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -821,7 +821,7 @@ final class RepublisherTests: XCTestCase {
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
         let gate = PublishMintGate()
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: RepubSrc(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -862,7 +862,7 @@ final class RepublisherTests: XCTestCase {
         try await configStore.save(PublishConfig(metadata: .init(title: "Word", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: RepubSrc(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -906,7 +906,7 @@ final class RepublisherTests: XCTestCase {
         try await configStore.save(PublishConfig(metadata: .init(title: "Odt", author: "T")))
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: RepubSrc(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -969,7 +969,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1025,7 +1025,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1121,7 +1121,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: RepubSrc(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1184,7 +1184,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: RepubSrc(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1252,7 +1252,7 @@ final class RepublisherTests: XCTestCase {
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
         // 1. A normal compile succeeds and leaves a valid snapshot behind.
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1311,7 +1311,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1352,7 +1352,7 @@ final class RepublisherTests: XCTestCase {
     /// the same `imprint` on the new catalog row, and the imprint's own
     /// template compiled again — not the book's.
     ///
-    /// Seeded by hand rather than through the orchestrator: `CompileOrchestrator`
+    /// Seeded by hand rather than through the orchestrator: `PublishOrchestrator`
     /// grows its `imprint:` parameter in Task 6, so this test writes the
     /// prior `Publication(imprint:)` and captures the snapshot itself. The
     /// snapshot's config is built the way production will build it — through
@@ -1479,7 +1479,7 @@ final class RepublisherTests: XCTestCase {
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
         let atCompile = GrowingSrc(pieces: ["p1", "p2"])
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: atCompile,
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1525,7 +1525,7 @@ final class RepublisherTests: XCTestCase {
 
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: GrowingSrc(pieces: ["p1", "p2"]),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1567,7 +1567,7 @@ final class RepublisherTests: XCTestCase {
 
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: GrowingSrc(pieces: ["p1", "p2"]),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1610,7 +1610,7 @@ final class RepublisherTests: XCTestCase {
 
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1657,7 +1657,7 @@ final class RepublisherTests: XCTestCase {
 
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1702,7 +1702,7 @@ final class RepublisherTests: XCTestCase {
 
         let pubStore = PublicationStore(projectURL: tmp)
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -1770,8 +1770,8 @@ final class RepublisherTests: XCTestCase {
     private func repubOrchestrator(
         _ configStore: PublishConfigStore, _ pubStore: PublicationStore,
         _ snapStore: PublicationSnapshotStore
-    ) -> CompileOrchestrator {
-        CompileOrchestrator(
+    ) -> PublishOrchestrator {
+        PublishOrchestrator(
             projectURL: tmp, astSource: RebindableRepubSrc(tag: nil),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -2076,7 +2076,7 @@ final class RepublisherTests: XCTestCase {
 
     /// The plan the COMPILE DOOR built for that compile: the live config,
     /// unfolded, with the compiled version threaded through `nextVersion`
-    /// (`CompileOrchestrator.compile`'s `versioned`).
+    /// (`PublishOrchestrator.compile`'s `versioned`).
     private func doorPlan(
         configStore: PublishConfigStore, languages: [String], version: String
     ) async throws -> BodyPlan {

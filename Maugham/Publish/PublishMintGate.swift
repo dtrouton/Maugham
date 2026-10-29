@@ -3,7 +3,7 @@ import Foundation
 /// Serialises compiles of one edition — the (version, language, format)
 /// triple — **within this process, for one project**.
 ///
-/// `CompileOrchestrator.compile` loads the catalog, checks the triple against
+/// `PublishOrchestrator.compile` loads the catalog, checks the triple against
 /// it, compiles, and only then appends the new `Publication`. Two calls
 /// arriving inside that window both read a catalog without the other's row,
 /// both pass the guard, and both mint: two `Publication`s at one triple, and

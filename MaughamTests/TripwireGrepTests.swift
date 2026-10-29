@@ -748,7 +748,7 @@ final class TripwireGrepTests: XCTestCase {
     private var toolchainCensusDirs: [URL] {
         // `Views/Publish` joined the list in imprints P3 Task 5, when
         // `DeskCompileRunner` became the second production construction of
-        // `CompileOrchestrator` — a compile stamp is minted in this directory
+        // `PublishOrchestrator` — a compile stamp is minted in this directory
         // now, so a fifth spelling could grow here too.
         ["Publish", "MCP", "Compiler", "Views/Publish"].map {
             sourceDir.appendingPathComponent($0, isDirectory: true)
@@ -9148,7 +9148,7 @@ final class TripwireGrepTests: XCTestCase {
     /// (`PublishConfig+Imprints.swift`'s `resolved(imprint:pieceIDs:)`), the
     /// publication record and mint-gate key that carry it forward
     /// (`Publication.swift`, `PublishMintGate.swift`), the two callers that
-    /// resolve it (`CompileOrchestrator.swift`, `Republisher.swift`), the
+    /// resolve it (`PublishOrchestrator.swift`, `Republisher.swift`), the
     /// preview compiler that resolves for its own subset render
     /// (`PreviewCompiler.swift`), the validator that walks `config.imprints`
     /// (`PublishConfigValidator.swift`), and the three MCP tool files whose
@@ -9160,7 +9160,7 @@ final class TripwireGrepTests: XCTestCase {
     /// that, and are the census's live proof it does not fire on a read.
     private static let filesAllowedToDeclareImprint: Set<String> = [
         "PublishConfig.swift", "PublishConfig+Imprints.swift", "Publication.swift",
-        "PublishMintGate.swift", "Republisher.swift", "CompileOrchestrator.swift",
+        "PublishMintGate.swift", "Republisher.swift", "PublishOrchestrator.swift",
         "PreviewCompiler.swift", "PublishConfigValidator.swift", "CompileTools.swift",
         "PublicationTools.swift", "PublishConfigTools.swift",
     ]
@@ -9339,7 +9339,7 @@ final class TripwireGrepTests: XCTestCase {
         let (sites, offenders) = try publicationConstructionOffenders(in: sourceDir)
         XCTAssertEqual(sites, 2,
             "expected exactly the two production construction sites "
-            + "(CompileOrchestrator, Republisher); found \(sites)")
+            + "(PublishOrchestrator, Republisher); found \(sites)")
         XCTAssertTrue(offenders.isEmpty,
             "every production Publication(...) construction must carry "
             + "imprint: (the mint key's fourth component). Offenders:\n"

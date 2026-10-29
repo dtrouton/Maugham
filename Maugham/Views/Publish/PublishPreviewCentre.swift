@@ -365,7 +365,7 @@ struct PublishNoticeLine: View {
 /// Three triggers, and each answers a way the answer can go stale:
 ///
 /// - **The window opens** (`.task(id:)`) — the writer relaunches into Publish.
-/// - **A compile completes** — `CompileOrchestrator` posts
+/// - **A compile completes** — `PublishOrchestrator` posts
 ///   `.maughamPublicationCompleted` AFTER appending to the catalog, scoped
 ///   `.project`; received through the ADR 0021 helper, which filters to this
 ///   project and drops closed windows.

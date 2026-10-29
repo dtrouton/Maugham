@@ -933,7 +933,7 @@ final class PublicationToolsTests: XCTestCase {
     // MARK: - P2 Task 7: languages — the joined spelling ("en+sr") is exact
 
     /// A bilingual publication's `language` field is already the joined
-    /// identity `CompileOrchestrator`/`LanguageSet` mint (e.g. "en+sr") —
+    /// identity `PublishOrchestrator`/`LanguageSet` mint (e.g. "en+sr") —
     /// `languageMatches` is an exact string match, so no logic change was
     /// needed here. This seeds that row directly (rather than compiling one)
     /// to prove the EXISTING filter/disambiguation logic already handles it.

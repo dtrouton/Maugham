@@ -577,7 +577,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
 /// **The one refusal for compiling an output format this build can't
 /// produce** (`PublishConfig.Format.unknown`). `message(raw:)` is the one
 /// sentence: any error type that carries it calls this rather than restating
-/// it. Thrown by the three dispatch switches (`CompileOrchestrator`,
+/// it. Thrown by the three dispatch switches (`PublishOrchestrator`,
 /// `Republisher`, `PreviewCompiler`) as defence in depth behind the compile
 /// doors.
 public struct PublishFormatRefusal: Error, LocalizedError, Equatable, Sendable {
