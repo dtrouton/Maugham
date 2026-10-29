@@ -36,6 +36,12 @@ struct RightColumn: View {
     let editorControl: EditorControl
     /// The window's figure rows, read by the figure arm beside the canvas.
     let figureListing: FigureListingModel
+    /// The window's table-grid presence and the project's figure windows,
+    /// for the figure grid beside the canvas (report plan 8a Task 6).
+    let figureGridPresence: FigureGridPresence
+    let figureWindows: FigureWindows?
+    /// The project window, whose Format ▸ Table posts reach that grid.
+    let window: NSWindow?
     let publishCentre: PublishCentreModel
     /// What pin is being studied — the window's model, which the References
     /// pane writes and the study arm below is a function of.
@@ -309,7 +315,10 @@ struct RightColumn: View {
             persona: persona, subject: selectedSubject)
         if let figureID = ProjectWindow.figureSubjectPlacement(
             persona: persona, subject: selectedSubject).besideFigureID {
-            FigureSubjectPlaceholder(figureID: figureID, listing: figureListing)
+            FigureSubjectSurface(
+                figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
+                presence: figureGridPresence, listing: figureListing, control: editorControl,
+                persona: persona, window: window)
         } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,

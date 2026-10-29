@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 // MARK: - Where a figure subject lands
@@ -46,9 +47,39 @@ extension ProjectWindow {
     }
 }
 
-/// **A figure's name and number, until the grid arrives** (Tasks 6/7 replace
-/// it): the centre column's and Plan's right column's one placeholder, so the
-/// route compiles and is visible. "—" when the registry has no such row.
+/// **What a figure subject shows** (report plan 8a Task 6), in the centre and
+/// in Plan's right column alike: a table's grid (`FigureCentreGrid`, one mount
+/// per figure), read-only where the persona does not edit figures or the
+/// window's ⌘⌥⇧R is on; anything else — an image, a kind from a later build,
+/// a window with no session — its name and number.
+struct FigureSubjectSurface: View {
+    let figureID: String
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let figureWindows: FigureWindows?
+    let presence: FigureGridPresence
+    let listing: FigureListingModel
+    let control: EditorControl
+    let persona: Persona
+    let window: NSWindow?
+
+    var body: some View {
+        if let figureWindows, store.manifest.figures?.first(where: { $0.id == figureID })?.kind == .table {
+            FigureCentreGrid(
+                figureId: figureID, store: store, documentStore: documentStore,
+                figureWindows: figureWindows, presence: presence, listing: listing,
+                typography: control.typography,
+                isReviewMode: control.isManualReviewMode || !persona.editsFigures,
+                shareIsReadOnly: control.shareIsReadOnly, window: window)
+                .id(figureID)
+        } else {
+            FigureSubjectPlaceholder(figureID: figureID, listing: listing)
+        }
+    }
+}
+
+/// **A figure's name and number** where no grid opens on it (an image figure,
+/// a kind from a later build): "—" when the registry has no such row.
 struct FigureSubjectPlaceholder: View {
     let figureID: String
     let listing: FigureListingModel

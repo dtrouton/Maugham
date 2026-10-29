@@ -73,7 +73,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeScrollProbe.swift` — a dev-build-only diagnostic.
 
 ### Research and the palette
-- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and the figure placeholder.
+- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`), read-only where `editsFigures` is false or ⌘⌥⇧R is on; else its name and number.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor (`lockEditing` for read-only).
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.
@@ -192,7 +192,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `SettingsView.swift`, `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift`, `Maugham/Views/SettingsTabs/EditorSettingsTab.swift`, `Maugham/Views/SettingsTabs/ThemeSettingsTab.swift`, `Maugham/Views/SettingsTabs/TypographySettingsTab.swift`, `Maugham/Views/SettingsTabs/VoiceSettingsTab.swift`, `Maugham/Views/SettingsTabs/BackupSettingsTab.swift`, `Maugham/Views/SettingsTabs/AboutSettingsTab.swift` — app Settings.
 
 ### `Maugham/Models/` files routed here
-- `Persona.swift` — the four personas and their predicates (`panes`, `defaultPane`, `centresTheCanvas`, `showsManuscriptDocuments`, `previewsThePublishedBook`, `showsTheReviewBoard`, `editsResearchInTheCentre`, `showsPaletteWall`, `showsExports`, `showsIntentStrip`).
+- `Persona.swift` — the four personas and their predicates (`panes`, `defaultPane`, `centresTheCanvas`, `showsManuscriptDocuments`, `previewsThePublishedBook`, `showsTheReviewBoard`, `editsResearchInTheCentre`, `editsFigures`, `showsPaletteWall`, `showsExports`, `showsIntentStrip`).
 - `DetailSegment.swift` — the right-pane modes, with icon and help text.
 - `PersonaMemory.swift` — each persona's remembered right-pane segment, in `UIState`.
 - `BinderSubject.swift` — the window's one subject: `.project`, `.item(id)`, `.research(id)`, `.figure(id)`.

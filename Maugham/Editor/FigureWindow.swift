@@ -379,9 +379,45 @@ private final class ResumeOnce {
 ///
 /// Format ▸ Table reaches it through `presence` (the window's focused value)
 /// and `perform`.
+///
+/// **One type, two frames** (report plan 8a Task 6): the figure window, and
+/// the centre column (`FigureCentreGrid`), which hands it its own `Frame` —
+/// the line from the window's figure listing, its own review and share
+/// answers, no Done, and the keys left where they are at mount.
 @MainActor
 final class FigureWindowGrid {
-    let presence = FigureGridPresence()
+    /// **What the frame the grid mounts in supplies**: the bottom bar's line
+    /// at open, the piece Send to Research defaults to, the typography, and
+    /// the review and share answers the gate reads each time it is asked.
+    struct Frame {
+        var number: String
+        var caption: String
+        var piece: String?
+        var typography: TypographySettings
+        var isReviewMode: @MainActor () -> Bool
+        var shareIsReadOnly: @MainActor () -> Bool
+        /// The grid takes the keys when it mounts (a window); the centre
+        /// leaves them where the writer has them (the tree).
+        var takesTheKeysAtMount = true
+        /// Done is offered (a window closes); the centre has nothing to close.
+        var offersDone = true
+        /// The line follows `FigureWindows.lineChanged` (a window); the centre's
+        /// follows its listing instead (`refreshLine`).
+        var listensForTheLine = true
+
+        /// A figure window's: what the opening grid handed over, the share
+        /// as the project windows last told it, review mode the opening editor's.
+        @MainActor static func window(_ figureId: String, windows: FigureWindows) -> Frame {
+            let handoff = windows.handoff(for: figureId)
+            return Frame(
+                number: handoff?.number ?? ElementWords.english.table, caption: handoff?.caption ?? "",
+                piece: handoff?.piece, typography: handoff?.typography ?? .defaults,
+                isReviewMode: { [weak windows] in windows?.handoff(for: figureId)?.isReviewMode ?? false },
+                shareIsReadOnly: { [weak windows] in windows?.shareIsReadOnly ?? false })
+        }
+    }
+
+    let presence: FigureGridPresence
     var perform: (@MainActor (FigureTableCommand) -> Void)?
     /// The view the panel is mounted in (the window's content).
     let container = FigureWindowGridContainer()
@@ -402,35 +438,55 @@ final class FigureWindowGrid {
     private var cards: FigureCardCache?
     /// The line as last told, for a visit still opening.
     private var line: (number: String, caption: String)?
+    private var frame: Frame?
+
+    /// `presence` is the frame's: a window's own, or the project window's
+    /// (the centre), which Format ▸ Table reads.
+    init(presence: FigureGridPresence? = nil) {
+        self.presence = presence ?? FigureGridPresence()
+    }
 
     /// **Open the visit** on `figureId` through the project window's stores,
     /// with what the opening grid handed over (`windows.handoff`); the grid
     /// mounts when it has opened. `close` closes the window. Once only.
     func open(figureId: String, store: DocumentStore, projectStore: ProjectStore, windows: FigureWindows,
               close: @escaping @MainActor () -> Void) {
+        open(figureId: figureId, store: store, projectStore: projectStore, windows: windows,
+             frame: .window(figureId, windows: windows), close: close)
+    }
+
+    /// **Open the visit in `frame`**: after the figure's last in-place visit
+    /// has ended (`FigureWindows.visitEnded`), so a grid that let the figure
+    /// go a moment ago has landed its writes first. `close` is Done's and
+    /// Send to Research's. Once only.
+    func open(figureId: String, store: DocumentStore, projectStore: ProjectStore, windows: FigureWindows,
+              frame: Frame, close: @escaping @MainActor () -> Void) {
         guard opening == nil, !isFinished else { return }
         self.store = store
         self.windows = windows
-        let handoff = windows.handoff(for: figureId)
-        listener = windows.listen(figureId, line: { [weak self] number, caption in
-            self?.refreshLine(number: number, caption: caption)
-        }, access: { [weak self] in
-            self?.refreshAccess()
-        })
+        self.frame = frame
+        if frame.listensForTheLine {
+            listener = windows.listen(figureId, line: { [weak self] number, caption in
+                self?.refreshLine(number: number, caption: caption)
+            }, access: { [weak self] in
+                self?.refreshAccess()
+            })
+        }
         let line = FigureGridController.Line(
-            number: handoff?.number ?? ElementWords.english.table,
-            caption: handoff?.caption ?? "",
+            number: frame.number, caption: frame.caption,
             commitCaption: { _ in false })   // R7d-6: the caption is the text's
-        opening = Task { @MainActor [weak self] in
+        opening = Task { @MainActor [weak self, weak windows] in
+            await windows?.visitEnded(figureId)
             do {
+                guard let self, !self.isFinished else { return }
                 let controller = try await FigureGridController.open(
                     figureId: figureId, store: store, projectStore: projectStore,
-                    typography: handoff?.typography ?? .defaults, line: line)
-                guard let self, !self.isFinished else {
+                    typography: frame.typography, line: line)
+                guard !self.isFinished else {
                     controller.close()
                     return
                 }
-                self.mount(controller, piece: handoff?.piece, close: close)
+                self.mount(controller, piece: frame.piece, close: close)
             } catch {
                 guard let self, !self.isFinished else { return }
                 self.container.show(message: "The table couldn\u{2019}t be opened: \(error.localizedDescription)")
@@ -442,8 +498,9 @@ final class FigureWindowGrid {
                        close: @escaping @MainActor () -> Void) {
         self.controller = controller
         controller.researchPiece = piece
-        controller.foldsOnEscape = false   // Esc closes no window
+        controller.foldsOnEscape = false   // Esc closes no window, and leaves no centre
         controller.onFold = close   // Done
+        controller.bars.doneButton.isHidden = !(frame?.offersDone ?? true)
         controller.onSendToResearch = close   // the window goes first (R7d-7)
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
         controller.onMenuStateChange = { [weak self] state in
@@ -460,7 +517,7 @@ final class FigureWindowGrid {
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
-        container.window?.makeFirstResponder(controller.gridView)
+        if frame?.takesTheKeysAtMount ?? true { container.window?.makeFirstResponder(controller.gridView) }
     }
 
     /// The window's own card cache over the store, as a project window's:
@@ -485,17 +542,19 @@ final class FigureWindowGrid {
         controller?.refreshLine(number: number, caption: caption)
     }
 
-    /// **The gate, asked again** over the window's door, the host, the share
-    /// and the opening editor's review mode. The caption stays locked (R7d-6).
+    /// **The gate, asked again** over the window's door, the host, and the
+    /// frame's share and review answers (a window's: the share as the project
+    /// windows last told it, the opening editor's review mode). The caption
+    /// stays locked (R7d-6).
     func refreshAccess() {
         guard let controller, !isFinished else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
-            shareIsReadOnly: windows?.shareIsReadOnly ?? false,
-            isReviewMode: windows?.handoff(for: controller.figureId)?.isReviewMode ?? false,
+            shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
+            isReviewMode: frame?.isReviewMode() ?? false,
             isTranslationReview: false)
-        // `.noExpand` is translation review's alone, which a window never is.
+        // `.noExpand` is translation review's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }
         controller.setAccess(mode, captionMayEdit: false)
     }
@@ -579,8 +638,8 @@ final class FigureWindowGridContainer: NSView {
     }
 }
 
-/// The container, as SwiftUI shows it.
-private struct FigureWindowGridHost: NSViewRepresentable {
+/// The container, as SwiftUI shows it — a figure window's, or the centre's.
+struct FigureWindowGridHost: NSViewRepresentable {
     let container: FigureWindowGridContainer
     func makeNSView(context: Context) -> FigureWindowGridContainer { container }
     func updateNSView(_ nsView: FigureWindowGridContainer, context: Context) {}

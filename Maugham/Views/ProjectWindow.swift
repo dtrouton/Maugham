@@ -1790,6 +1790,7 @@ struct ProjectWindow: View {
             store: store, documentStore: documentStore, projectRoot: url,
             canvasModel: canvasModel, editorControl: editorControl,
             figureListing: figureListing,
+            figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
             publishCentre: publishCentre, assistant: assistant,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
             persona: persona, isNoChromeOn: isNoChromeOn,
