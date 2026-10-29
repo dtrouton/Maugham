@@ -325,13 +325,13 @@ final class FigureSectionVerbTests: XCTestCase {
             referencedFrom: [], pieceOfLine: "doc-a")])
         let verbs = FigureSectionVerbs(store: store, state: state)
 
-        verbs.openInWindow(state.figureRows[0])
+        verbs.shared.openInWindow(state.figureRows[0].listing)
 
         let handoff = windows.handoff(for: "fig-0a1b2c3d")
         XCTAssertEqual(handoff?.number, "Table 1")
         XCTAssertEqual(handoff?.caption, "Cash at year end")
         XCTAssertEqual(handoff?.piece, "doc-a", "the piece holding its line")
-        XCTAssertEqual(verbs.sendDestinations(for: state.figureRows[0]), [.piece, .shared])
+        XCTAssertEqual(verbs.shared.sendDestinations(for: state.figureRows[0].listing), [.piece, .shared])
     }
 
     /// **Open in Window over the centre** (the figure the tree selected): the
@@ -359,14 +359,14 @@ final class FigureSectionVerbTests: XCTestCase {
         })
         _ = windows.holdInPlace("fig-1b2c3d4e", focus: { acts.append("editor focused") }, fold: {})
 
-        verbs.openInWindow(state.figureRows[0])
+        verbs.shared.openInWindow(state.figureRows[0].listing)
         XCTAssertEqual(acts, ["centre yields"], "the centre gives way; it is not merely focused")
         XCTAssertNotNil(windows.handoff(for: "fig-0a1b2c3d"), "a window is asked for")
         XCTAssertNil(windows.inPlaceHolds["fig-0a1b2c3d"])
         XCTAssertEqual(windows.heldElsewhere("fig-0a1b2c3d", besides: nil), .window, "held by the window opening")
 
         acts = []
-        verbs.openInWindow(state.figureRows[1])
+        verbs.shared.openInWindow(state.figureRows[1].listing)
         XCTAssertEqual(acts, ["editor focused"], "an editor's grid in place is brought front")
         XCTAssertNil(windows.handoff(for: "fig-1b2c3d4e"), "no window over it")
     }
@@ -384,10 +384,10 @@ final class FigureSectionVerbTests: XCTestCase {
         XCTAssertEqual(Set(state.figureRows.map(\.id)), [kept.id, sent.id])
         let verbs = FigureSectionVerbs(store: store, state: state)
         let row = try XCTUnwrap(state.figureRows.first { $0.id == sent.id })
-        XCTAssertTrue(verbs.mayEdit(sent.id), "the book's author may send it")
-        XCTAssertEqual(verbs.sendDestinations(for: row), [.shared], "no piece: shared only")
+        XCTAssertTrue(verbs.shared.mayEdit(sent.id), "the book's author may send it")
+        XCTAssertEqual(verbs.shared.sendDestinations(for: row.listing), [.shared], "no piece: shared only")
 
-        await verbs.sendToResearch(row, to: .shared)?.value
+        await verbs.shared.sendToResearch(row.listing, to: .shared)?.value
         await state.figureCards.idle()
 
         XCTAssertNil(state.pendingError)
@@ -406,7 +406,7 @@ final class FigureSectionVerbTests: XCTestCase {
         let figure = try await store.createFigure(kind: .table, name: "cash", piece: nil)
         let state = BinderTreeSectionsState()
 
-        await FigureSectionVerbs(store: store, state: state).rename(figure.id, to: "cashflow").value
+        await FigureSectionVerbs(store: store, state: state).shared.rename(figure.id, to: "cashflow").value
         withExtendedLifetime(documentStore) {}   // the store holds it weakly
 
         XCTAssertNil(state.pendingError)

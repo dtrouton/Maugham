@@ -206,88 +206,32 @@ extension BinderTreeSections {
 
 // MARK: - The verbs
 
-/// **What a figure row's menu does** (report plan 8a Task 4): Open in Window,
-/// Send to Research and Rename, through the store's verbs; a failure reaches
-/// the tree's alert (`state.pendingError`). Task 7's inspector will share
-/// these.
+/// **What a figure row's menu does** (report plan 8a Task 4): the shared
+/// `FigureActions` (Task 7 — the inspector calls the same helper), seen from
+/// the tree — its figure windows, typography and share, a failure reaching
+/// the tree's alert (`state.pendingError`).
 @MainActor
 struct FigureSectionVerbs {
     let store: ProjectStore
     let state: BinderTreeSectionsState
 
-    func actions(for row: FigureTreeRow) -> FigureRowActions {
-        let id = row.id
-        return FigureRowActions(
-            mayEdit: { mayEdit(id) },
-            sendDestinations: sendDestinations(for: row),
-            openInWindow: { openInWindow(row) },
-            sendToResearch: { _ = sendToResearch(row, to: $0) },
-            rename: { _ = rename(id, to: $0) })
-    }
-
-    /// The posture's one door (tripwires 47, 51): a figure the Mac may not
-    /// edit offers no Send to Research and no Rename.
-    func mayEdit(_ figureId: String) -> Bool {
-        store.documentStore?.posture(forDocId: figureId).allows(.editFigure) ?? false
-    }
-
-    /// Where Send to Research may put the figure: the piece holding its line
-    /// (else the piece it was made in), when there is one, and shared.
-    func sendDestinations(for row: FigureTreeRow) -> [FigureResearchDestination] {
-        piece(of: row) == nil ? [.shared] : [.piece, .shared]
-    }
-
-    func piece(of row: FigureTreeRow) -> String? {
-        row.listing.pieceOfLine
-            ?? store.manifest.figures?.first { $0.id == row.id }?.piece
-    }
-
-    /// **Open in Window**: the grid that has the figure comes front; else a
-    /// window opens on it, handed the number and caption the listing gives.
-    func openInWindow(_ row: FigureTreeRow) {
-        if let windows = state.figureWindows {
-            if windows.focus(row.id, passingOverAYieldingHold: true) { return }
-            windows.handOff(row.id, .init(number: row.listing.number, caption: row.listing.caption,
-                                          piece: piece(of: row), typography: state.figureTypography))
-        }
-        MaughamEvent.postOpenFigureWindow(figureId: row.id)
-    }
-
-    /// **Send to Research** (R7d-7): every grid on the figure folds and its
-    /// writes land first, then the park. Not undoable (ruling P-8); a
-    /// refusal is said. Answers the work, which a test awaits.
-    @discardableResult
-    func sendToResearch(_ row: FigureTreeRow,
-                        to destination: FigureResearchDestination) -> Task<Void, Never>? {
-        let scope: ResearchScope
-        switch destination {
-        case .piece:
-            guard let piece = piece(of: row) else { return nil }
-            scope = .document(piece)
-        case .shared:
-            scope = .shared
-        }
-        let windows = state.figureWindows, figureId = row.id
-        return run {
-            await windows?.foldGrids(on: figureId)
-            _ = try await store.sendToResearch(figureId: figureId, scope: scope)
-        }
-    }
-
-    /// Rename the figure (its registry name; formulas follow, the store's verb).
-    @discardableResult
-    func rename(_ figureId: String, to name: String) -> Task<Void, Never> {
-        run { _ = try await store.renameFigure(id: figureId, to: name) }
-    }
-
-    /// `BinderTreeVerbs.perform`'s shape — a failure reaches the tree's
-    /// alert — answering its task.
-    private func run(_ work: @escaping () async throws -> Void) -> Task<Void, Never> {
+    /// The one helper, as the tree hands it what it knows.
+    var shared: FigureActions {
         let state = state
-        return Task { @MainActor in
-            do { try await work() }
-            catch { state.pendingError = error.localizedDescription }
-        }
+        return FigureActions(
+            store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
+            shareIsReadOnly: { state.figureWindows?.shareIsReadOnly ?? false },
+            report: { state.pendingError = $0 })
+    }
+
+    func actions(for row: FigureTreeRow) -> FigureRowActions {
+        let shared = shared, listing = row.listing
+        return FigureRowActions(
+            mayEdit: { shared.mayEdit(listing.figureId) },
+            sendDestinations: shared.sendDestinations(for: listing),
+            openInWindow: { shared.openInWindow(listing) },
+            sendToResearch: { _ = shared.sendToResearch(listing, to: $0) },
+            rename: { _ = shared.rename(listing.figureId, to: $0) })
     }
 
     /// A piece's title for the filter chip; its id when the binder has none.

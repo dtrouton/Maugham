@@ -1,7 +1,8 @@
 import SwiftUI
 import MaughamCore
 
-/// What a figure row's context menu offers and does (`FigureSectionVerbs`):
+/// What a figure row's context menu offers and does (`FigureSectionVerbs`
+/// over `FigureActions`, the helper the inspector shares):
 /// a value, so a test calls the action a menu item would.
 struct FigureRowActions {
     /// Whether the posture lets this Mac edit the figure (Send to Research,
@@ -107,7 +108,7 @@ struct FigureRow: View {
         return tags
     }
 
-    /// The inspector's actions minus Import (Task 7 shares them). A figure
+    /// The inspector's actions minus Import (one `FigureActions`). A figure
     /// the posture will not let this Mac edit offers Open in Window alone.
     @ViewBuilder
     private var menu: some View {

@@ -69,7 +69,8 @@ final class FigureCentreMount {
         guard !hasLeft, grid == nil, let store, let projectStore else { return }
         guard let hold = windows.holdInPlace(figureId, focus: { [weak self] in self?.focus() },
                                              fold: { [weak self] in self?.leave() },
-                                             yield: { [weak self] in self?.yieldToAWindow() }) else {
+                                             yield: { [weak self] in self?.yieldToAWindow() },
+                                             grid: { [weak self] in self?.grid?.controller }) else {
             heldElsewhere()
             if !focusedTheHolder {
                 focusedTheHolder = true

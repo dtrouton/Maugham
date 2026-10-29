@@ -34,7 +34,7 @@ struct RightColumn: View {
     let projectRoot: URL
     let canvasModel: CanvasModel
     let editorControl: EditorControl
-    /// The window's figure rows, read by the figure arm beside the canvas.
+    /// The window's figure rows, read by the figure arm and its inspector.
     let figureListing: FigureListingModel
     /// The window's table-grid presence and the project's figure windows,
     /// for the figure grid beside the canvas (report plan 8a Task 6).
@@ -294,8 +294,8 @@ struct RightColumn: View {
         }
     }
 
-    /// **The right column's outermost question: is the window about a research
-    /// item?** It sits ABOVE `inspectorRoute` — above the canvas too — because
+    /// **The right column's outermost question: is the window about a figure
+    /// (its inspector, `figureSubject`) or a research item?** It sits ABOVE `inspectorRoute` — above the canvas too — because
     /// in Plan the canvas keeps the centre, so a research click that did not
     /// reach this column would change nothing anywhere. `inspectorRoute` and
     /// `canvasCollapse` are left alone: the ⌘\ collapse must not answer
@@ -313,12 +313,8 @@ struct RightColumn: View {
     private func researchOrSubject(store: ProjectStore) -> some View {
         let placement = ProjectWindow.researchSubjectPlacement(
             persona: persona, subject: selectedSubject)
-        if let figureID = ProjectWindow.figureSubjectPlacement(
-            persona: persona, subject: selectedSubject).besideFigureID {
-            FigureSubjectSurface(
-                figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
-                presence: figureGridPresence, listing: figureListing, control: editorControl,
-                persona: persona, window: window)
+        if let figureID = selectedSubject?.figureID {
+            figureSubject(figureID, store: store)
         } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,
@@ -338,6 +334,37 @@ struct RightColumn: View {
                     onOpenProjectSettings: openProjectSettings,
                     posture: posture(selectedSubject?.itemID))
             }
+        }
+    }
+
+    /// **A figure subject's arm** (report plan 8a Task 7): its inspector, in
+    /// every persona. In Plan, where the canvas keeps the centre, the figure
+    /// itself stays where Task 6 put it — above, in this column — with its
+    /// inspector beneath, each taking half; elsewhere the figure is the
+    /// centre's (or, in Publish, nowhere) and the inspector has the column.
+    @ViewBuilder
+    private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
+        let inspector = FigureInspector(
+            figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
+            figureWindows: figureWindows, control: editorControl,
+            select: { selectedSubject = $0 },
+            showNotes: { id in
+                annotationScopeRequest = .project(focusPiece: id)
+                detailSegment = .annotations
+            })
+            .id(figureID)
+        if ProjectWindow.figureSubjectPlacement(persona: persona, subject: selectedSubject).besideFigureID != nil {
+            VStack(spacing: 0) {
+                FigureSubjectSurface(
+                    figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
+                    presence: figureGridPresence, listing: figureListing, control: editorControl,
+                    persona: persona, window: window)
+                    .frame(maxHeight: .infinity)
+                Divider()
+                inspector.frame(maxHeight: .infinity)
+            }
+        } else {
+            inspector
         }
     }
 

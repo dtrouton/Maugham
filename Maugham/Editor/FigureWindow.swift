@@ -91,6 +91,8 @@ final class FigureWindows {
     /// The holds that give way to a figure window (the centre's), each with
     /// its yield: the visit ends and the hold goes, synchronously.
     @ObservationIgnored private var inPlaceYielders: [InPlaceHold: @MainActor () -> Void] = [:]
+    /// Each in-place grid's visit, once it has opened (`gridController(on:)`).
+    @ObservationIgnored private var inPlaceGrids: [InPlaceHold: @MainActor () -> FigureGridController?] = [:]
     /// The visit each figure's last in-place fold is still ending, so the
     /// next grid to expand it — in any window — begins its own after it.
     @ObservationIgnored private var visitsEnding: [String: Task<Void, Never>] = [:]
@@ -101,6 +103,8 @@ final class FigureWindows {
     static let openingGrace: Duration = .seconds(3)
     /// Each window's finish (its open edit committed, its writes asked).
     @ObservationIgnored private var finishers: [Registration: @MainActor () -> Void] = [:]
+    /// Each window's grid visit, once it has opened.
+    @ObservationIgnored private var windowGrids: [Registration: @MainActor () -> FigureGridController?] = [:]
     /// Windows' last writes still landing; `settle` awaits them.
     @ObservationIgnored private var finishing: [Task<Void, Never>] = []
 
@@ -153,12 +157,14 @@ final class FigureWindows {
     /// edit committed, its writes asked) before a project close awaits them.
     func opened(_ figureId: String, focus: @escaping @MainActor () -> Void = {},
                 finish: @escaping @MainActor () -> Void = {},
+                grid: (@MainActor () -> FigureGridController?)? = nil,
                 close: @escaping @MainActor () -> Void) -> Registration {
         serial += 1
         let registration = Registration(figureId: figureId, serial: serial)
         closers[registration] = close
         focusers[registration] = focus
         finishers[registration] = finish
+        windowGrids[registration] = grid
         windowsOpening[figureId] = nil
         yieldInPlace(figureId)
         recount()
@@ -171,6 +177,7 @@ final class FigureWindows {
     func closed(_ registration: Registration) {
         focusers[registration] = nil
         finishers[registration] = nil
+        windowGrids[registration] = nil
         guard closers.removeValue(forKey: registration) != nil else { return }
         if !closers.keys.contains(where: { $0.figureId == registration.figureId }) {
             handoffs[registration.figureId] = nil
@@ -208,7 +215,8 @@ final class FigureWindows {
     /// window's grid awaits `visitEnded`.
     func holdInPlace(_ figureId: String, focus: @escaping @MainActor () -> Void,
                      fold: @escaping @MainActor () -> Void,
-                     yield: (@MainActor () -> Void)? = nil) -> InPlaceHold? {
+                     yield: (@MainActor () -> Void)? = nil,
+                     grid: (@MainActor () -> FigureGridController?)? = nil) -> InPlaceHold? {
         guard !isHeld(figureId) else { return nil }
         serial += 1
         let hold = InPlaceHold(figureId: figureId, serial: serial)
@@ -216,7 +224,21 @@ final class FigureWindows {
         inPlaceFocusers[hold] = focus
         inPlaceFolders[hold] = fold
         inPlaceYielders[hold] = yield
+        inPlaceGrids[hold] = grid
         return hold
+    }
+
+    /// **The visit of the grid open on `figureId`**, wherever it is — in
+    /// place (the centre's, an editor's) or in a figure window — once it has
+    /// opened; nil when no grid has the figure. The figure inspector's
+    /// Import from CSV and Refresh act through it, so their writes land on
+    /// that grid's own stack (report plan 8a Task 7).
+    func gridController(on figureId: String) -> FigureGridController? {
+        if let hold = inPlaceHolds[figureId], let controller = inPlaceGrids[hold]?() { return controller }
+        for (registration, grid) in windowGrids where registration.figureId == figureId {
+            if let controller = grid() { return controller }
+        }
+        return nil
     }
 
     /// The hold on `figureId` gives way, if it is one that does.
@@ -231,6 +253,7 @@ final class FigureWindows {
         inPlaceFocusers[hold] = nil
         inPlaceFolders[hold] = nil
         inPlaceYielders[hold] = nil
+        inPlaceGrids[hold] = nil
         guard inPlaceHolds[hold.figureId] == hold else { return }
         inPlaceHolds[hold.figureId] = nil
         if let visitEnding { visitsEnding[hold.figureId] = visitEnding }
@@ -321,6 +344,7 @@ final class FigureWindows {
         closers = [:]
         focusers = [:]
         finishers = [:]
+        windowGrids = [:]
         handoffs = [:]
         windowsOpening = [:]
         recount()
@@ -790,6 +814,8 @@ struct FigureWindow: View {
             window?.makeKeyAndOrderFront(nil)
         }, finish: { [grid] in
             grid.finish()
+        }, grid: { [weak grid] in
+            grid?.controller
         }, close: { [weak window] in
             window?.close()
         })

@@ -54,7 +54,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
 - `ProjectRowLabel.swift` — every project row's label.
-- `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs`, `FigureSectionWiring` (the tree's own card cache).
+- `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`), `FigureSectionWiring` (the tree's own card cache).
+- `FigureActions.swift` — the one figure-action helper the row menu and the inspector share: Open in Window, Send to Research, Rename, and Import/Refresh through the open grid (`FigureWindows.gridController`); posture and share gate the writes.
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags) and a piece row's count button.
 - `BinderTreeSections.swift` — the Figures, Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.
@@ -74,6 +75,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Research and the palette
 - `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`), read-only where `editsFigures` is false or ⌘⌥⇧R is on; an image large (`FigureImageSubject`, its file through `SafeRelativePath`); else its name and number.
+- `FigureInspector.swift` — a figure subject's inspector (every persona; under the grid in Plan): name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, loaded off the body), notes, actions.
+- `FigurePinsCompare.swift` — Compare: old and new per pinned cell; Refresh as one step on the open grid's stack.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor (`lockEditing` for read-only).
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.

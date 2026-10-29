@@ -12951,10 +12951,14 @@ final class TripwireGrepTests: XCTestCase {
         // through one `applyChanges` call, in `applyPlanned`. Send to
         // Research (plan 7d Task 9) parks the figure through
         // `sendToResearch`, which asks the figure's door and its line's.
+        // The figure inspector's Refresh (report plan 8a Task 7) is this
+        // file's `refreshPinsFromResearch`: the grid open on the figure re-reads
+        // its pins through the host's door, one step on its own `gridUndo`.
         "FigureGridController.swift": [
             "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
             "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1, "sendToResearch(": 1,
+            "refreshPins(": 1,
         ],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
@@ -12962,13 +12966,17 @@ final class TripwireGrepTests: XCTestCase {
         // by `FigureDocument.resumeFromResearch`, behind the figure's door
         // (report plan 6b Task 8).
         "FigureReturnDiff.swift": [figureOpMintSpelling: 1],
-        // The tree's figure row (report plan 8a Task 4): Send to Research and
-        // Rename are offered only where the posture allows `.editFigure`
-        // (`FigureSectionVerbs.mayEdit`), and each store verb asks the
-        // figure's door (and, for a send, its line's) itself. The row's own
-        // count is its menu calling the verb's closure.
-        "FigureSection.swift": ["sendToResearch(": 2, "renameFigure(": 1],
+        // The figure actions the tree's row menu and the figure inspector
+        // share (report plan 8a Tasks 4 and 7, `FigureActions`): Send to
+        // Research and Rename are offered only where the posture allows
+        // `.editFigure` and the share is not view-only (`FigureActions.mayEdit`),
+        // and each store verb asks the figure's door (and, for a send, its
+        // line's) itself. The row's and the inspector's counts are their
+        // menus calling the helper.
+        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1],
+        "FigureSection.swift": ["sendToResearch(": 1],
         "FigureRow.swift": ["sendToResearch(": 1],
+        "FigureInspector.swift": ["sendToResearch(": 1],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.

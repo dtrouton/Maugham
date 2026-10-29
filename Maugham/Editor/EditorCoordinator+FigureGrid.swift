@@ -334,6 +334,8 @@ extension EditorCoordinator {
                                        fold: { [weak self] in
                 guard let self, self.figureGrid?.figureId == figureId else { return }
                 self.forceFoldFigureGrid(.sentToResearch)
+            }, grid: { [weak self] in
+                self?.figureGrid?.figureId == figureId ? self?.figureGrid?.controller : nil
             })
             guard hold != nil else { return false }
         }
