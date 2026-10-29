@@ -1,10 +1,11 @@
 import SwiftUI
 import MaughamCore
 
-/// **A research subject arriving in Plan reveals the column that shows it**
+/// **A research or figure subject arriving in Plan reveals the column that shows it**
 /// (shell-finish stage 2b, final review's Critical).
 ///
-/// The placement (`ProjectWindow.researchSubjectPlacement`) decides WHICH column
+/// The placement (`ProjectWindow.researchSubjectPlacement`, or
+/// `figureSubjectPlacement` for a figure) decides WHICH column
 /// the item belongs in; this decides that the column is on screen when it does.
 /// Beside the canvas the right column is the writer's only view of the item, and
 /// Plan opens on `.inbox` — so without this a research row in Plan's tree writes

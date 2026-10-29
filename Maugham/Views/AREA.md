@@ -55,7 +55,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
 - `ProjectRowLabel.swift` — every project row's label.
 - `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`), `FigureSectionWiring` (the tree's own card cache).
-- `FigureActions.swift` — the one figure-action helper the row menu and the inspector share: Open in Window, Send to Research, Rename, and Import/Refresh through the open grid (`FigureWindows.gridController`, observed by `hasGrid`); the posture and `windowRefusesWrites` (share, ⌘⌥⇧R, Review) gate the writes, one answer for tree and inspector.
+- `FigureActions.swift` — the one helper the row menu and inspector share: Open in Window, Send to Research, Rename, Import/Refresh through the open grid (`FigureWindows.gridController`); the posture and `windowRefusesWrites` gate the writes.
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags) and a piece row's count button.
 - `BinderTreeSections.swift` — the Figures, Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.
@@ -74,8 +74,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeScrollProbe.swift` — a dev-build-only diagnostic.
 
 ### Research and the palette
-- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`), read-only where `editsFigures` is false or ⌘⌥⇧R is on; an image large (`FigureImageSubject`, its file through `SafeRelativePath`); else its name and number.
-- `FigureInspector.swift` — a figure subject's inspector (every persona; under the grid in Plan): name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, loaded off the body), the figure stream's own notes (`ProjectStore.figureNotes`, off-main, never the project walk), actions.
+- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`, read-only in Review), an image large (`FigureImageSubject`, via `SafeRelativePath`), else name and number.
+- `FigureInspector.swift` — a figure subject's inspector (every persona; under the grid in Plan): name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, off the body), the figure stream's notes (`ProjectStore.figureNotes`, never the project walk), actions.
 - `FigurePinsCompare.swift` — Compare: old and new per pinned cell; Refresh as one step on the open grid's stack.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor (`lockEditing` for read-only).
@@ -171,7 +171,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `HistoryPane.swift` — the forensic timeline, its notices, the project section; `HeldLineNoticeRow`, `SetAsideRecordsDisclosure`. Tripwire 50.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
-- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, a document its piece's, each behind its own `.editFigure` door through `withFigureHost`, re-checked against the live registry; the sheet names those refused or part-restored.
+- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, each behind its own `.editFigure` door through `withFigureHost`; the sheet names those refused or part-restored.
 - `CheckpointLabelPromptSheet.swift` — the label sheet for ⌘⇧S and Snapshot here.
 - `RestoreWindow.swift` — restore from a backup generation.
 
@@ -293,8 +293,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.
 - **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject previews there; `load()`'s restore does not force the pane.
+- **A figure subject asks `figureSubjectPlacement`, in both columns** (`FigureSubjectPlacementTests`): Author and Review give it the centre, Plan puts it beside the canvas, Publish moves nothing.
+- **The Figures section is the middle path**: drawn only while the project holds a non-parked figure; a piece's count filters it, its header chip clears it.
+- **The tree's cards come from its own `FigureCardCache`**, never the editor's.
+- **The figure listing lives at window level** (`ReferenceIndexHost`, `FigureListingModel` in `ProjectWindow`), so rows need no mounted editor.
 - **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`).
-- **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`),.
+- **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`).
 - **In Plan the Open Wall door travels**: `pressPaletteWallDoor` arms `travelPending`, writes the persona, opens nothing, writes no subject; `PaletteWallModifier` consumes it AFTER `closePaletteWallOnPersonaChange`.
 - **The door's tooltip and its press ask one spelling, `paletteWallDoorTravels`** (`PaletteWallDoorTests`, driven with real mouse events).
 
@@ -317,7 +321,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so `FirstReaderHandoff` acts only when Project Settings closed, and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
-- **New Project's kind is a menu, and a Report asks its shape beneath it**, worded by `ProjectKindName`. **Project Settings' Report section is the pure `ReportSettingsModel`**, written only through `ProjectStore.setProfile`/`setSwitch`: absent for a screenplay, its toggle disabled with the reason for a Collection or a newer build's profile, and its caption says re-initialising the template is a request to Claude that replaces the template files.
+- **New Project's kind is a menu, and a Report asks its shape beneath it**, worded by `ProjectKindName`. **Project Settings' Report section is the pure `ReportSettingsModel`**, written only through `ProjectStore.setProfile`/`setSwitch`: absent for a screenplay, its toggle disabled with the reason for a Collection or a newer build's profile; re-initialising the template is a request to Claude.
 
 ### Posture surfaces
 - **Hide, don't disable**: a verb the posture forbids is not drawn. The editor stays and refuses mutation; the File menu's piece items disable (a menu-bar item greys).

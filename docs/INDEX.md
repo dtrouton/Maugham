@@ -27,7 +27,7 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 - [docs/superpowers/plans/](superpowers/plans/) — implementation plans.
 - [docs/superpowers/notes/](superpowers/notes/) — audits (`*-audit.md`, `*-sweep.md`, `*-maintainability-review.md`), diagnoses, handoffs.
 - [`docs/history/README.md`](history/README.md) — narrative, provenance and rejected alternatives moved out of the `AREA.md` guides. Not required reading.
-- [`docs/history/views.md`](history/views.md) — the Views guide's moved rationale, including plan 8a's. Not required reading.
+- [`docs/history/views.md`](history/views.md) — the Views guide's moved rationale. Not required reading.
 
 ## The code, area by area
 
