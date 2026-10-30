@@ -42,6 +42,7 @@ final class ResearchTableGridTests: XCTestCase {
 
     override func tearDown() async throws {
         ResearchTableHost.wroteForTesting = nil
+        ResearchTableHost.duringReloadForTesting = nil
         for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
         noticeObservers = []
         for mount in mounts {
@@ -645,7 +646,8 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertEqual(writes(), 0)
     }
 
-    /// **⌘S commits what is typed** (the store's flush), leaving the grid open.
+    /// **⌘S commits what is typed** (the store's flush, as ⌘S asks it),
+    /// leaving the grid open.
     func test_theStoresFlushCommitsAnOpenCell_andTheGridStaysOpen() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
@@ -655,11 +657,65 @@ final class ResearchTableGridTests: XCTestCase {
         c.handle(.type("4"))
         c.handle(.editTextChanged("42"))
 
-        try await store.flushPendingSave()
+        try await store.flushPendingSave(commitOpenEdits: true)
 
         XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "42"]])
         XCTAssertEqual(mount.phase, .open)
         guard case .idle = c.model.edit else { return XCTFail("the edit was committed where it was") }
+    }
+
+    /// **N1 — a background flush leaves the cell being typed alone** (MCP's
+    /// add_note, the search debounce, a promotion, the typed mover): the edit
+    /// stays open and uncommitted, nothing is written, and Return still
+    /// commits the whole entry.
+    func test_aBackgroundFlushLeavesTheCellBeingTypedOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let before = try bytes(of: item)
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        c.handle(.click(key(c.host, 2, 2), extend: false))
+        c.handle(.type("2"))
+        c.handle(.editTextChanged("20"))
+
+        try await store.flushPendingSave()   // as add_note asks it
+
+        guard case .editing(let edit) = c.model.edit else { return XCTFail("the edit was closed: \(c.model.edit)") }
+        XCTAssertEqual(edit.text, "20", "still open, as typed")
+        XCTAssertEqual(c.host.state.table[key(c.host, 2, 2)]?.content, .value(.number(10)), "uncommitted")
+        XCTAssertEqual(try bytes(of: item), before, "nothing written")
+        c.handle(.editTextChanged("2030"))
+        c.handle(.returnKey(backward: false))
+        await c.settleWrites()
+        XCTAssertEqual(c.host.state.table[key(c.host, 2, 2)]?.content, .value(.number(2030)), "the whole entry")
+    }
+
+    /// **N2 — an edit typed while a reload reads the file is kept**: the
+    /// reload stands down (no "Reloaded"), and the save keeps the outside
+    /// version as a backup before writing the grid's.
+    func test_anEditTypedWhileAReloadReadsTheFileIsKept() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await store.openResearchTable(itemId: item.id)
+        let outside = "Year,Revenue\n2025,40\n"
+        try Data(outside.utf8).write(to: file(try XCTUnwrap(item.path)))
+        let cell = key(host, 2, 2)
+        ResearchTableHost.duringReloadForTesting = { host in
+            try? await host.setCell(Cell(content: .value(.number(12))), at: cell, undoManager: nil)
+        }
+        defer { ResearchTableHost.duringReloadForTesting = nil }
+
+        await host.fileMayHaveChanged()
+
+        XCTAssertEqual(host.state.table[cell]?.content, .value(.number(12)), "the edit stands")
+        XCTAssertTrue(heard.notices.filter { $0.hasPrefix("Reloaded") }.isEmpty, "the reload stood down")
+        await host.flush()
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "12"]])
+        let conflicts = file(".maugham/conflicts")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: conflicts.path).filter { $0.contains(item.id) }
+        XCTAssertEqual(backups.count, 1, "the outside version was kept")
+        await store.releaseResearchTable(host)
     }
 
     /// **A file's byte-order mark and CRLF rows are kept** by a save.

@@ -369,7 +369,7 @@ struct ProjectWindow: View {
         }
         .onKeyWindowCommand(.maughamDummySave, window: window) { _ in
             Task {
-                try? await documentStore?.flushPendingSave()
+                try? await documentStore?.flushPendingSave(commitOpenEdits: true)
                 showSaveFlash()
             }
         }

@@ -719,7 +719,7 @@ public final class DocumentStore {
         // Flush an in-progress session first so it lands in sessions.json
         // before the presenter is removed and writes become uncoordinated.
         await flushSessionOnQuit()
-        try? await flushPendingSave()
+        try? await flushPendingSave(commitOpenEdits: true)
         await uiStateScheduler.flush()
         // Drain the document registry (zombie-window teardown, load-bearing
         // half): `_openDocuments` is a STRONG `[path: Document]` map. It rides
@@ -830,9 +830,14 @@ public final class DocumentStore {
     }
 
     /// Flush any pending `scheduleFileSave` immediately — and every open
-    /// Research table's pending save (`researchTables`).
-    public func flushPendingSave() async throws {
-        for table in Array(researchTables.values) { await table.settle() }
+    /// Research table's pending save (`researchTables`). `commitOpenEdits`
+    /// also commits a cell being typed in a Research grid: the writer's own
+    /// verbs only (⌘S, the store's close at a window's close and ⌘Q); a
+    /// background flush leaves it open (`ResearchTableHost.settle`). The
+    /// typed mover flushes without it: a grid's open edit saves later to
+    /// wherever the item then is (its path is asked at the save).
+    public func flushPendingSave(commitOpenEdits: Bool = false) async throws {
+        for table in Array(researchTables.values) { await table.settle(commitOpenEdits: commitOpenEdits) }
         for closing in Array(researchTableClosings.values) { await closing.value }
         guard let fileSaveScheduler else { return }
         await fileSaveScheduler.flush()
@@ -887,7 +892,7 @@ public final class DocumentStore {
     /// its pending save written — before a verb reads the file (*Use in
     /// Document*, *Bring Back to Figures*).
     func settleResearchTable(itemId: String) async {
-        await researchTables[itemId]?.settle()
+        await researchTables[itemId]?.settle(commitOpenEdits: true)
         await researchTableClosings[itemId]?.value
     }
 

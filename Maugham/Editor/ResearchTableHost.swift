@@ -199,11 +199,26 @@ final class ResearchTableHost: FigureGridHost {
 
     /// **The table read again from its file** (another writer's change): what
     /// is on disk replaces what is held, and an edit not yet written is
-    /// dropped.
+    /// dropped — unless the table is edited while the file is being read, when
+    /// nothing is replaced (`reloadUnlessEdited`).
     func reload() async throws {
-        guard let store else { return }
+        _ = try await reloadUnlessEdited()
+    }
+
+    /// Test seam: runs in a reload after the file is read and before it lands
+    /// — where a test types into the grid.
+    static var duringReloadForTesting: (@MainActor (ResearchTableHost) async -> Void)?
+
+    /// The reload; false — nothing replaced — when an edit landed while the
+    /// file and the book were read (task 7 re-review N2): that edit is the
+    /// writer's, and its save keeps the outside version first (`write`).
+    private func reloadUnlessEdited() async throws -> Bool {
+        guard let store else { return false }
+        let before = state.table
         let (read, _) = try await Self.readFile(itemId: itemId, store: store)
+        await Self.duringReloadForTesting?(self)
         let context = try await store.tableImportContext()
+        guard state.table == before, !isClosed else { return false }
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
@@ -214,22 +229,25 @@ final class ResearchTableHost: FigureGridHost {
         diskHash = read.hash
         names = context.names
         state = FigureState(kind: .table, table: Self.table(of: read, context: context))
+        return true
     }
 
     /// **The file may have changed outside Maugham** (the window's file
     /// presenter, a grid's window coming front): a clean grid whose file no
     /// longer hashes to what it read or wrote reads it again, and says so. A
-    /// grid holding an edit is left to its save, which keeps the outside
-    /// version first (`write`).
+    /// grid holding an edit — or given one while the file is read — is left
+    /// to its save, which keeps the outside version first (`write`).
     func fileMayHaveChanged() async {
         await saving?.value
         guard !isClosed, !isDirty, scheduledSave == nil, let store,
               let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
               let path = item.path, let file = try? store.resolvedProjectPath(path) else { return }
+        let lastSave = saving
         let onDisk = try? await Task.detached { try ContentHash.ofFile(file) }.value
-        guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil else { return }
+        // A save of ours begun meanwhile is no outside change.
+        guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil, saving == lastSave else { return }
         do {
-            try await reload()
+            guard try await reloadUnlessEdited() else { return }
             MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
                                     projectURL: projectURL)
         } catch {
@@ -266,11 +284,18 @@ final class ResearchTableHost: FigureGridHost {
     /// first, each open grid commits what is typed, then any pending save —
     /// `DocumentStore.flushPendingSave`'s wait, so ⌘S, ⌘Q and a window's close
     /// write what the grid was holding.
-    func settle() async {
+    ///
+    /// `commitOpenEdits` is the writer's own verbs' (⌘S, the window's close and
+    /// ⌘Q, Use in Document and Bring Back): a background flush — MCP, search,
+    /// a promotion, the typed mover — writes what is committed and leaves a
+    /// cell the writer is typing in open (task 7 re-review N1).
+    func settle(commitOpenEdits: Bool) async {
         let ending = endingVisits
         for visit in ending { await visit.value }
         endingVisits.removeAll { ending.contains($0) }
-        for settle in Array(settlers.values) { await settle() }
+        if commitOpenEdits {
+            for settle in Array(settlers.values) { await settle() }
+        }
         await flush()
     }
 
