@@ -9,7 +9,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The window family
 - `ProjectWindow.swift` — the root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`, `pressPaletteWallDoor`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute` and `CentreCover`, and `ProjectWindow.centreRoute(…)`: what the centre column shows, as one exhaustive value (tripwires 6, 27, 30).
-- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount (with `CanvasReadOnlyNotice` in a top `.safeAreaInset` over a refused layout file), `manuscriptEditor` (the `EditorHost` + altitude + one cover `ZStack`), the board's open-notes counts and `refreshOpenNotes` (tripwires 2, 6, 30).
+- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + altitude + one cover), the board's open-notes counts (tripwires 2, 6, 30).
 - `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute`), hidden arm, and its environment's services.
 - `PaletteWallState.swift` — the wall's window state as one value (`showsWall`, `travelPending`, the inspector stash) with its three folds as mutating methods.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
@@ -54,10 +54,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
 - `ProjectRowLabel.swift` — every project row's label.
-- `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`), `FigureSectionWiring` (the tree's own card cache).
+- `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `FigureSendConfirmation`), `FigureSectionWiring` (the tree's own card cache).
 - `FigureActions.swift` — the one helper the menus and inspectors share: Open in Window, Send to Research, Rename, Import/Refresh through the grid, Use in Document; the posture and `windowRefusesWrites` gate the writes.
-- `FigureRow.swift` — a figure's tree row (number, caption or name, tags) and a piece row's count button.
-- `BinderTreeSections.swift` — the Figures, Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
+- `FigureRow.swift` — a figure's tree row (number, caption or name, tags), a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
+- `BinderTreeSections.swift` — the Figures, Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (the one alert; an error waits for a send question), `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.
 - `TreeSectionDerivation.swift` — pure derivations: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
@@ -171,7 +171,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `HistoryPane.swift` — forensic timeline. Children: `HistoryPaneNotices.swift` (`HeldLineNoticeRow`, `SetAsideRecordsDisclosure`), `HistoryPaneTimeline.swift`, `HistoryRow.swift`, `HistoryPaneVerbs.swift` (tripwire 50), `HistoryPaneStatics.swift`.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
-- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, each behind its own `.editFigure` door through `withFigureHost`; the sheet names those refused or part-restored.
+- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, each behind its own `.editFigure` door through `withFigureHost`;
 - `CheckpointLabelPromptSheet.swift` — the label sheet for ⌘⇧S and Snapshot here.
 - `RestoreWindow.swift` — restore from a backup generation.
 
@@ -206,7 +206,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Tripwires this area carries
 - **No SwiftUI ↔ AppKit two-way sync guarded by flags** (tripwire 2): `.onChange` fires after the flag clears. Every `@State` a column writes arrives as a `Binding`; a copy drifts. Prose only (`Maugham/Editor/AREA.md`).
 - **No heavy work inside a synchronous SwiftUI binding setter** (tripwire 3): `EditorIntegrationHarnessTests`.
-- **No uncached per-row computation in list rows or on a body path** (tripwire 4): panes take values; hosts do store, disk and walk work in `.task`. Prose only; source censuses guard named panes (`ReviewBoardPaneTests.test_theSourceReadsNoStoreAtAll`, `DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`).
+- **No uncached per-row computation in list rows or on a body path** (tripwire 4): panes take values; hosts do store, disk and walk work in `.task`. Prose only; `ReviewBoardPaneTests.test_theSourceReadsNoStoreAtAll` guards a named pane.
 - **No `NSPopover` for editor autocomplete** (tripwire 5): `TripwireGrepTests.test_noPopoverInEditorAutocomplete`.
 - **No parallel observable state on `EditorHost`; one `Binding` writes `displayText` exactly once** (tripwire 6): `EditorIntegrationHarnessTests`.
 - **No second caller of `EditorSurface.applyExternalText`** (tripwire 7): `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`.
@@ -216,7 +216,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A rename-capable row copies `BinderRow`'s shape verbatim**: a `claimFocus()` that sleeps 30ms before focusing, fired from both `.onAppear` and `.onChange(of: renamingItemId)` (tripwire 16). Prose only; `BinderRow.claimFocus()` is canonical.
 - **No raw `maugham.*` NotificationCenter traffic outside `MaughamEvent`; every post declares its scope** (tripwire 21): `TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`.
 - **Key a Document-binding reload on the doc's PATH, not its id** (tripwire 22): a renamed or restored file keeps its id. `EditorHostReloadPredicateTests` pins `EditorHost.needsReload`.
-- **No test presses a mounted control and then waits for its effect, and none synthesises a click, outside the named allow-lists** (`pressThenWaitRepresentatives`, `clickRepresentatives`); pin the decision as a pure value and assert only that the control is drawn (tripwire 33): `TripwireGrepTests.test_noNewTestPressesAControlAndThenWaitsForItsEffect`, `test_noNewTestClicksOutsideTheNamedRepresentatives`.
+- **No test presses a mounted control and then waits for its effect, and none synthesises a click, outside the named allow-lists** (`pressThenWaitRepresentatives`, `clickRepresentatives`) (tripwire 33): `TripwireGrepTests.test_noNewTestPressesAControlAndThenWaitsForItsEffect`, `test_noNewTestClicksOutsideTheNamedRepresentatives`.
 - **Whose piece is whose reads the permit TIMELINE, never `PersonRecord.role`/`.scope`/`.pieces`** (`PieceWriters`, over `TrustTable.myChain`) (tripwire 43): `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField`.
 - **No permit rung is compared in a view; ask `Posture`** (tripwire 47): `TripwireGrepTests.test_aPermitRungIsComparedOnlyInThePermitLayer`.
 - **`PermitControl` is the one place a surface builds a `Permit`** (`Permit.permit(offering:pieces:)` / `Permit.rung(of:)`), and holds only the WORDS for each rung (tripwire 49): `TripwireGrepTests.test_aSurfaceBuildsAPermitInOnePlace`.
@@ -225,7 +225,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Ask a project's kind or a document's format by capability or an exhaustive switch, never by equality** (tripwire 55): `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality`.
 
 ### The window body and its family
-- **When `ProjectWindow.body` hits "unable to type-check this expression in reasonable time", extract a `ViewModifier`**: the body is at the Release type-check ceiling, so window behaviour lives in modifiers and a column arm is a call.
+- **When `ProjectWindow.body` hits "unable to type-check this expression in reasonable time", extract a `ViewModifier`**: window behaviour lives in modifiers and a column arm is a call.
 - **A census reading "the window's code" reads the family BY TYPE**: `SourceTree.windowFamilyTypes` names the members, so moving a modifier between files never shrinks what a census reads; a member nothing declares throws. Absence checks still widen to the directory.
 - **`CentreColumn` and `RightColumn` are mounted once each, as the content and detail columns' roots**, so `EditorHost` and the canvas keep their identities across every route change.
 - **A column reads values and takes verbs as closures**; `CentreColumn` owns one piece of state, the board's open-notes counts.
@@ -239,10 +239,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The centre column
 - **`centreRoute` answers once, as a value, and `CentreColumn` renders it with one `switch` per level — never by layer order** (`CentreRouteTests`, over the whole product: the board and Publish's surface are never both offered).
 - **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the third branch, its one mount (tripwires 27, 30; `RegionBindingTests` counts it).
-- **Every altitude or cover change happens inside `.editor(altitude:cover:)`, never as a new branch**: a branch is a view identity, and a second one would run `EditorHost`'s `.onDisappear` on every project ↔ chapter hop (tripwire 6). `ProjectAltitudeCentreTests` counts the host's lifetimes.
-- **In `CentreColumn.manuscriptEditor`'s `ZStack`, `EditorHost` is first and always present, altitude second whenever the subject names no document, then at most ONE cover chosen by `centreRoute`.** Count the layers in the arm scans of `ProjectAltitudeCentreTests` and `PublishPreviewCentreTests`, never a number in prose.
+- **Every altitude or cover change happens inside `.editor(altitude:cover:)`, never as a new branch**: a branch is a view identity, and a second one would run `EditorHost`'s `.onDisappear` on every project ↔ chapter hop (tripwire 6).
+- **In `CentreColumn.manuscriptEditor`'s `ZStack`, `EditorHost` is first and always present, altitude second whenever the subject names no document, then at most ONE cover chosen by `centreRoute`.** Count layers in `ProjectAltitudeCentreTests`' arm scans.
 - **Altitude shows where `ProjectWindow.subjectShowsAltitude(persona:subject:structure:)` is true**: no subject resolving to one document, in a persona whose centre is the editor.
-- **Publish's surfaces and Review's board compose `subjectShowsAltitude`, never a second document-resolution rule**: a chapter subject in Publish or Review shows the editor. The one exception is a translation round, which draws over its chapter too.
+- **Publish's surfaces and Review's board compose `subjectShowsAltitude`, never a second document-resolution rule**: a chapter subject in Publish or Review shows the editor.
 - **Problems outrank a round, which outranks a proposal, which outranks the book** (`publishCentre`); the desk's Shows clear each other, so the centre holds one.
 - **`showsStatusFooter` refuses under altitude, the palette wall and a research subject in the centre** (`PublishPreviewCentreTests`).
 - **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed, so the mounted editor always wins. It derives from the op log, never the `.fountain` (tripwire 20) (`ScreenplayScriptSourceTests`).
@@ -250,12 +250,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Personas
 - **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — the centre question is `centresTheCanvas` / `showsManuscriptDocuments`, the wall `showsPaletteWall`, Exports `showsExports`, Publish `previewsThePublishedBook`, Review's read-only centre `editsResearchInTheCentre`: `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
 - **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`'s `pressPaletteWallDoor`, `CanvasClaudeArrivalModifier`, `TreeTravel`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
-- **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2). `CanvasClaudeArrivalModifier.show` does not record the departing segment (a look is not a choice); `ManuscriptNavigation.go` does.
+- **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2).
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
 - **The window publishes its persona to the menu bar from `PersonaModifier.body` alone** (`.focusedSceneValue(\.persona, …)`, read by `MaughamApp`'s run items): `RunMenuTitlesTests.test_theWindowPublishesItsPersonaFromThePersonaModifierAlone`. A title only ([ADR 0031](../../docs/adr/0031-the-persona-is-an-input-to-the-run.md)).
-- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author. Every navigation receiver routes through it; count the array in `ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`, never a number in prose.
-- **A double-click on a tree row travels to Author only where the centre is the canvas** (`TreeTravel.treeTravelDestination`), through `applyPersonaChange`, never `ManuscriptNavigation`. It posts `.maughamTreeTravel` with the row's own tag, never `state.selection`. The rows it reaches are `TreeTravelGestureAttachmentTests.expectations`.
+- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author. Every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
+- **A double-click on a tree row travels to Author only where the centre is the canvas** (`TreeTravel.treeTravelDestination`), through `applyPersonaChange`, never `ManuscriptNavigation`. It posts `.maughamTreeTravel` with the row's own tag, never `state.selection` (`TreeTravelGestureAttachmentTests.expectations`).
 
 ### The subject and the tree
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
@@ -278,7 +278,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Arrival is visible** (`consumingTreeScrollRequests`, both triggers): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
 - **A piece fold's rows carry no `.id`**.
 - **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`).
-- **New Group at a piece's root has no store API** (`ResearchScope` routes notes, tables, assets, links).
+- **New Group at a piece's root has no store API** (`ResearchScope` routes notes, tables, assets, links; *New Table* is `ResearchTree`'s, not offered on a view-only share).
 - **A drop is classified by LOOKUP in the manifest, never by the shape of an id**. Every mounted drop target calls the classifier (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`, `TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
 - **External drops route through `TreeDropIntent.classifyExternal`** to the same creation verbs as Add File and paste.
 - **Every drop closure returns `Bool` down to the row's `.dropDestination`**: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`, `test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
@@ -296,6 +296,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A figure subject asks `figureSubjectPlacement`, in both columns** (`FigureSubjectPlacementTests`): Author and Review give it the centre, Plan puts it beside the canvas, Publish moves nothing.
 - **The Figures section is the middle path**: drawn only while the project holds a non-parked figure; a piece's count filters it, its header chip clears it.
 - **The tree's cards come from its own `FigureCardCache`**, never the editor's.
+- **A drag onto Figures or Research is classified by `TreeDropIntent`, never in the row.** Research onto Figures is `useInDocument`, unasked; a figure onto Research or a group asks once (`FigureSendConfirmation`) and cannot be undone. Figures take no figure-on-figure drop.
+- **A legacy row is listed, never selected**: *Move into Figures* dry-runs the line, makes the figure, then `retargetFigureLine`s it; a parked copy named otherwise than the line's label is refused.
 - **The figure listing lives at window level** (`ReferenceIndexHost`, `FigureListingModel` in `ProjectWindow`), so rows need no mounted editor.
 - **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`).
 - **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`).
@@ -310,18 +312,18 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Every `DetailPaneToggle` pane fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
 - **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
-- **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss (✕/Escape, document, subject, a pane change without a persona change) clears `studied`; hide (persona veto, ⌘⌥I, ⌘\) only takes it off screen.
+- **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss clears `studied`; hide (persona veto, ⌘⌥I, ⌘\) only takes it off screen.
 - **Re-check dark-mode propagation to side panes after theme changes.**
 
 ### Events, modals and sheets
-- **Pick an event's scope at the post site** (`.keyWindow` for menu commands, `.project(id:)` for data events, `.allWindows` for genuine fan-out) **and subscribe with the matching helper** (`.onKeyWindowCommand`, `.onProjectEvent`, `.onGlobalEvent`); never hand-roll a filter or an `isKeyWindow` guard in a receiver ([ADR 0021](../../docs/adr/0021-scoped-window-events.md)).
+- **Pick an event's scope at the post site** **and subscribe with the matching helper** (`.onKeyWindowCommand`, `.onProjectEvent`, `.onGlobalEvent`); never hand-roll a filter in a receiver ([ADR 0021](../../docs/adr/0021-scoped-window-events.md)).
 - **A pane that needs its window's liveness resolves it through `WindowAccessor`**, never a cached `NSWindow?` read as "closed" when nil (`MaughamEvent.isLive`).
 - **Modal state is owned by the window**: subviews post (`.maughamOpenRewind`) and the window presents.
 - **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts directly through the shared function (`ProjectWindow.selectDetailSegment`).
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so `FirstReaderHandoff` acts only when Project Settings closed, and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
-- **New Project's kind is a menu, and a Report asks its shape beneath it**, worded by `ProjectKindName`. **Project Settings' Report section is the pure `ReportSettingsModel`**, written only through `ProjectStore.setProfile`/`setSwitch`: absent for a screenplay, its toggle disabled with the reason for a Collection or a newer build's profile; re-initialising the template is a request to Claude.
+- **New Project's kind is a menu, and a Report asks its shape beneath it**, worded by `ProjectKindName`. **Project Settings' Report section is the pure `ReportSettingsModel`**, written only through `ProjectStore.setProfile`/`setSwitch`: absent for a screenplay, disabled with the reason for a Collection or a newer build's profile.
 
 ### Posture surfaces
 - **Hide, don't disable**: a verb the posture forbids is not drawn. The editor stays and refuses mutation; the File menu's piece items disable (a menu-bar item greys).
@@ -335,7 +337,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The register's surfaces
 - **Every decision about who may write is the MODEL's, as a pure function** (`AdmissionDecision`, `PeopleAndDevicesModel`, `ClaimDecision`, `LoadQuestions`, `SetAsideDoor`); the views draw and decide nothing (`PeopleAndDevicesModelTests`, `AdmissionDecisionTests`, `AdmissionQueueTests`).
-- **A merge is never the default**: a proposed label never merges into an existing person, and the pre-fill (`claimedLabel`) is never a known label. Nothing goes up from a queue an admission has overtaken (`awaitingSettlement`) or while a sheet is closing (`isClosing`).
+- **A merge is never the default**: a proposed label never merges into an existing person, and the pre-fill (`claimedLabel`) is never a known label.
 - **A device with no proposed name keeps Admit refused until the writer types a label.**
 - **Who is never offered is one classification**, `AdmissionDecision.standing(ofHolder:streams:registry:)`; a stranger's device record raises the question as a held line does, as one request.
 - **A claim hint asks `Recognition.recognise`, never a second opinion**; the saved-by name never pre-fills or merges.

@@ -1039,7 +1039,7 @@ final class BinderTreeSectionsState {
     @ObservationIgnored var pendingFigureRevealToken = 0
     /// **The tree's one alert** — an error, or a figure dropped on Research
     /// waiting on its confirmation (D8-2). One value drives one `.alert`, so a
-    /// send that fails while its question is dismissing replaces the question
+    /// send that fails while its question is dismissing waits for the answer
     /// rather than racing a second alert (task 5 review M3).
     var pendingAlert: TreeAlert?
     /// An error that arrived while a send question was up: shown once the

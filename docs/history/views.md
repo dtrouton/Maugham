@@ -223,3 +223,9 @@ The rationale clauses of "The subject and the tree", "Tree furniture" and "Resea
 - " and drops the stash rather than restoring it"
 - " writes the persona, opens nothing and writes no subject; `PaletteWallModifier`'s `.onChange(of: persona)` consumes it immediately AFTER `closePaletteWallOnPersonaChange`, in the same handler."
 
+
+## Trimmed from the guide during report plan 8b Task 10 (2026-10-30)
+
+Clauses cut from `Maugham/Views/AREA.md` to make room: `CentreColumn` also carries `CanvasReadOnlyNotice` in a top `.safeAreaInset` over a refused layout file; the people-and-devices queue sends nothing up once an admission has overtaken it (`awaitingSettlement`) or while a sheet is closing (`isClosing`); event scopes are `.keyWindow` for menu commands, `.project(id:)` for data events, `.allWindows` for fan-out, never an `isKeyWindow` guard in a receiver; a test pins a press's decision as a pure value and asserts only that the control is drawn; the study column dismisses on ✕/Escape, document, subject, or a pane change without a persona change.
+
+Also cut from the Views guide in the same pass: the Report section's re-initialise note; the part-restore sheet names refusals; the ZStack layer-count tests (`PublishPreviewCentreTests`); the translation-round exception to `subjectShowsAltitude`; `ProjectAltitudeCentreTests` counts the host's lifetimes; `CanvasClaudeArrivalModifier.show` does not record the departing segment (a look is not a choice) while `ManuscriptNavigation.go` does; `DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`.

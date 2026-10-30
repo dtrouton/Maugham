@@ -18,6 +18,27 @@ Groups nest — right-click + **New Group** to make a folder, drop items into it
 
 Select several items (⌘-click) to work on them together. Right-click a selection for **Move to ▸** (Shared, any group, or — in a Collection — any loose piece) and batch **Delete**. Dragging a row that's part of your selection moves the whole selection; drop it on a group to nest it there, or drop it in a different Collection section to move it between shared research and a piece's research folder. Scope moves leave your links alone: an item inside a piece is already associated by containment, so a link you added by hand goes quietly dormant while it lives there (Maugham just hides the now-redundant entry) and reappears as a link on that document if you move the item back out. An association that only ever came from containment ends when you move the item out — nothing is auto-linked in its place.
 
+### Tables and pictures from Research
+
+A table, picture or PDF in Research can become a figure of the book, and a figure can go back.
+
+- **Use in Document** — right-click one Research item, or press the button in its inspector. It makes a figure that no line uses yet (its number shows "—" in the **Figures** section, tagged **unused**). Place it with **Insert ▸ Existing Figure…** (see [Editor](editor-and-focus.md)). Dragging the item onto the **Figures** section does the same (see [Structure and binder](structure-and-binder.md#figures-in-the-binder)). Offered for tables, pictures and PDFs in a project that holds figures, not in Review or on a view-only share, and not for several items at once.
+- **Whose figure it is.** An item in a piece's own Research makes that piece's figure. An item in Shared Research makes a figure that belongs to the whole book, so only an author of the whole book may make or edit it; if this Mac may not, nothing is made and you are told.
+- **The name** comes from the item's title. A title that is already a valid label name keeps its capitals ("Q3" stays "Q3"); otherwise it is folded to lower case with hyphens ("Q3 revenue (draft)" becomes `q3-revenue-draft`), and a name already taken gets `_2`.
+- **Bring Back to Figures** — a figure you sent to Research leaves a copy there. On that copy the same menu and button read **Bring Back to Figures**, which puts the figure back, unchanged if the copy is unchanged.
+- **"changed"** — a table made from Research shows the **changed** tag in the Figures section when its source file in Research has changed since the figure took it.
+
+### Editing a Research table
+
+A table in Research opens in the same grid as a figure's table: in the centre column, and in Plan's right column. Edits are saved to the CSV file itself after a short pause, and the file keeps its separator (comma, semicolon or tab), its line endings and its byte-order mark.
+
+- **Undo.** While the table is open, ⌘Z and ⇧⌘Z undo and redo its cell, row and column changes. If the table has changed since, the undo is declined with a sentence.
+- **No versions yet.** Saved changes to a Research table are not versioned yet: earlier states of the file are not kept.
+- **An outside change.** If the file changes outside Maugham (another Mac, a spreadsheet app), the grid reloads and says so. If you had unsaved edits in the grid, your edits are written and the outside version is kept as a backup in the project's `.maugham/conflicts/` folder, and a notice says so.
+- **`research:` formulas** inside a Research table are not evaluated and show `#REF!`.
+- **Very large files** are shown as text, not a grid.
+- **Read-only** in Review and on a view-only share; the grid opens for looking, with a reason.
+
 ### Citation details
 
 A source you cite in a manuscript as `[@key]` carries its citation details in the inspector's **Citation** section, below Caption and URL: **Key**, **Authors** (one per entry — "Ada Lovelace" or "Lovelace, Ada"), **Source title**, **Publisher**, **Year**, **Accessed** and **Pages**. **Suggest** fills in a free key from the first author's surname and the year (`lovelace1843`). A key is letters, digits, `-` and `_`, starting with a letter or digit, and no two sources share one — a source in the Trash keeps its key, since restoring it would bring it back. A citation needs a key: details without one are refused, and the reason shows under the fields with what you typed kept. Clear every field to remove the citation (clear the key last to avoid the "needs a key" notice). See [Publishing → Tables, figures, footnotes, citations and cross-references](publishing.md) for how a citation prints.
