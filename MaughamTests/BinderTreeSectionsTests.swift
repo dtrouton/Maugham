@@ -123,6 +123,10 @@ final class BinderTreeSectionsTests: XCTestCase {
     ///
     /// The count is found by its focus-ring view inside the chapter's row, so
     /// the click lands where the button is drawn on whatever display this runs.
+    /// The window reads as key, as the writer's does: since Xcode 27B47 a
+    /// click on a row in a window that is not key selects nothing (measured
+    /// 2026-10-30: hit point on the row's cell, `selectedRow` -1 either
+    /// delivery), while the count's `Button` still takes it.
     func test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing() async throws {
         let store = try await novel(notes: [], cards: [])
         let chapter = try XCTUnwrap(TreeWalk.first(in: store.manifest.structure,
@@ -133,7 +137,7 @@ final class BinderTreeSectionsTests: XCTestCase {
                               caption: "Cash", number: "Table 1",
                               usedIn: [FigureListing.Use(docId: chapter.id, lineIndex: 0)],
                               referencedFrom: [], pieceOfLine: chapter.id)])
-        let (window, probe) = try await hostBinder(store: store, treeState: state)
+        let (window, probe) = try await hostBinder(store: store, treeState: state, key: true)
         let table = try XCTUnwrap(firstTableView(in: window))
         let rowIndex = 1 + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
         let rowRect = table.convert(table.rect(ofRow: rowIndex), to: nil)
@@ -167,8 +171,24 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertEqual(probe.subject, .item(chapter.id))
     }
 
-    /// One real click (down, up) at `point`, in window coordinates.
+    /// One real click (down, up) at `point`, in window coordinates, as
+    /// `TreeTravelRowMountingTests.click(at:)` delivers it: the app's queue
+    /// drained until it stays quiet (a stale `appKitDefined` event left by
+    /// ordering the window front would be read by the table's tracking loop
+    /// in place of this click's mouseUp), then the pair posted to `NSApp` and
+    /// dispatched as AppKit's own loop would.
     private func clickCount(at point: CGPoint, in window: NSWindow) {
+        let app = NSApplication.shared
+        var quietPolls = 0
+        while quietPolls < 3 {
+            if let stray = app.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+                app.sendEvent(stray)
+                quietPolls = 0
+            } else {
+                quietPolls += 1
+            }
+            pump(0.02)
+        }
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             if let event = NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [],
@@ -176,8 +196,12 @@ final class BinderTreeSectionsTests: XCTestCase {
                 windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, clickCount: 1,
                 pressure: type == .leftMouseDown ? 1 : 0) {
-                window.sendEvent(event)
+                app.postEvent(event, atStart: false)
             }
+        }
+        while let next = app.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+            app.sendEvent(next)
+            pump(0.02)
         }
     }
 
@@ -919,12 +943,12 @@ final class BinderTreeSectionsTests: XCTestCase {
     // MARK: - Hosting and driving
 
     private func hostBinder(
-        store: ProjectStore, treeState: BinderTreeSectionsState? = nil
+        store: ProjectStore, treeState: BinderTreeSectionsState? = nil, key: Bool = false
     ) async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(
             BinderSectionsProbeView(store: store, probe: probe,
-                                    treeState: treeState ?? BinderTreeSectionsState())))
+                                    treeState: treeState ?? BinderTreeSectionsState())), key: key)
         return (window, probe)
     }
 
@@ -950,9 +974,10 @@ final class BinderTreeSectionsTests: XCTestCase {
         return (window, probe, documentID)
     }
 
-    private func mount(_ root: AnyView) async throws -> NSWindow {
-        let window = TestWindow.mount(root, size: CGSize(width: 320, height: 800),
-                                      as: SilentTestWindow.self)
+    private func mount(_ root: AnyView, key: Bool = false) async throws -> NSWindow {
+        let window: NSWindow = key
+            ? TestWindow.mount(root, size: CGSize(width: 320, height: 800), as: KeyTestWindow.self, present: .key)
+            : TestWindow.mount(root, size: CGSize(width: 320, height: 800), as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         // The palette section loads its cards from disk once per manifest change,
