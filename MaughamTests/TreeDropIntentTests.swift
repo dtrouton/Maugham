@@ -166,6 +166,7 @@ final class TreeDropIntentTests: XCTestCase {
                 TreeDropIntent.classify(
                     payloadId: "note", target: .pieceRow("doc"),
                     structure: Single.structure, research: Single.research,
+                    figures: [],
                     projectType: type),
                 .refuse(.sharedOnly),
                 "\(type): everything is already the document's, so there is no "
@@ -189,6 +190,7 @@ final class TreeDropIntentTests: XCTestCase {
             TreeDropIntent.classify(
                 payloadId: "linked", target: .sharedSection,
                 structure: structure, research: Novel.research,
+                figures: [],
                 projectType: .novel),
             .refuse(.ambiguousSource),
             "the drag payload is a bare id — nothing in it says which fold the "
@@ -582,8 +584,8 @@ final class TreeDropIntentTests: XCTestCase {
             answered += 1
         }
         XCTAssertEqual(answered, Self.grid.count)
-        XCTAssertEqual(Self.grid.count, 72,
-                       "four fixtures × six targets × three payload kinds — if "
+        XCTAssertEqual(Self.grid.count, 128,
+                       "four fixtures × eight targets × four payload kinds — if "
                        + "this moved, a target or a project type was added and "
                        + "the grid should grow with it")
     }
@@ -642,11 +644,15 @@ final class TreeDropIntentTests: XCTestCase {
                 .pieceRow(docId), .sharedSection, .researchRow(rowId),
                 .researchRow(groupRowId),
                 .foldRow(rowId: rowId, documentId: docId),
-                .pieceRow("nobody")
+                .pieceRow("nobody"),
+                // The Figures section (report plan 8b Task 5); the expected
+                // answers are `TreeDropIntentFigureTests`' table.
+                .figuresSection, .figureRow(gridFigure.id)
             ]
-            // A research id, a structure id, and an id from neither tree.
+            // A research id, a structure id, an id from neither tree, and a
+            // figure's.
             let payloads = [research.count > 1 ? research[1].id : research[0].id,
-                            docId, "elsewhere-9f2c"]
+                            docId, "elsewhere-9f2c", gridFigure.id]
             for target in targets {
                 for payload in payloads {
                     probes.append(Probe(
@@ -654,6 +660,7 @@ final class TreeDropIntentTests: XCTestCase {
                         intent: TreeDropIntent.classify(
                             payloadId: payload, target: target,
                             structure: structure, research: research,
+                            figures: [gridFigure],
                             projectType: type),
                         idShapeGuess: idShapeClassify(
                             payloadId: payload, target: target,
@@ -692,8 +699,13 @@ final class TreeDropIntentTests: XCTestCase {
             return .researchReorder
         case .sharedSection:
             return .rescope(ids: [payloadId], to: .sharedRoot)
+        case .figuresSection, .figureRow:
+            return .useInDocument(researchId: payloadId)
         }
     }
+
+    private static let gridFigure = FigureRecord(
+        id: "fig-0a1b2c3d", name: "cash", kind: .table, piece: nil, path: "figures/cash.csv")
 
     // MARK: - Helpers
 
@@ -703,6 +715,7 @@ final class TreeDropIntentTests: XCTestCase {
         TreeDropIntent.classify(
             payloadId: payloadId, target: target,
             structure: Novel.structure, research: Novel.research,
+            figures: [],
             projectType: Novel.type)
     }
 
@@ -712,6 +725,7 @@ final class TreeDropIntentTests: XCTestCase {
         TreeDropIntent.classify(
             payloadId: payloadId, target: target,
             structure: Collection.structure, research: Collection.research,
+            figures: [],
             projectType: Collection.type)
     }
 

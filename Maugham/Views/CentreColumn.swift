@@ -123,7 +123,10 @@ struct CentreColumn: View {
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
-                                  readOnly: !persona.editsResearchInTheCentre)
+                                  readOnly: !persona.editsResearchInTheCentre,
+                                  shareIsReadOnly: editorControl.shareIsReadOnly,
+                                  typography: editorControl.typography,
+                                  presence: figureGridPresence, window: window)
         case .figure(let id):
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
@@ -197,6 +200,7 @@ struct CentreColumn: View {
                 referenceIndex: referenceIndex,
                 figureGridPresence: figureGridPresence,
                 figureWindows: figureWindows,
+                figureListing: figureListing,
                 // A note written from the margin carries the pass this piece is
                 // being reviewed through. Read off `documentStore.uiState`, never a
                 // per-window copy: a second window on the project records a pass

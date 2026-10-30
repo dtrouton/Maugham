@@ -958,7 +958,7 @@ final class AnnotationsCharacterization: XCTestCase {
             "Document+Annotations.swift",   // the definition (+ the undoable wrapper)
             "Document+RewindUndo.swift",    // undo of a rewind's auto-archive
             "Document+Tasks.swift",         // undo of a task-archive's auto-archive
-            "AnnotationsPane.swift",        // RULING-29: the writer's Reopen
+            "AnnotationsPaneVerbs.swift",   // RULING-29: the writer's Reopen
         ], "the caller census — update deliberately, never accidentally")
 
         let pane = try String(

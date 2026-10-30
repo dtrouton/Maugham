@@ -328,16 +328,25 @@ extension ProjectStore {
     /// **What a verb on a figure changes in the text**: a rename relabels it
     /// (ruling P-3); *Send to Research* removes its line, leaving every
     /// cross-reference to it (spec §4.2: they read "This table is in Research
-    /// now").
+    /// now"); *Move into Figures* points one line, in one piece, at the
+    /// figure's file instead of its Research one (report plan 8b Task 1).
     enum FigureTextChange: Equatable {
         case relabel(FigureLabelChange)
         case removeLine(ManuscriptLabel)
+        /// The figure line starting on line `lineIndex` (from 0) of `piece`'s
+        /// text whose path is written `oldPath`: its path becomes `newPath`,
+        /// its caption kept. Its label becomes `label` — set where it had
+        /// none, replaced where it had another — or, nil, is kept (report
+        /// plan 8b Task 9: the line of a figure moved in takes the record's
+        /// name, so Send and Rename find it). Only that piece is held.
+        case retargetLine(piece: String, lineIndex: Int, oldPath: String, newPath: String,
+                          label: ManuscriptLabel? = nil)
 
-        var label: ManuscriptLabel {
-            switch self {
-            case .relabel(let change): return change.old
-            case .removeLine(let label): return label
-            }
+        /// The one piece (structure item id) the change is made in, or nil
+        /// for every manuscript whose text holds a site.
+        var piece: String? {
+            if case .retargetLine(let piece, _, _, _, _) = self { return piece }
+            return nil
         }
 
         /// The verb's refusal naming `titles`: pieces this Mac may not write.
@@ -345,6 +354,7 @@ extension ProjectStore {
             switch self {
             case .relabel: return FigureRenameRefused(reason: .piecesNotWritable(titles))
             case .removeLine: return FigureSendRefused(reason: .piecesNotWritable(titles))
+            case .retargetLine: return FigureLineRetargetRefused(reason: .pieceNotWritable(titles.first ?? ""))
             }
         }
 
@@ -353,7 +363,16 @@ extension ProjectStore {
             switch self {
             case .relabel: return FigureRenameRefused(reason: .unreadable(titles))
             case .removeLine: return FigureSendRefused(reason: .unreadable(titles))
+            case .retargetLine: return FigureLineRetargetRefused(reason: .unreadable(titles.first ?? ""))
             }
+        }
+
+        /// The refusal when the one piece a change targets no longer holds
+        /// its site (the line moved or changed); nil for a change made
+        /// wherever its sites are.
+        var siteMissing: Error? {
+            if case .retargetLine = self { return FigureLineRetargetRefused(reason: .lineNotFound) }
+            return nil
         }
     }
 
@@ -377,6 +396,7 @@ extension ProjectStore {
         @MainActor func write() throws -> Written {
             var written: Written = []
             var refused: [String] = []
+            var missing = false
             for (title, held) in manuscripts {
                 // Closed or no longer writable since it was held: refused
                 // before its text is read (a closed document's text is gone).
@@ -385,7 +405,11 @@ extension ProjectStore {
                     continue
                 }
                 let before = held.doc.displayText
-                guard let text = ProjectStore.edited(before, change) else { continue }
+                guard let text = ProjectStore.edited(before, change) else {
+                    // A targeted change whose line is gone writes nothing.
+                    if change.siteMissing != nil { missing = true }
+                    continue
+                }
                 held.doc.setFullText(text)
                 if held.doc.displayText != before {
                     written.append((held.doc, before))
@@ -396,6 +420,10 @@ extension ProjectStore {
             guard refused.isEmpty else {
                 Self.unwrite(written)
                 throw change.notWritable(refused)
+            }
+            if missing, let error = change.siteMissing {
+                Self.unwrite(written)
+                throw error
             }
             return written
         }
@@ -423,6 +451,12 @@ extension ProjectStore {
     /// anywhere. For a rename, only when the text holds the figure is a new
     /// name that is not a valid label name, or a label the text already
     /// defines, refused too.
+    ///
+    /// **A change targeting one piece** (`FigureTextChange.piece`: a
+    /// retarget) reads and holds that piece alone — another piece's
+    /// unreadable text does not refuse it — and refuses when the piece is not
+    /// a prose manuscript or its text no longer holds the site
+    /// (`siteMissing`).
     func holdManuscriptsForFigureText(_ change: FigureTextChange) async throws -> HeldFigureTextEdit {
         var newLabel: ManuscriptLabel?
         var newName = ""
@@ -433,7 +467,8 @@ extension ProjectStore {
         var candidates: [(title: String, path: String)] = []
         var labelTaken = false
         var unreadable: [String] = []
-        for item in Self.collectDocuments(in: manifest.structure) {
+        let target = change.piece
+        for item in Self.collectDocuments(in: manifest.structure) where target == nil || item.id == target {
             guard let path = item.path, !DocumentFormat.ofManuscript(path: path).isScreenplay else { continue }
             let text = Self.figureRelabelReadFailsForTesting.contains(item.id) ? nil
                 : documentStore?.document(for: path)?.displayText
@@ -444,13 +479,17 @@ extension ProjectStore {
                 unreadable.append(item.title)
                 continue
             }
-            if let newLabel, change.label != newLabel, Self.definesLabel(text, newLabel) { labelTaken = true }
+            if case .relabel(let relabel) = change, let newLabel, relabel.old != newLabel,
+               Self.definesLabel(text, newLabel) { labelTaken = true }
             if !Self.figureTextEdits(in: text, change).isEmpty {
                 candidates.append((item.title, path))
             }
         }
         guard unreadable.isEmpty else { throw change.unreadable(unreadable) }
-        guard !candidates.isEmpty else { return HeldFigureTextEdit(change: change, manuscripts: []) }
+        guard !candidates.isEmpty else {
+            if let missing = change.siteMissing { throw missing }
+            return HeldFigureTextEdit(change: change, manuscripts: [])
+        }
         if case .relabel = change {
             guard let newLabel else {
                 throw FigureRenameRefused(reason: .notALabelName(newName))
@@ -507,7 +546,40 @@ extension ProjectStore {
         switch change {
         case .relabel(let relabel): return figureRelabelEdits(in: text, relabel)
         case .removeLine(let label): return figureLineRemovalEdits(in: text, label)
+        case .retargetLine(_, let lineIndex, let oldPath, let newPath, let label):
+            return figureLineRetargetEdits(in: text, lineIndex: lineIndex, oldPath: oldPath,
+                                           newPath: newPath, label: label)
         }
+    }
+
+    /// **The path of the figure line starting on `lineIndex`, retargeted**:
+    /// one edit, when a figure line (outside a code fence) starts there and
+    /// its path is written exactly `oldPath`; none otherwise — a line that
+    /// moved or was edited since it was found is not guessed at. With a
+    /// `label` the line does not carry, the edit runs from the path to the
+    /// line's end: the path, `)` and `{#label}`, in place of whatever label
+    /// (and trailing space) it had — nothing else can follow a figure line's
+    /// `)` (`ManuscriptBlocks`).
+    nonisolated static func figureLineRetargetEdits(
+        in text: String, lineIndex: Int, oldPath: String, newPath: String,
+        label: ManuscriptLabel? = nil
+    ) -> [(range: NSRange, replacement: String)] {
+        let lines = text.components(separatedBy: "\n")
+        guard lines.indices.contains(lineIndex) else { return [] }
+        for (block, range) in ManuscriptBlocks.parse(text) where range.lowerBound == lineIndex {
+            guard case .figure(_, let path, let current) = block, path == oldPath else { return [] }
+            let start = lines[..<lineIndex].reduce(0) { $0 + ($1 as NSString).length + 1 }
+            let line = lines[lineIndex] as NSString
+            let target = line.range(of: "](\(oldPath))", options: .backwards)
+            guard target.location != NSNotFound else { return [] }
+            let pathStart = start + target.location + 2
+            guard let label, label != current else {
+                return [(NSRange(location: pathStart, length: (oldPath as NSString).length), newPath)]
+            }
+            return [(NSRange(location: pathStart, length: line.length - target.location - 2),
+                     "\(newPath)){#\(label.reference)}")]
+        }
+        return []
     }
 
     /// **The figure lines labelled `label`, removed** — each line with its

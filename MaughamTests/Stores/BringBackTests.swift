@@ -408,9 +408,11 @@ final class BringBackTests: XCTestCase {
 
     /// **A copy of an earlier park can't bring the figure back** (final
     /// re-review ruling): the figure came back from its first copy and was
-    /// sent again, so the first copy is refused, saying the table was sent
-    /// again since; nothing is appended and the second park stands. Each
-    /// resume names the park it resumes.
+    /// sent again, so Bring Back on the first copy is refused, saying the
+    /// table was sent again since; nothing is appended and the second park
+    /// stands. Each resume names the park it resumes. *Use in Document* on
+    /// that copy routes to a new figure instead (8b final review M2,
+    /// `ResearchFigureUseTests`).
     func test_aCopyOfAnEarlierParkIsRefusedSayingTheTableWasSentAgain() async throws {
         let (store, projectStore) = try await openBook()
         defer { withExtendedLifetime(store) {} }
@@ -423,7 +425,7 @@ final class BringBackTests: XCTestCase {
         let stream = try ops(of: record.id).map(\.opId)
 
         do {
-            _ = try await projectStore.useInDocument(researchItemId: first.id, piece: nil)
+            _ = try await projectStore.bringBack(researchItemId: first.id, piece: nil)
             XCTFail("an earlier park's copy brought the figure back")
         } catch let refused as FigureReturnRefused {
             XCTAssertEqual(refused.reason, .sentAgainSince(.table))

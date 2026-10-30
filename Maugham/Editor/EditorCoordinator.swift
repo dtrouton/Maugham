@@ -327,6 +327,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var insertFootnoteObserver: NSObjectProtocol?
     /// Insert ▸ Figure… (⌘⇧I, plan 3a Task 6), gated the same way.
     private var insertFigureObserver: NSObjectProtocol?
+    /// Insert ▸ Existing Figure… (report plan 8b Task 3), gated the same way.
+    private var insertExistingFigureObserver: NSObjectProtocol?
     /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3) and Insert ▸
     /// Cross-Reference… (⌘⇧X, Task 4), gated the same way.
     private var insertCitationObserver: NSObjectProtocol?
@@ -521,6 +523,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `FigureIngest.makeTableFigure`). Built by `EditorHost`; nil on every
     /// other surface, where ⌘⇧T and ⌘⌥⇧T do nothing.
     var tableFigureMaker: FigureIngest.TableFigureMaker?
+
+    /// The figures Insert ▸ Existing Figure… offers, built at the command
+    /// from the window's listing and this editor's live text, handed in
+    /// (`ExistingFigurePicker.entries`). Built by
+    /// `EditorHost`; nil on every other surface, where the command does nothing.
+    var existingFigures: ((String) -> [ExistingFigurePicker.Entry])?
+    /// Whether a figure is parked in Research, asked of the store when the
+    /// writer chooses (`chooseExistingFigure`). Built by `EditorHost`.
+    var existingFigureIsParked: ((String) async -> Bool)?
+    /// The most recent choice's write, when it waited on
+    /// `existingFigureIsParked`, so a caller (a test) can await it.
+    var existingFigureTask: Task<Void, Never>?
+    /// The picker while its sheet is open (`insertExistingFigure`); a test
+    /// chooses through it.
+    var existingFigurePicker: ExistingFigurePickerSession?
 
     /// Where a command that could not finish is told — a figure that could
     /// not be made — the host's notice banner, the
@@ -749,6 +766,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
     /// `maughamExitTranslationReview`, and the Insert menu's
     /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
+    /// `maughamInsertExistingFigure`,
     /// `maughamInsertCitation`, `maughamInsertCrossReference` and
     /// `maughamConvertTable` (which also ask `answersInsertCommands`), and
     /// `maughamFigureTableCommand` — count the
@@ -917,6 +935,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.insertFigure()
         }
+        insertExistingFigureObserver = MaughamEvent.observe(
+            .maughamInsertExistingFigure,
+            context: { [weak self] in self?.insertCommandContext() }
+        ) { [weak self] _ in
+            self?.insertExistingFigure()
+        }
         insertCitationObserver = MaughamEvent.observe(
             .maughamInsertCitation,
             context: { [weak self] in self?.insertCommandContext() }
@@ -983,6 +1007,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertFigureObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = insertExistingFigureObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertCitationObserver {
@@ -1146,6 +1173,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                       annotationNavigateObserver, reviewToggleObserver,
                       translationEnterObserver, translationExitObserver,
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
+                      insertExistingFigureObserver,
                       insertCitationObserver, insertCrossReferenceObserver, convertTableObserver,
                       figureTableCommandObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
@@ -1154,6 +1182,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         annotationNavigateObserver = nil; reviewToggleObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
+        insertExistingFigureObserver = nil
+        existingFigurePicker?.close()
         insertCitationObserver = nil; insertCrossReferenceObserver = nil; convertTableObserver = nil
         figureTableCommandObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }

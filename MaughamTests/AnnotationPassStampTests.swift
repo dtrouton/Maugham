@@ -453,7 +453,7 @@ final class AnnotationPassStampTests: XCTestCase {
     /// The pane calls both pure rules. Either one uncalled is a feature that
     /// passes its own truth table and does nothing on screen.
     func test_thePaneAppliesTheFilterAndRendersTheNudge() throws {
-        let text = try source("Maugham/Views/AnnotationsPane.swift")
+        let text = try AnnotationsPaneSource.surfaceSource()
         XCTAssertTrue(text.contains("AnnotationPassFilter.matches"),
                       "the pass filter must join the pane's filter chain")
         XCTAssertTrue(text.contains("AnnotationPassFilter.resolved"),
@@ -477,7 +477,7 @@ final class AnnotationPassStampTests: XCTestCase {
     /// keeps the file out of the census; the positive half (the closure IS
     /// wired into the nudge) is what keeps the verbs from being dead code.
     func test_theNudgeRoutesItsVerbsThroughTheClosureAndNeverCallsSetPassStateDirectly() throws {
-        let pane = try source("Maugham/Views/AnnotationsPane.swift")
+        let pane = try AnnotationsPaneSource.surfaceSource()
         XCTAssertFalse(pane.contains("setPassState"),
                        "the queue may let the writer rule on a pass, but only "
                        + "through the host's closure — a direct call here "

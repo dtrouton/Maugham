@@ -402,6 +402,119 @@ extension EditorCoordinator {
             : why + ", and it couldn’t be moved to the Trash: it stays in the book as “\(name)”."
     }
 
+    /// **Insert ▸ Existing Figure…** (report plan 8b Task 3, D8b-1): the
+    /// book's figures (`existingFigures`, read at the command against this
+    /// editor's live text, so a figure placed since the last settle is
+    /// already used) in a sheet on this editor's window; the one chosen is
+    /// handed to `chooseExistingFigure`. Nothing opens where Route A would
+    /// refuse, while a picker is already open, or with no figure to offer
+    /// (the writer is told). The sheet is modal to the window, so the caret
+    /// cannot move under it: the write goes where the caret is at the choice.
+    @discardableResult
+    func insertExistingFigure() -> ExistingFigurePickerSession? {
+        guard answersInsertCommands, !isDetached, commandMayWrite, existingFigurePicker == nil,
+              let textView, let window = textView.window,
+              let entries = existingFigures?(textView.string) else { return nil }
+        guard !entries.isEmpty else {
+            commandFailureReporter?(ExistingFigurePicker.noFiguresMessage)
+            return nil
+        }
+        let session = ExistingFigurePickerSession(
+            entries: entries,
+            onChoose: { [weak self] entry in self?.chooseExistingFigure(entry) },
+            onClose: { [weak self] in self?.existingFigurePicker = nil })
+        existingFigurePicker = session
+        session.present(on: window)
+        return session
+    }
+
+    /// The writer chose `entry`. An unavailable row is told and writes
+    /// nothing. With the host's parked question (`existingFigureIsParked`,
+    /// the store's authoritative answer — the cards can lag their first
+    /// fill) a figure parked in Research meanwhile is refused and told; the
+    /// write then lands in a task, `existingFigureTask`. Without it the write
+    /// is immediate (`useExistingFigure`).
+    @discardableResult
+    func chooseExistingFigure(_ entry: ExistingFigurePicker.Entry) -> Task<Void, Never>? {
+        let report = commandFailureReporter
+        if let why = entry.note {
+            report?(why)
+            return nil
+        }
+        guard let isParked = existingFigureIsParked else {
+            useExistingFigure(entry)
+            return nil
+        }
+        let task = Task { @MainActor [weak self] in
+            if await isParked(entry.figureId) {
+                report?(ExistingFigurePicker.parkedMessage)
+                return
+            }
+            guard let self else {
+                report?(ExistingFigurePicker.refusedMessage)
+                return
+            }
+            self.useExistingFigure(entry)
+        }
+        existingFigureTask = task
+        return task
+    }
+
+    /// `entry`'s write — its line placed, or a reference to it — and a
+    /// refusal told through `commandFailureReporter`. False when nothing
+    /// was written.
+    @discardableResult
+    func useExistingFigure(_ entry: ExistingFigurePicker.Entry) -> Bool {
+        let failure: String?
+        switch entry.action {
+        case .place: failure = placeExistingFigure(entry)
+        case .refer(let label): failure = referToExistingFigure(label)
+        case .unavailable(let why): failure = why
+        }
+        if let failure { commandFailureReporter?(failure) }
+        return failure == nil
+    }
+
+    /// `entry`'s line on a paragraph of its own at the caret (after the
+    /// selection), as Insert ▸ Table places its line (inside a pipe table or
+    /// on a figure line it goes after that block, `ReportInsert.blockEdit`),
+    /// its caption selected: one Route A step, so one ⌘Z removes it. Nil when
+    /// written, else why not.
+    func placeExistingFigure(_ entry: ExistingFigurePicker.Entry) -> String? {
+        guard answersInsertCommands, let textView else { return ExistingFigurePicker.refusedMessage }
+        let at = NSMaxRange(textView.selectedRange())
+        let blocks = tableBlockRange(containing: at).map { [$0] } ?? []
+        let edit = ReportInsert.blockEdit(in: textView.string, at: at, tableBlocks: blocks,
+                                          block: entry.line, selectionInBlock: entry.captionRange)
+        return applyCommandEdit(edit, actionName: ExistingFigurePicker.actionName)
+            ? nil : ExistingFigurePicker.refusedMessage
+    }
+
+    /// A cross-reference to `label` at the caret (after the selection) — the
+    /// cross-reference picker's own form, `@tbl:cash`, after a space where
+    /// `@` may not stand (`CrossReferenceCompletion.isWordStartBoundary`) and
+    /// after it before a label character (`isLabelUnit`), so it never joins
+    /// the next word — inline, the caret after it: one Route A step. Never inside code. Nil
+    /// when written, else why not.
+    func referToExistingFigure(_ label: ManuscriptLabel) -> String? {
+        guard answersInsertCommands, let textView else { return ExistingFigurePicker.refusedMessage }
+        let at = NSMaxRange(textView.selectedRange())
+        let text = textView.string as NSString
+        guard at <= text.length else { return ExistingFigurePicker.refusedMessage }
+        guard !isInsideCode(at) else { return ExistingFigurePicker.insideCodeMessage }
+        let reference = "@" + label.reference
+        var written = at == 0 || CrossReferenceCompletion.isWordStartBoundary(text.character(at: at - 1))
+            ? reference : " " + reference
+        let caret = at + (written as NSString).length
+        // A label character right after would join the label: a space between.
+        if at < text.length, CrossReferenceCompletion.isLabelUnit(text.character(at: at)) { written += " " }
+        return applyCommandEdit(replacing: NSRange(location: at, length: 0), with: written,
+                                selecting: NSRange(location: caret, length: 0),
+                                actionName: ExistingFigurePicker.referenceActionName,
+                                separatingFigureLines: true)
+            ? nil : ExistingFigurePicker.refusedMessage
+    }
+
     /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3): `[@` at the caret (after
     /// the selection) as one Route A step, then the citation picker opened on
     /// it with every source listed. Refused, writing nothing, where Route A

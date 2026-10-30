@@ -95,6 +95,14 @@ extension BinderTreeVerbs {
                      payload: draggedId, site: "the Research section")
     }
 
+    /// **A drop on the Figures section** — its header or a figure's row
+    /// (report plan 8b Task 5). A Research table, picture or PDF is *Use in
+    /// Document*; a figure is refused, since numbers follow the text.
+    func routeFiguresDrop(draggedId: String, target: TreeDropIntent.Target) -> Bool {
+        apply(classify(draggedId, on: target), movingIds: [draggedId],
+              payload: draggedId, site: site(of: target))
+    }
+
     // MARK: - A drop from outside the app (stage-2b Task 4)
 
     /// **A Finder file or a browser bitmap, dropped anywhere on the tree.**
@@ -175,6 +183,8 @@ extension BinderTreeVerbs {
         case .researchRow(let id): return "research row \(id)"
         case .foldRow(let rowId, let documentId):
             return "row \(rowId) in \(documentId)'s fold"
+        case .figuresSection: return "the Figures section"
+        case .figureRow(let id): return "figure row \(id)"
         }
     }
 
@@ -229,6 +239,7 @@ extension BinderTreeVerbs {
             payloadId: payloadId, target: target,
             structure: store.manifest.structure,
             research: store.manifest.research,
+            figures: store.manifest.figures ?? [],
             projectType: store.manifest.type)
     }
 
@@ -266,6 +277,12 @@ extension BinderTreeVerbs {
                 }
             }
             return true
+        case .useInDocument(let researchId):
+            return FigureSectionVerbs(store: store, state: state).dropToUse(researchId: researchId) != nil
+        case .sendFigureToResearch(let figureId, let scope, let group):
+            // Asked first (D8-2): the send is the confirmation's.
+            return FigureSectionVerbs(store: store, state: state)
+                .dropToSend(figureId: figureId, scope: scope, group: group)
         case .refuse(let reason):
             return refuseDrop(site, payload: payload, reason: reason)
         case .researchReorder, .structureReorder:

@@ -12,6 +12,12 @@ import MaughamCore
 final class FigureListingModel {
     /// The figures in listing order (`FigureListing.build`).
     private(set) var rows: [FigureListing.Row] = []
+    /// The lines that point into Research (`FigureListing.legacyRows`).
+    private(set) var legacyRows: [FigureListing.LegacyRow] = []
+    /// Every label the book's text defines, as last indexed: what *Move into
+    /// Figures* keeps an unlabelled line's new label clear of. Read when
+    /// pressed, so not observed.
+    @ObservationIgnored private(set) var definedLabels: Set<ManuscriptLabel> = []
     /// `rows` by figure id, rebuilt with them: a tree row asks per row.
     @ObservationIgnored private var byId: [String: FigureListing.Row] = [:]
 
@@ -22,7 +28,10 @@ final class FigureListingModel {
     }
 
     /// No project: no rows.
-    func clear() { set([]) }
+    func clear() {
+        set([])
+        if !legacyRows.isEmpty { legacyRows = [] }
+    }
 
     /// Rebuild from `index` and `store`'s registry; writes only a change, so a
     /// reader is not invalidated by a rebuild that moved nothing it shows.
@@ -34,6 +43,10 @@ final class FigureListingModel {
         let next = FigureListing.build(index: index, records: store.manifest.figures ?? [],
                                        documentPathOf: { paths[$0] })
         set(next)
+        let legacy = FigureListing.legacyRows(index: index, research: store.manifest.research,
+                                              documentPathOf: { paths[$0] })
+        if legacy != legacyRows { legacyRows = legacy }
+        definedLabels = index.labelsDefined(excluding: "")
     }
 
     private func set(_ next: [FigureListing.Row]) {
@@ -90,7 +103,12 @@ struct ReferenceIndexWiring: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: store.map(ObjectIdentifier.init), initial: true) { _, _ in attach() }
-            .onChange(of: store?.manifest.research) { _, _ in referenceIndex.invalidate(.research) }
+            // Research moved: the index, and a line into Research's item
+            // (report plan 8b Task 9), which may move nothing in the index.
+            .onChange(of: store?.manifest.research) { _, _ in
+                referenceIndex.invalidate(.research)
+                refreshListing()
+            }
             .onChange(of: store?.manifest.structure) { _, _ in
                 referenceIndex.invalidate(.all)
                 // A piece's path is what its lines resolve against, and a

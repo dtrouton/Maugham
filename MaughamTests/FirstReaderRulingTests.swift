@@ -533,11 +533,9 @@ final class FirstReaderRulingTests: XCTestCase {
     /// only `QueryRuling` would file her answer under an edition brief or
     /// refuse. Both are invisible to a test that asserts on values alone.
     func test_theQueueRoutesBothRulingDestinations() throws {
-        let repoRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let pane = repoRoot
-            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift")
-        let text = try String(contentsOf: pane, encoding: .utf8)
+        // The whole pane (#116 F11): the commit is its verbs', the identity
+        // its row wiring's, and the destination is asked in both.
+        let text = try AnnotationsPaneSource.surfaceSource()
 
         XCTAssertTrue(text.contains("FirstReaderRuling.commit("),
                       "the queue never files an answer into her statement")

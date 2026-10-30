@@ -26,7 +26,7 @@ APP_MODULES = [
     ("Rewind", "`OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`)", "`24-rewind-reconciliation.md`"),
     ("Annotations", "`OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`)", "`28-annotations-reconciliation.md`"),
     ("Promotion", "`Canvas/Promotion*` (the falsification module)", "`29-promotion-falsification.md`"),
-    ("Publications", "`Publish/Republisher` (+`CompileOrchestrator`)", "—"),
+    ("Publications", "`Publish/Republisher` (+`PublishOrchestrator`)", "—"),
     ("Inbox", "`Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings)", "—"),
     ("OpLog", "`OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice)", "—"),
 ]

@@ -139,6 +139,37 @@ final class FigureCardModelTests: XCTestCase {
         XCTAssertTrue(build(s).readsResearch); XCTAssertTrue(build(s).fromResearchSource)
     }
 
+    /// **A snapshot's source moved on** (report plan 8b Task 1, spec §4.1): the rule is the
+    /// source's own — the file's hash now against the one taken, a missing file changed.
+    func test_aSnapshotSourceIsChangedWhenItsHashMovesOrItIsGone() {
+        let source = FigureSource(researchItemId: "i", path: "research/a.csv", contentHash: "h1")
+        XCTAssertFalse(source.hasChanged(currentHash: "h1"), "untouched")
+        XCTAssertTrue(source.hasChanged(currentHash: "h2"), "edited")
+        XCTAssertTrue(source.hasChanged(currentHash: nil), "deleted")
+    }
+
+    /// The card carries the snapshot flag, a picture's placeholder too, and the banner
+    /// says "changed" for a snapshot as for a pin (`changed`).
+    func test_aChangedSnapshotIsCarriedByATableAndAPicture() {
+        var s = state(rows: 3)
+        s.source = FigureSource(researchItemId: "i", path: "p", contentHash: "h")
+        let plain = build(s)
+        XCTAssertFalse(plain.sourceChanged); XCTAssertFalse(plain.changed)
+        let changed = FigureCardModel.build(figureId: "f1", state: s, values: { _ in .empty },
+                                            locale: en, language: nil, sourceChanged: true)
+        XCTAssertTrue(changed.sourceChanged); XCTAssertTrue(changed.changed); XCTAssertFalse(changed.pinChanged)
+        XCTAssertEqual(height(changed), height(plain) + 16, "the banner's line, as a changed pin's")
+
+        var picture = FigureState(kind: .image)
+        picture.source = FigureSource(researchItemId: "i", path: "p.png", contentHash: "h")
+        let image = FigureCardModel.build(figureId: "f2", state: picture, values: { _ in .empty },
+                                          locale: en, language: nil, sourceChanged: true)
+        XCTAssertEqual(image.kind, .image)
+        XCTAssertTrue(image.changed, "a picture carries the flag too")
+        XCTAssertTrue(image.fromResearchSource)
+        XCTAssertEqual(height(image), 90, "a placeholder keeps its height")
+    }
+
     func test_heightGrowsWithShownRowsAndIsConstantPastTwelve() {
         let hs = [1, 2, 5, 12, 13, 40].map { height(build(state(rows: $0))) }
         XCTAssertEqual(hs[0], 28)

@@ -1,7 +1,7 @@
 [
   {
     "claim_id": "M7-PB-001",
-    "scope": "Republisher.republish + CompileOrchestrator.compile",
+    "scope": "Republisher.republish + PublishOrchestrator.compile",
     "kind": "INVARIANT",
     "statement": "A republish never rewrites another publication's artifact: every catalog record's outputPath resolves to a distinct file, and the bytes at an existing record's outputPath are not modified by any later compile or republish.",
     "source": {
@@ -18,7 +18,7 @@
   },
   {
     "claim_id": "M7-PB-002",
-    "scope": "CompileOrchestrator.compile — the refusal half",
+    "scope": "PublishOrchestrator.compile — the refusal half",
     "kind": "POSTCONDITION",
     "statement": "every pre-compile refusal (no config, version-without-language, no-source-version, version collision, mint-in-flight, coverage block) terminates its job as .failed and leaves nothing durable behind except the EMISSION.md refresh — no snapshot, no export, no catalog row, no version bump",
     "source": {
@@ -27,14 +27,14 @@
     },
     "warrant": "HIGH",
     "intent": "INTENTIONAL",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
     "evidence": {
       "property_test": null
     }
   },
   {
     "claim_id": "M7-PB-003",
-    "scope": "CompileOrchestrator.compile(dryRun:)",
+    "scope": "PublishOrchestrator.compile(dryRun:)",
     "kind": "POSTCONDITION",
     "statement": "a dry run mutates nothing durable except the EMISSION.md refresh and terminates in the distinct dryRunPassed job state; it neither reserves nor releases the mint gate",
     "source": {
@@ -43,14 +43,14 @@
     },
     "warrant": "HIGH",
     "intent": "INTENTIONAL",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile with dry_run:true",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile with dry_run:true",
     "evidence": {
       "property_test": null
     }
   },
   {
     "claim_id": "M7-PB-004",
-    "scope": "CompileOrchestrator.compileReserved / PreviewCompiler.preview",
+    "scope": "PublishOrchestrator.compileReserved / PreviewCompiler.preview",
     "kind": "POSTCONDITION",
     "statement": "EMISSION.md is rewritten unconditionally on every compile that RUNS — dry runs included, which are gate-exempt and refresh it on the same compileReserved path — and every preview, past the pre-flight refusal guards and before snapshot capture; a pre-flight-refused compile (no config, unreadable catalog, version collision, triple in flight) rewrites nothing, while a coverage-blocked translated compile has already refreshed it. The one app-owned generated file in the publish tree, refreshed so it never misinforms an agent reading it (F5's own rationale — carried by the compiles that run, not by refusals)",
     "source": {
@@ -59,7 +59,7 @@
     },
     "warrant": "HIGH",
     "intent": "INTENTIONAL — amended 2026-08-12",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
     "evidence": {
       "property_test": null
     },
@@ -67,7 +67,7 @@
   },
   {
     "claim_id": "M7-PB-005",
-    "scope": "CompileOrchestrator.compile / Republisher.republish — the thrown half",
+    "scope": "PublishOrchestrator.compile / Republisher.republish — the thrown half",
     "kind": "POSTCONDITION",
     "statement": "a thrown error after the first durable mutation surfaces as a .failed outcome with the job terminalised (RULING-7, fixed 21f7682c) — compile_status never reports a dead compile as still compiling; pre-reservation throws still propagate, with nothing durable moved",
     "source": {
@@ -76,14 +76,14 @@
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile; injected via a directory squatting on the device catalog path",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile; injected via a directory squatting on the device catalog path",
     "evidence": {
       "property_test": null
     }
   },
   {
     "claim_id": "M7-PB-006",
-    "scope": "CompileOrchestrator.compileReserved — throw after mutation",
+    "scope": "PublishOrchestrator.compileReserved — throw after mutation",
     "kind": "POSTCONDITION",
     "statement": "a failure after the first durable mutation says what it did: the DurableProgress ledger records each durable step as it lands, and the failure diagnostic names the export, snapshot and catalog row that survive and states everything unlisted did not happen (RULING-52, fixed 21f7682c)",
     "source": {
@@ -92,14 +92,14 @@
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
     "evidence": {
       "property_test": null
     }
   },
   {
     "claim_id": "M7-PB-007",
-    "scope": "CompileOrchestrator.compileReserved — commit order",
+    "scope": "PublishOrchestrator.compileReserved — commit order",
     "kind": "INVARIANT",
     "statement": "the catalog append precedes the version-bump save (the TODO's deliberate ordering, unchanged) — and since 21f7682c a bump failure REPORTS the window honestly through the ledger: the committed row is named, the unadvanced counter stated; the two-phase commit remains future work",
     "source": {
@@ -108,7 +108,7 @@
     },
     "warrant": "HIGH",
     "intent": "INTENTIONAL — the TODO records the trade deliberately",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
     "evidence": {
       "property_test": null
     }
@@ -124,7 +124,7 @@
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile whenever the resolved output path is already occupied (a hand-placed export, or a record whose catalog row was lost). NB the {version}-less filename_template route this claim was excavated through closed with imprints P1 Task 6: the compile validates its config at pre-flight, so such a template is refused before the compilers run",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> PublishOrchestrator.compile whenever the resolved output path is already occupied (a hand-placed export, or a record whose catalog row was lost). NB the {version}-less filename_template route this claim was excavated through closed with imprints P1 Task 6: the compile validates its config at pre-flight, so such a template is refused before the compilers run",
     "evidence": {
       "property_test": null
     }

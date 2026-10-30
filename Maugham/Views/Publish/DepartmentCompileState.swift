@@ -68,7 +68,7 @@ struct DepartmentCompileState: Equatable {
     /// Whether the last compile reached the problem gate, which judged the
     /// manuscript — so its `problems` are the book's whole list, empty
     /// included. True only for an excerpt KNOWN to come after the gate
-    /// (`CompileOrchestrator.reachedTheProblemGate`); false for anything
+    /// (`PublishOrchestrator.reachedTheProblemGate`); false for anything
     /// else, an unknown excerpt included, so an unknown failure leaves an open
     /// list alone. `settledProblems` reads it.
     var judgedTheManuscript: Bool = false
@@ -123,7 +123,7 @@ struct DepartmentCompileState: Equatable {
     /// assertable from literals — and so the runner's `Task` has one line of
     /// judgment in it rather than a switch nobody can reach without compiling a
     /// book.
-    static func settled(after outcome: CompileOrchestrator.Outcome) -> DepartmentCompileState {
+    static func settled(after outcome: PublishOrchestrator.Outcome) -> DepartmentCompileState {
         switch outcome {
         case .completed(let publication, let warnings):
             return DepartmentCompileState(phase: .completed(publication), isRunning: false,
@@ -135,7 +135,7 @@ struct DepartmentCompileState: Equatable {
             // compile was stopped before anything ran because the manuscript
             // has broken references in it. Nothing broke; the writer's move is
             // to read the list, so the line counts the errors and says where.
-            if logExcerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt) {
+            if logExcerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt) {
                 let errorCount = problems.filter { $0.level == .error }.count
                 return DepartmentCompileState(
                     phase: .refused(Self.refusedForProblems(
@@ -159,9 +159,9 @@ struct DepartmentCompileState: Equatable {
             // each case is to change something and press again rather than to
             // read a log. A red line over any sends them hunting a bug that
             // is not there.
-            let refusals = [CompileOrchestrator.unknownImprintLogExcerpt,
-                            CompileOrchestrator.mintInFlightLogExcerpt,
-                            CompileOrchestrator.unproducibleFormatLogExcerpt]
+            let refusals = [PublishOrchestrator.unknownImprintLogExcerpt,
+                            PublishOrchestrator.mintInFlightLogExcerpt,
+                            PublishOrchestrator.unproducibleFormatLogExcerpt]
             if refusals.contains(where: logExcerpt.hasPrefix) {
                 return DepartmentCompileState(phase: .refused(message), isRunning: false)
             }
@@ -170,7 +170,7 @@ struct DepartmentCompileState: Equatable {
             // stay reachable behind Show Problems.
             return DepartmentCompileState(
                 phase: .failed(message), isRunning: false, problems: problems,
-                judgedTheManuscript: CompileOrchestrator.reachedTheProblemGate(logExcerpt: logExcerpt))
+                judgedTheManuscript: PublishOrchestrator.reachedTheProblemGate(logExcerpt: logExcerpt))
 
         case .cancelled:
             return DepartmentCompileState(phase: .idle, isRunning: false,

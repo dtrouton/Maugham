@@ -13,6 +13,9 @@ struct FigureRowActions {
     let openInWindow: () -> Void
     let sendToResearch: (FigureResearchDestination) -> Void
     let rename: (_ newName: String) -> Void
+    /// A drag dropped on the row (`BinderTreeSections.figuresDrop`): accepted
+    /// or refused by the classifier, never by the row.
+    let drop: ([String]) -> Bool
 }
 
 /// **One row of the tree's Figures section** (report plan 8a Task 4, spec
@@ -95,6 +98,11 @@ struct FigureRow: View {
                     .padding(6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
             }
+            // String-only (report plan 8b Task 5): a Research item dropped
+            // here is *Use in Document*; another figure is refused.
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return actions.drop(ids)
+            }
             .contextMenu { menu }
         }
     }
@@ -103,7 +111,7 @@ struct FigureRow: View {
     static func tags(of row: FigureTreeRow) -> [String] {
         var tags: [String] = []
         if row.readsResearch { tags.append("Research") }
-        if row.pinChanged { tags.append("changed") }
+        if row.changed { tags.append("changed") }
         if row.isUnused { tags.append("unused") }
         return tags
     }
@@ -144,6 +152,58 @@ struct FigureRow: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(30))
             isRenameFieldFocused = true
+        }
+    }
+}
+
+/// What a line-into-Research row's menu offers and does
+/// (`FigureSectionVerbs.legacyActions`): a value, so a test calls the action
+/// a menu item would.
+struct LegacyFigureRowActions {
+    /// Whether *Move into Figures* is offered — asked by the menu's builder.
+    let mayMove: () -> Bool
+    let move: () -> Void
+    let showInText: () -> Void
+}
+
+/// **A figure line that points into Research** (report plan 8b Task 9, spec
+/// §4.4): its number, caption and the tag "in Research", drawn from the cached
+/// `LegacyFigureTreeRow` (tripwire 4). It carries no `.tag` — selecting it
+/// selects nothing — and no gesture (tripwire 9); its menu offers *Move into
+/// Figures* (or says the file isn't in Research) and *Show in Text*.
+struct LegacyFigureRow: View {
+    let row: LegacyFigureTreeRow
+    let actions: LegacyFigureRowActions
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: row.kind == .table ? "tablecells" : "photo")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+            Text(row.number)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+            Text(row.title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Text(LegacyFigureTreeRow.tag)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+                .background(.quaternary, in: Capsule())
+                .fixedSize()
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            if !row.movable {
+                Text(LegacyFigureTreeRow.notInResearch)
+            } else if actions.mayMove() {
+                Button("Move into Figures", action: actions.move)
+            }
+            Button("Show in Text", action: actions.showInText)
         }
     }
 }

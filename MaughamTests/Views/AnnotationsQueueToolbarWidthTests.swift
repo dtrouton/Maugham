@@ -608,7 +608,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     /// the toolbar's own established idiom
     /// (`test_theQueuesToolbarIsTheViewThisSuiteMeasures`).
     func test_theNudgeIsTheViewThisSuiteMeasures() throws {
-        let code = try Self.codeLines(of: "Views/AnnotationsPane.swift")
+        let code = SourceScan.codeLines(of: try AnnotationsPaneSource.surfaceSource())
         XCTAssertEqual(
             code.filter { $0.contains("PassOrderNudgeRow(") }.count, 1,
             "the pane must render its advisory nudge through the extracted "
@@ -737,25 +737,12 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     /// exactly how the defect arrived the first time, one control at a time.
     /// One line, tying the thing that is measured to the thing that ships.
     func test_theQueuesToolbarIsTheViewThisSuiteMeasures() throws {
-        let code = try Self.codeLines(of: "Views/AnnotationsPane.swift")
+        let code = SourceScan.codeLines(of: try AnnotationsPaneSource.surfaceSource())
         XCTAssertEqual(
             code.filter { $0.contains("AnnotationsQueueToolbar(") }.count, 1,
             "the pane must render its filters through the extracted toolbar, "
             + "once — an inline row here is a second composition with no width "
             + "measurement on it")
-    }
-
-    private static var appSourceDir: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // MaughamTests/Views/
-            .deletingLastPathComponent()   // MaughamTests/
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Maugham", isDirectory: true)
-    }
-
-    private static func codeLines(of relativePath: String) throws -> [String] {
-        let url = appSourceDir.appendingPathComponent(relativePath)
-        return SourceScan.codeLines(of: try String(contentsOf: url, encoding: .utf8))
     }
 
     /// The offender's mechanism, not a byte copy of the shipped toolbar — what

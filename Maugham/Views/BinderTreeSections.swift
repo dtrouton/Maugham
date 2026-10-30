@@ -145,6 +145,9 @@ struct BinderTreeSections: View {
         } header: {
             sectionHeader("Research", section: .research) {
                 Button("New Note") { actions.newNote(nil) }
+                if let newTable = actions.newTable {
+                    Button("New Table") { _ = newTable(nil) }
+                }
                 Button("New Group") { actions.newGroup(nil) }
                 Button("Add File…") { actions.addFile(nil) }
                 Button("Add Link…") { actions.addLink(nil) }
@@ -731,6 +734,11 @@ struct BinderTreeVerbs {
                 create { try await store.addResearchTextNote(
                     parentId: parentId, title: "Untitled Note") }
             },
+            // New Table (D8b-2): created as a note is — selected, so the
+            // centre opens it in the grid, and in rename.
+            newTable: state.offersNewTable ? { parentId in
+                create { try await store.addResearchTable(parentId: parentId) }
+            } : nil,
             newGroup: { parentId in
                 create { try await store.addResearchItem(
                     parentId: parentId, title: "Untitled Group", kind: nil) }
@@ -760,8 +768,15 @@ struct BinderTreeVerbs {
             },
             deleteMany: { ids in
                 perform { try await store.deleteResearchItems(ids: ids) }
-            })
+            },
+            // Use in Document / Bring Back to Figures (report plan 8b Task 4):
+            // the Figures section's helper, its refusals in this tree's alert.
+            figureVerb: { [figures = figures] item in figures.researchVerb(for: item) },
+            performFigureVerb: { [figures = figures] item in figures.useInDocument(item) })
     }
+
+    /// The Figures section's verbs, for a Research row's verb toward Figures.
+    var figures: FigureSectionVerbs { FigureSectionVerbs(store: store, state: state) }
 
     /// **What a verb aimed at `rowId` acts on** — the tree's whole selection
     /// when that row is in it, else the row alone (stage-2b Task 3).
@@ -844,7 +859,8 @@ struct BinderTreeVerbs {
     /// (Task 6) and calls this for the rest of what creating means, so the
     /// tree's headers and its folds cannot come to disagree about what happens
     /// after something is made.
-    func create(_ work: @escaping () async throws -> ResearchItem) {
+    @discardableResult
+    func create(_ work: @escaping () async throws -> ResearchItem) -> Task<Void, Never> {
         Task { @MainActor in
             do {
                 let item = try await work()
@@ -908,7 +924,6 @@ final class BinderTreeSectionsState {
     /// created item is not in the manifest the current body pass rendered, so
     /// setting `renamingItemId` directly names a row nobody drew.
     var pendingRenameId: String?
-    var pendingError: String?
     var showingAddLinkSheet: Bool = false
     /// Which group the Add Link sheet's result belongs in; `nil` is the shared
     /// root.
@@ -966,8 +981,24 @@ final class BinderTreeSectionsState {
     /// left out. Written only by `rebuildFigureRows` — on a listing change
     /// and on a card fill — never built in a body.
     var figureRows: [FigureTreeRow] = []
-    /// Each piece's figure count, from `figureRows`, rebuilt with them.
+    /// Each piece's figure count, from `figureRows` and
+    /// `legacyFigureRows`, rebuilt with them.
     var figureCounts: [String: FigureCount] = [:]
+    /// **Lines that point into Research, as drawn** (report plan 8b Task 9,
+    /// spec §4.4), cached like `figureRows`; written only by
+    /// `refreshLegacyFigureRows`, and only when what a row draws moved.
+    var legacyFigureRows: [LegacyFigureTreeRow] = []
+    /// Those lines as last listed, by row id, line indexes current: what a
+    /// row's *Move into Figures* and *Show in Text* act on when pressed.
+    @ObservationIgnored var legacyFigureLines: [String: FigureListing.LegacyRow] = [:]
+    /// Every label the book defines, read when *Move into Figures* is
+    /// pressed (`FigureListingModel.definedLabels`, set by the wiring).
+    @ObservationIgnored var definedFigureLabels: () -> Set<ManuscriptLabel> = { [] }
+    /// **The figure a line's refused Move made**, by legacy row id: what Move
+    /// again on that line reuses. Memory only — after a relaunch an
+    /// unlabelled line's retry makes a new figure (the first stays, unused,
+    /// in the section); a labelled one still finds its figure by name.
+    @ObservationIgnored var figuresMadeByRefusedMoves: [String: String] = [:]
     /// **The piece the section is filtered to**, by document id; nil shows
     /// every figure. Set by a piece row's count, cleared by the header's chip.
     var pieceFilter: String?
@@ -992,6 +1023,71 @@ final class BinderTreeSectionsState {
     /// that edits no figures — `FigureActions.windowRefusesWrites`), as the
     /// inspector asks it; asked by a row's menu builder.
     @ObservationIgnored var figureWritesRefused = false
+    /// **Research items that bring a parked figure back**, item id → figure
+    /// id (`ProjectStore.figuresToBringBack`): what a Research row's menu and
+    /// inspector read to say *Bring Back to Figures* (report plan 8b Task 4).
+    /// Refilled by `FigureSectionWiring`, never asked in a body.
+    var figureReturns: [String: String] = [:]
+    /// The figures the cards say are parked, rewritten only when the set
+    /// moves — the returns' key, so a cell commit asks nothing again.
+    var parkedFigureIds: Set<String> = []
+    /// A figure made from Research whose row has not been drawn yet: revealed
+    /// when it is (`revealFigureWhenDrawn`).
+    @ObservationIgnored var pendingFigureReveal: String?
+    /// Which reveal request is the newest, so an older one's expiry never
+    /// lets a newer request for the same figure go.
+    @ObservationIgnored var pendingFigureRevealToken = 0
+    /// **The tree's one alert** — an error, or a figure dropped on Research
+    /// waiting on its confirmation (D8-2). One value drives one `.alert`, so a
+    /// send that fails while its question is dismissing waits for the answer
+    /// rather than racing a second alert (task 5 review M3).
+    var pendingAlert: TreeAlert?
+    /// An error that arrived while a send question was up: shown once the
+    /// question is answered, never in its place (a question pre-empted would
+    /// leave the drop unanswered and unsaid).
+    @ObservationIgnored private(set) var queuedError: String?
+    /// The error the alert shows. One arriving while a question is up waits
+    /// for it (`queuedError`); clearing it leaves a question alone.
+    var pendingError: String? {
+        get { if case .error(let message)? = pendingAlert { return message } else { return nil } }
+        set {
+            if let newValue {
+                if case .confirmSend? = pendingAlert { queuedError = newValue }
+                else { pendingAlert = .error(newValue) }
+            } else if case .error? = pendingAlert { pendingAlert = nil }
+        }
+    }
+    /// The figure send the alert asks about; clearing it leaves an error
+    /// alone, and shows one that waited on it.
+    var pendingFigureSend: PendingFigureSend? {
+        get { if case .confirmSend(let pending)? = pendingAlert { return pending } else { return nil } }
+        set {
+            if let newValue { pendingAlert = .confirmSend(newValue) }
+            else if case .confirmSend? = pendingAlert { questionAnswered() }
+        }
+    }
+    /// The alert `shown` dismissed: cleared only while it is still the one
+    /// held — an error that arrived meanwhile stays to be shown.
+    func dismissAlert(_ shown: TreeAlert?) {
+        guard pendingAlert == shown else { return }
+        if case .confirmSend? = shown { questionAnswered() } else { pendingAlert = nil }
+    }
+    /// The question is gone: an error that waited on it is the alert now.
+    private func questionAnswered() {
+        pendingAlert = queuedError.map(TreeAlert.error)
+        queuedError = nil
+    }
+    /// **Whether Research offers New Table** (D8b-2): not on a view-only share
+    /// or in Review — where the table could not be edited (`offersNewTable(…)`).
+    /// False until the window's wiring says otherwise (`FigureSectionWiring`):
+    /// a tree no window has told offers nothing it might not allow.
+    var offersNewTable = false
+
+    /// The one answer `FigureSectionWiring` keeps `offersNewTable` to: the
+    /// research centre's own read-only rule (`ResearchSubjectCentre`).
+    static func offersNewTable(shareIsReadOnly: Bool, persona: Persona) -> Bool {
+        !shareIsReadOnly && persona.editsResearchInTheCentre
+    }
 
     /// Whether `section` is open — the flag its header's chevron reads.
     func isExpanded(_ section: BinderTreeSection) -> Bool {
@@ -1268,12 +1364,9 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                     },
                     onCancel: { state.showingAddLinkSheet = false })
             }
-            .alert(state.pendingError ?? "",
-                   isPresented: Binding(
-                    get: { state.pendingError != nil },
-                    set: { if !$0 { state.pendingError = nil } })) {
-                Button("OK", role: .cancel) {}
-            }
+            // The tree's one alert: an error, or a dropped figure's
+            // confirmation (D8-2) — `TreeAlertPresentation`.
+            .modifier(TreeAlertPresentation(store: store, state: state))
             // **"Link Research…" returns** (stage-3b Task 9) — the tree drag
             // was the only in-app route to `linkResearch`/`unlinkResearch`
             // once `ResearchLinkPickerSheet`'s only host (`LinkedResearchPane`)

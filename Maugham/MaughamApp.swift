@@ -692,7 +692,8 @@ private struct FigureTableMenuButtons: View {
     }
 }
 
-/// Insert → Table, Convert to Table Figure, Footnote, Figure…, Citation…, Cross-Reference…
+/// Insert → Table, Convert to Table Figure, Footnote, Figure…, Existing Figure…, Citation…,
+/// Cross-Reference…
 /// (plan 3a R-3a-1, R-3a-2; plan 3b). Each posts a key-window command the
 /// manuscript editor answers through Route A, one undo step each. Disabled where the focused window
 /// says no (`InsertMenuGate`) — a read-only posture, review mode, translation
@@ -726,6 +727,13 @@ private struct InsertMenuButtons: View {
             MaughamEvent.post(.maughamInsertFigure, to: .keyWindow)
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
+        .disabled(!enabled)
+        // A figure the book already has, from a picker (report plan 8b Task
+        // 3, D8b-1): an unused one's line placed at the caret; a placed one
+        // referred to (`@tbl:…`), never placed twice. No shortcut.
+        Button("Existing Figure\u{2026}") {
+            MaughamEvent.post(.maughamInsertExistingFigure, to: .keyWindow)
+        }
         .disabled(!enabled)
         Divider()
         // References from the project (plan 3b): each writes its trigger at

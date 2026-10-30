@@ -263,18 +263,13 @@ final class AnnotationConvergenceTests: XCTestCase {
     /// column, which is the misattribution the `.rewind` / `.paragraphDeleted`
     /// arms beside it already exist to avoid.
     ///
-    /// A source census rather than a mounted row: `HistoryRow` is `private`, and
-    /// what is worth guarding is that the distinction is DRAWN at all. If this
+    /// A source census rather than a mounted row: what is worth guarding is
+    /// that the distinction is DRAWN at all, in whichever of the pane's files
+    /// draws the row (`HistoryRow`, since #116 F11). If this
     /// fails because the pane was refactored, the question to ask is whether the
     /// new shape still tells the writer who moved their paragraph.
     func test_theHistoryPaneTellsTheRepairApartFromTheWritersOwnReject() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // OpLog/
-            .deletingLastPathComponent()   // MaughamTests/
-            .deletingLastPathComponent()   // repo root
-        let source = try String(
-            contentsOf: root.appendingPathComponent("Maugham/Views/HistoryPane.swift"),
-            encoding: .utf8)
+        let source = try HistoryPaneSource.surfaceSource()
         XCTAssertTrue(source.contains(".rejectConvergence"),
                       "the pane must branch on the repair's synthesis source")
         XCTAssertTrue(source.contains("Rejection applied"),

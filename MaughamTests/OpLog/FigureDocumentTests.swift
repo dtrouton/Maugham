@@ -670,6 +670,39 @@ final class FigureDocumentTests: XCTestCase {
 
     // MARK: - The door
 
+    /// **A piece-only author may not make a figure from SHARED Research**
+    /// (Denver's ruling, 2026-10-30: a figure made from shared Research
+    /// belongs to the whole book, wherever it is later placed). Through the
+    /// Research row's *Use in Document*: refused at the new figure's door,
+    /// said in the tree's alert, nothing made. Control: a figure of her own
+    /// piece she may make.
+    func test_aPieceOnlyAuthorIsRefusedAFigureFromSharedResearch() async throws {
+        let root = try makeForeignRoot()
+        try narrow(identities.author.fingerprint, by: root, pieces: [Self.pieceA], mark: try appliedSoFar())
+        let documentStore = try await DocumentStore.open(url: projectURL)
+        let store = try await ProjectStore.load(from: projectURL)
+        store.documentStore = documentStore
+        documentStore.projectStore = store
+        await documentStore.postureSettled()
+        let outside = TestTemp.root.appendingPathComponent("shared-\(UUID().uuidString).csv")
+        try Data("1,2\n".utf8).write(to: outside)
+        let item = try await store.addResearchAsset(parentId: nil, fromURL: outside)
+        XCTAssertNil(store.researchHomePiece(ofItemId: item.id), "precondition: shared Research")
+
+        let state = BinderTreeSectionsState()
+        FigureSectionWiring.attach(state, to: documentStore)
+        let actions = BinderTreeVerbs(store: store, state: state, selectedSubject: .constant(nil)).bundle
+        await actions.performFigureVerb(item)?.value
+
+        XCTAssertEqual(state.pendingError, "This Mac may not make a figure here, so nothing was made.")
+        XCTAssertEqual(store.manifest.figures ?? [], [], "nothing made")
+
+        let hers = try await store.createFigure(kind: .table, name: "hers", piece: Self.pieceA)
+        XCTAssertEqual(hers.piece, Self.pieceA, "control: her own piece's figure")
+        FigureSectionWiring.attach(state, to: nil)
+        await documentStore.close()
+    }
+
     /// **An author of piece A may not change a figure created in piece B** —
     /// every mutator throws `FigureEditRefused` naming `.figure`, and nothing
     /// is appended. A figure of her own piece she may change (the control).

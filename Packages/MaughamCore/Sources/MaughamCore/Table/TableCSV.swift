@@ -27,15 +27,42 @@ public enum TableCSV {
     /// would not read back as exactly that text (a number, date, TRUE, a formula, padding) under the
     /// book's `locale` or POSIX gets the "'" escape. `names` gives every figure and research item a
     /// formula reads its current name: one missing from it renders as `#REF!` in the file, so it has no default.
-    public static func renderResearch(_ table: FigureTable, locale: TableLocale, names: FormulaNames) -> String {
-        let readers = [posix, locale, locale.readingDecimalPoint()]
-        return write(table) { key in
+    ///
+    /// **`separator`** is the file's own (report plan 8b Task 7: a Research table edited in the grid
+    /// keeps its separator): "," (the default), ";" or a tab. Its numbers are written as `read` will
+    /// read them back in that file — a ";" file with a decimal comma, a tab file as `locale` does, a
+    /// "," file with a decimal point; a table of one column has no separator to tell `read` which,
+    /// so it is written as a "," file. Formulas keep their POSIX text whatever the separator
+    /// (`FormulaParser` reads them so).
+    ///
+    /// `lineEnding` ends each row ("\n", or "\r\n" for a file that had them); a newline inside a
+    /// quoted cell is the cell's own and is left as it is.
+    public static func renderResearch(_ table: FigureTable, locale: TableLocale, names: FormulaNames,
+                                      separator: Character = ",", lineEnding: String = "\n") -> String {
+        let separator: Character = table.columns.count < 2 || !["," as Character, ";", "\t"].contains(separator)
+            ? "," : separator
+        let cellLocale = readingLocale(for: separator, locale: locale)
+        let readers = [posix, locale, locale.readingDecimalPoint(), cellLocale]
+        return write(table, separator: separator, lineEnding: lineEnding) { key in
             guard let cell = table[key] else { return "" }
             switch cell.content {
             case .formula(let f): return "=" + FormulaParser.render(f, in: table, names: names)
             case .value(.text(let s)): return readsBackVerbatim(s, under: readers) ? s : "'" + s
+            case .value(.number(let x)) where cellLocale.decimalSeparator != ".":
+                return FormulaParser.numberText(x).replacingOccurrences(of: ".", with: cellLocale.decimalSeparator)
             case .value(let v): return text(v)
             }
+        }
+    }
+
+    /// The locale a file with `separator` reads its cells in (`read`'s rule): a ";" file has a
+    /// decimal comma and a "," file a decimal point, whatever the language; a tab file says
+    /// nothing, so it reads as the book's language does.
+    private static func readingLocale(for separator: Character, locale: TableLocale) -> TableLocale {
+        switch separator {
+        case ";": return locale.readingDecimalComma()
+        case "\t": return locale
+        default: return locale.readingDecimalPoint()
         }
     }
 
@@ -46,12 +73,14 @@ public enum TableCSV {
         return readers.allSatisfy { CellInput.parse(s, locale: $0) == .value(.text(s), suggested: nil) }
     }
 
-    private static func write(_ table: FigureTable, field: (CellKey) -> String) -> String {
+    private static func write(_ table: FigureTable, separator: Character = ",", lineEnding: String = "\n",
+                              field: (CellKey) -> String) -> String {
         var out = ""
         let columns = table.columns
+        let joint = String(separator)
         for row in table.rows {
-            out += columns.map { quote(field(CellKey(row: row, column: $0))) }.joined(separator: ",")
-            out += "\n"
+            out += columns.map { quote(field(CellKey(row: row, column: $0))) }.joined(separator: joint)
+            out += lineEnding
         }
         return out
     }
@@ -153,12 +182,7 @@ public enum TableCSV {
         // A ";" file is a decimal-comma file and a "," file a decimal-point one,
         // whatever the language; a tab file says nothing, so it reads as the book's
         // language does (a European Excel's "Unicode text" export is tab and comma).
-        let cellLocale: TableLocale
-        switch separator {
-        case ";": cellLocale = locale.readingDecimalComma()
-        case "\t": cellLocale = locale
-        default: cellLocale = locale.readingDecimalPoint()
-        }
+        let cellLocale = readingLocale(for: separator, locale: locale)
         var (table, problems, entries) = readCells(parsed, locale: cellLocale, names: names)
         if let first = entries.first, first.contains(where: isText),
            first.allSatisfy({ isText($0) || $0 == .empty }),

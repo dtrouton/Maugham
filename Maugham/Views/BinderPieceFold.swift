@@ -111,6 +111,15 @@ struct BinderPieceFold: View {
                 try await store.createResearchNote(scope: .document(documentId))
             }
         }
+        // New Table, for New Note's reason (D8b-2) — offered where the bundle offers it.
+        actions.newTable = base.newTable.map { baseNewTable in
+            { [verbs, documentId, store] parentId in
+                guard parentId == nil else { return baseNewTable(parentId) }
+                return verbs.create {
+                    try await store.createResearchTable(scope: .document(documentId))
+                }
+            }
+        }
         // **The second re-routed verb, and the same reason** (Task 7): a drop
         // on a row in this fold is aimed at THIS document. Without the
         // document, `TreeDropIntent` would read the row as an ordinary shared

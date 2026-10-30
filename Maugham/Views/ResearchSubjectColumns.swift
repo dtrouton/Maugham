@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 // MARK: - Where a research subject lands
@@ -190,6 +191,9 @@ extension ProjectWindow {
         /// A text note — `ResearchNoteEditor`. The path is carried so the view
         /// does not have to unwrap what this function already checked.
         case note(item: ResearchItem, path: String)
+        /// A table (a CSV) — the table grid (`ResearchTableGrid`, report plan
+        /// 8b Task 7), saving back to its file.
+        case table(item: ResearchItem, path: String)
         /// Everything the writer cannot edit here — a PDF, an image, audio, a
         /// link, a group — via `ResearchPreview`.
         case preview(ResearchItem)
@@ -200,13 +204,14 @@ extension ProjectWindow {
         case missing
     }
 
-    /// **The four cases, rather than the three a plan can carry.** Collapsing
+    /// **Every case, rather than the three a plan can carry.** Collapsing
     /// `.preview` into `.note` would leave the palette-vs-note decision here and
     /// the note-vs-preview decision inside the view, which is the split this
     /// function exists to close.
     static func researchCentreRoute(id: String?,
                                     in research: [ResearchItem]) -> ResearchCentreRoute {
         guard let id, let item = TreeWalk.find(id: id, in: research) else { return .missing }
+        if item.type == .asset, item.kind == .table, let path = item.path { return .table(item: item, path: path) }
         guard item.kind == .document, let path = item.path else { return .preview(item) }
         // **A path prefix ending in the SEPARATOR**, not a name test and not a
         // bare `hasPrefix`: a research group called "Palette research" gives its
@@ -241,8 +246,15 @@ struct ResearchSubjectCentre: View {
     /// Review: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
     /// `PaletteCardEditor`, and the `.note` arm locks `ResearchNoteEditor`
     /// rather than leaving it editable. `.preview` and `.missing` are
-    /// unaffected — both were already read-only.
+    /// unaffected — both were already read-only. The `.table` arm's grid reads
+    /// the table and refuses its edits.
     let readOnly: Bool
+    /// The share is view-only: a Research table's grid reads, never writes.
+    var shareIsReadOnly: Bool = false
+    /// The grid's typography and the window's Format ▸ Table presence.
+    var typography: TypographySettings = .defaults
+    var presence: FigureGridPresence? = nil
+    var window: NSWindow? = nil
 
     var body: some View {
         switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest.research) {
@@ -260,6 +272,12 @@ struct ResearchSubjectCentre: View {
                 itemId: item.id,
                 previewVisible: previewVisible,
                 lockEditing: readOnly)
+        case .table(let item, _):
+            ResearchTableGrid(
+                itemId: item.id, title: item.title, store: store, documentStore: documentStore,
+                typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                presence: presence, window: window)
+                .id(item.id)
         case .preview(let item):
             ResearchPreview(projectURL: store.url, item: item)
         case .missing:
@@ -296,6 +314,20 @@ struct ResearchSubjectInspector: View {
     /// is the empty state.
     let itemID: String?
     let showsPreview: Bool
+    /// For the panel's verb toward Figures (`InspectorResearchPanel.figureTree`).
+    var figureTree: BinderTreeSectionsState? = nil
+    var figureWritesRefused: Bool = false
+    /// What a Research table's grid needs beside the canvas (Plan): the
+    /// window's `DocumentStore` (nil previews the table as text), the
+    /// persona's and share's answers, the typography.
+    var documentStore: DocumentStore? = nil
+    var readOnly: Bool = false
+    var shareIsReadOnly: Bool = false
+    var typography: TypographySettings = .defaults
+    /// The project window, whose close writes the grid's last edit, and its
+    /// Format ▸ Table presence, armed while the grid has the keys.
+    var window: NSWindow? = nil
+    var presence: FigureGridPresence? = nil
 
     var body: some View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
@@ -304,10 +336,12 @@ struct ResearchSubjectInspector: View {
                     preview(of: item)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
-                    InspectorResearchPanel(store: store, item: item)
+                    InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
+                                           figureWritesRefused: figureWritesRefused)
                 }
             } else {
-                InspectorResearchPanel(store: store, item: item)
+                InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
+                                           figureWritesRefused: figureWritesRefused)
             }
         } else {
             ContentUnavailableView(
@@ -333,12 +367,25 @@ struct ResearchSubjectInspector: View {
     /// It is never mounted twice for one card: this half is shown only where the
     /// placement is `.besideTheCanvas`, and there the centre column is the
     /// canvas.
+    ///
+    /// `.table` reaches the same grid the centre mounts (`ResearchTableGrid`,
+    /// report plan 8b Task 7) — never twice, for the card's reason.
     @ViewBuilder
     private func preview(of item: ResearchItem) -> some View {
         switch ProjectWindow.researchCentreRoute(id: item.id,
                                                  in: store.manifest.research) {
         case .paletteCard(let cardID):
             PaletteCardEditor(store: store, cardId: cardID)
+        case .table(let item, _):
+            if let documentStore {
+                ResearchTableGrid(
+                    itemId: item.id, title: item.title, store: store, documentStore: documentStore,
+                    typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                    presence: presence, window: window)
+                    .id(item.id)
+            } else {
+                ResearchPreview(projectURL: store.url, item: item)
+            }
         case .note(let item, _), .preview(let item):
             ResearchPreview(projectURL: store.url, item: item)
         case .missing:

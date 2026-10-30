@@ -32,6 +32,14 @@ import Foundation
 ///   edit in a row or column the copy deleted.
 public enum FigureReturnDiff {
 
+    /// Which CSV a sidecar's positions are the positions of.
+    public enum SidecarPositions: Equatable, Sendable {
+        /// The parked CSV's: the sidecar a park wrote.
+        case parked
+        /// The copy's own: the sidecar was written for the bytes coming back.
+        case copy
+    }
+
     /// One op to append, in order.
     public struct Change: Equatable, Sendable {
         public let kind: OpKind
@@ -182,9 +190,16 @@ public enum FigureReturnDiff {
     /// `problems` that read's problems, `names` the book's name directory the
     /// read used, and `namesAtPark` the names the working copy was written
     /// with (the sidecar's `formulaNames` laid over `names`), when known.
+    ///
+    /// `sidecarPositions` says which bytes the sidecar was written for: the
+    /// parked CSV's (`.parked`, a park's sidecar) or the copy's own (`.copy`,
+    /// one the Research grid rewrote with the bytes it saved, report plan 8b
+    /// Task 7) — its styles and widths then sit at the copy's positions, and
+    /// a cell it lists no style for had none.
     public static func changes(
         from base: FigureState, onto current: FigureState, to copy: FigureTable,
-        sidecar: ResearchTableSidecar?, names: FormulaNames = .empty, namesAtPark: FormulaNames? = nil,
+        sidecar: ResearchTableSidecar?, sidecarPositions: SidecarPositions = .parked,
+        names: FormulaNames = .empty, namesAtPark: FormulaNames? = nil,
         problems: [CSVReadProblem] = [],
         mintRow: () -> RowID, mintColumn: () -> ColumnID
     ) -> Changes {
@@ -266,7 +281,11 @@ public enum FigureReturnDiff {
                     } else {
                         cell.content = toResult.content(ours.content)
                     }
-                    if let old {
+                    if sidecar != nil, sidecarPositions == .copy {
+                        let style = styles[Position(row: r, column: c)]
+                        cell.format = style?.format ?? CellFormat()
+                        cell.alignment = style?.alignment ?? .automatic
+                    } else if let old {
                         if sidecar != nil, let br = base.table.rowIndex(of: row), let bc = base.table.columnIndex(of: column) {
                             let style = styles[Position(row: br, column: bc)]
                             cell.format = style?.format ?? CellFormat()
@@ -296,7 +315,14 @@ public enum FigureReturnDiff {
                 sim.emit(.figureSettings, FigureOpPayload(
                     settings: .totalRow(sidecar.totalRow, prior: sim.state.table.hasTotalRow)))
             }
-            for (p, column) in base.table.columns.enumerated() where matchedBaseColumns.contains(column) && sim.isLive(column) {
+            // Each matched column's position in the sidecar's bytes.
+            var positions: [ColumnID: Int] = [:]
+            switch sidecarPositions {
+            case .parked: for (p, column) in base.table.columns.enumerated() { positions[column] = p }
+            case .copy: for (c, copyColumn) in copyColumns.enumerated() { positions[columnFor[copyColumn]!] = c }
+            }
+            for column in base.table.columns where matchedBaseColumns.contains(column) && sim.isLive(column) {
+                guard let p = positions[column] else { continue }
                 let width = p < sidecar.columnWidths.count ? sidecar.columnWidths[p] : nil
                 let now = sim.state.table.columnWidths[column]
                 guard width != base.table.columnWidths[column], width != now else { continue }

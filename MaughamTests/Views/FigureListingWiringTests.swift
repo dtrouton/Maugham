@@ -69,7 +69,7 @@ final class FigureListingWiringTests: XCTestCase {
             ZStack {
                 if let store = box.store, let ds = box.documentStore, let item = box.editingItemId {
                     EditorHost(store: store, documentStore: ds, selectedItemId: item,
-                               control: control, referenceIndex: host)
+                               control: control, referenceIndex: host, figureListing: listing)
                 } else {
                     Color.clear
                 }
@@ -243,6 +243,38 @@ final class FigureListingWiringTests: XCTestCase {
 
         let listed = await pumpUntil(deadline: 10) { m.listing.rows.first?.number == "Table 1" }
         XCTAssertTrue(listed, "the piece the editor left is read again: \(m.listing.rows)")
+        XCTAssertEqual(m.listing.rows.first?.pieceOfLine, chapter.id)
+    }
+
+    /// Report plan 8b Task 3: a figure made unused (Use in document, D8b-1)
+    /// is placed from Insert ▸ Existing Figure… — the editor's picker reads
+    /// this window's listing — and after the settle the listing, which the
+    /// tree's Figures rows read, numbers it.
+    func test_aFigurePlacedFromThePickerIsNumberedAfterTheSettle() async throws {
+        let m = try await mount(chapters: 1, records: [Self.cash], editing: 0) { _, _ in "Prose.\n" }
+        let chapter = m.chapters[0]
+        let path = try XCTUnwrap(chapter.path)
+        let opened = await pumpUntil(deadline: 10) {
+            m.ds.document(for: path) != nil && m.listing.rows.first?.number == "—"
+                && (Self.textView(in: self.windows.last!)?.string.hasPrefix("Prose.") ?? false)
+        }
+        XCTAssertTrue(opened, "precondition: the chapter is on screen and the figure listed unused")
+        let textView = try XCTUnwrap(Self.textView(in: try XCTUnwrap(windows.last)))
+        let coordinator = try XCTUnwrap(textView.delegate as? EditorCoordinator)
+        textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+
+        let session = try XCTUnwrap(coordinator.insertExistingFigure(), "the picker opened")
+        XCTAssertEqual(session.entries.map(\.title), ["— cash (unused)"])
+        // The host asks the store whether it is parked at the choice; the
+        // line lands in that task, awaited through its handle.
+        coordinator.existingFigureTask = nil
+        session.choose(try XCTUnwrap(session.entries.first))
+        await coordinator.existingFigureTask?.value
+        XCTAssertTrue(textView.string.contains("figures/cash.csv){#tbl:cash}"),
+                      "the line was written from the chapter's folder: \(textView.string)")
+
+        let numbered = await pumpUntil(deadline: 10) { m.listing.rows.first?.number == "Table 1" }
+        XCTAssertTrue(numbered, "the settle numbered the placed figure: \(m.listing.rows)")
         XCTAssertEqual(m.listing.rows.first?.pieceOfLine, chapter.id)
     }
 

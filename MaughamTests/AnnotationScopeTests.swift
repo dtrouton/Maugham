@@ -328,13 +328,13 @@ final class AnnotationScopeTests: XCTestCase {
             .travel(.item("ch2")))
     }
 
-    /// **The pane's own file writes no persona.** Mirrors
+    /// **The pane's own files write no persona.** Mirrors
     /// `ReviewBoardRoutingTests.test_theBoardsOwnFileWritesNoPersona`: the queue
     /// is a surface Review shows, never a thing that decides Review is showing.
     /// A reviewer clicking a note about Chapter Nine must land in Chapter Nine
     /// with their notes still beside them.
     func test_thePanesOwnFileWritesNoPersona() throws {
-        let source = try Self.source(of: "Views/AnnotationsPane.swift")
+        let source = try AnnotationsPaneSource.surfaceSource()
         for shape in ["persona = ", "persona.wrappedValue = ", "$0.persona = "] {
             XCTAssertFalse(source.contains(shape),
                            "`AnnotationsPane` writes the window's persona "
@@ -368,7 +368,7 @@ final class AnnotationScopeTests: XCTestCase {
     /// and the reason — or a closed piece's row is a set of live controls that
     /// do nothing.
     func test_theProjectRowIsGatedOnTheOpenDocumentAndCarriesTheReason() throws {
-        let source = try Self.source(of: "Views/AnnotationsPane.swift")
+        let source = try AnnotationsPaneSource.surfaceSource()
         XCTAssertTrue(source.contains("AnnotationScopePolicy.verbsEnabled("),
                       "the row's gate is the pure predicate, not a second "
                       + "spelling of it in the view")
@@ -391,7 +391,7 @@ final class AnnotationScopeTests: XCTestCase {
         XCTAssertFalse(
             AnnotationScopePolicy.showsBulkAffordances(.project(focusPiece: "ch1")))
 
-        let source = try Self.source(of: "Views/AnnotationsPane.swift")
+        let source = try AnnotationsPaneSource.surfaceSource()
         XCTAssertTrue(source.contains("AnnotationScopePolicy.showsBulkAffordances("),
                       "the bar and its door both ask the predicate")
     }
@@ -407,24 +407,28 @@ final class AnnotationScopeTests: XCTestCase {
     ///
     /// A census rather than a mounted drive: each verb is a `Task` on the
     /// pane, and the failure mode is one of them being ADDED without the bump.
+    ///
+    /// The verbs live in `AnnotationsPaneVerbs` since #116 F11; the mutation
+    /// scan below reads EVERY file the pane is made of, so a mutation written
+    /// into a child view is still found and still has to be a named verb.
     func test_everyVerbBumpsTheRefreshTokenSoProjectScopeReReads() throws {
-        let source = try Self.source(of: "Views/AnnotationsPane.swift")
+        let source = try AnnotationsPaneSource.source(of: "AnnotationsPaneVerbs.swift")
         let verbs = [
-            "private func performAccept(",
-            "private func replyToQuery(",
-            "private func reject(",
+            "func performAccept(",
+            "func replyToQuery(",
+            "func reject(",
             // (editorial letter P2 Task 8) `stet(` itself no longer mutates —
             // it either raises the second stet's offer or delegates here, and
             // both of the offer's answers land on one of these two.
             "private func performStet(",
-            "private func performChoice(",
-            "private func triage(",
-            "private func archive(",
-            "private func reopen(",
-            "private func performRevert(",
-            "private func editOwn(",
-            "private func withdrawOwn(",
-            "private func runBulk(",
+            "func performChoice(",
+            "func triage(",
+            "func archive(",
+            "func reopen(",
+            "func performRevert(",
+            "func editOwn(",
+            "func withdrawOwn(",
+            "func runBulk(",
         ]
         for header in verbs {
             let body = try XCTUnwrap(Self.declaration(named: header, in: source),
@@ -442,7 +446,7 @@ final class AnnotationScopeTests: XCTestCase {
         // census that passes by omission — so every MUTATION SITE in the file
         // must fall inside one of the declarations above. Adding a verb
         // without adding it here now fails, which is the whole point.
-        let mutationLines = source.split(separator: "\n")
+        let mutationLines = try AnnotationsPaneSource.surfaceSource().split(separator: "\n")
             .map(String.init)
             .filter { $0.contains("await document.")
                    || $0.contains("await AnnotationBulkActions.perform")
@@ -527,5 +531,21 @@ final class AnnotationScopeTests: XCTestCase {
         let rest = source[start.lowerBound...]
         guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
         return String(rest[..<end.upperBound])
+    }
+
+    // MARK: - The pane's files
+
+    /// **`AnnotationsPaneSource.surfaceFiles` is every file the pane is split
+    /// into** (#116 F11), so a census reading the surface cannot go blind to a
+    /// new child file: every `Annotation*.swift` in `Maugham/Views/` is either
+    /// the pane's or named in `notThePane`, and every listed file exists.
+    func test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto() throws {
+        let problems = try PaneSurfaceClassification.problems(
+            prefix: "Annotation", dir: AnnotationsPaneSource.viewsDir,
+            surface: AnnotationsPaneSource.surfaceFiles,
+            notThePane: AnnotationsPaneSource.notThePane)
+        XCTAssertEqual(problems, [],
+                       "every Annotation*.swift must be classified, or each "
+                       + "census reading the pane's surface is blind to it")
     }
 }

@@ -1088,7 +1088,7 @@ final class PublishPreviewCentreTests: XCTestCase {
 
     /// **A compile that completes lands in the centre without a relaunch.**
     ///
-    /// `CompileOrchestrator` posts `.maughamPublicationCompleted` AFTER the
+    /// `PublishOrchestrator` posts `.maughamPublicationCompleted` AFTER the
     /// catalog append, `.project`-scoped, and the refresh receives it through the
     /// ADR 0021 helper with the `WindowAccessor` idiom. Driven end to end: an
     /// empty catalog, a real compiled PDF appended behind the window's back, then

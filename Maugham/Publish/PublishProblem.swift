@@ -300,11 +300,11 @@ public enum PublishProblemGate {
             bodyLanguage: problem.bodyLanguage)
     }
 
-    /// The `logExcerpt` of a refusal: `CompileOrchestrator.publishProblemsLogExcerpt`
+    /// The `logExcerpt` of a refusal: `PublishOrchestrator.publishProblemsLogExcerpt`
     /// and the count of errors, so the desk tells a problem refusal from a fault.
     static func logExcerpt(_ errors: [TectonicLogParser.Diagnostic]) -> String {
         let count = errors.filter { $0.level == .error }.count
-        return CompileOrchestrator.publishProblemsLogExcerpt
+        return PublishOrchestrator.publishProblemsLogExcerpt
             + "\(count) error\(count == 1 ? "" : "s")"
     }
 }

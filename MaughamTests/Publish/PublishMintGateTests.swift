@@ -3,7 +3,7 @@ import XCTest
 
 /// P2 (issue #25): the per-project, per-process mint gate. Pure actor
 /// semantics here — the orchestrator/republisher wiring is pinned in
-/// `CompileOrchestratorTests` (where the real compile path can overlap) and
+/// `PublishOrchestratorTests` (where the real compile path can overlap) and
 /// by the production-call-site census at the bottom of this file.
 final class PublishMintGateTests: XCTestCase {
 
@@ -131,7 +131,7 @@ final class PublishMintGateTests: XCTestCase {
         var sites = 0
         for file in files {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            for constructor in ["CompileOrchestrator(", "Republisher("] {
+            for constructor in ["PublishOrchestrator(", "Republisher("] {
                 var search = text.startIndex..<text.endIndex
                 while let found = text.range(of: constructor, range: search) {
                     search = found.upperBound..<text.endIndex

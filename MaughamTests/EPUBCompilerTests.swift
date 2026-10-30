@@ -76,7 +76,7 @@ private struct EPUBHrefBook: ProjectASTBuilder.Source {
 }
 
 /// The orchestrator's compile derives its manuscript once
-/// (`CompileOrchestratorTests.testImprint_thePieceListIsReadOnlyWhenAnImprintCouldNeedIt`):
+/// (`PublishOrchestratorTests.testImprint_thePieceListIsReadOnlyWhenAnImprintCouldNeedIt`):
 /// the EPUB's resolution reuses the AST the compile built when its source is
 /// the whole book, and builds the whole book only for a subset.
 final class EPUBPrepareReuseTests: XCTestCase {

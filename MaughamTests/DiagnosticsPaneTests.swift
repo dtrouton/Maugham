@@ -1126,9 +1126,13 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.2)
 
-        let notes = await notesPosted(pressing: try button(labelled: "Open Intent", in: window))
+        XCTAssertNoThrow(try button(labelled: "Open Intent", in: window),
+                         "the conformance summary offers Open Intent")
+        // The button's action is this verb (`WiringCensusTests`,
+        // `type:DiagnosticsPane`); called, not pressed (tripwire 33, #120).
+        let notes = notesPosted(by: { MaughamEvent.postDetailSegment(.intent) })
 
-        XCTAssertEqual(notes.count, 1, "pressing Open Intent should post exactly one request")
+        XCTAssertEqual(notes.count, 1, "Open Intent should post exactly one request")
         XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                        DetailSegment.intent.rawValue)
     }
@@ -1353,7 +1357,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// wrote nothing, or a "Define a first reader…" that opened the wrong
     /// thing — and the four pure functions above pin everything else.
     func test_theReaderMenusItemsWriteTheChoiceAndOpenNothingButSettings() throws {
-        let source = try Self.source(of: "Views/DiagnosticsPane.swift")
+        let source = try Self.source(of: "Views/DiagnosticsPaneHeader.swift")
         let menu = try XCTUnwrap(
             Self.declaration(named: "private var readerMenu: some View {", in: source),
             "the header must carry a readable reader menu for this census to "
@@ -1376,7 +1380,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         // The define item stands only while she is unnamed: once she has a
         // name her own row is in the list above, and a second door to Settings
         // beneath it would be an offer to define somebody already defined.
-        XCTAssertTrue(menu.contains("if !Self.hasFirstReader(manifest) {"),
+        XCTAssertTrue(menu.contains("if !DiagnosticsPane.hasFirstReader(manifest) {"),
                       "Got:\n\(menu)")
     }
 
@@ -1718,8 +1722,12 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue((driftIndex ?? .max) < (conformanceIndex ?? -1),
                       "the drift line must sit above the conformance summary")
 
-        let notes = await notesPosted(pressing: try button(labelled: expectedLine, in: window))
-        XCTAssertEqual(notes.count, 1, "pressing the line should post exactly one request")
+        XCTAssertNoThrow(try button(labelled: expectedLine, in: window),
+                         "the drift line is a button")
+        // Its action is Open Intent's verb (`WiringCensusTests`); called, not
+        // pressed (tripwire 33, #120).
+        let notes = notesPosted(by: { MaughamEvent.postDetailSegment(.intent) })
+        XCTAssertEqual(notes.count, 1, "the line should post exactly one request")
         XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                        DetailSegment.intent.rawValue,
                        "the drift line's action is Open Intent's successor \u{2014} the "
@@ -1908,7 +1916,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     func test_jump_postsTheSameEventAnnotationsRowUses() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try readSource("Maugham/Views/DiagnosticsPaneVerbs.swift")
         XCTAssertTrue(source.contains(".maughamNavigateToParagraph"),
                      "DiagnosticsPane must reuse AnnotationsPane.jump's event, not a copy")
         XCTAssertTrue(source.contains(#"["paragraph_id": pid]"#))
@@ -2430,9 +2438,19 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
 
-        let chip = try button(
-            labelled: "\u{201C}She already knew about the letter\u{201D}", in: window)
-        let received = await notesPosted(pressing: chip, on: .maughamNavigateToParagraph)
+        XCTAssertNoThrow(try button(
+            labelled: "\u{201C}She already knew about the letter\u{201D}", in: window),
+            "the diagnostic draws its reference as a chip")
+
+        // The chip's press is `ExcerptChip.jump()`, handing its own ref's
+        // paragraph to the pane's `onJump`, which is `DiagnosticsPane.jump`
+        // (`WiringCensusTests`). Called, not pressed (tripwire 33, #120).
+        var handed: [String] = []
+        ExcerptChip(ref: ref("c3d4", "She already knew about the letter"),
+                    onJump: { handed.append($0) }).jump()
+        XCTAssertEqual(handed, ["c3d4"], "the chip hands on its own reference's paragraph")
+        let received = notesPosted(by: { DiagnosticsPane.jump(toParagraph: "c3d4") },
+                                   on: .maughamNavigateToParagraph)
 
         XCTAssertEqual(received.count, 1, "the chip must post exactly one jump")
         XCTAssertEqual(received.first?.userInfo?["paragraph_id"] as? String, "c3d4")
@@ -2441,7 +2459,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     // MARK: - Tripwire 15
 
     func test_everyContentUnavailableViewChainsFullFrame() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try DiagnosticsPaneSource.surfaceSource()
         let occurrences = source.components(separatedBy: "ContentUnavailableView(").count - 1
         let chained = source.components(
             separatedBy: ".frame(maxWidth: .infinity, maxHeight: .infinity)").count - 1
@@ -2777,7 +2795,8 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// cancels — are asserted at the source. Named functions rather than
     /// spelled-out bodies, so a rename fails this rather than a reformat.
     func test_theReplyFieldCommitsOnReturnAndCancelsOnEscape() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        // The field is `DiagnosticRow`'s, the commit the pane's own `answer`.
+        let source = try DiagnosticsPaneSource.surfaceSource()
         XCTAssertTrue(
             source.contains(".onSubmit { commit() }"),
             "return must commit the answer \u{2014} a field with no submit verb is a "
@@ -2980,36 +2999,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             compilerFingerprint: "continuity\u{1f}\(body)\u{1f}\(paragraphId ?? "")\u{1f}")
     }
 
-    /// Press a real button through the accessibility tree and poll until the
-    /// verb it starts has landed — both dispositions hop to a `Task`, so a
-    /// synchronous read would see the pane before the op log has moved.
-    ///
-    /// **Polls rather than sleeps** (review, Important 3): a fixed sleep is a
-    /// bet on how long an op-log append takes, and this suite's tests run in
-    /// parallel worker processes against a machine that may be hosting several
-    /// other gates.
-    ///
-    /// **Genuinely `async`, unlike `waitUntil`** — this file's synchronous
-    /// idiom pumps only the main run loop, which is the right tool for
-    /// catching up to a render that follows an already-applied, synchronous
-    /// state change. What this waits on is different in kind: a real
-    /// asynchronous disposition (`Document.acceptAnnotation`/
-    /// `rejectAnnotation`) that hops off the main actor to append to the op
-    /// log. A tight synchronous pump loop measurably starved that hop — the
-    /// first version of this fix reused `waitUntil` and every disposition
-    /// test timed out at its full budget with the row never moving. Yielding
-    /// with a real `await Task.sleep` between polls, as the fixed-sleep
-    /// version this replaced did by construction, is what actually lets the
-    /// op log's write land.
-    private func press(
-        _ label: String, in window: NSWindow, timeout: TimeInterval = 5,
-        until settled: () -> Bool
-    ) async throws {
-        let target = try button(labelled: label, in: window)
-        _ = target.perform(NSSelectorFromString("accessibilityPerformPress"))
-        try await waitUntilAsync(timeout: timeout) { settled() }
-    }
-
     /// `waitUntil`'s async sibling: polls `condition`, yielding with a real
     /// `await Task.sleep` between attempts rather than only pumping the main
     /// run loop, so a condition gated on genuine off-main-actor async work
@@ -3026,7 +3015,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// The note's status now, or `nil` if it is not in the projection at all —
-    /// non-throwing, because it is also the polling predicate `press` waits on.
+    /// non-throwing, so a caller can ask after a note that may have left.
     private func statusIfPresent(
         of annotationId: String, in document: Document
     ) -> AnnotationStatus? {
@@ -3182,7 +3171,12 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// **Not this is one gesture and asks for nothing.** The reason-carrying
-    /// decline belongs to Review's queue; wet ink gets a no.
+    /// decline belongs to Review's queue; wet ink gets a no. Pinned on the
+    /// verb the row's button runs (`DiagnosticsPane.notThis`), with no press
+    /// (#120, tripwire 33 — `test_gotItSettlesTheNote`'s shape): the verb takes
+    /// no reason, so there is no field for the gesture to open, and the row
+    /// draws none. The row leaving once its note settles is
+    /// `test_aNoteSettledElsewhereLeavesTheViewWithoutAnotherCheck`.
     func test_notThisDeclinesInOneGestureWithNoReasonField() async throws {
         let document = try await makeMultiParagraphDocument()
         let paragraphId = try XCTUnwrap(document.sequence.first)
@@ -3196,20 +3190,27 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
-
-        try await press("Not this", in: window) {
-            self.statusIfPresent(of: noteId, in: document) != .open
-        }
-
-        XCTAssertEqual(try status(of: noteId, in: document), .rejected)
+        XCTAssertNoThrow(try button(labelled: "Not this", in: window), "the row offers Not this")
         XCTAssertTrue(revealedFields(in: window).isEmpty,
-                      "Not this opened a field \u{2014} the reasons are Review's")
-        XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
-                       "got \(allLabels(in: window))")
+                      "the row drew a field \u{2014} the reasons are Review's")
+
+        let failure = await DiagnosticsPane.notThis(
+            annotationId: noteId, in: document, undoManager: UndoManager())
+
+        XCTAssertNil(failure, "it settled")
+        XCTAssertEqual(try status(of: noteId, in: document), .rejected)
+        XCTAssertNil(
+            document.annotations(filter: AnnotationFilter(statuses: nil))
+                .first { $0.id == noteId }?.userResponse,
+            "the decline carried a reason \u{2014} the reasons are Review's")
     }
 
-    /// ⌘Z reaches the decline through the pane's own undo manager — the
-    /// annotation layer's existing machinery, wired rather than reimplemented.
+    /// ⌘Z reaches the decline through the undo manager the verb is handed —
+    /// the annotation layer's existing machinery, wired rather than
+    /// reimplemented. Windowless (#120, tripwire 33): the pane hands the verb
+    /// its own `undoManager` (`WiringCensusTests`, `type:DiagnosticsPane`), and
+    /// the undo's async hop is awaited through `awaitPendingUndoWork`, not
+    /// polled.
     func test_undoAfterNotThisReopensTheNote() async throws {
         let document = try await makeMultiParagraphDocument()
         let paragraphId = try XCTUnwrap(document.sequence.first)
@@ -3221,27 +3222,17 @@ final class DiagnosticsPaneTests: XCTestCase {
             on: document, run: run, body: "Has anyone said how long yet?",
             paragraphId: paragraphId)
 
-        let window = mount(wetInkPane(document: document, store: store))
-        pump(0.3)
-        try await press("Not this", in: window) {
-            self.statusIfPresent(of: noteId, in: document) != .open
-        }
+        let undoManager = UndoManager()
+        let failure = await DiagnosticsPane.notThis(
+            annotationId: noteId, in: document, undoManager: undoManager)
+        XCTAssertNil(failure, "control: the decline landed")
         XCTAssertEqual(try status(of: noteId, in: document), .rejected,
                        "control: the decline landed")
 
-        let undoManager = try XCTUnwrap(
-            window.undoManager,
-            "the hosted pane has no undo manager, so nothing could have been "
-            + "registered through it")
         XCTAssertTrue(undoManager.canUndo,
                       "the decline registered no undo action at all")
         undoManager.undo()
-        // Polled, not slept, and genuinely async for the same reason `press`
-        // is: the undo handler hops the reopen onto a task off the main
-        // actor, and only a real `await` between polls reliably lets it land.
-        try await waitUntilAsync {
-            self.statusIfPresent(of: noteId, in: document) == .open
-        }
+        await document.awaitPendingUndoWork()
 
         XCTAssertEqual(try status(of: noteId, in: document), .open,
                        "\u{2318}Z after Not this must reopen the note")
@@ -3580,15 +3571,20 @@ final class DiagnosticsPaneTests: XCTestCase {
         let second = try await mintNote(
             on: document, run: run, body: "The second question.", paragraphId: paragraphId)
 
+        // Settled through the rows' own verbs, then mounted and read (#120,
+        // tripwire 33): the pressed version waited on the op log and read the
+        // window without waiting for SwiftUI's re-render. A row leaving under
+        // a mounted pane is `test_aNoteSettledElsewhereLeavesTheViewWithoutAnotherCheck`.
+        let undoManager = UndoManager()
+        let gotIt = await DiagnosticsPane.gotIt(
+            annotationId: first, in: document, undoManager: undoManager)
+        let notThis = await DiagnosticsPane.notThis(
+            annotationId: second, in: document, undoManager: undoManager)
+        XCTAssertNil(gotIt, "control: Got it settled the first")
+        XCTAssertNil(notThis, "control: Not this settled the second")
+
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
-
-        try await press("Got it", in: window) {
-            self.statusIfPresent(of: first, in: document) != .open
-        }
-        try await press("Not this", in: window) {
-            self.statusIfPresent(of: second, in: document) != .open
-        }
 
         let labels = allLabels(in: window)
         XCTAssertFalse(labels.contains("THIS CHECK"),
@@ -4287,7 +4283,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// they must move the moment the writer changes the roster — which is the
     /// opposite of the rule for a letter that has already been written.
     func test_control_theHeaderLineStaysOnTheLiveReader() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let source = try readSource("Maugham/Views/DiagnosticsPaneHeader.swift")
         XCTAssertTrue(
             source.contains(#"static func readerCopy(for reader: AuthorReader) -> String {"#),
             "find the header's copy by name if it moved")
@@ -4306,7 +4302,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theLettersJumpsGoThroughThePanesOwnNavigation() throws {
         let section = try letterSectionSource()
         XCTAssertTrue(
-            section.contains("onJump: { jump(toParagraph: $0) }"),
+            section.contains("onJump: { Self.jump(toParagraph: $0) }"),
             "the letter must travel through the pane's own navigation, never a "
             + "second `MaughamEvent.post` spelled at the call site: \(section)")
         XCTAssertTrue(
@@ -4432,7 +4428,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_bothHostsDecideTheOfferThroughTheOneBuilder() throws {
         for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try readSource(path)
+            let source = try hostSource(path)
             XCTAssertTrue(
                 source.contains("TurnClauseOffer.handler("),
                 "\(path) must reach the one builder")
@@ -4890,7 +4886,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_bothHostsCommitTheAskThroughTheOneFunction() throws {
         for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try readSource(path)
+            let source = try hostSource(path)
             XCTAssertTrue(
                 source.contains("AskField.commit("),
                 "\(path) must go through the shared commit")
@@ -5032,7 +5028,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_bothHostsTakeTheLedgerVerbsFromTheOneBuilder() throws {
         for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try readSource(path)
+            let source = try hostSource(path)
             XCTAssertTrue(
                 source.contains("LessonOffer.handlers("),
                 "\(path) must build its ledger closures with the shared builder")
@@ -5307,27 +5303,27 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
     }
 
-    /// What one button press posted, on `name`. A reference box rather than a
-    /// captured local array: the observer's closure is `@Sendable`, and every
-    /// post here is made on the main thread by the button the test just
-    /// pressed.
+    /// What one verb posted, on `name` — captured synchronously, because
+    /// `MaughamEvent.post` is a plain `NotificationCenter` post on the calling
+    /// thread. A reference box rather than a captured local array: the
+    /// observer's closure is `@Sendable`.
     private final class PostBox: @unchecked Sendable {
         private(set) var received: [Notification] = []
         func record(_ note: Notification) { received.append(note) }
     }
 
+    /// The verb a control's action runs, called with no press (tripwire 33,
+    /// #120); the control itself is asserted DRAWN, and the action naming the
+    /// verb is `WiringCensusTests`'.
     private func notesPosted(
-        pressing button: NSObject, on name: Notification.Name = .maughamSetDetailSegment
-    ) async -> [Notification] {
+        by verb: () -> Void, on name: Notification.Name = .maughamSetDetailSegment
+    ) -> [Notification] {
         let box = PostBox()
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the button posts
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the verb posts
             forName: name, object: nil, queue: nil
         ) { box.record($0) }
         defer { NotificationCenter.default.removeObserver(token) }
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(300))
-        pump(0.2)
+        verb()
         return box.received
     }
 
@@ -5339,6 +5335,33 @@ final class DiagnosticsPaneTests: XCTestCase {
             .deletingLastPathComponent()
         return try String(
             contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// A letter host's code: each host is its whole pane (#116 F11). Each
+    /// pane is split across files, and a ban must see every one of them.
+    private func hostSource(_ relativePath: String) throws -> String {
+        switch relativePath {
+        case "Maugham/Views/AnnotationsPane.swift":
+            return try AnnotationsPaneSource.surfaceSource()
+        case "Maugham/Views/DiagnosticsPane.swift":
+            return try DiagnosticsPaneSource.surfaceSource()
+        default:
+            return try readSource(relativePath)
+        }
+    }
+
+    /// **`DiagnosticsPaneSource.surfaceFiles` is every file the pane is split
+    /// into** (#116 F11): every `Diagnostic*.swift` in `Maugham/Views/` is the
+    /// pane's or named in `notThePane`, so a census reading the surface cannot
+    /// go blind to a new child file.
+    func test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto() throws {
+        let problems = try PaneSurfaceClassification.problems(
+            prefix: "Diagnostic", dir: DiagnosticsPaneSource.viewsDir,
+            surface: DiagnosticsPaneSource.surfaceFiles,
+            notThePane: DiagnosticsPaneSource.notThePane)
+        XCTAssertEqual(problems, [],
+                       "every Diagnostic*.swift must be classified, or each "
+                       + "census reading the pane's surface is blind to it")
     }
 }
 

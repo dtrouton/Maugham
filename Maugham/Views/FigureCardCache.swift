@@ -226,7 +226,8 @@ final class FigureCardCache {
                 locale: inputs.locale,
                 // The source language: plan 9 passes an edition's, with its labels.
                 language: nil, labelLookup: { _, _, _, _ in nil },
-                pinChanged: inputs.pinChanged.contains(id))
+                pinChanged: inputs.pinChanged.contains(id),
+                sourceChanged: inputs.sourceChanged.contains(id))
         }
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

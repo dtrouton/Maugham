@@ -142,7 +142,7 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertTrue(
             messages.contains { $0.contains(PublishFormatRefusal.message(raw: "odt")) },
             "the errors carry the one refusal sentence: \(messages)")
-        XCTAssertEqual(result.logExcerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "odt")
+        XCTAssertEqual(result.logExcerpt, PublishOrchestrator.unproducibleFormatLogExcerpt + "odt")
         let all = await jobs.all()
         XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
         let previews = (try? FileManager.default.contentsOfDirectory(
@@ -155,7 +155,7 @@ final class PreviewCompilerTests: XCTestCase {
 
     /// A stale EMISSION.md seeded before a preview is refreshed to the
     /// current contract, stamped with the app version the preview was
-    /// constructed with — mirroring `CompileOrchestrator`'s refresh.
+    /// constructed with — mirroring `PublishOrchestrator`'s refresh.
     func testPreview_refreshesStaleEmissionDoc() async throws {
         let emissionURL = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
         try "# STALE from an old init\n".write(to: emissionURL, atomically: true, encoding: .utf8)

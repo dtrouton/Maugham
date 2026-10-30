@@ -136,6 +136,12 @@ struct ReviewRoundCockpit: View {
     /// project and undo manager — and because Review must open the SAME view
     /// Author draws rather than a second one that could disagree with it.
     var letterDisclosure: (() -> AnyView)? = nil
+    /// Whether the letter's disclosure STARTS open — closed unless a host says
+    /// otherwise; a test sets it to measure the opened strip with no press
+    /// (tripwire 33, #120). The open state itself lives in
+    /// `LetterDisclosureRow`, inside the branch that draws the letter, so it
+    /// goes when the letter does.
+    var letterInitiallyOpen = false
 
     /// **What the writer has asked of the next round on this piece, and where
     /// to file a change to it** (P2 Task 7, spec §3.7) — one value, because the
@@ -719,21 +725,8 @@ struct ReviewRoundCockpit: View {
     private var letterRow: some View {
         if let letterLine {
             if let letterDisclosure {
-                DisclosureGroup {
-                    BoundedHeightLayout(maxHeight: Self.letterDisclosureMaxHeight) {
-                        ScrollView(.vertical) {
-                            letterDisclosure()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                } label: {
-                    Text(letterLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                LetterDisclosureRow(line: letterLine, disclosure: letterDisclosure,
+                                    initiallyOpen: letterInitiallyOpen)
             } else {
                 Text(letterLine)
                     .font(.caption)
@@ -951,5 +944,39 @@ private struct BoundedHeightLayout: Layout {
         subview.place(
             at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
             proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+/// **The letter's disclosure, with its open state** (#120). A child view in
+/// the one branch that draws a letter, so the state is born with the letter
+/// and dropped with it — exactly the uncontrolled `DisclosureGroup`'s life —
+/// while a host (a test) can still say it starts open.
+private struct LetterDisclosureRow: View {
+    let line: String
+    let disclosure: () -> AnyView
+    @State private var isOpen: Bool
+
+    init(line: String, disclosure: @escaping () -> AnyView, initiallyOpen: Bool) {
+        self.line = line
+        self.disclosure = disclosure
+        _isOpen = State(initialValue: initiallyOpen)
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isOpen) {
+            BoundedHeightLayout(maxHeight: ReviewRoundCockpit.letterDisclosureMaxHeight) {
+                ScrollView(.vertical) {
+                    disclosure()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } label: {
+            Text(line)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

@@ -46,7 +46,8 @@ enum ReportInsert {
     /// splits the paragraph; at a line's edge it adds only the blank lines it
     /// needs.
     /// Spaces and tabs touching the caret on its line are absorbed. Inside a
-    /// table (any range of `tableBlocks`) it goes after that table's paragraph.
+    /// table (any range of `tableBlocks`) it goes after that table's paragraph;
+    /// on a figure line, after that line (`endOfFigureLine`).
     static func blockEdit(in text: String, at location: Int, tableBlocks: [NSRange],
                           block: String, selectionInBlock: NSRange) -> Edit {
         let ns = text as NSString
@@ -56,6 +57,9 @@ enum ReportInsert {
         }) {
             at = NSMaxRange(paragraphRange(containing: enclosing.location, in: ns))
         }
+        // On a figure line it goes after that line, never splitting it into
+        // two lines that are no longer a figure (report plan 8b Task 3 review).
+        at = endOfFigureLine(containing: at, in: ns) ?? at
 
         let line = ns.lineRange(for: NSRange(location: at, length: 0))
         let lineEnd = contentEnd(ofLine: line, in: ns)
@@ -88,6 +92,23 @@ enum ReportInsert {
             replacement: before + block + after,
             selection: NSRange(location: start + prefix + selectionInBlock.location,
                                length: selectionInBlock.length))
+    }
+
+    /// The end of `location`'s line (before its line break) when that line
+    /// reads as a figure line (`ManuscriptBlocks.parse`) and `location` is
+    /// inside it — past its first character, before its end — and the line is
+    /// not code (`FigureLineSeparation.isInCode`, a fence or an indent); nil otherwise
+    /// (at either edge the placement already keeps the line whole).
+    static func endOfFigureLine(containing location: Int, in ns: NSString) -> Int? {
+        let line = ns.lineRange(for: NSRange(location: location, length: 0))
+        let end = contentEnd(ofLine: line, in: ns)
+        let raw = ns.substring(with: NSRange(location: line.location, length: end - line.location))
+        let lead = (String(raw.prefix { $0 == " " || $0 == "\t" }) as NSString).length
+        guard location > line.location + lead, location < end,
+              !FigureLineSeparation.isInCode(lineAt: location, in: ns) else { return nil }
+        let content = raw.trimmingCharacters(in: .whitespaces)
+        guard case .figure? = ManuscriptBlocks.parse(content).first?.block else { return nil }
+        return end
     }
 
     /// `block` in place of the whole lines `range` (Convert to Table Figure: a

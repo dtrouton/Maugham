@@ -23,7 +23,7 @@ final class DurableProgress: @unchecked Sendable {
     }
 }
 
-public struct CompileOrchestrator {
+public struct PublishOrchestrator {
 
     public enum Outcome: Sendable {
         case completed(Publication, warnings: [TectonicLogParser.Diagnostic])

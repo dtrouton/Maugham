@@ -2,10 +2,11 @@ import AppKit
 import Observation
 import MaughamCore
 
-/// **One visit to a table figure's grid** (report plan 7c Task 5): the figure
-/// host, the pure `FigureGridModel` (selection, edit state, keys), the
-/// `FigureGridValues` holder (computed values and cached strings), the
-/// `FigureGridView` and its `FigureGridBars`.
+/// **One visit to a table figure's grid** (report plan 7c Task 5): the
+/// host (`FigureGridHost` — a figure's `FigureDocument`), the pure
+/// `FigureGridModel` (selection, edit state, keys), the `FigureGridValues`
+/// holder (computed values and cached strings), the `FigureGridView` and its
+/// `FigureGridBars`.
 ///
 /// - **The only grid file that calls a figure mutator** (tripwire 52 counts
 ///   this file's calls in `manuscriptWriterCallSites`): a cell through
@@ -69,7 +70,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         var commitCaption: @MainActor (String) -> Bool
     }
 
-    let host: FigureDocument
+    let host: any FigureGridHost
     let gridView: FigureGridView
     let bars = FigureGridBars()
     var figureId: String { host.figureId }
@@ -103,13 +104,17 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private let menuTarget = FigureTableMenuTarget()
 
     /// ⤢ was pressed (plan 7d Task 9); nil where the grid cannot open in a
-    /// window, which hides the button.
+    /// window, which hides the button — as does a host that offers no window
+    /// (`FigureGridOffers.openInWindow`).
     var onOpenInWindow: (() -> Void)? {
-        didSet { bars.openInWindow.isHidden = onOpenInWindow == nil }
+        didSet { bars.openInWindow.isHidden = onOpenInWindow == nil || !host.offers.openInWindow }
     }
     /// Send to Research was chosen: the frame folds the grid (forced) before
     /// the send is asked (R7d-7).
     var onSendToResearch: (() -> Void)?
+    /// That send was refused (after `onSendToResearch` folded the grid): the
+    /// frame that let the figure go may take it again.
+    var onSendRefused: (() -> Void)?
     /// Esc with nothing to cancel folds the grid — in place. A figure
     /// window sets this false: there Esc does nothing (Done or ⌘W closes it).
     var foldsOnEscape = true
@@ -166,14 +171,35 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         return controller
     }
 
-    private init(host: FigureDocument, store: DocumentStore, projectStore: ProjectStore,
-                 typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line) {
+    /// **Open a visit on a Research table** (report plan 8b Task 7): its host
+    /// already open (`ResearchTableHost.open`), no figure line — the bottom
+    /// bar names the table (`title`) and offers no caption or name — and the
+    /// values seeded from the whole book once, as a figure's are.
+    static func open(
+        researchTable host: ResearchTableHost, title: String, store: DocumentStore,
+        projectStore: ProjectStore, typography: TypographySettings
+    ) async throws -> FigureGridController {
+        let context = try await store.tableImportContext()
+        let controller = FigureGridController(
+            host: host, store: store, projectStore: projectStore, typography: typography,
+            locale: context.locale, names: context.names,
+            line: Line(number: title, caption: "", commitCaption: { _ in false }), name: "")
+        let repaint = try await controller.values.reseed()
+        controller.gridView.repaint(repaint)
+        return controller
+    }
+
+    /// `name` is the figure's record name; nil asks the registry for it.
+    private init(host: any FigureGridHost, store: DocumentStore, projectStore: ProjectStore,
+                 typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line,
+                 name: String? = nil) {
         self.host = host
         self.store = store
         self.projectStore = projectStore
         self.names = names
         self.line = line
-        name = projectStore.manifest.figures?.first { $0.id == host.figureId }?.name ?? ""
+        let recordName = projectStore.manifest.figures?.first(where: { $0.id == host.figureId })?.name
+        self.name = name ?? recordName ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
         gridView = FigureGridView(typography: typography)
         // A placeholder first, so the real model's closure may capture `self`.
@@ -183,7 +209,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         gridView.delegate = self
         bars.delegate = self
         menuTarget.onCommand = { [weak self] in self?.performTableCommand($0) }
-        bars.showLine(number: line.number, caption: line.caption, name: name)
+        bars.showLine(number: line.number, caption: line.caption, name: self.name)
+        // The bottom bar's figure fields, only where the host offers them.
+        bars.nameField.isHidden = !host.offers.nameField
+        bars.captionField.isHidden = !host.offers.caption
         refreshBars()
         observeHost()
         observeTheDoor()
@@ -221,6 +250,18 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         } else {
             execute(model.fold(commit: true))
         }
+    }
+
+    /// **What is typed, committed where it is** — the grid stays open (⌘S,
+    /// ⌘Q and a verb about to read a Research table's file settle it,
+    /// `ResearchTableHost.settle`): the bottom bar's fields, then an open
+    /// cell edit that reads; one that will not stays open with its error.
+    func commitWhatIsTyped() {
+        syncFromHost()
+        guard !isClosed, !isFolded else { return }
+        commitPendingFields()
+        guard mode.readOnlyReason == nil else { return }
+        _ = commitOpenEdit()
     }
 
     /// **The open edit, when committing it would be refused**: a formula
@@ -532,7 +573,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             commitPendingFields()
             execute(model.fold(commit: true))
         case .openInWindow:
-            onOpenInWindow?()
+            if host.offers.openInWindow { onOpenInWindow?() }
         }
         return true
     }
@@ -550,7 +591,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         // The keys stay the grid's, so the fold hands them to the text.
         if fieldHadKeys { gridView.window?.makeFirstResponder(gridView) }
         if let caption = pending.caption {
-            if captionMayEdit, line.commitCaption(caption) {
+            if captionMayEdit, host.offers.caption, line.commitCaption(caption) {
                 line.caption = FigureIngest.keptCaption(caption)
             } else {
                 MaughamEvent.postNotice("Couldn't write the caption “\(caption)” to the figure line.",
@@ -622,8 +663,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// first — forced, so an open edit that reads is committed and one that
     /// will not is said — then the park is asked in turn behind every write
     /// before it, so what the writer typed goes with the figure. Not
-    /// undoable (ruling P-8; the fold registers no step); a refusal is said.
+    /// undoable (ruling P-8; the fold registers no step); a refusal is said
+    /// and told (`onSendRefused`).
     private func sendFigureToResearch(_ destination: FigureResearchDestination) {
+        guard host.offers.sendToResearch else { return }
         let scope: ResearchScope
         switch destination {
         case .piece:
@@ -633,9 +676,12 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             scope = .shared
         }
         onSendToResearch?()
-        enqueue { [projectStore, figureId] in
+        enqueue { [weak self, projectStore, figureId] in
             guard let projectStore else { return }
-            _ = try await projectStore.sendToResearch(figureId: figureId, scope: scope)
+            do { _ = try await projectStore.sendToResearch(figureId: figureId, scope: scope) } catch {
+                self?.onSendRefused?()   // the figure stays: the frame may take it again
+                throw error
+            }
         }
     }
 
@@ -658,7 +704,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The menu state over the table, the selection and the gate; told only on a change.
     private func refreshMenuState() {
         let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode,
-                                           knowsItsPiece: researchPiece != nil)
+                                           knowsItsPiece: researchPiece != nil,
+                                           maySend: host.offers.sendToResearch)
         guard next != menuState else { return }
         menuState = next
         onMenuStateChange?(next)
@@ -789,7 +836,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// between the plan and the write (another device, an undo's last hop).
     /// `plan` answers nil to write nothing (it has said why).
     static func applyPlanned(
-        on host: FigureDocument, actionName: String, undoManager: UndoManager?,
+        on host: any FigureGridHost, actionName: String, undoManager: UndoManager?,
         plan: (FigureState) -> [FigureReturnDiff.Change]?
     ) async throws {
         for attempt in 0..<2 {
@@ -1194,7 +1241,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             answer(reason)
             return nil
         }
-        guard !isFolded, commitOpenEdit() else { return nil }
+        guard host.offers.refreshPins, !isFolded, commitOpenEdit() else { return nil }
         enqueue { [host, gridUndo] in try await host.refreshPins(undoManager: gridUndo) }
         return writes
     }
@@ -1296,7 +1343,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The caption is the figure line's text: Route A through the coordinator.
     /// Refused (the membrane, a line gone), the field shows the caption again.
     private func commitCaption(_ caption: String) {
-        if line.commitCaption(caption) { line.caption = FigureIngest.keptCaption(caption) }
+        if host.offers.caption, line.commitCaption(caption) { line.caption = FigureIngest.keptCaption(caption) }
         bars.showLine(number: line.number, caption: line.caption, name: name)
         bars.captionField.stringValue = line.caption
     }
@@ -1304,6 +1351,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The name through `ProjectStore.renameFigure` (every door it asks, the
     /// line relabelled). Refused, the refusal is said and the field put back.
     private func commitName(_ newName: String) {
+        guard host.offers.rename else {
+            bars.nameField.stringValue = name
+            return
+        }
         enqueue { [weak self, projectStore, figureId] in
             guard let projectStore else { return }
             do {
@@ -1353,7 +1404,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// Anyway* lifts a yield, neither of which need move a card. Re-armed
     /// after each change; the gate is asked on the next turn.
     private func observeTheDoor() {
-        guard !isClosed, let store else { return }
+        guard !isClosed, host.asksTheFigureDoor, let store else { return }
         let figureId = figureId
         withObservationTracking {
             _ = store.posture(forDocId: figureId).allows(.editFigure)

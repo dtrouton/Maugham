@@ -591,6 +591,10 @@ final class FigureWindowGrid {
         controller.onFold = close   // Done
         controller.bars.doneButton.isHidden = !(frame?.offersDone ?? true)
         controller.onSendToResearch = close   // the window goes first (R7d-7)
+        // Refused: a centre folded for it takes the figure again (a window stays closed).
+        controller.onSendRefused = { [weak windows = self.windows, figureId = controller.figureId] in
+            windows?.sendRefused(figureId)
+        }
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
         controller.onMenuStateChange = { [weak self] _ in self?.showPresence() }
         if let line { controller.refreshLine(number: line.number, caption: line.caption) }

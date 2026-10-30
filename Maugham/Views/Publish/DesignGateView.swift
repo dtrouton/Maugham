@@ -574,17 +574,25 @@ struct DesignGateView: View {
         onConfirmationChanged(nil)
     }
 
+    /// **A verb's outcome, windowless** (tripwire 33, #120) — what `run`
+    /// awaits, and what the writer's yes on a confirmation reaches. `nil` for
+    /// Request Changes, which `perform` answers before anything runs.
+    static func outcome(of verb: DesignGate.Verb, on proposal: DesignProposalStore.Proposal,
+                        actions: DesignGateActions) async -> DesignGateOutcome? {
+        switch verb {
+        case .approve: return await actions.approve(proposal)
+        case .revert: return await actions.revert(proposal)
+        case .finalize: return await actions.finalize(proposal)
+        case .requestChanges: return nil
+        }
+    }
+
     /// One of the three verbs that moves the publish tree, run for real.
     private func run(_ verb: DesignGate.Verb) {
         working = true
         Task { @MainActor in
-            let outcome: DesignGateOutcome
-            switch verb {
-            case .approve: outcome = await actions.approve(proposal)
-            case .revert: outcome = await actions.revert(proposal)
-            case .finalize: outcome = await actions.finalize(proposal)
-            case .requestChanges: return   // answered above
-            }
+            guard let outcome = await Self.outcome(of: verb, on: proposal, actions: actions)
+            else { return }   // Request Changes: answered above
             working = false
             switch outcome {
             case .done(let updated, let sentence):

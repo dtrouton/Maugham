@@ -203,6 +203,18 @@ public final class DocumentStore {
     /// document* resolves none (report plan 6b Task 6 review M-2).
     var figureTrustResolutions = 0
 
+    /// Each snapshot source file's hash, keyed by its path and kept while its
+    /// size and modification date hold (`snapshotSourcesChanged`): a card
+    /// fill re-hashes only a file that moved. Rebuilt each pass, so a source
+    /// no figure names any more is forgotten. Accepted limit: a different
+    /// file of the same size copied over it keeping the modification date
+    /// (`cp -p`, `rsync -t`) reads as unchanged.
+    @ObservationIgnored var snapshotSourceHashes: [String: SnapshotSourceHash] = [:]
+
+    /// How many snapshot source files were hashed in full; a test counts it
+    /// to prove an unchanged file is never hashed again.
+    @ObservationIgnored var snapshotSourceHashings = 0
+
     var _figureChangeScheduler: DebounceScheduler<Int>?
 
     /// **Every window's figure cards** (report plan 7a Task 3; final review
@@ -213,6 +225,15 @@ public final class DocumentStore {
     /// (`invalidateFigureCards`). Weak: the store never keeps a host's cache
     /// alive, and one window closing leaves the others refreshing.
     @ObservationIgnored let figureCardCaches = NSHashTable<FigureCardCache>.weakObjects()
+
+    /// **Every Research table open in a grid, one host per item** (report
+    /// plan 8b Task 7; `openResearchTable`): every grid on an item edits the
+    /// same table. `flushPendingSave` settles each, so ⌘S, the typed mover's
+    /// pre-move flush and the store's close reach it as they reach a note's.
+    @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
+    @ObservationIgnored private var researchTableUses: [String: Int] = [:]
+    @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
+    @ObservationIgnored private var researchTableClosings: [String: Task<Void, Never>] = [:]
 
     /// **Some figure's state may have moved** — bumped by every figure
     /// trigger that refills the cards (`invalidateFigureCards`: an open host's
@@ -698,7 +719,7 @@ public final class DocumentStore {
         // Flush an in-progress session first so it lands in sessions.json
         // before the presenter is removed and writes become uncoordinated.
         await flushSessionOnQuit()
-        try? await flushPendingSave()
+        try? await flushPendingSave(commitOpenEdits: true)
         await uiStateScheduler.flush()
         // Drain the document registry (zombie-window teardown, load-bearing
         // half): `_openDocuments` is a STRONG `[path: Document]` map. It rides
@@ -808,10 +829,98 @@ public final class DocumentStore {
         fileSaveScheduler.schedule(FileSavePayload(path: path, text: text))
     }
 
-    /// Flush any pending `scheduleFileSave` immediately.
-    public func flushPendingSave() async throws {
+    /// Flush any pending `scheduleFileSave` immediately — and every open
+    /// Research table's pending save (`researchTables`). `commitOpenEdits`
+    /// also commits a cell being typed in a Research grid: the writer's own
+    /// verbs only (⌘S, the store's close at a window's close and ⌘Q); a
+    /// background flush leaves it open (`ResearchTableHost.settle`). The
+    /// typed mover flushes without it: a grid's open edit saves later to
+    /// wherever the item then is (its path is asked at the save).
+    public func flushPendingSave(commitOpenEdits: Bool = false) async throws {
+        for table in Array(researchTables.values) { await table.settle(commitOpenEdits: commitOpenEdits) }
+        for closing in Array(researchTableClosings.values) { await closing.value }
         guard let fileSaveScheduler else { return }
         await fileSaveScheduler.flush()
+    }
+
+    /// **Research item `itemId`'s table, for a grid** — the one this store
+    /// holds open, or read now (after a host still closing on it has written
+    /// its last save). Each call is one use; `releaseResearchTable` gives it
+    /// back. Throws what the read throws (`ResearchTableHost.load`).
+    func openResearchTable(itemId: String) async throws -> ResearchTableHost {
+        if let closing = researchTableClosings[itemId] { await closing.value }
+        if let host = researchTables[itemId], !host.isClosed {
+            researchTableUses[itemId, default: 0] += 1
+            return host
+        }
+        let opening = researchTableOpenings[itemId] ?? Task { @MainActor in
+            try await ResearchTableHost.load(itemId: itemId, store: self)
+        }
+        researchTableOpenings[itemId] = opening
+        let host: ResearchTableHost
+        do {
+            host = try await opening.value
+        } catch {
+            researchTableOpenings[itemId] = nil
+            throw error
+        }
+        researchTableOpenings[itemId] = nil
+        if researchTables[itemId] == nil { researchTables[itemId] = host }
+        researchTableUses[itemId, default: 0] += 1
+        return host
+    }
+
+    /// One use of a Research table given back; the last closes it — its last
+    /// save written before another grid may read the file again.
+    func releaseResearchTable(_ host: ResearchTableHost) async {
+        let id = host.itemId
+        guard researchTables[id] === host else { return }
+        let uses = (researchTableUses[id] ?? 1) - 1
+        guard uses <= 0 else {
+            researchTableUses[id] = uses
+            return
+        }
+        researchTableUses[id] = nil
+        researchTables[id] = nil
+        let closing = Task { @MainActor in await host.close() }
+        researchTableClosings[id] = closing
+        await closing.value
+        if researchTableClosings[id] == closing { researchTableClosings[id] = nil }
+    }
+
+    /// **Research item `itemId`'s grid, settled** — its open edit committed and
+    /// its pending save written — before a verb reads the file (*Use in
+    /// Document*, *Bring Back to Figures*).
+    func settleResearchTable(itemId: String) async {
+        await researchTables[itemId]?.settle(commitOpenEdits: true)
+        await researchTableClosings[itemId]?.value
+    }
+
+    /// **A Research table open in a grid at or under `relativePath`, about to
+    /// go to the Trash, commits its open cell and writes** — the delete is the
+    /// writer's own verb, so the trashed copy holds what was typed (task 7
+    /// re-review R2-1). Only those tables: the mover's own flush leaves every
+    /// other grid's open cell alone.
+    private func settleResearchTablesBeingTrashed(at relativePath: String) async {
+        guard !researchTables.isEmpty, let research = projectStore?.manifest.research else { return }
+        let trashed = relativePath.lowercased()
+        for (id, host) in Array(researchTables) {
+            guard let path = TreeWalk.find(id: id, in: research)?.path?.lowercased(),
+                  path == trashed || path.hasPrefix(trashed + "/") else { continue }
+            await host.settle(commitOpenEdits: true)
+        }
+    }
+
+    /// **A file under the project changed on disk**: a Research table open in
+    /// a grid on it is asked whether to read it again
+    /// (`ResearchTableHost.fileMayHaveChanged`).
+    func researchFileMayHaveChanged(at relativePath: String) {
+        guard !researchTables.isEmpty, let research = projectStore?.manifest.research else { return }
+        for (id, host) in researchTables {
+            guard let path = TreeWalk.find(id: id, in: research)?.path,
+                  path.lowercased() == relativePath.lowercased() else { continue }
+            Task { @MainActor in await host.fileMayHaveChanged() }
+        }
     }
 
     /// A synced project-relative path as a URL inside this project, or
@@ -1390,6 +1499,7 @@ public final class DocumentStore {
         displayTitle: String,
         subject: TrashSubject
     ) async throws -> TrashEntry {
+        await settleResearchTablesBeingTrashed(at: relativePath)
         await closeFlushAndUnregister(affectedPaths: [relativePath])
         return try await trashStore.moveToTrash(
             fileRelativePath: relativePath,
@@ -2076,7 +2186,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // outside `.maugham/`. The registry's path-keyed lookup is the
             // authoritative way to recognize a manuscript here — anything
             // not registered is research, binder metadata, or user-dropped
-            // files we don't react to via the presenter.
+            // files. A Research table open in a grid is told (report plan 8b
+            // Task 7: an outside change is read again, never overwritten).
+            researchFileMayHaveChanged(at: relativePath)
             guard let doc = document(for: relativePath) else { return }
             let projectRoot = projectURL
             Task { @MainActor in

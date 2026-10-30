@@ -149,9 +149,9 @@ extension ProjectStore {
     ///    when this Mac may not make a figure in `piece`.
     /// 2. A format the outputs can't show (HEIC, TIFF…) is re-encoded as PNG
     ///    (`FigureIngest.copyableFile`), off the main thread.
-    /// 3. **The file is claimed under `figures/`**: its name is
-    ///    `FigureIngest.figureName` of `name` (or the file's stem) — always a
-    ///    valid label name — made vacant against the registry, every file
+    /// 3. **The file is claimed under `figures/`**: its name is `name` when
+    ///    that is a label name, else `FigureIngest.figureName` of `name` (or
+    ///    the file's stem) — always a valid label name — made vacant against the registry, every file
     ///    already in `figures/` whatever its extension, and `avoiding` (the
     ///    `fig:` names the text already uses), with `_2`, `_3`… The copy is
     ///    `DocumentStore.executeCopy`, which never overwrites: a name another
@@ -184,8 +184,9 @@ extension ProjectStore {
         let copyable = try await Task.detached { try FigureIngest.copyableFile(for: source) }.value
         defer { if copyable.isTemporary { FigureIngest.removeTemporary(copyable.url) } }
         let ext = copyable.url.pathExtension.lowercased()
-        let base = FigureIngest.figureName(
-            stem: name ?? source.deletingPathExtension().lastPathComponent)
+        // A label name given (*Use in document*'s) is kept as it is; anything
+        // else is folded to one.
+        let base = Self.labelSafeFigureName(name, title: source.deletingPathExtension().lastPathComponent)
         let folder = url.appendingPathComponent(Self.figuresFolder, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let takenLower = Set(taken.map { $0.lowercased() })

@@ -606,13 +606,7 @@ final class SetAsideDoorTests: XCTestCase {
     /// gets a `.task(id:)` of its own, keyed on the holders, so a provenance
     /// that arrives late is followed rather than waited out.
     func test_theHeldRowsAreComposedFromTheLiveProvenanceAndNames() throws {
-        let source = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Maugham/Views/HistoryPane.swift"),
-            encoding: .utf8)
+        let source = try HistoryPaneSource.surfaceSource()
 
         XCTAssertTrue(source.contains("ForEach(heldRows) { row in"),
                       "the pane draws the computed rows")
@@ -623,7 +617,7 @@ final class SetAsideDoorTests: XCTestCase {
             source.contains("names: chainDeviceNames, words: heldWordCounts,"),
             "…and the live names, with only the disk half stored")
         XCTAssertTrue(
-            source.contains(".task(id: heldHolderKey) { await reloadHeldWordCounts() }"),
+            source.contains(".task(id: heldHolderKey) { await verbs.reloadHeldWordCounts() }"),
             "…and the counts follow the holders")
         XCTAssertFalse(
             source.contains("@State private var heldLineRows"),
@@ -756,21 +750,18 @@ final class SetAsideDoorTests: XCTestCase {
     // MARK: - Drawn, never pressed (tripwire 33)
 
     func test_theDisclosureDrawsTheDoorAndTheHistoryPanePressesIt() throws {
-        let source = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()      // Views
-                .deletingLastPathComponent()      // MaughamTests
-                .deletingLastPathComponent()      // repo root
-                .appendingPathComponent("Maugham/Views/HistoryPane.swift"),
-            encoding: .utf8)
+        let source = try HistoryPaneSource.surfaceSource()
 
         XCTAssertTrue(source.contains("Button(\"Send to Inbox\") { onSend(row) }"),
                       "the control is drawn")
         XCTAssertTrue(source.contains("if row.offersTheDoor {"),
                       "…and only where the model says there is a door")
         XCTAssertTrue(
-            source.contains("SetAsideRecordsDisclosure(\n                        rows: setAsideRows, onSend: sendSetAsideToInbox)"),
+            source.contains("SetAsideRecordsDisclosure(\n                    rows: setAsideRows, onSend: sendSetAsideToInbox)"),
             "…and the press reaches the pane's one verb")
+        XCTAssertTrue(
+            source.contains("sendSetAsideToInbox: verbs.sendSetAsideToInbox)"),
+            "…which the pane hands its notices under the verb's own name")
         XCTAssertTrue(
             source.contains("documentStore.recordRecoveredCapturesSent("),
             "…which remembers the captures it made, so a re-press files only "

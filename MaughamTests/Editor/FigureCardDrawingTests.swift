@@ -112,6 +112,11 @@ final class FigureCardDrawingTests: XCTestCase {
         XCTAssertFalse(banner.rect.intersects(try XCTUnwrap(p.more).rect), "nor the more line")
         XCTAssertFalse(banner.rect.intersects(try XCTUnwrap(p.corner)), "nor the corner")
         XCTAssertGreaterThanOrEqual(p.card.width, 200, "the card holds its banner's words")
+
+        // A snapshot whose source moved on says the same (report plan 8b Task 1).
+        model = table(rows: 1); model.fromResearchSource = true; model.sourceChanged = true
+        p = try XCTUnwrap(plan(model))
+        XCTAssertEqual(try XCTUnwrap(p.banner).string, "Research has changed")
     }
 
     /// The card is painted inside the room the layout holds now: a card taller

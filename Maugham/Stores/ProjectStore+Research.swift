@@ -221,6 +221,110 @@ extension ProjectStore {
         return item
     }
 
+    // MARK: - New Table (report plan 8b Task 8, D8b-2)
+
+    /// **A blank Research table in `parentId`'s group** (nil: the shared
+    /// root) — `createResearchTable(scope:)`'s shared arm, and the tree's
+    /// *New Table* inside a group. See `writeBlankResearchTable`.
+    @discardableResult
+    public func addResearchTable(
+        parentId: String?, title: String = "Untitled Table"
+    ) async throws -> ResearchItem {
+        try await writeBlankResearchTable(
+            in: researchParentPath(parentId: parentId), parentId: parentId, title: title)
+    }
+
+    /// A blank table in a Collection piece's own research folder —
+    /// `createResearchTable(scope:)`'s piece arm.
+    @discardableResult
+    public func addPieceResearchTable(
+        pieceId: String, title: String = "Untitled Table"
+    ) async throws -> ResearchItem {
+        let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
+        return try await writeBlankResearchTable(in: researchFolder, parentId: nil, title: title)
+    }
+
+    /// A new blank table's rows and columns: a header row and three body
+    /// rows, three columns (D8b-2).
+    nonisolated static let blankResearchTableShape = (rows: 4, columns: 3)
+
+    /// **The new table's file and sidecar.** Titled `title`, or `title 2`,
+    /// `title 3`… — the first no other Research table (any folder, folded as
+    /// a `research:` name folds) and no sibling answers to. Its CSV is three
+    /// empty columns by four empty rows (`TableCSV.renderResearch`), written
+    /// as a NEW file through the window's coordinated copy, which refuses an
+    /// existing file, at a path checked for change (tripwire 58); its sidecar
+    /// marks one header row for exactly those bytes.
+    private func writeBlankResearchTable(
+        in folder: String, parentId: String?, title: String
+    ) async throws -> ResearchItem {
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "Untitled Table" : trimmed
+        let siblings = parentId.flatMap { findResearchItem(id: $0, in: manifest.research)?.children }
+            ?? manifest.research
+        var taken = Set(siblings.map { $0.title.lowercased() })
+        taken.formUnion(TreeWalk.collect(in: manifest.research, where: {
+            $0.type == .asset && $0.kind == .table
+        }).map { $0.title.lowercased() })
+        var resolvedTitle = base
+        var n = 2
+        while taken.contains(resolvedTitle.lowercased()) {
+            resolvedTitle = "\(base) \(n)"
+            n += 1
+        }
+
+        var blank = FigureTable(rows: Self.blankResearchTableShape.rows,
+                                columns: Self.blankResearchTableShape.columns)
+        blank.headerRows = 1
+        let data = Data(TableCSV.renderResearch(
+            blank, locale: TableLocale(languageTag: nil), names: .empty).utf8)
+
+        let folderURL = try resolvedProjectPathToChange(folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        let existing = (try? FileManager.default.contentsOfDirectory(atPath: folderURL.path)) ?? []
+        let filename = Self.researchDedupedFilename(
+            "\(Slugifier.slug(from: resolvedTitle)).csv", existing: existing)
+        let relativePath = "\(folder)/\(filename)"
+        let target = try resolvedProjectPathToChange(relativePath)
+
+        let staging = try FigureIngest.makeTemporaryFolder()
+        let staged = staging.appendingPathComponent(filename) // local-path: a temporary folder minted here; the name is a slug
+        defer { FigureIngest.removeTemporary(staged) }
+        try data.write(to: staged)
+        try Self.beforeNewTableCopyForTesting?(target)
+        try await documentStore.executeCopy(from: staged, to: target)
+
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res"), title: resolvedTitle, type: .asset, kind: .table,
+            path: relativePath, addedAt: Date())
+        do {
+            try ResearchTableSidecar.write(
+                ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1),
+                forItem: item.id, in: url)
+            appendResearchItem(item, to: parentId)
+            manifest.modified = Date()
+            try await saveManifest()
+        } catch {
+            // Nothing the writer saw: the file, its sidecar and its row go
+            // back out, so no orphan CSV is left for the next one to dodge.
+            removeResearchItem(id: item.id)
+            try? FileManager.default.removeItem(at: target) // raw-delete: the blank CSV this verb copied in moments ago, never listed
+            if let sidecar = try? ResearchTableSidecar.fileURL(forItem: item.id, in: url) {
+                try? FileManager.default.removeItem(at: sidecar) // raw-delete: derived sidecar under .maugham/research-tables/
+            }
+            throw error
+        }
+        return item
+    }
+
+    /// Test seam: runs in New Table before the copy, handed its target —
+    /// where a test plants a file the folder listing missed. Nil in production.
+    static var beforeNewTableCopyForTesting: ((URL) throws -> Void)?
+
     // MARK: - Research helpers
 
     /// Throws `.researchNameReserved` when a group titled `title` under

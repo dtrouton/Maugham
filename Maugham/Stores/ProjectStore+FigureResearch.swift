@@ -57,16 +57,24 @@ extension ProjectStore {
     ///    header and total rows, formats and widths on.
     /// 3. **A picture or PDF** takes `createImageFigure`'s path; no workbook is
     ///    built.
-    /// 4. Either way the figure is named from the item's title, de-duplicated
-    ///    (`vacantFigureName`), behind the door a new figure asks of `piece`,
-    ///    and its `figureCreate` records the source: the item's id, path and
-    ///    the content hash of the bytes copied (`FigureSource`).
+    /// 4. Either way the figure is named `name` when that is a label name
+    ///    (`ManuscriptLabel.isValidName` — *Move into Figures* keeps its
+    ///    line's), else `FigureIngest.figureName` of `name` or the item's
+    ///    title (`Q3 revenue (draft)` → `q3-revenue-draft`), so its line's
+    ///    `{#tbl:…}`/`{#fig:…}` label is the record's name; de-duplicated
+    ///    (`vacantFigureName`: `_2`, `_3`…), behind the door a new figure asks
+    ///    of `piece`, and its `figureCreate` records the source: the item's
+    ///    id, path and the content hash of the bytes copied (`FigureSource`).
+    ///    `avoiding` adds names it must not take: the labels the book's text
+    ///    already defines, so the line Insert gives it is not a duplicate.
     ///
     /// Throws `UseInDocumentRefused` for an item that is not a Research table,
     /// picture or PDF, has no file, or is too large. Needs the window's
     /// `DocumentStore`.
     @discardableResult
-    public func useInDocument(researchItemId: String, piece: String?) async throws -> UseInDocumentResult {
+    public func useInDocument(
+        researchItemId: String, piece: String?, name: String? = nil, avoiding: Set<String> = []
+    ) async throws -> UseInDocumentResult {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
@@ -74,17 +82,13 @@ extension ProjectStore {
               item.type == .asset else {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
+        // A grid open on the table writes what it holds first (report plan 8b Task 7).
+        await documentStore.settleResearchTable(itemId: item.id)
         let sidecar = researchTableSidecar(of: item)
-        if let figureId = sidecar?.figureId, try await documentStore.figureIsParked(figureId) {
-            // Final review M-5 (Denver's ruling): whoever may edit that figure
-            // brings it back; anyone else makes a new, independent figure from
-            // the copy's data below — the sidecar's figure id is not followed,
-            // and its formats apply only to the bytes they were written for.
-            let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
-            if !posture.isSettling, posture.allows(.editFigure) {
-                return try await bringBack(researchItemId: item.id, piece: piece)
-            }
+        if try await figureToBringBack(namedBy: sidecar, itemId: item.id, documentStore: documentStore) != nil {
+            return try await bringBack(researchItemId: item.id, piece: piece, name: name)
         }
+        let figureName = Self.labelSafeFigureName(name, title: item.title)
         switch item.kind {
         case .table?:
             let (path, file) = try researchFile(of: item)
@@ -100,9 +104,9 @@ extension ProjectStore {
                 read.table = sidecar.applied(to: read.table)
             }
             let record = try await createFigureStream(
-                kind: .table, table: read.table, name: item.title, piece: piece,
+                kind: .table, table: read.table, name: figureName, piece: piece,
                 source: FigureSource(researchItemId: item.id, path: path, contentHash: hash),
-                site: "useInDocument")
+                site: "useInDocument", avoiding: avoiding)
             for problem in read.problems {
                 projectStoreLog.info(
                     "useInDocument: \(item.title, privacy: .public) row \(problem.row + 1, privacy: .public), column \(problem.column + 1, privacy: .public) kept as text: \(problem.message, privacy: .public)")
@@ -112,12 +116,77 @@ extension ProjectStore {
             let (path, file) = try researchFile(of: item)
             let hash = try await Task.detached { try ContentHash.ofFile(file) }.value
             let record = try await createImageFigure(
-                fromURL: file, name: item.title, piece: piece,
+                fromURL: file, name: figureName, piece: piece, avoiding: avoiding,
                 from: FigureSource(researchItemId: item.id, path: path, contentHash: hash))
             return UseInDocumentResult(record: record, problems: [])
         case .document?, .audio?, .link?, nil:
             throw UseInDocumentRefused(reason: .notAFigure(item.title))
         }
+    }
+
+    /// **The parked figure a Research item brings back**, by id, or nil when
+    /// *Use in document* on it makes a new figure: the item's sidecar names a
+    /// figure the registry lists, parked from THIS item, which this Mac may edit (final
+    /// review M-5, Denver's ruling — anyone else makes a new, independent
+    /// figure from the copy's data; the sidecar's figure id is not followed,
+    /// and its formats apply only to the bytes they were written for). The
+    /// one answer `useInDocument` routes by and a Research row's menu and
+    /// inspector read to say *Bring Back to Figures* (report plan 8b Task 4).
+    /// Throws when the figure's stream or the registry will not read.
+    func figureToBringBack(fromResearchItemId researchItemId: String) async throws -> String? {
+        guard let documentStore,
+              let item = findResearchItem(id: researchItemId, in: manifest.research),
+              item.type == .asset else { return nil }
+        return try await figureToBringBack(
+            namedBy: researchTableSidecar(of: item), itemId: item.id, documentStore: documentStore)
+    }
+
+    /// `figureToBringBack(fromResearchItemId:)` for every Research picture,
+    /// table and PDF, by item id — what the window's tree
+    /// caches for its menus (`BinderTreeSectionsState.figureReturns`). An
+    /// item whose figure will not read is left out (it says *Use in
+    /// Document*; the verb itself asks again and says why).
+    func figuresToBringBack() async -> [String: String] {
+        guard let documentStore else { return [:] }
+        let ids = TreeWalk.collect(in: manifest.research) {
+            $0.type == .asset && [.table, .image, .pdf].contains($0.kind)
+        }.map(\.id)
+        // The sidecars are read off the main actor, once each; one that will
+        // not read is passed over quietly (the verb itself logs and says).
+        let projectURL = url
+        let named = await Task.detached {
+            ids.reduce(into: [String: ResearchTableSidecar]()) { out, id in
+                if let sidecar = try? ResearchTableSidecar.read(forItem: id, in: projectURL) { out[id] = sidecar }
+            }
+        }.value
+        var out: [String: String] = [:]
+        for (id, sidecar) in named {
+            guard let figureId = try? await figureToBringBack(namedBy: sidecar, itemId: id, documentStore: documentStore)
+            else { continue }
+            out[id] = figureId
+        }
+        return out
+    }
+
+    /// Only the copy the park names (`FigureParking.itemId`): an older copy of
+    /// a figure sent again since makes a new figure (final review M2).
+    private func figureToBringBack(
+        namedBy sidecar: ResearchTableSidecar?, itemId: String, documentStore: DocumentStore
+    ) async throws -> String? {
+        guard let figureId = sidecar?.figureId,
+              try await documentStore.figureParkedItemId(figureId) == itemId else { return nil }
+        let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
+        return !posture.isSettling && posture.allows(.editFigure) ? figureId : nil
+    }
+
+    /// **The piece whose Research holds an item** — a Collection piece's own
+    /// research folder (`researchScopePieceId` of the item's root path) —
+    /// else nil, shared Research. A figure made from the item belongs to it
+    /// (report plan 8b Task 4). With nil the figure is the whole book's
+    /// (`FigureRecord.piece`): placing its line does not change that, and its
+    /// door is the whole-book authors'.
+    func researchHomePiece(ofItemId id: String) -> String? {
+        researchScopePieceId(ofPath: Self.researchRootPath(ofItemId: id, in: manifest.research))
     }
 
     // MARK: - Coming back (report plan 6b Task 8, spec §4.2, ruling P-7)
@@ -127,7 +196,8 @@ extension ProjectStore {
     /// the copy's changes replaced. `useInDocument` routes here when the
     /// item's sidecar names a parked figure. The figure keeps its record —
     /// name, piece, path — so every reference to it reconnects with no op;
-    /// `piece` is not asked. The working copy stays in Research.
+    /// neither `piece` nor `name` is asked (a name the caller would give a
+    /// new figure is not this one's). The working copy stays in Research.
     ///
     /// 1. **Only the parked copy**: the item's sidecar names the figure, the
     ///    registry lists it, it is parked, and its park names THIS item
@@ -150,7 +220,9 @@ extension ProjectStore {
     ///
     /// Needs the window's `DocumentStore`.
     @discardableResult
-    public func bringBack(researchItemId: String, piece: String?) async throws -> UseInDocumentResult {
+    public func bringBack(
+        researchItemId: String, piece: String?, name: String? = nil
+    ) async throws -> UseInDocumentResult {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
@@ -158,6 +230,8 @@ extension ProjectStore {
               item.type == .asset else {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
+        // A grid open on the copy writes what it holds first (report plan 8b Task 7).
+        await documentStore.settleResearchTable(itemId: item.id)
         guard let figureId = researchTableSidecar(of: item)?.figureId,
               let record = manifest.figures?.first(where: { $0.id == figureId }) else {
             throw FigureReturnRefused(reason: .notAParkedCopy)
@@ -198,7 +272,13 @@ extension ProjectStore {
         switch record.kind {
         case .table:
             let (text, hash) = try await Task.detached { try Self.readResearchTable(file) }.value
-            guard hash != parked.hash else { return (none, nil, host.state) }
+            // Unchanged bytes come back as they were — unless the Research grid
+            // changed only what the sidecar holds (a header, a format, a width).
+            if hash == parked.hash {
+                guard let sidecar = researchTableSidecar(of: item), sidecar.contentHash == hash,
+                      Self.sidecarSettingsDiffer(sidecar, from: host.state.table)
+                else { return (none, nil, host.state) }
+            }
             let cells = TableCSV.nonEmptyCellCount(text)
             guard cells <= TableCSV.figureCellLimit else {
                 throw UseInDocumentRefused(reason: .tooLarge(cells: cells))
@@ -211,7 +291,12 @@ extension ProjectStore {
             // still renders to the park's bytes (two-way is exact), else the
             // stream as far as the parker had read.
             let sidecar = researchTableSidecar(of: item)
-            let namesAtPark = sidecar.map { names.renaming($0.formulaNames) }
+            // The sidecar's formats apply to the bytes it was written for: the
+            // park's, or — the Research grid having saved the copy — these
+            // (Denver's ruling, report plan 8b Task 7 review I4).
+            let atPark = sidecar?.contentHash == parked.hash
+            let sidecarFits = atPark || sidecar?.contentHash == hash
+            let namesAtPark = atPark ? sidecar.map { names.renaming($0.formulaNames) } : nil
             let base: FigureState
             let rendered = Self.researchHash(of: current.table, locale: locale, names: namesAtPark ?? names)
             if rendered != parked.hash, let frontier = parked.frontier {
@@ -222,8 +307,9 @@ extension ProjectStore {
             var used = Set(current.table.rowSlots.map(\.id.raw)).union(current.table.columnSlots.map(\.id.raw))
             let changes = FigureReturnDiff.changes(
                 from: base, onto: current, to: read.table,
-                sidecar: sidecar?.contentHash == parked.hash ? sidecar : nil,
-                names: names, namesAtPark: sidecar?.contentHash == parked.hash ? namesAtPark : nil,
+                sidecar: sidecarFits ? sidecar : nil,
+                sidecarPositions: atPark ? .parked : .copy,
+                names: names, namesAtPark: namesAtPark,
                 problems: read.problems,
                 mintRow: { let id = TableID.mint(excluding: used); used.insert(id); return RowID(id) },
                 mintColumn: { let id = TableID.mint(excluding: used); used.insert(id); return ColumnID(id) })
@@ -238,6 +324,24 @@ extension ProjectStore {
         case .unknown:
             throw FigureEditInvalid(reason: "this build cannot bring back a figure of this kind")
         }
+    }
+
+    /// Whether `sidecar`'s header, total row, formats or widths are not what
+    /// `table` would write — a working copy restyled in the Research grid
+    /// without a byte of its CSV changed.
+    nonisolated static func sidecarSettingsDiffer(_ sidecar: ResearchTableSidecar, from table: FigureTable) -> Bool {
+        let parked = ResearchTableSidecar(figureId: "", contentHash: "", name: "", caption: nil, table: table)
+        return sidecar.headerRows != parked.headerRows || sidecar.totalRow != parked.totalRow
+            || sidecar.formats != parked.formats || sidecar.columnWidths != parked.columnWidths
+    }
+
+    /// **The name a figure made from Research takes, before de-duplication**:
+    /// `name` as given when it is a label name (`ManuscriptLabel.isValidName`),
+    /// else `FigureIngest.figureName` of `name` or `title` — always a label
+    /// name, so the line's label can be the record's name.
+    nonisolated static func labelSafeFigureName(_ name: String?, title: String) -> String {
+        if let name, ManuscriptLabel.isValidName(name) { return name }
+        return FigureIngest.figureName(stem: name ?? title)
     }
 
     /// **Is `itemId` the copy of an EARLIER park than the current one?** — a
@@ -570,17 +674,59 @@ extension ProjectStore {
     }
 
     /// A Research table's text and the content hash of exactly the bytes
-    /// read. UTF-16 when it opens with a byte-order mark (Excel's "Unicode
-    /// text"), else UTF-8, else Windows Latin-1 (an older Excel's CSV).
+    /// read (`decodeResearchTable`; bytes no decoder reads are no text).
     nonisolated private static func readResearchTable(_ file: URL) throws -> (text: String, hash: String) {
         let data = try Data(contentsOf: file) // adr-0018-ok: a Research table's CSV, read once to make a figure; not manuscript
-        let hash = ContentHash.of(data)
+        return (decodeResearchTable(data) ?? "", ContentHash.of(data))
+    }
+
+    /// **A Research table's bytes as text** — the one decoder (the grid's
+    /// `ResearchTableHost` reads through it too): UTF-16 when it opens with a
+    /// byte-order mark (Excel's "Unicode text"), else UTF-8, else Windows
+    /// Latin-1 (an older Excel's CSV); nil when none reads it.
+    nonisolated static func decodeResearchTable(_ data: Data) -> String? {
         if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]),
            let text = String(data: data, encoding: .utf16) {
-            return (text, hash)
+            return text
         }
-        if let text = String(data: data, encoding: .utf8) { return (text, hash) }
-        return (String(data: data, encoding: .windowsCP1252) ?? "", hash)
+        if let text = String(data: data, encoding: .utf8) { return text }
+        return String(data: data, encoding: .windowsCP1252)
+    }
+
+    // MARK: - Move into Figures' line (report plan 8b Task 9, spec §4.4)
+
+    /// **Is the figure line still where it was listed?** — the retarget's
+    /// own site test (`figureLineRetargetEdits`) as a dry run on `piece`'s
+    /// current text (a window's live document, else its op log, tripwire 20):
+    /// the labels that text defines when the line starting on `lineIndex` is
+    /// still written `oldPath`; nil when it moved or changed, or the text will
+    /// not read. *Move into Figures* asks before it makes anything; the
+    /// retarget asks again as it writes.
+    func labelsIfFigureLineStands(piece docId: String, path: String, lineIndex: Int,
+                                  oldPath: String) -> Set<ManuscriptLabel>? {
+        guard let text = documentStore?.document(for: path)?.displayText
+                ?? (try? derivedCache.displayText(forDocId: docId, in: url)),
+              !Self.figureLineRetargetEdits(in: text, lineIndex: lineIndex, oldPath: oldPath,
+                                            newPath: oldPath).isEmpty
+        else { return nil }
+        return ReferenceIndex.PieceSummary(text: text).definedLabels
+    }
+
+    /// **Point one figure line in `piece` at a figure's file** — *Move into
+    /// Figures*' second step, after `useInDocument` made the figure: the
+    /// line starting on `lineIndex` whose path is written `oldPath` takes
+    /// `newPath` and, when given, `label` (`FigureTextChange.retargetLine`),
+    /// through the one-piece, door-checked hold. All or nothing; throws
+    /// `FigureLineRetargetRefused` with the text as it was.
+    func retargetFigureLine(piece: String, lineIndex: Int, oldPath: String, newPath: String,
+                            label: ManuscriptLabel?) async throws {
+        let held = try await holdManuscriptsForFigureText(
+            .retargetLine(piece: piece, lineIndex: lineIndex, oldPath: oldPath, newPath: newPath, label: label))
+        do { _ = try held.write() } catch {
+            await held.release()
+            throw error
+        }
+        await held.release()
     }
 }
 
@@ -673,6 +819,32 @@ public struct FigureReturnRefused: LocalizedError, Equatable {
         case .sentAgainSince(let kind):
             return (kind == .image ? "This picture" : "This table")
                 + " was sent to Research again since this copy was made; bring it back from its newer copy."
+        }
+    }
+}
+
+/// **A figure line that could not be pointed at its figure** (report plan 8b
+/// Task 1, *Move into Figures*): the text is as it was.
+public struct FigureLineRetargetRefused: LocalizedError, Equatable {
+    public enum Reason: Equatable {
+        /// The piece's text no longer holds that line as it was found.
+        case lineNotFound
+        /// The piece's text cannot be read.
+        case unreadable(String)
+        /// This Mac may not change the piece's text.
+        case pieceNotWritable(String)
+    }
+
+    public let reason: Reason
+
+    public var errorDescription: String? {
+        switch reason {
+        case .lineNotFound:
+            return "That figure line has changed since it was found, so it was left as it is."
+        case .unreadable(let title):
+            return "\(title) can't be read, so its figure line was left as it is."
+        case .pieceNotWritable(let title):
+            return "This Mac may not change the text of \(title), so its figure line was left as it is."
         }
     }
 }

@@ -569,7 +569,7 @@ final class DOCXCompilerTests: XCTestCase {
 
     // MARK: - through the door
 
-    private func orchestrator(_ fx: Fixture) async throws -> (CompileOrchestrator, PublishingStores) {
+    private func orchestrator(_ fx: Fixture) async throws -> (PublishOrchestrator, PublishingStores) {
         PublishingStores._resetForTesting()
         let stores = PublishingStores.sharedFor(projectID: ProjectIdentifier.id(for: fx.url), projectURL: fx.url)
         var cfg = try await stores.configStore.load() ?? PublishConfig()
@@ -577,7 +577,7 @@ final class DOCXCompilerTests: XCTestCase {
         cfg.metadata.author = "Tester"
         cfg.metadata.language = "en"
         try await stores.configStore.save(cfg)
-        let orchestrator = CompileOrchestrator(
+        let orchestrator = PublishOrchestrator(
             projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
             configStore: stores.configStore, publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore, jobManager: stores.jobManager,
@@ -597,7 +597,7 @@ final class DOCXCompilerTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = outcome else {
             return XCTFail("a Report with an unknown key must refuse: \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.publishProblemsLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt), excerpt)
         XCTAssertTrue(errors.contains { $0.message.contains("nobody") }, "\(errors.map(\.message))")
         let pubs = try await stores.publicationStore.load()
         XCTAssertEqual(pubs, [])

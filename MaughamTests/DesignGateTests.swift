@@ -1095,27 +1095,36 @@ final class DesignGateTests: XCTestCase {
                       + DesignGate.Verb.finalize.help)
     }
 
-    /// **Pressing Finalize reaches no promotion until the writer says yes** — on
-    /// the delivery path, pressed through the accessibility tree the way a click
-    /// presses it.
-    func test_pressingFinalizeReachesNoPromotionUntilTheWriterSaysYes() async throws {
+    /// **Pressing Finalize reaches no promotion until the writer says yes.**
+    /// Windowless (tripwire 33, #120): the gate draws Finalize, and what its
+    /// press does is `perform` — mint `DesignGate.confirmation` and return
+    /// before `run` (`WiringCensusTests`, `type:DesignGateView`). The
+    /// confirmation is minted here over the same verb `run` reaches, and the
+    /// promotion must not have run when it exists.
+    func test_finalizeAsksBeforeAnyPromotionRuns() async throws {
         let calls = Box(0)
-        let pending = Box<[DesignGateConfirmation?]>([])
         var actions = DesignGateActions()
         actions.finalize = { proposal in
             calls.value += 1
             return .done(proposal, sentence: DesignGate.finalizedConfirmation)
         }
-        let window = mountGate(Self.proposal(status: .approved), actions: actions,
-                               onConfirmationChanged: { pending.value.append($0) })
+        let proposal = Self.proposal(status: .approved)
+        let window = mountGate(proposal, actions: actions)
         _ = try await settling(in: window)
+        let published = try axButtonLabels(in: window).sorted()
+        XCTAssertEqual(try axButtons(labelled: DesignGate.Verb.finalize.accessibilityLabel,
+                                     in: window).count, 1,
+                       "one Finalize on the gate. Buttons: \(published)")
 
-        let confirmation = try await pressAwaitingConfirmation(
-            .finalize, in: window, pending: pending)
+        let confirmation = try XCTUnwrap(DesignGate.confirmation(
+            for: .finalize,
+            perform: { Task { _ = await DesignGateView.outcome(
+                of: .finalize, on: proposal, actions: actions) } },
+            cancel: { }))
 
         XCTAssertEqual(calls.value, 0,
-                       "the press ran the promotion before the writer had "
-                       + "answered — the confirmation would be decoration")
+                       "minting the question ran the promotion before the writer "
+                       + "had answered — the confirmation would be decoration")
         XCTAssertEqual(confirmation.verb, .finalize)
     }
 
@@ -1137,25 +1146,31 @@ final class DesignGateTests: XCTestCase {
                       "premise: the promotion stands and its backup holds the "
                       + "writer's originals")
 
-        let pending = Box<[DesignGateConfirmation?]>([])
+        // Windowless (tripwire 33, #120): the confirmation the press mints,
+        // its yes wired to the verb `run` awaits. The view's own no clears its
+        // pending question and hands `nil` up (`WiringCensusTests`,
+        // `type:DesignGateView`'s `cancelConfirmation`).
         var actions = DesignGateActions()
         actions.finalize = { proposal in
             DesignGatePromotion.finalize(proposal, projectURL: project)
         }
-        let window = mountGate(approved, projectURL: project, actions: actions,
-                               onConfirmationChanged: { pending.value.append($0) })
-        _ = try await settling(in: window)
-
-        let confirmation = try await pressAwaitingConfirmation(
-            .finalize, in: window, pending: pending)
+        let yes = Box(0)
+        let cancelled = Box(0)
+        let confirmation = try XCTUnwrap(DesignGate.confirmation(
+            for: .finalize,
+            perform: {
+                yes.value += 1
+                Task { _ = await DesignGateView.outcome(
+                    of: .finalize, on: approved, actions: actions) }
+            },
+            cancel: { cancelled.value += 1 }))
         confirmation.cancel()
-        _ = await pumpUntil(deadline: 1) { (pending.value.last ?? nil) == nil }
 
+        XCTAssertEqual(cancelled.value, 1, "the no reached the gate's cancel")
+        XCTAssertEqual(yes.value, 0, "…and never its yes")
         XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path),
                       "a cancelled Finalize discarded the backup — the writer "
                       + "said no and lost their templates anyway")
-        XCTAssertNil(pending.value.last ?? nil,
-                     "…and nothing is left waiting on an answer already given")
     }
 
     /// **Saying yes runs the verb, writes the result back, and announces it.**
@@ -1183,39 +1198,31 @@ final class DesignGateTests: XCTestCase {
             }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        let pending = Box<[DesignGateConfirmation?]>([])
-        let handedUp = Box<[DesignProposalStore.Status]>([])
+        // Windowless (tripwire 33, #120): the writer's yes is `confirmed`,
+        // which runs `run`, which awaits `DesignGateView.outcome` and then
+        // draws its sentence and hands the proposal up (`WiringCensusTests`,
+        // `type:DesignGateView`). The outcome is awaited here directly.
         var actions = DesignGateActions()
         actions.finalize = { proposal in
             DesignGatePromotion.finalize(proposal, projectURL: project)
         }
-        let window = mountGate(approved, projectURL: project, actions: actions,
-                               onProposalChanged: { handedUp.value.append($0.status) },
-                               onConfirmationChanged: { pending.value.append($0) })
-        _ = try await settling(in: window)
-
-        let confirmation = try await pressAwaitingConfirmation(
-            .finalize, in: window, pending: pending)
-        confirmation.perform()
-        _ = await pumpUntil(deadline: 5) {
-            ((try? self.axTexts(in: window)) ?? []).contains {
-                $0.contains(DesignGate.finalizedConfirmation)
-            }
-        }
+        let outcome = await DesignGateView.outcome(of: .finalize, on: approved,
+                                                   actions: actions)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path),
                        "the writer said yes and the backup is still there — the "
                        + "confirmation ate the verb")
-        XCTAssertEqual(handedUp.value, [.approved],
+        guard case .done(let updated, let sentence) = try XCTUnwrap(outcome) else {
+            return XCTFail("the finalize was refused: \(String(describing: outcome))")
+        }
+        XCTAssertEqual(updated.status, .approved,
                        "finalizing changes what can be undone, not what shipped "
-                       + "— but the refreshed proposal still reaches the window")
+                       + "— but the refreshed proposal is what reaches the window")
         XCTAssertEqual(announcements, 1,
                        "the desk in the other column never heard the verdict")
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DesignGate.finalizedConfirmation) },
-                      "the one verb with no visible status change said nothing "
-                      + "at all. Published: \(texts.sorted())")
+        XCTAssertEqual(sentence, DesignGate.finalizedConfirmation,
+                       "the one verb with no visible status change must say so "
+                       + "in its own sentence")
     }
 
     // MARK: - Census (Task 6)
@@ -1317,21 +1324,6 @@ final class DesignGateTests: XCTestCase {
         return proposal
     }
 
-    /// Press a verb through the accessibility tree — `DepartmentPaneTests`'
-    /// idiom: it is the action a click ultimately performs and, unlike a
-    /// synthetic `mouseDown`, it does not need this process to be the active app
-    /// (the synthetic-click premise: docs/testing/TROUBLESHOOTING.md, "A
-    /// mounted click test sees selectedRow == -1").
-    private func press(_ verb: DesignGate.Verb, in window: NSWindow) throws {
-        let published = try axButtonLabels(in: window).sorted()
-        let buttons = try axButtons(labelled: verb.accessibilityLabel, in: window)
-        XCTAssertEqual(buttons.count, 1,
-                       "one \(verb) on the gate. Buttons: \(published)")
-        guard let button = buttons.first else { return }
-        _ = (button as? NSObject)?.perform(
-            NSSelectorFromString("accessibilityPerformPress"))
-    }
-
     private static func proposal(
         round: Int = 2,
         language: String? = nil,
@@ -1389,20 +1381,6 @@ final class DesignGateTests: XCTestCase {
                                      onProposalChanged: onProposalChanged,
                                      onConfirmationChanged: onConfirmationChanged)),
               width: 900)
-    }
-
-    /// Press a verb and wait for the confirmation it owes the writer — the
-    /// dialog itself belongs to the window server, so what a headless mount can
-    /// hold is the value behind it.
-    private func pressAwaitingConfirmation(
-        _ verb: DesignGate.Verb, in window: NSWindow, pending: Box<[DesignGateConfirmation?]>,
-        file: StaticString = #filePath, line: UInt = #line
-    ) async throws -> DesignGateConfirmation {
-        try press(verb, in: window)
-        _ = await pumpUntil(deadline: 3) { !pending.value.isEmpty }
-        return try XCTUnwrap(pending.value.last ?? nil,
-                             "\(verb) never asked the writer anything",
-                             file: file, line: line)
     }
 
     /// A mutable cell an escaping closure can write into from the main actor.

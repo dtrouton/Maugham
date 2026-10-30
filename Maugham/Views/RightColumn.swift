@@ -267,7 +267,7 @@ struct RightColumn: View {
             },
             // The pass-order nudge's Mark done / Skip — the same write as the
             // board's chip verb: `PersonaPaneRegistryTests.passStateWritingFiles`'
-            // census is file-scoped, so a call in `AnnotationsPane.swift` would
+            // census is file-scoped, so a call in any `AnnotationsPane` file would
             // be a fourth writer.
             onSetPassState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
@@ -320,7 +320,11 @@ struct RightColumn: View {
         } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,
-                showsPreview: placement.previewsInTheRightColumn)
+                showsPreview: placement.previewsInTheRightColumn, figureTree: figureTree,
+                figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona),
+                documentStore: documentStore, readOnly: !persona.editsResearchInTheCentre,
+                shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
+                window: window, presence: figureGridPresence)
         } else {
             switch ProjectWindow.inspectorRoute(persona: persona,
                                                 projectType: store.manifest.type) {

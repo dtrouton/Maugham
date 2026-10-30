@@ -555,3 +555,5 @@ The final review found rules among the clauses Task 6 moved here. Back in the gu
 
 - `withFigureHost`'s callers are the picker's restore, `bringBack`, `sendToResearch` and an image rename.
 - The promotion's figure notice is said in a Promote to Project alert (the `PiecePromotion` Map row names `figureNotice`); a moved parked figure's Trash entry: `bringBack` refuses there and its pins read `sourceMissing`.
+
+Cut from the Stores guide in report plan 8b Task 10: a moved parked figure's Trash entry restores parked, its copy gone; `ProjectStore.load` runs before `ProjectSession.open` sets `documentStore`, which is why its raw moves are a fallback branch.

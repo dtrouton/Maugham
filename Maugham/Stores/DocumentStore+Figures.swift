@@ -489,13 +489,38 @@ extension DocumentStore {
     /// False for an id the registry does not list. Throws when the stream or
     /// the registry will not read: a parked figure can't be told apart.
     func figureIsParked(_ figureId: String) async throws -> Bool {
+        try await figureParkedItemId(figureId) != nil
+    }
+
+    /// **The Research item figure `figureId`'s park names** (`FigureParking.itemId`),
+    /// or nil when it is not parked — `figureIsParked`'s answer, with which copy.
+    func figureParkedItemId(_ figureId: String) async throws -> String? {
         guard let manifest = projectStore?.manifest,
-              manifest.figures?.contains(where: { $0.id == figureId }) == true else { return false }
-        if let open = openFigure(forId: figureId) { return open.state.parked != nil }
+              manifest.figures?.contains(where: { $0.id == figureId }) == true else { return nil }
+        if let open = openFigure(forId: figureId) { return open.state.parked?.itemId }
         let trust = try await figureTrust()
         let state = try figureCache.state(
             forFigureId: figureId, in: projectURL, trust: trust, facts: DocumentClass.Facts(manifest))
-        return state.parked != nil
+        return state.parked?.itemId
+    }
+
+    /// **The unparked figures made from a Research item** (report plan 8b
+    /// Task 9): the registry's figures whose stream records `itemId` as its
+    /// source (`FigureState.source`) — an open host's fold, else the figure
+    /// cache's read — in registry order. A stream that will not read, or a
+    /// registry that will not, is passed over: *Move into Figures* then makes
+    /// a new figure, as it would with none.
+    func figuresMade(fromResearchItem itemId: String) async -> [String] {
+        guard let records = projectStore?.manifest.figures, !records.isEmpty,
+              let trust = try? await figureTrust(),
+              let manifest = projectStore?.manifest else { return [] }
+        let facts = DocumentClass.Facts(manifest)
+        return (manifest.figures ?? []).compactMap { record in
+            let state = openFigure(forId: record.id)?.state
+                ?? (try? figureCache.state(forFigureId: record.id, in: projectURL, trust: trust, facts: facts))
+            guard let state, state.parked == nil, state.source?.researchItemId == itemId else { return nil }
+            return record.id
+        }
     }
 
     // MARK: - The window's figure cards
@@ -553,9 +578,52 @@ extension DocumentStore {
                 pinChanged.insert(id)
             }
         }
+        let sourceChanged = await snapshotSourcesChanged(states, research: manifest.research)
         guard presenter != nil else { return nil }
         return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
-                                pinChanged: pinChanged, locale: locale)
+                                pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale)
+    }
+
+    /// **The figures whose Research source has moved on** (report plan 8b
+    /// Task 1, spec §4.1): each unparked figure made from a Research item
+    /// (`FigureState.source`), its item found by id in `research` and its
+    /// file hashed off the main actor now — each file once, and only when its
+    /// size or modification date moved (`snapshotSourceHashes`) — and asked of
+    /// `FigureSource.hasChanged(currentHash:)`. An item that is gone, has no
+    /// file, or whose file will not read is changed.
+    private func snapshotSourcesChanged(
+        _ states: [String: FigureState], research: [ResearchItem]
+    ) async -> Set<String> {
+        guard let projectStore else { return [] }
+        var hashes: [String: String?] = [:]
+        var memo: [String: SnapshotSourceHash] = [:]
+        var changed = Set<String>()
+        for (id, state) in states where state.parked == nil {
+            guard let source = state.source else { continue }
+            var current: String?
+            if let item = projectStore.findResearchItem(id: source.researchItemId, in: research),
+               item.type == .asset, let path = item.path,
+               let file = try? resolvedProjectPath(path) {
+                if let known = hashes[file.path] {
+                    current = known
+                } else {
+                    let stamp = SnapshotSourceHash.stamp(of: file)
+                    if let stamp, let kept = snapshotSourceHashes[file.path], kept.matches(stamp) {
+                        current = kept.hash
+                    } else {
+                        snapshotSourceHashings += 1
+                        current = try? await Task.detached { try ContentHash.ofFile(file) }.value
+                    }
+                    if let stamp, let current {
+                        memo[file.path] = SnapshotSourceHash(size: stamp.size, modified: stamp.modified, hash: current)
+                    }
+                    hashes[file.path] = current
+                }
+            }
+            if source.hasChanged(currentHash: current) { changed.insert(id) }
+        }
+        snapshotSourceHashes = memo
+        return changed
     }
 
     // MARK: - Rendering
@@ -657,5 +725,28 @@ struct FigureCardInputs {
     var workbook: Workbook?
     /// The figures holding a pin whose source has changed (`PinStatus.sourceChanged`).
     var pinChanged: Set<String>
+    /// The figures whose own Research source has changed or is gone
+    /// (`FigureSource.hasChanged(currentHash:)`).
+    var sourceChanged: Set<String> = []
     var locale: TableLocale
+}
+
+/// **A snapshot source file's hash, as of its size and modification date**
+/// (`DocumentStore.snapshotSourceHashes`): while both hold, the file is taken
+/// as unchanged and not read again.
+struct SnapshotSourceHash: Equatable {
+    let size: Int
+    let modified: Date
+    let hash: String
+
+    /// The file's size and modification date now; nil when it will not stat.
+    static func stamp(of file: URL) -> (size: Int, modified: Date)? {
+        guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              let size = values.fileSize, let modified = values.contentModificationDate else { return nil }
+        return (size, modified)
+    }
+
+    func matches(_ stamp: (size: Int, modified: Date)) -> Bool {
+        size == stamp.size && modified == stamp.modified
+    }
 }

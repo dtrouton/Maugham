@@ -70,6 +70,10 @@ struct EditorHost: View {
     /// The project's figure windows (plan 7d Task 9), passed through to the
     /// grid opening for ⤢ and "Editing in window". Never read here (tripwire 6).
     var figureWindows: FigureWindows? = nil
+    /// The window's figure listing (report plan 8b Task 3), read only when
+    /// Insert ▸ Existing Figure… asks (`existingFigures`), never in a body
+    /// (tripwire 6). Nil offers nothing.
+    var figureListing: FigureListingModel? = nil
     /// **The review pass a note written from the margin belongs to**
     /// (M3 P2 Task 8) — asked of the window, per document id, at the moment of
     /// creation.
@@ -898,6 +902,35 @@ struct EditorHost: View {
                                                            documentPath: path, request: request,
                                                            store: store)
                 },
+                // Insert ▸ Existing Figure… (report plan 8b Task 3): the
+                // window's listing, parked figures left out by this editor's
+                // cards, used read from the listing and the editor's live
+                // text and every other open document's (a line placed there
+                // since the settle), a used figure's label off its line in the
+                // cached index — at the command, never per keystroke.
+                existingFigures: { [figureListing, figureCards, referenceIndex, store, documentStore] liveText in
+                    let records = store.manifest.figures ?? []
+                    let index = referenceIndex.index
+                    return ExistingFigurePicker.entries(
+                        listing: figureListing?.rows ?? [], records: records,
+                        isParked: { figureCards.model(forFigureId: $0)?.kind == .parked },
+                        documentPath: path, docId: doc.docId,
+                        live: ExistingFigurePicker.liveUses(in: liveText, records: records,
+                                                            documentPath: path),
+                        elsewhere: ExistingFigurePicker.liveUsesElsewhere(
+                            in: Self.otherOpenTexts(documentStore, excluding: doc.docId, store: store),
+                            records: records),
+                        lineLabel: { _, use in
+                            index.numberedLines.first {
+                                $0.docId == use.docId && $0.line == use.lineIndex
+                            }?.targetLabel
+                        },
+                        pieceTitle: { FigureSectionVerbs.pieceTitle($0, in: store.manifest.structure) })
+                },
+                // The store's answer at the choice: the cards can lag.
+                existingFigureIsParked: { [documentStore] figureId in
+                    (try? await documentStore.figureIsParked(figureId)) ?? false
+                },
                 commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)
                 },
@@ -1096,6 +1129,17 @@ struct EditorHost: View {
         translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
         control.translationBadges = EditorControl.TranslationBadgeModel(
             entries: badgeEntries, orphans: derived.orphans)
+    }
+
+    /// Every OTHER open document's live text, with its manuscript path — what
+    /// Insert ▸ Existing Figure… reads for lines placed since the settle.
+    @MainActor static func otherOpenTexts(_ documentStore: DocumentStore, excluding docId: String,
+                                          store: ProjectStore) -> [(docId: String, path: String, text: String)] {
+        documentStore.allOpenDocuments().compactMap { open in
+            guard open.docId != docId,
+                  let path = TreeWalk.find(id: open.docId, in: store.manifest.structure)?.path else { return nil }
+            return (docId: open.docId, path: path, text: open.displayText)
+        }
     }
 
     /// What the read-only translation surface shows when the read refuses

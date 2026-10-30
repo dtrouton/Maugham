@@ -520,6 +520,39 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         XCTAssertTrue(back, "the centre took the figure again and draws its grid")
     }
 
+    /// **The grid's own Send to Research, refused** (plan 8b Task 2, the 8a
+    /// residual): the grid folds the centre before the store is asked; the
+    /// store refuses; the refusal is said and the centre — the figure still
+    /// its subject — takes the figure again rather than drawing nothing. A
+    /// send that lands leaves it folded (the tree's send test above).
+    func test_aRefusedSendFromInsideTheGridGivesTheCentreItsGridBack() async throws {
+        let m = try await mount()
+        let windows = FigureWindows()
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        struct Refused: Error {}
+        ProjectStore.beforeSendParksForTesting = { _ in throw Refused() }
+        defer { ProjectStore.beforeSendParksForTesting = nil }
+        var said: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { said.append(message) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        c.performTableCommand(.sendTo(.shared))
+        await c.settleWrites()
+        XCTAssertFalse(said.isEmpty, "the refusal is said")
+        XCTAssertNotNil(m.store.manifest.figures?.first { $0.id == c.figureId },
+                        "premise: the figure is still registered")
+        let back = await RunLoopPump.until(deadline: 5) {
+            windows.inPlaceHolds[c.figureId] != nil
+                && (Self.gridView(in: centre.window.contentView)?.delegate as? FigureGridController) != nil
+        }
+        XCTAssertTrue(back, "the centre took the figure again and draws its grid")
+    }
+
     // MARK: - Read-only reasons
 
     /// Review (a persona that does not edit figures) opens read-only with

@@ -25,6 +25,10 @@ struct ResearchTreeActions {
     /// Returns whether the drop is accepted — see `internalDrop`.
     var externalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position, _ target: ResearchItem) -> Bool
     var newNote: (_ parentId: String?) -> Void
+    /// **New Table** (D8b-2), beside every New Note: a blank table, selected
+    /// and in rename; its work, which a test awaits. Nil where it is not
+    /// offered — a view-only share, Review (`BinderTreeSectionsState.offersNewTable`).
+    var newTable: ((_ parentId: String?) -> Task<Void, Never>)? = nil
     var newGroup: (_ parentId: String?) -> Void
     var addFile: (_ parentId: String?) -> Void
     var addLink: (_ parentId: String?) -> Void
@@ -37,6 +41,11 @@ struct ResearchTreeActions {
     var moveTargets: (_ forIds: [String]) -> [ResearchMoveMenuTarget]
     var move: (_ ids: [String], _ target: ResearchMoveTarget) -> Void
     var deleteMany: (_ ids: [String]) -> Void
+    /// **The row's verb toward Figures** (report plan 8b Task 4) — *Use in
+    /// Document*, or *Bring Back to Figures* for a parked figure's working
+    /// copy — nil where none is offered (`FigureActions.researchVerb`).
+    var figureVerb: (ResearchItem) -> FigureActions.ResearchVerb? = { _ in nil }
+    var performFigureVerb: (ResearchItem) -> Task<Void, Never>? = { _ in nil }
 }
 
 struct ResearchTreeNode<Tag: Hashable>: View {
@@ -206,6 +215,11 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))
                 }
+                if let newTable = actions.newTable {
+                    Button("New Table") {
+                        _ = newTable(item.type == .group ? item.id : findParentId(item.id))
+                    }
+                }
                 if item.type == .group {
                     Button("New Group") { actions.newGroup(item.id) }
                     Button("Add File…") { actions.addFile(item.id) }
@@ -227,6 +241,10 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                         actions.deleteMany(acting)
                     }
                 } else {
+                    if let verb = actions.figureVerb(item) {
+                        Button(verb.title) { _ = actions.performFigureVerb(item) }
+                        Divider()
+                    }
                     Button("Duplicate") { actions.duplicate(item.id) }
                     // Absent on a `.linked` fold row: renaming there opens a
                     // second field over the row's shared-section twin. The

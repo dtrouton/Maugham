@@ -5,6 +5,7 @@ The binder tree's **Research** section is for everything that isn't manuscript: 
 **It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. ⌘⌥R expands the tree's own **Research** section and scrolls it into view, rather than opening anything in the right column (it's a no-op while Find in Project covers the tree). There's no separate reading pane: the tree is the one place research is browsed, in every persona, and the same right-click menus and empty-state buttons work from Plan as anywhere else.
 
 - **New Note** — right-click the Research section (or a group inside it) → **New Note** to create a markdown note. Rename inline; the file on disk renames with it.
+- **New Table** — the same menus offer **New Table**: a blank table of three columns, a header row and three empty rows, named "Untitled Table". Rename it inline; it opens in the table grid. Not offered in Review or on a view-only share.
 - **Drag in from Finder** — drop images, PDFs, audio, text files. They land in `research/`.
 - **Paste an image** — Cmd-V into the research pane. Saved as `pasted-…png` next to your notes.
 - **Add Link…** — paste a URL. Opens via WKWebView when clicked.
@@ -16,6 +17,27 @@ Click a research item to view it. Documents are editable in place — except in 
 Groups nest — right-click + **New Group** to make a folder, drop items into it. In a Collection, both the shared research section and each piece's own research section render full nested trees the same way. "Palette" is reserved for the shared root — it's the Palette section's own folder — so naming or renaming a top-level group to it is refused; a nested group can still be called Palette.
 
 Select several items (⌘-click) to work on them together. Right-click a selection for **Move to ▸** (Shared, any group, or — in a Collection — any loose piece) and batch **Delete**. Dragging a row that's part of your selection moves the whole selection; drop it on a group to nest it there, or drop it in a different Collection section to move it between shared research and a piece's research folder. Scope moves leave your links alone: an item inside a piece is already associated by containment, so a link you added by hand goes quietly dormant while it lives there (Maugham just hides the now-redundant entry) and reappears as a link on that document if you move the item back out. An association that only ever came from containment ends when you move the item out — nothing is auto-linked in its place.
+
+### Tables and pictures from Research
+
+A table, picture or PDF in Research can become a figure of the book, and a figure can go back.
+
+- **Use in Document** — right-click one Research item, or press the button in its inspector. It makes a figure that no line uses yet (its number shows "—" in the **Figures** section, tagged **unused**). Place it with **Insert ▸ Existing Figure…** (see [Editor](editor-and-focus.md)). Dragging the item onto the **Figures** section does the same (see [Structure and binder](structure-and-binder.md#figures-in-the-binder)). Offered for tables, pictures and PDFs in a project that holds figures, not in Review, in review mode (⌘⌥⇧R) or on a view-only share, and not for several items at once.
+- **Whose figure it is.** An item in a piece's own Research makes that piece's figure. An item in Shared Research makes a figure that belongs to the whole book, so only an author of the whole book may make or edit it; if this Mac may not, nothing is made and you are told.
+- **The name** comes from the item's title. A title that is already a valid label name keeps its capitals ("Q3" stays "Q3"); otherwise it is folded to lower case with hyphens ("Q3 revenue (draft)" becomes `q3-revenue-draft`), and a name already taken gets `_2`.
+- **Bring Back to Figures** — a figure you sent to Research leaves a copy there. On that copy the same menu and button read **Bring Back to Figures**, which puts the figure back, unchanged if the copy is unchanged.
+- **"changed"** — a table, picture or PDF made from Research shows the **changed** tag in the Figures section when its source file in Research has changed since the figure took it.
+
+### Editing a Research table
+
+A table in Research opens in the same grid as a figure's table: in the centre column, and in Plan's right column. Edits are saved to the CSV file itself after a short pause, and the file keeps its separator (comma, semicolon or tab), its line endings and its byte-order mark.
+
+- **Undo.** While the table is open, ⌘Z and ⇧⌘Z undo and redo its cell, row and column changes. If the table has changed since, the undo is declined with a sentence.
+- **No versions yet.** Saved changes to a Research table are not versioned yet: earlier states of the file are not kept.
+- **An outside change.** If the file changes outside Maugham (another Mac, a spreadsheet app), the grid reloads and says so. If you had unsaved edits in the grid, your edits are written and the outside version is kept as a backup in the project's `.maugham/conflicts/` folder, and a notice says so.
+- **`research:` formulas** inside a Research table are not evaluated and show `#REF!`.
+- **Very large files** are shown as text, not a grid.
+- **Read-only** in Review and on a view-only share; the grid opens for looking, with a reason.
 
 ### Citation details
 

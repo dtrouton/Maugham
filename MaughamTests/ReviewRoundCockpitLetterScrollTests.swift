@@ -19,7 +19,9 @@ import MaughamCore
 /// the two views was actually LAID OUT at, in a window deliberately shorter
 /// than a long letter — no accessibility frame walk, which reads a hosting
 /// view's clipped backing rather than the SwiftUI layout, and no
-/// `sizeThatFits`, which cannot ask a `DisclosureGroup` to be open.
+/// `sizeThatFits`, which cannot report the queue's share beside the strip. The
+/// opened strip is mounted open (`ReviewRoundCockpit.letterInitiallyOpen`), never
+/// pressed open and waited for (tripwire 33, #120).
 ///
 /// The stack under test mirrors the pane's: the strip, then one greedy view
 /// standing in for the scrolling queue. The mount deliberately omits
@@ -51,8 +53,8 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
     private static let line = ReviewPass(
         id: "line", name: "Line", brief: "b", editorName: "Lish")
 
-    /// The letter line the disclosure is labelled with — the handle every test
-    /// here presses.
+    /// The letter line the disclosure is labelled with — the handle every
+    /// measurement asserts is drawn as a pressable disclosure.
     private static let letterLine = "Give the reader the dock before the fire."
 
     // MARK: - The claim
@@ -248,9 +250,12 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
     /// Mount the strip over a greedy stand-in for the queue, in a window too
     /// short for a long letter, and report what each was laid out at.
     ///
-    /// `expand` presses the disclosure through the accessibility tree —
-    /// `ReviewRoundCockpitTests`' own delivery path, and the one that needs no
-    /// active app.
+    /// `expand` mounts the disclosure OPEN — the cockpit's `letterInitiallyOpen`,
+    /// injected — rather than pressing it and waiting for the layout to follow
+    /// (tripwire 33, #120). A mounted read, not `sizeThatFits`: the queue's
+    /// share and the published scroll area are what a window lays out, and no
+    /// fitting size reports either. The disclosure is still asserted
+    /// pressable, so the writer's triangle is not what went missing.
     private func measure(
         disclosure: some View, expand: Bool
     ) throws -> Measurement {
@@ -272,7 +277,8 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
                     AnyView(disclosure
                         .onGeometryChange(for: CGFloat.self) { $0.size.height }
                             action: { box.content = $0 })
-                })
+                },
+                letterInitiallyOpen: expand)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                     box.strip = $0
                 }
@@ -288,14 +294,10 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
         windows.append(window)
         pump(0.3)
 
-        if expand {
-            let control = try XCTUnwrap(
-                disclosureControl(labelled: Self.letterLine, in: window),
-                "the letter line must be a pressable disclosure. Read: "
-                + "\((try? axTexts(in: window)) ?? [])")
-            press(control)
-            pump(0.4)
-        }
+        XCTAssertNotNil(
+            try disclosureControl(labelled: Self.letterLine, in: window),
+            "the letter line must be a pressable disclosure. Read: "
+            + "\((try? axTexts(in: window)) ?? [])")
         return Measurement(
             strip: box.strip, queue: box.queue, content: box.content,
             hasScrollArea: try axElements(in: window).contains {

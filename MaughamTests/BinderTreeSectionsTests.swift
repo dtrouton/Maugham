@@ -123,6 +123,10 @@ final class BinderTreeSectionsTests: XCTestCase {
     ///
     /// The count is found by its focus-ring view inside the chapter's row, so
     /// the click lands where the button is drawn on whatever display this runs.
+    /// The window reads as key, as the writer's does: since Xcode 27B47 a
+    /// click on a row in a window that is not key selects nothing (measured
+    /// 2026-10-30: hit point on the row's cell, `selectedRow` -1 either
+    /// delivery), while the count's `Button` still takes it.
     func test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing() async throws {
         let store = try await novel(notes: [], cards: [])
         let chapter = try XCTUnwrap(TreeWalk.first(in: store.manifest.structure,
@@ -133,7 +137,7 @@ final class BinderTreeSectionsTests: XCTestCase {
                               caption: "Cash", number: "Table 1",
                               usedIn: [FigureListing.Use(docId: chapter.id, lineIndex: 0)],
                               referencedFrom: [], pieceOfLine: chapter.id)])
-        let (window, probe) = try await hostBinder(store: store, treeState: state)
+        let (window, probe) = try await hostBinder(store: store, treeState: state, key: true)
         let table = try XCTUnwrap(firstTableView(in: window))
         let rowIndex = 1 + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
         let rowRect = table.convert(table.rect(ofRow: rowIndex), to: nil)
@@ -149,26 +153,66 @@ final class BinderTreeSectionsTests: XCTestCase {
         let ring = try XCTUnwrap(rings.first)
         let point = CGPoint(x: ring.midX, y: ring.midY)
         let subjectBefore = probe.subject
+        // The premise, asked as TreeTravelTests asks it (a no-op unless the
+        // run opts in with MAUGHAM_ALLOW_ACTIVATION=1, as CI does).
+        _ = await TestWindow.activate(window)
 
         clickCount(at: point, in: window)
         await pumpUntil(deadline: 3) { state.pieceFilter != nil }
+        let filterAfterCount = state.pieceFilter, subjectAfterCount = probe.subject
 
-        XCTAssertEqual(state.pieceFilter, chapter.id,
+        // Control, and the measurement, BEFORE any assertion: the same click on
+        // the row's title, away from the count, does select it — so "selects
+        // nothing" below is the button's doing, not a click that never reached
+        // the table; a window that takes no clicks at all is skipped by name.
+        let title = CGPoint(x: rowRect.minX + 60, y: rowRect.midY)
+        clickCount(at: title, in: window)
+        await pumpUntil(deadline: 3) { probe.subject == .item(chapter.id) }
+        try skipIfTheClickWasNeverDelivered(at: table.convert(title, from: nil), in: table)
+
+        XCTAssertEqual(filterAfterCount, chapter.id,
                        "the click on the count did not reach its button — the row's "
                        + "drag or selection took it")
-        XCTAssertEqual(probe.subject, subjectBefore,
+        XCTAssertEqual(subjectAfterCount, subjectBefore,
                        "the count's click selected the chapter row; it must select nothing")
-
-        // Control: the same click on the row's title, away from the count, does
-        // select it — so "selects nothing" above is the button's doing, not a
-        // click that never reached the table.
-        clickCount(at: CGPoint(x: rowRect.minX + 60, y: rowRect.midY), in: window)
-        await pumpUntil(deadline: 3) { probe.subject == .item(chapter.id) }
         XCTAssertEqual(probe.subject, .item(chapter.id))
     }
 
-    /// One real click (down, up) at `point`, in window coordinates.
+    /// **Raised after the control click, on a measurement** — TreeTravelTests'
+    /// discriminator: the host is not the active app AND the row under the
+    /// point is not the row that ended up selected, i.e. AppKit never turned
+    /// the events into a click (a locked screen). Never on `NSApp.isActive`
+    /// alone: where the click lands, nothing is skipped.
+    private func skipIfTheClickWasNeverDelivered(at point: CGPoint, in table: NSTableView,
+                                                 function: StaticString = #function) throws {
+        let row = table.row(at: point)
+        guard !NSApplication.shared.isActive, row >= 0, table.selectedRow != row else { return }
+        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+        throw XCTSkip(
+            "\(function): the synthetic click on row \(row) was measurably not delivered "
+            + "(`selectedRow` \(table.selectedRow)) and the test host is not the active app "
+            + "(frontmost: \(frontmost)) — a locked screen, or a front app that will not yield. "
+            + "Set TEST_RUNNER_MAUGHAM_ALLOW_ACTIVATION=1 to ask for activation.")
+    }
+
+    /// One real click (down, up) at `point`, in window coordinates, as
+    /// `TreeTravelRowMountingTests.click(at:)` delivers it: the app's queue
+    /// drained until it stays quiet (a stale `appKitDefined` event left by
+    /// ordering the window front would be read by the table's tracking loop
+    /// in place of this click's mouseUp), then the pair posted to `NSApp` and
+    /// dispatched as AppKit's own loop would.
     private func clickCount(at point: CGPoint, in window: NSWindow) {
+        let app = NSApplication.shared
+        var quietPolls = 0
+        while quietPolls < 3 {
+            if let stray = app.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+                app.sendEvent(stray)
+                quietPolls = 0
+            } else {
+                quietPolls += 1
+            }
+            pump(0.02)
+        }
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             if let event = NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [],
@@ -176,8 +220,12 @@ final class BinderTreeSectionsTests: XCTestCase {
                 windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, clickCount: 1,
                 pressure: type == .leftMouseDown ? 1 : 0) {
-                window.sendEvent(event)
+                app.postEvent(event, atStart: false)
             }
+        }
+        while let next = app.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+            app.sendEvent(next)
+            pump(0.02)
         }
     }
 
@@ -919,12 +967,12 @@ final class BinderTreeSectionsTests: XCTestCase {
     // MARK: - Hosting and driving
 
     private func hostBinder(
-        store: ProjectStore, treeState: BinderTreeSectionsState? = nil
+        store: ProjectStore, treeState: BinderTreeSectionsState? = nil, key: Bool = false
     ) async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(
             BinderSectionsProbeView(store: store, probe: probe,
-                                    treeState: treeState ?? BinderTreeSectionsState())))
+                                    treeState: treeState ?? BinderTreeSectionsState())), key: key)
         return (window, probe)
     }
 
@@ -950,9 +998,10 @@ final class BinderTreeSectionsTests: XCTestCase {
         return (window, probe, documentID)
     }
 
-    private func mount(_ root: AnyView) async throws -> NSWindow {
-        let window = TestWindow.mount(root, size: CGSize(width: 320, height: 800),
-                                      as: SilentTestWindow.self)
+    private func mount(_ root: AnyView, key: Bool = false) async throws -> NSWindow {
+        let window: NSWindow = key
+            ? TestWindow.mount(root, size: CGSize(width: 320, height: 800), as: KeyTestWindow.self, present: .key)
+            : TestWindow.mount(root, size: CGSize(width: 320, height: 800), as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         // The palette section loads its cards from disk once per manifest change,
