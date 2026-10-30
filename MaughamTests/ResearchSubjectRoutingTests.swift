@@ -201,6 +201,22 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             .preview(pdf))
     }
 
+    /// **A Research table opens in the grid** (report plan 8b Task 7): a CSV
+    /// is no longer previewed as text, and both columns reach the grid
+    /// through this one case.
+    func test_aResearchTableRoutesToTheGridWithItsPath() async throws {
+        let store = try await novel(notes: [], cards: [])
+        let source = temp.url.appendingPathComponent("Tide heights.csv")
+        try Data("Port,Metres\nDover,6.7\n".utf8).write(to: source)
+        let imported = try await store.importResearchFiles([source], toParentId: nil)
+        let table = try XCTUnwrap(imported.first)
+        XCTAssertEqual(table.kind, .table, "fixture precondition")
+
+        XCTAssertEqual(
+            ProjectWindow.researchCentreRoute(id: table.id, in: store.manifest.research),
+            .table(item: table, path: try XCTUnwrap(table.path)))
+    }
+
     /// The render-race arm. The sweep lands a dangling id on `.project` before
     /// the routing sees it (Task 2), but a subject and a manifest arriving in
     /// different passes leave a window in which the id names nothing.

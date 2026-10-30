@@ -226,6 +226,12 @@ public final class DocumentStore {
     /// alive, and one window closing leaves the others refreshing.
     @ObservationIgnored let figureCardCaches = NSHashTable<FigureCardCache>.weakObjects()
 
+    /// **Every Research table open in a grid** (report plan 8b Task 7):
+    /// `flushPendingSave` writes each one's pending save, so ⌘S, the typed
+    /// mover's pre-move flush and the store's close reach it as they reach a
+    /// note's. Weak: the grid's mount holds its host.
+    @ObservationIgnored let researchTables = NSHashTable<ResearchTableHost>.weakObjects()
+
     /// **Some figure's state may have moved** — bumped by every figure
     /// trigger that refills the cards (`invalidateFigureCards`: an open host's
     /// op, the presenter's figure pass, a trust change). Observable, for a
@@ -820,10 +826,22 @@ public final class DocumentStore {
         fileSaveScheduler.schedule(FileSavePayload(path: path, text: text))
     }
 
-    /// Flush any pending `scheduleFileSave` immediately.
+    /// Flush any pending `scheduleFileSave` immediately — and every open
+    /// Research table's pending save (`researchTables`).
     public func flushPendingSave() async throws {
+        for table in researchTables.allObjects { await table.settle() }
         guard let fileSaveScheduler else { return }
         await fileSaveScheduler.flush()
+    }
+
+    /// A Research table opened in a grid: its saves are flushed with the notes'.
+    func attachResearchTable(_ host: ResearchTableHost) {
+        researchTables.add(host)
+    }
+
+    /// A Research table's visit ended (`ResearchTableHost.close`).
+    func detachResearchTable(_ host: ResearchTableHost) {
+        researchTables.remove(host)
     }
 
     /// A synced project-relative path as a URL inside this project, or

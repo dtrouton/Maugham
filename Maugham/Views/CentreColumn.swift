@@ -123,7 +123,10 @@ struct CentreColumn: View {
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
-                                  readOnly: !persona.editsResearchInTheCentre)
+                                  readOnly: !persona.editsResearchInTheCentre,
+                                  shareIsReadOnly: editorControl.shareIsReadOnly,
+                                  typography: editorControl.typography,
+                                  presence: figureGridPresence, window: window)
         case .figure(let id):
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,

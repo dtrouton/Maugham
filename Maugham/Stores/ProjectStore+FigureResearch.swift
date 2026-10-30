@@ -643,17 +643,23 @@ extension ProjectStore {
     }
 
     /// A Research table's text and the content hash of exactly the bytes
-    /// read. UTF-16 when it opens with a byte-order mark (Excel's "Unicode
-    /// text"), else UTF-8, else Windows Latin-1 (an older Excel's CSV).
+    /// read (`decodeResearchTable`; bytes no decoder reads are no text).
     nonisolated private static func readResearchTable(_ file: URL) throws -> (text: String, hash: String) {
         let data = try Data(contentsOf: file) // adr-0018-ok: a Research table's CSV, read once to make a figure; not manuscript
-        let hash = ContentHash.of(data)
+        return (decodeResearchTable(data) ?? "", ContentHash.of(data))
+    }
+
+    /// **A Research table's bytes as text** — the one decoder (the grid's
+    /// `ResearchTableHost` reads through it too): UTF-16 when it opens with a
+    /// byte-order mark (Excel's "Unicode text"), else UTF-8, else Windows
+    /// Latin-1 (an older Excel's CSV); nil when none reads it.
+    nonisolated static func decodeResearchTable(_ data: Data) -> String? {
         if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]),
            let text = String(data: data, encoding: .utf16) {
-            return (text, hash)
+            return text
         }
-        if let text = String(data: data, encoding: .utf8) { return (text, hash) }
-        return (String(data: data, encoding: .windowsCP1252) ?? "", hash)
+        if let text = String(data: data, encoding: .utf8) { return text }
+        return String(data: data, encoding: .windowsCP1252)
     }
 }
 

@@ -4,8 +4,8 @@ import MaughamCore
 /// **What the table grid writes through** (report plan 8b Task 6): what
 /// is asked of a grid's host through `FigureGridController.host` — by the
 /// controller, the coordinator's in-place visit and its `FigureVisitUndo` —
-/// so the same grid can edit a table figure (`FigureDocument`) or — next — a
-/// table kept in Research. Nothing reached through a grid needs to know which.
+/// so the same grid can edit a table figure (`FigureDocument`) or a table
+/// kept in Research (`ResearchTableHost`, report plan 8b Task 7). Nothing reached through a grid needs to know which.
 ///
 /// - **The state is observable**: the controller reads `state` inside
 ///   `withObservationTracking`, so a conformer is `@Observable` and announces
@@ -31,6 +31,10 @@ protocol FigureGridHost: AnyObject {
     var isClosed: Bool { get }
     /// The figure-only commands this host's grid offers.
     var offers: FigureGridOffers { get }
+    /// Whether the grid is gated by a figure's drawn posture
+    /// (`posture(forDocId: figureId)`), which the controller observes; a
+    /// host that is not a figure has none.
+    var asksTheFigureDoor: Bool { get }
 
     /// Every undo or redo hop already asked has landed.
     func awaitPendingUndoWork() async
@@ -104,4 +108,5 @@ struct FigureGridOffers: Equatable {
 /// figure command is offered.
 extension FigureDocument: FigureGridHost {
     var offers: FigureGridOffers { .figure }
+    var asksTheFigureDoor: Bool { true }
 }

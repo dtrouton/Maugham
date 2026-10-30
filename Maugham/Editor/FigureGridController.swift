@@ -171,14 +171,35 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         return controller
     }
 
+    /// **Open a visit on a Research table** (report plan 8b Task 7): its host
+    /// already open (`ResearchTableHost.open`), no figure line — the bottom
+    /// bar names the table (`title`) and offers no caption or name — and the
+    /// values seeded from the whole book once, as a figure's are.
+    static func open(
+        researchTable host: ResearchTableHost, title: String, store: DocumentStore,
+        projectStore: ProjectStore, typography: TypographySettings
+    ) async throws -> FigureGridController {
+        let context = try await store.tableImportContext()
+        let controller = FigureGridController(
+            host: host, store: store, projectStore: projectStore, typography: typography,
+            locale: context.locale, names: context.names,
+            line: Line(number: title, caption: "", commitCaption: { _ in false }), name: "")
+        let repaint = try await controller.values.reseed()
+        controller.gridView.repaint(repaint)
+        return controller
+    }
+
+    /// `name` is the figure's record name; nil asks the registry for it.
     private init(host: any FigureGridHost, store: DocumentStore, projectStore: ProjectStore,
-                 typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line) {
+                 typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line,
+                 name: String? = nil) {
         self.host = host
         self.store = store
         self.projectStore = projectStore
         self.names = names
         self.line = line
-        name = projectStore.manifest.figures?.first { $0.id == host.figureId }?.name ?? ""
+        let recordName = projectStore.manifest.figures?.first(where: { $0.id == host.figureId })?.name
+        self.name = name ?? recordName ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
         gridView = FigureGridView(typography: typography)
         // A placeholder first, so the real model's closure may capture `self`.
@@ -188,7 +209,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         gridView.delegate = self
         bars.delegate = self
         menuTarget.onCommand = { [weak self] in self?.performTableCommand($0) }
-        bars.showLine(number: line.number, caption: line.caption, name: name)
+        bars.showLine(number: line.number, caption: line.caption, name: self.name)
         // The bottom bar's figure fields, only where the host offers them.
         bars.nameField.isHidden = !host.offers.nameField
         bars.captionField.isHidden = !host.offers.caption
@@ -1371,7 +1392,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// Anyway* lifts a yield, neither of which need move a card. Re-armed
     /// after each change; the gate is asked on the next turn.
     private func observeTheDoor() {
-        guard !isClosed, let store else { return }
+        guard !isClosed, host.asksTheFigureDoor, let store else { return }
         let figureId = figureId
         withObservationTracking {
             _ = store.posture(forDocId: figureId).allows(.editFigure)

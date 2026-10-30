@@ -25,8 +25,8 @@ struct ResearchPreview: View {
             } else {
                 emptyState
             }
-        // A Research table shows its CSV as text, read-only, until the
-        // Research grid exists (report plan 6b, P-9: no new UI).
+        // A Research table opens in the grid (`ResearchTableGrid`); its CSV
+        // is shown as text here only where no window store is at hand.
         case .document, .table:
             if let path = item.path, fileURL != nil {
                 TextPreview(notePath: path, projectURL: projectURL)

@@ -321,7 +321,10 @@ struct RightColumn: View {
             ResearchSubjectInspector(
                 store: store, itemID: id,
                 showsPreview: placement.previewsInTheRightColumn, figureTree: figureTree,
-                figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona))
+                figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona),
+                documentStore: documentStore, readOnly: !persona.editsResearchInTheCentre,
+                shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
+                window: window)
         } else {
             switch ProjectWindow.inspectorRoute(persona: persona,
                                                 projectType: store.manifest.type) {
