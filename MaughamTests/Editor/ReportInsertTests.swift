@@ -121,6 +121,20 @@ final class ReportInsertTests: XCTestCase {
         XCTAssertNil(ReportInsert.endOfFigureLine(containing: 3, in: "Not a figure." as NSString))
     }
 
+    /// Re-review M2: a figure-looking line that is code — in a fence, or
+    /// indented — is not a figure line, so a block asked for inside it is
+    /// placed as inside any other line. The control is the same line as prose.
+    func test_aFigureLookingLineInCodeIsNotAFigureLine() {
+        let figure = "![Cash flows](figures/cash.csv){#tbl:cash}"
+        let fenced = "```\n" + figure + "\n```" as NSString
+        XCTAssertNil(ReportInsert.endOfFigureLine(containing: 8, in: fenced), "inside a fence")
+        let indented = "Intro.\n\n    " + figure as NSString
+        XCTAssertNil(ReportInsert.endOfFigureLine(containing: 16, in: indented), "indented as code")
+        let prose = "Intro.\n\n" + figure as NSString
+        XCTAssertEqual(ReportInsert.endOfFigureLine(containing: 12, in: prose), prose.length,
+                       "control: the same line as prose is a figure line")
+    }
+
     // MARK: - R-3a-6 the footnote
 
     func test_theFootnoteRefGoesAtTheCaretAndItsDefinitionFollowsTheParagraph() {

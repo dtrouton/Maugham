@@ -492,8 +492,9 @@ extension EditorCoordinator {
 
     /// A cross-reference to `label` at the caret (after the selection) — the
     /// cross-reference picker's own form, `@tbl:cash`, after a space where
-    /// `@` may not stand (`CrossReferenceCompletion.isWordStartBoundary`) —
-    /// inline, the caret after it: one Route A step. Never inside code. Nil
+    /// `@` may not stand (`CrossReferenceCompletion.isWordStartBoundary`) and
+    /// after it before a label character (`isLabelUnit`), so it never joins
+    /// the next word — inline, the caret after it: one Route A step. Never inside code. Nil
     /// when written, else why not.
     func referToExistingFigure(_ label: ManuscriptLabel) -> String? {
         guard answersInsertCommands, let textView else { return ExistingFigurePicker.refusedMessage }
@@ -502,9 +503,11 @@ extension EditorCoordinator {
         guard at <= text.length else { return ExistingFigurePicker.refusedMessage }
         guard !isInsideCode(at) else { return ExistingFigurePicker.insideCodeMessage }
         let reference = "@" + label.reference
-        let written = at == 0 || CrossReferenceCompletion.isWordStartBoundary(text.character(at: at - 1))
+        var written = at == 0 || CrossReferenceCompletion.isWordStartBoundary(text.character(at: at - 1))
             ? reference : " " + reference
         let caret = at + (written as NSString).length
+        // A label character right after would join the label: a space between.
+        if at < text.length, CrossReferenceCompletion.isLabelUnit(text.character(at: at)) { written += " " }
         return applyCommandEdit(replacing: NSRange(location: at, length: 0), with: written,
                                 selecting: NSRange(location: caret, length: 0),
                                 actionName: ExistingFigurePicker.referenceActionName,

@@ -96,14 +96,16 @@ enum ReportInsert {
 
     /// The end of `location`'s line (before its line break) when that line
     /// reads as a figure line (`ManuscriptBlocks.parse`) and `location` is
-    /// inside it — past its first character, before its end; nil otherwise
+    /// inside it — past its first character, before its end — and the line is
+    /// not code (`FigureLineSeparation.isInCode`, a fence or an indent); nil otherwise
     /// (at either edge the placement already keeps the line whole).
     static func endOfFigureLine(containing location: Int, in ns: NSString) -> Int? {
         let line = ns.lineRange(for: NSRange(location: location, length: 0))
         let end = contentEnd(ofLine: line, in: ns)
         let raw = ns.substring(with: NSRange(location: line.location, length: end - line.location))
         let lead = (String(raw.prefix { $0 == " " || $0 == "\t" }) as NSString).length
-        guard location > line.location + lead, location < end else { return nil }
+        guard location > line.location + lead, location < end,
+              !FigureLineSeparation.isInCode(lineAt: location, in: ns) else { return nil }
         let content = raw.trimmingCharacters(in: .whitespaces)
         guard case .figure? = ManuscriptBlocks.parse(content).first?.block else { return nil }
         return end

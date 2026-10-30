@@ -109,7 +109,9 @@ enum ExistingFigurePicker {
     /// - Parked figures are left out (`isParked`, the card's answer), and
     ///   figures of a kind this build cannot write a line for.
     /// - A figure the listing numbers, or one with a line in this document's
-    ///   live text (`live`, from `liveUses`), is **used**: it is offered as a
+    ///   live text (`live`, from `liveUses`), is **used** — unless every use
+    ///   the listing knows is in this document and the live text has none
+    ///   (its line was cut since the settle): then it is to place: it is offered as a
     ///   reference to its line's label. That label is the live line's when
     ///   the first line is this document's (`docId`), else the index's
     ///   (`firstLineLabel`); none makes the row unavailable.
@@ -135,7 +137,10 @@ enum ExistingFigurePicker {
                       labelKind: kind, caption: FigureIngest.captionPlaceholder, action: action)
             }
             let liveUse = live[row.figureId]
-            if !row.isUnused {
+            // Every use the (settle-lagged) listing knows is this document's,
+            // and the live text holds none: its line was cut since — unused.
+            let goneFromHere = liveUse == nil && row.usedIn.allSatisfy { $0.docId == docId }
+            if !row.isUnused && !goneFromHere {
                 let label = row.pieceOfLine == docId && liveUse != nil
                     ? liveUse?.label : firstLineLabel(row)
                 let what = row.caption.isEmpty ? row.name : row.caption

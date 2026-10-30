@@ -168,7 +168,7 @@ final class CrossReferenceCompletion: CompletionSource {
     }
 
     /// A character a cross-reference query may hold: a query character or the colon.
-    private nonisolated static func isLabelUnit(_ unit: unichar) -> Bool {
+    nonisolated static func isLabelUnit(_ unit: unichar) -> Bool {
         unit == PickerUnit.colon || CompletionMatch.isQueryUnit(unit)
     }
 
