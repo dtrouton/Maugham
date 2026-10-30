@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** finish the Figures area. Research items become figures by drag or menu, and figures go back to Research by drag (confirmed once). A new Insert ▸ Existing Figure… places any figure's line at the caret. A Research CSV opens in the same grid and saves back to its file. Old figure lines that point into `research/` show in the Figures section with "Move into Figures", and a snapshot whose Research source changed says so. Plan 8 is then complete.
+**Goal:** finish the Figures area. Research items become figures by drag or menu, and figures go back to Research by drag (confirmed once). A new Insert ▸ Existing Figure… places any figure's line at the caret. A Research CSV opens in the same grid and saves back to its file, and New Table makes a blank one in Research. Old figure lines that point into `research/` show in the Figures section with "Move into Figures", and a snapshot whose Research source changed says so. Plan 8 is then complete.
 
 **Architecture:**
 - **Use in document makes an unused figure; placing is the editor's job.** Every route in (drag onto Figures, a Research row's menu, the Research inspector, "Move into Figures") calls `useInDocument` with a label-safe name. The figure appears as "—" in the Figures section, and Insert ▸ Existing Figure… puts its line at the caret through route A (one ⌘Z). Denver's ruling, 2026-10-29.
@@ -18,6 +18,7 @@
 - **Denver's rulings:**
   - **D8b-1 (2026-10-29) placement:** Use in document from anywhere outside the editor makes the figure unused ("—"). Insert ▸ Existing Figure… is the one way to place a line from Research or the Figures section: a picker listing every figure (unused first), inserting at the caret.
   - **D8-2 (2026-10-28):** dropping a figure on Research confirms once ("Send Table 3 to Research? Its line leaves the text. This can't be undone."). Dragging a Research item to Figures needs no confirmation.
+  - **D8b-2 (2026-10-30) New Table in Research:** Research gets "New Table" wherever it offers "New Note" (the section header menu, a group's or row's context menu, a piece's Research). It makes a blank table — three columns, a header row and three body rows, empty — named "Untitled Table" (de-duplicated), in rename mode like a new note, and opens it in the grid. The other Research-table gaps discussed on 2026-10-30 (copy vs link clarity, .xlsx/Sheets import, versioning before plan 9) are out of plan 8.
   - **D8-3 (2026-10-28):** Research CSVs edit in the grid in plan 8, with undo while the grid is open; the guide says saved changes are not versioned until plan 9.
 - **Spec intent, verbatim where it binds:** Research item → Figures = Use in document; Figure → Research = Send to Research; dragging within the Figures list does not renumber. Research tables open in the same grid editor in the centre; "editing saves to the file, with formulas as `=` cells. There is no op log for Research." Legacy figures appear tagged "in Research" with a "Move into Figures" action; nothing moves automatically. Snapshots from Research show the same "changed" note when their source item changes.
 - **Names:** a figure made from Research takes a label-safe name (`ManuscriptLabel.isValidName`), derived through `FigureIngest.figureName` and de-duplicated, so its line's `{#tbl:…}`/`{#fig:…}` label equals the record name (send, rename and relabel depend on it). "Move into Figures" keeps the line's existing label name when it is label-safe and free.
@@ -72,13 +73,18 @@
 - [ ] Failing tests: open writes nothing; an edit saves once after the debounce with the separator kept and formulas as `=` cells; the sidecar's hash follows; a pinning figure flips to "changed"; undo in the grid, flush on leaving; a file that can't be read shows the read error, never an empty grid (RULING-7 precedent); Review and view-only are read-only.
 - [ ] Gates; commit.
 
-### Task 8: Legacy research figures and "Move into Figures"
+### Task 8: New Table in Research
+**Files:** `Maugham/Stores/ResearchScope.swift` (`createResearchTable(scope:title:)` beside `createResearchNote`, routing shared/piece the same way; the CSV written as a new file through the coordinated, path-checked write — never over an existing file — plus its sidecar marking one header row), the menus that offer "New Note" (`BinderTreeSections` Research header, `ResearchTree` row/group context menu, a piece's Research fold if it offers New Note), the tree verbs bundle (`newTable(_ parentId:)`), selecting the new item so the centre opens Task 7's grid, rename mode as a new note gets (tripwire 16).
+- [ ] Failing tests: each menu creates "Untitled Table" (then "Untitled Table 2") as a `.table` item with a 3×4 blank grid and one header row, in the right scope (shared, group, piece); it opens in the grid; a read-only share or Review offers no New Table; posture/write refusal is said.
+- [ ] Gates; commit.
+
+### Task 9: Legacy research figures and "Move into Figures"
 **Files:** `Maugham/Editor/FigureListing.swift` (a `LegacyRow` for each `.outsideFigures` line: piece, line index, path, caption, the Research item it resolves to if any; a pure helper matching the line's standardised target to `ResearchItem.path`), the Figures section and `FigureRow` (legacy rows tagged "in Research", selectable as nothing new — their row's menu offers "Move into Figures" and "Show in Text"; the section shows when legacy rows exist even with no records), `FigureActions.moveIntoFigures(_:)` (Task 1's `useInDocument(name:)` with the line's label name, then `.retargetLine` on that piece; the second step's refusal leaves the figure unused and says so), the inspector is not needed for legacy rows.
 - [ ] Failing tests: a legacy line lists with its tag; Move into Figures creates the figure and retargets the line in a closed piece; posture refusal creates nothing; a path matching no Research item offers no Move (says "The file isn't in Research"); the line now resolves to the figure and numbers.
 - [ ] Gates; commit.
 
-### Task 9: Docs and the guide
-**Files:** `Maugham/Views/AREA.md` (trim first if not already; rules for the drags, legacy rows), `Maugham/Editor/AREA.md` (host seam, ResearchTableHost, Insert ▸ Existing Figure), `docs/guide/research.md` (Use in Document, Bring Back, editing a Research table — "saved changes aren't versioned yet"), `docs/guide/structure-and-binder.md` (the drags and the confirmation, legacy rows and Move into Figures), `docs/guide/editor-and-focus.md` (Insert ▸ Existing Figure…), `docs/tripwires.md` if a census grew (report any CLAUDE.md row needed — do not edit CLAUDE.md), DocBudget numbers only.
+### Task 10: Docs and the guide
+**Files:** `Maugham/Views/AREA.md` (trim first if not already; rules for the drags, legacy rows), `Maugham/Editor/AREA.md` (host seam, ResearchTableHost, Insert ▸ Existing Figure), `docs/guide/research.md` (Use in Document, Bring Back, New Table, editing a Research table — "saved changes aren't versioned yet"), `docs/guide/structure-and-binder.md` (the drags and the confirmation, legacy rows and Move into Figures), `docs/guide/editor-and-focus.md` (Insert ▸ Existing Figure…), `docs/tripwires.md` if a census grew (report any CLAUDE.md row needed — do not edit CLAUDE.md), DocBudget numbers only.
 - [ ] Edit; gates; commit.
 
 ## After the last task
