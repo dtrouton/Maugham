@@ -39,12 +39,14 @@ public struct PublishProblem: Sendable, Hashable {
         /// `FigureImageResolver`'s reason, a sentence fragment that names the
         /// path ("there is no file at research/x.png").
         case imageUnreadable(String)
-        /// The editor's only (report plan 7b, R7b-4): a figure line's path,
-        /// as written, inside `figures/` naming no registered figure (one
-        /// removed, or never made).
+        /// A figure line's path, as written, inside `figures/` naming no
+        /// registered figure (one removed, or never made): the editor's
+        /// (report plan 7b, R7b-4), and Publish's for a table figure's line
+        /// (plan 9a).
         case figureNotFound(String)
-        /// The editor's only: two or more registered figures share a figure
-        /// line's path, as written, so the line shows neither.
+        /// Two or more registered figures share a figure line's path, as
+        /// written, so the line shows neither: the editor's, and Publish's for
+        /// a table figure's line (plan 9a).
         case figureAmbiguous(String)
         /// The editor's only (R7b-3): a table figure's line labelled `fig:`.
         /// Publish numbers it as a figure and reads it through the image
@@ -54,6 +56,27 @@ public struct PublishProblem: Sendable, Hashable {
         /// path the payload) shares its paragraph with text, so it is read as
         /// an inline image — no card, and no figure when published.
         case figureLineSharesParagraph(String)
+        /// A table figure showing a formula error (report plan 9a, spec §9):
+        /// its first error cell's A1 name and the error it shows (`#DIV/0!`),
+        /// once per figure.
+        case tableFigureErrorCell(name: String, cell: String, error: String)
+        /// A table figure whose formulas read a Research source that is gone.
+        case tableFigureSourceMissing(name: String)
+        /// A table figure its line can't print: its state did not read as a
+        /// table. The line keeps its number and prints its literal source.
+        case tableFigureUnreadable(name: String)
+        /// A figure parked in Research (or a legacy line into a Research
+        /// folder), named by the figure's name — or the file's, for a legacy
+        /// line: a reference to it, or a line still naming it.
+        case figureInResearch(name: String)
+        /// A note: a table figure's formulas read numbers from Research.
+        case tableFigureReadsResearch(name: String)
+        /// A note: a Research source the table reads, or its own, has
+        /// changed since the table last took it.
+        case tableFigureResearchChanged(name: String)
+        /// A note: an `NPV` whose first flow is negative, which Excel
+        /// discounts one period (spec §5); the first such cell's A1 name.
+        case tableFigureNPVNote(name: String, cell: String)
     }
 
     public let kind: Kind
@@ -83,8 +106,8 @@ public struct PublishProblem: Sendable, Hashable {
     /// R-P2-1, the one severity table. In a Report its error kinds (the
     /// `isError(_:profile:)` switch) block a versioned compile; in every other
     /// project nothing does, so a novel that happens to contain `[@sarah]`
-    /// still compiles. The editor-only figure-line kinds Publish never emits,
-    /// so they colour an underline and block nothing.
+    /// still compiles. The editor-only figure-line kinds colour an underline;
+    /// Publish never emits them.
     public func isError(profile: ProjectProfile?) -> Bool {
         Self.isError(kind, profile: profile)
     }
@@ -105,21 +128,18 @@ public struct PublishProblem: Sendable, Hashable {
         case .unusedFootnoteDefinition, .duplicateFootnoteDefinition,
              .labelOnWrongElement, .malformedLabel:
             return false
-        // The editor's figure-line checks (report plan 7b) take the colour of
-        // what Publish would do with the line. A table figure ships its
-        // literal source, judged by the lexical path rule only, so a `.csv`
-        // naming no figure, or naming two, still publishes; an image naming
-        // two figures still has its file. But a figure line labelled `fig:`
-        // goes through the image door, which refuses a `.csv`
-        // (`.imageUnreadable`); and an image path naming no figure has lost
-        // its file with the figure (whole-branch review I3, M3). That last is
-        // a premise, not a probe: Publish's image door reads the disk, so an
-        // unregistered picture still sitting in `figures/` would publish
-        // though the editor says red — accepted, since the editor's checks
-        // never touch the disk (R7b-4; re-review N2).
-        case .figureNotFound(let path):
-            return !ManuscriptLabel.Kind.isTableFigurePath(path)
-        case .tableFigureLabelledFig:
+        // The figure-line checks take the colour of what Publish does with
+        // the line. A line naming no figure has nothing to print: a `.csv`
+        // has no table (report plan 9a checks it against the registry), and
+        // an image path has lost its file with the figure (whole-branch
+        // review I3, M3). That last is a premise, not a probe: Publish's image
+        // door reads the disk, so an unregistered picture still sitting in
+        // `figures/` would publish though the editor says red — accepted,
+        // since the editor's checks never touch the disk (R7b-4; re-review
+        // N2). A figure line labelled `fig:` goes through the image door,
+        // which refuses a `.csv` (`.imageUnreadable`). A line naming two
+        // figures still publishes — its literal source, or the image file.
+        case .figureNotFound, .tableFigureLabelledFig:
             return true
         case .figureAmbiguous:
             return false
@@ -127,6 +147,14 @@ public struct PublishProblem: Sendable, Hashable {
         // blocks nothing on it: a warning, which the writer fixes with a
         // blank line.
         case .figureLineSharesParagraph:
+            return false
+        // Spec §9: a table that can't print right, or a figure in Research,
+        // is red in a Report; the Research and `NPV` notes are amber
+        // everywhere.
+        case .tableFigureErrorCell, .tableFigureSourceMissing, .tableFigureUnreadable,
+             .figureInResearch:
+            return true
+        case .tableFigureReadsResearch, .tableFigureResearchChanged, .tableFigureNPVNote:
             return false
         }
     }
@@ -176,6 +204,24 @@ public struct PublishProblem: Sendable, Hashable {
             let what = ManuscriptLabel.Kind.isTableFigurePath(path) ? "table" : "figure"
             return "This \(what) line shares a paragraph with text — it won't show or publish as a \(what). "
                 + "Add a blank line above and below it."
+        case .tableFigureErrorCell(let name, let cell, let error):
+            return "Table “\(name)” has an error in \(cell) (\(error)). Fix the cell in the table to publish it."
+        case .tableFigureSourceMissing(let name):
+            return "Table “\(name)” reads numbers from a Research source that is gone. "
+                + "Bring the source back, or change the cells that read it."
+        case .tableFigureUnreadable(let name):
+            return "Table “\(name)” couldn't be read, so its line prints as written. "
+                + "Open it in the Figures area to check it."
+        case .figureInResearch(let name):
+            return "“\(name)” is in Research now, so it won’t publish. "
+                + "Bring it back into the Figures area to use it here."
+        case .tableFigureReadsResearch(let name):
+            return "Table “\(name)” uses numbers from Research."
+        case .tableFigureResearchChanged(let name):
+            return "Research has changed since table “\(name)” took its numbers. Refresh it in the Figures area."
+        case .tableFigureNPVNote(let name, let cell):
+            return "Table “\(name)” discounts the first cash flow in \(cell): NPV treats it as a year away, "
+                + "as Excel does. Add it outside the NPV if it falls today."
         }
     }
 

@@ -203,12 +203,15 @@ final class ReportPDFCompileTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(text.components(separatedBy: "Programme cash").count - 1, 3,
                                     "the list of tables, the caption and the literal source: \(text)")
         // I2: the door's own resolution for a PDF raises no image problem for
-        // the table figure (the fixture's `[@ghost]` is the gate's only error).
+        // the table figure. Its line names no registered figure here (the
+        // fixture registers none), so since plan 9a it is not found, beside
+        // the fixture's `[@ghost]`.
         let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         let bodies = try PDFCompiler.resolve(bodies: [BodyPlan.Body(
             tag: nil, displayTag: "en", source: ProjectStoreASTSource(projectStore: store, figures: .none), config: config)])
         XCTAssertEqual(bodies[0].resolution.problems.filter { $0.isError(profile: .report) }.map(\.kind),
-                       [.unknownCitationKey("ghost")], "the table figure is no unreadable image")
+                       [.figureNotFound("../figures/cash.csv"), .unknownCitationKey("ghost")],
+                       "the table figure is no unreadable image")
         XCTAssertTrue(try embedsAnImage(result), "the figure's image is in the PDF")
         let metadata = try String(contentsOf: publish.appendingPathComponent("build/metadata.tex"),
                                   encoding: .utf8)

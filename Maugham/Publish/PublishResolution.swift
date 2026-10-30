@@ -216,6 +216,13 @@ private struct Pass {
     let tableLocale: TableLocale
     /// The registry keyed once for every table-figure line of the book.
     private let figureIndex: FigureLineResolution.Index
+    /// The labels that would name a parked figure (`tbl:` a table's name,
+    /// `fig:` an image's): a reference to one is `figureInResearch`, not
+    /// unresolved — Send to Research removed its line.
+    private let parkedLabels: Set<ManuscriptLabel>
+    /// The figures whose table-figure problems this body has raised: each is
+    /// raised once per body however many lines name the figure.
+    private var judgedFigures = Set<String>()
 
     var targets: [ManuscriptLabel: PublishResolution.Target] = [:]
     var headingNumbers: [String: [Int: String]] = [:]
@@ -247,6 +254,17 @@ private struct Pass {
         self.words = words
         self.tableLocale = tableLocale
         self.figureIndex = FigureLineResolution.Index(context.figures.records)
+        let figures = context.figures
+        self.parkedLabels = Set(figures.records.compactMap { record -> ManuscriptLabel? in
+            guard Self.isParked(record.id, in: figures) else { return nil }
+            let kind: ManuscriptLabel.Kind
+            switch record.kind {
+            case .table: kind = .tbl
+            case .image: kind = .fig
+            case .unknown: return nil
+            }
+            return ManuscriptLabel(reference: "\(kind.rawValue):\(record.name)")
+        })
         self.context = context
         self.bodyTag = bodyTag
         self.imageAllowed = imageAllowed
@@ -291,10 +309,11 @@ private struct Pass {
                 let t = target("\(words.table) \(number)")
                 tables.append((number, caption, t))
                 register(label, expected: .tbl, target: t, piece: piece, paragraph: paragraph)
-                if case .layout(_, let layout) = judgeTableFigurePath(path, piece: piece,
-                                                                       paragraph: paragraph) {
+                let line = judgeTableFigurePath(path, piece: piece, paragraph: paragraph)
+                if case .layout(_, let layout, _) = line {
                     tableFigures[piece, default: [:]][index] = layout
                 }
+                raiseTableFigureProblems(line, path: path, piece: piece, paragraph: paragraph)
             case .figure(let caption, let path, let label):
                 let number = figures.count + 1
                 figureNumbers[piece, default: [:]][index] = number
@@ -362,7 +381,76 @@ private struct Pass {
         case parked(FigureRecord)
         /// The record is no table, or its state did not read as one.
         case unreadable(FigureRecord)
-        case layout(FigureRecord, FigureTableLayout)
+        /// Its printed cells, and the A1 name of its first `NPV` cell whose
+        /// first flow is discounted (`Workbook.notes`), if any.
+        case layout(FigureRecord, FigureTableLayout, npvNoted: String?)
+    }
+
+    /// A figure parked in Research: the snapshot's parked set, or its state's
+    /// own parking.
+    static func isParked(_ id: String, in figures: PublishFigures) -> Bool {
+        figures.parked.contains(id) || figures.states[id]?.parked != nil
+    }
+
+    /// Spec §9's problems and notes for one table-figure line, by what it
+    /// resolved to. A figure's own problems are raised once per body, on the
+    /// first line that names it; a line the registry can't place is named
+    /// each time.
+    private mutating func raiseTableFigureProblems(_ line: TableFigureLine, path: String,
+                                                   piece: String, paragraph: String?) {
+        func once(_ record: FigureRecord, _ kinds: () -> [PublishProblem.Kind]) {
+            guard judgedFigures.insert(record.id).inserted else { return }
+            kinds().forEach { report($0, piece: piece, paragraph: paragraph) }
+        }
+        switch line {
+        case .unjudged, .notLocal:
+            return
+        case .outsideFigures:
+            let file = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            reportOnce(.figureInResearch(name: file), piece: piece, paragraph: paragraph)
+        case .missing:
+            reportOnce(.figureNotFound(path), piece: piece, paragraph: paragraph)
+        case .ambiguous:
+            reportOnce(.figureAmbiguous(path), piece: piece, paragraph: paragraph)
+        case .parked(let record):
+            once(record) { [.figureInResearch(name: record.name)] }
+        case .unreadable(let record):
+            once(record) { [.tableFigureUnreadable(name: record.name)] }
+        case .layout(let record, let layout, let npvNoted):
+            once(record) { tableFigureProblems(record, layout: layout, npvNoted: npvNoted) }
+        }
+    }
+
+    /// A printed table's problems, then its notes: its first error cell, a
+    /// pin whose source is gone, that it reads Research at all, that a source
+    /// moved on, and the `NPV` note.
+    private func tableFigureProblems(_ record: FigureRecord, layout: FigureTableLayout,
+                                     npvNoted: String?) -> [PublishProblem.Kind] {
+        let name = record.name
+        let figures = context.figures
+        let pins = figures.pinStatus[record.id] ?? [:]
+        var kinds: [PublishProblem.Kind] = []
+        if let cell = layout.errorCells.first {
+            kinds.append(.tableFigureErrorCell(name: name, cell: cell,
+                                               error: Self.displayed(cell, in: layout) ?? "an error"))
+        }
+        if pins.values.contains(.sourceMissing) { kinds.append(.tableFigureSourceMissing(name: name)) }
+        if !pins.isEmpty { kinds.append(.tableFigureReadsResearch(name: name)) }
+        let pinMoved = pins.values.contains { if case .sourceChanged = $0 { true } else { false } }
+        if pinMoved || figures.sourceChanged.contains(record.id) {
+            kinds.append(.tableFigureResearchChanged(name: name))
+        }
+        if let npvNoted { kinds.append(.tableFigureNPVNote(name: name, cell: npvNoted)) }
+        return kinds
+    }
+
+    /// The text `layout` prints at A1 name `cell` (its row counted over
+    /// header, body and total, as `errorCells` counts it).
+    static func displayed(_ cell: String, in layout: FigureTableLayout) -> String? {
+        guard let at = A1.parse(cell) else { return nil }
+        let rows = [layout.header].compactMap { $0 } + layout.body + [layout.total].compactMap { $0 }
+        guard rows.indices.contains(at.row), rows[at.row].indices.contains(at.column) else { return nil }
+        return rows[at.row][at.column]
     }
 
     /// A table figure's line: its path judged by `FigurePathRule.lexical`
@@ -390,14 +478,22 @@ private struct Pass {
     private func tableFigure(_ record: FigureRecord) -> TableFigureLine {
         let figures = context.figures
         let state = figures.states[record.id]
-        if figures.parked.contains(record.id) || state?.parked != nil { return .parked(record) }
+        if Self.isParked(record.id, in: figures) { return .parked(record) }
         guard record.kind == .table, let state, state.kind == .table else { return .unreadable(record) }
         var book = figures.workbook ?? Workbook(pins: FigurePinIndex())
         book.setTable(state.table, id: record.id)
         let layout = FigureTableLayout.make(table: state.table, value: {
             book.value(at: CellAddress(table: record.id, key: $0))
         }, locale: tableLocale)
-        return .layout(record, layout)
+        let table = state.table
+        let noted = book.notes.compactMap { note -> (row: Int, column: Int)? in
+            guard case .npvFirstFlowDiscounted(let address) = note, address.table == record.id,
+                  let row = table.rows.firstIndex(of: address.key.row),
+                  let column = table.columns.firstIndex(of: address.key.column) else { return nil }
+            return (row, column)
+        }.min { ($0.row, $0.column) < ($1.row, $1.column) }
+        return .layout(record, layout,
+                       npvNoted: noted.map { A1.columnLetters($0.column) + String($0.row + 1) })
     }
 
     private mutating func resolveImage(_ path: String, piece: String, index: Int, paragraph: String?) {
@@ -446,7 +542,10 @@ private struct Pass {
                         }
                     }
                 case .crossRef(let label):
-                    if targets[label] == nil {
+                    if targets[label] == nil, parkedLabels.contains(label) {
+                        // Send to Research removed its line: say where it went.
+                        report(.figureInResearch(name: label.name), piece: piece, paragraph: paragraph)
+                    } else if targets[label] == nil {
                         report(.unresolvedCrossRef(label), piece: piece, paragraph: paragraph)
                     }
                 }

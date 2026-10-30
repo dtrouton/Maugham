@@ -232,19 +232,19 @@ final class ManuscriptChecksTests: XCTestCase {
                                                       profile: .report), .systemOrange, "a warning")
     }
 
-    /// The figure-line kinds follow Publish (whole-branch review I3, M3): in
-    /// a Report, a table figure labelled `fig:` (the image door refuses its
-    /// `.csv`) and an image path naming no figure (its file went with it)
-    /// are red; a `.csv` naming no figure or two, and an image naming two,
-    /// still publish, so amber. Outside a Report every one is amber. A path
-    /// outside the project still refuses a Report.
+    /// The figure-line kinds follow Publish (whole-branch review I3, M3; plan
+    /// 9a): in a Report, a table figure labelled `fig:` (the image door
+    /// refuses its `.csv`) and a path naming no figure — an image's file went
+    /// with it, a `.csv` has no table to print — are red; a line naming two
+    /// figures still publishes, so amber. Outside a Report every one is
+    /// amber. A path outside the project still refuses a Report.
     func test_figureLineSeverity() {
         let red: [PublishProblem.Kind] = [.tableFigureLabelledFig(label("fig:x")),
                                           .figureNotFound("figures/x.png"),
-                                          .figureNotFound("../figures/x.PNG")]
-        let amber: [PublishProblem.Kind] = [.figureNotFound("figures/x.csv"),
-                                            .figureNotFound("../figures/x.CSV"),
-                                            .figureAmbiguous("figures/x.csv"),
+                                          .figureNotFound("../figures/x.PNG"),
+                                          .figureNotFound("figures/x.csv"),
+                                          .figureNotFound("../figures/x.CSV")]
+        let amber: [PublishProblem.Kind] = [.figureAmbiguous("figures/x.csv"),
                                             .figureAmbiguous("figures/x.png")]
         for kind in red {
             XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: .report), .systemRed, "\(kind)")
