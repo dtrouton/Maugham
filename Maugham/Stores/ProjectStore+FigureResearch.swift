@@ -65,13 +65,15 @@ extension ProjectStore {
     ///    (`vacantFigureName`: `_2`, `_3`…), behind the door a new figure asks
     ///    of `piece`, and its `figureCreate` records the source: the item's
     ///    id, path and the content hash of the bytes copied (`FigureSource`).
+    ///    `avoiding` adds names it must not take: the labels the book's text
+    ///    already defines, so the line Insert gives it is not a duplicate.
     ///
     /// Throws `UseInDocumentRefused` for an item that is not a Research table,
     /// picture or PDF, has no file, or is too large. Needs the window's
     /// `DocumentStore`.
     @discardableResult
     public func useInDocument(
-        researchItemId: String, piece: String?, name: String? = nil
+        researchItemId: String, piece: String?, name: String? = nil, avoiding: Set<String> = []
     ) async throws -> UseInDocumentResult {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
@@ -83,7 +85,7 @@ extension ProjectStore {
         // A grid open on the table writes what it holds first (report plan 8b Task 7).
         await documentStore.settleResearchTable(itemId: item.id)
         let sidecar = researchTableSidecar(of: item)
-        if try await figureToBringBack(namedBy: sidecar, documentStore: documentStore) != nil {
+        if try await figureToBringBack(namedBy: sidecar, itemId: item.id, documentStore: documentStore) != nil {
             return try await bringBack(researchItemId: item.id, piece: piece, name: name)
         }
         let figureName = Self.labelSafeFigureName(name, title: item.title)
@@ -104,7 +106,7 @@ extension ProjectStore {
             let record = try await createFigureStream(
                 kind: .table, table: read.table, name: figureName, piece: piece,
                 source: FigureSource(researchItemId: item.id, path: path, contentHash: hash),
-                site: "useInDocument")
+                site: "useInDocument", avoiding: avoiding)
             for problem in read.problems {
                 projectStoreLog.info(
                     "useInDocument: \(item.title, privacy: .public) row \(problem.row + 1, privacy: .public), column \(problem.column + 1, privacy: .public) kept as text: \(problem.message, privacy: .public)")
@@ -114,7 +116,7 @@ extension ProjectStore {
             let (path, file) = try researchFile(of: item)
             let hash = try await Task.detached { try ContentHash.ofFile(file) }.value
             let record = try await createImageFigure(
-                fromURL: file, name: figureName, piece: piece,
+                fromURL: file, name: figureName, piece: piece, avoiding: avoiding,
                 from: FigureSource(researchItemId: item.id, path: path, contentHash: hash))
             return UseInDocumentResult(record: record, problems: [])
         case .document?, .audio?, .link?, nil:
@@ -124,7 +126,7 @@ extension ProjectStore {
 
     /// **The parked figure a Research item brings back**, by id, or nil when
     /// *Use in document* on it makes a new figure: the item's sidecar names a
-    /// figure the registry lists, parked, which this Mac may edit (final
+    /// figure the registry lists, parked from THIS item, which this Mac may edit (final
     /// review M-5, Denver's ruling — anyone else makes a new, independent
     /// figure from the copy's data; the sidecar's figure id is not followed,
     /// and its formats apply only to the bytes they were written for). The
@@ -135,7 +137,8 @@ extension ProjectStore {
         guard let documentStore,
               let item = findResearchItem(id: researchItemId, in: manifest.research),
               item.type == .asset else { return nil }
-        return try await figureToBringBack(namedBy: researchTableSidecar(of: item), documentStore: documentStore)
+        return try await figureToBringBack(
+            namedBy: researchTableSidecar(of: item), itemId: item.id, documentStore: documentStore)
     }
 
     /// `figureToBringBack(fromResearchItemId:)` for every Research picture,
@@ -158,17 +161,20 @@ extension ProjectStore {
         }.value
         var out: [String: String] = [:]
         for (id, sidecar) in named {
-            guard let figureId = try? await figureToBringBack(namedBy: sidecar, documentStore: documentStore)
+            guard let figureId = try? await figureToBringBack(namedBy: sidecar, itemId: id, documentStore: documentStore)
             else { continue }
             out[id] = figureId
         }
         return out
     }
 
+    /// Only the copy the park names (`FigureParking.itemId`): an older copy of
+    /// a figure sent again since makes a new figure (final review M2).
     private func figureToBringBack(
-        namedBy sidecar: ResearchTableSidecar?, documentStore: DocumentStore
+        namedBy sidecar: ResearchTableSidecar?, itemId: String, documentStore: DocumentStore
     ) async throws -> String? {
-        guard let figureId = sidecar?.figureId, try await documentStore.figureIsParked(figureId) else { return nil }
+        guard let figureId = sidecar?.figureId,
+              try await documentStore.figureParkedItemId(figureId) == itemId else { return nil }
         let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
         return !posture.isSettling && posture.allows(.editFigure) ? figureId : nil
     }

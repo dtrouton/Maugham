@@ -489,13 +489,19 @@ extension DocumentStore {
     /// False for an id the registry does not list. Throws when the stream or
     /// the registry will not read: a parked figure can't be told apart.
     func figureIsParked(_ figureId: String) async throws -> Bool {
+        try await figureParkedItemId(figureId) != nil
+    }
+
+    /// **The Research item figure `figureId`'s park names** (`FigureParking.itemId`),
+    /// or nil when it is not parked — `figureIsParked`'s answer, with which copy.
+    func figureParkedItemId(_ figureId: String) async throws -> String? {
         guard let manifest = projectStore?.manifest,
-              manifest.figures?.contains(where: { $0.id == figureId }) == true else { return false }
-        if let open = openFigure(forId: figureId) { return open.state.parked != nil }
+              manifest.figures?.contains(where: { $0.id == figureId }) == true else { return nil }
+        if let open = openFigure(forId: figureId) { return open.state.parked?.itemId }
         let trust = try await figureTrust()
         let state = try figureCache.state(
             forFigureId: figureId, in: projectURL, trust: trust, facts: DocumentClass.Facts(manifest))
-        return state.parked != nil
+        return state.parked?.itemId
     }
 
     /// **The unparked figures made from a Research item** (report plan 8b

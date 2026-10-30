@@ -263,17 +263,21 @@ struct FigureActions {
     /// the cells the read kept as text and the late edits the copy replaced
     /// are said once (`readNotice`) through `notice`, a refusal through
     /// `report` — worded by the route the store takes
-    /// (`figureToBringBack`, asked before the verb).
+    /// (`figureToBringBack`, asked before the verb). A new figure's name
+    /// avoids the figure and table labels the book already defines
+    /// (`definedLabels`), so Insert ▸ Existing Figure can't place a duplicate.
     @discardableResult
     func useInDocument(_ item: ResearchItem,
+                       definedLabels: @escaping @MainActor () -> Set<ManuscriptLabel> = { [] },
                        reveal: @escaping @MainActor (String) -> Void) -> Task<Void, Never> {
         let store = store, say = notice ?? report
         let piece = store.researchHomePiece(ofItemId: item.id)
         return run {
             let bringingBack = (try? await store.figureToBringBack(fromResearchItemId: item.id)) != nil
+            let avoiding = Set(definedLabels().filter { $0.kind != .sec }.map(\.name))
             let result: UseInDocumentResult
             do {
-                result = try await store.useInDocument(researchItemId: item.id, piece: piece)
+                result = try await store.useInDocument(researchItemId: item.id, piece: piece, avoiding: avoiding)
             } catch is FigureEditRefused {
                 throw ResearchUseRefused(bringingBack: bringingBack)
             }

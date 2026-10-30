@@ -88,6 +88,27 @@ enum ExistingFigurePicker {
         let caption: String
     }
 
+    /// A figure line in ANOTHER open document's live text (final review M3):
+    /// placed there since the listing's settle, so not to be placed again.
+    struct ElsewhereUse: Equatable {
+        let docId: String
+        let use: LiveUse
+    }
+
+    /// `liveUses` over every other open document (`docId`, its manuscript
+    /// path, its live text), by figure id — the first document's line wins.
+    static func liveUsesElsewhere(in documents: [(docId: String, path: String, text: String)],
+                                  records: [FigureRecord]) -> [String: ElsewhereUse] {
+        var out: [String: ElsewhereUse] = [:]
+        for document in documents.sorted(by: { $0.docId < $1.docId }) {
+            for (id, use) in liveUses(in: document.text, records: records, documentPath: document.path)
+            where out[id] == nil {
+                out[id] = ElsewhereUse(docId: document.docId, use: use)
+            }
+        }
+        return out
+    }
+
     /// The figures `text` (this document's live text, at `documentPath`) has
     /// a line for, by figure id — each one's first line. A line resolves to
     /// its figure as the editor's cards resolve it (`FigureLineResolution`).
@@ -117,14 +138,18 @@ enum ExistingFigurePicker {
     ///   the first use (`lineLabel`) — the first OUTSIDE this document when
     ///   the live text has no line (this document's use is a cut line's);
     ///   none makes the row unavailable.
+    /// - A figure the listing does not count as used here or elsewhere but
+    ///   another open document's live text holds (`elsewhere`, placed there
+    ///   since the settle) is a reference to that line's label, never placed.
     /// - Order: those to place first (the listing's name order), then the
-    ///   used ones in the listing's reading order, then any used only in the
+    ///   used ones in the listing's reading order, then any used only in
     ///   live text (placed since the last settle).
     ///
     /// `pieceTitle` names a piece by document id.
     @MainActor static func entries(listing: [FigureListing.Row], records: [FigureRecord],
                                    isParked: (String) -> Bool, documentPath: String, docId: String,
                                    live: [String: LiveUse],
+                                   elsewhere: [String: ElsewhereUse] = [:],
                                    lineLabel: (FigureListing.Row, FigureListing.Use) -> ManuscriptLabel?,
                                    pieceTitle: (String) -> String) -> [Entry] {
         var byId: [String: FigureRecord] = [:]
@@ -156,6 +181,11 @@ enum ExistingFigurePicker {
                 let what = liveUse.caption.isEmpty ? row.name : liveUse.caption
                 let place = "\(what) \u{00B7} \(pieceTitle(docId))"
                 liveOnly.append(liveUse.label.map { entry("Refer to " + place, .refer($0)) }
+                    ?? entry(place, .unavailable("Give this figure a label to refer to it")))
+            } else if let other = elsewhere[row.figureId] {
+                let what = other.use.caption.isEmpty ? row.name : other.use.caption
+                let place = "\(what) \u{00B7} \(pieceTitle(other.docId))"
+                liveOnly.append(other.use.label.map { entry("Refer to " + place, .refer($0)) }
                     ?? entry(place, .unavailable("Give this figure a label to refer to it")))
             } else {
                 toPlace.append(entry("\(FigureListing.unusedNumber) \(row.name) (unused)", .place))

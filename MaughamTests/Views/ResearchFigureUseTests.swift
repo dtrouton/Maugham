@@ -239,6 +239,61 @@ final class ResearchFigureUseTests: XCTestCase {
         FigureSectionWiring.attach(state, to: nil)
     }
 
+    /// **Final review M2 — an older copy of a figure sent again reads *Use in
+    /// Document***: the figure came back from its first copy and was parked
+    /// again from a second, so only the second copy brings it back; the first
+    /// copy's verb makes a new, independent figure, with nothing refused.
+    func test_anOlderCopyOfAFigureSentAgainMakesANewFigure() async throws {
+        let store = try await openBook()
+        let source = try await store.addResearchAsset(
+            parentId: nil, fromURL: try external("cash.csv", "Item,Amount\nRent,1200\n"))
+        let cash = try await store.useInDocument(researchItemId: source.id, piece: nil).record
+        let first = try await store.sendToResearch(figureId: cash.id, scope: .shared)
+        _ = try await store.bringBack(researchItemId: first.id, piece: nil)
+        let second = try await store.sendToResearch(figureId: cash.id, scope: .shared)
+        let state = tree(store)
+        await listingSettles(store, state)
+
+        await state.refreshFigureReturns(store: store)
+        XCTAssertEqual(state.figureReturns, [second.id: cash.id], "only the copy the park names")
+        let actions = menu(store, state)
+        XCTAssertEqual(actions.figureVerb(first), .use)
+        XCTAssertEqual(actions.figureVerb(second), .bringBack(figureId: cash.id), "control: the parked copy")
+
+        await actions.performFigureVerb(first)?.value
+
+        XCTAssertNil(state.pendingError)
+        let figures = try XCTUnwrap(store.manifest.figures)
+        XCTAssertEqual(figures.count, 2, "a new figure was made")
+        let parked = try await figureState(cash.id).parked
+        XCTAssertEqual(parked?.itemId, second.id, "the parked figure stays parked")
+        FigureSectionWiring.attach(state, to: nil)
+    }
+
+    /// **Final review M3 — Use in Document's name avoids the labels the text
+    /// already defines**: a hand-written line labelled `{#tbl:budget}` makes
+    /// the figure `budget_2`, so Insert ▸ Existing Figure can't place a second
+    /// `tbl:budget`. Control: a section label of that name doesn't count.
+    func test_useInDocumentNamesClearOfTheLabelsTheTextDefines() async throws {
+        let store = try await openBook()
+        let item = try await store.addResearchAsset(
+            parentId: nil, fromURL: try external("budget.csv", "Item,Amount\nRent,100\n"))
+        let other = try await store.addResearchAsset(
+            parentId: nil, fromURL: try external("plan.csv", "Item,Amount\nRent,100\n"))
+        let state = tree(store)
+        state.definedFigureLabels = {
+            [ManuscriptLabel(reference: "tbl:budget")!, ManuscriptLabel(reference: "sec:plan")!]
+        }
+        let actions = menu(store, state)
+
+        await actions.performFigureVerb(item)?.value
+        await actions.performFigureVerb(other)?.value
+
+        XCTAssertNil(state.pendingError)
+        XCTAssertEqual(store.manifest.figures?.map(\.name), ["budget_2", "plan"])
+        FigureSectionWiring.attach(state, to: nil)
+    }
+
     private func figureState(_ id: String) async throws -> FigureState {
         let doc = try await FigureDocument.load(
             figureId: id, projectURL: projectURL, actor: .author,

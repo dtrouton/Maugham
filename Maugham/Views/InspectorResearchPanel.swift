@@ -142,7 +142,8 @@ struct InspectorResearchPanel: View {
             .shared(report: { say(FigureMessage(text: $0, isRefusal: true)) },
                     notice: { say(FigureMessage(text: $0, isRefusal: false)) },
                     windowRefusesWrites: windowRefusesWrites)
-            .useInDocument(item, reveal: { tree.revealFigureWhenDrawn($0) })
+            .useInDocument(item, definedLabels: tree.definedFigureLabels,
+                           reveal: { tree.revealFigureWhenDrawn($0) })
     }
 
     private func kindLabel(_ kind: ResearchItem.AssetKind?) -> String {

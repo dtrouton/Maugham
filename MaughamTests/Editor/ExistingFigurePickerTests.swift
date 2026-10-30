@@ -212,6 +212,30 @@ final class ExistingFigurePickerTests: XCTestCase {
                        .unavailable("Give this figure a label to refer to it"))
     }
 
+    /// **Final review M3 — a figure placed in ANOTHER open piece since the
+    /// settle is not offered to place again**: that piece's live text holds its
+    /// line, so the picker refers to it there. Control: with no other open
+    /// piece holding it, it is to place.
+    func test_aFigurePlacedInAnotherOpenPieceSinceTheSettleIsReferredTo() throws {
+        let elsewhere = ExistingFigurePicker.liveUsesElsewhere(
+            in: [(docId: Self.chapterOne, path: "manuscript/01.md",
+                  text: "Prose.\n\n![Revenue](../figures/q3-revenue.csv){#tbl:q3-revenue}\n")],
+            records: Self.records)
+        XCTAssertEqual(elsewhere, [Self.q3.id: .init(
+            docId: Self.chapterOne, use: .init(label: Self.label("tbl:q3-revenue"), caption: "Revenue"))])
+        let entries = ExistingFigurePicker.entries(
+            listing: Self.listing, records: Self.records, isParked: { $0 == Self.parked.id },
+            documentPath: Self.documentPath, docId: Self.chapterTwo, live: [:], elsewhere: elsewhere,
+            lineLabel: { row, _ in Self.firstLineLabels[row.figureId] },
+            pieceTitle: { $0 == Self.chapterOne ? "Chapter 1" : "Chapter 2" })
+
+        let q3 = try XCTUnwrap(entries.first { $0.figureId == Self.q3.id })
+        XCTAssertEqual(q3.action, .refer(Self.label("tbl:q3-revenue")))
+        XCTAssertEqual(q3.title, "Refer to Revenue · Chapter 1")
+        XCTAssertEqual(Self.entries().first { $0.figureId == Self.q3.id }?.action, .place,
+                       "control: no open piece holds it")
+    }
+
     /// When the first line is this document's, the live line's label wins
     /// over the index's (it may have changed since the settle).
     func test_theLiveLabelWinsWhenTheFirstLineIsThisDocuments() {

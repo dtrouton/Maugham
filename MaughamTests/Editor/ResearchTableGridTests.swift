@@ -789,6 +789,42 @@ final class ResearchTableGridTests: XCTestCase {
         guard case .editing = o.model.edit else { return XCTFail("the other grid's cell was closed") }
     }
 
+    /// **Final review M8 — moving a table open in a grid**: a committed edit
+    /// still waiting on its debounce is saved by the typed mover's flush
+    /// before it moves the file, so it lands at the new path and nothing is left (or made
+    /// again) at the old one; a later edit saves at the new path too (the
+    /// path is asked of the manifest at each save).
+    func test_movingATableWithAnUnsavedEditSavesItAtTheNewPathOnly() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let group = try await projectStore.addResearchItem(parentId: nil, title: "Sources", kind: nil)
+        let oldFile = file(try XCTUnwrap(item.path))
+        let host = try await store.openResearchTable(itemId: item.id)
+        host.saveDelay = .seconds(60)   // the edit is committed, its save still pending
+        try await host.setCell(Cell(content: .value(.number(11))), at: key(host, 2, 2), undoManager: nil)
+        XCTAssertTrue(host.isDirty, "precondition: an unsaved committed edit")
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "10"]],
+                       "precondition: not yet written")
+
+        try await projectStore.moveResearchItems(ids: [item.id], to: .group(group.id))
+
+        // No debounce waited out: the mover's flush wrote the edit before the file moved.
+        XCTAssertFalse(host.isDirty, "the move saved the pending edit")
+        let moved = try XCTUnwrap(projectStore.findResearchItem(id: item.id, in: projectStore.manifest.research))
+        XCTAssertNotEqual(moved.path, item.path, "precondition: the file moved")
+        XCTAssertEqual(TableCSV.rows(try text(of: moved)).rows, [["Year", "Revenue"], ["2025", "11"]],
+                       "the edit is at the new path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldFile.path), "nothing at the old path")
+
+        host.saveDelay = .milliseconds(20)
+        try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
+        await awaitTheSave(host)
+        XCTAssertEqual(TableCSV.rows(try text(of: moved)).rows, [["Year", "Revenue"], ["2025", "12"]],
+                       "a later edit saves at the new path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldFile.path), "and makes nothing at the old one")
+        await store.releaseResearchTable(host)
+    }
+
     // MARK: - The route
 
     /// **The centre mounts the grid** for a Research table subject, through

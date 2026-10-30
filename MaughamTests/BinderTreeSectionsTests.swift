@@ -159,20 +159,22 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         clickCount(at: point, in: window)
         await pumpUntil(deadline: 3) { state.pieceFilter != nil }
+        let filterAfterCount = state.pieceFilter, subjectAfterCount = probe.subject
 
-        XCTAssertEqual(state.pieceFilter, chapter.id,
-                       "the click on the count did not reach its button — the row's "
-                       + "drag or selection took it")
-        XCTAssertEqual(probe.subject, subjectBefore,
-                       "the count's click selected the chapter row; it must select nothing")
-
-        // Control: the same click on the row's title, away from the count, does
-        // select it — so "selects nothing" above is the button's doing, not a
-        // click that never reached the table.
+        // Control, and the measurement, BEFORE any assertion: the same click on
+        // the row's title, away from the count, does select it — so "selects
+        // nothing" below is the button's doing, not a click that never reached
+        // the table; a window that takes no clicks at all is skipped by name.
         let title = CGPoint(x: rowRect.minX + 60, y: rowRect.midY)
         clickCount(at: title, in: window)
         await pumpUntil(deadline: 3) { probe.subject == .item(chapter.id) }
         try skipIfTheClickWasNeverDelivered(at: table.convert(title, from: nil), in: table)
+
+        XCTAssertEqual(filterAfterCount, chapter.id,
+                       "the click on the count did not reach its button — the row's "
+                       + "drag or selection took it")
+        XCTAssertEqual(subjectAfterCount, subjectBefore,
+                       "the count's click selected the chapter row; it must select nothing")
         XCTAssertEqual(probe.subject, .item(chapter.id))
     }
 

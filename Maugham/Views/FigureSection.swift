@@ -388,7 +388,8 @@ struct FigureSectionVerbs {
     @discardableResult
     func useInDocument(_ item: ResearchItem) -> Task<Void, Never> {
         let state = state
-        return shared.useInDocument(item, reveal: { state.revealFigureWhenDrawn($0) })
+        return shared.useInDocument(item, definedLabels: state.definedFigureLabels,
+                                    reveal: { state.revealFigureWhenDrawn($0) })
     }
 
     func actions(for row: FigureTreeRow,

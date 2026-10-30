@@ -905,9 +905,10 @@ struct EditorHost: View {
                 // Insert ▸ Existing Figure… (report plan 8b Task 3): the
                 // window's listing, parked figures left out by this editor's
                 // cards, used read from the listing and the editor's live
-                // text, a used figure's label off its line in the
+                // text and every other open document's (a line placed there
+                // since the settle), a used figure's label off its line in the
                 // cached index — at the command, never per keystroke.
-                existingFigures: { [figureListing, figureCards, referenceIndex, store] liveText in
+                existingFigures: { [figureListing, figureCards, referenceIndex, store, documentStore] liveText in
                     let records = store.manifest.figures ?? []
                     let index = referenceIndex.index
                     return ExistingFigurePicker.entries(
@@ -916,6 +917,9 @@ struct EditorHost: View {
                         documentPath: path, docId: doc.docId,
                         live: ExistingFigurePicker.liveUses(in: liveText, records: records,
                                                             documentPath: path),
+                        elsewhere: ExistingFigurePicker.liveUsesElsewhere(
+                            in: Self.otherOpenTexts(documentStore, excluding: doc.docId, store: store),
+                            records: records),
                         lineLabel: { _, use in
                             index.numberedLines.first {
                                 $0.docId == use.docId && $0.line == use.lineIndex
@@ -1125,6 +1129,17 @@ struct EditorHost: View {
         translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
         control.translationBadges = EditorControl.TranslationBadgeModel(
             entries: badgeEntries, orphans: derived.orphans)
+    }
+
+    /// Every OTHER open document's live text, with its manuscript path — what
+    /// Insert ▸ Existing Figure… reads for lines placed since the settle.
+    @MainActor static func otherOpenTexts(_ documentStore: DocumentStore, excluding docId: String,
+                                          store: ProjectStore) -> [(docId: String, path: String, text: String)] {
+        documentStore.allOpenDocuments().compactMap { open in
+            guard open.docId != docId,
+                  let path = TreeWalk.find(id: open.docId, in: store.manifest.structure)?.path else { return nil }
+            return (docId: open.docId, path: path, text: open.displayText)
+        }
     }
 
     /// What the read-only translation surface shows when the read refuses
