@@ -50,6 +50,9 @@ public enum LaTeXBodyEmitter {
             if ast.sections.contains(where: { $0.nodes.contains(where: isTable) }) {
                 lines += tableEnvironments
             }
+            if hasHeadlessTableFigure(ast, resolution) {
+                lines += headlessTableEnvironments
+            }
             if isFirstBody {
                 if !resolution.listOfFigures.isEmpty {
                     lines.append("\\ifdefined\\listoffigures\\listoffigures\\clearpage\\fi")
@@ -91,9 +94,27 @@ public enum LaTeXBodyEmitter {
             }
     }
 
+    /// A pipe table, or a table figure's line (it draws `MaughamTable` when
+    /// its figure lays out), so a book whose only tables are figures still
+    /// defines the environment.
     private static func isTable(_ node: ProjectAST.Node) -> Bool {
-        guard case .prose(.table) = node else { return false }
-        return true
+        switch node {
+        case .prose(.table): return true
+        case .prose(.figure(_, let path, let label)):
+            return ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) == .tbl
+        default: return false
+        }
+    }
+
+    /// Some table figure in this body lays out with no header row, so it
+    /// draws `MaughamTableNoHead`. Only then is that environment defined:
+    /// every other body keeps its bytes.
+    private static func hasHeadlessTableFigure(_ ast: ProjectAST, _ resolution: PublishResolution) -> Bool {
+        ast.sections.contains { section in
+            resolution.tableFigures[section.pieceID]?.contains { index, layout in
+                layout.header == nil && index < section.nodes.count && isTable(section.nodes[index])
+            } ?? false
+        }
     }
 
     // MARK: - report elements
@@ -174,6 +195,22 @@ public enum LaTeXBodyEmitter {
         "\\else",
         "\\newenvironment{MaughamTable}[4]{\\begin{table}[htbp]\\centering\\caption[{#2}]{#3}"
             + "\\begin{tabular}{#1}#4\\\\\\hline}{\\end{tabular}\\end{table}}",
+        "\\fi\\fi",
+    ]
+
+    /// `MaughamTableNoHead{<colspec>}{<short caption>}{<caption>}`: a table
+    /// figure with no header row. Guarded and branched as `MaughamTable` is,
+    /// but with nothing to repeat: the longtable's caption is its first row
+    /// (no `\endfirsthead`/`\endhead`, so no empty head on every page). The
+    /// `\\` after the caption is followed by a `rowStart`-guarded row or an
+    /// `\hline`.
+    private static let headlessTableEnvironments: [String] = [
+        "\\ifdefined\\MaughamTableNoHead\\else\\ifdefined\\longtable",
+        "\\newenvironment{MaughamTableNoHead}[3]{\\begin{longtable}{#1}\\caption[{#2}]{#3}\\\\}"
+            + "{\\end{longtable}}",
+        "\\else",
+        "\\newenvironment{MaughamTableNoHead}[3]{\\begin{table}[htbp]\\centering\\caption[{#2}]{#3}"
+            + "\\begin{tabular}{#1}}{\\end{tabular}\\end{table}}",
         "\\fi\\fi",
     ]
 
@@ -554,28 +591,67 @@ public enum LaTeXBodyEmitter {
         scope.flush(into: &out)
     }
 
-    /// A table figure numbered as a table (R7a-1): a `table` float (kernel
-    /// only) holding its label's anchor, its literal source and `\caption`,
-    /// so it prints "Table n", is listed in the list of tables and a `@tbl:`
-    /// link lands on it. Its body is plan 9's. The counter is set first, as
-    /// `emitTable` does.
+    /// A table figure numbered as a table (R7a-1). With its cells laid out
+    /// (`PublishResolution.tableFigures`, plan 9a) it draws as a pipe table
+    /// does: counter, anchor, `MaughamTable` (or `MaughamTableNoHead` with no
+    /// header row), each cell already formatted and only escaped, the total
+    /// row ruled above. Without (no registered figure, parked, unreadable) a
+    /// kernel `table` float holding its anchor, `\caption` and literal
+    /// source, so it still prints "Table n", is listed and a `@tbl:` link
+    /// lands on it.
     private static func emitTableFigure(number: Int, index: Int, caption: [ProjectAST.Inline],
                                         path: String, label: ManuscriptLabel?,
                                         scope: Scope, into out: inout [String]) {
-        let literal = InterimReportLiteral.figure(caption: caption, path: path, label: label)
         openUnlisted(scope, into: &out)
         out.append("\\setcounter{table}{\(number - 1)}")
-        out.append("\\begin{table}[htbp]")
-        out.append("\\centering")
-        if let a = scope.anchor(label, kind: .tbl, index: index,
-                                text: scope.resolution.map { "\($0.words.table) \(number)" }) {
-            out.append(a)
+        let anchor = scope.anchor(label, kind: .tbl, index: index,
+                                  text: scope.resolution.map { "\($0.words.table) \(number)" })
+        let short = listEntry(plainText(caption, scope))
+        let title = emitInline(caption, scope, deferred: true)
+        if let layout = scope.resolution?.tableFigures[scope.pieceID]?[index] {
+            if let anchor { out.append(anchor) }
+            let columns = max(layout.alignments.count, 1)
+            let spec = (0..<columns).map { column -> String in
+                guard column < layout.alignments.count else { return "l" }
+                switch layout.alignments[column] {
+                case .automatic, .left: return "l"
+                case .center:           return "c"
+                case .right:            return "r"
+                }
+            }.joined()
+            func row(_ cells: [String]) -> String {
+                rowStart((0..<columns).map { column in
+                    column < cells.count ? tableCell(cells[column]) : ""
+                }.joined(separator: " & "))
+            }
+            if let header = layout.header {
+                out.append("\\begin{MaughamTable}{\(spec)}{\(short)}{\(title)}{\(row(header))}")
+            } else {
+                out.append("\\begin{MaughamTableNoHead}{\(spec)}{\(short)}{\(title)}")
+            }
+            for r in layout.body { out.append(row(r) + " \\\\") }
+            if let total = layout.total {
+                out.append("\\hline")
+                out.append(row(total) + " \\\\")
+            }
+            out.append(layout.header == nil ? "\\end{MaughamTableNoHead}" : "\\end{MaughamTable}")
+        } else {
+            let literal = InterimReportLiteral.figure(caption: caption, path: path, label: label)
+            out.append("\\begin{table}[htbp]")
+            out.append("\\centering")
+            if let anchor { out.append(anchor) }
+            out.append("\\caption[{\(short)}]{\(title)}")
+            out.append(emitInline(literal, scope, deferred: true))
+            out.append("\\end{table}")
         }
-        out.append("\\caption[{\(listEntry(plainText(caption, scope)))}]{\(emitInline(caption, scope, deferred: true))}")
-        out.append(emitInline(literal, scope, deferred: true))
-        out.append("\\end{table}")
         closeUnlisted(scope, into: &out)
         scope.flush(into: &out)
+    }
+
+    /// One formatted cell as TeX: escaped, and on one line — a text cell's
+    /// line break would end the row's paragraph (a blank line) or split it.
+    private static func tableCell(_ text: String) -> String {
+        LaTeXEscape.escape(text.split(whereSeparator: \.isNewline).joined(separator: " "))
     }
 
     /// R-S6: with no resolution a footnote definition has nowhere to render,

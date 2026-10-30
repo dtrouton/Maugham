@@ -583,7 +583,7 @@ Every table is a `MaughamTable` environment with four arguments: the column spec
 
 Every table prints "Table n", captioned or not, so a reference to it always lands on a visible number; an uncaptioned table's list entry is `\relax`. A row opening with `[` or `*` starts with `\relax`, so `\\` never reads it as an argument.
 
-A table figure's line (`![caption](figures/<name>.csv)`, labelled `{#tbl:name}` or unlabelled) numbers as a table, but its cells are not emitted yet: it prints as a kernel `table` float holding its anchor, its caption ("Table n", listed in the list of tables) and its literal source line.
+A table figure's line (`![caption](figures/<name>.csv)`, labelled `{#tbl:name}` or unlabelled) numbers as a table and draws its figure's computed cells, each formatted in the body's language and escaped, in a `MaughamTable` when it has a header row; its total row is ruled above (`\hline`). A table figure with no header row is a `MaughamTableNoHead` environment with three arguments (the column spec, the list entry, the caption) and nothing repeated on later pages, guarded and branched as `MaughamTable` is. A line whose figure does not lay out (not registered, parked in Research, unreadable) prints as a kernel `table` float holding its anchor, its caption ("Table n", listed in the list of tables) and its literal source line.
 
 ### Old templates degrade, they don't fail
 
