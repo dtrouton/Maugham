@@ -11,7 +11,7 @@ struct FigureTreeRow: Equatable, Identifiable {
     let readsResearch: Bool
     /// **changed**: a pin's source, or the Research item the figure was made
     /// from, moved on since it was taken (`FigureCardModel.changed`).
-    let pinChanged: Bool
+    let changed: Bool
 
     var id: String { listing.figureId }
     /// **unused**: no line in the book uses it, so its number is "—".
@@ -27,13 +27,13 @@ struct FigureTreeRow: Equatable, Identifiable {
         let figureId: String, kind: FigureKind, name: String, caption: String, number: String
         let pieces: [String]
         let pieceOfLine: String?
-        let readsResearch: Bool, pinChanged: Bool
+        let readsResearch: Bool, changed: Bool
     }
 
     var drawn: Drawn {
         Drawn(figureId: listing.figureId, kind: listing.kind, name: listing.name, caption: listing.caption,
               number: listing.number, pieces: listing.usedIn.map(\.docId), pieceOfLine: listing.pieceOfLine,
-              readsResearch: readsResearch, pinChanged: pinChanged)
+              readsResearch: readsResearch, changed: changed)
     }
 
     /// The listing's rows, in its order, tagged by each figure's card; a
@@ -46,7 +46,7 @@ struct FigureTreeRow: Equatable, Identifiable {
             let model = card(row.figureId)
             if model?.kind == .parked { return nil }
             return FigureTreeRow(listing: row, readsResearch: model?.readsResearch ?? false,
-                                 pinChanged: model?.changed ?? false)
+                                 changed: model?.changed ?? false)
         }
     }
 }

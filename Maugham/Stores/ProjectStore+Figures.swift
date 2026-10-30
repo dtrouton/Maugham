@@ -186,8 +186,7 @@ extension ProjectStore {
         let ext = copyable.url.pathExtension.lowercased()
         // A label name given (*Use in document*'s) is kept as it is; anything
         // else is folded to one.
-        let base = name.flatMap { ManuscriptLabel.isValidName($0) ? $0 : nil }
-            ?? FigureIngest.figureName(stem: name ?? source.deletingPathExtension().lastPathComponent)
+        let base = Self.labelSafeFigureName(name, title: source.deletingPathExtension().lastPathComponent)
         let folder = url.appendingPathComponent(Self.figuresFolder, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let takenLower = Set(taken.map { $0.lowercased() })

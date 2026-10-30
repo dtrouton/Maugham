@@ -562,7 +562,8 @@ extension DocumentStore {
     /// **The figures whose Research source has moved on** (report plan 8b
     /// Task 1, spec §4.1): each unparked figure made from a Research item
     /// (`FigureState.source`), its item found by id in `research` and its
-    /// file hashed off the main actor now — each file once — and asked of
+    /// file hashed off the main actor now — each file once, and only when its
+    /// size or modification date moved (`snapshotSourceHashes`) — and asked of
     /// `FigureSource.hasChanged(currentHash:)`. An item that is gone, has no
     /// file, or whose file will not read is changed.
     private func snapshotSourcesChanged(
@@ -570,6 +571,7 @@ extension DocumentStore {
     ) async -> Set<String> {
         guard let projectStore else { return [] }
         var hashes: [String: String?] = [:]
+        var memo: [String: SnapshotSourceHash] = [:]
         var changed = Set<String>()
         for (id, state) in states where state.parked == nil {
             guard let source = state.source else { continue }
@@ -580,12 +582,22 @@ extension DocumentStore {
                 if let known = hashes[file.path] {
                     current = known
                 } else {
-                    current = try? await Task.detached { try ContentHash.ofFile(file) }.value
+                    let stamp = SnapshotSourceHash.stamp(of: file)
+                    if let stamp, let kept = snapshotSourceHashes[file.path], kept.matches(stamp) {
+                        current = kept.hash
+                    } else {
+                        snapshotSourceHashings += 1
+                        current = try? await Task.detached { try ContentHash.ofFile(file) }.value
+                    }
+                    if let stamp, let current {
+                        memo[file.path] = SnapshotSourceHash(size: stamp.size, modified: stamp.modified, hash: current)
+                    }
                     hashes[file.path] = current
                 }
             }
             if source.hasChanged(currentHash: current) { changed.insert(id) }
         }
+        snapshotSourceHashes = memo
         return changed
     }
 
@@ -692,4 +704,24 @@ struct FigureCardInputs {
     /// (`FigureSource.hasChanged(currentHash:)`).
     var sourceChanged: Set<String> = []
     var locale: TableLocale
+}
+
+/// **A snapshot source file's hash, as of its size and modification date**
+/// (`DocumentStore.snapshotSourceHashes`): while both hold, the file is taken
+/// as unchanged and not read again.
+struct SnapshotSourceHash: Equatable {
+    let size: Int
+    let modified: Date
+    let hash: String
+
+    /// The file's size and modification date now; nil when it will not stat.
+    static func stamp(of file: URL) -> (size: Int, modified: Date)? {
+        guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              let size = values.fileSize, let modified = values.contentModificationDate else { return nil }
+        return (size, modified)
+    }
+
+    func matches(_ stamp: (size: Int, modified: Date)) -> Bool {
+        size == stamp.size && modified == stamp.modified
+    }
 }

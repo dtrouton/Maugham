@@ -203,6 +203,16 @@ public final class DocumentStore {
     /// document* resolves none (report plan 6b Task 6 review M-2).
     var figureTrustResolutions = 0
 
+    /// Each snapshot source file's hash, keyed by its path and kept while its
+    /// size and modification date hold (`snapshotSourcesChanged`): a card
+    /// fill re-hashes only a file that moved. Rebuilt each pass, so a source
+    /// no figure names any more is forgotten.
+    @ObservationIgnored var snapshotSourceHashes: [String: SnapshotSourceHash] = [:]
+
+    /// How many snapshot source files were hashed in full; a test counts it
+    /// to prove an unchanged file is never hashed again.
+    @ObservationIgnored var snapshotSourceHashings = 0
+
     var _figureChangeScheduler: DebounceScheduler<Int>?
 
     /// **Every window's figure cards** (report plan 7a Task 3; final review

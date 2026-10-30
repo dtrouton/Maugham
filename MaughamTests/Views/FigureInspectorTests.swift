@@ -535,7 +535,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertTrue(refused, "a view-only share reaches the tree")
         XCTAssertFalse(verbs.actions(for: FigureTreeRow(listing: FigureListing.Row(
             figureId: figure.id, kind: .table, name: "t", caption: "", number: "—", usedIn: [],
-            referencedFrom: [], pieceOfLine: nil), readsResearch: false, pinChanged: false)).mayEdit())
+            referencedFrom: [], pieceOfLine: nil), readsResearch: false, changed: false)).mayEdit())
 
         box.control.shareIsReadOnly = false
         let lifted = await pumpUntil(deadline: 5) { !tree.figureWritesRefused }

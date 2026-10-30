@@ -236,6 +236,28 @@ final class UseInDocumentTests: XCTestCase {
         XCTAssertEqual(itemGone.sourceChanged, [table.id, picture.id], "a source item gone is changed")
     }
 
+    /// **An unchanged source file is never hashed again** (Task 1 review): a
+    /// fill re-hashes only a file whose size or modification date moved —
+    /// every attached card cache fills on every figure commit.
+    func test_aSnapshotSourceFileIsHashedAgainOnlyWhenItMoves() async throws {
+        let (store, projectStore) = try await openBook()
+        let csv = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("budget.csv", Data("a,b\n1,2\n".utf8)))
+        let table = try await projectStore.useInDocument(researchItemId: csv.id, piece: nil).record
+
+        _ = await store.figureCardInputs()
+        let first = store.snapshotSourceHashings
+        XCTAssertEqual(first, 1, "premise: the first fill hashes the source")
+        _ = await store.figureCardInputs()
+        _ = await store.figureCardInputs()
+        XCTAssertEqual(store.snapshotSourceHashings, first, "an unchanged file is not hashed again")
+
+        try Data("a,b\n1,3\n".utf8).write(to: file(try XCTUnwrap(csv.path)))
+        let editedRead = await store.figureCardInputs()
+        XCTAssertEqual(store.snapshotSourceHashings, first + 1, "an edited file is hashed again")
+        XCTAssertEqual(try XCTUnwrap(editedRead).sourceChanged, [table.id], "and still reads as changed")
+    }
+
     // MARK: - Pictures
 
     /// A picture in Research becomes an image figure through the image path,

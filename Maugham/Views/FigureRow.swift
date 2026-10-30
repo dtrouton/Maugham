@@ -103,7 +103,7 @@ struct FigureRow: View {
     static func tags(of row: FigureTreeRow) -> [String] {
         var tags: [String] = []
         if row.readsResearch { tags.append("Research") }
-        if row.pinChanged { tags.append("changed") }
+        if row.changed { tags.append("changed") }
         if row.isUnused { tags.append("unused") }
         return tags
     }
