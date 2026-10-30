@@ -905,7 +905,7 @@ struct EditorHost: View {
                 // Insert ▸ Existing Figure… (report plan 8b Task 3): the
                 // window's listing, parked figures left out by this editor's
                 // cards, used read from the listing and the editor's live
-                // text, a used figure's label off its first line in the
+                // text, a used figure's label off its line in the
                 // cached index — at the command, never per keystroke.
                 existingFigures: { [figureListing, figureCards, referenceIndex, store] liveText in
                     let records = store.manifest.figures ?? []
@@ -916,12 +916,10 @@ struct EditorHost: View {
                         documentPath: path, docId: doc.docId,
                         live: ExistingFigurePicker.liveUses(in: liveText, records: records,
                                                             documentPath: path),
-                        firstLineLabel: { row in
-                            row.usedIn.first.flatMap { use in
-                                index.numberedLines.first {
-                                    $0.docId == use.docId && $0.line == use.lineIndex
-                                }?.targetLabel
-                            }
+                        lineLabel: { _, use in
+                            index.numberedLines.first {
+                                $0.docId == use.docId && $0.line == use.lineIndex
+                            }?.targetLabel
                         },
                         pieceTitle: { FigureSectionVerbs.pieceTitle($0, in: store.manifest.structure) })
                 },

@@ -55,7 +55,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
 - `ProjectRowLabel.swift` — every project row's label.
 - `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`), `FigureSectionWiring` (the tree's own card cache).
-- `FigureActions.swift` — the one helper the row menu and inspector share: Open in Window, Send to Research, Rename, Import/Refresh through the open grid (`FigureWindows.gridController`); the posture and `windowRefusesWrites` gate the writes.
+- `FigureActions.swift` — the one helper the menus and inspectors share: Open in Window, Send to Research, Rename, Import/Refresh through the grid, Use in Document; the posture and `windowRefusesWrites` gate the writes.
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags) and a piece row's count button.
 - `BinderTreeSections.swift` — the Figures, Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
 - `BinderPieceFold.swift` — a piece row's fold onto its own research.

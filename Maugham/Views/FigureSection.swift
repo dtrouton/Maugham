@@ -118,6 +118,28 @@ extension BinderTreeSectionsState {
         scrollRequest = .row(.figure(figureId))
     }
 
+    /// `revealFigure`, now or — for a figure just made, whose row the listing
+    /// and cards have yet to bring — once its row is drawn.
+    func revealFigureWhenDrawn(_ figureId: String) {
+        if figureRows.contains(where: { $0.id == figureId }) {
+            pendingFigureReveal = nil
+            revealFigure(figureId)
+        } else {
+            pendingFigureReveal = figureId
+        }
+    }
+
+    /// Ask the store again which Research items bring a figure back.
+    func refreshFigureReturns(store: ProjectStore?) async {
+        guard let store, store.manifest.type.holdsFigures else {
+            if !figureReturns.isEmpty { figureReturns = [:] }
+            return
+        }
+        let next = await store.figuresToBringBack()
+        guard !Task.isCancelled, next != figureReturns else { return }
+        figureReturns = next
+    }
+
     /// The count a piece row shows, nil at none or where the section is not shown.
     func figureCountText(forPiece documentId: String, projectType: ProjectType) -> String? {
         guard showsFigures(projectType: projectType) else { return nil }
@@ -164,6 +186,9 @@ extension BinderTreeSectionsState {
         figureCounts = FigureCount.byPiece(next)
         // A piece that no longer uses a figure filters to nothing: let it go.
         if let piece = pieceFilter, figureCounts[piece] == nil { pieceFilter = nil }
+        if let pending = pendingFigureReveal, figureRows.contains(where: { $0.id == pending }) {
+            revealFigureWhenDrawn(pending)
+        }
     }
 }
 
@@ -246,6 +271,26 @@ struct FigureSectionVerbs {
             report: { state.pendingError = $0 })
     }
 
+    /// The helper with `report` of the caller's own (the Research inspector's
+    /// line) and the window's refusal as the caller observes it.
+    func shared(report: @escaping (String) -> Void, windowRefusesWrites: Bool) -> FigureActions {
+        FigureActions(store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
+                      windowRefusesWrites: { windowRefusesWrites }, report: report)
+    }
+
+    /// A Research row's verb toward Figures (`FigureActions.researchVerb`).
+    func researchVerb(for item: ResearchItem) -> FigureActions.ResearchVerb? {
+        shared.researchVerb(for: item, returning: state.figureReturns[item.id])
+    }
+
+    /// The row's *Use in Document* / *Bring Back to Figures*: the figure's row
+    /// is revealed once drawn; what goes wrong reaches the tree's alert.
+    @discardableResult
+    func useInDocument(_ item: ResearchItem) -> Task<Void, Never> {
+        let state = state
+        return shared.useInDocument(item, reveal: { state.revealFigureWhenDrawn($0) })
+    }
+
     func actions(for row: FigureTreeRow) -> FigureRowActions {
         let shared = shared, listing = row.listing
         return FigureRowActions(
@@ -304,6 +349,17 @@ struct FigureSectionWiring: ViewModifier {
             .onChange(of: typography, initial: true) { _, next in treeState.figureTypography = next }
             .onChange(of: FigureActions.windowRefusesWrites(control: control, persona: persona),
                       initial: true) { _, refused in treeState.figureWritesRefused = refused }
+            // Which Research items bring a parked figure back: asked again
+            // when Research, the registry, a figure's card (a park, a
+            // return) or the posture moves; the newest asking wins.
+            .task(id: ReturnsKey(research: store?.manifest.research, figures: store?.manifest.figures,
+                                 cards: treeState.figureCardsVersion, posture: documentStore?.postureEpoch)) {
+                await treeState.refreshFigureReturns(store: store)
+            }
+    }
+
+    private struct ReturnsKey: Equatable {
+        let research: [ResearchItem]?, figures: [FigureRecord]?, cards: Int, posture: Int?
     }
 
     /// Point the tree's cards at `documentStore` (or at none), each fill

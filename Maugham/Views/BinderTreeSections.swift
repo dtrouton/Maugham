@@ -760,8 +760,15 @@ struct BinderTreeVerbs {
             },
             deleteMany: { ids in
                 perform { try await store.deleteResearchItems(ids: ids) }
-            })
+            },
+            // Use in Document / Bring Back to Figures (report plan 8b Task 4):
+            // the Figures section's helper, its refusals in this tree's alert.
+            figureVerb: { [figures = figures] item in figures.researchVerb(for: item) },
+            performFigureVerb: { [figures = figures] item in figures.useInDocument(item) })
     }
+
+    /// The Figures section's verbs, for a Research row's verb toward Figures.
+    var figures: FigureSectionVerbs { FigureSectionVerbs(store: store, state: state) }
 
     /// **What a verb aimed at `rowId` acts on** — the tree's whole selection
     /// when that row is in it, else the row alone (stage-2b Task 3).
@@ -992,6 +999,14 @@ final class BinderTreeSectionsState {
     /// that edits no figures — `FigureActions.windowRefusesWrites`), as the
     /// inspector asks it; asked by a row's menu builder.
     @ObservationIgnored var figureWritesRefused = false
+    /// **Research items that bring a parked figure back**, item id → figure
+    /// id (`ProjectStore.figuresToBringBack`): what a Research row's menu and
+    /// inspector read to say *Bring Back to Figures* (report plan 8b Task 4).
+    /// Refilled by `FigureSectionWiring`, never asked in a body.
+    var figureReturns: [String: String] = [:]
+    /// A figure made from Research whose row has not been drawn yet: revealed
+    /// when it is (`revealFigureWhenDrawn`).
+    @ObservationIgnored var pendingFigureReveal: String?
 
     /// Whether `section` is open — the flag its header's chevron reads.
     func isExpanded(_ section: BinderTreeSection) -> Bool {

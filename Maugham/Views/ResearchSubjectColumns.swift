@@ -296,6 +296,9 @@ struct ResearchSubjectInspector: View {
     /// is the empty state.
     let itemID: String?
     let showsPreview: Bool
+    /// For the panel's verb toward Figures (`InspectorResearchPanel.figureTree`).
+    var figureTree: BinderTreeSectionsState? = nil
+    var figureWritesRefused: Bool = false
 
     var body: some View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
@@ -304,10 +307,12 @@ struct ResearchSubjectInspector: View {
                     preview(of: item)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
-                    InspectorResearchPanel(store: store, item: item)
+                    InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
+                                           figureWritesRefused: figureWritesRefused)
                 }
             } else {
-                InspectorResearchPanel(store: store, item: item)
+                InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
+                                           figureWritesRefused: figureWritesRefused)
             }
         } else {
             ContentUnavailableView(

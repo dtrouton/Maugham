@@ -37,6 +37,11 @@ struct ResearchTreeActions {
     var moveTargets: (_ forIds: [String]) -> [ResearchMoveMenuTarget]
     var move: (_ ids: [String], _ target: ResearchMoveTarget) -> Void
     var deleteMany: (_ ids: [String]) -> Void
+    /// **The row's verb toward Figures** (report plan 8b Task 4) — *Use in
+    /// Document*, or *Bring Back to Figures* for a parked figure's working
+    /// copy — nil where none is offered (`FigureActions.researchVerb`).
+    var figureVerb: (ResearchItem) -> FigureActions.ResearchVerb? = { _ in nil }
+    var performFigureVerb: (ResearchItem) -> Task<Void, Never>? = { _ in nil }
 }
 
 struct ResearchTreeNode<Tag: Hashable>: View {
@@ -227,6 +232,10 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                         actions.deleteMany(acting)
                     }
                 } else {
+                    if let verb = actions.figureVerb(item) {
+                        Button(verb.title) { _ = actions.performFigureVerb(item) }
+                        Divider()
+                    }
                     Button("Duplicate") { actions.duplicate(item.id) }
                     // Absent on a `.linked` fold row: renaming there opens a
                     // second field over the row's shared-section twin. The

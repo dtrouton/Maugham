@@ -13177,8 +13177,19 @@ final class TripwireGrepTests: XCTestCase {
         // and each store verb asks the figure's door (and, for a send, its
         // line's) itself. The row's and the inspector's counts are their
         // menus calling the helper.
-        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1],
-        "FigureSection.swift": ["sendToResearch(": 1],
+        //
+        // *Use in Document* / *Bring Back to Figures* from Research (report
+        // plan 8b Task 4): `FigureActions.useInDocument` calls the store's
+        // verb, which asks the new figure's door (or, for a parked figure's
+        // copy, routes to `bringBack`, which asks that figure's); it is
+        // offered only where the window does not refuse figure writes. The
+        // Research row's menu reaches it through `FigureSectionVerbs` (the
+        // tree's bundle in BinderTreeSections), the Research inspector through
+        // its own static (the button and the static).
+        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1, "useInDocument(": 1],
+        "FigureSection.swift": ["sendToResearch(": 1, "useInDocument(": 1],
+        "BinderTreeSections.swift": ["useInDocument(": 1],
+        "InspectorResearchPanel.swift": ["useInDocument(": 2],
         "FigureRow.swift": ["sendToResearch(": 1],
         "FigureInspector.swift": ["sendToResearch(": 1],
     ]

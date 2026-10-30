@@ -113,8 +113,10 @@ enum ExistingFigurePicker {
     ///   the listing knows is in this document and the live text has none
     ///   (its line was cut since the settle): then it is to place: it is offered as a
     ///   reference to its line's label. That label is the live line's when
-    ///   the first line is this document's (`docId`), else the index's
-    ///   (`firstLineLabel`); none makes the row unavailable.
+    ///   the first line is this document's (`docId`), else the index's on
+    ///   the first use (`lineLabel`) — the first OUTSIDE this document when
+    ///   the live text has no line (this document's use is a cut line's);
+    ///   none makes the row unavailable.
     /// - Order: those to place first (the listing's name order), then the
     ///   used ones in the listing's reading order, then any used only in the
     ///   live text (placed since the last settle).
@@ -123,7 +125,7 @@ enum ExistingFigurePicker {
     @MainActor static func entries(listing: [FigureListing.Row], records: [FigureRecord],
                                    isParked: (String) -> Bool, documentPath: String, docId: String,
                                    live: [String: LiveUse],
-                                   firstLineLabel: (FigureListing.Row) -> ManuscriptLabel?,
+                                   lineLabel: (FigureListing.Row, FigureListing.Use) -> ManuscriptLabel?,
                                    pieceTitle: (String) -> String) -> [Entry] {
         var byId: [String: FigureRecord] = [:]
         for record in records where byId[record.id] == nil { byId[record.id] = record }
@@ -141,8 +143,10 @@ enum ExistingFigurePicker {
             // and the live text holds none: its line was cut since — unused.
             let goneFromHere = liveUse == nil && row.usedIn.allSatisfy { $0.docId == docId }
             if !row.isUnused && !goneFromHere {
+                // With no live line here, this document's use is a cut line.
+                let use = liveUse == nil ? row.usedIn.first { $0.docId != docId } : row.usedIn.first
                 let label = row.pieceOfLine == docId && liveUse != nil
-                    ? liveUse?.label : firstLineLabel(row)
+                    ? liveUse?.label : use.flatMap { lineLabel(row, $0) }
                 let what = row.caption.isEmpty ? row.name : row.caption
                 let place = [row.number, what, row.pieceOfLine.map(pieceTitle) ?? ""]
                     .filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")

@@ -5,6 +5,16 @@ import AppKit
 struct InspectorResearchPanel: View {
     @Bindable var store: ProjectStore
     let item: ResearchItem
+    /// The window's tree: the Figures section a figure made here is revealed
+    /// in, and its cached answer to which items bring a figure back. Nil
+    /// offers no verb toward Figures.
+    var figureTree: BinderTreeSectionsState? = nil
+    /// The window refuses figure writes (`FigureActions.windowRefusesWrites`).
+    var figureWritesRefused: Bool = false
+
+    /// What the verb toward Figures last said (a refusal, the cells kept as
+    /// text); cleared when the item changes.
+    @State private var figureMessage: String?
 
     @State private var draftTitle: String = ""
     @State private var draftCaption: String = ""
@@ -38,6 +48,20 @@ struct InspectorResearchPanel: View {
                     LabeledContent("URL") {
                         TextField("", text: $draftURL, onCommit: commitURL)
                             .textFieldStyle(.plain)
+                    }
+                }
+                if let figureTree, let verb = Self.figureVerb(for: item, store: store, tree: figureTree,
+                                                             windowRefusesWrites: figureWritesRefused) {
+                    Button(verb.title) {
+                        figureMessage = nil
+                        Self.useInDocument(item, store: store, tree: figureTree,
+                                           windowRefusesWrites: figureWritesRefused) { figureMessage = $0 }
+                    }
+                    if let figureMessage {
+                        Text(figureMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 if item.type != .group {
@@ -82,8 +106,32 @@ struct InspectorResearchPanel: View {
             draftCaption = item.caption ?? ""
             draftTags = (item.tags ?? []).joined(separator: ", ")
             draftURL = item.url ?? ""
+            figureMessage = nil
             isLoaded = true
         }
+    }
+
+    // MARK: Toward Figures (report plan 8b Task 4)
+
+    /// The row menu's verb (`FigureSectionVerbs.researchVerb`'s answer), as
+    /// this panel asks it: the window's refusal as the right column observes it.
+    static func figureVerb(for item: ResearchItem, store: ProjectStore, tree: BinderTreeSectionsState,
+                           windowRefusesWrites: Bool) -> FigureActions.ResearchVerb? {
+        FigureSectionVerbs(store: store, state: tree)
+            .shared(report: { _ in }, windowRefusesWrites: windowRefusesWrites)
+            .researchVerb(for: item, returning: tree.figureReturns[item.id])
+    }
+
+    /// *Use in Document* / *Bring Back to Figures* from the panel: the tree's
+    /// helper, the figure revealed in the tree once drawn, what it says on
+    /// this panel's line.
+    @discardableResult
+    static func useInDocument(_ item: ResearchItem, store: ProjectStore, tree: BinderTreeSectionsState,
+                              windowRefusesWrites: Bool,
+                              say: @escaping (String) -> Void) -> Task<Void, Never> {
+        FigureSectionVerbs(store: store, state: tree)
+            .shared(report: say, windowRefusesWrites: windowRefusesWrites)
+            .useInDocument(item, reveal: { tree.revealFigureWhenDrawn($0) })
     }
 
     private func kindLabel(_ kind: ResearchItem.AssetKind?) -> String {

@@ -183,6 +183,84 @@ struct FigureActions {
         gridHere(figureId, sayingNone: false)?.refreshPinsFromResearch()
     }
 
+    // MARK: From Research (report plan 8b Task 4)
+
+    /// **What a Research item offers toward the Figures section**: *Use in
+    /// Document* makes a new, unused figure from it (D8b-1: Insert ▸ Existing
+    /// Figure places its line); a parked figure's working copy, which this
+    /// Mac may edit, reads *Bring Back to Figures* — the same store verb,
+    /// which routes it (`ProjectStore.figureToBringBack`).
+    enum ResearchVerb: Equatable {
+        case use
+        case returnToFigures(figureId: String)
+
+        var title: String {
+            switch self {
+            case .use: return "Use in Document"
+            case .returnToFigures: return "Bring Back to Figures"
+            }
+        }
+    }
+
+    /// The verb a Research item's row menu and inspector offer, or none: only
+    /// a picture, table or PDF, in a project whose manuscript holds figures,
+    /// in a window that does not refuse figure writes. `returning` is the
+    /// store's cached answer (`BinderTreeSectionsState.figureReturns`).
+    func researchVerb(for item: ResearchItem, returning figureId: String?) -> ResearchVerb? {
+        guard item.type == .asset, [.table, .image, .pdf].contains(item.kind),
+              store.manifest.type.holdsFigures, !windowRefusesWrites() else { return nil }
+        return figureId.map { .returnToFigures(figureId: $0) } ?? .use
+    }
+
+    /// **Use in Document / Bring Back to Figures**: the store's verb, the
+    /// figure's piece the one whose Research holds the item
+    /// (`researchHomePiece`), else the whole book's. Its id goes to `reveal`;
+    /// the cells the read kept as text and the late edits the copy replaced
+    /// are said once (`readNotice`), a refusal through `report`.
+    @discardableResult
+    func useInDocument(_ item: ResearchItem,
+                       reveal: @escaping @MainActor (String) -> Void) -> Task<Void, Never> {
+        let store = store, report = report
+        let piece = store.researchHomePiece(ofItemId: item.id)
+        return run {
+            let result: UseInDocumentResult
+            do {
+                result = try await store.useInDocument(researchItemId: item.id, piece: piece)
+            } catch let refused as FigureEditRefused {
+                throw ResearchUseRefused(bringingBack: refused.site == "bringBack")
+            }
+            reveal(result.record.id)
+            if let notice = Self.readNotice(result) { report(notice) }
+        }
+    }
+
+    /// What *Use in Document* says after it made or brought back a figure:
+    /// the formulas the read kept as text, and the cells the copy's change
+    /// replaced a late edit in; nil when neither.
+    static func readNotice(_ result: UseInDocumentResult) -> String? {
+        var parts: [String] = []
+        if let problems = FigureIngest.convertedTableProblemsMessage(result.problems) {
+            parts.append(problems)
+        }
+        let count = result.overwritten.count
+        if count > 0 {
+            let cells = count == 1 ? "One cell" : "\(count) cells"
+            parts.append("\(cells) edited after the table was sent to Research "
+                + (count == 1 ? "was" : "were") + " replaced by the copy’s change.")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// The new figure's door refused (`FigureEditRefused`, whose own words
+    /// are about an edit): said as what did not happen.
+    struct ResearchUseRefused: LocalizedError {
+        let bringingBack: Bool
+        var errorDescription: String? {
+            bringingBack ? "This Mac may not change this figure, so it stays in Research."
+                : "This Mac may not make a figure here, so nothing was made."
+        }
+    }
+
     /// `BinderTreeVerbs.perform`'s shape — a failure reaches `report` —
     /// answering its task.
     private func run(_ work: @escaping @MainActor () async throws -> Void) -> Task<Void, Never> {

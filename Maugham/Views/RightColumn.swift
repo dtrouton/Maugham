@@ -320,7 +320,8 @@ struct RightColumn: View {
         } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,
-                showsPreview: placement.previewsInTheRightColumn)
+                showsPreview: placement.previewsInTheRightColumn, figureTree: figureTree,
+                figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona))
         } else {
             switch ProjectWindow.inspectorRoute(persona: persona,
                                                 projectType: store.manifest.type) {

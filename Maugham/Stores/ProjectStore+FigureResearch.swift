@@ -81,15 +81,8 @@ extension ProjectStore {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
         let sidecar = researchTableSidecar(of: item)
-        if let figureId = sidecar?.figureId, try await documentStore.figureIsParked(figureId) {
-            // Final review M-5 (Denver's ruling): whoever may edit that figure
-            // brings it back; anyone else makes a new, independent figure from
-            // the copy's data below — the sidecar's figure id is not followed,
-            // and its formats apply only to the bytes they were written for.
-            let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
-            if !posture.isSettling, posture.allows(.editFigure) {
-                return try await bringBack(researchItemId: item.id, piece: piece, name: name)
-            }
+        if try await figureToBringBack(namedBy: sidecar, documentStore: documentStore) != nil {
+            return try await bringBack(researchItemId: item.id, piece: piece, name: name)
         }
         let figureName = Self.labelSafeFigureName(name, title: item.title)
         switch item.kind {
@@ -125,6 +118,57 @@ extension ProjectStore {
         case .document?, .audio?, .link?, nil:
             throw UseInDocumentRefused(reason: .notAFigure(item.title))
         }
+    }
+
+    /// **The parked figure a Research item brings back**, by id, or nil when
+    /// *Use in document* on it makes a new figure: the item's sidecar names a
+    /// figure the registry lists, parked, which this Mac may edit (final
+    /// review M-5, Denver's ruling — anyone else makes a new, independent
+    /// figure from the copy's data; the sidecar's figure id is not followed,
+    /// and its formats apply only to the bytes they were written for). The
+    /// one answer `useInDocument` routes by and a Research row's menu and
+    /// inspector read to say *Bring Back to Figures* (report plan 8b Task 4).
+    /// Throws when the figure's stream or the registry will not read.
+    func figureToBringBack(fromResearchItemId researchItemId: String) async throws -> String? {
+        guard let documentStore,
+              let item = findResearchItem(id: researchItemId, in: manifest.research),
+              item.type == .asset else { return nil }
+        return try await figureToBringBack(namedBy: researchTableSidecar(of: item), documentStore: documentStore)
+    }
+
+    /// `figureToBringBack(fromResearchItemId:)` for every Research picture,
+    /// table and PDF, by item id (one without a sidecar answers at once) — what the window's tree
+    /// caches for its menus (`BinderTreeSectionsState.figureReturns`). An
+    /// item whose figure will not read is left out (it says *Use in
+    /// Document*; the verb itself asks again and says why).
+    func figuresToBringBack() async -> [String: String] {
+        let items = TreeWalk.collect(in: manifest.research) {
+            $0.type == .asset && [.table, .image, .pdf].contains($0.kind)
+        }
+        var out: [String: String] = [:]
+        for item in items {
+            guard let figureId = try? await figureToBringBack(fromResearchItemId: item.id) else { continue }
+            out[item.id] = figureId
+        }
+        return out
+    }
+
+    private func figureToBringBack(
+        namedBy sidecar: ResearchTableSidecar?, documentStore: DocumentStore
+    ) async throws -> String? {
+        guard let figureId = sidecar?.figureId, try await documentStore.figureIsParked(figureId) else { return nil }
+        let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
+        return !posture.isSettling && posture.allows(.editFigure) ? figureId : nil
+    }
+
+    /// **The piece whose Research holds an item** — a Collection piece's own
+    /// research folder (`researchScopePieceId` of the item's root path) —
+    /// else nil, shared Research. A figure made from the item belongs to it
+    /// (report plan 8b Task 4). With nil the figure is the whole book's
+    /// (`FigureRecord.piece`): placing its line does not change that, and its
+    /// door is the whole-book authors'.
+    func researchHomePiece(ofItemId id: String) -> String? {
+        researchScopePieceId(ofPath: Self.researchRootPath(ofItemId: id, in: manifest.research))
     }
 
     // MARK: - Coming back (report plan 6b Task 8, spec §4.2, ruling P-7)

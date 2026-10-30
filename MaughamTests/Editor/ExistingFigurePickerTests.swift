@@ -67,7 +67,7 @@ final class ExistingFigurePickerTests: XCTestCase {
         ExistingFigurePicker.entries(
             listing: listing, records: records,
             isParked: { $0 == parked.id }, documentPath: documentPath, docId: docId, live: live,
-            firstLineLabel: { firstLineLabels[$0.figureId] },
+            lineLabel: { row, _ in firstLineLabels[row.figureId] },
             pieceTitle: { $0 == chapterOne ? "Chapter 1" : "Chapter 2" })
     }
 
@@ -176,7 +176,7 @@ final class ExistingFigurePickerTests: XCTestCase {
         let entries = ExistingFigurePicker.entries(
             listing: [Self.row(legacy, number: "—", caption: "", piece: nil)], records: [legacy],
             isParked: { _ in false }, documentPath: "story.md", docId: "s", live: [:],
-            firstLineLabel: { _ in nil }, pieceTitle: { $0 })
+            lineLabel: { _, _ in nil }, pieceTitle: { $0 })
         XCTAssertEqual(entries.map(\.line), ["![Caption](figures/q3.csv)"])
     }
 
@@ -240,9 +240,34 @@ final class ExistingFigurePickerTests: XCTestCase {
         let entries = ExistingFigurePicker.entries(
             listing: [both], records: Self.records, isParked: { _ in false },
             documentPath: Self.documentPath, docId: Self.chapterOne, live: [:],
-            firstLineLabel: { _ in Self.label("tbl:cash") }, pieceTitle: { $0 })
+            lineLabel: { _, _ in Self.label("tbl:cash") }, pieceTitle: { $0 })
         XCTAssertEqual(entries.first?.action, .refer(Self.label("tbl:cash")),
                        "control: a use in another piece keeps it a reference")
+    }
+
+    /// Task 3 carried minor: this document's line was cut, but another piece
+    /// still has one under a different label — the reference takes the label
+    /// of the first use OUTSIDE this document, never the cut line's stale one.
+    /// Control: with the line live here, the live label wins.
+    func test_aCutLineHereReferencesTheLabelOfTheFirstUseElsewhere() {
+        let both = FigureListing.Row(
+            figureId: Self.cash.id, kind: .table, name: "cash", caption: "Cash flows", number: "Table 1",
+            usedIn: [.init(docId: Self.chapterOne, lineIndex: 2), .init(docId: Self.chapterTwo, lineIndex: 4)],
+            referencedFrom: [], pieceOfLine: Self.chapterOne)
+        func entries(live: [String: ExistingFigurePicker.LiveUse]) -> [ExistingFigurePicker.Entry] {
+            ExistingFigurePicker.entries(
+                listing: [both], records: Self.records, isParked: { _ in false },
+                documentPath: Self.documentPath, docId: Self.chapterOne, live: live,
+                lineLabel: { _, use in
+                    use.docId == Self.chapterOne ? Self.label("tbl:old-cash") : Self.label("tbl:cash")
+                },
+                pieceTitle: { $0 })
+        }
+        XCTAssertEqual(entries(live: [:]).first?.action, .refer(Self.label("tbl:cash")),
+                       "the cut line's stale label is not referred to")
+        XCTAssertEqual(entries(live: [Self.cash.id: .init(label: Self.label("tbl:cash-here"), caption: "Cash")])
+                        .first?.action, .refer(Self.label("tbl:cash-here")),
+                       "control: a live line here gives its own label")
     }
 
     func test_theFilterMatchesEveryWordInTheRowOrTheName() {
