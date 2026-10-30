@@ -195,7 +195,7 @@ final class FontSpikeTests: XCTestCase {
 
     /// Compiles once via PDFCompiler and returns the output PDF bytes.
     private func compileOnce(config: PublishConfig, label: String?) async throws -> Data {
-        let astSource = ProjectStoreASTSource(projectStore: store)
+        let astSource = ProjectStoreASTSource(projectStore: store, figures: .none)
         let jobManager = CompileJobManager()
         // The spike deliberately recompiles to the same name to compare
         // determinism, so it opts into replacement — the production default

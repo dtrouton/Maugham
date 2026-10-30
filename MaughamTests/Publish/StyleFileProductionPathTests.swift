@@ -54,7 +54,7 @@ final class StyleFileProductionPathTests: XCTestCase {
         let clientID = nodes.first { ($0["type"] as? String) == "document" }?["id"] as? String ?? "<none>"
 
         // 2. The id ProjectStoreASTSource produces.
-        let astSource = ProjectStoreASTSource(projectStore: store)
+        let astSource = ProjectStoreASTSource(projectStore: store, figures: .none)
         let pieces = try astSource.orderedPieces()
         let astID = pieces.first?.pieceID ?? "<none>"
 
@@ -70,7 +70,7 @@ final class StyleFileProductionPathTests: XCTestCase {
 
         // 5. Load config and emit body from the real AST.
         let cfg = (try await PublishConfigStore(projectURL: projectURL).load()) ?? PublishConfig()
-        let ast = try ProjectASTBuilder.build(from: ProjectStoreASTSource(projectStore: store))
+        let ast = try ProjectASTBuilder.build(from: ProjectStoreASTSource(projectStore: store, figures: .none))
         let body = LaTeXBodyEmitter.emit(ast, config: cfg)
 
         // 6. The wrapper must appear.
@@ -112,7 +112,7 @@ final class StyleFileProductionPathTests: XCTestCase {
         let nodes = outlineObj?["nodes"] as? [[String: Any]] ?? []
         let clientID = nodes.first { ($0["type"] as? String) == "document" }?["id"] as? String ?? "<none>"
 
-        let astSource = ProjectStoreASTSource(projectStore: colStore)
+        let astSource = ProjectStoreASTSource(projectStore: colStore, figures: .none)
         let astID = try astSource.orderedPieces().first?.pieceID ?? "<none>"
 
         print("DIAGNOSTIC[collection] clientID=\(clientID) astID=\(astID) manifestID=\(piece.id) match=\(clientID == astID)")
@@ -122,7 +122,7 @@ final class StyleFileProductionPathTests: XCTestCase {
             paramsJSON: Data(setParams.utf8), registry: colRegistry)
 
         let cfg = (try await PublishConfigStore(projectURL: colURL).load()) ?? PublishConfig()
-        let ast = try ProjectASTBuilder.build(from: ProjectStoreASTSource(projectStore: colStore))
+        let ast = try ProjectASTBuilder.build(from: ProjectStoreASTSource(projectStore: colStore, figures: .none))
         let body = LaTeXBodyEmitter.emit(ast, config: cfg)
 
         let diag = """

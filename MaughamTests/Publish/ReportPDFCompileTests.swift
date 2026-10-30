@@ -131,7 +131,7 @@ final class ReportPDFCompileTests: XCTestCase {
         var config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         config.template = template
         let compiler = try PDFCompiler(
-            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: config, jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
         let result = try await compiler.compile(label: label)
         XCTAssertTrue(result.errors.isEmpty && !result.outputPath.isEmpty,
@@ -206,7 +206,7 @@ final class ReportPDFCompileTests: XCTestCase {
         // the table figure (the fixture's `[@ghost]` is the gate's only error).
         let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         let bodies = try PDFCompiler.resolve(bodies: [BodyPlan.Body(
-            tag: nil, displayTag: "en", source: ProjectStoreASTSource(projectStore: store), config: config)])
+            tag: nil, displayTag: "en", source: ProjectStoreASTSource(projectStore: store, figures: .none), config: config)])
         XCTAssertEqual(bodies[0].resolution.problems.filter { $0.isError(profile: .report) }.map(\.kind),
                        [.unknownCitationKey("ghost")], "the table figure is no unreadable image")
         XCTAssertTrue(try embedsAnImage(result), "the figure's image is in the PDF")
@@ -277,7 +277,7 @@ final class ReportPDFCompileTests: XCTestCase {
     /// The bodies of an en+sr edition, each folded to its language as
     /// `BodyPlan` folds them, over the same text.
     private func bilingualBodies(_ config: PublishConfig) -> [BodyPlan.Body] {
-        let source = ProjectStoreASTSource(projectStore: store)
+        let source = ProjectStoreASTSource(projectStore: store, figures: .none)
         return [nil, "sr"].map { tag -> BodyPlan.Body in
             var folded = config
             folded.metadata = config.effectiveMetadata(language: tag)

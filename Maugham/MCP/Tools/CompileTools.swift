@@ -148,6 +148,7 @@ public enum CompileTool: MCPTool {
             projectID: params.projectID, projectURL: projectURL)
         let astSource = ProjectStoreASTSource(
             projectStore: store,
+            figures: await store.publishFigures(),
             language: params.language)
         let orch = PublishOrchestrator(
             projectURL: projectURL,
@@ -258,6 +259,7 @@ public enum PreviewCompileTool: MCPTool {
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: store,
+                figures: await store.publishFigures(),
                 language: params.language),
             configStore: stores.configStore,
             jobManager: stores.jobManager,

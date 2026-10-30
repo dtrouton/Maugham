@@ -261,8 +261,8 @@ struct DepartmentDesignRow: Equatable {
         guard PublishStarter.isInitialized(in: projectURL) else {
             return .noPublishTemplates
         }
-        guard !ProjectStoreASTSource(projectStore: store)
-            .publishablePieces().isEmpty else { return .noBook }
+        guard !ProjectStoreASTSource
+            .publishablePieces(in: store.manifest.structure).isEmpty else { return .noBook }
         return .ready
     }
 

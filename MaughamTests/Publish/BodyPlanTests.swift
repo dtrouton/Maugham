@@ -286,7 +286,7 @@ final class BodyPlanTests: XCTestCase {
         try enc.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
         let store = try await ProjectStore.load(from: tmp)
 
-        let source = ProjectStoreASTSource(projectStore: store)
+        let source = ProjectStoreASTSource(projectStore: store, figures: .none)
         XCTAssertNil(source.language)
 
         let set = try LanguageSet(language: nil, languages: ["source", "sr"], sourceTag: "en")

@@ -65,8 +65,8 @@ public enum SetPublishConfigTool: MCPTool {
         // the same ids).
         let publishDir = entry.url
             .appendingPathComponent(".maugham/publish", isDirectory: true)
-        let pieceIDs = ProjectStoreASTSource(projectStore: entry.store)
-            .publishablePieces().map(\.id)
+        let pieceIDs = ProjectStoreASTSource
+            .publishablePieces(in: entry.store.manifest.structure).map(\.id)
         let result = try await cfgStore.applyPatch(patchData) { cfg in
             PublishConfigValidator.validate(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
         }

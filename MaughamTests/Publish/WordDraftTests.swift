@@ -334,7 +334,7 @@ final class WordDraftTests: XCTestCase {
             .save(PublishConfig(metadata: .init(title: "Sent", author: "T")))
 
         let orch = PublishOrchestrator(
-            projectURL: url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             configStore: PublishConfigStore(projectURL: url),
             publicationStore: PublicationStore(projectURL: url),
             snapshotStore: PublicationSnapshotStore(projectURL: url),

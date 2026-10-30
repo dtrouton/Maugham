@@ -551,16 +551,7 @@ extension DocumentStore {
         guard presenter != nil, let manifest = self.projectStore?.manifest else { return nil }
         let records = manifest.figures ?? []
         let assembled = assembledFigures(manifest: manifest, trust: trust)
-        let facts = DocumentClass.Facts(manifest)
-        var states: [String: FigureState] = [:]
-        for record in records where states[record.id] == nil {
-            if let open = openFigure(forId: record.id) {
-                states[record.id] = open.state
-            } else if let read = try? figureCache.state(
-                forFigureId: record.id, in: projectURL, trust: trust, facts: facts) {
-                states[record.id] = read
-            }
-        }
+        let states = figureStates(manifest: manifest, trust: trust)
         var pinChanged = Set<String>()
         for (id, state) in states where !state.pins.isEmpty {
             let sources: PinSources
@@ -582,6 +573,75 @@ extension DocumentStore {
         guard presenter != nil else { return nil }
         return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
                                 pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale)
+    }
+
+    /// **Every registered figure's state, freshest first**: an open host's
+    /// fold, else the figure cache's read. A figure whose stream will not read
+    /// is absent. Opens no host and reads no render (tripwire 20).
+    private func figureStates(manifest: ProjectManifest, trust: TrustTable) -> [String: FigureState] {
+        let facts = DocumentClass.Facts(manifest)
+        var states: [String: FigureState] = [:]
+        for record in manifest.figures ?? [] where states[record.id] == nil {
+            if let open = openFigure(forId: record.id) {
+                states[record.id] = open.state
+            } else if let read = try? figureCache.state(
+                forFigureId: record.id, in: projectURL, trust: trust, facts: facts) {
+                states[record.id] = read
+            }
+        }
+        return states
+    }
+
+    // MARK: - The figures a publish prints
+
+    /// **One snapshot of the book's figures for a publish** (report plan 9a
+    /// Task 1): every registered figure's state (`figureStates`), the book
+    /// assembled as one workbook with each open host's fold laid over its
+    /// read (`assembledFigures`) — so an open grid's edit is what publishes —
+    /// where each pinned source of each figure with a formula stands
+    /// (`FigurePins.status(of:sources:)`), whose own Research source has moved
+    /// on (`snapshotSourcesChanged`), and which are parked. Works with no
+    /// window (no presenter): a publish from MCP or after the window closed
+    /// prints the same figures. `.none` when the registry lists no figures.
+    /// When the registry will not read, the records come back with no state,
+    /// and that is logged. Costly (trust, an assembly, each figure's sources):
+    /// once per publish, never per keystroke.
+    func publishFigures() async -> PublishFigures {
+        guard let projectStore, !(projectStore.manifest.figures ?? []).isEmpty else { return .none }
+        let trust: TrustTable
+        do { trust = try await figureTrust() } catch {
+            documentLog.error(
+                "a publish read no figure: the registry would not read: \(error.localizedDescription, privacy: .public)")
+            return PublishFigures(
+                records: self.projectStore?.manifest.figures ?? [], states: [:], workbook: nil,
+                pinStatus: [:], sourceChanged: [], parked: [])
+        }
+        // The registry may have moved across the await.
+        guard let manifest = self.projectStore?.manifest,
+              let records = manifest.figures, !records.isEmpty else { return .none }
+        let assembled = assembledFigures(manifest: manifest, trust: trust)
+        let states = figureStates(manifest: manifest, trust: trust)
+        var pinStatus: [String: [String: PinStatus]] = [:]
+        for (id, state) in states where state.table.cells.values.contains(where: {
+            if case .formula = $0.content { true } else { false }
+        }) {
+            let sources: PinSources
+            do {
+                sources = try await pinSources(
+                    for: state, manifest: manifest, trust: trust, assembled: assembled)
+            } catch {
+                documentLog.error(
+                    "figure \(id, privacy: .public): its Research sources did not read for a publish: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+            let status = FigurePins.status(of: state, sources: sources)
+            if !status.isEmpty { pinStatus[id] = status }
+        }
+        let sourceChanged = await snapshotSourcesChanged(states, research: manifest.research)
+        let parked = assembled.parked.union(states.compactMap { $0.value.parked == nil ? nil : $0.key })
+        return PublishFigures(
+            records: records, states: states, workbook: assembled.workbook,
+            pinStatus: pinStatus, sourceChanged: sourceChanged, parked: parked)
     }
 
     /// **The figures whose Research source has moved on** (report plan 8b

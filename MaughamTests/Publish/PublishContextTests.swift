@@ -49,12 +49,21 @@ final class PublishContextTests: XCTestCase {
 
     private static let markerURL = URL(fileURLWithPath: "/marker/Real Project")
 
+    /// A figure snapshot no default answers, so a wrapper that drops the
+    /// context's figures is visible.
+    private static let markerFigures = PublishFigures(
+        records: [FigureRecord(id: "fig-0000beef", name: "marker", kind: .table,
+                               piece: nil, path: "figures/marker.csv")],
+        states: [:], workbook: nil, pinStatus: [:], sourceChanged: ["fig-0000beef"],
+        parked: [])
+
     private static func markedContext() -> PublishContext {
         var ctx = PublishContext.empty
         ctx.projectURL = markerURL
         ctx.profile = .report
         ctx.switches = (numberSections: true, listOfFigures: false, listOfTables: true)
         ctx.piecePaths = ["a": "manuscript/a.md", "b": "manuscript/b.md", "c": "manuscript/c.md"]
+        ctx.figures = markerFigures
         return ctx
     }
 
@@ -91,6 +100,10 @@ final class PublishContextTests: XCTestCase {
         if ctx.profile != .report {
             failures.append("publishContext().profile is \(String(describing: ctx.profile)), not the base's")
         }
+        if ctx.figures.records != Self.markerFigures.records
+            || ctx.figures.sourceChanged != Self.markerFigures.sourceChanged {
+            failures.append("publishContext().figures has \(ctx.figures.records.map(\.id)), not the base's")
+        }
         let scopeIDs = try wrapper.resolutionScope.orderedPieces().map(\.pieceID)
         if scopeIDs != editionBook {
             failures.append("resolutionScope reads \(scopeIDs), not the edition's book \(editionBook)")
@@ -122,6 +135,7 @@ final class PublishContextTests: XCTestCase {
         XCTAssertNil(ctx.projectURL)
         XCTAssertNil(ctx.profile)
         XCTAssertTrue(ctx.piecePaths.isEmpty)
+        XCTAssertTrue(ctx.figures.records.isEmpty && ctx.figures.workbook == nil, "no figures")
         XCTAssertTrue(ctx.library.keys.isEmpty)
         XCTAssertFalse(ctx.switches.numberSections || ctx.switches.listOfFigures || ctx.switches.listOfTables)
         XCTAssertEqual(try src.resolutionScope.orderedPieces().map(\.pieceID), ["x", "y"])
@@ -196,6 +210,7 @@ final class PublishContextTests: XCTestCase {
             pieceID: "p", title: "P", mode: .prose, text: "Hello.",
             context: Self.markedContext())
         XCTAssertEqual(src.publishContext().projectURL, Self.markerURL)
+        XCTAssertEqual(src.publishContext().figures.records, Self.markerFigures.records)
         XCTAssertEqual(try src.resolutionScope.orderedPieces().map(\.pieceID), ["p"])
         let plain: any ProjectASTBuilder.Source = SinglePieceSource(
             pieceID: "p", title: "P", mode: .prose, text: "Hello.")
@@ -207,7 +222,8 @@ final class PublishContextTests: XCTestCase {
     func test_plantedControl_aWrapperThatDoesNotForward_isCaught() throws {
         let wrapper: any ProjectASTBuilder.Source = NonForwardingWrapper(base: base, keep: ["b"])
         let failures = try forwardingFailures(of: wrapper, editionBook: ["a", "b", "c"], view: ["b"])
-        XCTAssertEqual(failures.count, 5, "context (3 facts), scope and wholeness all lost: \(failures)")
+        XCTAssertEqual(failures.count, 6, "context (4 facts), scope and wholeness all lost: \(failures)")
+        XCTAssertTrue(failures.contains { $0.hasPrefix("publishContext().figures") }, "\(failures)")
         XCTAssertTrue(failures.contains { $0.hasPrefix("isWholeBook is true") }, "\(failures)")
         XCTAssertTrue(failures.contains { $0.hasPrefix("resolutionScope") }, "\(failures)")
         XCTAssertFalse(failures.contains { $0.hasPrefix("premise") }, "\(failures)")
@@ -269,7 +285,7 @@ final class PublishContextTests: XCTestCase {
         store.manifest.research.append(ResearchItem(
             id: "g", title: "Group", type: .group, children: [cited("r-kid", key: "jones2025")]))
 
-        let src: any ProjectASTBuilder.Source = ProjectStoreASTSource(projectStore: store)
+        let src: any ProjectASTBuilder.Source = ProjectStoreASTSource(projectStore: store, figures: .none)
         let ctx = src.publishContext()
 
         XCTAssertEqual(ctx.projectURL, store.url)
@@ -279,7 +295,7 @@ final class PublishContextTests: XCTestCase {
         XCTAssertTrue(ctx.switches.listOfTables, "the Report profile's default")
         XCTAssertEqual(ctx.library.keys, ["smith2026", "jones2025"], "children are walked")
 
-        let expected = Dictionary(uniqueKeysWithValues: ProjectStoreASTSource(projectStore: store)
+        let expected = Dictionary(uniqueKeysWithValues: ProjectStoreASTSource(projectStore: store, figures: .none)
             .publishablePieces().compactMap { item in item.path.map { (item.id, $0) } })
         XCTAssertFalse(expected.isEmpty, "premise: the novel has publishable pieces")
         XCTAssertEqual(ctx.piecePaths, expected)
@@ -296,7 +312,7 @@ final class PublishContextTests: XCTestCase {
         let trashed = await store.trashedResearchCitationKeys()
         XCTAssertEqual(trashed, ["gone2024"], "premise: the item is in the Trash")
 
-        let src: any ProjectASTBuilder.Source = ProjectStoreASTSource(projectStore: store)
+        let src: any ProjectASTBuilder.Source = ProjectStoreASTSource(projectStore: store, figures: .none)
         XCTAssertEqual(src.publishContext().library.keys, ["smith2026"])
         XCTAssertNil(src.publishContext().library.entry(for: "gone2024"))
     }
@@ -306,7 +322,7 @@ final class PublishContextTests: XCTestCase {
     func test_bodyPlanRebindingAndWrapping_keepTheContextAndTheWholeBookScope() async throws {
         let store = try await makeNovelStore()
         store.manifest.research.append(cited("r-live", key: "smith2026"))
-        let src = ProjectStoreASTSource(projectStore: store)
+        let src = ProjectStoreASTSource(projectStore: store, figures: .none)
         let all = src.publishablePieces().map(\.id)
         XCTAssertGreaterThan(all.count, 1, "premise: more than one piece to filter")
 
@@ -332,7 +348,7 @@ final class PublishContextTests: XCTestCase {
     /// wraps it — still names the real project, never the scratch.
     func test_sampleCompile_theContextNamesTheRealProjectNotTheScratch() async throws {
         let store = try await makeNovelStore()
-        let src = ProjectStoreASTSource(projectStore: store)
+        let src = ProjectStoreASTSource(projectStore: store, figures: .none)
         let first = try XCTUnwrap(src.publishablePieces().first?.id)
         let proposal = DesignProposalStore.Proposal(
             id: "p-ctx", designerName: "Tschichold", round: 1, language: nil,

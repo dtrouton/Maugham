@@ -202,7 +202,7 @@ final class PublishConfigToolsTests: XCTestCase {
 
     private func realPieceID() async throws -> String {
         let store = try await ProjectStore.load(from: projectURL)
-        let docs = ProjectStoreASTSource(projectStore: store).publishablePieces()
+        let docs = ProjectStoreASTSource(projectStore: store, figures: .none).publishablePieces()
         return try XCTUnwrap(docs.first?.id, "novel project must have a publishable piece")
     }
 

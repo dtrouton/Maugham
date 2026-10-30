@@ -91,18 +91,6 @@ final class DeskCompileRunner {
         let stores = PublishingStores.sharedFor(
             projectID: ProjectIdentifier.id(for: projectURL), projectURL: projectURL)
         self.stores = stores
-        let orchestrator = PublishOrchestrator(
-            projectURL: projectURL,
-            astSource: ProjectStoreASTSource(
-                projectStore: projectStore,
-                language: nil),
-            configStore: stores.configStore,
-            publicationStore: stores.publicationStore,
-            snapshotStore: stores.snapshotStore,
-            jobManager: stores.jobManager,
-            mintGate: stores.mintGate,
-            maughamVersion: PublishToolchain.maughamVersion,
-            tectonicVersion: PublishToolchain.tectonicVersion)
 
         ownJob.set(nil)
         state = DepartmentCompileState(
@@ -112,6 +100,21 @@ final class DeskCompileRunner {
             isRunning: true)
 
         task = Task { [weak self] in
+            // The book's figures are snapshotted inside the run, so the press
+            // itself returns at once; the source is built over that snapshot.
+            let orchestrator = PublishOrchestrator(
+                projectURL: projectURL,
+                astSource: ProjectStoreASTSource(
+                    projectStore: projectStore,
+                    figures: await projectStore.publishFigures(),
+                    language: nil),
+                configStore: stores.configStore,
+                publicationStore: stores.publicationStore,
+                snapshotStore: stores.snapshotStore,
+                jobManager: stores.jobManager,
+                mintGate: stores.mintGate,
+                maughamVersion: PublishToolchain.maughamVersion,
+                tectonicVersion: PublishToolchain.tectonicVersion)
             let settled: DepartmentCompileState
             do {
                 let outcome = try await orchestrator.compile(

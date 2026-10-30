@@ -98,7 +98,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: language),
+                projectStore: fx.store, figures: .none, language: language),
             configStore: fx.stores.configStore,
             publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore,
@@ -113,7 +113,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: language),
+                projectStore: fx.store, figures: .none, language: language),
             configStore: fx.stores.configStore,
             publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore,
@@ -128,7 +128,7 @@ final class TranslationCoverageGateTests: XCTestCase {
     private func multiOrchestrator(_ fx: CompileFixture) -> PublishOrchestrator {
         PublishOrchestrator(
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             configStore: fx.stores.configStore,
             publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore,

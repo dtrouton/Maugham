@@ -31,6 +31,11 @@ public struct PublishContext: Sendable {
     /// falls back to it when the config's title is still the starter's
     /// "Untitled" (`PDFCompiler.reportConfig`). Nil for a source with no project.
     public var projectTitle: String?
+    /// The book's figures as this publish snapshotted them, once, before its
+    /// source was built (`DocumentStore.publishFigures()`): what a table
+    /// figure's line prints its computed cells from. `.none` for a source with
+    /// no project, and for a book with no figures.
+    public var figures: PublishFigures
 
     public init(
         library: CitationLibrary,
@@ -38,7 +43,8 @@ public struct PublishContext: Sendable {
         switches: (numberSections: Bool, listOfFigures: Bool, listOfTables: Bool),
         projectURL: URL?,
         piecePaths: [String: String],
-        projectTitle: String? = nil
+        projectTitle: String? = nil,
+        figures: PublishFigures = .none
     ) {
         self.library = library
         self.profile = profile
@@ -46,9 +52,11 @@ public struct PublishContext: Sendable {
         self.projectURL = projectURL
         self.piecePaths = piecePaths
         self.projectTitle = projectTitle
+        self.figures = figures
     }
 
-    /// No research, no profile, every switch off, no project, no paths: what a
+    /// No research, no profile, every switch off, no project, no paths, no
+    /// figures: what a
     /// source with no project answers.
     public static let empty = PublishContext(
         library: CitationLibrary(items: []),

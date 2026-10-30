@@ -114,7 +114,7 @@ final class ReportEPUBTests: XCTestCase {
     private func compile(label: String = "epub") async throws -> URL {
         let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         let compiler = try EPUBCompiler(
-            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: config, jobManager: CompileJobManager(), maughamVersion: "0.0.0-test",
             tectonicVersion: "n/a")
         let result = try await compiler.compile(label: label)
@@ -219,7 +219,7 @@ final class ReportEPUBTests: XCTestCase {
     /// References in Serbian; the nav's lists are the first body's, in English.
     func test_aSerbianBody_figcaptionAndCrossReferenceReadSlika() async throws {
         let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
-        let source = ProjectStoreASTSource(projectStore: store)
+        let source = ProjectStoreASTSource(projectStore: store, figures: .none)
         let bodies = [nil, "sr"].map { tag -> BodyPlan.Body in
             var folded = config
             folded.metadata = config.effectiveMetadata(language: tag)
@@ -255,7 +255,7 @@ final class ReportEPUBTests: XCTestCase {
     /// the shape a bilingual edition takes: per-body files, tagged ids.
     private func compileTwoBodies() async throws -> URL {
         let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
-        let source = ProjectStoreASTSource(projectStore: store)
+        let source = ProjectStoreASTSource(projectStore: store, figures: .none)
         let compiler = try EPUBCompiler(
             projectURL: store.url,
             bodies: ["en", "sr"].map { BodyPlan.Body(tag: $0, displayTag: $0, source: source, config: config) },
@@ -338,7 +338,7 @@ final class ReportEPUBTests: XCTestCase {
         let chart = store.url.appendingPathComponent("research/revenue-chart.png")
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: chart.path)
         let body = BodyPlan.Body(tag: nil, displayTag: "en",
-                                 source: ProjectStoreASTSource(projectStore: store),
+                                 source: ProjectStoreASTSource(projectStore: store, figures: .none),
                                  config: PublishConfig())
         let resolved = try EPUBCompiler.resolve(bodies: [body])
         let prepared = EPUBCompiler.prepare(resolution: try XCTUnwrap(resolved.first).resolution)

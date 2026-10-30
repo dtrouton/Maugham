@@ -165,7 +165,7 @@ final class DOCXCompilerTests: XCTestCase {
         var config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         config.metadata.language = language
         let compiler = try DOCXCompiler(
-            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
+            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             config: config, jobManager: CompileJobManager(), maughamVersion: "0.0.0-test",
             tectonicVersion: "n/a")
         let result = try await compiler.compile(label: label)
@@ -578,7 +578,7 @@ final class DOCXCompilerTests: XCTestCase {
         cfg.metadata.language = "en"
         try await stores.configStore.save(cfg)
         let orchestrator = PublishOrchestrator(
-            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
+            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             configStore: stores.configStore, publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore, jobManager: stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
