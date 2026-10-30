@@ -1,5 +1,7 @@
 import XCTest
+import AppKit
 import SwiftUI
+import Observation
 @testable import Maugham
 @testable import MaughamCore
 
@@ -15,6 +17,7 @@ final class ResearchNewTableTests: XCTestCase {
 
     private var folder: URL!
     private var stores: [DocumentStore] = []
+    private var windows: [NSWindow] = []
 
     override func setUp() async throws {
         folder = TestTemp.root.appendingPathComponent("newtable-\(UUID().uuidString)")
@@ -32,6 +35,12 @@ final class ResearchNewTableTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        ProjectStore.beforeNewTableCopyForTesting = nil
+        for window in windows {
+            window.contentView = NSView(frame: .zero)
+            window.close()
+        }
+        windows = []
         for store in stores { await store.close() }
         stores = []
         Document.localIdentitiesForTesting = nil
@@ -59,6 +68,13 @@ final class ResearchNewTableTests: XCTestCase {
 
     private func collection() async throws -> ProjectStore {
         try await open(try await ProjectFactory.createCollectionProject(named: "Stories", in: folder))
+    }
+
+    /// A tree a writable window has wired: New Table offered.
+    private func offering() -> BinderTreeSectionsState {
+        let state = BinderTreeSectionsState()
+        state.offersNewTable = true
+        return state
     }
 
     /// The window's subject, as the tree's binding writes it.
@@ -133,7 +149,7 @@ final class ResearchNewTableTests: XCTestCase {
     /// Table 2" in a file of its own.
     func test_theHeadersNewTableMakesABlankTableThenADeduplicatedOne() async throws {
         let store = try await novel()
-        let state = BinderTreeSectionsState(), subject = Subject()
+        let state = offering(), subject = Subject()
         let newTable = try XCTUnwrap(verbs(store, state, subject).bundle.newTable, "offered")
 
         var before = ids(store)
@@ -161,7 +177,7 @@ final class ResearchNewTableTests: XCTestCase {
     /// never names two tables.
     func test_aGroupsAndARowsNewTableLandInThatGroup() async throws {
         let store = try await novel()
-        let state = BinderTreeSectionsState(), subject = Subject()
+        let state = offering(), subject = Subject()
         let world = try await store.addResearchItem(parentId: nil, title: "World", kind: nil)
         let newTable = try XCTUnwrap(verbs(store, state, subject).bundle.newTable)
 
@@ -194,7 +210,7 @@ final class ResearchNewTableTests: XCTestCase {
     func test_aFoldsNewTableLandsInThatPiecesResearch() async throws {
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
-        let state = BinderTreeSectionsState(), subject = Subject()
+        let state = offering(), subject = Subject()
         let newTable = try XCTUnwrap(fold(for: piece.id, store, state, subject).actions.newTable)
 
         let before = ids(store)
@@ -207,7 +223,7 @@ final class ResearchNewTableTests: XCTestCase {
 
         let book = try await novel()
         let chapter = try XCTUnwrap(book.manifest.structure.first { $0.type == .document })
-        let chapterState = BinderTreeSectionsState(), chapterSubject = Subject()
+        let chapterState = offering(), chapterSubject = Subject()
         let chapterNewTable = try XCTUnwrap(
             fold(for: chapter.id, book, chapterState, chapterSubject).actions.newTable)
         let earlier = ids(book)
@@ -233,7 +249,7 @@ final class ResearchNewTableTests: XCTestCase {
 
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
-        let state = BinderTreeSectionsState(), subject = Subject()
+        let state = offering(), subject = Subject()
         state.offersNewTable = false
         XCTAssertNil(verbs(store, state, subject).bundle.newTable, "the header's and every row's")
         XCTAssertNil(fold(for: piece.id, store, state, subject).actions.newTable, "a piece's fold")
@@ -262,7 +278,7 @@ final class ResearchNewTableTests: XCTestCase {
         let research = store.url.appendingPathComponent("research")
         try? FileManager.default.removeItem(at: research)
         try Data("not a folder".utf8).write(to: research)
-        let state = BinderTreeSectionsState(), subject = Subject()
+        let state = offering(), subject = Subject()
         let newTable = try XCTUnwrap(verbs(store, state, subject).bundle.newTable)
 
         await newTable(nil).value
@@ -273,21 +289,106 @@ final class ResearchNewTableTests: XCTestCase {
         XCTAssertTrue(TreeWalk.collect(in: store.manifest.research) { $0.kind == .table }.isEmpty)
     }
 
-    /// A file already at the new table's path (a name the folder listing
-    /// missed) is never written over: the coordinated copy refuses it.
-    func test_aFileAlreadyThereIsNeverOverwritten() async throws {
+    /// **A file already at the new table's path** — one the folder listing
+    /// missed (planted between the listing and the copy) — is never written
+    /// over: New Table refuses, the refusal is said, the planted file is as
+    /// it was, and nothing is listed.
+    func test_aFileThatAppearsAtTheNewTablesPathIsNeverOverwritten() async throws {
         let store = try await novel()
-        let documentStore = try XCTUnwrap(store.documentStore)
-        let source = TestTemp.root.appendingPathComponent("src-\(UUID().uuidString).csv")
-        try Data("new".utf8).write(to: source)
-        let target = store.url.appendingPathComponent("research/kept.csv")
-        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
+        let state = offering(), subject = Subject()
+        let newTable = try XCTUnwrap(verbs(store, state, subject).bundle.newTable)
+        var planted: URL?
+        ProjectStore.beforeNewTableCopyForTesting = { target in
+            try Data("kept".utf8).write(to: target)
+            planted = target
+        }
+
+        await newTable(nil).value
+
+        let file = try XCTUnwrap(planted, "the verb reached its copy")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "kept", "never written over")
+        XCTAssertNotNil(state.pendingError, "the refusal is said")
+        XCTAssertNil(subject.value)
+        XCTAssertTrue(TreeWalk.collect(in: store.manifest.research) { $0.kind == .table }.isEmpty)
+    }
+
+    /// **A later step failing leaves no orphan**: when the sidecar cannot be
+    /// written (its folder is a file), the CSV just copied goes back out and
+    /// no row is listed — the next New Table is "untitled-table.csv" again.
+    func test_aFailureAfterTheCopyTakesTheCopiedFileBackOut() async throws {
+        let store = try await novel()
+        let sidecars = store.url.appendingPathComponent(ResearchTableSidecar.folder)
+        try FileManager.default.createDirectory(at: sidecars.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try Data("kept".utf8).write(to: target)
-        do {
-            try await documentStore.executeCopy(from: source, to: target)
-            XCTFail("an existing file was written over")
-        } catch {}
-        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "kept")
+        try? FileManager.default.removeItem(at: sidecars)
+        try Data("not a folder".utf8).write(to: sidecars)
+        let state = offering(), subject = Subject()
+        let newTable = try XCTUnwrap(verbs(store, state, subject).bundle.newTable)
+
+        await newTable(nil).value
+
+        XCTAssertNotNil(state.pendingError, "said")
+        let research = store.url.appendingPathComponent("research")
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: research.path)) ?? []
+        XCTAssertFalse(left.contains { $0.hasSuffix(".csv") }, "no orphan CSV: \(left)")
+        XCTAssertTrue(TreeWalk.collect(in: store.manifest.research) { $0.kind == .table }.isEmpty)
+
+        try FileManager.default.removeItem(at: sidecars)
+        state.pendingError = nil
+        await newTable(nil).value
+        XCTAssertNil(state.pendingError)
+        let made = try XCTUnwrap(TreeWalk.first(in: store.manifest.research) { $0.kind == .table })
+        XCTAssertEqual(made.path, "research/untitled-table.csv", "the name was not taken by an orphan")
+    }
+
+    // MARK: - The window's wiring
+
+    @Observable
+    @MainActor
+    final class WindowBox {
+        var control = EditorControl()
+        var persona: Persona = .author
+    }
+
+    /// The tree wired as `ProjectWindow` wires it.
+    private struct WiringProbe: View {
+        let box: WindowBox
+        let store: ProjectStore
+        let tree: BinderTreeSectionsState
+        var body: some View {
+            Color.clear.modifier(FigureSectionWiring(
+                store: store, documentStore: store.documentStore, listing: FigureListingModel(),
+                treeState: tree, figureWindows: nil, typography: .defaults,
+                control: box.control, persona: box.persona))
+        }
+    }
+
+    /// **The window tells the tree** (`FigureSectionWiring`): a tree no
+    /// window has told offers nothing; a writable Author window offers New
+    /// Table; a view-only share and Review take it away, and lifting them
+    /// gives it back.
+    func test_theWindowsWiringOffersNewTableOnlyWhereTheGridCouldEditIt() async throws {
+        let store = try await novel()
+        let tree = BinderTreeSectionsState()
+        XCTAssertFalse(tree.offersNewTable, "fails closed until a window says")
+        XCTAssertNil(verbs(store, tree, Subject()).bundle.newTable)
+
+        let box = WindowBox()
+        windows.append(TestWindow.mount(
+            AnyView(WiringProbe(box: box, store: store, tree: tree)), size: CGSize(width: 320, height: 240)))
+        let offered = await pumpUntil(deadline: 5) { tree.offersNewTable }
+        XCTAssertTrue(offered, "a writable window offers New Table")
+
+        box.control.shareIsReadOnly = true
+        let shareHides = await pumpUntil(deadline: 5) { !tree.offersNewTable }
+        XCTAssertTrue(shareHides, "a view-only share hides it")
+        box.control.shareIsReadOnly = false
+        let back = await pumpUntil(deadline: 5) { tree.offersNewTable }
+        XCTAssertTrue(back)
+
+        box.persona = .review
+        let reviewHides = await pumpUntil(deadline: 5) { !tree.offersNewTable }
+        XCTAssertTrue(reviewHides, "Review hides it")
+        FigureSectionWiring.attach(tree, to: nil)
     }
 }

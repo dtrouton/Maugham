@@ -295,19 +295,35 @@ extension ProjectStore {
         let staged = staging.appendingPathComponent(filename) // local-path: a temporary folder minted here; the name is a slug
         defer { FigureIngest.removeTemporary(staged) }
         try data.write(to: staged)
+        try Self.beforeNewTableCopyForTesting?(target)
         try await documentStore.executeCopy(from: staged, to: target)
 
         let item = ResearchItem(
             id: Self.newId(prefix: "res"), title: resolvedTitle, type: .asset, kind: .table,
             path: relativePath, addedAt: Date())
-        try ResearchTableSidecar.write(
-            ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1),
-            forItem: item.id, in: url)
-        appendResearchItem(item, to: parentId)
-        manifest.modified = Date()
-        try await saveManifest()
+        do {
+            try ResearchTableSidecar.write(
+                ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1),
+                forItem: item.id, in: url)
+            appendResearchItem(item, to: parentId)
+            manifest.modified = Date()
+            try await saveManifest()
+        } catch {
+            // Nothing the writer saw: the file, its sidecar and its row go
+            // back out, so no orphan CSV is left for the next one to dodge.
+            removeResearchItem(id: item.id)
+            try? FileManager.default.removeItem(at: target) // raw-delete: the blank CSV this verb copied in moments ago, never listed
+            if let sidecar = try? ResearchTableSidecar.fileURL(forItem: item.id, in: url) {
+                try? FileManager.default.removeItem(at: sidecar) // raw-delete: derived sidecar under .maugham/research-tables/
+            }
+            throw error
+        }
         return item
     }
+
+    /// Test seam: runs in New Table before the copy, handed its target —
+    /// where a test plants a file the folder listing missed. Nil in production.
+    static var beforeNewTableCopyForTesting: ((URL) throws -> Void)?
 
     // MARK: - Research helpers
 

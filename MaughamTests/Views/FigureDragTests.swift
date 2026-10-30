@@ -351,6 +351,31 @@ final class FigureDragTests: XCTestCase {
         FigureSectionWiring.attach(state, to: nil)
     }
 
+    /// **An error arriving while a send question is up waits for it**
+    /// (task 8 review): the question stays the alert — the drop is still
+    /// answerable — and the error is shown once it is answered, by Cancel or
+    /// by the alert's own dismissal.
+    func test_anErrorArrivingDuringTheQuestionIsShownAfterIt() async throws {
+        let store = try await openNovel()
+        let cash = try await store.createFigure(kind: .table, name: "cash", piece: nil)
+        let state = await tree(store)
+        XCTAssertTrue(verbs(store, state).routeSharedSectionDrop(draggedId: cash.id))
+        let question = try XCTUnwrap(state.pendingFigureSend)
+
+        state.pendingError = "Something else went wrong."
+        XCTAssertEqual(state.pendingFigureSend, question, "the question is not pre-empted")
+        FigureSectionVerbs(store: store, state: state).cancelFigureSend()
+        XCTAssertEqual(state.pendingError, "Something else went wrong.", "shown once answered")
+
+        state.pendingError = nil
+        XCTAssertTrue(verbs(store, state).routeSharedSectionDrop(draggedId: cash.id))
+        let shown = state.pendingAlert
+        state.pendingError = "Later."
+        state.dismissAlert(shown)
+        XCTAssertEqual(state.pendingError, "Later.", "the alert's dismissal shows it too")
+        FigureSectionWiring.attach(state, to: nil)
+    }
+
     // MARK: - The reveal's token (Task 4's carried minor)
 
     /// A second reveal of the same figure inside the window is not let go

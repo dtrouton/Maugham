@@ -1026,31 +1026,46 @@ final class BinderTreeSectionsState {
     /// send that fails while its question is dismissing replaces the question
     /// rather than racing a second alert (task 5 review M3).
     var pendingAlert: TreeAlert?
-    /// The error the alert shows; setting one replaces whatever it shows,
-    /// clearing it leaves a question alone.
+    /// An error that arrived while a send question was up: shown once the
+    /// question is answered, never in its place (a question pre-empted would
+    /// leave the drop unanswered and unsaid).
+    @ObservationIgnored private(set) var queuedError: String?
+    /// The error the alert shows. One arriving while a question is up waits
+    /// for it (`queuedError`); clearing it leaves a question alone.
     var pendingError: String? {
         get { if case .error(let message)? = pendingAlert { return message } else { return nil } }
         set {
-            if let newValue { pendingAlert = .error(newValue) }
-            else if case .error? = pendingAlert { pendingAlert = nil }
+            if let newValue {
+                if case .confirmSend? = pendingAlert { queuedError = newValue }
+                else { pendingAlert = .error(newValue) }
+            } else if case .error? = pendingAlert { pendingAlert = nil }
         }
     }
-    /// The figure send the alert asks about; clearing it leaves an error alone.
+    /// The figure send the alert asks about; clearing it leaves an error
+    /// alone, and shows one that waited on it.
     var pendingFigureSend: PendingFigureSend? {
         get { if case .confirmSend(let pending)? = pendingAlert { return pending } else { return nil } }
         set {
             if let newValue { pendingAlert = .confirmSend(newValue) }
-            else if case .confirmSend? = pendingAlert { pendingAlert = nil }
+            else if case .confirmSend? = pendingAlert { questionAnswered() }
         }
     }
     /// The alert `shown` dismissed: cleared only while it is still the one
     /// held — an error that arrived meanwhile stays to be shown.
     func dismissAlert(_ shown: TreeAlert?) {
-        if pendingAlert == shown { pendingAlert = nil }
+        guard pendingAlert == shown else { return }
+        if case .confirmSend? = shown { questionAnswered() } else { pendingAlert = nil }
+    }
+    /// The question is gone: an error that waited on it is the alert now.
+    private func questionAnswered() {
+        pendingAlert = queuedError.map(TreeAlert.error)
+        queuedError = nil
     }
     /// **Whether Research offers New Table** (D8b-2): not on a view-only share
     /// or in Review — where the table could not be edited (`offersNewTable(…)`).
-    var offersNewTable = true
+    /// False until the window's wiring says otherwise (`FigureSectionWiring`):
+    /// a tree no window has told offers nothing it might not allow.
+    var offersNewTable = false
 
     /// The one answer `FigureSectionWiring` keeps `offersNewTable` to: the
     /// research centre's own read-only rule (`ResearchSubjectCentre`).
