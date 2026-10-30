@@ -22,11 +22,11 @@ Select several items (⌘-click) to work on them together. Right-click a selecti
 
 A table, picture or PDF in Research can become a figure of the book, and a figure can go back.
 
-- **Use in Document** — right-click one Research item, or press the button in its inspector. It makes a figure that no line uses yet (its number shows "—" in the **Figures** section, tagged **unused**). Place it with **Insert ▸ Existing Figure…** (see [Editor](editor-and-focus.md)). Dragging the item onto the **Figures** section does the same (see [Structure and binder](structure-and-binder.md#figures-in-the-binder)). Offered for tables, pictures and PDFs in a project that holds figures, not in Review or on a view-only share, and not for several items at once.
+- **Use in Document** — right-click one Research item, or press the button in its inspector. It makes a figure that no line uses yet (its number shows "—" in the **Figures** section, tagged **unused**). Place it with **Insert ▸ Existing Figure…** (see [Editor](editor-and-focus.md)). Dragging the item onto the **Figures** section does the same (see [Structure and binder](structure-and-binder.md#figures-in-the-binder)). Offered for tables, pictures and PDFs in a project that holds figures, not in Review, in review mode (⌘⌥⇧R) or on a view-only share, and not for several items at once.
 - **Whose figure it is.** An item in a piece's own Research makes that piece's figure. An item in Shared Research makes a figure that belongs to the whole book, so only an author of the whole book may make or edit it; if this Mac may not, nothing is made and you are told.
 - **The name** comes from the item's title. A title that is already a valid label name keeps its capitals ("Q3" stays "Q3"); otherwise it is folded to lower case with hyphens ("Q3 revenue (draft)" becomes `q3-revenue-draft`), and a name already taken gets `_2`.
 - **Bring Back to Figures** — a figure you sent to Research leaves a copy there. On that copy the same menu and button read **Bring Back to Figures**, which puts the figure back, unchanged if the copy is unchanged.
-- **"changed"** — a table made from Research shows the **changed** tag in the Figures section when its source file in Research has changed since the figure took it.
+- **"changed"** — a table, picture or PDF made from Research shows the **changed** tag in the Figures section when its source file in Research has changed since the figure took it.
 
 ### Editing a Research table
 

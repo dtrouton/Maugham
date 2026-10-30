@@ -54,7 +54,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
 - `ProjectRowLabel.swift` — every project row's label.
-- `FigureSection.swift` — the Figures section (shown when a figure is not parked) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `FigureSendConfirmation`), `FigureSectionWiring` (the tree's own card cache).
+- `FigureSection.swift` — the Figures section (shown when a figure is not parked or a legacy line exists) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `PendingFigureSend`/`TreeAlert`), `FigureSectionWiring` (the tree's own card cache).
 - `FigureActions.swift` — the one helper the menus and inspectors share: Open in Window, Send to Research, Rename, Import/Refresh through the grid, Use in Document; the posture and `windowRefusesWrites` gate the writes.
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags), a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
 - `BinderTreeSections.swift` — the Figures, Research and Palette sections at every tree's foot; `BinderTreeSectionsState` (selection, disclosure, `reveal`, `scrollRequest`), `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (the one alert; an error waits for a send question), `BinderTreeSectionsPresentations`, `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
@@ -296,7 +296,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A figure subject asks `figureSubjectPlacement`, in both columns** (`FigureSubjectPlacementTests`): Author and Review give it the centre, Plan puts it beside the canvas, Publish moves nothing.
 - **The Figures section is the middle path**: drawn only while the project holds a non-parked figure; a piece's count filters it, its header chip clears it.
 - **The tree's cards come from its own `FigureCardCache`**, never the editor's.
-- **A drag onto Figures or Research is classified by `TreeDropIntent`, never in the row.** Research onto Figures is `useInDocument`, unasked; a figure onto Research or a group asks once (`FigureSendConfirmation`) and cannot be undone. Figures take no figure-on-figure drop.
+- **A drag onto Figures or Research is classified by `TreeDropIntent`, never in the row.** Research onto Figures is `useInDocument`, unasked; a figure onto Research or a group asks once (`PendingFigureSend`) and cannot be undone. Figures take no figure-on-figure drop.
 - **A legacy row is listed, never selected**: *Move into Figures* dry-runs the line, makes the figure, then `retargetFigureLine`s it; a parked copy named otherwise than the line's label is refused.
 - **The figure listing lives at window level** (`ReferenceIndexHost`, `FigureListingModel` in `ProjectWindow`), so rows need no mounted editor.
 - **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`).
