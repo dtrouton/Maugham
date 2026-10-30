@@ -279,6 +279,7 @@ Denver, 2026-10-28:
 - **The middle path:** the section shows only when the project has a figure. Piece folds do not list figures. Instead a piece row shows a count of the figures its text uses, and clicking it filters the section to that piece.
 - **Drag to Research confirms:** dropping a figure on Research asks once, because Send to Research is not undoable.
 - **Use in document leaves the figure unused (2026-10-29):** from the tree or a menu it makes a figure marked "—". Insert ▸ Existing Figure… places any figure's line at the caret.
+- **A figure from shared Research is homed where it is first placed (2026-10-30):** made from shared Research it belongs to no piece yet; the first placement makes it that piece's figure. A piece-only author may make one and owns it once placed.
 - **New Table in Research (2026-10-30):** Research offers New Table beside New Note, making a blank table that opens in the grid.
 - **Research CSVs edit in the grid in plan 8:** undo works while the grid is open, and the guide says saved changes are not versioned until plan 9.
 
