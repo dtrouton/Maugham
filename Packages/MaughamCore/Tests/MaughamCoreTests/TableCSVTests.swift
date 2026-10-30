@@ -357,4 +357,59 @@ final class TableCSVTests: XCTestCase {
         XCTAssertEqual(refused, [CSVReadProblem(row: 0, column: 0, message: "Two Research items are called forecast; rename one.")])
     }
 
+
+    // MARK: a Research table keeps its separator (report plan 8b Task 7)
+
+    /// **A ";" file, a tab file and a "," file each round-trip in their own
+    /// separator**: the separator between fields, decimals as that file reads
+    /// them, formulas as `=` cells with their POSIX text, and text that would
+    /// read as a number escaped.
+    func test_renderResearch_keepsTheFilesSeparator_andItsDecimals() {
+        let de = TableLocale(languageTag: "de-DE")
+        for (separator, locale, decimal) in [(";" as Character, gb, "3,5"), ("\t", de, "3,5"),
+                                             ("\t", gb, "3.5"), (",", de, "3.5")] {
+            var t = FigureTable(rows: 2, columns: 3)
+            func set(_ a1: String, _ c: CellContent) { t.setCell(Cell(content: c), at: key(t, a1)) }
+            set("A1", .value(.text("Name")))
+            set("B1", .value(.text("Rate")))
+            set("C1", .value(.text("Double")))
+            set("A2", .value(.text("1,5")))
+            set("B2", .value(.number(3.5)))
+            guard case .success(let f) = FormulaParser.parse("B2*2", in: t) else { return XCTFail() }
+            set("C2", .formula(f))
+            let csv = TableCSV.renderResearch(t, locale: locale, names: .empty, separator: separator)
+            let lines = csv.split(separator: "\n").map(String.init)
+            XCTAssertEqual(lines.first, ["Name", "Rate", "Double"].joined(separator: String(separator)))
+            XCTAssertTrue(lines[1].contains(decimal), "\(csv)")
+            XCTAssertTrue(lines[1].contains("=B2*2"), "\(csv)")
+            XCTAssertEqual(TableCSV.rows(csv).separator, separator, "read back as the same kind of file")
+            let (back, problems) = TableCSV.read(csv, locale: locale, names: .empty)
+            XCTAssertTrue(problems.isEmpty, "\(csv)")
+            XCTAssertEqual(back[key(back, "B2")]?.content, .value(.number(3.5)), "\(csv)")
+            XCTAssertEqual(back[key(back, "A2")]?.content, .value(.text("1,5")), "\(csv)")
+            XCTAssertEqual(back[key(back, "C2")].map { FormulaParser.render(Formula(extract($0.content)), in: back) },
+                           "B2*2")
+        }
+    }
+
+    /// The default is the "," file every caller wrote before.
+    func test_renderResearch_defaultsToAComma() {
+        var t = FigureTable(rows: 1, columns: 2)
+        t.setCell(Cell(content: .value(.number(2.5))), at: key(t, "A1"))
+        t.setCell(Cell(content: .value(.text("x"))), at: key(t, "B1"))
+        XCTAssertEqual(TableCSV.renderResearch(t, locale: TableLocale(languageTag: "de-DE"), names: .empty), "2.5,x\n")
+        XCTAssertEqual(TableCSV.renderResearch(t, locale: gb, names: .empty, separator: ";"), "\"2,5\";x\n",
+                       "a decimal comma is quoted, as every separator character is")
+    }
+
+    /// A table of one column has no separator for `read` to find: it is
+    /// written as a "," file, so its decimals read back.
+    func test_renderResearch_oneColumnIsWrittenAsACommaFile() {
+        var t = FigureTable(rows: 1, columns: 1)
+        t.setCell(Cell(content: .value(.number(2.5))), at: key(t, "A1"))
+        let csv = TableCSV.renderResearch(t, locale: gb, names: .empty, separator: ";")
+        XCTAssertEqual(csv, "2.5\n")
+        XCTAssertEqual(TableCSV.read(csv, locale: gb, names: .empty).table.cells.values.first?.content,
+                       .value(.number(2.5)))
+    }
 }
