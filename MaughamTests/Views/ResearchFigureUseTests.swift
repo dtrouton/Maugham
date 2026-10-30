@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Observation
 @testable import Maugham
 @testable import MaughamCore
 
@@ -148,13 +149,14 @@ final class ResearchFigureUseTests: XCTestCase {
             parentId: nil, fromURL: try external("odd.csv", "A,B\n1,=1+\n2,=2+\n"))
         XCTAssertEqual(InspectorResearchPanel.figureVerb(for: item, store: store, tree: state,
                                                          windowRefusesWrites: false), .use)
-        var said: [String] = []
+        var said: [InspectorResearchPanel.FigureMessage] = []
         await InspectorResearchPanel.useInDocument(item, store: store, tree: state,
                                                    windowRefusesWrites: false) { said.append($0) }.value
 
         let figure = try XCTUnwrap(store.manifest.figures?.first)
         XCTAssertEqual(said.count, 1, "said once: \(said)")
-        XCTAssertTrue(said.first?.contains("2 formulas couldn’t be read") == true, said.first ?? "")
+        XCTAssertTrue(said.first?.text.contains("2 formulas couldn’t be read") == true, said.first?.text ?? "")
+        XCTAssertEqual(said.first?.isRefusal, false, "a notice, not a refusal (not red)")
         XCTAssertNil(state.pendingError, "the inspector's line, not the tree's alert")
         await listingSettles(store, state)
         XCTAssertEqual(state.scrollRequest, .row(.figure(figure.id)))
@@ -217,7 +219,7 @@ final class ResearchFigureUseTests: XCTestCase {
         await state.refreshFigureReturns(store: store)
         XCTAssertEqual(state.figureReturns, [copy.id: cash.id])
         let actions = menu(store, state)
-        XCTAssertEqual(actions.figureVerb(copy), .returnToFigures(figureId: cash.id))
+        XCTAssertEqual(actions.figureVerb(copy), .bringBack(figureId: cash.id))
         XCTAssertEqual(actions.figureVerb(copy)?.title, "Bring Back to Figures")
         XCTAssertEqual(actions.figureVerb(source), .use, "control: the figure's own source makes a new one")
 
@@ -288,10 +290,100 @@ final class ResearchFigureUseTests: XCTestCase {
         XCTAssertEqual(store.manifest.figures ?? [], [])
         XCTAssertNil(state.pendingFigureReveal)
 
+        // The inspector says the same refusal, as a refusal (red).
+        var said: [InspectorResearchPanel.FigureMessage] = []
+        await InspectorResearchPanel.useInDocument(pieceItem, store: store, tree: state,
+                                                   windowRefusesWrites: false) { said.append($0) }.value
+        XCTAssertEqual(said, [.init(text: "This Mac may not make a figure here, so nothing was made.",
+                                    isRefusal: true)])
+
         state.pendingError = nil
         await actions.performFigureVerb(sharedItem)?.value
         XCTAssertNil(state.pendingError)
         XCTAssertEqual(store.manifest.figures?.map(\.piece), [nil], "control: shared Research, the whole book's")
         FigureSectionWiring.attach(state, to: nil)
+    }
+
+    // MARK: - Review fixes (task-4-review.md)
+
+    private func notices(during body: () async throws -> Void) async rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { seen.append(m) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await body()
+        return seen
+    }
+
+    /// M2: from the row menu, cells kept as text are a notice — said once,
+    /// never the tree's error alert.
+    func test_theRowMenusKeptAsTextIsANoticeNotTheErrorAlert() async throws {
+        let store = try await openBook()
+        let state = tree(store)
+        let item = try await store.addResearchAsset(
+            parentId: nil, fromURL: try external("odd.csv", "A,B\n1,=1+\n"))
+        let said = await notices { await menu(store, state).performFigureVerb(item)?.value }
+        XCTAssertNil(state.pendingError, "not the error alert")
+        XCTAssertEqual(said.count, 1, "\(said)")
+        XCTAssertTrue(said.first?.contains("couldn’t be read") == true, said.first ?? "")
+        FigureSectionWiring.attach(state, to: nil)
+    }
+
+    /// I3: the returns' key moves with the set of parked figures, not with
+    /// every card fill — a cell commit changes nothing it reads; a park does.
+    func test_theParkedSetMovesOnAParkAndNotOnACellCommit() async throws {
+        let store = try await openBook()
+        let cash = try await store.createFigure(kind: .table, name: "cash", piece: nil, rows: 2, columns: 1)
+        let state = tree(store)
+        await listingSettles(store, state)
+        XCTAssertEqual(state.parkedFigureIds, [])
+
+        let filled = state.figureCards.version
+        final class Told: @unchecked Sendable { var value = false }
+        let told = Told()
+        withObservationTracking { _ = state.parkedFigureIds } onChange: { told.value = true }
+        let documentStore = try XCTUnwrap(documentStore)
+        let host = try await documentStore.openFigure(figureId: cash.id)
+        try await host.setCell(Cell(content: .value(.number(5))),
+                               at: CellKey(row: host.state.table.rows[1], column: host.state.table.columns[0]))
+        await documentStore.closeFigure(figureId: cash.id)
+        await state.figureCards.idle()
+        XCTAssertNotEqual(state.figureCards.version, filled, "precondition: the commit refilled the cards")
+        XCTAssertFalse(told.value, "a cell commit refills the cards but moves no parked figure")
+
+        _ = try await store.sendToResearch(figureId: cash.id, scope: .shared)
+        await listingSettles(store, state)
+        XCTAssertTrue(told.value)
+        XCTAssertEqual(state.parkedFigureIds, [cash.id], "control: a park moves it")
+        FigureSectionWiring.attach(state, to: nil)
+    }
+
+    /// M3: a figure whose row never draws within the reveal's window is let
+    /// go — a later draw of it scrolls nowhere.
+    func test_aRevealWhoseRowNeverDrawsIsLetGo() async throws {
+        let saved = BinderTreeSectionsState.figureRevealWindow
+        BinderTreeSectionsState.figureRevealWindow = .milliseconds(20)
+        defer { BinderTreeSectionsState.figureRevealWindow = saved }
+        let state = BinderTreeSectionsState()
+        let wait = state.revealFigureWhenDrawn("fig-0a1b2c3d")
+        XCTAssertEqual(state.pendingFigureReveal, "fig-0a1b2c3d")
+        await wait?.value
+        XCTAssertNil(state.pendingFigureReveal)
+        state.refreshFigureRows(listing: [FigureListing.Row(
+            figureId: "fig-0a1b2c3d", kind: .table, name: "cash", caption: "", number: FigureListing.unusedNumber,
+            usedIn: [], referencedFrom: [], pieceOfLine: nil)])
+        XCTAssertNil(state.scrollRequest, "let go: its later draw scrolls nowhere")
+
+        // Control: within the window, the draw reveals it.
+        BinderTreeSectionsState.figureRevealWindow = .seconds(30)
+        let other = BinderTreeSectionsState()
+        _ = other.revealFigureWhenDrawn("fig-1b2c3d4e")
+        other.refreshFigureRows(listing: [FigureListing.Row(
+            figureId: "fig-1b2c3d4e", kind: .table, name: "tax", caption: "", number: FigureListing.unusedNumber,
+            usedIn: [], referencedFrom: [], pieceOfLine: nil)])
+        XCTAssertEqual(other.scrollRequest, .row(.figure("fig-1b2c3d4e")))
     }
 }

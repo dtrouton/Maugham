@@ -34,6 +34,9 @@ struct FigureActions {
     /// The window this helper acts for (the inspector's project window); nil
     /// takes the grid wherever it is open.
     var window: NSWindow? = nil
+    /// Where a success with something to say goes (*Use in Document*'s cells
+    /// kept as text) — not an error; nil sends it to `report`.
+    var notice: ((String) -> Void)? = nil
 
     // MARK: Who may write
 
@@ -192,12 +195,12 @@ struct FigureActions {
     /// which routes it (`ProjectStore.figureToBringBack`).
     enum ResearchVerb: Equatable {
         case use
-        case returnToFigures(figureId: String)
+        case bringBack(figureId: String)
 
         var title: String {
             switch self {
             case .use: return "Use in Document"
-            case .returnToFigures: return "Bring Back to Figures"
+            case .bringBack: return "Bring Back to Figures"
             }
         }
     }
@@ -209,28 +212,31 @@ struct FigureActions {
     func researchVerb(for item: ResearchItem, returning figureId: String?) -> ResearchVerb? {
         guard item.type == .asset, [.table, .image, .pdf].contains(item.kind),
               store.manifest.type.holdsFigures, !windowRefusesWrites() else { return nil }
-        return figureId.map { .returnToFigures(figureId: $0) } ?? .use
+        return figureId.map { .bringBack(figureId: $0) } ?? .use
     }
 
     /// **Use in Document / Bring Back to Figures**: the store's verb, the
     /// figure's piece the one whose Research holds the item
     /// (`researchHomePiece`), else the whole book's. Its id goes to `reveal`;
     /// the cells the read kept as text and the late edits the copy replaced
-    /// are said once (`readNotice`), a refusal through `report`.
+    /// are said once (`readNotice`) through `notice`, a refusal through
+    /// `report` — worded by the route the store takes
+    /// (`figureToBringBack`, asked before the verb).
     @discardableResult
     func useInDocument(_ item: ResearchItem,
                        reveal: @escaping @MainActor (String) -> Void) -> Task<Void, Never> {
-        let store = store, report = report
+        let store = store, say = notice ?? report
         let piece = store.researchHomePiece(ofItemId: item.id)
         return run {
+            let bringingBack = (try? await store.figureToBringBack(fromResearchItemId: item.id)) != nil
             let result: UseInDocumentResult
             do {
                 result = try await store.useInDocument(researchItemId: item.id, piece: piece)
-            } catch let refused as FigureEditRefused {
-                throw ResearchUseRefused(bringingBack: refused.site == "bringBack")
+            } catch is FigureEditRefused {
+                throw ResearchUseRefused(bringingBack: bringingBack)
             }
             reveal(result.record.id)
-            if let notice = Self.readNotice(result) { report(notice) }
+            if let notice = Self.readNotice(result) { say(notice) }
         }
     }
 

@@ -13,8 +13,15 @@ struct InspectorResearchPanel: View {
     var figureWritesRefused: Bool = false
 
     /// What the verb toward Figures last said (a refusal, the cells kept as
-    /// text); cleared when the item changes.
-    @State private var figureMessage: String?
+    /// text); cleared when the item changes or the verb flips.
+    @State private var figureMessage: FigureMessage?
+
+    /// A line the verb toward Figures says: a refusal reads red, as the
+    /// figure inspector's does; a notice reads as a note.
+    struct FigureMessage: Equatable {
+        let text: String
+        let isRefusal: Bool
+    }
 
     @State private var draftTitle: String = ""
     @State private var draftCaption: String = ""
@@ -57,10 +64,12 @@ struct InspectorResearchPanel: View {
                         Self.useInDocument(item, store: store, tree: figureTree,
                                            windowRefusesWrites: figureWritesRefused) { figureMessage = $0 }
                     }
+                    // The verb flipping (a park, a return) retires what it said.
+                    .onChange(of: verb) { _, _ in figureMessage = nil }
                     if let figureMessage {
-                        Text(figureMessage)
+                        Text(figureMessage.text)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(figureMessage.isRefusal ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -128,9 +137,11 @@ struct InspectorResearchPanel: View {
     @discardableResult
     static func useInDocument(_ item: ResearchItem, store: ProjectStore, tree: BinderTreeSectionsState,
                               windowRefusesWrites: Bool,
-                              say: @escaping (String) -> Void) -> Task<Void, Never> {
+                              say: @escaping (FigureMessage) -> Void) -> Task<Void, Never> {
         FigureSectionVerbs(store: store, state: tree)
-            .shared(report: say, windowRefusesWrites: windowRefusesWrites)
+            .shared(report: { say(FigureMessage(text: $0, isRefusal: true)) },
+                    notice: { say(FigureMessage(text: $0, isRefusal: false)) },
+                    windowRefusesWrites: windowRefusesWrites)
             .useInDocument(item, reveal: { tree.revealFigureWhenDrawn($0) })
     }
 

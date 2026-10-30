@@ -13185,8 +13185,11 @@ final class TripwireGrepTests: XCTestCase {
         // offered only where the window does not refuse figure writes. The
         // Research row's menu reaches it through `FigureSectionVerbs` (the
         // tree's bundle in BinderTreeSections), the Research inspector through
-        // its own static (the button and the static).
-        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1, "useInDocument(": 1],
+        // its own static (the button and the static). FigureActions'
+        // `bringBack(` hits are NOT calls: `ResearchVerb`'s case declaration
+        // and its construction (`.bringBack(figureId:)`); the return reaches
+        // the store's `bringBack` only through `useInDocument`'s routing.
+        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1, "useInDocument(": 1, "bringBack(": 2],
         "FigureSection.swift": ["sendToResearch(": 1, "useInDocument(": 1],
         "BinderTreeSections.swift": ["useInDocument(": 1],
         "InspectorResearchPanel.swift": ["useInDocument(": 2],

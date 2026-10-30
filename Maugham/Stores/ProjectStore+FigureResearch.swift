@@ -137,18 +137,28 @@ extension ProjectStore {
     }
 
     /// `figureToBringBack(fromResearchItemId:)` for every Research picture,
-    /// table and PDF, by item id (one without a sidecar answers at once) — what the window's tree
+    /// table and PDF, by item id — what the window's tree
     /// caches for its menus (`BinderTreeSectionsState.figureReturns`). An
     /// item whose figure will not read is left out (it says *Use in
     /// Document*; the verb itself asks again and says why).
     func figuresToBringBack() async -> [String: String] {
-        let items = TreeWalk.collect(in: manifest.research) {
+        guard let documentStore else { return [:] }
+        let ids = TreeWalk.collect(in: manifest.research) {
             $0.type == .asset && [.table, .image, .pdf].contains($0.kind)
-        }
+        }.map(\.id)
+        // The sidecars are read off the main actor, once each; one that will
+        // not read is passed over quietly (the verb itself logs and says).
+        let projectURL = url
+        let named = await Task.detached {
+            ids.reduce(into: [String: ResearchTableSidecar]()) { out, id in
+                if let sidecar = try? ResearchTableSidecar.read(forItem: id, in: projectURL) { out[id] = sidecar }
+            }
+        }.value
         var out: [String: String] = [:]
-        for item in items {
-            guard let figureId = try? await figureToBringBack(fromResearchItemId: item.id) else { continue }
-            out[item.id] = figureId
+        for (id, sidecar) in named {
+            guard let figureId = try? await figureToBringBack(namedBy: sidecar, documentStore: documentStore)
+            else { continue }
+            out[id] = figureId
         }
         return out
     }

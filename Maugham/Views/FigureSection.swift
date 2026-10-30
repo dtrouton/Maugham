@@ -119,15 +119,26 @@ extension BinderTreeSectionsState {
     }
 
     /// `revealFigure`, now or — for a figure just made, whose row the listing
-    /// and cards have yet to bring — once its row is drawn.
-    func revealFigureWhenDrawn(_ figureId: String) {
+    /// and cards have yet to bring — once its row is drawn, within
+    /// `figureRevealWindow`; a row that has not drawn by then (the figure
+    /// parked or removed meanwhile) is let go, so no later draw scrolls to it.
+    /// Answers the wait, which a test awaits.
+    @discardableResult
+    func revealFigureWhenDrawn(_ figureId: String) -> Task<Void, Never>? {
         if figureRows.contains(where: { $0.id == figureId }) {
             pendingFigureReveal = nil
             revealFigure(figureId)
-        } else {
-            pendingFigureReveal = figureId
+            return nil
+        }
+        pendingFigureReveal = figureId
+        return Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.figureRevealWindow)
+            if self?.pendingFigureReveal == figureId { self?.pendingFigureReveal = nil }
         }
     }
+
+    /// How long a figure made from Research waits for its row to draw.
+    static var figureRevealWindow: Duration = .seconds(10)
 
     /// Ask the store again which Research items bring a figure back.
     func refreshFigureReturns(store: ProjectStore?) async {
@@ -178,6 +189,12 @@ extension BinderTreeSectionsState {
     }
 
     private func rebuildFigureRows() {
+        // Which figures are parked, as the cards say: what a Research item's
+        // Bring Back answer turns on (`FigureSectionWiring`'s key).
+        let parked = Set(figureListingRows.map(\.figureId).filter {
+            figureCards.model(forFigureId: $0)?.kind == .parked
+        })
+        if parked != parkedFigureIds { parkedFigureIds = parked }
         let next = FigureTreeRow.build(listing: figureListingRows,
                                        card: figureCards.model(forFigureId:))
         // Only what a row draws: a line index moving redraws no tree.
@@ -268,14 +285,17 @@ struct FigureSectionVerbs {
         return FigureActions(
             store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
             windowRefusesWrites: { state.figureWritesRefused },
-            report: { state.pendingError = $0 })
+            report: { state.pendingError = $0 },
+            // A success with something to say is a notice, not the alert.
+            notice: { [url = store.url] in MaughamEvent.postNotice($0, projectURL: url) })
     }
 
     /// The helper with `report` of the caller's own (the Research inspector's
     /// line) and the window's refusal as the caller observes it.
-    func shared(report: @escaping (String) -> Void, windowRefusesWrites: Bool) -> FigureActions {
+    func shared(report: @escaping (String) -> Void, notice: ((String) -> Void)? = nil,
+                windowRefusesWrites: Bool) -> FigureActions {
         FigureActions(store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
-                      windowRefusesWrites: { windowRefusesWrites }, report: report)
+                      windowRefusesWrites: { windowRefusesWrites }, report: report, notice: notice)
     }
 
     /// A Research row's verb toward Figures (`FigureActions.researchVerb`).
@@ -350,16 +370,16 @@ struct FigureSectionWiring: ViewModifier {
             .onChange(of: FigureActions.windowRefusesWrites(control: control, persona: persona),
                       initial: true) { _, refused in treeState.figureWritesRefused = refused }
             // Which Research items bring a parked figure back: asked again
-            // when Research, the registry, a figure's card (a park, a
-            // return) or the posture moves; the newest asking wins.
+            // when Research, the registry, the set of parked figures or the
+            // posture moves — never per card fill; the newest asking wins.
             .task(id: ReturnsKey(research: store?.manifest.research, figures: store?.manifest.figures,
-                                 cards: treeState.figureCardsVersion, posture: documentStore?.postureEpoch)) {
+                                 parked: treeState.parkedFigureIds, posture: documentStore?.postureEpoch)) {
                 await treeState.refreshFigureReturns(store: store)
             }
     }
 
     private struct ReturnsKey: Equatable {
-        let research: [ResearchItem]?, figures: [FigureRecord]?, cards: Int, posture: Int?
+        let research: [ResearchItem]?, figures: [FigureRecord]?, parked: Set<String>, posture: Int?
     }
 
     /// Point the tree's cards at `documentStore` (or at none), each fill

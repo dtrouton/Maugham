@@ -1004,6 +1004,9 @@ final class BinderTreeSectionsState {
     /// inspector read to say *Bring Back to Figures* (report plan 8b Task 4).
     /// Refilled by `FigureSectionWiring`, never asked in a body.
     var figureReturns: [String: String] = [:]
+    /// The figures the cards say are parked, rewritten only when the set
+    /// moves — the returns' key, so a cell commit asks nothing again.
+    var parkedFigureIds: Set<String> = []
     /// A figure made from Research whose row has not been drawn yet: revealed
     /// when it is (`revealFigureWhenDrawn`).
     @ObservationIgnored var pendingFigureReveal: String?
