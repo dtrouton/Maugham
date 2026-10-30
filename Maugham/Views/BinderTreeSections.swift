@@ -991,6 +991,9 @@ final class BinderTreeSectionsState {
     /// Those lines as last listed, by row id, line indexes current: what a
     /// row's *Move into Figures* and *Show in Text* act on when pressed.
     @ObservationIgnored var legacyFigureLines: [String: FigureListing.LegacyRow] = [:]
+    /// Every label the book defines, read when *Move into Figures* is
+    /// pressed (`FigureListingModel.definedLabels`, set by the wiring).
+    @ObservationIgnored var definedFigureLabels: () -> Set<ManuscriptLabel> = { [] }
     /// **The piece the section is filtered to**, by document id; nil shows
     /// every figure. Set by a piece row's count, cleared by the header's chip.
     var pieceFilter: String?

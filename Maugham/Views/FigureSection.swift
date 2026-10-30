@@ -433,7 +433,11 @@ struct FigureSectionVerbs {
     func moveIntoFigures(_ rowId: String) -> Task<Void, Never>? {
         guard let line = state.legacyFigureLines[rowId] else { return nil }
         let state = state
-        return shared.moveIntoFigures(line, reveal: { state.revealFigureWhenDrawn($0) })
+        return shared.moveIntoFigures(
+            line,
+            isUsed: { id in state.figureListingRows.first { $0.figureId == id }.map { !$0.isUnused } ?? false },
+            definedLabels: state.definedFigureLabels,
+            reveal: { state.revealFigureWhenDrawn($0) })
     }
 
     // MARK: The drags (report plan 8b Task 5)
@@ -603,6 +607,9 @@ struct FigureSectionWiring: ViewModifier {
             }
             .onChange(of: listing.legacyRows, initial: true) { _, lines in
                 treeState.refreshLegacyFigureRows(lines)
+            }
+            .onChange(of: ObjectIdentifier(listing), initial: true) { _, _ in
+                treeState.definedFigureLabels = { [weak listing] in listing?.definedLabels ?? [] }
             }
             // A figure made, renamed or removed: the cards refill.
             .onChange(of: store?.manifest.figures) { _, _ in treeState.figureCards.invalidate() }

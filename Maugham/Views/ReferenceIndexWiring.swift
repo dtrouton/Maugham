@@ -14,6 +14,10 @@ final class FigureListingModel {
     private(set) var rows: [FigureListing.Row] = []
     /// The lines that point into Research (`FigureListing.legacyRows`).
     private(set) var legacyRows: [FigureListing.LegacyRow] = []
+    /// Every label the book's text defines, as last indexed: what *Move into
+    /// Figures* keeps an unlabelled line's new label clear of. Read when
+    /// pressed, so not observed.
+    @ObservationIgnored private(set) var definedLabels: Set<ManuscriptLabel> = []
     /// `rows` by figure id, rebuilt with them: a tree row asks per row.
     @ObservationIgnored private var byId: [String: FigureListing.Row] = [:]
 
@@ -42,6 +46,7 @@ final class FigureListingModel {
         let legacy = FigureListing.legacyRows(index: index, research: store.manifest.research,
                                               documentPathOf: { paths[$0] })
         if legacy != legacyRows { legacyRows = legacy }
+        definedLabels = index.labelsDefined(excluding: "")
     }
 
     private func set(_ next: [FigureListing.Row]) {

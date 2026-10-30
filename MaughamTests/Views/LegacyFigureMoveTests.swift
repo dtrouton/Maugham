@@ -37,6 +37,7 @@ final class LegacyFigureMoveTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        ProjectStore.figureRelabelReadFailsForTesting = []
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -51,7 +52,8 @@ final class LegacyFigureMoveTests: XCTestCase {
 
     /// A novel with chapter A holding `text`, closed, Research holding
     /// `q3.csv`, and a window over it.
-    private func openBook(_ text: String = labelled) async throws -> (ProjectStore, ResearchItem) {
+    private func openBook(_ text: String = labelled,
+                          csv contents: String = "Quarter,Revenue\nQ3,100\n") async throws -> (ProjectStore, ResearchItem) {
         try text.write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
@@ -70,7 +72,7 @@ final class LegacyFigureMoveTests: XCTestCase {
         let outside = TestTemp.root.appendingPathComponent("outside-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         let csv = outside.appendingPathComponent("q3.csv")
-        try Data("Quarter,Revenue\nQ3,100\n".utf8).write(to: csv)
+        try Data(contents.utf8).write(to: csv)
         let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: csv)
         XCTAssertEqual(item.path, "research/q3.csv", "precondition: shared Research")
         return (projectStore, item)
@@ -258,10 +260,9 @@ final class LegacyFigureMoveTests: XCTestCase {
         XCTAssertEqual(store.manifest.figures?.count, 1, "nothing more made")
     }
 
-    /// **The line refused after the figure was made** (it moved since it was
-    /// listed): the figure stays, unused, and the writer is told; the line
-    /// is as it was.
-    func test_aRefusedLineLeavesTheFigureUnusedAndSaysSo() async throws {
+    /// **A line that moved since it was listed** is refused before anything
+    /// is made (the retarget's dry run on the piece's current text).
+    func test_aLineThatMovedSinceItWasListedMakesNothing() async throws {
         let (store, _) = try await openBook()
         let state = try await tree(store, text: try await chapterText())
         let row = try XCTUnwrap(state.legacyFigureRows.first)
@@ -272,14 +273,96 @@ final class LegacyFigureMoveTests: XCTestCase {
 
         await verbs(store, state).moveIntoFigures(row.id)?.value
 
-        let figure = try XCTUnwrap(store.manifest.figures?.first, "the figure was made")
-        let said = try XCTUnwrap(state.pendingError)
-        XCTAssertEqual(said, FigureActions.LineNotMoved(
-            name: figure.name,
-            reason: FigureLineRetargetRefused(reason: .lineNotFound).localizedDescription).localizedDescription)
-        XCTAssertTrue(said.contains("unused"))
+        XCTAssertEqual(state.pendingError, FigureLineRetargetRefused(reason: .lineNotFound).localizedDescription)
+        XCTAssertTrue(store.manifest.figures?.isEmpty ?? true, "nothing made")
         XCTAssertEqual(live.displayText, moved, "the line as it was")
         documentStore?.unregister(path: "manuscript/a.md")
         await live.close()
+    }
+
+    /// **The line refused after the figure was made** (its piece will not
+    /// read as the write holds it): the figure stays, unused and revealed,
+    /// and the writer is told — with what the read kept as text.
+    func test_aRefusedLineLeavesTheFigureUnusedAndSaysSo() async throws {
+        let (store, _) = try await openBook(csv: "Quarter,Revenue\nQ3,=1+\n")
+        let state = try await tree(store, text: try await chapterText())
+        let row = try XCTUnwrap(state.legacyFigureRows.first)
+        ProjectStore.figureRelabelReadFailsForTesting = ["doc-a"]
+
+        await verbs(store, state).moveIntoFigures(row.id)?.value
+
+        let figure = try XCTUnwrap(store.manifest.figures?.first, "the figure was made")
+        XCTAssertEqual(state.pendingFigureReveal, figure.id, "and revealed")
+        let said = try XCTUnwrap(state.pendingError)
+        XCTAssertTrue(said.hasPrefix(FigureActions.LineNotMoved(
+            name: figure.name,
+            reason: FigureLineRetargetRefused(reason: .unreadable("A")).localizedDescription).localizedDescription),
+            said)
+        XCTAssertTrue(said.contains("unused"))
+        XCTAssertTrue(said.contains("kept as text"), "the read's notice is said too: \(said)")
+        let text = try await chapterText()
+        XCTAssertEqual(text, "Intro.\n\n![Revenue](../research/q3.csv){#tbl:q3}\n\nAfter.", "the line as it was")
+    }
+
+    /// **Move again after a refused line** takes the unused figure the first
+    /// Move made — no second figure — and only points the line at it, for a
+    /// labelled line and an unlabelled one.
+    func test_aRetryReusesTheUnusedFigureAndMakesNoSecond() async throws {
+        for (body, moved) in [
+            (Self.labelled, "Intro.\n\n![Revenue](../figures/q3.csv){#tbl:q3}\n\nAfter."),
+            ("![Revenue](../research/q3.csv)\n", nil),
+        ] {
+            try await setUp()
+            let (store, _) = try await openBook(body)
+            let state = try await tree(store, text: try await chapterText())
+            let row = try XCTUnwrap(state.legacyFigureRows.first)
+            ProjectStore.figureRelabelReadFailsForTesting = ["doc-a"]
+            await verbs(store, state).moveIntoFigures(row.id)?.value
+            let first = try XCTUnwrap(store.manifest.figures?.first)
+            XCTAssertNotNil(state.pendingError, "precondition: the line was refused")
+
+            ProjectStore.figureRelabelReadFailsForTesting = []
+            state.pendingError = nil
+            await verbs(store, state).moveIntoFigures(row.id)?.value
+
+            XCTAssertNil(state.pendingError)
+            XCTAssertEqual(store.manifest.figures?.map(\.id), [first.id], "no second figure")
+            let text = try await chapterText()
+            XCTAssertEqual(text, moved ?? "![Revenue](../figures/\(first.name).csv){#tbl:\(first.name)}")
+            try await tearDown()
+        }
+    }
+
+    /// **An unlabelled line's new label is vacant among the book's labels**,
+    /// not only the figures': with Y labelled `tbl:q3` (and referenced), X —
+    /// unlabelled, earlier — takes another name, so `@tbl:q3` keeps Y's number.
+    func test_anUnlabelledLinesLabelIsClearOfTheBooksLabels() async throws {
+        let body = "![X](../research/q3.csv)\n\n![Y](../research/q3.csv){#tbl:q3}\n\nSee @tbl:q3.\n"
+        let (store, _) = try await openBook(body)
+        let state = try await tree(store, text: try await chapterText())
+        let x = try XCTUnwrap(state.legacyFigureRows.first { $0.title == "X" })
+
+        await verbs(store, state).moveIntoFigures(x.id)?.value
+
+        XCTAssertNil(state.pendingError)
+        let figure = try XCTUnwrap(store.manifest.figures?.first)
+        XCTAssertNotEqual(figure.name, "q3")
+        let text = try await chapterText()
+        XCTAssertEqual(text, "![X](../figures/\(figure.name).csv){#tbl:\(figure.name)}\n\n"
+                       + "![Y](../research/q3.csv){#tbl:q3}\n\nSee @tbl:q3.")
+
+        let lines = FigureListing.legacyRows(index: index(text), research: store.manifest.research,
+                                             documentPathOf: { _ in "manuscript/a.md" })
+        XCTAssertEqual(lines.count, 1, "Y is still a line into Research")
+    }
+
+    /// A label another piece defines (the window's index) is kept clear too.
+    func test_anUnlabelledLinesLabelIsClearOfAnotherPiecesLabels() async throws {
+        let (store, _) = try await openBook("![X](../research/q3.csv)\n")
+        let state = try await tree(store, text: try await chapterText())
+        state.definedFigureLabels = { [ManuscriptLabel(reference: "tbl:q3")!] }
+        await verbs(store, state).moveIntoFigures(try XCTUnwrap(state.legacyFigureRows.first).id)?.value
+        XCTAssertNil(state.pendingError)
+        XCTAssertNotEqual(try XCTUnwrap(store.manifest.figures?.first).name, "q3")
     }
 }

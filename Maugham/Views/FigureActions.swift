@@ -324,23 +324,35 @@ struct FigureActions {
     ///
     /// 1. **Refused before anything is made** — with the reason, through
     ///    `report` — where the path names no Research item, the window refuses
-    ///    figure writes, this Mac may not write the line's piece, or the line's
-    ///    label could not be the figure's name: another figure already has
-    ///    that name, or the item is a parked figure's working copy (which
-    ///    comes back under its own name) and the line is labelled otherwise.
-    ///    A label is never changed under the cross-references that point at it.
-    /// 2. **The figure** — `useInDocument` with the line's label name, so the
-    ///    record takes it; homed as *Use in Document* homes one
-    ///    (`researchHomePiece`: a figure made from shared Research is the
-    ///    whole book's, Denver 2026-10-30). A parked copy is brought back.
+    ///    figure writes, this Mac may not write the line's piece, the line is no
+    ///    longer where it was listed (the retarget dry-run on the piece's
+    ///    current text), or the line's label could not be the figure's name:
+    ///    another figure already has that name, or the item is a parked
+    ///    figure's working copy (which comes back under its own name) and the
+    ///    line is labelled otherwise. A label is never changed under the
+    ///    cross-references that point at it.
+    /// 2. **The figure** — an unused, unparked figure already made from this
+    ///    item (a Move whose line was refused, retried; `isUsed` answers from
+    ///    the listing) whose name the line can carry is taken as it is;
+    ///    otherwise `useInDocument` makes one, named by the line's label, or —
+    ///    for an unlabelled line — by the item's title, vacant among the
+    ///    figures AND the labels the book defines (`definedLabels`, plus the
+    ///    piece's current text), so the label the line takes points nowhere
+    ///    else. Homed as *Use in Document* homes one (`researchHomePiece`: a
+    ///    figure made from shared Research is the whole book's, Denver
+    ///    2026-10-30). A parked copy is brought back.
     /// 3. **The line** — `retargetFigureLine` on the line's piece: its path
     ///    becomes the figure's, and it takes `{#tbl:name}`/`{#fig:name}` when
-    ///    it had no label, so Send and Rename find it.
+    ///    it had no label, so Send and Rename find it. A labelled line whose
+    ///    figure did not get its name (a race) is left as it is.
     ///
-    /// A refused second step leaves the figure made and unused, and says so
-    /// (`LineNotMoved`). The new figure's id goes to `reveal`.
+    /// A refused third step leaves the figure made and unused, and says so
+    /// with whatever the read had to say (`LineNotMoved`); Move again reuses
+    /// it. The figure's id goes to `reveal`.
     @discardableResult
     func moveIntoFigures(_ line: FigureListing.LegacyRow,
+                         isUsed: @escaping @MainActor (String) -> Bool = { _ in false },
+                         definedLabels: @escaping @MainActor () -> Set<ManuscriptLabel> = { [] },
                          reveal: @escaping @MainActor (String) -> Void) -> Task<Void, Never>? {
         guard let itemId = line.researchItemId,
               let item = TreeWalk.find(id: itemId, in: store.manifest.research) else {
@@ -360,41 +372,81 @@ struct FigureActions {
                   await documentStore.settledPosture(forDocId: line.docId).allows(.writeText) else {
                 throw MoveIntoFiguresRefused(reason: .pieceNotWritable(title))
             }
-            let returning = try? await store.figureToBringBack(fromResearchItemId: item.id)
-            if let label = line.label?.name {
+            // The line as the retarget will find it, before anything is made.
+            guard let pieceLabels = store.labelsIfFigureLineStands(
+                piece: line.docId, path: piecePath, lineIndex: line.lineIndex, oldPath: line.path) else {
+                throw FigureLineRetargetRefused(reason: .lineNotFound)
+            }
+            let defined = definedLabels().union(pieceLabels)
+            // The label kind a line without one will take: a table's file is a `.csv`.
+            let newKind = line.label?.kind ?? (item.kind == .table ? .tbl : .fig)
+            func isDefined(_ name: String) -> Bool {
+                defined.contains { $0.kind == newKind && $0.name.lowercased() == name.lowercased() }
+            }
+            @MainActor func record(_ id: String) -> FigureRecord? { store.manifest.figures?.first { $0.id == id } }
+
+            // A retry: the unused figure an earlier Move made from this item.
+            let made = await documentStore.figuresMade(fromResearchItem: item.id).filter { !isUsed($0) }
+            let reused = made.compactMap(record).first { candidate in
+                if let label = line.label { return candidate.name == label.name }
+                return !isDefined(candidate.name)
+            }
+            let figure: FigureRecord
+            var readNotice: String?
+            if let reused {
+                figure = reused
+            } else {
+                let returning = try? await store.figureToBringBack(fromResearchItemId: item.id)
+                let name: String
                 if let returning {
-                    let name = store.manifest.figures?.first { $0.id == returning }?.name ?? returning
-                    guard name == label else {
-                        throw MoveIntoFiguresRefused(reason: .labelIsNotTheFigures(label: label, figure: name))
+                    let returningName = record(returning)?.name ?? returning
+                    if let label = line.label?.name, returningName != label {
+                        throw MoveIntoFiguresRefused(reason: .labelIsNotTheFigures(label: label, figure: returningName))
                     }
+                    if line.label == nil, isDefined(returningName) {
+                        throw MoveIntoFiguresRefused(reason: .labelTaken("\(newKind.rawValue):\(returningName)"))
+                    }
+                    name = returningName
                 } else {
                     let kind: FigureKind = item.kind == .table ? .table : .image
-                    guard store.vacantFigureName(basedOn: label, kind: kind) == label else {
-                        throw MoveIntoFiguresRefused(reason: .nameTaken(label))
+                    if let label = line.label?.name {
+                        guard store.vacantFigureName(basedOn: label, kind: kind) == label else {
+                            throw MoveIntoFiguresRefused(reason: .nameTaken(label))
+                        }
+                        name = label
+                    } else {
+                        name = store.vacantFigureName(
+                            basedOn: ProjectStore.labelSafeFigureName(nil, title: item.title), kind: kind,
+                            alsoTaken: isDefined)
                     }
                 }
+                let result: UseInDocumentResult
+                do {
+                    result = try await store.useInDocument(researchItemId: item.id,
+                                                           piece: store.researchHomePiece(ofItemId: item.id),
+                                                           name: name)
+                } catch is FigureEditRefused {
+                    throw ResearchUseRefused(bringingBack: returning != nil)
+                }
+                figure = result.record
+                readNotice = Self.readNotice(result)
             }
-            let result: UseInDocumentResult
-            do {
-                result = try await store.useInDocument(researchItemId: item.id,
-                                                       piece: store.researchHomePiece(ofItemId: item.id),
-                                                       name: line.label?.name)
-            } catch is FigureEditRefused {
-                throw ResearchUseRefused(bringingBack: returning != nil)
+            reveal(figure.id)
+            if let label = line.label, figure.name != label.name {
+                // Another figure took the name between the check and the make:
+                // the line's label stays under its cross-references.
+                throw LineNotMoved(name: figure.name, reason: LineNotMoved.labelNotTheName(label.name),
+                                   notice: readNotice)
             }
-            reveal(result.record.id)
-            let newPath = FigureIngest.relativePath(fromDocument: piecePath, toResearch: result.record.path)
-            // A label the line has keeps its kind: one changed would leave
-            // its cross-references behind.
-            let kind = line.label?.kind ?? ManuscriptLabel.Kind.ofFigureLine(path: newPath, label: nil)
+            let newPath = FigureIngest.relativePath(fromDocument: piecePath, toResearch: figure.path)
             do {
                 try await store.retargetFigureLine(
                     piece: line.docId, lineIndex: line.lineIndex, oldPath: line.path, newPath: newPath,
-                    label: ManuscriptLabel(reference: "\(kind.rawValue):\(result.record.name)"))
+                    label: ManuscriptLabel(reference: "\(newKind.rawValue):\(figure.name)"))
             } catch {
-                throw LineNotMoved(name: result.record.name, reason: error.localizedDescription)
+                throw LineNotMoved(name: figure.name, reason: error.localizedDescription, notice: readNotice)
             }
-            if let notice = Self.readNotice(result) { say(notice) }
+            if let readNotice { say(readNotice) }
         }
     }
 
@@ -408,6 +460,8 @@ struct FigureActions {
             case nameTaken(String)
             /// The item is a parked figure's copy, named otherwise.
             case labelIsNotTheFigures(label: String, figure: String)
+            /// The label an unlabelled line would take is another line's.
+            case labelTaken(String)
         }
         let reason: Reason
 
@@ -426,6 +480,9 @@ struct FigureActions {
                 return "This file is \u{201C}\(figure)\u{201D}, a figure sent to Research, but this line is labelled "
                     + "\u{201C}\(label)\u{201D}. Bring it back from Research and place it with "
                     + "Insert \u{25B8} Existing Figure\u{2026}; nothing was made."
+            case .labelTaken(let reference):
+                return "Another line in the book is labelled \u{201C}\(reference)\u{201D}, the name this figure "
+                    + "comes back under, so nothing was made."
             }
         }
     }
@@ -433,9 +490,17 @@ struct FigureActions {
     /// The figure was made but its line was left pointing into Research.
     struct LineNotMoved: LocalizedError, Equatable {
         let name: String, reason: String
+        /// What the read had to say (`readNotice`), said with it.
+        var notice: String? = nil
         var errorDescription: String? {
             "\u{201C}\(name)\u{201D} is in Figures, unused, but its line still points into Research: "
-                + "\(reason) Place it with Insert \u{25B8} Existing Figure\u{2026}."
+                + "\(reason) Move it again, or place it with Insert \u{25B8} Existing Figure\u{2026}."
+                + (notice.map { " " + $0 } ?? "")
+        }
+
+        /// Why a labelled line is left when its figure did not get the label's name.
+        static func labelNotTheName(_ label: String) -> String {
+            "another figure took the name \u{201C}\(label)\u{201D} meanwhile, so the line\u{2019}s label was left as it is."
         }
     }
 

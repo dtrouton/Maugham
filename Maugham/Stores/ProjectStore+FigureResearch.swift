@@ -689,6 +689,23 @@ extension ProjectStore {
 
     // MARK: - Move into Figures' line (report plan 8b Task 9, spec §4.4)
 
+    /// **Is the figure line still where it was listed?** — the retarget's
+    /// own site test (`figureLineRetargetEdits`) as a dry run on `piece`'s
+    /// current text (a window's live document, else its op log, tripwire 20):
+    /// the labels that text defines when the line starting on `lineIndex` is
+    /// still written `oldPath`; nil when it moved or changed, or the text will
+    /// not read. *Move into Figures* asks before it makes anything; the
+    /// retarget asks again as it writes.
+    func labelsIfFigureLineStands(piece docId: String, path: String, lineIndex: Int,
+                                  oldPath: String) -> Set<ManuscriptLabel>? {
+        guard let text = documentStore?.document(for: path)?.displayText
+                ?? (try? derivedCache.displayText(forDocId: docId, in: url)),
+              !Self.figureLineRetargetEdits(in: text, lineIndex: lineIndex, oldPath: oldPath,
+                                            newPath: oldPath).isEmpty
+        else { return nil }
+        return ReferenceIndex.PieceSummary(text: text).definedLabels
+    }
+
     /// **Point one figure line in `piece` at a figure's file** — *Move into
     /// Figures*' second step, after `useInDocument` made the figure: the
     /// line starting on `lineIndex` whose path is written `oldPath` takes

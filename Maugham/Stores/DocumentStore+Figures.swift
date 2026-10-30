@@ -498,6 +498,25 @@ extension DocumentStore {
         return state.parked != nil
     }
 
+    /// **The unparked figures made from a Research item** (report plan 8b
+    /// Task 9): the registry's figures whose stream records `itemId` as its
+    /// source (`FigureState.source`) — an open host's fold, else the figure
+    /// cache's read — in registry order. A stream that will not read, or a
+    /// registry that will not, is passed over: *Move into Figures* then makes
+    /// a new figure, as it would with none.
+    func figuresMade(fromResearchItem itemId: String) async -> [String] {
+        guard let records = projectStore?.manifest.figures, !records.isEmpty,
+              let trust = try? await figureTrust(),
+              let manifest = projectStore?.manifest else { return [] }
+        let facts = DocumentClass.Facts(manifest)
+        return (manifest.figures ?? []).compactMap { record in
+            let state = openFigure(forId: record.id)?.state
+                ?? (try? figureCache.state(forFigureId: record.id, in: projectURL, trust: trust, facts: facts))
+            guard let state, state.parked == nil, state.source?.researchItemId == itemId else { return nil }
+            return record.id
+        }
+    }
+
     // MARK: - The window's figure cards
 
     /// **What one fill of the window's figure cards reads** (report plan 7a
