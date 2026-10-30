@@ -334,7 +334,7 @@ Figures are read-only to the AI.
 Research tables are writable by the AI.
 
 - **`create_research_table`**, **`write_research_cells`** (values, formulas, formats) and **`read_research_table`**, which returns computed values.
-- **Version history.** Each AI write keeps the previous version under `.maugham/research-versions/` and is marked "written by assistant". The Research table's inspector offers "Restore previous version".
+- **Version history (Denver, 2026-10-30, RULING-56).** Every save of a Research table, the writer's or the assistant's, keeps the previous version under `.maugham/research-versions/`; an assistant write is marked "written by assistant". The Research table's inspector lists the versions and offers "Restore previous version". Research notes are versioned later (RULING-56); files and images never are.
 - **Effect on figures.** A write that changes a snapshotted source triggers the figure's "changed" note. Nothing more.
 
 The tools list is derived from `MCPToolCatalog.all`, so counts in docs come from the catalogue.
@@ -391,7 +391,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - MCP tools and figure anchors.
    - Cell suggestions (§6.5) end to end: the cell-anchor annotation model, MCP creation, dots on card and grid, the strip with Accept/Reject (Denver, 2026-10-25).
    - Text-cell translations (§8): the store and derivation keyed by (figure, row id, column id, language), a figure-aware translation permit class carrying the figure's piece, who writes them (translator and `write_translation`), coverage-gate membership, a body's emission, and the orphaned translations a removed figure leaves.
-   - Research version history (§10.1) with the AI Research-table tools — needs Denver's ruling against RULING-24 (research is recoverable but not versioned) and replaces the canvas Rewrite's Trash `.priorVersion` route.
+   - Research version history (§10.1) with the AI Research-table tools — every save is versioned (Denver, 2026-10-30, RULING-56); replaces the canvas Rewrite's Trash `.priorVersion` route.
    - Phone rendering.
    - Help and docs.
 

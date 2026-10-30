@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-55 rulings, 4 principles.
+56 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -576,6 +576,14 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, 2026-09-19, P3 brainstorm (spec 2026-09-19-signed-op-log-p3-roles-scope-collaborator-design.md §8: 'authorCollaboratorId is decoded and never written; attribution is the signing device through the registry'); promoted to a register ruling by Denver 2026-09-24 (option B of the M5-AN-012 question), after P3c plan 1 Task 4 removed the last writer (cfaadc3a).
 
 *settles:* M5-AN-012's filing (NO_RULING_REACHES since the claim moved under the spec ruling) — now COMPLIES; and any later claim about who wrote an annotation, a paragraph or an inbox row.
+
+### RULING-56 — Y — research text is versioned (RULING-24's family)  `RATIFIED`
+
+> Research moves toward being versioned, apart from files and images: what is written in Research (its tables first, every save by the writer or the assistant) keeps earlier versions, and the writer can restore one. Files and images — PDFs, pictures, audio — stay recoverable but unversioned, RULING-24's economic boundary. Until a kind of Research is versioned in the code, RULING-24's 'recoverable but not versioned' still describes it.
+
+*basis:* Denver, 2026-10-30, report plan 9 scoping: chose 'every save, yours and Claude's' for Research tables, 'because I am intending to change research to be versioned apart from files and images'. Fulfils RULING-24's own *future* clause ('in future we might version control parts of research too').
+
+*settles:* figures-and-tables spec §10.1 version history scope (every save of a Research table, not only assistant writes); and the direction for Research notes, which are not yet versioned.
 
 ## The enforcement gradient — how each ruling is held
 
