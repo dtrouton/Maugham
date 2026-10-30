@@ -60,3 +60,8 @@ a.cross-link {
   text-decoration: none;
   border-bottom: 1px dotted currentColor;
 }
+
+/* A table figure's total row, ruled above. */
+tr.total td {
+  border-top: 1px solid currentColor;
+}

@@ -243,7 +243,7 @@ final class ReportProjectCreationTests: XCTestCase {
             "preamble.tex": "6d6e044b7729318a1c25b75f0793e70124c9c1521f6faf2b6f27f31bb75525cc",
             "prose.tex": "233eea1e200b03d427a0bfc236138790d4b46b2be3d26654559ee6013e4f239d",
             "screenplay.tex": "1e64bde54f8b534ad8957637a3c2db7a6b9a209677a8f3231b3e25e0eea187bf",
-            "styles.css": "08a12f8801573fb0b8fbf3c17679613b51acf724663b060da3488f7d4efaa0df",
+            "styles.css": "dc787bf9b1f2977326b2448bbbef53bfce878da1e5a41ca30a17d66a4ffaccce",  // report plan 9a Task 6: a `tr.total` rule for a table figure's total row
             "template.tex": "08decc2f49fedaca9a193ac4db0025d3ef77b09d0274a45cbfc0b71c48685463",
         ]
         let publish = url.appendingPathComponent(".maugham/publish")

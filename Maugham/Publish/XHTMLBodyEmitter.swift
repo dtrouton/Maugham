@@ -363,11 +363,17 @@ public enum XHTMLBodyEmitter {
             let literal = InterimReportLiteral.figure(caption: caption, path: path, label: label)
             if let index, let resolution = scope.resolution,
                let n = resolution.tableNumbers[scope.pieceID]?[index] {
-                // A table figure numbered as a table (R7a-1): its literal
-                // source under the table's id, so the list of tables and a
-                // `@tbl:` link land on it, then "Table n." and its caption.
-                // Its body is plan 9's.
+                // A table figure numbered as a table (R7a-1). With its cells
+                // laid out (plan 9a) it is a `<table>` like a pipe table's;
+                // without, its literal source under the table's id, so the
+                // list of tables and a `@tbl:` link land on it, then
+                // "Table n." and its caption.
                 let address = scope.address(.tbl, number: n, index: index, resolution: resolution)
+                if let layout = resolution.tableFigures[scope.pieceID]?[index] {
+                    emitTableFigure(layout, number: n, word: resolution.words.table, address: address,
+                                    caption: caption, anchor: anchor, scope: scope, into: &out)
+                    return
+                }
                 out.append("<p\(idAttribute(anchor))><span id=\"\(XHTMLEscape.attribute(address))\">"
                            + emitInline(literal, scope) + "</span></p>")
                 out.append("<p class=\"caption\">"
@@ -438,6 +444,45 @@ public enum XHTMLBodyEmitter {
         out.append("</thead>")
         out.append("<tbody>")
         for r in rows { out.append(row(r, "td")) }
+        out.append("</tbody>")
+        out.append("</table>")
+    }
+
+    /// A table figure's computed cells (plan 9a) in the shape `emitTable`
+    /// writes: numbered `<caption>` carrying the table's id, a `<thead>` only
+    /// with a header row, a `<tbody>`, the total row as `<tr class="total">`.
+    /// Cells are already formatted; they are only escaped. Alignment is the
+    /// layout's resolved one.
+    private static func emitTableFigure(_ layout: FigureTableLayout, number: Int, word: String, address: String,
+                                        caption: [ProjectAST.Inline], anchor: Anchor?,
+                                        scope: Scope, into out: inout [String]) {
+        let columns = max(layout.alignments.count, 1)
+        func style(_ column: Int) -> String {
+            guard column < layout.alignments.count else { return "" }
+            switch layout.alignments[column] {
+            case .automatic: return ""
+            case .left:      return " style=\"text-align:left\""
+            case .center:    return " style=\"text-align:center\""
+            case .right:     return " style=\"text-align:right\""
+            }
+        }
+        func row(_ cells: [String], _ cell: String, class cls: String? = nil) -> String {
+            "<tr\(cls.map { " class=\"\($0)\"" } ?? "")>" + (0..<columns).map { column in
+                "<\(cell)\(style(column))>"
+                    + (column < cells.count ? XHTMLEscape.escape(cells[column]) : "") + "</\(cell)>"
+            }.joined() + "</tr>"
+        }
+        out.append("<table\(idAttribute(anchor))>")
+        out.append("<caption id=\"\(XHTMLEscape.attribute(address))\">"
+                   + captionHTML(word, number: number, caption, scope) + "</caption>")
+        if let header = layout.header {
+            out.append("<thead>")
+            out.append(row(header, "th"))
+            out.append("</thead>")
+        }
+        out.append("<tbody>")
+        for r in layout.body { out.append(row(r, "td")) }
+        if let total = layout.total { out.append(row(total, "td", class: "total")) }
         out.append("</tbody>")
         out.append("</table>")
     }
