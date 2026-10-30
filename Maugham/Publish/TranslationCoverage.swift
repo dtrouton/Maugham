@@ -7,7 +7,7 @@ import MaughamCore
 /// translation lags the source. `check` walks the SAME pieces as
 /// `ProjectStoreASTSource.orderedPieces()`, derives each piece's translation
 /// against the same `(sequence, paragraphs)` source split the substitution path
-/// uses, and reports per-piece stale/missing ¶id gaps. Both `CompileOrchestrator
+/// uses, and reports per-piece stale/missing ¶id gaps. Both `PublishOrchestrator
 /// .compile` and `Republisher.republish` consume the report through the SAME
 /// `applyGate` (round 5 — these had reimplemented it separately and drifted):
 /// it refuses an un-`allow_stale` edition with gaps, and under `allow_stale`
@@ -136,7 +136,7 @@ enum TranslationCoverage {
 
     /// The ONE gate-application block for a translated compile — zero-layer
     /// check, then the isBlocked/allowStale block-vs-warn branch, then
-    /// fountain-drift warnings — shared verbatim by `CompileOrchestrator
+    /// fountain-drift warnings — shared verbatim by `PublishOrchestrator
     /// .compile` and `Republisher.republish` (Task 9 F1 round 5: these had
     /// drifted apart, and `Republisher` silently dropped
     /// `fountainDriftWarnings` because it never read that field). Neither
@@ -189,7 +189,7 @@ enum TranslationCoverage {
     }
 
     /// The gate over EVERY tongue a compile renders — the one loop
-    /// `CompileOrchestrator.compile`, `PreviewCompiler.run` and
+    /// `PublishOrchestrator.compile`, `PreviewCompiler.run` and
     /// `Republisher.republishReserved` share (P2 Task 6).
     ///
     /// It exists for the reason `applyGate` does, one level up: three doors

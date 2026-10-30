@@ -342,9 +342,7 @@ final class ReadOnlyRecoveryTests: XCTestCase {
             hookSlice.contains("to: .project(for: autoReturnProjectURL)"),
             "scoped .project (ADR 0021 / tripwire 21) — a window on another "
             + "project must not reload for a sweep that was not its own")
-        let pane = try String(
-            contentsOf: root.appendingPathComponent("Maugham/Views/HistoryPane.swift"),
-            encoding: .utf8)
+        let pane = try HistoryPaneSource.surfaceSource()
         XCTAssertTrue(
             pane.contains(".onProjectEvent(.maughamQuarantineRecordsChanged"),
             "…and the pane observes it, through the receive helper that owns "

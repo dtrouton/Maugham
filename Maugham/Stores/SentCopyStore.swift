@@ -23,7 +23,7 @@ import MaughamCore
 ///
 /// A folder is written whole: staged under a dot-named sibling, then moved
 /// into place, so a reader never meets half a sent copy. Written only after a
-/// successful export (`CompileOrchestrator`); a Word file is never
+/// successful export (`PublishOrchestrator`); a Word file is never
 /// republished (R-S8).
 ///
 /// Backed up like the manuscript (R-S9): a sent copy is the only record of

@@ -116,7 +116,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `AdaptiveFilterRow.swift` — the filter row that degrades labels to icons.
 
 ### Annotations queue and Review
-- `AnnotationsPane.swift` — the queue: rows (`AnnotationRow`, `AnnotationRowVerbs`, `AnnotationRowPolicy`), the cockpit mount, `PassOrderNudgeRow`, `letterVoice`.
+- `AnnotationsPane.swift` — the queue; children `AnnotationsPaneStrips.swift`, `AnnotationsPaneQueues.swift`, `AnnotationListView.swift` (mountable alone), `AnnotationRow.swift`, `AnnotationsPaneVerbs.swift`, `AnnotationsPaneDialogs.swift`, `AnnotationsPaneStatics.swift`.
 - `AnnotationAuthorPresentation.swift` — how an annotation's author is shown; `AnnotationAuthorFilter`.
 - `AnnotationBulkActions.swift` — multiselect's plan, honest counts and executor.
 - `AnnotationQueueOrder.swift` — queue order and `AnnotationTriageFilter`.
@@ -144,7 +144,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FirstReaderRuling.swift` — answer the first reader's note into her statement; `RulingDestination`. **→ Compiler**
 
 ### Compiler surfaces (→ Compiler: "Ingest, the sidecar and the mint", "Streaming and the preview", "The derivation trigger and the bible")
-- `DiagnosticsPane.swift` — Author's compiler report; the reader picker; `DiagnosticsPostures`.
+- `DiagnosticsPane.swift` — Author's compiler report; `DiagnosticsPostures`; children `DiagnosticsPaneHeader.swift`, `DiagnosticsPaneSections.swift`, `DiagnosticsPaneCopy.swift`, `DiagnosticsPaneVerbs.swift`.
 - `AskField.swift` — Ask about…, one field shape in two homes.
 - `CompilerModelMenu.swift` — the depth picker in both homes.
 
@@ -168,7 +168,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TranslatorsNote.swift` — Translator's note… (⌘⌥C).
 
 ### History, rewind, checkpoints, restore
-- `HistoryPane.swift` — the forensic timeline, its notices, the project section; `HeldLineNoticeRow`, `SetAsideRecordsDisclosure`. Tripwire 50.
+- `HistoryPane.swift` — forensic timeline. Children: `HistoryPaneNotices.swift` (`HeldLineNoticeRow`, `SetAsideRecordsDisclosure`), `HistoryPaneTimeline.swift`, `HistoryRow.swift`, `HistoryPaneVerbs.swift` (tripwire 50), `HistoryPaneStatics.swift`.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
 - `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, each behind its own `.editFigure` door through `withFigureHost`; the sheet names those refused or part-restored.
@@ -448,7 +448,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
 
 ### History, recovery and rewind
-- **`HistoryPane` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).
+- **`HistoryPaneVerbs` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).
 - **Every History notice is a `static`**, pinnable without mounting; count them, never a number in prose.
 - **History never performs a load of its own**: provenance counts are read off the open `Document`.
 - **Disk reads happen in `reload()`, never `body`** (tripwire 4).

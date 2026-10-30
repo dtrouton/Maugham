@@ -5,7 +5,7 @@ import MaughamCore
 /// **The desk's own compile, as a model** (imprints P3 Task 4).
 ///
 /// Until this task there was exactly one production construction of
-/// `CompileOrchestrator` — `CompileTool`'s — and the only way to make a book
+/// `PublishOrchestrator` — `CompileTool`'s — and the only way to make a book
 /// was to ask Claude for one. The runner is the second, and the whole point of
 /// it is that it is the SAME construction: the same shared `PublishingStores`,
 /// the same unbound `ProjectStoreASTSource`, and the same two toolchain
@@ -457,7 +457,7 @@ final class DeskCompileRunnerTests: XCTestCase {
             DepartmentCompileState(phase: .failed("it broke"), isRunning: false))
         XCTAssertEqual(
             DepartmentCompileState.settled(after: .failed(
-                errors: [diag], logExcerpt: CompileOrchestrator.compileFailedLogExcerpt)),
+                errors: [diag], logExcerpt: PublishOrchestrator.compileFailedLogExcerpt)),
             DepartmentCompileState(phase: .failed("it broke"), isRunning: false,
                                    judgedTheManuscript: true),
             "a compiler failure after the gate says so")
@@ -465,7 +465,7 @@ final class DeskCompileRunnerTests: XCTestCase {
         XCTAssertEqual(
             DepartmentCompileState.settled(after: .failed(
                 errors: [diag],
-                logExcerpt: CompileOrchestrator.unknownImprintLogExcerpt + "nope")),
+                logExcerpt: PublishOrchestrator.unknownImprintLogExcerpt + "nope")),
             DepartmentCompileState(phase: .refused("it broke"), isRunning: false),
             "the orchestrator's own marker is what tells a typo from a failure")
 
@@ -490,7 +490,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// already been fixed for, which is why the marker is a constant on the
     /// orchestrator and not a literal typed twice.
     ///
-    /// Disable experiment: drop `CompileOrchestrator.mintInFlightLogExcerpt`
+    /// Disable experiment: drop `PublishOrchestrator.mintInFlightLogExcerpt`
     /// from `settled(after:)`'s `refusals` array and this fails with
     /// `XCTAssertEqual failed: ("failed("Publication v0.1 …")") is not equal to
     /// ("refused("Publication v0.1 …")")`.
@@ -501,7 +501,7 @@ final class DeskCompileRunnerTests: XCTestCase {
             level: .error, file: nil, line: nil, message: message, contextLines: [])
         let refused = DepartmentCompileState.settled(after: .failed(
             errors: [diag],
-            logExcerpt: CompileOrchestrator.mintInFlightLogExcerpt + "0.1/en/epub"))
+            logExcerpt: PublishOrchestrator.mintInFlightLogExcerpt + "0.1/en/epub"))
 
         XCTAssertEqual(refused.phase, .refused(message))
         XCTAssertFalse(refused.isFailure,
@@ -528,7 +528,7 @@ final class DeskCompileRunnerTests: XCTestCase {
             level: .error, file: nil, line: nil, message: message, contextLines: [])
         let refused = DepartmentCompileState.settled(after: .failed(
             errors: [diag],
-            logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt + "odt"))
+            logExcerpt: PublishOrchestrator.unproducibleFormatLogExcerpt + "odt"))
         XCTAssertEqual(refused.phase, .refused(message))
         XCTAssertFalse(refused.isFailure)
     }

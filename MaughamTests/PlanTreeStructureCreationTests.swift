@@ -12,19 +12,21 @@ import MaughamCore
 /// gated on persona**, so mounting it in Plan ought to bring creation with
 /// it — which makes task 7 a verification task, and the verification is the
 /// deliverable. `TreePaneTests` and
-/// `ProjectSubjectReachabilityTests` prove the right PANE is mounted; neither
-/// presses anything, and "the pane is there" is not "the writer can make a
-/// chapter".
+/// `ProjectSubjectReachabilityTests` prove the right PANE is mounted, and
+/// "the pane is there" is not "the writer can make a chapter".
 ///
-/// **Driven through the accessibility tree**, for the reason
-/// `InspectorIntentAffordanceTests` records: SwiftUI on macOS 26 backs a
-/// `Button` with no `NSView` at all, so a subview walk finds nothing to click.
-/// `accessibilityPerformPress` runs the same action a click does and doubles as
-/// proof VoiceOver can reach the affordance. The empty-state buttons are the
-/// pressable route; the two `.contextMenu`s are the same `addItem` call one
-/// level down and are not reachable from here (an `NSMenu` is built on
-/// right-click, not published into the tree), which is recorded rather than
-/// asserted.
+/// **Two halves, and no press** (#120, tripwire 33). The mounted half reads
+/// the accessibility tree — SwiftUI on macOS 26 backs a `Button` with no
+/// `NSView`, so a subview walk finds nothing (`InspectorIntentAffordanceTests`)
+/// — and asserts the empty state's buttons are DRAWN, which doubles as proof
+/// VoiceOver can reach them. The windowless half runs the verb those buttons
+/// run, `BinderView.addItem(parent:kind:in:)`, against the same empty project
+/// and reads the manifest. The button-to-verb hop is `WiringCensusTests`'
+/// `type:BinderView` entry. (The pressed version polled the manifest after an
+/// `accessibilityPerformPress` from inside its own `press` helper.) The two
+/// `.contextMenu`s are the same `addItem` call one level down and are not
+/// reachable from here (an `NSMenu` is built on right-click, not published
+/// into the tree), which is recorded rather than asserted.
 ///
 /// **A screenplay has no structure creation here and must not gain one** — a
 /// screenplay is one `.fountain` (the Phase 3d invariant) and its structure is
@@ -57,20 +59,20 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 
     // MARK: - The novel and the short story
 
-    /// The whole round trip: Plan, the Structure segment, an empty binder, a
-    /// press on **New Document**, and a document in the manifest that was not
-    /// there before.
+    /// The whole round trip: Plan, the Structure segment, an empty binder,
+    /// **New Document** drawn there, and its verb leaving a document in the
+    /// manifest that was not there before.
     func test_aChapterCanBeMadeFromPlansTree() async throws {
         for type in [ProjectType.novel, .shortStory] {
             let store = try await emptyProject(of: type)
             XCTAssertTrue(store.manifest.structure.isEmpty, "\(type): fixture")
 
             let window = host(store: store, persona: .plan)
-            try await press("New Document", in: window,
-                            until: { store.manifest.structure.count == 1 })
+            try assertButtonDrawn("New Document", in: window, "\(type)")
+            try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
 
             XCTAssertEqual(store.manifest.structure.count, 1,
-                           "\(type): pressing New Document in Plan's tree must "
+                           "\(type): New Document's verb, drawn in Plan's tree, must "
                            + "add a document — Plan is where §2 says structure "
                            + "is produced")
             XCTAssertEqual(store.manifest.structure.first?.type, .document)
@@ -83,8 +85,8 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     func test_aGroupCanBeMadeFromPlansTree() async throws {
         let store = try await emptyProject(of: .novel)
         let window = host(store: store, persona: .plan)
-        try await press("New Group", in: window,
-                        until: { store.manifest.structure.first?.type == .group })
+        try assertButtonDrawn("New Group", in: window, "novel")
+        try await startAPiece(.group, in: store)
 
         XCTAssertEqual(store.manifest.structure.first?.type, .group)
     }
@@ -95,8 +97,8 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     func test_theSameAffordancesAreThereInAuthorsBinder() async throws {
         let store = try await emptyProject(of: .novel)
         let window = host(store: store, persona: .author)
-        try await press("New Document", in: window,
-                        until: { store.manifest.structure.count == 1 })
+        try assertButtonDrawn("New Document", in: window, "Author")
+        try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
         XCTAssertEqual(store.manifest.structure.count, 1)
     }
 
@@ -282,28 +284,24 @@ final class PlanTreeStructureCreationTests: XCTestCase {
         }
     }
 
-    /// - Parameter settled: what the caller is about to assert of the store.
-    ///   Given a condition, the wait ends the moment the press's `addItem` has
-    ///   landed in the manifest rather than burning its worst case; the caller's
-    ///   own assertion still reports the failure in its own words. Given none,
-    ///   the wait is a fixed window — what a caller asserting that a press
-    ///   created NOTHING would need.
-    private func press(_ label: String, in window: NSWindow,
-                       until settled: (() -> Bool)? = nil) async throws {
-        let all = try axTree(in: window)
+    /// The control is drawn as a BUTTON in the hosted column — the same
+    /// accessibility walk the pressed version found it by, with nothing pressed.
+    private func assertButtonDrawn(_ label: String, in window: NSWindow,
+                                   _ context: String) throws {
+        let buttons = try axTree(in: window)
             .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
-        let labels = all.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" }
-        let button = try XCTUnwrap(
-            all.first { (axAttribute($0, "accessibilityLabel") as? String) == label }
-                as? NSObject,
-            "no button labelled \u{201C}\(label)\u{201D} reached the hosted "
-            + "column. Buttons found: \(labels)")
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        if let settled {
-            await pumpUntil(deadline: 5, settled)
-        } else {
-            await waitOut(0.6)
-        }
+        let labels = buttons.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" }
+        XCTAssertTrue(labels.contains(label),
+                      "\(context): no button labelled \u{201C}\(label)\u{201D} reached the "
+                      + "hosted column. Buttons found: \(labels)")
+    }
+
+    /// What the empty state's button runs, at the root — the binder's own
+    /// verb, awaited rather than pressed and polled.
+    @discardableResult
+    private func startAPiece(_ kind: StructureItemKind,
+                             in store: ProjectStore) async throws -> StructureItem {
+        try await BinderView.addItem(parent: nil, kind: kind, in: store)
     }
 
 }

@@ -748,7 +748,7 @@ final class TripwireGrepTests: XCTestCase {
     private var toolchainCensusDirs: [URL] {
         // `Views/Publish` joined the list in imprints P3 Task 5, when
         // `DeskCompileRunner` became the second production construction of
-        // `CompileOrchestrator` — a compile stamp is minted in this directory
+        // `PublishOrchestrator` — a compile stamp is minted in this directory
         // now, so a fifth spelling could grow here too.
         ["Publish", "MCP", "Compiler", "Views/Publish"].map {
             sourceDir.appendingPathComponent($0, isDirectory: true)
@@ -2409,6 +2409,11 @@ final class TripwireGrepTests: XCTestCase {
     /// mouse CLICK is the same defect by another input, and has its own arm
     /// below — `clickRepresentatives`. Mount-and-read tests, censuses and
     /// measurements do not match, and the self-check below says so.
+    ///
+    /// **And the press that waits inside itself** (#120): a helper shaped
+    /// `press(…) { until }` presses and then polls in its own body, so the
+    /// test calling it shows a press and no wait. `selfWaitingPressHelpers`
+    /// derives such helpers per file, and a test calling one counts.
     static let pressThenWaitRepresentatives: Set<String> = [
         "AnnotationsPaneChoiceTests.swift test_theSheetCommitsTheWriterSentence",
         "AnnotationsPaneChoiceTests.swift test_theSheetRefusesABlankHeadingBeforeTheVerbIsCalled",
@@ -2440,10 +2445,23 @@ final class TripwireGrepTests: XCTestCase {
             var name: String?
             var pressed = false
             var waited = false
+            var inString = false
+            let functions = Self.functionBodies(in: text)
+            // A call to an in-file helper that presses is a press line too, so
+            // a press-only helper followed by an inline wait is the same shape.
+            let pressers = Self.pressingHelpers(in: functions)
             for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
                 let line = String(raw)
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("//") { continue }
+                // A comment is not code, even one quoting `"""`.
+                if !inString, trimmed.hasPrefix("//") { continue }
+                // A multi-line literal is not code (the self-checks plant
+                // their offenders in them).
+                let delimiters = Self.stringDelimiterCount(in: trimmed)
+                if inString || delimiters % 2 == 1 {
+                    if delimiters % 2 == 1 { inString.toggle() }
+                    continue
+                }
                 if trimmed.hasPrefix("func test_") {
                     let rest = trimmed.dropFirst("func ".count)
                     name = String(rest.prefix { $0 == "_" || $0.isLetter || $0.isNumber })
@@ -2456,12 +2474,111 @@ final class TripwireGrepTests: XCTestCase {
                     continue
                 }
                 guard name != nil else { continue }
-                if Self.isPressCall(trimmed) { pressed = true }
-                else if pressed, Self.isWaitCall(trimmed) { waited = true }
+                if Self.isPressCall(trimmed)
+                    || pressers.contains(where: { Self.calls($0, in: [trimmed]) }) {
+                    pressed = true
+                } else if pressed, Self.isWaitCall(trimmed) { waited = true }
+            }
+            let selfWaiting = Self.selfWaitingPressHelpers(in: functions)
+            for function in functions where function.name.hasPrefix("test_") {
+                let hit = "\(url.lastPathComponent) \(function.name)"
+                if !hits.contains(hit),
+                   selfWaiting.contains(where: { Self.calls($0, in: function.body) }) {
+                    hits.append(hit)
+                }
             }
         }
         return hits.sorted()
     }
+
+    /// The helpers among `functions` (one file's) that press and THEN wait
+    /// inside themselves (#120): a press line — a press call, a raw
+    /// `accessibilityPerformPress` perform, or a call to an in-file helper that
+    /// presses — followed, later in the same body, by a wait — a
+    /// `selfWaitTokens` line outside a string literal, or a call to an in-file
+    /// helper that waits. Order matters: a helper that waits for its control to
+    /// be DRAWN and then presses it (`DepartmentRunTests.pressRowControl`)
+    /// waits on the premise, not the effect. A helper calling a self-waiting
+    /// helper is one. Test functions are never helpers. Same file only, as the
+    /// click arm's reasoning has it: a call is read by its spelling, and the
+    /// global `press(_:)` waits for nothing.
+    static func selfWaitingPressHelpers(
+        in functions: [(name: String, body: [String])]
+    ) -> Set<String> {
+        let helpers = functions.filter { !$0.name.hasPrefix("test_") }
+        func callsAny(_ names: Set<String>, _ line: String) -> Bool {
+            names.contains { Self.calls($0, in: [line]) }
+        }
+        func closure(seed: (String) -> Bool) -> Set<String> {
+            Self.inFileClosure(of: helpers, seed: seed)
+        }
+        let pressers = pressingHelpers(in: functions)
+        let waiters = closure { line in
+            let code = Self.withoutStringLiterals(line)
+            return Self.selfWaitTokens.contains { code.contains($0) }
+        }
+        var found: Set<String> = []
+        var grew = true
+        while grew {
+            grew = false
+            for helper in helpers where !found.contains(helper.name) {
+                var pressed = false
+                for line in helper.body {
+                    let code = Self.withoutStringLiterals(line)
+                    let waits = Self.selfWaitTokens.contains { code.contains($0) }
+                        || callsAny(waiters, line)
+                    if callsAny(found, line) || (pressed && waits) {
+                        found.insert(helper.name)
+                        grew = true
+                        break
+                    }
+                    if Self.isPressCall(line) || callsAny(pressers, line) { pressed = true }
+                }
+            }
+        }
+        return found
+    }
+
+    /// The helpers among `functions` (one file's) that press: a press line in
+    /// the body, or a call to another such helper.
+    static func pressingHelpers(in functions: [(name: String, body: [String])]) -> Set<String> {
+        inFileClosure(of: functions.filter { !$0.name.hasPrefix("test_") },
+                      seed: { Self.isPressCall($0) })
+    }
+
+    /// The helpers with a body line `seed` accepts, closed under in-file
+    /// calls: a helper calling a found helper is found.
+    private static func inFileClosure(
+        of helpers: [(name: String, body: [String])], seed: (String) -> Bool
+    ) -> Set<String> {
+        var found = Set(helpers.filter { $0.body.contains(where: seed) }.map(\.name))
+        var grew = true
+        while grew {
+            grew = false
+            for helper in helpers where !found.contains(helper.name)
+                && helper.body.contains(where: { line in
+                    found.contains { Self.calls($0, in: [line]) } }) {
+                found.insert(helper.name)
+                grew = true
+            }
+        }
+        return found
+    }
+
+    /// `line` with each one-line string literal emptied, so a token a census
+    /// spells in quotes (`"pump("`) is not read as the call.
+    private static func withoutStringLiterals(_ line: String) -> String {
+        line.replacingOccurrences(of: #""(?:[^"\\]|\\.)*""#, with: "\"\"",
+                                  options: .regularExpression)
+    }
+
+    /// What makes a helper's body WAIT: the body scan's own waits, plus every
+    /// other way a test turns the clock — an `XCTWaiter`, an expectation wait,
+    /// a run-loop spin, a `Task.sleep`.
+    private static let selfWaitTokens = [
+        "pumpUntil(", "waitUntil", "pump(", "waitOut(", "XCTWaiter", "waitFor",
+        "wait(for:", "RunLoop.", "Task.sleep",
+    ]
 
     private static func isPressCall(_ trimmed: String) -> Bool {
         if trimmed.contains("accessibilityPerformPress\")") { return true }
@@ -2499,9 +2616,14 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Self-check: fires on a planted press-then-poll, a planted raw perform
-    /// followed by a fixed pump, and a planted `try await press(`; stays quiet
-    /// on a mount-and-read test, a press with no wait, a wait with no press,
-    /// and prose naming both.
+    /// followed by a fixed pump, a planted `try await press(`, a call to a
+    /// press-only helper followed by an inline wait (past a comment quoting a
+    /// triple quote), and (#120) a
+    /// test calling a helper that presses and then polls inside itself, or a
+    /// helper of that helper; stays quiet on a mount-and-read test, a press
+    /// with no wait, a wait with no press, prose naming both, a press helper
+    /// that waits for nothing, a polling helper that presses nothing, and a
+    /// `press(` whose self-waiting namesake lives in another file.
     func test_thePressThenWaitGuardFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
@@ -2529,6 +2651,14 @@ final class TripwireGrepTests: XCTestCase {
                 press(try axButtons(labelled: "Go", in: window)[0])
                 await waitOut(0.3)
             }
+            // A comment quoting \""" must not hide the code after it.
+            func test_waitsInlineAfterAPressOnlyHelper() async throws {
+                tapGo(in: window)
+                _ = await pumpUntil(deadline: 3) { box.count == 1 }
+            }
+            private func tapGo(in window: NSWindow) {
+                _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+            }
         }
         """.write(to: tmp.appendingPathComponent("SomeSuite.swift"),
                   atomically: true, encoding: .utf8)
@@ -2553,11 +2683,83 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("Innocent.swift"),
                   atomically: true, encoding: .utf8)
 
+        // #120: the press that waits inside its own helper — directly, through
+        // an in-file polling helper, and through a helper of a helper.
+        try """
+        final class SelfWaitingSuite: XCTestCase {
+            func test_callsAHelperThatPollsAfterItsPress() async throws {
+                try await press("Not this", in: window) {
+                    self.status == .rejected
+                }
+                XCTAssertEqual(status, .rejected)
+            }
+            func test_callsAHelperOfAHelper() async throws {
+                try await settle(row: 0, in: window)
+            }
+            private func press(
+                _ label: String, in window: NSWindow,
+                until settled: () -> Bool
+            ) async throws {
+                let target = try button(labelled: label, in: window)
+                _ = target.perform(NSSelectorFromString("accessibilityPerformPress"))
+                try await waitUntilAsync { settled() }
+            }
+            private func settle(row: Int, in window: NSWindow) async throws {
+                try await press("Got it", in: window) { true }
+            }
+            private func waitUntilAsync(_ condition: () -> Bool) async throws {
+                while !condition() { try? await Task.sleep(for: .milliseconds(50)) }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SelfWaitingSuite.swift"),
+                  atomically: true, encoding: .utf8)
+        // Quiet: a press helper that waits for nothing, a polling helper that
+        // presses nothing, a helper that waits for its control to be DRAWN and
+        // then presses (the premise, not the effect), a wait token spelled in
+        // quotes, and a `press(` in a file whose OWN helpers do not wait —
+        // `SelfWaitingSuite.swift`'s `press` is not followed here.
+        try """
+        final class InnocentHelpers: XCTestCase {
+            func test_callsAPressHelperThatDoesNotWait() throws {
+                tap("Go", in: window)
+                XCTAssertEqual(box.count, 1)
+            }
+            func test_callsAPollThatPressesNothing() async throws {
+                try await settleRender { ready }
+            }
+            func test_callsTheGlobalPressOfAnotherFile() throws {
+                press(try axButtons(labelled: "Go", in: window)[0])
+            }
+            func test_callsAHelperThatWaitsForTheControlAndThenPresses() async throws {
+                try await pressWhenDrawn("Go", in: window)
+                XCTAssertEqual(box.count, 1)
+            }
+            private func pressWhenDrawn(_ label: String, in window: NSWindow) async throws {
+                _ = await pumpUntil(deadline: 5) { !buttons(label).isEmpty }
+                press(buttons(label)[0])
+            }
+            private func spell() -> [String] {
+                ["pumpUntil(", "Task.sleep"].map { $0 }
+            }
+            private func tap(_ label: String, in window: NSWindow) {
+                _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+                _ = spell()
+            }
+            private func settleRender(_ condition: () -> Bool) async throws {
+                while !condition() { pump(0.05) }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("InnocentHelpers.swift"),
+                  atomically: true, encoding: .utf8)
+
         let found = try Self.pressThenWaitTests(under: tmp)
         XCTAssertEqual(found, [
+            "SelfWaitingSuite.swift test_callsAHelperOfAHelper",
+            "SelfWaitingSuite.swift test_callsAHelperThatPollsAfterItsPress",
             "SomeSuite.swift test_awaitsAPressThenWaits",
             "SomeSuite.swift test_pollsAfterAPress",
             "SomeSuite.swift test_sleepsAfterARawPerform",
+            "SomeSuite.swift test_waitsInlineAfterAPressOnlyHelper",
             "SomeSuite.swift test_waitsOutAfterAPress",
         ])
     }
@@ -2730,12 +2932,12 @@ final class TripwireGrepTests: XCTestCase {
         var inString = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if !inString, trimmed.hasPrefix("//") { continue }
             let delimiters = Self.stringDelimiterCount(in: trimmed)
             if inString || delimiters % 2 == 1 {
                 if delimiters % 2 == 1 { inString.toggle() }
                 continue
             }
-            if trimmed.hasPrefix("//") { continue }
             let words = trimmed.split(separator: " ")
             guard let at = words.firstIndex(of: "class"), at + 1 < words.count else { continue }
             let modifiers: Set<Substring> = ["final", "private", "fileprivate", "internal",
@@ -2791,12 +2993,14 @@ final class TripwireGrepTests: XCTestCase {
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // A comment first: one quoting `"""` must not open a literal.
+            if !inString, trimmed.hasPrefix("//") { continue }
             let delimiters = Self.stringDelimiterCount(in: trimmed)
             if inString || delimiters % 2 == 1 {
                 if delimiters % 2 == 1 { inString.toggle() }
                 continue
             }
-            if trimmed.isEmpty || trimmed.hasPrefix("//") { continue }
+            if trimmed.isEmpty { continue }
             let indent = line.prefix { $0 == " " }.count
             if let open = current, indent <= open.indent, !trimmed.hasPrefix(")") {
                 result.append((open.name, open.body))
@@ -8948,7 +9152,7 @@ final class TripwireGrepTests: XCTestCase {
     /// (`PublishConfig+Imprints.swift`'s `resolved(imprint:pieceIDs:)`), the
     /// publication record and mint-gate key that carry it forward
     /// (`Publication.swift`, `PublishMintGate.swift`), the two callers that
-    /// resolve it (`CompileOrchestrator.swift`, `Republisher.swift`), the
+    /// resolve it (`PublishOrchestrator.swift`, `Republisher.swift`), the
     /// preview compiler that resolves for its own subset render
     /// (`PreviewCompiler.swift`), the validator that walks `config.imprints`
     /// (`PublishConfigValidator.swift`), and the three MCP tool files whose
@@ -8960,7 +9164,7 @@ final class TripwireGrepTests: XCTestCase {
     /// that, and are the census's live proof it does not fire on a read.
     private static let filesAllowedToDeclareImprint: Set<String> = [
         "PublishConfig.swift", "PublishConfig+Imprints.swift", "Publication.swift",
-        "PublishMintGate.swift", "Republisher.swift", "CompileOrchestrator.swift",
+        "PublishMintGate.swift", "Republisher.swift", "PublishOrchestrator.swift",
         "PreviewCompiler.swift", "PublishConfigValidator.swift", "CompileTools.swift",
         "PublicationTools.swift", "PublishConfigTools.swift",
     ]
@@ -9139,7 +9343,7 @@ final class TripwireGrepTests: XCTestCase {
         let (sites, offenders) = try publicationConstructionOffenders(in: sourceDir)
         XCTAssertEqual(sites, 2,
             "expected exactly the two production construction sites "
-            + "(CompileOrchestrator, Republisher); found \(sites)")
+            + "(PublishOrchestrator, Republisher); found \(sites)")
         XCTAssertTrue(offenders.isEmpty,
             "every production Publication(...) construction must carry "
             + "imprint: (the mint key's fourth component). Offenders:\n"
@@ -12054,7 +12258,7 @@ final class TripwireGrepTests: XCTestCase {
         "schemaVersion = ProjectManifest.narrowingSchemaVersion": [
             "type:DocumentStore": 2,
         ],
-        "documentStore.sendHeldWordsToInbox(": ["HistoryPane.swift": 1],
+        "documentStore.sendHeldWordsToInbox(": ["type:HistoryPaneVerbs": 1],
     ]
 
     /// Every line naming `pattern` under `roots`, comments excluded.

@@ -10,7 +10,7 @@ import PDFKit
 /// `\pageref` from an emitted-but-excluded section would surface as a tectonic
 /// error rather than a completed outcome.
 ///
-/// Goes through `CompileOrchestrator` (not `PDFCompiler` directly) because the
+/// Goes through `PublishOrchestrator` (not `PDFCompiler` directly) because the
 /// include filter is applied by the orchestrator's `IncludeFilteredASTSource`
 /// wrap, which is the production path.
 @MainActor
@@ -55,7 +55,7 @@ final class SectionIncludeToCProbeTests: XCTestCase {
         cfg.sections["p2"] = .init(include: false)   // exclude the middle piece
         try await configStore.save(cfg)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: projectURL,
             astSource: ThreePieceSource(),
             configStore: configStore,

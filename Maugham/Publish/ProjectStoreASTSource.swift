@@ -22,7 +22,7 @@ import MaughamCore
 /// (dropping the isolated-conformance annotation) leaves the *protocol
 /// requirement* looking nonisolated from outside, which is unsound: the
 /// existential `any ProjectASTBuilder.Source` that `PDFCompiler`/
-/// `EPUBCompiler`/`CompileOrchestrator` carry across an `await` (into
+/// `EPUBCompiler`/`PublishOrchestrator` carry across an `await` (into
 /// `CompileJobManager`, itself an `actor`) is not guaranteed to resume on the
 /// main actor, so a synchronous call into main-actor state through it would
 /// be a real data race. `: @MainActor ProjectASTBuilder.Source` (SE-0470

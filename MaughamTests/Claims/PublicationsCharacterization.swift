@@ -33,7 +33,7 @@ final class PublicationsCharacterization: XCTestCase {
         }
     }
 
-    // MARK: - Republisher.republish / CompileOrchestrator.compile
+    // MARK: - Republisher.republish / PublishOrchestrator.compile
 
     /// M7-PB-001 — every catalog record's outputPath resolves to a distinct
     /// file, and the bytes at an existing record's outputPath are not
@@ -46,7 +46,7 @@ final class PublicationsCharacterization: XCTestCase {
         let snapStore = PublicationSnapshotStore(projectURL: tmp)
 
         // 1. Original compile creates the first catalog record + artifact.
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore, snapshotStore: snapStore,
@@ -106,9 +106,9 @@ final class PublicationsCharacterization: XCTestCase {
     private func makeOrchestrator(
         configStore: PublishConfigStore? = nil,
         jobManager: CompileJobManager = CompileJobManager()
-    ) async throws -> (CompileOrchestrator, PublishConfigStore, PublicationStore, CompileJobManager) {
+    ) async throws -> (PublishOrchestrator, PublishConfigStore, PublicationStore, CompileJobManager) {
         let cfg = configStore ?? PublishConfigStore(projectURL: tmp)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: cfg,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -213,7 +213,7 @@ final class PublicationsCharacterization: XCTestCase {
         // FileHandle(forWritingTo:) throws AFTER the export and snapshot have
         // landed. (The old directory-squat injection now refuses at the
         // pre-flight load, before anything mutates — a better failure, pinned
-        // separately in CompileOrchestratorTests.)
+        // separately in PublishOrchestratorTests.)
         let catalogURL = PublicationStore.fileURL(
             deviceSlug: DeviceIdentity.author.slug, in: tmp)
         try FileManager.default.createDirectory(
@@ -246,7 +246,7 @@ final class PublicationsCharacterization: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
         let source = try String(
-            contentsOf: root.appendingPathComponent("Maugham/Publish/CompileOrchestrator.swift"),
+            contentsOf: root.appendingPathComponent("Maugham/Publish/PublishOrchestrator.swift"),
             encoding: .utf8)
         let appendAt = try XCTUnwrap(source.range(of: "publicationStore.append(pub)"))
         let bumpAt = try XCTUnwrap(source.range(of: "try await configStore.save(nextConfig)"))
@@ -290,7 +290,7 @@ final class PublicationsCharacterization: XCTestCase {
                            encoding: .utf8) ?? "")
             .split(separator: "\n").map { ($0 as NSString).lastPathComponent }
             .sorted()
-        XCTAssertEqual(hits, ["CompileJobManager.swift", "CompileOrchestrator.swift",
+        XCTAssertEqual(hits, ["CompileJobManager.swift", "PublishOrchestrator.swift",
                               "Republisher.swift"],
                        "the declaration and its two pre-commit pollers — found: \(hits)")
     }
@@ -383,7 +383,7 @@ final class PublicationsCharacterization: XCTestCase {
                     || content.contains("MaughamEvent.post(.maughamPublicationCompleted")
             }
         XCTAssertEqual(posters.map { ($0 as NSString).lastPathComponent }.sorted(),
-                       ["CompileOrchestrator.swift", "Republisher.swift"],
+                       ["PublishOrchestrator.swift", "Republisher.swift"],
                        "M7-PB-011: both pipelines post it")
     }
 }

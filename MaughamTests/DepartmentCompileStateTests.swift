@@ -36,7 +36,7 @@ final class DepartmentCompileStateTests: XCTestCase {
                         Self.problem(.warning, "[^3] is never used")]
         let state = DepartmentCompileState.settled(after: .failed(
             errors: problems,
-            logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt + "3 errors"))
+            logExcerpt: PublishOrchestrator.publishProblemsLogExcerpt + "3 errors"))
 
         XCTAssertEqual(state.phase,
                        .refused("Couldn't publish: 3 problems in the manuscript"))
@@ -51,7 +51,7 @@ final class DepartmentCompileStateTests: XCTestCase {
     func test_oneProblemIsSingular() {
         let state = DepartmentCompileState.settled(after: .failed(
             errors: [Self.problem(.error, "x")],
-            logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt))
+            logExcerpt: PublishOrchestrator.publishProblemsLogExcerpt))
         XCTAssertEqual(state.statusLine, "Couldn't publish: 1 problem in the manuscript")
     }
 
@@ -124,7 +124,7 @@ final class DepartmentCompileStateTests: XCTestCase {
         let running = DepartmentCompileState(
             phase: .running(format: .pdf, languages: [], imprint: nil), isRunning: true)
         let refused = DepartmentCompileState.settled(after: .failed(
-            errors: [problem], logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt))
+            errors: [problem], logExcerpt: PublishOrchestrator.publishProblemsLogExcerpt))
         let clean = DepartmentCompileState.settled(
             after: .completed(Self.publication, warnings: []))
 
@@ -156,7 +156,7 @@ final class DepartmentCompileStateTests: XCTestCase {
         }
         let collision = failed("version 1.0 already exists", "version_collision: 1.0/en/pdf")
         let coverage = failed("3 paragraphs are untranslated", "translation_stale: sr")
-        let imprint = failed("no imprint named x", CompileOrchestrator.unknownImprintLogExcerpt + "x")
+        let imprint = failed("no imprint named x", PublishOrchestrator.unknownImprintLogExcerpt + "x")
         XCTAssertEqual(collision.phase, .failed("version 1.0 already exists"), "premise: a failure")
         XCTAssertEqual(imprint.phase, .refused("no imprint named x"), "premise: a refusal")
         for state in [collision, coverage, imprint] {
@@ -179,7 +179,7 @@ final class DepartmentCompileStateTests: XCTestCase {
             let state = DepartmentCompileState.settled(after: .failed(
                 errors: [Diagnostic(level: .error, file: "template.tex", line: 3,
                                     message: "Undefined control sequence", contextLines: [])],
-                logExcerpt: CompileOrchestrator.compileFailedLogExcerpt + log))
+                logExcerpt: PublishOrchestrator.compileFailedLogExcerpt + log))
             XCTAssertEqual(state.phase, .failed("Undefined control sequence"), "premise: a failure")
             XCTAssertEqual(DepartmentCompileState.settledProblems(from: running, to: state), [],
                            "\(log.prefix(20)): the gate judged the book clean — the list clears")
@@ -199,9 +199,9 @@ final class DepartmentCompileStateTests: XCTestCase {
             XCTAssertNil(DepartmentCompileState.settledProblems(from: running, to: state),
                          "\(excerpt): not known to have reached the gate — the list stays")
         }
-        XCTAssertEqual(CompileOrchestrator.afterTheProblemGateLogExcerpts,
-                       [CompileOrchestrator.publishProblemsLogExcerpt,
-                        CompileOrchestrator.compileFailedLogExcerpt])
+        XCTAssertEqual(PublishOrchestrator.afterTheProblemGateLogExcerpts,
+                       [PublishOrchestrator.publishProblemsLogExcerpt,
+                        PublishOrchestrator.compileFailedLogExcerpt])
     }
 
     func test_theOtherRefusalsAndOutcomesCarryNoProblems() {
@@ -209,7 +209,7 @@ final class DepartmentCompileStateTests: XCTestCase {
                               message: "no such imprint", contextLines: [])
         XCTAssertFalse(DepartmentCompileState.settled(after: .failed(
             errors: [diag],
-            logExcerpt: CompileOrchestrator.unknownImprintLogExcerpt)).offersShowProblems)
+            logExcerpt: PublishOrchestrator.unknownImprintLogExcerpt)).offersShowProblems)
         XCTAssertFalse(DepartmentCompileState.settled(after: .cancelled).offersShowProblems)
         XCTAssertFalse(DepartmentCompileState().offersShowProblems)
     }

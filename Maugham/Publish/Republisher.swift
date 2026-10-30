@@ -57,14 +57,14 @@ public enum RepublishError: Error, LocalizedError {
 
 public struct Republisher {
 
-    public typealias Outcome = CompileOrchestrator.Outcome
+    public typealias Outcome = PublishOrchestrator.Outcome
 
     public let projectURL: URL
     public let astSource: ProjectASTBuilder.Source
     public let publicationStore: PublicationStore
     public let snapshotStore: PublicationSnapshotStore
     public let jobManager: CompileJobManager
-    /// P2 (issue #25): the same per-project gate `CompileOrchestrator` uses —
+    /// P2 (issue #25): the same per-project gate `PublishOrchestrator` uses —
     /// a republish mints a triple too, and two of them (or a republish and a
     /// compile that resolved to the same triple) must not be in flight at
     /// once. Defaulted for the test call sites; production passes
@@ -162,7 +162,7 @@ public struct Republisher {
 
         // P1 (issue #25): the republish version is minted BEFORE compile and
         // stamped through the config — filename, artifact-internal stamp and
-        // catalog row all agree, which is CompileOrchestrator's own stamp=row
+        // catalog row all agree, which is PublishOrchestrator's own stamp=row
         // invariant (its `effective.nextVersion = effectiveVersion`) arriving on
         // this path. Minted here, once: the append below must reuse this value.
         let newVersion = Self.uniqueRepublishVersion(
@@ -216,7 +216,7 @@ public struct Republisher {
                 + "translated edition from the source.")
         }
         // #73 F2: the SOURCE tag is the imprint-RESOLVED config's, exactly as
-        // at the compile door (`CompileOrchestrator`'s `LanguageSet`): an
+        // at the compile door (`PublishOrchestrator`'s `LanguageSet`): an
         // imprint's `metadata` is a merge-patch over the book's and may
         // respell `metadata.language`, and reading the book's unresolved tag
         // would take that imprint's own source body for a translation —
@@ -319,9 +319,9 @@ public struct Republisher {
             let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
-                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) \(CompileOrchestrator.placeOf(imprint)) is already compiling; wait for it to finish.",
+                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) \(PublishOrchestrator.placeOf(imprint)) is already compiling; wait for it to finish.",
                 contextLines: [
-                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' \(CompileOrchestrator.placeOf(imprint)) is in flight in this app.",
+                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' \(PublishOrchestrator.placeOf(imprint)) is in flight in this app.",
                     "Poll it with compile_status, or republish once it finishes."
                 ])
             await jobManager.fail(
@@ -332,7 +332,7 @@ public struct Republisher {
                 logExcerpt: "mint_in_flight: \(newVersion)/\(langLabel)/\(format.rawValue)")
         }
 
-        // As in `CompileOrchestrator.compile`: the reserved work lives in its
+        // As in `PublishOrchestrator.compile`: the reserved work lives in its
         // own method so the release has exactly two sites and covers the
         // throwing calls (the compilers, the stage→Exports move, the snapshot
         // re-save, the catalog append) as well as the returns.
@@ -351,7 +351,7 @@ public struct Republisher {
         } catch {
             await mintGate.release(mintKey)
             // RULING-52 + RULING-7 (M7-PB-005/006), the same conversion
-            // `CompileOrchestrator.compile` makes: the failure says what it
+            // `PublishOrchestrator.compile` makes: the failure says what it
             // did as well as what failed, and the job is terminal. Throws
             // BEFORE the reservation (snapshot load, config validation, the
             // stage extract, the frozen `config.json` read and the
@@ -395,7 +395,7 @@ public struct Republisher {
         // gated `compile` and a later `republish`. Re-run the same coverage
         // check here and hand the report to `TranslationCoverage.applyGate`
         // in whichever mode `prior.allowStale` pins (round 3) — the SAME
-        // helper `CompileOrchestrator.compile` uses (round 5: this used to
+        // helper `PublishOrchestrator.compile` uses (round 5: this used to
         // be reimplemented inline here, and had silently dropped
         // `fountainDriftWarnings` as a result).
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
@@ -432,7 +432,7 @@ public struct Republisher {
                 base: $0, excludedSectionIDs: excludedSectionIDs) })
 
         // Report foundations plan 2, Task 7: the same problem gate as
-        // `CompileOrchestrator`, over the LIVE manuscript this republish
+        // `PublishOrchestrator`, over the LIVE manuscript this republish
         // renders — a Report that has gained a broken reference since its
         // compile refuses here, before the stage is compiled or anything is
         // minted. The resolved bodies go down to the compiler.
@@ -522,7 +522,7 @@ public struct Republisher {
             problemWarnings = all
         }
 
-        // RULING-22 (M7-PB-009), the same exit `CompileOrchestrator` takes:
+        // RULING-22 (M7-PB-009), the same exit `PublishOrchestrator` takes:
         // the compiled artifact so far exists only in the stage, which the
         // caller's `defer` removes — so honouring the cancel here costs
         // nothing durable and keeps a cancelled republish from publishing.
@@ -596,7 +596,7 @@ public struct Republisher {
 
         // Gate warnings (allow-stale fallbacks) ride alongside the
         // compiler's own warnings on the success path, matching
-        // `CompileOrchestrator.compile`, and so do the publish problems.
+        // `PublishOrchestrator.compile`, and so do the publish problems.
         let allWarnings = gateWarnings + problemWarnings + warnings
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
@@ -617,7 +617,7 @@ public struct Republisher {
     /// `config.json` is the unfolded article, and it is already read — and
     /// already refused when missing — for `sourceTag`.
     ///
-    /// Resolved exactly as `CompileOrchestrator.compile` resolves it:
+    /// Resolved exactly as `PublishOrchestrator.compile` resolves it:
     ///   * the imprint is the snapshot's own, read off the folded config
     ///     because resolution is what set it there;
     ///   * `pieceIDs` are the LIVE tree's, and read only when the config

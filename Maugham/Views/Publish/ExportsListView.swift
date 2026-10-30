@@ -11,7 +11,7 @@ import AppKit
 /// Refresh is driven by:
 /// - `.onAppear`
 /// - `.maughamPublicationCompleted` — scope declared at the post
-///   (`CompileOrchestrator`, `.project(for: projectURL)`); the `.onProjectEvent`
+///   (`PublishOrchestrator`, `.project(for: projectURL)`); the `.onProjectEvent`
 ///   helper filters to this project and drops closed windows (ADR 0021).
 ///
 /// Sort is by file modification date, newest first — the most recently

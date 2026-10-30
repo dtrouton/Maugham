@@ -712,7 +712,7 @@ final class DiagnosticsStore {
     /// `runRequested` finds `!isRunning` (so a run never numbers itself
     /// against itself; `test_theMintNeverAsksLatestRoundWhileARunIsStanding`
     /// pins the guard), and the Review cockpit strip
-    /// (`AnnotationsPane.cockpitRound`), which must say "round N" WHILE round
+    /// (`AnnotationsRoundCockpit.cockpitRound`), which must say "round N" WHILE round
     /// N is still streaming and whose "next round" tooltip
     /// (`ReviewRoundCockpit`'s `runHelp`) names N+1. Routing either through
     /// the shadow would leave both one round behind for the run's whole

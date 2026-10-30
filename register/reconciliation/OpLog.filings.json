@@ -86,7 +86,7 @@
   "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
   "why_in_scope": "the publications catalog is a durable store whose consumers WRITE on the strength of what they read — the refusal shape (not checkpoints' notice) follows from that: partial truth here arms an overwrite of a shipped edition, which is the writer's published words at stake. The pre-flight refusal composes with RULING-52's family: it fails BEFORE the first durable mutation, so there is nothing partial to report. RESIDUAL: PublishStarter.installIfMissing's catch-all (pre-existing) now also swallows reconcileNextVersion's unreadable-catalog refusal — reachable only for a project with a catalog present and the publish template missing; deferred, not lost, because the next compile meets the same refusal at pre-flight before any collision can happen (comment at the catch site)",
   "intent_expressed_when": "contemporaneous — M9-OL-006's queue entry",
-  "call_path": "CompileOrchestrator.compile pre-flight; Republisher.republish; PublishStarter.reconcileNextVersion; the two MCP publication tools",
+  "call_path": "PublishOrchestrator.compile pre-flight; Republisher.republish; PublishStarter.reconcileNextVersion; the two MCP publication tools",
   "violation_or_enhancement": "neither — born with the fix"
  },
  {

@@ -44,8 +44,8 @@ final class WordDraftTests: XCTestCase {
     }
 
     private func orchestrator(gate: PublishMintGate = PublishMintGate(),
-                              source: ProjectASTBuilder.Source = Src()) -> CompileOrchestrator {
-        CompileOrchestrator(
+                              source: ProjectASTBuilder.Source = Src()) -> PublishOrchestrator {
+        PublishOrchestrator(
             projectURL: tmp, astSource: source,
             configStore: PublishConfigStore(projectURL: tmp),
             publicationStore: PublicationStore(projectURL: tmp),
@@ -54,7 +54,7 @@ final class WordDraftTests: XCTestCase {
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
     }
 
-    private func exportWord(_ orch: CompileOrchestrator? = nil,
+    private func exportWord(_ orch: PublishOrchestrator? = nil,
                             file: StaticString = #filePath, line: UInt = #line) async throws -> Publication {
         let outcome = try await (orch ?? orchestrator()).compile(format: .docx, label: nil)
         guard case .completed(let pub, _) = outcome else {
@@ -209,7 +209,7 @@ final class WordDraftTests: XCTestCase {
         XCTAssertTrue(reserved, "premise: this test holds Draft 1")
         let refused = try await orchestrator(gate: gate).compile(format: .docx, label: nil)
         guard case .failed(_, let excerpt) = refused else { return XCTFail("\(refused)") }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.mintInFlightLogExcerpt), excerpt)
         XCTAssertTrue(sentCopies.isEmpty, "a refused export writes no sent copy")
 
         await gate.release(key)
@@ -245,7 +245,7 @@ final class WordDraftTests: XCTestCase {
         guard case .failed(let errors, let excerpt) = refused else {
             return XCTFail("Draft 1 was landed by another export; this one must not take it: \(refused)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.mintInFlightLogExcerpt), excerpt)
         XCTAssertTrue(errors.contains { $0.message.contains("Draft 1") }, "\(errors.map(\.message))")
         XCTAssertEqual(sentCopies.compactMap(\.draft), [1], "only the other export's Draft 1")
         let held = await gate._inFlightForTesting
@@ -333,7 +333,7 @@ final class WordDraftTests: XCTestCase {
         try await PublishConfigStore(projectURL: url)
             .save(PublishConfig(metadata: .init(title: "Sent", author: "T")))
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: url, astSource: ProjectStoreASTSource(projectStore: store),
             configStore: PublishConfigStore(projectURL: url),
             publicationStore: PublicationStore(projectURL: url),
@@ -601,7 +601,7 @@ final class WordDraftTests: XCTestCase {
     func test_aFailureAfterTheSentCopyGivesBackTheDraft() async throws {
         let blocked = tmp.appendingPathComponent("not-a-folder")
         try Data("a file where the snapshots folder would go".utf8).write(to: blocked)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: PublishConfigStore(projectURL: tmp),
             publicationStore: PublicationStore(projectURL: tmp),
