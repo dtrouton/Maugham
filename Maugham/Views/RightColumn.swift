@@ -324,7 +324,7 @@ struct RightColumn: View {
                 figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona),
                 documentStore: documentStore, readOnly: !persona.editsResearchInTheCentre,
                 shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
-                window: window)
+                window: window, presence: figureGridPresence)
         } else {
             switch ProjectWindow.inspectorRoute(persona: persona,
                                                 projectType: store.manifest.type) {

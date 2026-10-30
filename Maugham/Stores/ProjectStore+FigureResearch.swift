@@ -80,6 +80,8 @@ extension ProjectStore {
               item.type == .asset else {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
+        // A grid open on the table writes what it holds first (report plan 8b Task 7).
+        await documentStore.settleResearchTable(itemId: item.id)
         let sidecar = researchTableSidecar(of: item)
         if try await figureToBringBack(namedBy: sidecar, documentStore: documentStore) != nil {
             return try await bringBack(researchItemId: item.id, piece: piece, name: name)
@@ -222,6 +224,8 @@ extension ProjectStore {
               item.type == .asset else {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
+        // A grid open on the copy writes what it holds first (report plan 8b Task 7).
+        await documentStore.settleResearchTable(itemId: item.id)
         guard let figureId = researchTableSidecar(of: item)?.figureId,
               let record = manifest.figures?.first(where: { $0.id == figureId }) else {
             throw FigureReturnRefused(reason: .notAParkedCopy)
@@ -262,7 +266,13 @@ extension ProjectStore {
         switch record.kind {
         case .table:
             let (text, hash) = try await Task.detached { try Self.readResearchTable(file) }.value
-            guard hash != parked.hash else { return (none, nil, host.state) }
+            // Unchanged bytes come back as they were — unless the Research grid
+            // changed only what the sidecar holds (a header, a format, a width).
+            if hash == parked.hash {
+                guard let sidecar = researchTableSidecar(of: item), sidecar.contentHash == hash,
+                      Self.sidecarSettingsDiffer(sidecar, from: host.state.table)
+                else { return (none, nil, host.state) }
+            }
             let cells = TableCSV.nonEmptyCellCount(text)
             guard cells <= TableCSV.figureCellLimit else {
                 throw UseInDocumentRefused(reason: .tooLarge(cells: cells))
@@ -275,7 +285,12 @@ extension ProjectStore {
             // still renders to the park's bytes (two-way is exact), else the
             // stream as far as the parker had read.
             let sidecar = researchTableSidecar(of: item)
-            let namesAtPark = sidecar.map { names.renaming($0.formulaNames) }
+            // The sidecar's formats apply to the bytes it was written for: the
+            // park's, or — the Research grid having saved the copy — these
+            // (Denver's ruling, report plan 8b Task 7 review I4).
+            let atPark = sidecar?.contentHash == parked.hash
+            let sidecarFits = atPark || sidecar?.contentHash == hash
+            let namesAtPark = atPark ? sidecar.map { names.renaming($0.formulaNames) } : nil
             let base: FigureState
             let rendered = Self.researchHash(of: current.table, locale: locale, names: namesAtPark ?? names)
             if rendered != parked.hash, let frontier = parked.frontier {
@@ -286,8 +301,9 @@ extension ProjectStore {
             var used = Set(current.table.rowSlots.map(\.id.raw)).union(current.table.columnSlots.map(\.id.raw))
             let changes = FigureReturnDiff.changes(
                 from: base, onto: current, to: read.table,
-                sidecar: sidecar?.contentHash == parked.hash ? sidecar : nil,
-                names: names, namesAtPark: sidecar?.contentHash == parked.hash ? namesAtPark : nil,
+                sidecar: sidecarFits ? sidecar : nil,
+                sidecarPositions: atPark ? .parked : .copy,
+                names: names, namesAtPark: namesAtPark,
                 problems: read.problems,
                 mintRow: { let id = TableID.mint(excluding: used); used.insert(id); return RowID(id) },
                 mintColumn: { let id = TableID.mint(excluding: used); used.insert(id); return ColumnID(id) })
@@ -302,6 +318,15 @@ extension ProjectStore {
         case .unknown:
             throw FigureEditInvalid(reason: "this build cannot bring back a figure of this kind")
         }
+    }
+
+    /// Whether `sidecar`'s header, total row, formats or widths are not what
+    /// `table` would write — a working copy restyled in the Research grid
+    /// without a byte of its CSV changed.
+    nonisolated static func sidecarSettingsDiffer(_ sidecar: ResearchTableSidecar, from table: FigureTable) -> Bool {
+        let parked = ResearchTableSidecar(figureId: "", contentHash: "", name: "", caption: nil, table: table)
+        return sidecar.headerRows != parked.headerRows || sidecar.totalRow != parked.totalRow
+            || sidecar.formats != parked.formats || sidecar.columnWidths != parked.columnWidths
     }
 
     /// **The name a figure made from Research takes, before de-duplication**:

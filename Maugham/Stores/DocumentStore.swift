@@ -226,11 +226,14 @@ public final class DocumentStore {
     /// alive, and one window closing leaves the others refreshing.
     @ObservationIgnored let figureCardCaches = NSHashTable<FigureCardCache>.weakObjects()
 
-    /// **Every Research table open in a grid** (report plan 8b Task 7):
-    /// `flushPendingSave` writes each one's pending save, so ⌘S, the typed
-    /// mover's pre-move flush and the store's close reach it as they reach a
-    /// note's. Weak: the grid's mount holds its host.
-    @ObservationIgnored let researchTables = NSHashTable<ResearchTableHost>.weakObjects()
+    /// **Every Research table open in a grid, one host per item** (report
+    /// plan 8b Task 7; `openResearchTable`): every grid on an item edits the
+    /// same table. `flushPendingSave` settles each, so ⌘S, the typed mover's
+    /// pre-move flush and the store's close reach it as they reach a note's.
+    @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
+    @ObservationIgnored private var researchTableUses: [String: Int] = [:]
+    @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
+    @ObservationIgnored private var researchTableClosings: [String: Task<Void, Never>] = [:]
 
     /// **Some figure's state may have moved** — bumped by every figure
     /// trigger that refills the cards (`invalidateFigureCards`: an open host's
@@ -829,19 +832,75 @@ public final class DocumentStore {
     /// Flush any pending `scheduleFileSave` immediately — and every open
     /// Research table's pending save (`researchTables`).
     public func flushPendingSave() async throws {
-        for table in researchTables.allObjects { await table.settle() }
+        for table in Array(researchTables.values) { await table.settle() }
+        for closing in Array(researchTableClosings.values) { await closing.value }
         guard let fileSaveScheduler else { return }
         await fileSaveScheduler.flush()
     }
 
-    /// A Research table opened in a grid: its saves are flushed with the notes'.
-    func attachResearchTable(_ host: ResearchTableHost) {
-        researchTables.add(host)
+    /// **Research item `itemId`'s table, for a grid** — the one this store
+    /// holds open, or read now (after a host still closing on it has written
+    /// its last save). Each call is one use; `releaseResearchTable` gives it
+    /// back. Throws what the read throws (`ResearchTableHost.load`).
+    func openResearchTable(itemId: String) async throws -> ResearchTableHost {
+        if let closing = researchTableClosings[itemId] { await closing.value }
+        if let host = researchTables[itemId], !host.isClosed {
+            researchTableUses[itemId, default: 0] += 1
+            return host
+        }
+        let opening = researchTableOpenings[itemId] ?? Task { @MainActor in
+            try await ResearchTableHost.load(itemId: itemId, store: self)
+        }
+        researchTableOpenings[itemId] = opening
+        let host: ResearchTableHost
+        do {
+            host = try await opening.value
+        } catch {
+            researchTableOpenings[itemId] = nil
+            throw error
+        }
+        researchTableOpenings[itemId] = nil
+        if researchTables[itemId] == nil { researchTables[itemId] = host }
+        researchTableUses[itemId, default: 0] += 1
+        return host
     }
 
-    /// A Research table's visit ended (`ResearchTableHost.close`).
-    func detachResearchTable(_ host: ResearchTableHost) {
-        researchTables.remove(host)
+    /// One use of a Research table given back; the last closes it — its last
+    /// save written before another grid may read the file again.
+    func releaseResearchTable(_ host: ResearchTableHost) async {
+        let id = host.itemId
+        guard researchTables[id] === host else { return }
+        let uses = (researchTableUses[id] ?? 1) - 1
+        guard uses <= 0 else {
+            researchTableUses[id] = uses
+            return
+        }
+        researchTableUses[id] = nil
+        researchTables[id] = nil
+        let closing = Task { @MainActor in await host.close() }
+        researchTableClosings[id] = closing
+        await closing.value
+        if researchTableClosings[id] == closing { researchTableClosings[id] = nil }
+    }
+
+    /// **Research item `itemId`'s grid, settled** — its open edit committed and
+    /// its pending save written — before a verb reads the file (*Use in
+    /// Document*, *Bring Back to Figures*).
+    func settleResearchTable(itemId: String) async {
+        await researchTables[itemId]?.settle()
+        await researchTableClosings[itemId]?.value
+    }
+
+    /// **A file under the project changed on disk**: a Research table open in
+    /// a grid on it is asked whether to read it again
+    /// (`ResearchTableHost.fileMayHaveChanged`).
+    func researchFileMayHaveChanged(at relativePath: String) {
+        guard !researchTables.isEmpty, let research = projectStore?.manifest.research else { return }
+        for (id, host) in researchTables {
+            guard let path = TreeWalk.find(id: id, in: research)?.path,
+                  path.lowercased() == relativePath.lowercased() else { continue }
+            Task { @MainActor in await host.fileMayHaveChanged() }
+        }
     }
 
     /// A synced project-relative path as a URL inside this project, or
@@ -2106,7 +2165,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // outside `.maugham/`. The registry's path-keyed lookup is the
             // authoritative way to recognize a manuscript here — anything
             // not registered is research, binder metadata, or user-dropped
-            // files we don't react to via the presenter.
+            // files. A Research table open in a grid is told (report plan 8b
+            // Task 7: an outside change is read again, never overwritten).
+            researchFileMayHaveChanged(at: relativePath)
             guard let doc = document(for: relativePath) else { return }
             let projectRoot = projectURL
             Task { @MainActor in

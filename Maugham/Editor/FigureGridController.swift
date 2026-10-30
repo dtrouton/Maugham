@@ -252,6 +252,18 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         }
     }
 
+    /// **What is typed, committed where it is** — the grid stays open (⌘S,
+    /// ⌘Q and a verb about to read a Research table's file settle it,
+    /// `ResearchTableHost.settle`): the bottom bar's fields, then an open
+    /// cell edit that reads; one that will not stays open with its error.
+    func commitWhatIsTyped() {
+        syncFromHost()
+        guard !isClosed, !isFolded else { return }
+        commitPendingFields()
+        guard mode.readOnlyReason == nil else { return }
+        _ = commitOpenEdit()
+    }
+
     /// **The open edit, when committing it would be refused**: a formula
     /// that will not read, over the table as it is now. Nil with no edit
     /// open, or one that reads (or is unchanged, which writes nothing).

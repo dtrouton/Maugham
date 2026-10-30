@@ -24,6 +24,8 @@ final class ResearchTableMount {
         case open
         /// The file could not be read: said, never shown as an empty grid.
         case unreadable(String)
+        /// Too large for the grid: shown read-only as text, with this line.
+        case tooLarge(String)
     }
 
     let itemId: String
@@ -44,6 +46,10 @@ final class ResearchTableMount {
     @ObservationIgnored private var panel: FigureGridPanel?
     @ObservationIgnored private var keysWatch: NSKeyValueObservation?
     @ObservationIgnored private var bookWatch: Task<Void, Never>?
+    @ObservationIgnored private weak var store: DocumentStore?
+    /// This grid's settler on the shared host (`ResearchTableHost.addSettler`).
+    @ObservationIgnored private let settlerId = UUID()
+    @ObservationIgnored private var focusWatch: NSObjectProtocol?
 
     init(itemId: String, readOnly: Bool, shareIsReadOnly: Bool, presence: FigureGridPresence?) {
         self.itemId = itemId
@@ -57,15 +63,19 @@ final class ResearchTableMount {
     func open(title: String, store: DocumentStore, projectStore: ProjectStore, typography: TypographySettings) {
         guard opening == nil, !hasLeft else { return }
         container.show(message: "Opening \(title)\u{2026}")
+        self.store = store
         opening = Task { @MainActor [weak self, itemId] in
             let host: ResearchTableHost
             do {
-                host = try await ResearchTableHost.open(itemId: itemId, store: store)
+                host = try await store.openResearchTable(itemId: itemId)
+            } catch let tooLarge as ResearchTableHost.TooLarge {
+                self?.phase = .tooLarge(tooLarge.localizedDescription)
+                return
             } catch {
                 self?.phase = .unreadable(error.localizedDescription)
                 return
             }
-            guard let self, !self.hasLeft else { return await host.close() }
+            guard let self, !self.hasLeft else { return await store.releaseResearchTable(host) }
             self.host = host
             do {
                 let controller = try await FigureGridController.open(
@@ -73,18 +83,25 @@ final class ResearchTableMount {
                     typography: typography)
                 guard !self.hasLeft else {
                     controller.close()
-                    return await host.close()
+                    return await store.releaseResearchTable(host)
                 }
-                self.mount(controller, store: store)
+                self.mount(controller, host: host, store: store)
             } catch {
                 self.phase = .unreadable(error.localizedDescription)
-                await host.close()
+                self.host = nil
+                await store.releaseResearchTable(host)
             }
         }
     }
 
-    private func mount(_ controller: FigureGridController, store: DocumentStore) {
+    private func mount(_ controller: FigureGridController, host: ResearchTableHost, store: DocumentStore) {
         self.controller = controller
+        // ⌘S, ⌘Q and a verb about to read the file commit what is typed here first.
+        host.addSettler(settlerId) { [weak controller] in
+            guard let controller else { return }
+            controller.commitWhatIsTyped()
+            await controller.settleWrites()
+        }
         controller.foldsOnEscape = false   // Esc leaves no centre
         controller.bars.doneButton.isHidden = true   // nothing to close
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
@@ -97,16 +114,19 @@ final class ResearchTableMount {
         phase = .open
         watchTheKeys()
         watchTheBook(store)
+        Task { @MainActor in await host.fileMayHaveChanged() }
     }
 
     /// **The gate**: Review (`!Persona.editsResearchInTheCentre`) and a
-    /// view-only share read the table, and the host refuses every edit too.
+    /// view-only share read the table. The share is the project's, so the
+    /// shared host refuses every edit under it too; Review is this window's,
+    /// so it is this grid's gate alone (as a figure's is).
     func refreshAccess() {
         guard let controller, let host, !hasLeft else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: true, parked: false, hostClosed: host.isClosed,
             shareIsReadOnly: shareIsReadOnly, isReviewMode: readOnly, isTranslationReview: false)
-        host.refusal = mode.readOnlyReason
+        host.refusal = shareIsReadOnly ? .viewOnlyShare : nil
         guard mode != controller.mode else { return }
         controller.setAccess(mode, captionMayEdit: false)
     }
@@ -134,22 +154,27 @@ final class ResearchTableMount {
         keysWatch = nil
         container.onWindowChange = nil
         bookWatch?.cancel()
+        if let focusWatch { NotificationCenter.default.removeObserver(focusWatch) }
+        focusWatch = nil
         presence?.folded()
         guard let controller, let host else { return }
+        host.removeSettler(settlerId)
         controller.onAccessMayHaveChanged = nil
         controller.onMenuStateChange = nil
         controller.foldForced()
         controller.didFold()
         panel?.removeFromSuperview()
+        let store = store
         let finishing = Task { @MainActor [weak self] in
             await controller.settleWrites()
             controller.close()
-            await host.close()
+            await host.flush()
+            await store?.releaseResearchTable(host)
             self?.controller = nil
             self?.panel = nil
         }
         self.finishing = finishing
-        host.visitEnding = finishing
+        host.addEndingVisit(finishing)
     }
 
     // MARK: The keys and the book
@@ -175,6 +200,18 @@ final class ResearchTableMount {
     private func watchTheKeys() {
         let observe = { [weak self] (window: NSWindow?) in
             guard let self else { return }
+            // The window coming front: a file changed outside meanwhile is read again.
+            if let focusWatch = self.focusWatch { NotificationCenter.default.removeObserver(focusWatch) }
+            self.focusWatch = window.map { window in
+                NotificationCenter.default.addObserver(
+                    forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, !self.hasLeft, let host = self.host else { return }
+                        Task { @MainActor in await host.fileMayHaveChanged() }
+                    }
+                }
+            }
             self.keysWatch = window?.observe(\.firstResponder, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.showPresence() }
             }
@@ -236,6 +273,17 @@ struct ResearchTableGrid: View {
                     Text("\(message)\n\nIt has not been changed.")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if case .tooLarge(let line)? = mount?.phase,
+                      let item = TreeWalk.find(id: itemId, in: store.manifest.research) {
+                // Past the grid's ceiling: read-only text, as before the grid.
+                VStack(spacing: 0) {
+                    Text(line)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                    ResearchPreview(projectURL: store.url, item: item)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if let mount {
                 FigureWindowGridHost(container: mount.container)
             }

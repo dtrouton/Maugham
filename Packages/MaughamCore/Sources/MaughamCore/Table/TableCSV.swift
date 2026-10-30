@@ -34,13 +34,16 @@ public enum TableCSV {
     /// "," file with a decimal point; a table of one column has no separator to tell `read` which,
     /// so it is written as a "," file. Formulas keep their POSIX text whatever the separator
     /// (`FormulaParser` reads them so).
+    ///
+    /// `lineEnding` ends each row ("\n", or "\r\n" for a file that had them); a newline inside a
+    /// quoted cell is the cell's own and is left as it is.
     public static func renderResearch(_ table: FigureTable, locale: TableLocale, names: FormulaNames,
-                                      separator: Character = ",") -> String {
+                                      separator: Character = ",", lineEnding: String = "\n") -> String {
         let separator: Character = table.columns.count < 2 || !["," as Character, ";", "\t"].contains(separator)
             ? "," : separator
         let cellLocale = readingLocale(for: separator, locale: locale)
         let readers = [posix, locale, locale.readingDecimalPoint(), cellLocale]
-        return write(table, separator: separator) { key in
+        return write(table, separator: separator, lineEnding: lineEnding) { key in
             guard let cell = table[key] else { return "" }
             switch cell.content {
             case .formula(let f): return "=" + FormulaParser.render(f, in: table, names: names)
@@ -70,14 +73,14 @@ public enum TableCSV {
         return readers.allSatisfy { CellInput.parse(s, locale: $0) == .value(.text(s), suggested: nil) }
     }
 
-    private static func write(_ table: FigureTable, separator: Character = ",",
+    private static func write(_ table: FigureTable, separator: Character = ",", lineEnding: String = "\n",
                               field: (CellKey) -> String) -> String {
         var out = ""
         let columns = table.columns
         let joint = String(separator)
         for row in table.rows {
             out += columns.map { quote(field(CellKey(row: row, column: $0))) }.joined(separator: joint)
-            out += "\n"
+            out += lineEnding
         }
         return out
     }

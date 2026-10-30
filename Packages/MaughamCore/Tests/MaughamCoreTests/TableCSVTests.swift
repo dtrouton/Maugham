@@ -412,4 +412,17 @@ final class TableCSVTests: XCTestCase {
         XCTAssertEqual(TableCSV.read(csv, locale: gb, names: .empty).table.cells.values.first?.content,
                        .value(.number(2.5)))
     }
+
+    /// **A file with CRLF rows keeps them**; a newline inside a quoted cell
+    /// stays the cell's own.
+    func test_renderResearch_keepsCRLFRows_andACellsOwnNewline() {
+        var t = FigureTable(rows: 2, columns: 2)
+        t.setCell(Cell(content: .value(.text("a\nb"))), at: key(t, "A1"))
+        t.setCell(Cell(content: .value(.number(1))), at: key(t, "B1"))
+        t.setCell(Cell(content: .value(.number(2))), at: key(t, "B2"))
+        let csv = TableCSV.renderResearch(t, locale: gb, names: .empty, lineEnding: "\r\n")
+        XCTAssertEqual(csv, "\"a\nb\",1\r\n,2\r\n")
+        let back = TableCSV.read(csv, locale: gb, names: .empty).table
+        XCTAssertEqual(back[key(back, "A1")]?.content, .value(.text("a\nb")))
+    }
 }

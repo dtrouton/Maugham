@@ -324,8 +324,10 @@ struct ResearchSubjectInspector: View {
     var readOnly: Bool = false
     var shareIsReadOnly: Bool = false
     var typography: TypographySettings = .defaults
-    /// The project window, whose close writes the grid's last edit.
+    /// The project window, whose close writes the grid's last edit, and its
+    /// Format ▸ Table presence, armed while the grid has the keys.
     var window: NSWindow? = nil
+    var presence: FigureGridPresence? = nil
 
     var body: some View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
@@ -379,7 +381,7 @@ struct ResearchSubjectInspector: View {
                 ResearchTableGrid(
                     itemId: item.id, title: item.title, store: store, documentStore: documentStore,
                     typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
-                    window: window)
+                    presence: presence, window: window)
                     .id(item.id)
             } else {
                 ResearchPreview(projectURL: store.url, item: item)

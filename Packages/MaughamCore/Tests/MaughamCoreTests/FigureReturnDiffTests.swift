@@ -718,4 +718,49 @@ final class FigureReturnDiffTests: XCTestCase {
         changed.table.setCell(t("other"), at: CellKey(row: new, column: c0))
         XCTAssertNil(FigureReturnDiff.applied(undo, onto: changed), "the batch's own cell changed since")
     }
+
+    // MARK: - A sidecar written for the copy's own bytes (report plan 8b Task 7)
+
+    /// **The Research grid rewrote the copy and its sidecar**: the sidecar's
+    /// positions are the copy's, so a row moved in the copy still takes the
+    /// format set on it there, a cell it lists no style for comes back plain,
+    /// and the header, total row and width the grid set come back too.
+    func test_aSidecarWrittenForTheCopyAppliesAtTheCopysPositions() throws {
+        var parked = figure("Item,Amount\nRent,1200\nFood,340\n")
+        let rent = try XCTUnwrap(row(parked, labelled: "Rent"))
+        let amount = parked.table.columns[1]
+        var formatted = try XCTUnwrap(parked.table[CellKey(row: rent, column: amount)])
+        formatted.format.number = .currency(symbol: "£", decimals: 2)
+        parked.table.setCell(formatted, at: CellKey(row: rent, column: amount))
+        parked.parked = FigureParking(path: "research/budget.csv", hash: "h")
+
+        // In the grid: Food moved above Rent, Food's amount given a percent,
+        // Rent's currency cleared, a total row and a width on Amount.
+        let copyCSV = "Item,Amount\nFood,340\nRent,1200\n"
+        let copy = TableCSV.read(copyCSV, locale: gb, names: .empty).table
+        let sidecar = ResearchTableSidecar(
+            contentHash: "copy", headerRows: 1, totalRow: true,
+            formats: [.init(row: 1, column: 1, format: CellFormat(number: .percent(decimals: 0)))],
+            columnWidths: [nil, 140])
+
+        let changes = FigureReturnDiff.changes(
+            from: parked, onto: parked, to: copy, sidecar: sidecar, sidecarPositions: .copy,
+            mintRow: mintRow, mintColumn: mintColumn)
+        let back = applied(changes.ops, to: parked)
+
+        let food = try XCTUnwrap(row(back, labelled: "Food"))
+        XCTAssertEqual(back.table[CellKey(row: food, column: amount)]?.format.number, .percent(decimals: 0),
+                       "Food's style, at the copy's row 1")
+        XCTAssertEqual(back.table[CellKey(row: rent, column: amount)]?.format, CellFormat(),
+                       "Rent has no style in the copy's sidecar: it comes back plain")
+        XCTAssertTrue(back.table.hasTotalRow)
+        XCTAssertEqual(back.table.columnWidths[amount], 140, "the width at the copy's column 1")
+
+        // Control: the same sidecar read at the PARKED positions puts the
+        // percent on Rent (the parked row 1).
+        let wrong = applied(FigureReturnDiff.changes(
+            from: parked, onto: parked, to: copy, sidecar: sidecar, sidecarPositions: .parked,
+            mintRow: mintRow, mintColumn: mintColumn).ops, to: parked)
+        XCTAssertEqual(wrong.table[CellKey(row: rent, column: amount)]?.format.number, .percent(decimals: 0))
+    }
 }

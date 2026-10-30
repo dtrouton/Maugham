@@ -42,6 +42,8 @@ final class ResearchTableGridTests: XCTestCase {
 
     override func tearDown() async throws {
         ResearchTableHost.wroteForTesting = nil
+        for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
+        noticeObservers = []
         for mount in mounts {
             mount.leave()
             await mount.finishing?.value
@@ -174,7 +176,7 @@ final class ResearchTableGridTests: XCTestCase {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("rates.csv", "Name;Rate;Double\nA;1,5;\n", in: projectStore)
         let writes = countWrites()
-        let host = try await ResearchTableHost.open(itemId: item.id, store: store)
+        let host = try await store.openResearchTable(itemId: item.id)
         host.saveDelay = .milliseconds(50)
         let um = UndoManager()
 
@@ -188,7 +190,7 @@ final class ResearchTableGridTests: XCTestCase {
         let written = try text(of: item)
         XCTAssertEqual(TableCSV.rows(written).separator, ";", "the file keeps its separator: \(written)")
         XCTAssertEqual(TableCSV.rows(written).rows, [["Name", "Rate", "Double"], ["A", "2,5", "=B2*2"]])
-        await host.close()
+        await store.releaseResearchTable(host)
     }
 
     // MARK: - The sidecar and the pins
@@ -203,7 +205,7 @@ final class ResearchTableGridTests: XCTestCase {
             ResearchTableSidecar(figureId: "fig-q3", contentHash: hash, name: "Q3", caption: "Third quarter",
                                  headerRows: 1),
             forItem: item.id, in: projectURL)
-        let host = try await ResearchTableHost.open(itemId: item.id, store: store)
+        let host = try await store.openResearchTable(itemId: item.id)
         XCTAssertEqual(host.state.table.headerRows, 1, "the sidecar was laid on: it was written for these bytes")
 
         try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
@@ -214,7 +216,7 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertNotEqual(sidecar.contentHash, hash)
         XCTAssertEqual([sidecar.figureId, sidecar.name, sidecar.caption], ["fig-q3", "Q3", "Third quarter"])
         XCTAssertEqual(sidecar.headerRows, 1)
-        await host.close()
+        await store.releaseResearchTable(host)
     }
 
     /// **A figure pinning the table says "changed" once the grid's save
@@ -231,7 +233,7 @@ final class ResearchTableGridTests: XCTestCase {
         let calm = await store.figureCardInputs()
         XCTAssertEqual(calm?.pinChanged, [], "control: nothing changed yet")
 
-        let host = try await ResearchTableHost.open(itemId: item.id, store: store)
+        let host = try await store.openResearchTable(itemId: item.id)
         let revision = store.figureRevision
         try await host.setCell(Cell(content: .value(.number(15))), at: key(host, 2, 2), undoManager: nil)
         await host.flush()
@@ -239,7 +241,7 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertGreaterThan(store.figureRevision, revision, "the save told the cards")
         let after = await store.figureCardInputs()
         XCTAssertEqual(after?.pinChanged, [summary.id], "the pinning figure says changed")
-        await host.close()
+        await store.releaseResearchTable(host)
         await store.closeFigure(figureId: summary.id)
     }
 
@@ -277,7 +279,7 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertEqual(writes(), 1, "leaving wrote once")
         XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2030", "11"]])
         XCTAssertTrue(host.isClosed)
-        XCTAssertFalse(store.researchTables.allObjects.contains { $0 === host }, "and the store let it go")
+        XCTAssertNil(store.researchTables[item.id], "and the store let it go")
     }
 
     /// **⌘S (the store's flush) writes a pending edit** — the path the
@@ -285,7 +287,7 @@ final class ResearchTableGridTests: XCTestCase {
     func test_theStoresFlushWritesAPendingEdit() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
-        let host = try await ResearchTableHost.open(itemId: item.id, store: store)
+        let host = try await store.openResearchTable(itemId: item.id)
         try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
         XCTAssertTrue(host.isDirty)
 
@@ -293,7 +295,7 @@ final class ResearchTableGridTests: XCTestCase {
 
         XCTAssertFalse(host.isDirty)
         XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "12"]])
-        await host.close()
+        await store.releaseResearchTable(host)
     }
 
     // MARK: - A file that can't be read
@@ -328,8 +330,8 @@ final class ResearchTableGridTests: XCTestCase {
     // MARK: - Read-only
 
     /// **Review reads the table, never edits it**: the grid opens read-only
-    /// with the review reason, typing writes nothing, and the host itself
-    /// refuses.
+    /// with the review reason and typing writes nothing. (Review is this
+    /// window's gate; the host is shared with any other window's grid.)
     func test_reviewOpensTheTableReadOnly() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
@@ -341,20 +343,16 @@ final class ResearchTableGridTests: XCTestCase {
 
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)), "typing wrote nothing")
-        do {
-            try await host.setCell(nil, at: key(host, 2, 2), undoManager: nil)
-            XCTFail("the host refuses a read-only edit")
-        } catch let refused as ResearchTableHost.Refused {
-            XCTAssertEqual(refused.reason, .reviewMode)
-        }
+        XCTAssertFalse(c.gridUndo.canUndo, "and recorded no step")
         mount.leave()
         await mount.finishing?.value
         XCTAssertEqual(try bytes(of: item), before)
     }
 
-    /// **A view-only share reads the table**; the share becoming writable
-    /// lets the grid edit (the gate asked again).
-    func test_aViewOnlyShareOpensTheTableReadOnly_untilItIsNot() async throws {
+    /// **A view-only share reads the table** — the grid and the host both
+    /// refuse; the share becoming writable lets the grid edit (the gate asked
+    /// again); and ⌘Z while read-only takes nothing back and keeps the step.
+    func test_aViewOnlyShareOpensTheTableReadOnly_untilItIsNot_andUndoWaits() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
         let mount = await mount(item, store, projectStore, shareIsReadOnly: true)
@@ -363,11 +361,28 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertEqual(c.mode, .readOnly(.viewOnlyShare))
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)))
+        do {
+            try await host.setCell(nil, at: key(host, 2, 2), undoManager: nil)
+            XCTFail("the shared host refuses under a view-only share")
+        } catch let refused as ResearchTableHost.Refused {
+            XCTAssertEqual(refused.reason, .viewOnlyShare)
+        }
 
         mount.update(readOnly: false, shareIsReadOnly: false)
         XCTAssertEqual(c.mode, .editable)
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(99)))
+
+        // Read-only again: ⌘Z is refused with the reason, the step kept.
+        mount.update(readOnly: false, shareIsReadOnly: true)
+        c.undoInGrid()
+        await c.settleWrites()
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(99)), "nothing taken back")
+        XCTAssertTrue(c.gridUndo.canUndo, "the step waits")
+        mount.update(readOnly: false, shareIsReadOnly: false)
+        c.undoInGrid()
+        await c.settleWrites()
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)), "and is taken back once it may be")
     }
 
     // MARK: - Not a figure
@@ -406,6 +421,260 @@ final class ResearchTableGridTests: XCTestCase {
         await c.settleWrites()
         XCTAssertNil(projectStore.manifest.figures?.first { $0.name == "Renamed" })
         XCTAssertEqual(projectStore.manifest.research.first { $0.id == item.id }?.title, item.title)
+    }
+
+    // MARK: - Review fixes (task 7 review I1–I5 and minors)
+
+    /// Notices heard while the test runs.
+    private final class Heard { var notices: [String] = [] }
+    private var noticeObservers: [NSObjectProtocol] = []
+
+    private func listen() -> Heard {
+        let heard = Heard()
+        noticeObservers.append(NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                MainActor.assumeIsolated { heard.notices.append(message) }
+            }
+        })
+        return heard
+    }
+
+    /// A figure made from `csv` and sent back to Research: its parked
+    /// figure and the working copy's item.
+    private func parkedCopy(_ csv: String, _ store: DocumentStore,
+                            _ projectStore: ProjectStore) async throws -> (figure: FigureRecord, copy: ResearchItem) {
+        let source = try await researchTable("model.csv", csv, in: projectStore)
+        let figure = try await projectStore.useInDocument(researchItemId: source.id, piece: nil).record
+        await store.awaitOpenFigureRenderForTesting()
+        let copy = try await projectStore.sendToResearch(figureId: figure.id, scope: .shared)
+        XCTAssertEqual(copy.kind, .table, "precondition: the working copy is a Research table")
+        return (figure, copy)
+    }
+
+    /// **I1 — Use in Document reads what the grid holds**: an edit inside the
+    /// debounce and one still open in a cell are both in the new figure; the
+    /// grid stays open.
+    func test_useInDocumentWritesTheGridFirst_aPendingEditAndAnOpenCell() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        await type("11", at: 2, 2, in: c)   // committed, inside the 750 ms debounce
+        c.handle(.click(key(c.host, 1, 2), extend: false))
+        c.handle(.type("2"))
+        c.handle(.editTextChanged("2030"))   // still open in A2
+
+        let record = try await projectStore.useInDocument(researchItemId: item.id, piece: nil).record
+
+        let figure = try await store.openFigure(figureId: record.id)
+        XCTAssertEqual(figure.state.table[key(figure, 2, 2)]?.content, .value(.number(11)), "the pending edit")
+        XCTAssertEqual(figure.state.table[key(figure, 1, 2)]?.content, .value(.number(2030)), "the open cell")
+        XCTAssertEqual(mount.phase, .open, "the grid is still open")
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **I1 — Bring Back reads what the grid holds** on the working copy.
+    func test_bringBackWritesTheGridFirst() async throws {
+        let (store, projectStore) = try await openBook()
+        let (figure, copy) = try await parkedCopy("Year,Revenue\n2025,10\n", store, projectStore)
+        let mount = await mount(copy, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        await type("11", at: 2, 2, in: c)
+        c.handle(.click(key(c.host, 1, 2), extend: false))
+        c.handle(.type("2"))
+        c.handle(.editTextChanged("2030"))
+
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+
+        let host = try await store.openFigure(figureId: figure.id)
+        XCTAssertNil(host.state.parked, "back in Figures")
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)))
+        XCTAssertEqual(host.state.table[key(host, 1, 2)]?.content, .value(.number(2030)))
+        await store.closeFigure(figureId: figure.id)
+    }
+
+    /// **I4 — the grid's header, total row and formats come back** with a
+    /// parked copy: its sidecar was written for the bytes coming back.
+    func test_bringBackKeepsTheHeaderTotalAndFormatsSetInTheGrid() async throws {
+        let (store, projectStore) = try await openBook()
+        let (figure, copy) = try await parkedCopy("Year,Revenue\n2025,10\n2026,20\n", store, projectStore)
+        let host = try await store.openResearchTable(itemId: copy.id)
+        try await host.setTotalRow(true, undoManager: nil)
+        var cell = try XCTUnwrap(host.state.table[key(host, 2, 2)])
+        cell.format.number = .percent(decimals: 0)
+        try await host.setCell(cell, at: key(host, 2, 2), undoManager: nil)
+        await host.flush()
+
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+
+        let back = try await store.openFigure(figureId: figure.id)
+        XCTAssertTrue(back.state.table.hasTotalRow, "the total row set in the grid")
+        XCTAssertEqual(back.state.table[key(back, 2, 2)]?.format.number, .percent(decimals: 0),
+                       "the format set in the grid")
+        XCTAssertEqual(back.state.table[key(back, 2, 3)]?.format.number, .general, "and only there")
+        await store.releaseResearchTable(host)
+        await store.closeFigure(figureId: figure.id)
+    }
+
+    /// **I4 — with the cells changed too**, the sidecar the grid wrote is the
+    /// copy's own: its formats apply at the copy's positions, after a row the
+    /// grid moved.
+    func test_bringBackKeepsTheGridsFormats_whenTheCellsChangedToo() async throws {
+        let (store, projectStore) = try await openBook()
+        let (figure, copy) = try await parkedCopy("Year,Revenue\n2025,10\n2026,20\n", store, projectStore)
+        let host = try await store.openResearchTable(itemId: copy.id)
+        let row2026 = host.state.table.rows[2]
+        try await host.moveRow(row2026, after: host.state.table.rows[0], undoManager: nil)   // 2026 first
+        try await host.setCell(Cell(content: .value(.number(25))), at: key(host, 2, 2), undoManager: nil)
+        var cell = try XCTUnwrap(host.state.table[key(host, 2, 3)])   // 2025's revenue, now row 3
+        cell.format.number = .percent(decimals: 0)
+        try await host.setCell(cell, at: key(host, 2, 3), undoManager: nil)
+        await host.flush()
+
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+
+        let back = try await store.openFigure(figureId: figure.id)
+        XCTAssertEqual(back.state.table[key(back, 1, 2)]?.content, .value(.number(2026)), "the move came back")
+        XCTAssertEqual(back.state.table[key(back, 2, 2)]?.content, .value(.number(25)), "the edit came back")
+        XCTAssertEqual(back.state.table[key(back, 2, 3)]?.format.number, .percent(decimals: 0),
+                       "the format, on 2025's row where the grid set it")
+        XCTAssertEqual(back.state.table[key(back, 2, 2)]?.format.number, .general)
+        await store.releaseResearchTable(host)
+        await store.closeFigure(figureId: figure.id)
+    }
+
+    /// **I2 — two grids on one item share one host**: both grids' edits land
+    /// in one table and one file; a ⌘Z never takes back what another grid
+    /// changed since; and a grid opened while the last one is still leaving
+    /// reads its edit.
+    func test_twoGridsOnOneItemShareOneHost() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let a = await mount(item, store, projectStore)
+        let b = await mount(item, store, projectStore)
+        let ca = try XCTUnwrap(a.controller), cb = try XCTUnwrap(b.controller)
+        XCTAssertTrue(a.host === b.host, "one host")
+
+        await type("11", at: 2, 2, in: ca)
+        await type("2030", at: 1, 2, in: cb)
+        ca.undoInGrid()
+        await ca.settleWrites()
+        let host = try XCTUnwrap(a.host)
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)),
+                       "A's ⌘Z declined: B changed the table since")
+        XCTAssertTrue(heard.notices.contains { $0.hasPrefix("Couldn’t undo") })
+
+        a.leave()
+        await a.finishing?.value
+        XCTAssertFalse(host.isClosed, "B still has it")
+        b.leave()
+        // C opens while B is still leaving: it reads after B's last save.
+        let c = await mount(item, store, projectStore)
+        await b.finishing?.value
+        let fresh = try XCTUnwrap(c.host)
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2030", "11"]])
+        XCTAssertEqual(fresh.state.table[key(fresh, 1, 2)]?.content, .value(.number(2030)))
+        XCTAssertEqual(fresh.state.table[key(fresh, 2, 2)]?.content, .value(.number(11)))
+    }
+
+    /// **I3 — an outside change to a clean grid is read again and said**,
+    /// through the window's file presenter; the grid's own save is no
+    /// outside change.
+    func test_anOutsideChangeToACleanGridIsReadAgain() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await store.openResearchTable(itemId: item.id)
+        try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
+        await host.flush()
+        await host.fileMayHaveChanged()
+        XCTAssertTrue(heard.notices.filter { $0.hasPrefix("Reloaded") }.isEmpty, "control: its own save is no outside change")
+
+        let url = file(try XCTUnwrap(item.path))
+        try Data("Year,Revenue\n2025,40\n".utf8).write(to: url)
+        store.presenterDidChangeSubitem(at: url)
+        let reread = await RunLoopPump.until(deadline: 5) {
+            host.state.table[self.key(host, 2, 2)]?.content == .value(.number(40))
+        }
+        XCTAssertTrue(reread, "the outside version was read")
+        XCTAssertTrue(heard.notices.contains { $0.hasPrefix("Reloaded “\(item.title)”") })
+        await store.releaseResearchTable(host)
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "40"]],
+                       "and nothing wrote over it")
+    }
+
+    /// **I3 — an outside change under a pending edit is kept, then the
+    /// grid's version written**: the outside bytes as a conflict backup under
+    /// `.maugham/conflicts/`, named in the notice.
+    func test_anOutsideChangeUnderAPendingEditIsKeptAsABackup() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await store.openResearchTable(itemId: item.id)
+        try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
+        let outside = "Year,Revenue\n2025,40\n"
+        try Data(outside.utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        await host.flush()
+
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "12"]], "the grid's version")
+        let conflicts = file(".maugham/conflicts")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: conflicts.path).filter { $0.contains(item.id) }
+        XCTAssertEqual(backups.count, 1)
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertEqual(try String(contentsOf: conflicts.appendingPathComponent(backup), encoding: .utf8), outside)
+        XCTAssertTrue(heard.notices.contains { $0.contains(backup) }, "the notice names the backup: \(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **I5 — a table past the grid's ceiling is shown as text**, not as
+    /// unreadable; nothing is written.
+    func test_aTableTooLargeForTheGridIsShownAsText() async throws {
+        let (store, projectStore) = try await openBook()
+        let row = Array(repeating: "1", count: 10).joined(separator: ",")
+        let csv = Array(repeating: row, count: TableCSV.figureCellLimit / 10 + 1).joined(separator: "\n") + "\n"
+        let item = try await researchTable("big.csv", csv, in: projectStore)
+        let writes = countWrites()
+        let mount = await mount(item, store, projectStore)
+        guard case .tooLarge(let line) = mount.phase else { return XCTFail("opened as \(mount.phase)") }
+        XCTAssertTrue(line.contains("shown as text"), line)
+        XCTAssertNil(mount.controller)
+        XCTAssertEqual(writes(), 0)
+    }
+
+    /// **⌘S commits what is typed** (the store's flush), leaving the grid open.
+    func test_theStoresFlushCommitsAnOpenCell_andTheGridStaysOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        c.handle(.click(key(c.host, 2, 2), extend: false))
+        c.handle(.type("4"))
+        c.handle(.editTextChanged("42"))
+
+        try await store.flushPendingSave()
+
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "42"]])
+        XCTAssertEqual(mount.phase, .open)
+        guard case .idle = c.model.edit else { return XCTFail("the edit was committed where it was") }
+    }
+
+    /// **A file's byte-order mark and CRLF rows are kept** by a save.
+    func test_aSaveKeepsTheFilesByteOrderMarkAndCRLF() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("excel.csv", "\u{FEFF}Year;Revenue\r\n2025;10\r\n", in: projectStore)
+        let host = try await store.openResearchTable(itemId: item.id)
+        try await host.setCell(Cell(content: .value(.number(12.5))), at: key(host, 2, 2), undoManager: nil)
+        await host.flush()
+
+        let data = try bytes(of: item)
+        XCTAssertTrue(data.starts(with: [0xEF, 0xBB, 0xBF]), "the byte-order mark")
+        XCTAssertEqual(String(data: data.dropFirst(3), encoding: .utf8), "Year;Revenue\r\n2025;\"12,5\"\r\n",
+                       "CRLF rows, still a ';' file")
+        await store.releaseResearchTable(host)
     }
 
     // MARK: - The route

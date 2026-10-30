@@ -8,35 +8,45 @@ private let researchTableLog = Logger(
 
 /// **A Research table's CSV, edited in the table grid** (report plan 8b
 /// Task 7, spec §4.2, ruling D8-3): the grid's second host (`FigureGridHost`).
-/// A Research file follows Research rules — plain, last writer wins, no op
-/// log: the table is held here, each edit changes it in memory and registers
-/// its ⌘Z on the grid's own stack, and the file is written whole.
+/// A Research file has no op log: the table is held here, each edit changes
+/// it in memory and registers its ⌘Z on the grid's own stack, and the file is
+/// written whole.
 ///
+/// - **One per item per window store** (`DocumentStore.openResearchTable`, as
+///   `openFigure` shares a figure's host): every grid on the item edits the
+///   same table, and the last to let go closes it (its last save landed).
 /// - **Opened, it reads** the item's file (`ProjectStore.decodeResearchTable`,
 ///   the store's decoder) through `TableCSV.read` in the book's language, and
 ///   lays the sidecar's header, formats and widths on while the sidecar was
-///   written for these bytes (`contentHash`). A file that is missing, will
-///   not decode or is past `TableCSV.figureCellLimit` throws: the grid says
-///   why and never shows an empty table over it (RULING-7's precedent,
-///   `ResearchNoteLoad`).
+///   written for these bytes (`contentHash`). A file that is missing or will
+///   not decode throws `Unreadable`, one past `TableCSV.figureCellLimit`
+///   `TooLarge` (shown as text instead): the grid never shows an empty table
+///   over a file (RULING-7's precedent, `ResearchNoteLoad`).
 /// - **It writes only on an edit**, never on open: an edit schedules a save
 ///   `saveDelay` later (the research-note cadence), and a later edit moves it
 ///   on. The save writes `TableCSV.renderResearch` in the file's own
-///   separator, UTF-8, through the window's coordinated atomic write
-///   (`DocumentStore.performFileSave`, the item's path asked of the manifest
-///   at the save — tripwire 58's `resolvedProjectPathToChange`); then the
+///   separator and line ending, UTF-8 (with the byte-order mark the file had),
+///   through the window's coordinated atomic write (`performFileSave`, the
+///   item's path asked of the manifest at the save — tripwire 58); then the
 ///   sidecar with the new bytes' hash, keeping `figureId`, `name` and
 ///   `caption`; then `invalidateFigureCards()`, so a figure pinning this table
 ///   says "changed".
-/// - **`flush()`** writes a pending save now: the grid's leave (the subject
-///   moved on, the window closing) and `DocumentStore.flushPendingSave` (⌘S,
-///   the typed mover before a move, the store's close at ⌘Q) reach it — the
-///   store holds every open host (`attachResearchTable`).
+/// - **An outside change is never overwritten silently** (Denver's ruling):
+///   the hash of the bytes last read or written is kept (`diskHash`). The file
+///   changed while the grid holds no edit → read again and said
+///   (`fileMayHaveChanged`, from the window's file presenter); changed under a
+///   pending edit → the outside version is kept as a conflict backup under
+///   `.maugham/conflicts/` (`Document.writeConflictBackup`), said, then the
+///   grid's version is written.
+/// - **`settle()`** writes everything asked: a visit still ending, each open
+///   grid's open edit committed (`addSettler`), then a pending save —
+///   `DocumentStore.flushPendingSave` (⌘S, the typed mover, the store's close
+///   at ⌘Q) and the verbs that read the CSV (`settleResearchTable`) ask it.
 /// - **Undo is the grid's while it is open**: each edit registers one step
-///   restoring the table it replaced (and the redo, the table it made); the
-///   saved file is not versioned (D8-3).
-/// - **Read-only** (`refusal`, set by the mount): every mutator refuses,
-///   writing nothing — the grid's gate says why first.
+///   restoring the table it replaced, declined once the table has moved on
+///   since (another grid, a reload); the saved file is not versioned (D8-3).
+/// - **A view-only share** (`refusal`, set by the mounts): every mutator
+///   refuses. Review is the grid's own gate, as it is for a figure.
 /// - It is not a figure: it offers none of the figure's own commands
 ///   (`FigureGridOffers.none`), asks no figure's door, keeps no pins and
 ///   begins no in-place visit.
@@ -56,6 +66,23 @@ final class ResearchTableHost: FigureGridHost {
         var errorDescription: String? { message }
     }
 
+    /// A table too large for the grid: it is shown as text instead.
+    struct TooLarge: LocalizedError, Equatable {
+        let cells: Int
+        var errorDescription: String? {
+            "This table has \(cells) cells, more than the grid edits (\(TableCSV.figureCellLimit)), so it is shown as text."
+        }
+    }
+
+    /// One read of the item's file.
+    struct FileRead: Sendable {
+        let text: String
+        let hash: String
+        let sidecar: ResearchTableSidecar?
+        let hasBOM: Bool
+        let lineEnding: String
+    }
+
     /// The Research item's id: what the grid is keyed by, and what the
     /// table's formulas call it (`FigureGridValues`' overlay).
     let itemId: String
@@ -66,10 +93,13 @@ final class ResearchTableHost: FigureGridHost {
     var offers: FigureGridOffers { .none }
     var asksTheFigureDoor: Bool { false }
 
-    /// The file's separator, kept by every save.
-    let separator: Character
-    /// While set, every edit refuses with it (the mount's gate: Review, a
-    /// view-only share).
+    /// The file's separator, line ending and byte-order mark, kept by every save.
+    @ObservationIgnored private(set) var separator: Character
+    @ObservationIgnored private(set) var lineEnding: String
+    @ObservationIgnored private(set) var hasBOM: Bool
+    /// The hash of the bytes last read or written here.
+    @ObservationIgnored private(set) var diskHash: String
+    /// While set, every edit refuses with it (a view-only share).
     var refusal: FigureGridGate.Reason?
 
     @ObservationIgnored var _lastUndoWorkTask: Task<Void, Never>?
@@ -86,29 +116,46 @@ final class ResearchTableHost: FigureGridHost {
     @ObservationIgnored private(set) var saving: Task<Void, Never>?
     /// How long after the last edit the file is written.
     @ObservationIgnored var saveDelay: Duration = .milliseconds(750)
+    /// Each open grid's "commit what is typed" (`addSettler`).
+    @ObservationIgnored private var settlers: [UUID: @MainActor () async -> Void] = [:]
+    /// Visits ending: their open edits committed and their writes landing.
+    @ObservationIgnored private var endingVisits: [Task<Void, Never>] = []
 
     /// Test seam: told the text of each write that landed.
     static var wroteForTesting: (@MainActor (String) -> Void)?
 
     private init(itemId: String, projectURL: URL, store: DocumentStore, table: FigureTable,
-                 separator: Character, locale: TableLocale, names: FormulaNames,
-                 sidecar: ResearchTableSidecar?) {
+                 read: FileRead, locale: TableLocale, names: FormulaNames) {
         self.itemId = itemId
         self.projectURL = projectURL
         self.store = store
         self.state = FigureState(kind: .table, table: table)
-        self.separator = separator
+        self.separator = TableCSV.rows(read.text).separator
+        self.lineEnding = read.lineEnding
+        self.hasBOM = read.hasBOM
+        self.diskHash = read.hash
         self.locale = locale
         self.names = names
-        self.sidecar = sidecar
+        self.sidecar = read.sidecar
     }
 
     // MARK: Opening
 
-    /// **Open Research item `itemId`'s table** through the window's stores:
-    /// read, never written. Throws `Unreadable` (or the path's refusal) for a
-    /// file that is not there, will not decode or is too large.
-    static func open(itemId: String, store: DocumentStore) async throws -> ResearchTableHost {
+    /// **Read Research item `itemId`'s table** into a new host — the store's
+    /// to call (`DocumentStore.openResearchTable`, one host per item).
+    /// Read, never written. Throws `Unreadable` (or the path's refusal) for a
+    /// file that is not there or will not decode, `TooLarge` past the limit.
+    static func load(itemId: String, store: DocumentStore) async throws -> ResearchTableHost {
+        let (read, _) = try await readFile(itemId: itemId, store: store)
+        let context = try await store.tableImportContext()
+        return ResearchTableHost(
+            itemId: itemId, projectURL: store.projectURL, store: store,
+            table: table(of: read, context: context), read: read,
+            locale: context.locale, names: context.names)
+    }
+
+    /// The item's file read off the main actor, and its title.
+    private static func readFile(itemId: String, store: DocumentStore) async throws -> (FileRead, String) {
         guard let projectStore = store.projectStore else {
             throw Unreadable(message: "The project isn’t open.")
         }
@@ -118,7 +165,7 @@ final class ResearchTableHost: FigureGridHost {
         }
         let file = try projectStore.resolvedProjectPath(path)
         let projectURL = store.projectURL
-        let (text, hash, sidecar) = try await Task.detached {
+        let read = try await Task.detached { () throws -> FileRead in
             guard FileManager.default.fileExists(atPath: file.path) else {
                 throw Unreadable(message: "Maugham couldn’t find \(path).")
             }
@@ -127,38 +174,68 @@ final class ResearchTableHost: FigureGridHost {
                 throw Unreadable(message: "Maugham couldn’t read \(path) as text.")
             }
             let cells = TableCSV.nonEmptyCellCount(text)
-            guard cells <= TableCSV.figureCellLimit else {
-                throw Unreadable(message: "This table is too large to edit here (\(cells) cells; the limit is \(TableCSV.figureCellLimit)).")
-            }
+            guard cells <= TableCSV.figureCellLimit else { throw TooLarge(cells: cells) }
             // A sidecar that will not read is no sidecar: the table opens as its file reads.
             let sidecar = try? ResearchTableSidecar.read(forItem: itemId, in: projectURL)
-            return (text, ContentHash.of(data), sidecar)
+            // By scalar: a String holds "\r\n" as one Character.
+            let scalars = text.unicodeScalars
+            let crlf = scalars.firstIndex(of: "\n").map {
+                $0 > scalars.startIndex && scalars[scalars.index(before: $0)] == "\r"
+            } ?? false
+            return FileRead(text: text, hash: ContentHash.of(data), sidecar: sidecar,
+                            hasBOM: data.starts(with: [0xEF, 0xBB, 0xBF]), lineEnding: crlf ? "\r\n" : "\n")
         }.value
-        let context = try await store.tableImportContext()
-        let current = sidecar?.contentHash == hash ? sidecar : nil
-        let read = TableCSV.read(
-            text, locale: context.locale, names: current.map { context.names.renaming($0.formulaNames) } ?? context.names)
-        let table = current.map { $0.applied(to: read.table) } ?? read.table
-        let host = ResearchTableHost(
-            itemId: itemId, projectURL: projectURL, store: store, table: table,
-            separator: TableCSV.rows(text).separator, locale: context.locale, names: context.names,
-            sidecar: sidecar)
-        store.attachResearchTable(host)
-        return host
+        return (read, item.title)
+    }
+
+    /// The table a read gives: the sidecar laid on while it was written for these bytes.
+    private static func table(of read: FileRead, context: (locale: TableLocale, names: FormulaNames)) -> FigureTable {
+        let current = read.sidecar?.contentHash == read.hash ? read.sidecar : nil
+        let table = TableCSV.read(
+            read.text, locale: context.locale,
+            names: current.map { context.names.renaming($0.formulaNames) } ?? context.names).table
+        return current.map { $0.applied(to: table) } ?? table
     }
 
     /// **The table read again from its file** (another writer's change): what
     /// is on disk replaces what is held, and an edit not yet written is
-    /// dropped — the file is the last writer.
+    /// dropped.
     func reload() async throws {
         guard let store else { return }
-        let fresh = try await Self.open(itemId: itemId, store: store)
-        store.detachResearchTable(fresh)
+        let (read, _) = try await Self.readFile(itemId: itemId, store: store)
+        let context = try await store.tableImportContext()
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
-        sidecar = fresh.sidecar
-        state = fresh.state
+        sidecar = read.sidecar
+        separator = TableCSV.rows(read.text).separator
+        lineEnding = read.lineEnding
+        hasBOM = read.hasBOM
+        diskHash = read.hash
+        names = context.names
+        state = FigureState(kind: .table, table: Self.table(of: read, context: context))
+    }
+
+    /// **The file may have changed outside Maugham** (the window's file
+    /// presenter, a grid's window coming front): a clean grid whose file no
+    /// longer hashes to what it read or wrote reads it again, and says so. A
+    /// grid holding an edit is left to its save, which keeps the outside
+    /// version first (`write`).
+    func fileMayHaveChanged() async {
+        await saving?.value
+        guard !isClosed, !isDirty, scheduledSave == nil, let store,
+              let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
+              let path = item.path, let file = try? store.resolvedProjectPath(path) else { return }
+        let onDisk = try? await Task.detached { try ContentHash.ofFile(file) }.value
+        guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil else { return }
+        do {
+            try await reload()
+            MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
+                                    projectURL: projectURL)
+        } catch {
+            researchTableLog.error(
+                "\(path, privacy: .public) changed outside and did not read again: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: Saving
@@ -170,23 +247,38 @@ final class ResearchTableHost: FigureGridHost {
         await save()
     }
 
-    /// The grid's visit ending (its open edit committed, its writes landing,
-    /// then `close`), set by the grid's mount as it leaves.
-    @ObservationIgnored var visitEnding: Task<Void, Never>?
+    /// An open grid's "commit what is typed and let it land", asked by
+    /// `settle` (⌘S, ⌘Q, a verb about to read the file).
+    func addSettler(_ id: UUID, _ settle: @escaping @MainActor () async -> Void) {
+        settlers[id] = settle
+    }
 
-    /// **Everything asked of this table, written**: a visit still ending
-    /// lands first, then any pending save — `DocumentStore.flushPendingSave`'s
-    /// wait, so a window's close writes the edit its grid was holding.
+    func removeSettler(_ id: UUID) {
+        settlers[id] = nil
+    }
+
+    /// A grid's visit ending (its open edit committed, its writes landing).
+    func addEndingVisit(_ visit: Task<Void, Never>) {
+        endingVisits.append(visit)
+    }
+
+    /// **Everything asked of this table, written**: visits still ending land
+    /// first, each open grid commits what is typed, then any pending save —
+    /// `DocumentStore.flushPendingSave`'s wait, so ⌘S, ⌘Q and a window's close
+    /// write what the grid was holding.
     func settle() async {
-        await visitEnding?.value
+        let ending = endingVisits
+        for visit in ending { await visit.value }
+        endingVisits.removeAll { ending.contains($0) }
+        for settle in Array(settlers.values) { await settle() }
         await flush()
     }
 
-    /// The visit is over: its last save lands, and nothing more is written.
+    /// The last grid let go (`DocumentStore.releaseResearchTable`): its last
+    /// save lands, and nothing more is written.
     func close() async {
         await flush()
         isClosed = true
-        store?.detachResearchTable(self)
     }
 
     private func scheduleSave() {
@@ -214,7 +306,8 @@ final class ResearchTableHost: FigureGridHost {
         await task.value
     }
 
-    /// The file, then its sidecar, then the cards: what one save writes.
+    /// The outside version, the file, then its sidecar, then the cards: what
+    /// one save writes.
     private func write(_ table: FigureTable) async {
         guard let store else { return }
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
@@ -223,21 +316,27 @@ final class ResearchTableHost: FigureGridHost {
                                     projectURL: projectURL)
             return
         }
+        guard await keepTheOutsideVersion(of: item, at: path) else {
+            isDirty = true   // the next edit, or the close, tries again
+            return
+        }
         // The names its formulas read as they are now; the ones it opened with if they will not read.
         if let fresh = try? await store.formulaNamesForUse() { names = fresh }
-        let text = TableCSV.renderResearch(table, locale: locale, names: names, separator: separator)
+        let text = (hasBOM ? "\u{FEFF}" : "") + TableCSV.renderResearch(
+            table, locale: locale, names: names, separator: separator, lineEnding: lineEnding)
         do {
             try await store.performFileSave(path: path, text: text)
         } catch {
-            isDirty = true   // the next edit, or the close, tries again
+            isDirty = true
             researchTableLog.error(
                 "\(path, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
             MaughamEvent.postNotice("Couldn’t save “\(item.title)”: \(error.localizedDescription)",
                                     projectURL: projectURL)
             return
         }
+        diskHash = ContentHash.of(Data(text.utf8))
         var next = ResearchTableSidecar(
-            figureId: "", contentHash: ContentHash.of(Data(text.utf8)), name: "",
+            figureId: "", contentHash: diskHash, name: "",
             caption: sidecar?.caption, table: table, formulaNames: names.cited(by: table))
         next.figureId = sidecar?.figureId
         next.name = sidecar?.name
@@ -250,6 +349,34 @@ final class ResearchTableHost: FigureGridHost {
         }
         store.invalidateFigureCards()
         Self.wroteForTesting?(text)
+    }
+
+    /// **The file changed outside since it was read or written here**: its
+    /// bytes are kept as a conflict backup and the writer told, before the
+    /// grid's version replaces them. False — write nothing — when they could
+    /// not be kept. A file that is gone has nothing to keep.
+    private func keepTheOutsideVersion(of item: ResearchItem, at path: String) async -> Bool {
+        guard let file = try? store?.resolvedProjectPath(path) else { return true }
+        let outside = await Task.detached { () -> Data? in
+            try? Data(contentsOf: file) // adr-0018-ok: a Research table's CSV, compared before a save; not manuscript
+        }.value
+        guard let outside, ContentHash.of(outside) != diskHash else { return true }
+        let text = ProjectStore.decodeResearchTable(outside) ?? String(decoding: outside, as: UTF8.self)
+        do {
+            let backup = try Document.writeConflictBackup(forFileAt: file, docId: itemId, text: text, kind: "outside")
+            MaughamEvent.postNotice(
+                "“\(item.title)” changed outside Maugham while you were editing it. That version is kept in "
+                    + ".maugham/conflicts/\(backup.lastPathComponent); yours was saved.",
+                projectURL: projectURL)
+            return true
+        } catch {
+            researchTableLog.error(
+                "\(path, privacy: .public)'s outside version was not kept: \(error.localizedDescription, privacy: .public)")
+            MaughamEvent.postNotice(
+                "“\(item.title)” changed outside Maugham, and that version couldn’t be kept, so your edits weren’t saved over it.",
+                projectURL: projectURL)
+            return false
+        }
     }
 
     // MARK: Editing
@@ -265,21 +392,27 @@ final class ResearchTableHost: FigureGridHost {
         guard next != state.table else { return }
         let prior = state.table
         state.table = next
-        register(undoManager, actionName, restoring: prior)
+        register(undoManager, actionName, restoring: prior, over: next)
         scheduleSave()
     }
 
-    /// One step on `undoManager` putting `prior` back; taken, it registers
-    /// the table it replaced — the redo (and the redo's undo again).
-    private func register(_ undoManager: UndoManager?, _ actionName: String, restoring prior: FigureTable) {
+    /// One step on `undoManager` putting `prior` back over `made`; taken, it
+    /// registers the reverse — the redo (and the redo's undo again). Declined,
+    /// and said, once the table is no longer `made` (another grid's edit, a
+    /// reload): a step never takes back what it did not make.
+    private func register(_ undoManager: UndoManager?, _ actionName: String,
+                          restoring prior: FigureTable, over made: FigureTable) {
         guard let undoManager else { return }
         undoManager.registerUndo(withTarget: self) { [weak undoManager] host in
             // The grid's stack is run on the main thread (`undoInGrid`).
             MainActor.assumeIsolated {
                 guard !host.isClosed, host.refusal == nil else { return }
-                let replaced = host.state.table
+                guard host.state.table == made else {
+                    return MaughamEvent.postNotice(
+                        "Couldn’t undo “\(actionName)”: the table has changed since.", projectURL: host.projectURL)
+                }
                 host.state.table = prior
-                host.register(undoManager, actionName, restoring: replaced)
+                host.register(undoManager, actionName, restoring: made, over: prior)
                 host.scheduleSave()
             }
         }
