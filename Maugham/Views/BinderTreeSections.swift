@@ -1010,6 +1010,12 @@ final class BinderTreeSectionsState {
     /// A figure made from Research whose row has not been drawn yet: revealed
     /// when it is (`revealFigureWhenDrawn`).
     @ObservationIgnored var pendingFigureReveal: String?
+    /// Which reveal request is the newest, so an older one's expiry never
+    /// lets a newer request for the same figure go.
+    @ObservationIgnored var pendingFigureRevealToken = 0
+    /// **A figure dropped on Research, waiting on its confirmation** (D8-2):
+    /// what `FigureSendConfirmation`'s alert asks about; nil when none.
+    var pendingFigureSend: PendingFigureSend?
 
     /// Whether `section` is open — the flag its header's chevron reads.
     func isExpanded(_ section: BinderTreeSection) -> Bool {
@@ -1292,6 +1298,8 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                     set: { if !$0 { state.pendingError = nil } })) {
                 Button("OK", role: .cancel) {}
             }
+            // A figure dropped on Research asks first (D8-2).
+            .modifier(FigureSendConfirmation(store: store, state: state))
             // **"Link Research…" returns** (stage-3b Task 9) — the tree drag
             // was the only in-app route to `linkResearch`/`unlinkResearch`
             // once `ResearchLinkPickerSheet`'s only host (`LinkedResearchPane`)

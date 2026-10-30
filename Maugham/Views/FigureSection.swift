@@ -131,9 +131,11 @@ extension BinderTreeSectionsState {
             return nil
         }
         pendingFigureReveal = figureId
+        pendingFigureRevealToken += 1
+        let token = pendingFigureRevealToken, window = Self.figureRevealWindow
         return Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.figureRevealWindow)
-            if self?.pendingFigureReveal == figureId { self?.pendingFigureReveal = nil }
+            try? await Task.sleep(for: window)
+            if self?.pendingFigureRevealToken == token { self?.pendingFigureReveal = nil }
         }
     }
 
@@ -224,17 +226,32 @@ extension BinderTreeSections {
         if state.showsFigures(projectType: store.manifest.type) {
             Section {
                 if state.figuresSectionExpanded {
-                    let verbs = FigureSectionVerbs(store: store, state: state)
+                    let figureVerbs = FigureSectionVerbs(store: store, state: state)
                     ForEach(state.drawnFigureRows) { row in
                         FigureRow(row: row, renamingItemId: $state.renamingItemId,
-                                  actions: verbs.actions(for: row))
+                                  actions: figureVerbs.actions(for: row) { ids in
+                                      figuresDrop(ids, on: .figureRow(row.id))
+                                  })
                     }
                 }
             } header: {
                 figuresHeader
                     .id(TreeScrollTarget.figuresHeader)
+                    // String-only, mounted here: a Research table, picture or
+                    // PDF dropped on Figures is *Use in Document* (report
+                    // plan 8b Task 5). No Finder file lands on Figures.
+                    .dropDestination(for: String.self) { ids, _ -> Bool in
+                        return figuresDrop(ids, on: .figuresSection)
+                    }
             }
         }
+    }
+
+    /// A drop on the Figures section — its header or a figure's row —
+    /// classified and performed (`BinderTreeVerbs.routeFiguresDrop`).
+    func figuresDrop(_ ids: [String], on target: TreeDropIntent.Target) -> Bool {
+        guard let id = ids.first else { return false }
+        return verbs.routeFiguresDrop(draggedId: id, target: target)
     }
 
     /// The chevron, the title and — while a piece filters the section — its
@@ -311,19 +328,115 @@ struct FigureSectionVerbs {
         return shared.useInDocument(item, reveal: { state.revealFigureWhenDrawn($0) })
     }
 
-    func actions(for row: FigureTreeRow) -> FigureRowActions {
+    func actions(for row: FigureTreeRow,
+                 drop: @escaping ([String]) -> Bool = { _ in false }) -> FigureRowActions {
         let shared = shared, listing = row.listing
         return FigureRowActions(
             mayEdit: { shared.mayEdit(listing.figureId) },
             sendDestinations: shared.sendDestinations(for: listing),
             openInWindow: { shared.openInWindow(listing) },
             sendToResearch: { _ = shared.sendToResearch(listing, to: $0) },
-            rename: { _ = shared.rename(listing.figureId, to: $0) })
+            rename: { _ = shared.rename(listing.figureId, to: $0) },
+            drop: drop)
     }
+
+    // MARK: The drags (report plan 8b Task 5)
+
+    /// Said when a window that refuses figure writes is dropped on Figures.
+    static let windowMakesNoFigures = "This window doesn’t change figures, so nothing was made."
+    /// Said when a figure this Mac may not change is dropped on Research.
+    static let mayNotSend = "This Mac may not change this figure, so it stays in Figures."
+
+    /// **A Research item dropped on Figures** is *Use in Document* — Task 4's
+    /// verb, no confirmation (D8-2). Refused, with the reason, where the
+    /// window refuses figure writes; the figure's own door is the store's.
+    /// Answers the work (nil when refused), which a test awaits.
+    @discardableResult
+    func dropToUse(researchId: String) -> Task<Void, Never>? {
+        guard let item = TreeWalk.find(id: researchId, in: store.manifest.research) else { return nil }
+        guard !shared.windowRefusesWrites() else {
+            state.pendingError = Self.windowMakesNoFigures
+            return nil
+        }
+        return useInDocument(item)
+    }
+
+    /// **A figure dropped on Research asks first** (D8-2): the confirmation
+    /// is `state.pendingFigureSend`. A figure this Mac may not change gets
+    /// no question, only the reason.
+    func dropToSend(figureId: String, scope: ResearchScope, group: String?) -> Bool {
+        guard shared.mayEdit(figureId) else {
+            state.pendingError = Self.mayNotSend
+            return false
+        }
+        let row = state.figureRows.first { $0.id == figureId }
+        let name = row?.listing.name ?? store.manifest.figures?.first { $0.id == figureId }?.name ?? figureId
+        state.pendingFigureSend = PendingFigureSend(
+            figureId: figureId, scope: scope, group: group,
+            called: row.map { $0.isUnused ? "“\(name)”" : $0.listing.number } ?? "“\(name)”",
+            hasLine: row.map { !$0.isUnused } ?? false)
+        return true
+    }
+
+    /// The confirmation's Send: the figure goes (`FigureActions`, which folds
+    /// its grids first); answers the work, which a test awaits.
+    @discardableResult
+    func confirmFigureSend(_ pending: PendingFigureSend) -> Task<Void, Never> {
+        state.pendingFigureSend = nil
+        return shared.sendToResearch(figureId: pending.figureId, scope: pending.scope,
+                                     intoGroup: pending.group, called: pending.called)
+    }
+
+    /// The confirmation's Cancel: nothing changes.
+    func cancelFigureSend() { state.pendingFigureSend = nil }
 
     /// A piece's title for the filter chip; its id when the binder has none.
     static func pieceTitle(_ documentId: String, in structure: [StructureItem]) -> String {
         TreeWalk.find(id: documentId, in: structure)?.title ?? documentId
+    }
+}
+
+// MARK: - The drop's confirmation (D8-2)
+
+/// **What dropping a figure on Research asks** (D8-2): "Send Table 3 to
+/// Research? Its line leaves the text. This can’t be undone." An unused
+/// figure is called by its name and has no line to lose.
+struct PendingFigureSend: Equatable {
+    let figureId: String
+    let scope: ResearchScope
+    /// The group the drop named, moved into after the send.
+    let group: String?
+    /// "Table 3", or the quoted name of an unused figure.
+    let called: String
+    let hasLine: Bool
+
+    var title: String { "Send \(called) to Research?" }
+    var message: String {
+        (hasLine ? "Its line leaves the text. " : "") + "This can’t be undone."
+    }
+}
+
+/// The tree's confirmation alert, beside its error alert
+/// (`BinderTreeSectionsPresentations`). Its buttons are
+/// `FigureSectionVerbs.confirmFigureSend` / `cancelFigureSend`, handed the
+/// question the alert presents.
+struct FigureSendConfirmation: ViewModifier {
+    let store: ProjectStore
+    let state: BinderTreeSectionsState
+
+    func body(content: Content) -> some View {
+        let verbs = FigureSectionVerbs(store: store, state: state)
+        content.alert(
+            state.pendingFigureSend?.title ?? "",
+            isPresented: Binding(get: { state.pendingFigureSend != nil },
+                                 set: { if !$0 { state.pendingFigureSend = nil } }),
+            presenting: state.pendingFigureSend
+        ) { pending in
+            Button("Send to Research", role: .destructive) { verbs.confirmFigureSend(pending) }
+            Button("Cancel", role: .cancel) { verbs.cancelFigureSend() }
+        } message: { pending in
+            Text(pending.message)
+        }
     }
 }
 

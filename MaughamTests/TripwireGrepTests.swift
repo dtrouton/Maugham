@@ -7799,7 +7799,10 @@ final class TripwireGrepTests: XCTestCase {
         // because what a Finder file dropped on a piece row means must not be
         // decided twice — the internal side needed three verbs only because
         // three of them compute an insertion index.
-        "routeExternalDrop("
+        "routeExternalDrop(",
+        // The Figures section's header and rows (report plan 8b Task 5): a
+        // Research item dropped there is *Use in Document*, a figure refused.
+        "routeFiguresDrop("
     ]
     /// The file that DEFINES them, which naturally contains all three.
     private static let treeDropRouterDefiner = "BinderTreeDrops.swift"
@@ -7834,7 +7837,8 @@ final class TripwireGrepTests: XCTestCase {
                                           "routeResearchRowDrop(",
                                           "routeSharedSectionDrop("],
              "BinderPieceFold.swift": ["routeExternalDrop(",
-                                       "routeResearchRowDrop("]],
+                                       "routeResearchRowDrop("],
+             "FigureSection.swift": ["routeFiguresDrop("]],
             "Every drop target in the binder tree routes through "
             + "`TreeDropIntent`, via `BinderTreeDrops`.\n\n"
             + "If you ADDED a target: call the matching router and add the file "
@@ -13185,12 +13189,22 @@ final class TripwireGrepTests: XCTestCase {
         // offered only where the window does not refuse figure writes. The
         // Research row's menu reaches it through `FigureSectionVerbs` (the
         // tree's bundle in BinderTreeSections), the Research inspector through
-        // its own static (the button and the static). FigureActions'
+        // its own static (the button and the static). A drop on Figures
+        // (plan 8b Task 5) is the same verb in FigureSection.swift
+        // (`dropToUse`, refused where the window refuses figure writes), and
+        // a figure dropped on Research sends there once its confirmation is
+        // answered (`confirmFigureSend`, asked only where `mayEdit`).
+        // FigureActions'
         // `bringBack(` hits are NOT calls: `ResearchVerb`'s case declaration
         // and its construction (`.bringBack(figureId:)`); the return reaches
         // the store's `bringBack` only through `useInDocument`'s routing.
         "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1, "useInDocument(": 1, "bringBack(": 2],
-        "FigureSection.swift": ["sendToResearch(": 1, "useInDocument(": 1],
+        "FigureSection.swift": ["sendToResearch(": 2, "useInDocument(": 2],
+        // NOT calls: `TreeDropIntent.Intent.useInDocument(researchId:)`'s
+        // declaration and construction, and its match in the performer, which
+        // calls `FigureSectionVerbs.dropToUse` above (plan 8b Task 5).
+        "TreeDropIntent.swift": ["useInDocument(": 2],
+        "BinderTreeDrops.swift": ["useInDocument(": 1],
         "BinderTreeSections.swift": ["useInDocument(": 1],
         "InspectorResearchPanel.swift": ["useInDocument(": 2],
         "FigureRow.swift": ["sendToResearch(": 1],

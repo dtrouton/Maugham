@@ -53,6 +53,11 @@ enum TreeDropIntent {
         /// thing, so a note dropped inside chapter 3's fold joins chapter 3
         /// rather than reordering shared research behind the writer's back.
         case foldRow(rowId: String, documentId: String)
+        /// The Figures section's header (report plan 8b Task 5).
+        case figuresSection
+        /// A figure's row in the Figures section. A Research item dropped on
+        /// one means what the header means: the section has no order to set.
+        case figureRow(String)
     }
 
     /// Why a drop was refused. Carried so the refusal can say what it was —
@@ -93,6 +98,14 @@ enum TreeDropIntent {
         /// it came from, so unlinking one (or all) would delete a link the
         /// writer never pointed at.
         case ambiguousSource
+        /// Dropped on Figures, but nothing a figure can be made from: a note,
+        /// a link, a group, a manuscript row — or a book that holds none.
+        case notAFigureKind
+        /// A figure dropped on the Figures header: it is already there.
+        case alreadyInFigures
+        /// A figure dropped on another figure's row. Numbers follow the text,
+        /// so the section has no order a drag could set (spec §7).
+        case figuresHaveNoOrder
 
         var explanation: String {
             switch self {
@@ -105,6 +118,9 @@ enum TreeDropIntent {
             case .ambiguousSource: return "linked to more than one document"
             case .linkedFoldHasNoOrder:
                 return "a linked chapter's research has no order of its own to set"
+            case .notAFigureKind: return "only a table, picture or PDF from Research becomes a figure"
+            case .alreadyInFigures: return "already in Figures"
+            case .figuresHaveNoOrder: return "figures are numbered by the text, not by a drag"
             }
         }
     }
@@ -126,22 +142,41 @@ enum TreeDropIntent {
         /// The binder's own manuscript reorder, untouched by this task — the
         /// host delegates to `DropIntent.classify` / `moveStructureItem`.
         case structureReorder
+        /// A Research table, picture or PDF dropped on Figures: *Use in
+        /// Document* (`FigureActions.useInDocument`), no confirmation (D8-2).
+        case useInDocument(researchId: String)
+        /// A figure dropped on Research: *Send to Research* into `scope`, then
+        /// into `group` when the drop named one — asked first (D8-2).
+        case sendFigureToResearch(figureId: String, scope: ResearchScope, group: String?)
         case refuse(Reason)
     }
 
     // MARK: - The classifier
 
+    /// `figures` is the registry (`manifest.figures`): a payload found there
+    /// is a figure row's drag (report plan 8b Task 5).
     static func classify(
         payloadId: String,
         target: Target,
         structure: [StructureItem],
         research: [ResearchItem],
+        figures: [FigureRecord],
         projectType: ProjectType
     ) -> Intent {
         if let dragged = TreeWalk.find(id: payloadId, in: research) {
+            if isFigures(target) {
+                guard projectType.holdsFigures, FigureActions.makesAFigure(dragged) else {
+                    return .refuse(.notAFigureKind)
+                }
+                return .useInDocument(researchId: dragged.id)
+            }
             return classifyResearch(
                 dragged: dragged, target: target, structure: structure,
                 research: research, projectType: projectType)
+        }
+        if figures.contains(where: { $0.id == payloadId }) {
+            return classifyFigure(payloadId, target: target, structure: structure,
+                                  research: research, projectType: projectType)
         }
         if TreeWalk.find(id: payloadId, in: structure) != nil {
             switch target {
@@ -153,9 +188,95 @@ enum TreeDropIntent {
                 return .structureReorder
             case .sharedSection, .researchRow, .foldRow:
                 return .refuse(.structureOntoResearch)
+            case .figuresSection, .figureRow:
+                return .refuse(.notAFigureKind)
             }
         }
         return .refuse(.unknownId)
+    }
+
+    private static func isFigures(_ target: Target) -> Bool {
+        switch target {
+        case .figuresSection, .figureRow: return true
+        case .pieceRow, .sharedSection, .researchRow, .foldRow: return false
+        }
+    }
+
+    // MARK: - A figure, by where it was dropped (report plan 8b Task 5)
+
+    /// **A figure dropped on Research is *Send to Research*** — into the scope
+    /// the target names, and into a group when it names one. A piece row or
+    /// a row in its fold is that piece's Research, as a note dropped there is
+    /// (`ProjectStore.researchRouting`); a shared row is shared Research, its
+    /// container's group included. Within Figures nothing moves.
+    private static func classifyFigure(
+        _ figureId: String, target: Target, structure: [StructureItem],
+        research: [ResearchItem], projectType: ProjectType
+    ) -> Intent {
+        switch target {
+        case .figuresSection:
+            return .refuse(.alreadyInFigures)
+        case .figureRow(let rowId):
+            return .refuse(rowId == figureId ? .sameRow : .figuresHaveNoOrder)
+        case .sharedSection:
+            return .sendFigureToResearch(figureId: figureId, scope: .shared, group: nil)
+        case .pieceRow(let documentId):
+            return sendFigure(figureId, toDocument: documentId, besideRow: nil,
+                              structure: structure, research: research, projectType: projectType)
+        case .foldRow(let rowId, let documentId):
+            return sendFigure(figureId, toDocument: documentId, besideRow: rowId,
+                              structure: structure, research: research, projectType: projectType)
+        case .researchRow(let rowId):
+            guard TreeWalk.find(id: rowId, in: research) != nil else { return .refuse(.unknownId) }
+            return sendFigure(figureId, besideRow: rowId, structure: structure, research: research)
+        }
+    }
+
+    /// Onto a document: its Research. A Collection piece's fold is a folder
+    /// whose rows have a place (a group, or beside a row); a novel chapter's
+    /// is links, so the copy is linked to the chapter and placed nowhere.
+    private static func sendFigure(
+        _ figureId: String, toDocument documentId: String, besideRow rowId: String?,
+        structure: [StructureItem], research: [ResearchItem], projectType: ProjectType
+    ) -> Intent {
+        guard let document = TreeWalk.find(id: documentId, in: structure) else {
+            return .refuse(.unknownId)
+        }
+        guard let routing = try? ProjectStore.researchRouting(for: document, projectType: projectType) else {
+            return .refuse(.notAResearchTarget)
+        }
+        switch routing {
+        case .sharedOnly:
+            return .sendFigureToResearch(figureId: figureId, scope: .shared, group: nil)
+        case .sharedPlusLink(let docId):
+            return .sendFigureToResearch(figureId: figureId, scope: .document(docId), group: nil)
+        case .pieceFolder(let pieceId):
+            if let rowId, TreeWalk.find(id: rowId, in: research) != nil,
+               owningPieceId(of: rowId, structure: structure, research: research) == pieceId {
+                return sendFigure(figureId, besideRow: rowId, structure: structure, research: research)
+            }
+            return .sendFigureToResearch(figureId: figureId, scope: .document(pieceId), group: nil)
+        }
+    }
+
+    /// Onto a Research row: a group means into it; a leaf means its container
+    /// (`container(ofRow:)`, the rule a note's drop uses).
+    private static func sendFigure(
+        _ figureId: String, besideRow rowId: String,
+        structure: [StructureItem], research: [ResearchItem]
+    ) -> Intent {
+        let destination: ResearchMoveTarget = TreeWalk.find(id: rowId, in: research)?.type == .group
+            ? .group(rowId) : container(ofRow: rowId, structure: structure, research: research)
+        switch destination {
+        case .sharedRoot:
+            return .sendFigureToResearch(figureId: figureId, scope: .shared, group: nil)
+        case .piece(let pieceId):
+            return .sendFigureToResearch(figureId: figureId, scope: .document(pieceId), group: nil)
+        case .group(let groupId):
+            let scope: ResearchScope = owningPieceId(of: groupId, structure: structure, research: research)
+                .map { .document($0) } ?? .shared
+            return .sendFigureToResearch(figureId: figureId, scope: scope, group: groupId)
+        }
     }
 
     // MARK: - A research item, by where it was dropped
@@ -228,6 +349,10 @@ enum TreeDropIntent {
         case .sharedSection:
             return outOfScope(dragged: dragged, structure: structure,
                               research: research, projectType: projectType)
+
+        case .figuresSection, .figureRow:
+            // `classify` answers Figures before it asks here.
+            return .refuse(.notAFigureKind)
         }
     }
 
@@ -443,6 +568,10 @@ enum TreeDropIntent {
             }
             return intoDocument(documentId, structure: structure,
                                 projectType: projectType)
+
+        case .figuresSection, .figureRow:
+            // Figures mounts a String destination only: a file never lands.
+            return .refuse(.notAFigureKind)
         }
     }
 

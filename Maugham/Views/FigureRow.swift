@@ -13,6 +13,9 @@ struct FigureRowActions {
     let openInWindow: () -> Void
     let sendToResearch: (FigureResearchDestination) -> Void
     let rename: (_ newName: String) -> Void
+    /// A drag dropped on the row (`BinderTreeSections.figuresDrop`): accepted
+    /// or refused by the classifier, never by the row.
+    let drop: ([String]) -> Bool
 }
 
 /// **One row of the tree's Figures section** (report plan 8a Task 4, spec
@@ -94,6 +97,11 @@ struct FigureRow: View {
                 Text(row.title)
                     .padding(6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+            }
+            // String-only (report plan 8b Task 5): a Research item dropped
+            // here is *Use in Document*; another figure is refused.
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return actions.drop(ids)
             }
             .contextMenu { menu }
         }

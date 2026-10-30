@@ -100,14 +100,48 @@ struct FigureActions {
         case .shared:
             scope = .shared
         }
-        let windows = figureWindows, figureId = row.figureId, store = store
+        return park(row.figureId, scope: scope, then: nil)
+    }
+
+    /// **Send to Research by a drop** (report plan 8b Task 5): into `scope`,
+    /// then — when the drop named a group — into `group` through the typed
+    /// mover. A move that fails leaves the copy at the scope's root and says
+    /// so, calling the figure `called`.
+    @discardableResult
+    func sendToResearch(figureId: String, scope: ResearchScope, intoGroup group: String?,
+                        called: String) -> Task<Void, Never> {
+        let store = store
+        return park(figureId, scope: scope, then: group.map { group in { copy in
+            do { try await store.moveResearchItems(ids: [copy.id], to: .group(group)) } catch {
+                let groupTitle = TreeWalk.find(id: group, in: store.manifest.research)?.title ?? group
+                throw FigureGroupMoveFailed(called: called, group: groupTitle,
+                                            reason: error.localizedDescription)
+            }
+        } })
+    }
+
+    /// The send itself: every grid on the figure folds, then the park; a
+    /// refusal brings a folded grid back. `then` follows a park that landed.
+    private func park(_ figureId: String, scope: ResearchScope,
+                      then: (@MainActor (ResearchItem) async throws -> Void)?) -> Task<Void, Never> {
+        let windows = figureWindows, store = store
         return run {
             await windows?.foldGrids(on: figureId)
-            do { _ = try await store.sendToResearch(figureId: figureId, scope: scope) } catch {
+            let copy: ResearchItem
+            do { copy = try await store.sendToResearch(figureId: figureId, scope: scope) } catch {
                 // Refused: the figure stays, and a grid folded for it comes back.
                 windows?.sendRefused(figureId)
                 throw error
             }
+            try await then?(copy)
+        }
+    }
+
+    /// The figure reached Research, but not the group it was dropped on.
+    struct FigureGroupMoveFailed: LocalizedError {
+        let called: String, group: String, reason: String
+        var errorDescription: String? {
+            "\(called) is in Research, but it couldn’t go into “\(group)”, so it is at the top: \(reason)"
         }
     }
 
@@ -205,13 +239,19 @@ struct FigureActions {
         }
     }
 
+    /// Whether a figure can be made from `item`: a table, picture or PDF —
+    /// what the row menu offers the verb on and a drop on Figures accepts.
+    nonisolated static func makesAFigure(_ item: ResearchItem) -> Bool {
+        item.type == .asset && [.table, .image, .pdf].contains(item.kind)
+    }
+
     /// The verb a Research item's row menu and inspector offer, or none: only
     /// a picture, table or PDF, in a project whose manuscript holds figures,
     /// in a window that does not refuse figure writes. `returning` is the
     /// store's cached answer (`BinderTreeSectionsState.figureReturns`).
     func researchVerb(for item: ResearchItem, returning figureId: String?) -> ResearchVerb? {
-        guard item.type == .asset, [.table, .image, .pdf].contains(item.kind),
-              store.manifest.type.holdsFigures, !windowRefusesWrites() else { return nil }
+        guard Self.makesAFigure(item), store.manifest.type.holdsFigures,
+              !windowRefusesWrites() else { return nil }
         return figureId.map { .bringBack(figureId: $0) } ?? .use
     }
 
