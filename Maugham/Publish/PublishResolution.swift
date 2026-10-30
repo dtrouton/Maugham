@@ -407,7 +407,7 @@ private struct Pass {
             return
         case .outsideFigures:
             let file = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
-            reportOnce(.figureInResearch(name: file), piece: piece, paragraph: paragraph)
+            reportOnce(.tableInResearchFolder(name: file), piece: piece, paragraph: paragraph)
         case .missing:
             reportOnce(.figureNotFound(path), piece: piece, paragraph: paragraph)
         case .ambiguous:
@@ -432,7 +432,7 @@ private struct Pass {
         var kinds: [PublishProblem.Kind] = []
         if let cell = layout.errorCells.first {
             kinds.append(.tableFigureErrorCell(name: name, cell: cell,
-                                               error: Self.displayed(cell, in: layout) ?? "an error"))
+                                               error: Self.displayed(cell, in: layout)))
         }
         if pins.values.contains(.sourceMissing) { kinds.append(.tableFigureSourceMissing(name: name)) }
         if !pins.isEmpty { kinds.append(.tableFigureReadsResearch(name: name)) }

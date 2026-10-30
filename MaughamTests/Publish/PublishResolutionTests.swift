@@ -531,6 +531,7 @@ final class PublishResolutionTests: XCTestCase {
         case .tableFigureSourceMissing: return true
         case .tableFigureUnreadable: return true
         case .figureInResearch: return true
+        case .tableInResearchFolder: return false
         case .tableFigureReadsResearch: return false
         case .tableFigureResearchChanged: return false
         case .tableFigureNPVNote: return false
@@ -547,7 +548,8 @@ final class PublishResolutionTests: XCTestCase {
          .tableFigureLabelledFig(label("fig:x")),
          .figureLineSharesParagraph("figures/x.csv"),
          .tableFigureErrorCell(name: "x", cell: "A1", error: "#DIV/0!"), .tableFigureSourceMissing(name: "x"),
-         .tableFigureUnreadable(name: "x"), .figureInResearch(name: "x"),
+         .tableFigureUnreadable(name: "x"), .figureInResearch(name: "x"), .tableInResearchFolder(name: "x"),
+         .tableFigureErrorCell(name: "x", cell: "A1", error: nil),
          .tableFigureReadsResearch(name: "x"), .tableFigureResearchChanged(name: "x"),
          .tableFigureNPVNote(name: "x", cell: "A1")]
     }

@@ -32,7 +32,8 @@ final class PublishProblemTableFigureTests: XCTestCase {
 
     private func figures(_ cells: [String] = ["1234.5", "=A1*2"], parked: Bool = false,
                          pins: [String: PinStatus] = [:], sourceChanged: Bool = false,
-                         state: Bool = true, twin: Bool = false) throws -> PublishFigures {
+                         state: Bool = true, twin: Bool = false,
+                         otherTable: FigureTable? = nil) throws -> PublishFigures {
         let table = try table(cells)
         var records = [FigureRecord(id: cashID, name: "cash", kind: .table, piece: nil, path: "figures/cash.csv")]
         if twin {
@@ -44,6 +45,7 @@ final class PublishProblemTableFigureTests: XCTestCase {
             parked: parked ? FigureParking(path: "research/cash.csv", hash: "h") : nil)] : [:]
         var book = Workbook(pins: FigurePinIndex())
         book.setTable(table, id: cashID)
+        if let otherTable { book.setTable(otherTable, id: otherID) }   // in the workbook, on no line
         return PublishFigures(records: records, states: states, workbook: book,
                               pinStatus: pins.isEmpty ? [:] : [cashID: pins],
                               sourceChanged: sourceChanged ? [cashID] : [], parked: parked ? [cashID] : [])
@@ -147,6 +149,22 @@ final class PublishProblemTableFigureTests: XCTestCase {
         XCTAssertTrue(r.problems.first?.message.contains("A2") ?? false)
     }
 
+    /// The workbook holds every table; a note addressed to another one is
+    /// not this figure's.
+    func test_theNPVNoteIgnoresNotesOnOtherTables() throws {
+        let other = try table(["=NPV(8%,-100,30)"])
+        var premise = Workbook(pins: FigurePinIndex())
+        premise.setTable(other, id: otherID)
+        XCTAssertFalse(premise.notes.isEmpty, "premise: the other table carries an NPV note")
+        XCTAssertEqual(kinds(try resolve(twoLines, try figures(otherTable: other))), [])
+    }
+
+    func test_anErrorCellWhosePrintedTextIsUnknownSaysNoParenthesis() {
+        let p = PublishProblem(kind: .tableFigureErrorCell(name: "cash", cell: "A1", error: nil),
+                               pieceID: "a", paragraphID: nil, bodyTag: nil)
+        XCTAssertEqual(p.message, "Table “cash” has an error in A1. Fix the cell in the table to publish it.")
+    }
+
     func test_aCleanFigureRaisesNothing() throws {
         XCTAssertEqual(kinds(try resolve(twoLines, try figures())), [])
     }
@@ -171,11 +189,21 @@ final class PublishProblemTableFigureTests: XCTestCase {
         XCTAssertEqual(r.tableNumbers, ["a": [0: 1, 2: 2]])
     }
 
+    /// Spec §4.4: a legacy line into a Research folder keeps working — a
+    /// note, amber even in a Report, which still publishes.
     func test_aLegacyResearchLineIsInResearch() throws {
-        let r = try resolve("![Model](../research/model.csv)\n\nSee Table 1.", try figures())
-        XCTAssertEqual(kinds(r), [.figureInResearch(name: "model")])
+        let figs = try figures()
+        let r = try resolve("![Model](../research/model.csv)\n\nSee Table 1.", figs)
+        XCTAssertEqual(kinds(r), [.tableInResearchFolder(name: "model")])
+        XCTAssertEqual(r.problems.first?.message, "Table “model” is read from a Research folder, "
+                       + "so it publishes as written. Move it into Figures to publish its cells.")
         XCTAssertEqual(r.tableFigures, [:], "no layout: its literal source prints")
         XCTAssertEqual(r.tableNumbers, ["a": [0: 1]], "its number is kept")
+        assertSeverity(.tableInResearchFolder(name: "model"), redInAReport: false)
+        guard case .passed = PublishProblemGate.judge(r.problems, context: context(figs),
+                                                      refusesOnErrors: true) else {
+            return XCTFail("a Report publishes a legacy Research line")
+        }
     }
 
     // MARK: - a line the registry can't print

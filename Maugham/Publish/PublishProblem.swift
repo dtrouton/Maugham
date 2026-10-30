@@ -58,17 +58,20 @@ public struct PublishProblem: Sendable, Hashable {
         case figureLineSharesParagraph(String)
         /// A table figure showing a formula error (report plan 9a, spec §9):
         /// its first error cell's A1 name and the error it shows (`#DIV/0!`),
-        /// once per figure.
-        case tableFigureErrorCell(name: String, cell: String, error: String)
+        /// nil when the printed cell can't be found; once per figure.
+        case tableFigureErrorCell(name: String, cell: String, error: String?)
         /// A table figure whose formulas read a Research source that is gone.
         case tableFigureSourceMissing(name: String)
         /// A table figure its line can't print: its state did not read as a
         /// table. The line keeps its number and prints its literal source.
         case tableFigureUnreadable(name: String)
-        /// A figure parked in Research (or a legacy line into a Research
-        /// folder), named by the figure's name — or the file's, for a legacy
-        /// line: a reference to it, or a line still naming it.
+        /// A figure parked in Research, by its name: a reference to it, or a
+        /// line still naming it.
         case figureInResearch(name: String)
+        /// A note: a legacy table line into a Research folder (spec §4.4),
+        /// by its file's name. It keeps working — it publishes its literal
+        /// source — until it is moved into Figures.
+        case tableInResearchFolder(name: String)
         /// A note: a table figure's formulas read numbers from Research.
         case tableFigureReadsResearch(name: String)
         /// A note: a Research source the table reads, or its own, has
@@ -154,7 +157,8 @@ public struct PublishProblem: Sendable, Hashable {
         case .tableFigureErrorCell, .tableFigureSourceMissing, .tableFigureUnreadable,
              .figureInResearch:
             return true
-        case .tableFigureReadsResearch, .tableFigureResearchChanged, .tableFigureNPVNote:
+        case .tableFigureReadsResearch, .tableFigureResearchChanged, .tableFigureNPVNote,
+             .tableInResearchFolder:
             return false
         }
     }
@@ -205,7 +209,8 @@ public struct PublishProblem: Sendable, Hashable {
             return "This \(what) line shares a paragraph with text — it won't show or publish as a \(what). "
                 + "Add a blank line above and below it."
         case .tableFigureErrorCell(let name, let cell, let error):
-            return "Table “\(name)” has an error in \(cell) (\(error)). Fix the cell in the table to publish it."
+            let shown = error.map { " (\($0))" } ?? ""
+            return "Table “\(name)” has an error in \(cell)\(shown). Fix the cell in the table to publish it."
         case .tableFigureSourceMissing(let name):
             return "Table “\(name)” reads numbers from a Research source that is gone. "
                 + "Bring the source back, or change the cells that read it."
@@ -215,6 +220,9 @@ public struct PublishProblem: Sendable, Hashable {
         case .figureInResearch(let name):
             return "“\(name)” is in Research now, so it won’t publish. "
                 + "Bring it back into the Figures area to use it here."
+        case .tableInResearchFolder(let name):
+            return "Table “\(name)” is read from a Research folder, so it publishes as written. "
+                + "Move it into Figures to publish its cells."
         case .tableFigureReadsResearch(let name):
             return "Table “\(name)” uses numbers from Research."
         case .tableFigureResearchChanged(let name):
