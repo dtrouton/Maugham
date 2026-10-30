@@ -206,7 +206,9 @@ public final class DocumentStore {
     /// Each snapshot source file's hash, keyed by its path and kept while its
     /// size and modification date hold (`snapshotSourcesChanged`): a card
     /// fill re-hashes only a file that moved. Rebuilt each pass, so a source
-    /// no figure names any more is forgotten.
+    /// no figure names any more is forgotten. Accepted limit: a different
+    /// file of the same size copied over it keeping the modification date
+    /// (`cp -p`, `rsync -t`) reads as unchanged.
     @ObservationIgnored var snapshotSourceHashes: [String: SnapshotSourceHash] = [:]
 
     /// How many snapshot source files were hashed in full; a test counts it

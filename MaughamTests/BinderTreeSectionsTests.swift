@@ -153,6 +153,9 @@ final class BinderTreeSectionsTests: XCTestCase {
         let ring = try XCTUnwrap(rings.first)
         let point = CGPoint(x: ring.midX, y: ring.midY)
         let subjectBefore = probe.subject
+        // The premise, asked as TreeTravelTests asks it (a no-op unless the
+        // run opts in with MAUGHAM_ALLOW_ACTIVATION=1, as CI does).
+        _ = await TestWindow.activate(window)
 
         clickCount(at: point, in: window)
         await pumpUntil(deadline: 3) { state.pieceFilter != nil }
@@ -166,9 +169,28 @@ final class BinderTreeSectionsTests: XCTestCase {
         // Control: the same click on the row's title, away from the count, does
         // select it — so "selects nothing" above is the button's doing, not a
         // click that never reached the table.
-        clickCount(at: CGPoint(x: rowRect.minX + 60, y: rowRect.midY), in: window)
+        let title = CGPoint(x: rowRect.minX + 60, y: rowRect.midY)
+        clickCount(at: title, in: window)
         await pumpUntil(deadline: 3) { probe.subject == .item(chapter.id) }
+        try skipIfTheClickWasNeverDelivered(at: table.convert(title, from: nil), in: table)
         XCTAssertEqual(probe.subject, .item(chapter.id))
+    }
+
+    /// **Raised after the control click, on a measurement** — TreeTravelTests'
+    /// discriminator: the host is not the active app AND the row under the
+    /// point is not the row that ended up selected, i.e. AppKit never turned
+    /// the events into a click (a locked screen). Never on `NSApp.isActive`
+    /// alone: where the click lands, nothing is skipped.
+    private func skipIfTheClickWasNeverDelivered(at point: CGPoint, in table: NSTableView,
+                                                 function: StaticString = #function) throws {
+        let row = table.row(at: point)
+        guard !NSApplication.shared.isActive, row >= 0, table.selectedRow != row else { return }
+        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+        throw XCTSkip(
+            "\(function): the synthetic click on row \(row) was measurably not delivered "
+            + "(`selectedRow` \(table.selectedRow)) and the test host is not the active app "
+            + "(frontmost: \(frontmost)) — a locked screen, or a front app that will not yield. "
+            + "Set TEST_RUNNER_MAUGHAM_ALLOW_ACTIVATION=1 to ask for activation.")
     }
 
     /// One real click (down, up) at `point`, in window coordinates, as
