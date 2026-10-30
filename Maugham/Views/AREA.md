@@ -278,7 +278,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Arrival is visible** (`consumingTreeScrollRequests`, both triggers): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
 - **A piece fold's rows carry no `.id`**.
 - **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`).
-- **New Group at a piece's root has no store API** (`ResearchScope` routes note / asset / link only).
+- **New Group at a piece's root has no store API** (`ResearchScope` routes notes, tables, assets, links).
 - **A drop is classified by LOOKUP in the manifest, never by the shape of an id**. Every mounted drop target calls the classifier (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`, `TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
 - **External drops route through `TreeDropIntent.classifyExternal`** to the same creation verbs as Add File and paste.
 - **Every drop closure returns `Bool` down to the row's `.dropDestination`**: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`, `test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.

@@ -106,15 +106,17 @@ struct FigureActions {
     /// **Send to Research by a drop** (report plan 8b Task 5): into `scope`,
     /// then — when the drop named a group — into `group` through the typed
     /// mover. A move that fails leaves the copy at the scope's root and says
-    /// so, calling the figure `called`.
+    /// so, calling the figure `called` and the group `groupTitle` — its title
+    /// at the drop, since a group that has gone has none to look up.
     @discardableResult
     func sendToResearch(figureId: String, scope: ResearchScope, intoGroup group: String?,
-                        called: String) -> Task<Void, Never> {
+                        groupTitle: String?, called: String) -> Task<Void, Never> {
         let store = store
         return park(figureId, scope: scope, then: group.map { group in { copy in
             do { try await store.moveResearchItems(ids: [copy.id], to: .group(group)) } catch {
-                let groupTitle = TreeWalk.find(id: group, in: store.manifest.research)?.title ?? group
-                throw FigureGroupMoveFailed(called: called, group: groupTitle,
+                let title = TreeWalk.find(id: group, in: store.manifest.research)?.title
+                    ?? groupTitle ?? "its group"
+                throw FigureGroupMoveFailed(called: called, group: title,
                                             reason: error.localizedDescription)
             }
         } })

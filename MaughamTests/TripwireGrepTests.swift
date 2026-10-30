@@ -13193,7 +13193,8 @@ final class TripwireGrepTests: XCTestCase {
         // (plan 8b Task 5) is the same verb in FigureSection.swift
         // (`dropToUse`, refused where the window refuses figure writes), and
         // a figure dropped on Research sends there once its confirmation is
-        // answered (`confirmFigureSend`, asked only where `mayEdit`).
+        // answered (`confirmFigureSend`: the posture is checked at the drop,
+        // `mayEdit`, and the store's `sendToResearch` asks the door again).
         // FigureActions'
         // `bringBack(` hits are NOT calls: `ResearchVerb`'s case declaration
         // and its construction (`.bringBack(figureId:)`); the return reaches

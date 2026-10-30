@@ -25,6 +25,10 @@ struct ResearchTreeActions {
     /// Returns whether the drop is accepted — see `internalDrop`.
     var externalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position, _ target: ResearchItem) -> Bool
     var newNote: (_ parentId: String?) -> Void
+    /// **New Table** (D8b-2), beside every New Note: a blank table, selected
+    /// and in rename; its work, which a test awaits. Nil where it is not
+    /// offered — a view-only share, Review (`BinderTreeSectionsState.offersNewTable`).
+    var newTable: ((_ parentId: String?) -> Task<Void, Never>)? = nil
     var newGroup: (_ parentId: String?) -> Void
     var addFile: (_ parentId: String?) -> Void
     var addLink: (_ parentId: String?) -> Void
@@ -210,6 +214,11 @@ struct ResearchTreeNode<Tag: Hashable>: View {
             .contextMenu {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))
+                }
+                if let newTable = actions.newTable {
+                    Button("New Table") {
+                        _ = newTable(item.type == .group ? item.id : findParentId(item.id))
+                    }
                 }
                 if item.type == .group {
                     Button("New Group") { actions.newGroup(item.id) }

@@ -346,6 +346,9 @@ struct FigureSectionVerbs {
     static let windowMakesNoFigures = "This window doesn’t change figures, so nothing was made."
     /// Said when a figure this Mac may not change is dropped on Research.
     static let mayNotSend = "This Mac may not change this figure, so it stays in Figures."
+    /// Said when a figure is dropped on Research in a window that refuses
+    /// figure writes — the window's refusal, not the Mac's (task 5 review M4).
+    static let windowSendsNoFigures = "This window doesn’t change figures, so it stays in Figures."
 
     /// **A Research item dropped on Figures** is *Use in Document* — Task 4's
     /// verb, no confirmation (D8-2). Refused, with the reason, where the
@@ -365,14 +368,17 @@ struct FigureSectionVerbs {
     /// is `state.pendingFigureSend`. A figure this Mac may not change gets
     /// no question, only the reason.
     func dropToSend(figureId: String, scope: ResearchScope, group: String?) -> Bool {
+        let shared = shared
         guard shared.mayEdit(figureId) else {
-            state.pendingError = Self.mayNotSend
+            state.pendingError = shared.windowRefusesWrites() ? Self.windowSendsNoFigures : Self.mayNotSend
             return false
         }
         let row = state.figureRows.first { $0.id == figureId }
         let name = row?.listing.name ?? store.manifest.figures?.first { $0.id == figureId }?.name ?? figureId
         state.pendingFigureSend = PendingFigureSend(
             figureId: figureId, scope: scope, group: group,
+            groupTitle: group.flatMap { TreeWalk.find(id: $0, in: store.manifest.research)?.title },
+            name: name,
             called: row.map { $0.isUnused ? "“\(name)”" : $0.listing.number } ?? "“\(name)”",
             hasLine: row.map { !$0.isUnused } ?? false)
         return true
@@ -383,8 +389,11 @@ struct FigureSectionVerbs {
     @discardableResult
     func confirmFigureSend(_ pending: PendingFigureSend) -> Task<Void, Never> {
         state.pendingFigureSend = nil
+        // The figure is named by its name once it has gone: its number
+        // left with its line (task 5 review M2).
         return shared.sendToResearch(figureId: pending.figureId, scope: pending.scope,
-                                     intoGroup: pending.group, called: pending.called)
+                                     intoGroup: pending.group, groupTitle: pending.groupTitle,
+                                     called: "“\(pending.name)”")
     }
 
     /// The confirmation's Cancel: nothing changes.
@@ -406,6 +415,11 @@ struct PendingFigureSend: Equatable {
     let scope: ResearchScope
     /// The group the drop named, moved into after the send.
     let group: String?
+    /// That group's title at the drop, for a move that fails because the
+    /// group has gone (task 5 review M1).
+    let groupTitle: String?
+    /// The figure's name, which a failure after the send says.
+    let name: String
     /// "Table 3", or the quoted name of an unused figure.
     let called: String
     let hasLine: Bool
@@ -416,26 +430,46 @@ struct PendingFigureSend: Equatable {
     }
 }
 
-/// The tree's confirmation alert, beside its error alert
-/// (`BinderTreeSectionsPresentations`). Its buttons are
-/// `FigureSectionVerbs.confirmFigureSend` / `cancelFigureSend`, handed the
-/// question the alert presents.
-struct FigureSendConfirmation: ViewModifier {
+/// **The tree's one alert** (`BinderTreeSectionsState.pendingAlert`, task 5
+/// review M3): an error, or the question a figure dropped on Research asks.
+enum TreeAlert: Equatable {
+    case error(String)
+    case confirmSend(PendingFigureSend)
+
+    var title: String {
+        switch self {
+        case .error(let message): return message
+        case .confirmSend(let pending): return pending.title
+        }
+    }
+}
+
+/// The tree's alert, presented once for every case. Dismissing clears only
+/// the alert that was shown (`dismissAlert`), so an error that arrives while
+/// a question is going away is shown, not cleared with it. The question's
+/// buttons are `FigureSectionVerbs.confirmFigureSend` / `cancelFigureSend`.
+struct TreeAlertPresentation: ViewModifier {
     let store: ProjectStore
     let state: BinderTreeSectionsState
 
     func body(content: Content) -> some View {
         let verbs = FigureSectionVerbs(store: store, state: state)
+        let shown = state.pendingAlert
         content.alert(
-            state.pendingFigureSend?.title ?? "",
-            isPresented: Binding(get: { state.pendingFigureSend != nil },
-                                 set: { if !$0 { state.pendingFigureSend = nil } }),
-            presenting: state.pendingFigureSend
-        ) { pending in
-            Button("Send to Research", role: .destructive) { verbs.confirmFigureSend(pending) }
-            Button("Cancel", role: .cancel) { verbs.cancelFigureSend() }
-        } message: { pending in
-            Text(pending.message)
+            shown?.title ?? "",
+            isPresented: Binding(get: { state.pendingAlert != nil },
+                                 set: { if !$0 { state.dismissAlert(shown) } }),
+            presenting: shown
+        ) { alert in
+            switch alert {
+            case .error:
+                Button("OK", role: .cancel) {}
+            case .confirmSend(let pending):
+                Button("Send to Research", role: .destructive) { verbs.confirmFigureSend(pending) }
+                Button("Cancel", role: .cancel) { verbs.cancelFigureSend() }
+            }
+        } message: { alert in
+            if case .confirmSend(let pending) = alert { Text(pending.message) }
         }
     }
 }
@@ -482,6 +516,10 @@ struct FigureSectionWiring: ViewModifier {
             .onChange(of: typography, initial: true) { _, next in treeState.figureTypography = next }
             .onChange(of: FigureActions.windowRefusesWrites(control: control, persona: persona),
                       initial: true) { _, refused in treeState.figureWritesRefused = refused }
+            // New Table where the research grid could edit it (D8b-2).
+            .onChange(of: BinderTreeSectionsState.offersNewTable(
+                        shareIsReadOnly: control.shareIsReadOnly, persona: persona),
+                      initial: true) { _, offers in treeState.offersNewTable = offers }
             // Which Research items bring a parked figure back: asked again
             // when Research, the registry, the set of parked figures or the
             // posture moves — never per card fill; the newest asking wins.

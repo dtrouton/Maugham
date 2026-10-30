@@ -145,6 +145,9 @@ struct BinderTreeSections: View {
         } header: {
             sectionHeader("Research", section: .research) {
                 Button("New Note") { actions.newNote(nil) }
+                if let newTable = actions.newTable {
+                    Button("New Table") { _ = newTable(nil) }
+                }
                 Button("New Group") { actions.newGroup(nil) }
                 Button("Add File…") { actions.addFile(nil) }
                 Button("Add Link…") { actions.addLink(nil) }
@@ -731,6 +734,11 @@ struct BinderTreeVerbs {
                 create { try await store.addResearchTextNote(
                     parentId: parentId, title: "Untitled Note") }
             },
+            // New Table (D8b-2): created as a note is — selected, so the
+            // centre opens it in the grid, and in rename.
+            newTable: state.offersNewTable ? { parentId in
+                create { try await store.addResearchTable(parentId: parentId) }
+            } : nil,
             newGroup: { parentId in
                 create { try await store.addResearchItem(
                     parentId: parentId, title: "Untitled Group", kind: nil) }
@@ -851,7 +859,8 @@ struct BinderTreeVerbs {
     /// (Task 6) and calls this for the rest of what creating means, so the
     /// tree's headers and its folds cannot come to disagree about what happens
     /// after something is made.
-    func create(_ work: @escaping () async throws -> ResearchItem) {
+    @discardableResult
+    func create(_ work: @escaping () async throws -> ResearchItem) -> Task<Void, Never> {
         Task { @MainActor in
             do {
                 let item = try await work()
@@ -915,7 +924,6 @@ final class BinderTreeSectionsState {
     /// created item is not in the manifest the current body pass rendered, so
     /// setting `renamingItemId` directly names a row nobody drew.
     var pendingRenameId: String?
-    var pendingError: String?
     var showingAddLinkSheet: Bool = false
     /// Which group the Add Link sheet's result belongs in; `nil` is the shared
     /// root.
@@ -1013,9 +1021,42 @@ final class BinderTreeSectionsState {
     /// Which reveal request is the newest, so an older one's expiry never
     /// lets a newer request for the same figure go.
     @ObservationIgnored var pendingFigureRevealToken = 0
-    /// **A figure dropped on Research, waiting on its confirmation** (D8-2):
-    /// what `FigureSendConfirmation`'s alert asks about; nil when none.
-    var pendingFigureSend: PendingFigureSend?
+    /// **The tree's one alert** — an error, or a figure dropped on Research
+    /// waiting on its confirmation (D8-2). One value drives one `.alert`, so a
+    /// send that fails while its question is dismissing replaces the question
+    /// rather than racing a second alert (task 5 review M3).
+    var pendingAlert: TreeAlert?
+    /// The error the alert shows; setting one replaces whatever it shows,
+    /// clearing it leaves a question alone.
+    var pendingError: String? {
+        get { if case .error(let message)? = pendingAlert { return message } else { return nil } }
+        set {
+            if let newValue { pendingAlert = .error(newValue) }
+            else if case .error? = pendingAlert { pendingAlert = nil }
+        }
+    }
+    /// The figure send the alert asks about; clearing it leaves an error alone.
+    var pendingFigureSend: PendingFigureSend? {
+        get { if case .confirmSend(let pending)? = pendingAlert { return pending } else { return nil } }
+        set {
+            if let newValue { pendingAlert = .confirmSend(newValue) }
+            else if case .confirmSend? = pendingAlert { pendingAlert = nil }
+        }
+    }
+    /// The alert `shown` dismissed: cleared only while it is still the one
+    /// held — an error that arrived meanwhile stays to be shown.
+    func dismissAlert(_ shown: TreeAlert?) {
+        if pendingAlert == shown { pendingAlert = nil }
+    }
+    /// **Whether Research offers New Table** (D8b-2): not on a view-only share
+    /// or in Review — where the table could not be edited (`offersNewTable(…)`).
+    var offersNewTable = true
+
+    /// The one answer `FigureSectionWiring` keeps `offersNewTable` to: the
+    /// research centre's own read-only rule (`ResearchSubjectCentre`).
+    static func offersNewTable(shareIsReadOnly: Bool, persona: Persona) -> Bool {
+        !shareIsReadOnly && persona.editsResearchInTheCentre
+    }
 
     /// Whether `section` is open — the flag its header's chevron reads.
     func isExpanded(_ section: BinderTreeSection) -> Bool {
@@ -1292,14 +1333,9 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                     },
                     onCancel: { state.showingAddLinkSheet = false })
             }
-            .alert(state.pendingError ?? "",
-                   isPresented: Binding(
-                    get: { state.pendingError != nil },
-                    set: { if !$0 { state.pendingError = nil } })) {
-                Button("OK", role: .cancel) {}
-            }
-            // A figure dropped on Research asks first (D8-2).
-            .modifier(FigureSendConfirmation(store: store, state: state))
+            // The tree's one alert: an error, or a dropped figure's
+            // confirmation (D8-2) — `TreeAlertPresentation`.
+            .modifier(TreeAlertPresentation(store: store, state: state))
             // **"Link Research…" returns** (stage-3b Task 9) — the tree drag
             // was the only in-app route to `linkResearch`/`unlinkResearch`
             // once `ResearchLinkPickerSheet`'s only host (`LinkedResearchPane`)

@@ -5,6 +5,7 @@ The binder tree's **Research** section is for everything that isn't manuscript: 
 **It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. ⌘⌥R expands the tree's own **Research** section and scrolls it into view, rather than opening anything in the right column (it's a no-op while Find in Project covers the tree). There's no separate reading pane: the tree is the one place research is browsed, in every persona, and the same right-click menus and empty-state buttons work from Plan as anywhere else.
 
 - **New Note** — right-click the Research section (or a group inside it) → **New Note** to create a markdown note. Rename inline; the file on disk renames with it.
+- **New Table** — the same menus offer **New Table**: a blank table of three columns, a header row and three empty rows, named "Untitled Table". Rename it inline; it opens in the table grid. Not offered in Review or on a view-only share.
 - **Drag in from Finder** — drop images, PDFs, audio, text files. They land in `research/`.
 - **Paste an image** — Cmd-V into the research pane. Saved as `pasted-…png` next to your notes.
 - **Add Link…** — paste a URL. Opens via WKWebView when clicked.

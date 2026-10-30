@@ -209,6 +209,7 @@ final class FigureDragTests: XCTestCase {
         XCTAssertTrue(verbs(store, state).routeSharedSectionDrop(draggedId: cash.id))
         let asked = try XCTUnwrap(state.pendingFigureSend)
         XCTAssertEqual(asked, PendingFigureSend(figureId: cash.id, scope: .shared, group: nil,
+                                                groupTitle: nil, name: "cash",
                                                 called: "Table 3", hasLine: true))
         XCTAssertEqual(asked.title, "Send Table 3 to Research?")
         XCTAssertEqual(asked.message, "Its line leaves the text. This can’t be undone.")
@@ -282,7 +283,7 @@ final class FigureDragTests: XCTestCase {
         let state = await tree(store, number: "Table 1")
 
         XCTAssertTrue(verbs(store, state).routeResearchRowDrop(
-            draggedId: cash.id, position: .middle, target: world, inFoldOf: nil))
+            draggedId: tax.id, position: .middle, target: world, inFoldOf: nil))
         let asked = try XCTUnwrap(state.pendingFigureSend)
         XCTAssertEqual(asked.group, world.id)
         await FigureSectionVerbs(store: store, state: state).confirmFigureSend(asked).value
@@ -290,14 +291,28 @@ final class FigureDragTests: XCTestCase {
         let group = try XCTUnwrap(TreeWalk.find(id: world.id, in: store.manifest.research))
         XCTAssertEqual(group.children?.count, 1, "the copy is inside the group")
 
-        // A group gone by the time the send lands: the copy stays at the root.
-        let stale = PendingFigureSend(figureId: tax.id, scope: .shared, group: "gone-group",
-                                      called: "“tax”", hasLine: false)
+        // A group gone by the time the send lands: the copy stays at the root,
+        // and the message names the group by the title it had at the drop
+        // (M1) and the used figure by its name, its number having left with
+        // its line (M2).
+        let sources = try await store.addResearchItem(parentId: nil, title: "Sources", kind: nil)
+        XCTAssertTrue(verbs(store, state).routeResearchRowDrop(
+            draggedId: cash.id, position: .middle, target: sources, inFoldOf: nil))
+        let stale = try XCTUnwrap(state.pendingFigureSend)
+        XCTAssertEqual(stale.title, "Send Table 1 to Research?")
+        let question = state.pendingAlert
+        try await store.deleteResearchItem(id: sources.id)
         await FigureSectionVerbs(store: store, state: state).confirmFigureSend(stale).value
-        let parked = try await isParked(tax.id)
+        let parked = try await isParked(cash.id)
         XCTAssertTrue(parked, "the send itself landed")
-        XCTAssertTrue(state.pendingError?.hasPrefix("“tax” is in Research, but it couldn’t go into “gone-group”")
+        XCTAssertTrue(state.pendingError?.hasPrefix("“cash” is in Research, but it couldn’t go into “Sources”")
                       == true, state.pendingError ?? "nothing said")
+        // M3: the question's dismissal, arriving after the failure, leaves
+        // the error to be shown — one alert, cleared only for what it showed.
+        state.dismissAlert(question)
+        XCTAssertNotNil(state.pendingError, "the failure is still the alert")
+        state.dismissAlert(state.pendingAlert)
+        XCTAssertNil(state.pendingAlert)
         XCTAssertEqual(store.manifest.research.filter { $0.type == .asset }.count, 1,
                        "the copy is at the root")
         FigureSectionWiring.attach(state, to: nil)
@@ -313,7 +328,8 @@ final class FigureDragTests: XCTestCase {
         state.figureWritesRefused = true
         XCTAssertFalse(verbs(store, state).routeSharedSectionDrop(draggedId: cash.id))
         XCTAssertNil(state.pendingFigureSend)
-        XCTAssertEqual(state.pendingError, FigureSectionVerbs.mayNotSend)
+        XCTAssertEqual(state.pendingError, FigureSectionVerbs.windowSendsNoFigures,
+                       "the window's refusal is the window's, not the Mac's (M4)")
 
         state.figureWritesRefused = false
         state.pendingError = nil
