@@ -242,7 +242,8 @@ public enum PublishProblemGate {
     /// for one output format's images. A multi-body compile tags each body's
     /// problems with its language (R-P2-8); every body's problems carry it as
     /// `bodyLanguage` (R-S14). Each body is resolved in its own element words,
-    /// chosen here from its folded config and nowhere else (R-S16).
+    /// chosen here from its folded config and nowhere else (R-S16), and its
+    /// table figures' cells print in that config's language (plan 9a).
     static func resolve(bodies: [BodyPlan.Body],
                         imageAllowed: Set<String>) throws -> [Body] {
         try bodies.map { body in
@@ -253,9 +254,17 @@ public enum PublishProblemGate {
                 bodyTag: bodies.count > 1 ? body.displayTag : nil,
                 imageAllowed: imageAllowed,
                 bodyLanguage: body.tag,
-                words: ElementWords.forBody(body.config.metadata))
+                words: ElementWords.forBody(body.config.metadata),
+                tableLocale: tableLocale(body.config.metadata.language))
             return Body(ast: ast, resolution: resolution, pieces: pieces)
         }
+    }
+
+    /// A body's table-figure cells print in its own language — the editor
+    /// card's constructor, a blank language reading as none.
+    static func tableLocale(_ language: String) -> TableLocale {
+        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        return TableLocale(languageTag: tag.isEmpty ? nil : tag)
     }
 
     /// The verdict over a compile's problems.
