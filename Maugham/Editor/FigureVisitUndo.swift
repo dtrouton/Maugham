@@ -39,7 +39,7 @@ final class FigureVisitUndo {
     /// The window step's name: Edit ▸ Undo reads "Undo Edit Table".
     static let actionName = "Edit Table"
 
-    private weak var host: FigureDocument?
+    private weak var host: (any FigureGridHost)?
     private let projectURL: URL
     /// What a ⌘Z or ⇧⌘Z says when the figure is no longer open here.
     static let notOpenSentence = "Couldn't undo the table's changes — the table is no longer open."
@@ -60,7 +60,7 @@ final class FigureVisitUndo {
     /// Settled once the step is known to stay or has been removed (a test's wait).
     private(set) var settled: Task<Void, Never>?
 
-    private init(host: FigureDocument, visit: Task<FigureVisit?, Never>,
+    private init(host: any FigureGridHost, visit: Task<FigureVisit?, Never>,
                  workTaskSink: ((Task<Void, Never>) -> Void)?) {
         self.host = host
         projectURL = host.projectURL
@@ -71,7 +71,7 @@ final class FigureVisitUndo {
     /// **Register the visit's one step on `um`**, the window's — at the
     /// fold, outside any undo or redo pass (registers nothing inside one).
     @discardableResult
-    static func register(on um: UndoManager, host: FigureDocument,
+    static func register(on um: UndoManager, host: any FigureGridHost,
                          visit: Task<FigureVisit?, Never>) -> FigureVisitUndo? {
         guard !um.isUndoing, !um.isRedoing else { return nil }
         let step = FigureVisitUndo(host: host, visit: visit,
@@ -115,7 +115,7 @@ final class FigureVisitUndo {
     /// The append, after the hop before it and after the visit has landed.
     /// A visit that cannot be taken back has already been said and its step
     /// removed; a figure no longer open (removed from the book) is said.
-    private func hop(_ body: @escaping @MainActor (FigureVisitUndo, FigureDocument, FigureVisit) async -> Void) {
+    private func hop(_ body: @escaping @MainActor (FigureVisitUndo, any FigureGridHost, FigureVisit) async -> Void) {
         let previous = pending
         let task = Task { @MainActor in
             await previous?.value

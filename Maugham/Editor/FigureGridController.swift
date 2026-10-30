@@ -2,9 +2,9 @@ import AppKit
 import Observation
 import MaughamCore
 
-/// **One visit to a table figure's grid** (report plan 7c Task 5): the figure
-/// host, the pure `FigureGridModel` (selection, edit state, keys), the
-/// `FigureGridValues` holder (computed values and cached strings), the
+/// **One visit to a table figure's grid** (report plan 7c Task 5): the
+/// host (`FigureGridHost` — a figure's `FigureDocument`), the pure
+/// `FigureGridModel` (selection, edit state, keys), the `FigureGridValues` holder (computed values and cached strings), the
 /// `FigureGridView` and its `FigureGridBars`.
 ///
 /// - **The only grid file that calls a figure mutator** (tripwire 52 counts
@@ -69,7 +69,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         var commitCaption: @MainActor (String) -> Bool
     }
 
-    let host: FigureDocument
+    let host: any FigureGridHost
     let gridView: FigureGridView
     let bars = FigureGridBars()
     var figureId: String { host.figureId }
@@ -103,9 +103,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private let menuTarget = FigureTableMenuTarget()
 
     /// ⤢ was pressed (plan 7d Task 9); nil where the grid cannot open in a
-    /// window, which hides the button.
+    /// window, which hides the button — as does a host that offers no window
+    /// (`FigureGridOffers.openInWindow`).
     var onOpenInWindow: (() -> Void)? {
-        didSet { bars.openInWindow.isHidden = onOpenInWindow == nil }
+        didSet { bars.openInWindow.isHidden = onOpenInWindow == nil || !host.offers.openInWindow }
     }
     /// Send to Research was chosen: the frame folds the grid (forced) before
     /// the send is asked (R7d-7).
@@ -169,7 +170,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         return controller
     }
 
-    private init(host: FigureDocument, store: DocumentStore, projectStore: ProjectStore,
+    private init(host: any FigureGridHost, store: DocumentStore, projectStore: ProjectStore,
                  typography: TypographySettings, locale: TableLocale, names: FormulaNames, line: Line) {
         self.host = host
         self.store = store
@@ -187,6 +188,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         bars.delegate = self
         menuTarget.onCommand = { [weak self] in self?.performTableCommand($0) }
         bars.showLine(number: line.number, caption: line.caption, name: name)
+        // The bottom bar's figure fields, only where the host offers them.
+        bars.nameField.isHidden = !host.offers.nameField
+        bars.captionField.isHidden = !host.offers.caption
         refreshBars()
         observeHost()
         observeTheDoor()
@@ -535,7 +539,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             commitPendingFields()
             execute(model.fold(commit: true))
         case .openInWindow:
-            onOpenInWindow?()
+            if host.offers.openInWindow { onOpenInWindow?() }
         }
         return true
     }
@@ -553,7 +557,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         // The keys stay the grid's, so the fold hands them to the text.
         if fieldHadKeys { gridView.window?.makeFirstResponder(gridView) }
         if let caption = pending.caption {
-            if captionMayEdit, line.commitCaption(caption) {
+            if captionMayEdit, host.offers.caption, line.commitCaption(caption) {
                 line.caption = FigureIngest.keptCaption(caption)
             } else {
                 MaughamEvent.postNotice("Couldn't write the caption “\(caption)” to the figure line.",
@@ -628,6 +632,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// undoable (ruling P-8; the fold registers no step); a refusal is said
     /// and told (`onSendRefused`).
     private func sendFigureToResearch(_ destination: FigureResearchDestination) {
+        guard host.offers.sendToResearch else { return }
         let scope: ResearchScope
         switch destination {
         case .piece:
@@ -665,7 +670,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The menu state over the table, the selection and the gate; told only on a change.
     private func refreshMenuState() {
         let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode,
-                                           knowsItsPiece: researchPiece != nil)
+                                           knowsItsPiece: researchPiece != nil,
+                                           maySend: host.offers.sendToResearch)
         guard next != menuState else { return }
         menuState = next
         onMenuStateChange?(next)
@@ -796,7 +802,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// between the plan and the write (another device, an undo's last hop).
     /// `plan` answers nil to write nothing (it has said why).
     static func applyPlanned(
-        on host: FigureDocument, actionName: String, undoManager: UndoManager?,
+        on host: any FigureGridHost, actionName: String, undoManager: UndoManager?,
         plan: (FigureState) -> [FigureReturnDiff.Change]?
     ) async throws {
         for attempt in 0..<2 {
@@ -1201,7 +1207,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             answer(reason)
             return nil
         }
-        guard !isFolded, commitOpenEdit() else { return nil }
+        guard host.offers.refreshPins, !isFolded, commitOpenEdit() else { return nil }
         enqueue { [host, gridUndo] in try await host.refreshPins(undoManager: gridUndo) }
         return writes
     }
@@ -1303,7 +1309,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The caption is the figure line's text: Route A through the coordinator.
     /// Refused (the membrane, a line gone), the field shows the caption again.
     private func commitCaption(_ caption: String) {
-        if line.commitCaption(caption) { line.caption = FigureIngest.keptCaption(caption) }
+        if host.offers.caption, line.commitCaption(caption) { line.caption = FigureIngest.keptCaption(caption) }
         bars.showLine(number: line.number, caption: line.caption, name: name)
         bars.captionField.stringValue = line.caption
     }
@@ -1311,6 +1317,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The name through `ProjectStore.renameFigure` (every door it asks, the
     /// line relabelled). Refused, the refusal is said and the field put back.
     private func commitName(_ newName: String) {
+        guard host.offers.rename else {
+            bars.nameField.stringValue = name
+            return
+        }
         enqueue { [weak self, projectStore, figureId] in
             guard let projectStore else { return }
             do {

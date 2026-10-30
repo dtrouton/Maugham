@@ -213,12 +213,16 @@ struct FigureTableMenuState: Equatable {
     /// may put it in that piece's Research (the in-place grid, and a window
     /// opened from one).
     var knowsItsPiece = false
+    /// The grid's host may be sent to Research at all (a figure may,
+    /// `FigureGridOffers.sendToResearch`).
+    var maySend = true
 
     static func of(table: FigureTable, selection: FigureGridSelection?, mode: FigureGridGate.Mode,
-                   knowsItsPiece: Bool) -> Self {
+                   knowsItsPiece: Bool, maySend: Bool = true) -> Self {
         var state = Self()
         state.mayEdit = mode == .editable
         state.knowsItsPiece = knowsItsPiece
+        state.maySend = maySend
         state.header = table.headerRows > 0
         state.total = table.hasTotalRow
         guard state.mayEdit else { return state }
@@ -257,8 +261,8 @@ struct FigureTableMenuState: Equatable {
         case .moveColumnsLeft: return canMoveLeft
         case .moveColumnsRight: return canMoveRight
         case .sortAscending, .sortDescending: return canSort && hasSelection
-        case .sendTo(.piece): return knowsItsPiece
-        case .sendTo(.shared): return true
+        case .sendTo(.piece): return maySend && knowsItsPiece
+        case .sendTo(.shared): return maySend
         }
     }
 

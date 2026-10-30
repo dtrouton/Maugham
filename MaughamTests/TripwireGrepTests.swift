@@ -13168,6 +13168,12 @@ final class TripwireGrepTests: XCTestCase {
             "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1, "sendToResearch(": 1,
             "refreshPins(": 1,
         ],
+        // The grid's host seam (report plan 8b Task 6): the undo-less
+        // spellings `FigureDocument` gives its callers, forwarded to the
+        // conformer's own verb with no undo manager — the verb asks its own
+        // door, so a forward is not a new writer. No production code calls
+        // them (the grid passes its `gridUndo`).
+        "FigureGridHost.swift": ["setCell(": 1, "setHeaderRows(": 1, "deleteRow(": 1, "deleteColumn(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
         // state, through an op it never appends; what it yields is appended
