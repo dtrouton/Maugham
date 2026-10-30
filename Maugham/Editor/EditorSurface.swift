@@ -120,7 +120,9 @@ struct EditorSurfaceConfiguration {
         var tableFigureMaker: FigureIngest.TableFigureMaker? = nil
         /// The figures Insert ▸ Existing Figure… offers (report plan 8b
         /// Task 3). Wired by `EditorHost`; nil elsewhere.
-        var existingFigures: (() -> [ExistingFigurePicker.Entry])? = nil
+        var existingFigures: ((String) -> [ExistingFigurePicker.Entry])? = nil
+        /// Whether a figure is parked in Research, asked at the choice.
+        var existingFigureIsParked: ((String) async -> Bool)? = nil
         /// Where a command that could not finish is told (a sentence): a
         /// figure that could not be made.
         var commandFailureReporter: (@MainActor (String) -> Void)? = nil
@@ -272,6 +274,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.figureImporter = pp.figureImporter
         coordinator.tableFigureMaker = pp.tableFigureMaker
         coordinator.existingFigures = pp.existingFigures
+        coordinator.existingFigureIsParked = pp.existingFigureIsParked
         coordinator.commandFailureReporter = pp.commandFailureReporter
         coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.figureCardModel = pp.figureCardModel
@@ -552,6 +555,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.tableFigureMaker = pp.tableFigureMaker
         context.coordinator.existingFigures = pp.existingFigures
+        context.coordinator.existingFigureIsParked = pp.existingFigureIsParked
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
         context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.figureCardModel = pp.figureCardModel

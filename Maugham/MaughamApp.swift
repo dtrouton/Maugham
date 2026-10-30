@@ -728,9 +728,9 @@ private struct InsertMenuButtons: View {
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
         .disabled(!enabled)
-        // A figure the book already has — made from Research, left unused,
-        // or used elsewhere — its line placed at the caret from a picker
-        // (report plan 8b Task 3, D8b-1). No shortcut.
+        // A figure the book already has, from a picker (report plan 8b Task
+        // 3, D8b-1): an unused one's line placed at the caret; a placed one
+        // referred to (`@tbl:…`), never placed twice. No shortcut.
         Button("Existing Figure\u{2026}") {
             MaughamEvent.post(.maughamInsertExistingFigure, to: .keyWindow)
         }

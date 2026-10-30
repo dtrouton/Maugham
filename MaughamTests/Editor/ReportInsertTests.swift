@@ -89,6 +89,38 @@ final class ReportInsertTests: XCTestCase {
         XCTAssertEqual(Self.apply(edit, to: text), existing + "\n\n" + Self.block + "\n\nAfter.")
     }
 
+    /// Report plan 8b Task 3 review: a caret inside a figure line places the
+    /// block after that line, never splitting it into two lines that are no
+    /// longer a figure — for Insert ▸ Table, Insert Figure… and Insert ▸
+    /// Existing Figure… alike, which all place through `blockEdit`.
+    func test_aBlockAskedForInsideAFigureLineGoesAfterIt() {
+        let figure = "![Cash flows](figures/cash.csv){#tbl:cash}"
+        let text = "Intro.\n\n" + figure + "\n\nAfter."
+        let inside = ("Intro.\n\n![Cash" as NSString).length
+        let edit = Self.blockEdit(in: text, at: inside)
+        let result = Self.apply(edit, to: text)
+        XCTAssertEqual(result, "Intro.\n\n" + figure + "\n\n" + Self.block + "\n\nAfter.")
+        XCTAssertEqual((result as NSString).substring(with: edit.selection), "Caption")
+
+        // At the line's last character too, and with prose glued below it.
+        let glued = figure + "\nAfter."
+        let last = (figure as NSString).length - 1
+        XCTAssertEqual(Self.apply(Self.blockEdit(in: glued, at: last), to: glued),
+                       figure + "\n\n" + Self.block + "\n\nAfter.")
+    }
+
+    /// The control: at a figure line's very start the block still goes above
+    /// it (the line stays whole), and inside a line that is not a figure it
+    /// still splits.
+    func test_aBlockAtAFigureLinesStartStillGoesAboveIt() {
+        let figure = "![Cash flows](figures/cash.csv){#tbl:cash}"
+        let text = "Intro.\n\n" + figure
+        let start = ("Intro.\n\n" as NSString).length
+        XCTAssertEqual(Self.apply(Self.blockEdit(in: text, at: start), to: text),
+                       "Intro.\n\n" + Self.block + "\n\n" + figure)
+        XCTAssertNil(ReportInsert.endOfFigureLine(containing: 3, in: "Not a figure." as NSString))
+    }
+
     // MARK: - R-3a-6 the footnote
 
     func test_theFootnoteRefGoesAtTheCaretAndItsDefinitionFollowsTheParagraph() {

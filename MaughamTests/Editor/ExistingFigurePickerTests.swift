@@ -20,25 +20,36 @@ final class ExistingFigurePickerTests: XCTestCase {
     // MARK: - Fixture
 
     private static let chapterOne = "c1", chapterTwo = "c2"
+    private static let documentPath = "manuscript/02.md"
     private static let cash = FigureRecord(id: "fig-0a0a0a0a", name: "cash", kind: .table,
                                            piece: chapterOne, path: "figures/cash.csv")
     private static let q3 = FigureRecord(id: "fig-1b1b1b1b", name: "q3-revenue", kind: .table,
                                          piece: nil, path: "figures/q3-revenue.csv")
     private static let photo = FigureRecord(id: "fig-2c2c2c2c", name: "harbour", kind: .image,
                                             piece: chapterTwo, path: "figures/harbour.png")
+    private static let ledger = FigureRecord(id: "fig-6a6a6a6a", name: "ledger", kind: .table,
+                                             piece: chapterTwo, path: "figures/ledger.csv")
     private static let parked = FigureRecord(id: "fig-3d3d3d3d", name: "debt", kind: .table,
                                              piece: nil, path: "figures/debt.csv")
     private static let alien = FigureRecord(id: "fig-4e4e4e4e", name: "future", kind: .unknown("chart"),
                                             piece: nil, path: "figures/future.xyz")
+    private static let records = [cash, q3, photo, ledger, parked, alien]
 
     /// The listing as `FigureListing.build` orders it: used in reading order,
-    /// then unused by name.
+    /// then unused by name. The ledger's line has no label.
     private static let listing: [FigureListing.Row] = [
         row(photo, number: "Figure 1", caption: "The harbour", piece: chapterOne),
         row(cash, number: "Table 1", caption: "Cash flows", piece: chapterOne),
+        row(ledger, number: "Table 2", caption: "Ledger", piece: chapterTwo),
         row(parked, number: "—", caption: "", piece: nil),
         row(alien, number: "—", caption: "", piece: nil),
         row(q3, number: "—", caption: "", piece: nil),
+    ]
+
+    /// The labels the index registered for each used figure's first line.
+    private static let firstLineLabels: [String: ManuscriptLabel] = [
+        photo.id: ManuscriptLabel(reference: "fig:harbour")!,
+        cash.id: ManuscriptLabel(reference: "tbl:cash")!,
     ]
 
     private static func row(_ record: FigureRecord, number: String, caption: String,
@@ -49,12 +60,18 @@ final class ExistingFigurePickerTests: XCTestCase {
                           referencedFrom: [], pieceOfLine: piece)
     }
 
-    private static func entries(documentPath: String = "manuscript/02.md") -> [ExistingFigurePicker.Entry] {
+    private static func entries(documentPath: String = documentPath, docId: String = chapterTwo,
+                                live: [String: ExistingFigurePicker.LiveUse] = [:])
+        -> [ExistingFigurePicker.Entry]
+    {
         ExistingFigurePicker.entries(
-            listing: listing, records: [cash, q3, photo, parked, alien],
-            isParked: { $0 == parked.id }, documentPath: documentPath,
+            listing: listing, records: records,
+            isParked: { $0 == parked.id }, documentPath: documentPath, docId: docId, live: live,
+            firstLineLabel: { firstLineLabels[$0.figureId] },
             pieceTitle: { $0 == chapterOne ? "Chapter 1" : "Chapter 2" })
     }
+
+    private static func label(_ reference: String) -> ManuscriptLabel { ManuscriptLabel(reference: reference)! }
 
     final class Box {
         var text: String
@@ -72,10 +89,13 @@ final class ExistingFigurePickerTests: XCTestCase {
 
     /// An `EditorSurface` in a window that reports itself key, configured as
     /// `EditorHost` configures a Markdown manuscript (`answersInsertCommands`,
-    /// the `existingFigures` provider); false is a screenplay's or a note's.
+    /// the `existingFigures` provider over the fixture's listing and the live
+    /// text); false is a screenplay's or a note's. The document is Chapter 2
+    /// at `manuscript/02.md`.
     private func mount(_ text: String, answersInsertCommands: Bool = true,
                        mode: any WritingMode = ProseMode(),
-                       entries: [ExistingFigurePicker.Entry]? = nil) throws -> Mounted {
+                       entries: [ExistingFigurePicker.Entry]? = nil,
+                       isParked: ((String) async -> Bool)? = nil) throws -> Mounted {
         let box = Box(text)
         let binding = Binding(get: { box.text }, set: { box.text = $0; box.writes += 1 })
         var configuration = EditorSurfaceConfiguration(
@@ -84,8 +104,12 @@ final class ExistingFigurePickerTests: XCTestCase {
                                 paragraphFocus: false, showElementGutter: false),
             control: EditorControl())
         configuration.answersInsertCommands = answersInsertCommands
-        let offered = entries ?? Self.entries()
-        configuration.paragraphProviders.existingFigures = { offered }
+        // As `EditorHost` builds it: the live text read at the command.
+        configuration.paragraphProviders.existingFigures = { liveText in
+            entries ?? Self.entries(live: ExistingFigurePicker.liveUses(
+                in: liveText, records: Self.records, documentPath: Self.documentPath))
+        }
+        configuration.paragraphProviders.existingFigureIsParked = isParked
         configuration.paragraphProviders.commandFailureReporter = { box.reported.append($0) }
         let window = TestWindow.mount(EditorSurface(text: binding, configuration: configuration),
                                       size: CGSize(width: 700, height: 500),
@@ -118,25 +142,27 @@ final class ExistingFigurePickerTests: XCTestCase {
 
     // MARK: - The rows
 
-    func test_unusedFiguresComeFirstThenReadingOrder_parkedAndUnknownLeftOut() {
+    func test_unusedFiguresComeFirstThenReadingOrder_usedOnesAreReferences() {
         let entries = Self.entries()
-        XCTAssertEqual(entries.map(\.figureId), [Self.q3.id, Self.photo.id, Self.cash.id],
+        XCTAssertEqual(entries.map(\.figureId), [Self.q3.id, Self.photo.id, Self.cash.id, Self.ledger.id],
                        "unused first, then the listing's reading order; parked and unknown kinds left out")
         XCTAssertEqual(entries.map(\.title), [
             "— q3-revenue (unused)",
-            "Figure 1 · The harbour · Chapter 1",
-            "Table 1 · Cash flows · Chapter 1",
+            "Refer to Figure 1 · The harbour · Chapter 1",
+            "Refer to Table 1 · Cash flows · Chapter 1",
+            "Table 2 · Ledger · Chapter 2",
         ])
-        XCTAssertEqual(entries.map(\.isUnused), [true, false, false])
+        XCTAssertEqual(entries.map(\.action), [
+            .place, .refer(Self.label("fig:harbour")), .refer(Self.label("tbl:cash")),
+            .unavailable("Give Table 2 a label to refer to it"),
+        ], "a placed figure is referred to by its first line's label; no label, no reference")
+        XCTAssertEqual(entries.map(\.isEnabled), [true, true, true, false])
+        XCTAssertEqual(entries.last?.note, "Give Table 2 a label to refer to it")
     }
 
-    func test_eachEntrysLineIsLabelledWithTheRecordNameAndWrittenFromTheDocument() {
+    func test_anUnusedEntrysLineIsLabelledWithTheRecordNameAndWrittenFromTheDocument() {
         let entries = Self.entries(documentPath: "manuscript/02.md")
-        XCTAssertEqual(entries.map(\.line), [
-            "![Caption](../figures/q3-revenue.csv){#tbl:q3-revenue}",
-            "![The harbour](../figures/harbour.png){#fig:harbour}",
-            "![Cash flows](../figures/cash.csv){#tbl:cash}",
-        ], "an unused figure takes the placeholder caption; a used one its first line's")
+        XCTAssertEqual(entries.first?.line, "![Caption](../figures/q3-revenue.csv){#tbl:q3-revenue}")
         let root = Self.entries(documentPath: "story.md")
         XCTAssertEqual(root.first?.linePath, "figures/q3-revenue.csv")
         XCTAssertEqual(entries.first.map { ($0.line as NSString).substring(with: $0.captionRange) },
@@ -148,19 +174,99 @@ final class ExistingFigurePickerTests: XCTestCase {
                                   path: "figures/q3.csv")
         let entries = ExistingFigurePicker.entries(
             listing: [Self.row(legacy, number: "—", caption: "", piece: nil)], records: [legacy],
-            isParked: { _ in false }, documentPath: "story.md", pieceTitle: { $0 })
+            isParked: { _ in false }, documentPath: "story.md", docId: "s", live: [:],
+            firstLineLabel: { _ in nil }, pieceTitle: { $0 })
         XCTAssertEqual(entries.map(\.line), ["![Caption](figures/q3.csv)"])
+    }
+
+    /// Review I1: the listing lags the settle, so the live text's lines say
+    /// "used" too — a figure placed a moment ago is offered as a reference.
+    func test_liveUsesReadThisDocumentsFigureLines() {
+        let text = """
+            Prose.
+
+            ![Revenue](../figures/q3-revenue.csv){#tbl:q3-revenue}
+
+            ![Again](../figures/q3-revenue.csv)
+
+            ![Lost](../figures/nothing.csv){#tbl:nothing}
+            """
+        let live = ExistingFigurePicker.liveUses(in: text, records: Self.records,
+                                                 documentPath: Self.documentPath)
+        XCTAssertEqual(live, [Self.q3.id: .init(label: Self.label("tbl:q3-revenue"), caption: "Revenue")],
+                       "each figure's first live line; a path naming no figure is not a use")
+    }
+
+    func test_aFigureOnlyTheLiveTextUsesIsAReference() throws {
+        let labelled = Self.entries(live: [Self.q3.id: .init(label: Self.label("tbl:q3-revenue"),
+                                                             caption: "Revenue")])
+        let q3 = try XCTUnwrap(labelled.first { $0.figureId == Self.q3.id })
+        XCTAssertEqual(q3.action, .refer(Self.label("tbl:q3-revenue")))
+        XCTAssertEqual(q3.title, "Refer to Revenue · Chapter 2")
+        XCTAssertEqual(labelled.last?.figureId, Self.q3.id, "after the listing's used ones")
+        XCTAssertFalse(labelled.contains { $0.isUnused }, "nothing left to place")
+
+        let bare = Self.entries(live: [Self.q3.id: .init(label: nil, caption: "Revenue")])
+        XCTAssertEqual(bare.first { $0.figureId == Self.q3.id }?.action,
+                       .unavailable("Give this figure a label to refer to it"))
+    }
+
+    /// When the first line is this document's, the live line's label wins
+    /// over the index's (it may have changed since the settle).
+    func test_theLiveLabelWinsWhenTheFirstLineIsThisDocuments() {
+        let entries = Self.entries(docId: Self.chapterOne,
+                                   live: [Self.cash.id: .init(label: Self.label("tbl:cash-flows"),
+                                                              caption: "Cash flows")])
+        XCTAssertEqual(entries.first { $0.figureId == Self.cash.id }?.action,
+                       .refer(Self.label("tbl:cash-flows")))
+        XCTAssertEqual(Self.entries(docId: Self.chapterOne).first { $0.figureId == Self.cash.id }?.action,
+                       .refer(Self.label("tbl:cash")), "control: no live line, the index's label")
     }
 
     func test_theFilterMatchesEveryWordInTheRowOrTheName() {
         let entries = Self.entries()
-        XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "").count, 3)
-        XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "  ").count, 3)
-        XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "TABLE").map(\.figureId), [Self.cash.id])
+        XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "").count, 4)
+        XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "  ").count, 4)
+        XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "TABLE 1").map(\.figureId), [Self.cash.id])
         XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "chapter cash").map(\.figureId),
                        [Self.cash.id])
         XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "unused").map(\.figureId), [Self.q3.id])
         XCTAssertEqual(ExistingFigurePicker.filter(entries, query: "harbour 2").map(\.figureId), [])
+    }
+
+    // MARK: - The keyboard rules
+
+    func test_theSelectionFollowsTheFilterOverEnabledRows() {
+        let all = Self.entries()
+        XCTAssertEqual(ExistingFigurePicker.selection(keeping: nil, in: all), Self.q3.id)
+        XCTAssertEqual(ExistingFigurePicker.selection(keeping: Self.cash.id, in: all), Self.cash.id,
+                       "kept while shown")
+        let tables = ExistingFigurePicker.filter(all, query: "table")
+        XCTAssertEqual(ExistingFigurePicker.selection(keeping: Self.photo.id, in: tables), Self.cash.id,
+                       "filtered away: the first shown")
+        let ledger = ExistingFigurePicker.filter(all, query: "ledger")
+        XCTAssertNil(ExistingFigurePicker.selection(keeping: nil, in: ledger), "a disabled row is never selected")
+        XCTAssertNil(ExistingFigurePicker.selection(keeping: Self.ledger.id, in: ledger))
+    }
+
+    func test_arrowsMoveOverEnabledRowsAndStopAtTheEnds() {
+        let all = Self.entries()
+        XCTAssertEqual(ExistingFigurePicker.selection(moving: Self.q3.id, by: 1, in: all), Self.photo.id)
+        XCTAssertEqual(ExistingFigurePicker.selection(moving: Self.cash.id, by: 1, in: all), Self.cash.id,
+                       "the disabled ledger is skipped, and ↓ stops at the last enabled row")
+        XCTAssertEqual(ExistingFigurePicker.selection(moving: Self.q3.id, by: -1, in: all), Self.q3.id)
+        XCTAssertEqual(ExistingFigurePicker.selection(moving: nil, by: 1, in: all), Self.q3.id)
+        XCTAssertEqual(ExistingFigurePicker.selection(moving: nil, by: -1, in: all), Self.cash.id)
+        XCTAssertNil(ExistingFigurePicker.selection(moving: nil, by: 1, in: []))
+    }
+
+    func test_returnChoosesTheSelectedEnabledRowOnly() {
+        let all = Self.entries()
+        XCTAssertEqual(ExistingFigurePicker.chosen(Self.photo.id, in: all)?.figureId, Self.photo.id)
+        XCTAssertNil(ExistingFigurePicker.chosen(Self.ledger.id, in: all), "a disabled row inserts nothing")
+        XCTAssertNil(ExistingFigurePicker.chosen(Self.photo.id, in: ExistingFigurePicker.filter(all, query: "cash")),
+                     "a row the filter hides is not chosen")
+        XCTAssertNil(ExistingFigurePicker.chosen(nil, in: all))
     }
 
     // MARK: - The command, end to end
@@ -192,23 +298,122 @@ final class ExistingFigurePickerTests: XCTestCase {
         let selected = (m.textView.string as NSString).substring(with: m.textView.selectedRange())
         XCTAssertEqual(selected, "Caption", "the caption waits, selected")
         XCTAssertEqual(undo.undoActionName, ExistingFigurePicker.actionName)
+        XCTAssertEqual(m.box.reported, [])
 
         undo.undo()
         XCTAssertEqual(m.textView.string, text, "one ⌘Z removes the line")
         XCTAssertFalse(undo.canUndo, "and it was one step")
     }
 
-    /// A figure used elsewhere is placed again (one figure, two uses): a
-    /// second line with the same label and path.
-    func test_aFigureAlreadyUsedElsewhereGetsASecondLine() throws {
-        let m = try mount("Prose.")
-        m.textView.setSelectedRange(NSRange(location: 6, length: 0))
+    /// The ruling: a figure already placed is not placed twice — choosing it
+    /// writes a cross-reference to its line's label, inline at the caret, a
+    /// space before it after a word; one ⌘Z.
+    func test_aFigureAlreadyPlacedIsReferredToNotPlacedAgain() throws {
+        let m = try mount("See")
+        m.textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        undo.removeAllActions()
         postTheMenuItem()
         let session = try XCTUnwrap(m.coordinator.existingFigurePicker)
         let cash = try XCTUnwrap(session.entries.first { $0.figureId == Self.cash.id })
-        XCTAssertFalse(cash.isUnused, "precondition: the picker marks it used")
+        XCTAssertEqual(cash.action, .refer(Self.label("tbl:cash")), "precondition: the picker marks it placed")
         session.choose(cash)
-        XCTAssertEqual(m.textView.string, "Prose.\n\n![Cash flows](../figures/cash.csv){#tbl:cash}")
+
+        XCTAssertEqual(m.textView.string, "See @tbl:cash", "a reference, not a second figure line")
+        XCTAssertEqual(m.textView.selectedRange(), NSRange(location: 13, length: 0), "the caret after it")
+        XCTAssertEqual(undo.undoActionName, ExistingFigurePicker.referenceActionName)
+        XCTAssertEqual(m.box.reported, [])
+        undo.undo()
+        XCTAssertEqual(m.textView.string, "See", "one ⌘Z removes it")
+        XCTAssertFalse(undo.canUndo)
+    }
+
+    /// After a space no second space is written; inside code nothing is, and
+    /// the writer is told.
+    func test_aReferenceAfterASpaceAddsNoneAndInsideCodeIsRefused() throws {
+        let m = try mount("See ")
+        m.textView.setSelectedRange(NSRange(location: 4, length: 0))
+        postTheMenuItem()
+        let session = try XCTUnwrap(m.coordinator.existingFigurePicker)
+        session.choose(try XCTUnwrap(session.entries.first { $0.figureId == Self.photo.id }))
+        XCTAssertEqual(m.textView.string, "See @fig:harbour")
+        m.window.reportsKey = false
+
+        let code = try mount("Run `code here` now.")
+        code.textView.setSelectedRange(NSRange(location: 9, length: 0))
+        postTheMenuItem()
+        let inCode = try XCTUnwrap(code.coordinator.existingFigurePicker)
+        inCode.choose(try XCTUnwrap(inCode.entries.first { $0.figureId == Self.cash.id }))
+        XCTAssertEqual(code.textView.string, "Run `code here` now.")
+        XCTAssertEqual(code.box.reported, [ExistingFigurePicker.insideCodeMessage])
+    }
+
+    /// Review I1: place, then pick the same figure again before any settle —
+    /// the live text already holds its line, so it is a reference.
+    func test_placeThenPickAgainBeforeTheSettleRefersToIt() throws {
+        let m = try mount("Prose.")
+        m.textView.setSelectedRange(NSRange(location: 6, length: 0))
+        postTheMenuItem()
+        let first = try XCTUnwrap(m.coordinator.existingFigurePicker)
+        first.choose(try XCTUnwrap(first.entries.first { $0.figureId == Self.q3.id }))
+        XCTAssertTrue(m.textView.string.contains("{#tbl:q3-revenue}"), "precondition: placed")
+
+        let end = (m.textView.string as NSString).length
+        m.textView.setSelectedRange(NSRange(location: end, length: 0))
+        postTheMenuItem()
+        let again = try XCTUnwrap(m.coordinator.existingFigurePicker)
+        let q3 = try XCTUnwrap(again.entries.first { $0.figureId == Self.q3.id })
+        XCTAssertEqual(q3.action, .refer(Self.label("tbl:q3-revenue")))
+        again.choose(q3)
+        XCTAssertTrue(m.textView.string.hasSuffix(" @tbl:q3-revenue"), m.textView.string)
+        XCTAssertEqual(m.textView.string.components(separatedBy: "](../figures/q3-revenue.csv)").count, 2,
+                       "one figure line, never two")
+    }
+
+    /// Review I2: a placement Route A refuses (the posture turned read-only
+    /// while the sheet was up) is told, not silent.
+    func test_aRefusedWriteIsTold() throws {
+        let m = try mount("Prose.")
+        postTheMenuItem()
+        let session = try XCTUnwrap(m.coordinator.existingFigurePicker)
+        m.coordinator.setLockEditing(true)
+        session.choose(try XCTUnwrap(session.entries.first))
+        XCTAssertEqual(m.textView.string, "Prose.")
+        XCTAssertEqual(m.box.reported, [ExistingFigurePicker.refusedMessage])
+    }
+
+    /// A disabled row reaching the coordinator writes nothing and says why.
+    func test_anUnavailableRowWritesNothingAndSaysWhy() throws {
+        let m = try mount("Prose.")
+        postTheMenuItem()
+        let session = try XCTUnwrap(m.coordinator.existingFigurePicker)
+        session.choose(try XCTUnwrap(session.entries.first { $0.figureId == Self.ledger.id }))
+        XCTAssertEqual(m.textView.string, "Prose.")
+        XCTAssertEqual(m.box.reported, ["Give Table 2 a label to refer to it"])
+    }
+
+    /// Minor 1: the store is asked at the choice; a figure parked meanwhile
+    /// is refused and told. The control: not parked, the line lands.
+    func test_aFigureParkedMeanwhileIsRefusedAtTheChoice() async throws {
+        let m = try mount("Prose.", isParked: { _ in true })
+        postTheMenuItem()
+        let session = try XCTUnwrap(m.coordinator.existingFigurePicker)
+        m.coordinator.existingFigureTask = nil
+        session.choose(try XCTUnwrap(session.entries.first))
+        await m.coordinator.existingFigureTask?.value
+        XCTAssertEqual(m.textView.string, "Prose.")
+        XCTAssertEqual(m.box.reported, [ExistingFigurePicker.parkedMessage])
+        m.window.reportsKey = false
+
+        let control = try mount("Prose.", isParked: { _ in false })
+        control.textView.setSelectedRange(NSRange(location: 6, length: 0))
+        postTheMenuItem()
+        let open = try XCTUnwrap(control.coordinator.existingFigurePicker)
+        control.coordinator.existingFigureTask = nil
+        open.choose(try XCTUnwrap(open.entries.first))
+        await control.coordinator.existingFigureTask?.value
+        XCTAssertTrue(control.textView.string.contains("{#tbl:q3-revenue}"), control.textView.string)
+        XCTAssertEqual(control.box.reported, [])
     }
 
     func test_cancelWritesNothing() throws {

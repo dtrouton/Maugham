@@ -904,13 +904,30 @@ struct EditorHost: View {
                 },
                 // Insert ▸ Existing Figure… (report plan 8b Task 3): the
                 // window's listing, parked figures left out by this editor's
-                // cards, each line's path from this document — at the command.
-                existingFigures: { [figureListing, figureCards, store] in
-                    ExistingFigurePicker.entries(
-                        listing: figureListing?.rows ?? [], records: store.manifest.figures ?? [],
+                // cards, used read from the listing and the editor's live
+                // text, a used figure's label off its first line in the
+                // cached index — at the command, never per keystroke.
+                existingFigures: { [figureListing, figureCards, referenceIndex, store] liveText in
+                    let records = store.manifest.figures ?? []
+                    let index = referenceIndex.index
+                    return ExistingFigurePicker.entries(
+                        listing: figureListing?.rows ?? [], records: records,
                         isParked: { figureCards.model(forFigureId: $0)?.kind == .parked },
-                        documentPath: path,
+                        documentPath: path, docId: doc.docId,
+                        live: ExistingFigurePicker.liveUses(in: liveText, records: records,
+                                                            documentPath: path),
+                        firstLineLabel: { row in
+                            row.usedIn.first.flatMap { use in
+                                index.numberedLines.first {
+                                    $0.docId == use.docId && $0.line == use.lineIndex
+                                }?.targetLabel
+                            }
+                        },
                         pieceTitle: { FigureSectionVerbs.pieceTitle($0, in: store.manifest.structure) })
+                },
+                // The store's answer at the choice: the cards can lag.
+                existingFigureIsParked: { [documentStore] figureId in
+                    (try? await documentStore.figureIsParked(figureId)) ?? false
                 },
                 commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)

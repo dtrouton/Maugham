@@ -265,7 +265,11 @@ final class FigureListingWiringTests: XCTestCase {
 
         let session = try XCTUnwrap(coordinator.insertExistingFigure(), "the picker opened")
         XCTAssertEqual(session.entries.map(\.title), ["— cash (unused)"])
+        // The host asks the store whether it is parked at the choice; the
+        // line lands in that task, awaited through its handle.
+        coordinator.existingFigureTask = nil
         session.choose(try XCTUnwrap(session.entries.first))
+        await coordinator.existingFigureTask?.value
         XCTAssertTrue(textView.string.contains("figures/cash.csv){#tbl:cash}"),
                       "the line was written from the chapter's folder: \(textView.string)")
 

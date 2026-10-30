@@ -525,9 +525,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var tableFigureMaker: FigureIngest.TableFigureMaker?
 
     /// The figures Insert ▸ Existing Figure… offers, built at the command
-    /// from the window's listing (`ExistingFigurePicker.entries`). Built by
+    /// from the window's listing and this editor's live text, handed in
+    /// (`ExistingFigurePicker.entries`). Built by
     /// `EditorHost`; nil on every other surface, where the command does nothing.
-    var existingFigures: (() -> [ExistingFigurePicker.Entry])?
+    var existingFigures: ((String) -> [ExistingFigurePicker.Entry])?
+    /// Whether a figure is parked in Research, asked of the store when the
+    /// writer chooses (`chooseExistingFigure`). Built by `EditorHost`.
+    var existingFigureIsParked: ((String) async -> Bool)?
+    /// The most recent choice's write, when it waited on
+    /// `existingFigureIsParked`, so a caller (a test) can await it.
+    var existingFigureTask: Task<Void, Never>?
     /// The picker while its sheet is open (`insertExistingFigure`); a test
     /// chooses through it.
     var existingFigurePicker: ExistingFigurePickerSession?
