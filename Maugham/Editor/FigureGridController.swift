@@ -4,8 +4,9 @@ import MaughamCore
 
 /// **One visit to a table figure's grid** (report plan 7c Task 5): the
 /// host (`FigureGridHost` — a figure's `FigureDocument`), the pure
-/// `FigureGridModel` (selection, edit state, keys), the `FigureGridValues` holder (computed values and cached strings), the
-/// `FigureGridView` and its `FigureGridBars`.
+/// `FigureGridModel` (selection, edit state, keys), the `FigureGridValues`
+/// holder (computed values and cached strings), the `FigureGridView` and its
+/// `FigureGridBars`.
 ///
 /// - **The only grid file that calls a figure mutator** (tripwire 52 counts
 ///   this file's calls in `manuscriptWriterCallSites`): a cell through

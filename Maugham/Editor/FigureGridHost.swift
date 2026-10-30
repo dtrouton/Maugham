@@ -100,25 +100,6 @@ struct FigureGridOffers: Equatable {
                                          sendToResearch: true, refreshPins: true, openInWindow: true)
 }
 
-/// The undo-less spellings `FigureDocument` gives its own callers.
-extension FigureGridHost {
-    func setCell(_ cell: Cell?, at key: CellKey) async throws {
-        try await setCell(cell, at: key, undoManager: nil)
-    }
-
-    func setHeaderRows(_ rows: Int) async throws {
-        try await setHeaderRows(rows, undoManager: nil)
-    }
-
-    func deleteRow(_ id: RowID) async throws {
-        try await deleteRow(id, undoManager: nil)
-    }
-
-    func deleteColumn(_ id: ColumnID) async throws {
-        try await deleteColumn(id, undoManager: nil)
-    }
-}
-
 /// A figure is the grid's first host: no behaviour changes, and every
 /// figure command is offered.
 extension FigureDocument: FigureGridHost {
