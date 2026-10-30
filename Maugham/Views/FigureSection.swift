@@ -9,7 +9,8 @@ struct FigureTreeRow: Equatable, Identifiable {
     let listing: FigureListing.Row
     /// **Research**: the figure holds a research pin (`FigureCardModel.readsResearch`).
     let readsResearch: Bool
-    /// **changed**: a pin's source moved on since it was taken (`pinChanged`).
+    /// **changed**: a pin's source, or the Research item the figure was made
+    /// from, moved on since it was taken (`FigureCardModel.changed`).
     let pinChanged: Bool
 
     var id: String { listing.figureId }
@@ -45,7 +46,7 @@ struct FigureTreeRow: Equatable, Identifiable {
             let model = card(row.figureId)
             if model?.kind == .parked { return nil }
             return FigureTreeRow(listing: row, readsResearch: model?.readsResearch ?? false,
-                                 pinChanged: model?.pinChanged ?? false)
+                                 pinChanged: model?.changed ?? false)
         }
     }
 }

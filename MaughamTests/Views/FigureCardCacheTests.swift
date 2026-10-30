@@ -82,6 +82,23 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(cache.status(forLinePath: "../research/p.png", documentPath: "manuscript/a.md"), .outsideFigures)
     }
 
+    // MARK: - A snapshot's source changed (report plan 8b Task 1)
+
+    /// **The fill's snapshot flag reaches each figure's card**, a table's and
+    /// a picture's alike; a figure not flagged says nothing.
+    func test_aChangedSnapshotSourceReachesTheCard() async {
+        let cash = record("fig-0a1b2c3d", "cash"), pic = record("fig-1a1b2c3d", "pic", kind: .image)
+        let tax = record("fig-2a1b2c3d", "tax")
+        var flagged = inputs([(cash, table([1])), (pic, FigureState(kind: .image)), (tax, table([2]))])
+        flagged.sourceChanged = [cash.id, pic.id]
+        let cache = FigureCardCache()
+        cache.attach(FakeSource(flagged).source)
+        await cache.idle()
+        XCTAssertEqual(cache.model(forFigureId: cash.id)?.changed, true)
+        XCTAssertEqual(cache.model(forFigureId: pic.id)?.changed, true, "a picture carries it too")
+        XCTAssertEqual(cache.model(forFigureId: tax.id)?.changed, false)
+    }
+
     // MARK: - A departed figure brought back (whole-branch review I2)
 
     /// **A figure a fill saw leave comes back at once on `readopt`**, its

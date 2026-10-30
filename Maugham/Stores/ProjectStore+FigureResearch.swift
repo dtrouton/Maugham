@@ -57,16 +57,22 @@ extension ProjectStore {
     ///    header and total rows, formats and widths on.
     /// 3. **A picture or PDF** takes `createImageFigure`'s path; no workbook is
     ///    built.
-    /// 4. Either way the figure is named from the item's title, de-duplicated
-    ///    (`vacantFigureName`), behind the door a new figure asks of `piece`,
-    ///    and its `figureCreate` records the source: the item's id, path and
-    ///    the content hash of the bytes copied (`FigureSource`).
+    /// 4. Either way the figure is named `name` when that is a label name
+    ///    (`ManuscriptLabel.isValidName` — *Move into Figures* keeps its
+    ///    line's), else `FigureIngest.figureName` of `name` or the item's
+    ///    title (`Q3 revenue (draft)` → `q3-revenue-draft`), so its line's
+    ///    `{#tbl:…}`/`{#fig:…}` label is the record's name; de-duplicated
+    ///    (`vacantFigureName`: `_2`, `_3`…), behind the door a new figure asks
+    ///    of `piece`, and its `figureCreate` records the source: the item's
+    ///    id, path and the content hash of the bytes copied (`FigureSource`).
     ///
     /// Throws `UseInDocumentRefused` for an item that is not a Research table,
     /// picture or PDF, has no file, or is too large. Needs the window's
     /// `DocumentStore`.
     @discardableResult
-    public func useInDocument(researchItemId: String, piece: String?) async throws -> UseInDocumentResult {
+    public func useInDocument(
+        researchItemId: String, piece: String?, name: String? = nil
+    ) async throws -> UseInDocumentResult {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
@@ -82,9 +88,10 @@ extension ProjectStore {
             // and its formats apply only to the bytes they were written for.
             let posture = await documentStore.settledPosture(forDocId: figureId, as: .author)
             if !posture.isSettling, posture.allows(.editFigure) {
-                return try await bringBack(researchItemId: item.id, piece: piece)
+                return try await bringBack(researchItemId: item.id, piece: piece, name: name)
             }
         }
+        let figureName = Self.labelSafeFigureName(name, title: item.title)
         switch item.kind {
         case .table?:
             let (path, file) = try researchFile(of: item)
@@ -100,7 +107,7 @@ extension ProjectStore {
                 read.table = sidecar.applied(to: read.table)
             }
             let record = try await createFigureStream(
-                kind: .table, table: read.table, name: item.title, piece: piece,
+                kind: .table, table: read.table, name: figureName, piece: piece,
                 source: FigureSource(researchItemId: item.id, path: path, contentHash: hash),
                 site: "useInDocument")
             for problem in read.problems {
@@ -112,7 +119,7 @@ extension ProjectStore {
             let (path, file) = try researchFile(of: item)
             let hash = try await Task.detached { try ContentHash.ofFile(file) }.value
             let record = try await createImageFigure(
-                fromURL: file, name: item.title, piece: piece,
+                fromURL: file, name: figureName, piece: piece,
                 from: FigureSource(researchItemId: item.id, path: path, contentHash: hash))
             return UseInDocumentResult(record: record, problems: [])
         case .document?, .audio?, .link?, nil:
@@ -127,7 +134,8 @@ extension ProjectStore {
     /// the copy's changes replaced. `useInDocument` routes here when the
     /// item's sidecar names a parked figure. The figure keeps its record —
     /// name, piece, path — so every reference to it reconnects with no op;
-    /// `piece` is not asked. The working copy stays in Research.
+    /// neither `piece` nor `name` is asked (a name the caller would give a
+    /// new figure is not this one's). The working copy stays in Research.
     ///
     /// 1. **Only the parked copy**: the item's sidecar names the figure, the
     ///    registry lists it, it is parked, and its park names THIS item
@@ -150,7 +158,9 @@ extension ProjectStore {
     ///
     /// Needs the window's `DocumentStore`.
     @discardableResult
-    public func bringBack(researchItemId: String, piece: String?) async throws -> UseInDocumentResult {
+    public func bringBack(
+        researchItemId: String, piece: String?, name: String? = nil
+    ) async throws -> UseInDocumentResult {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
@@ -238,6 +248,15 @@ extension ProjectStore {
         case .unknown:
             throw FigureEditInvalid(reason: "this build cannot bring back a figure of this kind")
         }
+    }
+
+    /// **The name a figure made from Research takes, before de-duplication**:
+    /// `name` as given when it is a label name (`ManuscriptLabel.isValidName`),
+    /// else `FigureIngest.figureName` of `name` or `title` — always a label
+    /// name, so the line's label can be the record's name.
+    nonisolated static func labelSafeFigureName(_ name: String?, title: String) -> String {
+        if let name, ManuscriptLabel.isValidName(name) { return name }
+        return FigureIngest.figureName(stem: name ?? title)
     }
 
     /// **Is `itemId` the copy of an EARLIER park than the current one?** — a
@@ -673,6 +692,32 @@ public struct FigureReturnRefused: LocalizedError, Equatable {
         case .sentAgainSince(let kind):
             return (kind == .image ? "This picture" : "This table")
                 + " was sent to Research again since this copy was made; bring it back from its newer copy."
+        }
+    }
+}
+
+/// **A figure line that could not be pointed at its figure** (report plan 8b
+/// Task 1, *Move into Figures*): the text is as it was.
+public struct FigureLineRetargetRefused: LocalizedError, Equatable {
+    public enum Reason: Equatable {
+        /// The piece's text no longer holds that line as it was found.
+        case lineNotFound
+        /// The piece's text cannot be read.
+        case unreadable(String)
+        /// This Mac may not change the piece's text.
+        case pieceNotWritable(String)
+    }
+
+    public let reason: Reason
+
+    public var errorDescription: String? {
+        switch reason {
+        case .lineNotFound:
+            return "That figure line has changed since it was found, so it was left as it is."
+        case .unreadable(let title):
+            return "\(title) can't be read, so its figure line was left as it is."
+        case .pieceNotWritable(let title):
+            return "This Mac may not change the text of \(title), so its figure line was left as it is."
         }
     }
 }

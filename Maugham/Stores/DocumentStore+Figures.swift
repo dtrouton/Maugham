@@ -553,9 +553,40 @@ extension DocumentStore {
                 pinChanged.insert(id)
             }
         }
+        let sourceChanged = await snapshotSourcesChanged(states, research: manifest.research)
         guard presenter != nil else { return nil }
         return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
-                                pinChanged: pinChanged, locale: locale)
+                                pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale)
+    }
+
+    /// **The figures whose Research source has moved on** (report plan 8b
+    /// Task 1, spec §4.1): each unparked figure made from a Research item
+    /// (`FigureState.source`), its item found by id in `research` and its
+    /// file hashed off the main actor now — each file once — and asked of
+    /// `FigureSource.hasChanged(currentHash:)`. An item that is gone, has no
+    /// file, or whose file will not read is changed.
+    private func snapshotSourcesChanged(
+        _ states: [String: FigureState], research: [ResearchItem]
+    ) async -> Set<String> {
+        guard let projectStore else { return [] }
+        var hashes: [String: String?] = [:]
+        var changed = Set<String>()
+        for (id, state) in states where state.parked == nil {
+            guard let source = state.source else { continue }
+            var current: String?
+            if let item = projectStore.findResearchItem(id: source.researchItemId, in: research),
+               item.type == .asset, let path = item.path,
+               let file = try? resolvedProjectPath(path) {
+                if let known = hashes[file.path] {
+                    current = known
+                } else {
+                    current = try? await Task.detached { try ContentHash.ofFile(file) }.value
+                    hashes[file.path] = current
+                }
+            }
+            if source.hasChanged(currentHash: current) { changed.insert(id) }
+        }
+        return changed
     }
 
     // MARK: - Rendering
@@ -657,5 +688,8 @@ struct FigureCardInputs {
     var workbook: Workbook?
     /// The figures holding a pin whose source has changed (`PinStatus.sourceChanged`).
     var pinChanged: Set<String>
+    /// The figures whose own Research source has changed or is gone
+    /// (`FigureSource.hasChanged(currentHash:)`).
+    var sourceChanged: Set<String> = []
     var locale: TableLocale
 }

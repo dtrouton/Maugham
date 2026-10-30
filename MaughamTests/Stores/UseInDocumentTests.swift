@@ -157,6 +157,85 @@ final class UseInDocumentTests: XCTestCase {
                        .value(.number(2)))
     }
 
+    // MARK: - Label-safe names (report plan 8b Task 1)
+
+    /// **A table's name is a label name** (`ManuscriptLabel.isValidName`), so
+    /// its line's `{#tbl:…}` can be the record's name: a title with spaces and
+    /// parentheses is folded as a picture's is, and a collision takes `_2`.
+    func test_aTitleWithSpacesAndParenthesesGivesALabelName() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("Q3 revenue (draft).csv", Data("a,b\n1,2\n".utf8)))
+        XCTAssertEqual(item.title, "Q3 revenue (draft)", "precondition: the title a writer sees")
+        let first = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        XCTAssertEqual(first.record.name, "q3-revenue-draft")
+        XCTAssertTrue(ManuscriptLabel.isValidName(first.record.name))
+        XCTAssertEqual(first.record.path, "figures/q3-revenue-draft.csv")
+        let second = try await projectStore.useInDocument(researchItemId: item.id, piece: nil)
+        XCTAssertEqual(second.record.name, "q3-revenue-draft_2", "a collision is de-duplicated")
+        XCTAssertTrue(ManuscriptLabel.isValidName(second.record.name))
+    }
+
+    /// **A name given is kept when it is a label name** (*Move into Figures*
+    /// keeps its line's), folded when it is not, and de-duplicated either
+    /// way; a picture keeps a given label name too, case and all.
+    func test_aGivenNameIsKeptWhenItIsALabelName() async throws {
+        let (_, projectStore) = try await openBook()
+        let table = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("budget.csv", Data("a,b\n1,2\n".utf8)))
+        let kept = try await projectStore.useInDocument(researchItemId: table.id, piece: nil, name: "Q3Revenue")
+        XCTAssertEqual(kept.record.name, "Q3Revenue")
+        let folded = try await projectStore.useInDocument(researchItemId: table.id, piece: nil, name: "Q3 (old)")
+        XCTAssertEqual(folded.record.name, "q3-old")
+        let again = try await projectStore.useInDocument(researchItemId: table.id, piece: nil, name: "q3revenue")
+        XCTAssertEqual(again.record.name, "q3revenue_2", "taken in any case")
+
+        let picture = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("Harbour Map.png", try TestImageBytes.png(seed: 4)))
+        let map = try await projectStore.useInDocument(researchItemId: picture.id, piece: nil, name: "HarbourMap")
+        XCTAssertEqual(map.record.name, "HarbourMap")
+        XCTAssertEqual(map.record.path, "figures/HarbourMap.png")
+    }
+
+    // MARK: - A snapshot's source changed (report plan 8b Task 1, spec §4.1)
+
+    /// **The card fill flags a figure whose Research source moved on**: an
+    /// untouched source is not changed; an edit to its file is; a source whose
+    /// file or item is gone is. A picture is flagged as a table is.
+    func test_aSnapshotSourceEditOrDeletionFlipsChanged() async throws {
+        let (store, projectStore) = try await openBook()
+        let csv = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("budget.csv", Data("a,b\n1,2\n".utf8)))
+        let png = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("map.png", try TestImageBytes.png(seed: 5)))
+        let table = try await projectStore.useInDocument(researchItemId: csv.id, piece: nil).record
+        let picture = try await projectStore.useInDocument(researchItemId: png.id, piece: nil).record
+
+        let calmRead = await store.figureCardInputs()
+        let calm = try XCTUnwrap(calmRead)
+        XCTAssertEqual(calm.sourceChanged, [], "control: untouched sources are not changed")
+
+        try Data("a,b\n1,3\n".utf8).write(to: file(try XCTUnwrap(csv.path)))
+        let editedRead = await store.figureCardInputs()
+        let edited = try XCTUnwrap(editedRead)
+        XCTAssertEqual(edited.sourceChanged, [table.id], "the edited table's source, only")
+
+        try FileManager.default.removeItem(at: file(try XCTUnwrap(png.path)))
+        let fileGoneRead = await store.figureCardInputs()
+        let fileGone = try XCTUnwrap(fileGoneRead)
+        XCTAssertEqual(fileGone.sourceChanged, [table.id, picture.id], "a source file gone is changed")
+
+        try Data("a,b\n1,2\n".utf8).write(to: file(try XCTUnwrap(csv.path)))
+        let restoredRead = await store.figureCardInputs()
+        let restored = try XCTUnwrap(restoredRead)
+        XCTAssertEqual(restored.sourceChanged, [picture.id], "the same bytes again are not changed")
+
+        projectStore.removeResearchItem(id: csv.id)
+        let itemGoneRead = await store.figureCardInputs()
+        let itemGone = try XCTUnwrap(itemGoneRead)
+        XCTAssertEqual(itemGone.sourceChanged, [table.id, picture.id], "a source item gone is changed")
+    }
+
     // MARK: - Pictures
 
     /// A picture in Research becomes an image figure through the image path,
@@ -224,8 +303,10 @@ final class UseInDocumentTests: XCTestCase {
         try ResearchTableSidecar.write(
             ResearchTableSidecar(figureId: cash.id, name: "cash"), forItem: copy.id, in: projectURL)
 
-        let back = try await projectStore.useInDocument(researchItemId: copy.id, piece: nil)
+        let back = try await projectStore.useInDocument(researchItemId: copy.id, piece: nil, name: "renamed")
         XCTAssertEqual(back.record.id, cash.id, "a parked figure's copy goes back to its own log")
+        XCTAssertEqual(back.record.name, "cash", "and keeps its own name, whatever name is given")
+        XCTAssertEqual(projectStore.manifest.figures?.first?.name, "cash")
         let resumed = try await state(cash.id)
         XCTAssertNil(resumed.parked, "resumed")
         XCTAssertEqual(projectStore.manifest.figures?.map(\.id), [cash.id, live.id], "nothing was made")

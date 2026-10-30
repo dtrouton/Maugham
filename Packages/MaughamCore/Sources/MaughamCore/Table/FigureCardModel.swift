@@ -25,15 +25,24 @@ public struct FigureCardModel: Equatable, Sendable {
     public var pinChanged: Bool
     /// The figure was made from a Research item (*Use in document*).
     public var fromResearchSource: Bool
+    /// The Research item the figure was made from has changed since (or is gone):
+    /// `FigureSource.hasChanged(currentHash:)` (report plan 8b Task 1, spec §4.1).
+    public var sourceChanged: Bool
+
+    /// **Research has changed under this figure** — a pin's source or the snapshot's
+    /// own: what the card's banner and the tree's "changed" tag say (spec §4.4).
+    public var changed: Bool { pinChanged || sourceChanged }
 
     public init(
         kind: Kind, headerRows: [[String]] = [], bodyRows: [[String]] = [], moreRows: Int = 0,
         hasTotalRow: Bool = false, columnAlignments: [CellAlignment] = [],
-        readsResearch: Bool = false, pinChanged: Bool = false, fromResearchSource: Bool = false
+        readsResearch: Bool = false, pinChanged: Bool = false, fromResearchSource: Bool = false,
+        sourceChanged: Bool = false
     ) {
         self.kind = kind; self.headerRows = headerRows; self.bodyRows = bodyRows; self.moreRows = moreRows
         self.hasTotalRow = hasTotalRow; self.columnAlignments = columnAlignments
         self.readsResearch = readsResearch; self.pinChanged = pinChanged; self.fromResearchSource = fromResearchSource
+        self.sourceChanged = sourceChanged
     }
 
     /// A card with no table: removed, ambiguous, parked or image (drawn labelled at the placeholder height).
@@ -45,6 +54,8 @@ public struct FigureCardModel: Equatable, Sendable {
     /// - `labelLookup`: `(figureId, row, column, language)`'s stored translation of a text cell, or nil;
     ///   consulted only for text cells and only when non-nil. Always nil until plan 9 stores translations.
     /// - `pinChanged`: the caller's answer from `PinStatus` (any `.sourceChanged`).
+    /// - `sourceChanged`: the caller's answer from `FigureSource.hasChanged(currentHash:)` for
+    ///   `state.source`; a picture's placeholder carries it too.
     public static func build(
         figureId: String,
         state: FigureState,
@@ -52,10 +63,14 @@ public struct FigureCardModel: Equatable, Sendable {
         locale: TableLocale,
         language: String?,
         labelLookup: ((String, RowID, ColumnID, String?) -> String?)? = nil,
-        pinChanged: Bool = false
+        pinChanged: Bool = false,
+        sourceChanged: Bool = false
     ) -> FigureCardModel {
         if state.parked != nil { return placeholder(.parked) }
-        if state.kind == .image { return placeholder(.image) }
+        if state.kind == .image {
+            return FigureCardModel(kind: .image, fromResearchSource: state.source != nil,
+                                   sourceChanged: sourceChanged)
+        }
         let table = state.table
         let rows = table.rows, columns = table.columns
         let headerCount = min(table.headerRows, rows.count)
@@ -100,7 +115,8 @@ public struct FigureCardModel: Equatable, Sendable {
             columnAlignments: alignments,
             readsResearch: !state.pins.isEmpty,
             pinChanged: pinChanged,
-            fromResearchSource: state.source != nil
+            fromResearchSource: state.source != nil,
+            sourceChanged: sourceChanged
         )
     }
 }
@@ -110,8 +126,8 @@ public struct FigureCardModel: Equatable, Sendable {
 /// `FigureThumbnailLayout.reservedHeight` as `placeholderHeight`.
 public enum FigureCardLayout {
     /// Rows are one line each (long cells truncate), so `columnWidth` does not change the height today.
-    /// The "+ N more rows" line and the pin-changed banner each take one `moreLineHeight` line of
-    /// their own, so neither covers a row.
+    /// The "+ N more rows" line and the changed banner (`FigureCardModel.changed`) each take one
+    /// `moreLineHeight` line of their own, so neither covers a row.
     public static func height(
         for model: FigureCardModel, columnWidth: CGFloat,
         rowHeight: CGFloat, moreLineHeight: CGFloat, verticalPadding: CGFloat,
@@ -119,7 +135,17 @@ public enum FigureCardLayout {
     ) -> CGFloat {
         guard model.kind == .table, model.shownRowCount > 0 else { return placeholderHeight }
         let more = model.moreRows > 0 ? moreLineHeight : 0
-        let banner = model.pinChanged ? moreLineHeight : 0
+        let banner = model.changed ? moreLineHeight : 0
         return CGFloat(model.shownRowCount) * rowHeight + more + banner + 2 * verticalPadding
+    }
+}
+
+extension FigureSource {
+    /// **Has the Research item this figure was made from moved on?** (report plan 8b Task 1,
+    /// spec §4.1: a snapshot shows the same "changed" note a pin does.) `currentHash` is the
+    /// `ContentHash` of the item's file now, or nil when the item or its file is gone — gone
+    /// is changed. One rule for every surface that asks (tripwire 19).
+    public func hasChanged(currentHash: String?) -> Bool {
+        currentHash != contentHash
     }
 }

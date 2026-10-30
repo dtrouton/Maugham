@@ -102,7 +102,7 @@ enum FigureCardDrawing {
         }
         var floor: CGFloat = 0
         if model.moreRows > 0 { floor = max(floor, measure(moreText(model.moreRows), false) + 2 * cellInset) }
-        if model.pinChanged { floor = max(floor, measure(pinChangedBanner, false) + 2 * cellInset) }
+        if model.changed { floor = max(floor, measure(pinChangedBanner, false) + 2 * cellInset) }
         let natural = widths.reduce(0, +)
         let cardWidth = min(columnWidth, max(natural, floor.rounded(.up)))
         if natural > cardWidth, natural > 0 {
@@ -112,7 +112,7 @@ enum FigureCardDrawing {
             widths[widths.count - 1] += cardWidth - natural
         }
 
-        let shownLines = model.shownRowCount + (model.moreRows > 0 ? 1 : 0) + (model.pinChanged ? 1 : 0)
+        let shownLines = model.shownRowCount + (model.moreRows > 0 ? 1 : 0) + (model.changed ? 1 : 0)
         let card = CGRect(x: columnX, y: top, width: cardWidth,
                           height: CGFloat(shownLines) * rowHeight)
         var plan = Plan(card: card)
@@ -148,7 +148,7 @@ enum FigureCardDrawing {
             plan.corner = CGRect(x: card.maxX - cornerSize, y: card.minY,
                                  width: cornerSize, height: cornerSize)
         }
-        if model.pinChanged {
+        if model.changed {
             plan.banner = Text(string: pinChangedBanner,
                                rect: CGRect(x: columnX, y: y, width: cardWidth, height: rowHeight))
         }

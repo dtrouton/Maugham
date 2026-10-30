@@ -100,7 +100,7 @@ final class FigureSectionTests: XCTestCase {
         let cards: [String: FigureCardModel] = [
             cash.figureId: FigureCardModel(kind: .table, readsResearch: true, pinChanged: true),
             tax.figureId: FigureCardModel(kind: .table, readsResearch: true),
-            spare.figureId: FigureCardModel(kind: .table),
+            spare.figureId: FigureCardModel(kind: .table, fromResearchSource: true, sourceChanged: true),
         ]
         let rows = FigureTreeRow.build(listing: listing, card: { cards[$0] })
         XCTAssertEqual(rows.map(\.id), listing.map(\.figureId))
@@ -108,7 +108,8 @@ final class FigureSectionTests: XCTestCase {
         XCTAssertEqual(rows.map(\.title), ["Cash at year end", "map", "tax", "spare"],
                        "the caption, else the name")
         XCTAssertEqual(rows.map(FigureRow.tags(of:)),
-                       [["Research", "changed"], [], ["Research"], ["unused"]])
+                       [["Research", "changed"], [], ["Research"], ["changed", "unused"]],
+                       "a snapshot whose source moved on is changed too (report plan 8b Task 1)")
     }
 
     /// **The section draws the state's cached array and nothing else**
