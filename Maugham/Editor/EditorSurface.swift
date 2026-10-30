@@ -118,6 +118,9 @@ struct EditorSurfaceConfiguration {
         /// answers the Insert menu, ⌘⇧T and ⌘⌥⇧T make table figures. Wired by
         /// `EditorHost`; nil elsewhere.
         var tableFigureMaker: FigureIngest.TableFigureMaker? = nil
+        /// The figures Insert ▸ Existing Figure… offers (report plan 8b
+        /// Task 3). Wired by `EditorHost`; nil elsewhere.
+        var existingFigures: (() -> [ExistingFigurePicker.Entry])? = nil
         /// Where a command that could not finish is told (a sentence): a
         /// figure that could not be made.
         var commandFailureReporter: (@MainActor (String) -> Void)? = nil
@@ -268,6 +271,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.projectProfile = pp.projectProfile
         coordinator.figureImporter = pp.figureImporter
         coordinator.tableFigureMaker = pp.tableFigureMaker
+        coordinator.existingFigures = pp.existingFigures
         coordinator.commandFailureReporter = pp.commandFailureReporter
         coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.figureCardModel = pp.figureCardModel
@@ -547,6 +551,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.projectProfile = pp.projectProfile
         context.coordinator.figureImporter = pp.figureImporter
         context.coordinator.tableFigureMaker = pp.tableFigureMaker
+        context.coordinator.existingFigures = pp.existingFigures
         context.coordinator.commandFailureReporter = pp.commandFailureReporter
         context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.figureCardModel = pp.figureCardModel

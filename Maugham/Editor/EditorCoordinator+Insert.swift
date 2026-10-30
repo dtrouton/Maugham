@@ -402,6 +402,46 @@ extension EditorCoordinator {
             : why + ", and it couldn’t be moved to the Trash: it stays in the book as “\(name)”."
     }
 
+    /// **Insert ▸ Existing Figure…** (report plan 8b Task 3, D8b-1): the
+    /// book's figures (`existingFigures`, read at the command) in a sheet on
+    /// this editor's window; the one chosen is placed by
+    /// `placeExistingFigure`. Nothing opens where Route A would refuse, while
+    /// a picker is already open, or with no figure to offer (the writer is
+    /// told). The sheet is modal to the window, so the caret cannot move
+    /// under it: the line goes where the caret is when the writer chooses.
+    @discardableResult
+    func insertExistingFigure() -> ExistingFigurePickerSession? {
+        guard answersInsertCommands, !isDetached, commandMayWrite, existingFigurePicker == nil,
+              let window = textView?.window, let entries = existingFigures?() else { return nil }
+        guard !entries.isEmpty else {
+            commandFailureReporter?(ExistingFigurePicker.noFiguresMessage)
+            return nil
+        }
+        let session = ExistingFigurePickerSession(
+            entries: entries,
+            onChoose: { [weak self] entry in self?.placeExistingFigure(entry) },
+            onClose: { [weak self] in self?.existingFigurePicker = nil })
+        existingFigurePicker = session
+        session.present(on: window)
+        return session
+    }
+
+    /// `entry`'s line on a paragraph of its own at the caret (after the
+    /// selection), as Insert ▸ Table places its line (inside a pipe table it
+    /// goes after the table), its caption selected: one Route A step, so one
+    /// ⌘Z removes it. A figure used elsewhere gets a second line; the figure
+    /// itself is untouched, so nothing else is undone with it. False when
+    /// Route A refused.
+    @discardableResult
+    func placeExistingFigure(_ entry: ExistingFigurePicker.Entry) -> Bool {
+        guard answersInsertCommands, let textView else { return false }
+        let at = NSMaxRange(textView.selectedRange())
+        let blocks = tableBlockRange(containing: at).map { [$0] } ?? []
+        let edit = ReportInsert.blockEdit(in: textView.string, at: at, tableBlocks: blocks,
+                                          block: entry.line, selectionInBlock: entry.captionRange)
+        return applyCommandEdit(edit, actionName: ExistingFigurePicker.actionName)
+    }
+
     /// Insert ▸ Citation… (⌘⇧C, plan 3b Task 3): `[@` at the caret (after
     /// the selection) as one Route A step, then the citation picker opened on
     /// it with every source listed. Refused, writing nothing, where Route A

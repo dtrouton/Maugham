@@ -197,6 +197,7 @@ struct CentreColumn: View {
                 referenceIndex: referenceIndex,
                 figureGridPresence: figureGridPresence,
                 figureWindows: figureWindows,
+                figureListing: figureListing,
                 // A note written from the margin carries the pass this piece is
                 // being reviewed through. Read off `documentStore.uiState`, never a
                 // per-window copy: a second window on the project records a pass

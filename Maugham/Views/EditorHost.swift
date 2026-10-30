@@ -70,6 +70,10 @@ struct EditorHost: View {
     /// The project's figure windows (plan 7d Task 9), passed through to the
     /// grid opening for ⤢ and "Editing in window". Never read here (tripwire 6).
     var figureWindows: FigureWindows? = nil
+    /// The window's figure listing (report plan 8b Task 3), read only when
+    /// Insert ▸ Existing Figure… asks (`existingFigures`), never in a body
+    /// (tripwire 6). Nil offers nothing.
+    var figureListing: FigureListingModel? = nil
     /// **The review pass a note written from the margin belongs to**
     /// (M3 P2 Task 8) — asked of the window, per document id, at the moment of
     /// creation.
@@ -897,6 +901,16 @@ struct EditorHost: View {
                     try await FigureIngest.makeTableFigure(documentId: doc.docId,
                                                            documentPath: path, request: request,
                                                            store: store)
+                },
+                // Insert ▸ Existing Figure… (report plan 8b Task 3): the
+                // window's listing, parked figures left out by this editor's
+                // cards, each line's path from this document — at the command.
+                existingFigures: { [figureListing, figureCards, store] in
+                    ExistingFigurePicker.entries(
+                        listing: figureListing?.rows ?? [], records: store.manifest.figures ?? [],
+                        isParked: { figureCards.model(forFigureId: $0)?.kind == .parked },
+                        documentPath: path,
+                        pieceTitle: { FigureSectionVerbs.pieceTitle($0, in: store.manifest.structure) })
                 },
                 commandFailureReporter: { [store] message in
                     MaughamEvent.postNotice(message, projectURL: store.url)
