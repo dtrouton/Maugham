@@ -733,6 +733,62 @@ final class ResearchTableGridTests: XCTestCase {
         await store.releaseResearchTable(host)
     }
 
+    // MARK: - A file that has gone; a table trashed while open (Task 8)
+
+    /// **R2-2 — a save whose file has gone does not make it again** (another
+    /// Mac trashed the table and this manifest has not caught up): nothing is
+    /// written, the writer is told it isn't there any more, and the pending
+    /// save is dropped — a later flush writes nothing either.
+    func test_aSaveWhoseFileHasGoneDoesNotRecreateIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let path = file(try XCTUnwrap(item.path))
+        let heard = listen()
+        let writes = countWrites()
+        let host = try await store.openResearchTable(itemId: item.id)
+        try await host.setCell(Cell(content: .value(.number(11))), at: key(host, 2, 2), undoManager: nil)
+        try FileManager.default.removeItem(at: path)   // gone elsewhere
+
+        await host.flush()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
+        XCTAssertEqual(writes(), 0)
+        XCTAssertEqual(heard.notices, ["“model” isn’t there any more, so its edits weren’t saved."])
+        XCTAssertFalse(host.isDirty, "the pending save is dropped")
+        await host.flush()
+        XCTAssertEqual(writes(), 0, "and not tried again")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
+        await store.releaseResearchTable(host)
+    }
+
+    /// **R2-1 — trashing a table open in a grid commits the open cell
+    /// first**: the delete is the writer's own verb, so the copy in the Trash
+    /// holds what was being typed. Control: a table elsewhere keeps its open
+    /// cell open — only the trashed path is settled.
+    func test_trashingATableOpenInAGridCommitsItsOpenCellFirst() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let other = try await researchTable("other.csv", "A,B\n1,2\n", in: projectStore)
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        c.handle(.click(key(c.host, 2, 2), extend: false))
+        c.handle(.type("4"))
+        c.handle(.editTextChanged("42"))
+        let otherMount = await self.mount(other, store, projectStore)
+        let o = try XCTUnwrap(otherMount.controller)
+        o.handle(.click(key(o.host, 2, 2), extend: false))
+        o.handle(.type("9"))
+        o.handle(.editTextChanged("9"))
+
+        try await projectStore.deleteResearchItem(id: item.id)
+
+        let entry = try XCTUnwrap(projectStore.trashEntries.first { $0.displayTitle == "model" })
+        let trashed = try XCTUnwrap(projectStore.trashStore.entryFileURL(trashId: entry.id))
+        XCTAssertEqual(TableCSV.rows(try String(contentsOf: trashed, encoding: .utf8)).rows,
+                       [["Year", "Revenue"], ["2025", "42"]], "the trashed copy holds the typed cell")
+        guard case .editing = o.model.edit else { return XCTFail("the other grid's cell was closed") }
+    }
+
     // MARK: - The route
 
     /// **The centre mounts the grid** for a Research table subject, through

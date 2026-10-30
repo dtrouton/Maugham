@@ -896,6 +896,21 @@ public final class DocumentStore {
         await researchTableClosings[itemId]?.value
     }
 
+    /// **A Research table open in a grid at or under `relativePath`, about to
+    /// go to the Trash, commits its open cell and writes** — the delete is the
+    /// writer's own verb, so the trashed copy holds what was typed (task 7
+    /// re-review R2-1). Only those tables: the mover's own flush leaves every
+    /// other grid's open cell alone.
+    private func settleResearchTablesBeingTrashed(at relativePath: String) async {
+        guard !researchTables.isEmpty, let research = projectStore?.manifest.research else { return }
+        let trashed = relativePath.lowercased()
+        for (id, host) in Array(researchTables) {
+            guard let path = TreeWalk.find(id: id, in: research)?.path?.lowercased(),
+                  path == trashed || path.hasPrefix(trashed + "/") else { continue }
+            await host.settle(commitOpenEdits: true)
+        }
+    }
+
     /// **A file under the project changed on disk**: a Research table open in
     /// a grid on it is asked whether to read it again
     /// (`ResearchTableHost.fileMayHaveChanged`).
@@ -1484,6 +1499,7 @@ public final class DocumentStore {
         displayTitle: String,
         subject: TrashSubject
     ) async throws -> TrashEntry {
+        await settleResearchTablesBeingTrashed(at: relativePath)
         await closeFlushAndUnregister(affectedPaths: [relativePath])
         return try await trashStore.moveToTrash(
             fileRelativePath: relativePath,

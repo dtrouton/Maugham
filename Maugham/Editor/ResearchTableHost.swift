@@ -341,6 +341,14 @@ final class ResearchTableHost: FigureGridHost {
                                     projectURL: projectURL)
             return
         }
+        // A file that has gone (another Mac trashed it, and this manifest has
+        // not caught up) is not made again: the edits are dropped and said
+        // (task 7 re-review R2-2).
+        guard await fileIsThere(at: path) else {
+            MaughamEvent.postNotice(
+                "“\(item.title)” isn’t there any more, so its edits weren’t saved.", projectURL: projectURL)
+            return
+        }
         guard await keepTheOutsideVersion(of: item, at: path) else {
             isDirty = true   // the next edit, or the close, tries again
             return
@@ -374,6 +382,14 @@ final class ResearchTableHost: FigureGridHost {
         }
         store.invalidateFigureCards()
         Self.wroteForTesting?(text)
+    }
+
+    /// Whether the item's file (or a link where it was) is on disk.
+    private func fileIsThere(at path: String) async -> Bool {
+        guard let file = try? store?.resolvedProjectPath(path) else { return false }
+        return await Task.detached {
+            (try? FileManager.default.attributesOfItem(atPath: file.path)) != nil
+        }.value
     }
 
     /// **The file changed outside since it was read or written here**: its
