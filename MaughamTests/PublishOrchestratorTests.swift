@@ -3,7 +3,7 @@ import MaughamCore
 @testable import Maugham
 
 @MainActor
-final class CompileOrchestratorTests: XCTestCase {
+final class PublishOrchestratorTests: XCTestCase {
 
     var tmp: URL!
 
@@ -31,7 +31,7 @@ final class CompileOrchestratorTests: XCTestCase {
         try await configStore.save(PublishConfig(
             metadata: .init(title: "Orch", author: "T")))
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -90,7 +90,7 @@ final class CompileOrchestratorTests: XCTestCase {
                 [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "x")]
             }
         }
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore,
@@ -241,9 +241,9 @@ final class CompileOrchestratorTests: XCTestCase {
             "the caller reads the one refusal sentence: \(messages)", file: file, line: line)
         XCTAssertFalse(messages.contains { $0.contains("PublishFormatRefusal(") },
                        "never the error's dump: \(messages)", file: file, line: line)
-        XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt),
+        XCTAssertFalse(excerpt.hasPrefix(PublishOrchestrator.mintInFlightLogExcerpt),
                        "the gate was never asked: \(excerpt)", file: file, line: line)
-        XCTAssertEqual(excerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "odt",
+        XCTAssertEqual(excerpt, PublishOrchestrator.unproducibleFormatLogExcerpt + "odt",
                        file: file, line: line)
         XCTAssertEqual(errors.flatMap(\.contextLines).filter { $0.contains("Nothing was compiled") },
                        [], "the sentence says it once", file: file, line: line)
@@ -286,7 +286,7 @@ final class CompileOrchestratorTests: XCTestCase {
         cfg.sections["p2"] = .init(include: false)
         try await configStore.save(cfg)
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -360,7 +360,7 @@ final class CompileOrchestratorTests: XCTestCase {
         try await configStore.save(PublishConfig(
             metadata: .init(title: "Dry", author: "T")))
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: OneSrc(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -407,7 +407,7 @@ final class CompileOrchestratorTests: XCTestCase {
             maughamVersion: "0.0.0-test",
             tectonicVersion: "0.15.0"))
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: OneSrc(),
             configStore: configStore,
             publicationStore: pubStore,
@@ -469,7 +469,7 @@ final class CompileOrchestratorTests: XCTestCase {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "F5", author: "T")))
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -513,7 +513,7 @@ final class CompileOrchestratorTests: XCTestCase {
         try await configStore.save(PublishConfig(metadata: .init(title: "F5dry", author: "T")))
         let configBefore = try Data(contentsOf: publishDir.appendingPathComponent("config.json"))
 
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: OneSrc(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -568,8 +568,8 @@ final class CompileOrchestratorTests: XCTestCase {
         _ configStore: PublishConfigStore, _ pubStore: PublicationStore,
         _ mintGate: PublishMintGate = PublishMintGate(),
         jobManager: CompileJobManager = CompileJobManager()
-    ) -> CompileOrchestrator {
-        CompileOrchestrator(
+    ) -> PublishOrchestrator {
+        PublishOrchestrator(
             projectURL: tmp, astSource: OneSrc(),
             configStore: configStore,
             publicationStore: pubStore,
@@ -1140,7 +1140,7 @@ final class CompileOrchestratorTests: XCTestCase {
                 return [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
             }
         }
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: SlowSrc(gate: gate),
             configStore: configStore,
             publicationStore: pubStore,
@@ -1206,7 +1206,7 @@ final class CompileOrchestratorTests: XCTestCase {
                 [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
             }
         }
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: pubStore,
@@ -1250,7 +1250,7 @@ final class CompileOrchestratorTests: XCTestCase {
                 [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
             }
         }
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -1300,7 +1300,7 @@ final class CompileOrchestratorTests: XCTestCase {
                 [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
             }
         }
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
             publicationStore: PublicationStore(projectURL: tmp),
@@ -1342,7 +1342,7 @@ final class CompileOrchestratorTests: XCTestCase {
     /// built for.
     ///
     /// Disable experiment: delete the `onJobRegistered(jobID)` line in
-    /// `CompileOrchestrator.compile` and this fails with `XCTAssertEqual
+    /// `PublishOrchestrator.compile` and this fails with `XCTAssertEqual
     /// failed: ("[]") is not equal to ("1 id")` on the first assertion.
     func test_theCallerIsToldWhichJobItsOwnCompileRegistered() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
@@ -1388,7 +1388,7 @@ final class CompileOrchestratorTests: XCTestCase {
         guard case .failed(_, let excerpt) = outcome else {
             return XCTFail("expected the door's refusal, got \(outcome)")
         }
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.unknownImprintLogExcerpt), excerpt)
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.unknownImprintLogExcerpt), excerpt)
         XCTAssertEqual(announced.values, [],
                        "nothing registered, so nothing to announce")
     }
@@ -1709,7 +1709,7 @@ final class CompileOrchestratorTests: XCTestCase {
         // would send the writer hunting a fault that is not there — the same
         // rule an unknown imprint already had, which is why the excerpt is a
         // constant rather than a literal typed in two places.
-        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt),
+        XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.mintInFlightLogExcerpt),
                       "the constant must be what the orchestrator really "
                       + "writes: \(excerpt)")
         guard case .refused = DepartmentCompileState.settled(after: refused).phase else {
@@ -1770,7 +1770,7 @@ final class CompileOrchestratorTests: XCTestCase {
             let configStore = PublishConfigStore(projectURL: dir)
             try await configStore.save(cfg)
             let counter = Counter()
-            let orch = CompileOrchestrator(
+            let orch = PublishOrchestrator(
                 projectURL: dir, astSource: CountingSrc(counter: counter),
                 configStore: configStore,
                 publicationStore: PublicationStore(projectURL: dir),
@@ -1894,9 +1894,9 @@ final class CompileOrchestratorTests: XCTestCase {
         source: ProjectASTBuilder.Source,
         in projectURL: URL? = nil,
         jobManager: CompileJobManager = CompileJobManager()
-    ) -> CompileOrchestrator {
+    ) -> PublishOrchestrator {
         let root = projectURL ?? tmp!
-        return CompileOrchestrator(
+        return PublishOrchestrator(
             projectURL: root, astSource: source,
             configStore: configStore,
             publicationStore: pubStore,

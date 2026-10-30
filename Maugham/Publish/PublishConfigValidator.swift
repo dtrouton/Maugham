@@ -238,7 +238,7 @@ public enum PublishConfigValidator {
     /// `outputs.formats_enabled` is not a config error (ADR 0015 §5), because
     /// the write door validates the merged config and refusing there would
     /// stop this build from patching any key of a newer build's config. The
-    /// three compile doors (`CompileOrchestrator.compile`,
+    /// three compile doors (`PublishOrchestrator.compile`,
     /// `PreviewCompiler.preview`, `Republisher.republish`) ask it first.
     public static func formatError(_ format: PublishConfig.Format) -> ValidationError? {
         switch format {

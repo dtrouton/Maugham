@@ -6,7 +6,7 @@
   "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
   "why_in_scope": "The question is 'what is at this catalog record's outputPath, and does it match what was compiled for it?' Two things answer it: the Publication row in PublicationStore's catalog (which names an outputPath and, by existing at all, claims that path IS that edition) and the actual bytes on disk at that path. Before the P1 fix, Republisher.republish staged its output under a filename built from snap.config's nextVersion, which was pinned to the ORIGINAL edition's version — so the staged file, once moved into Exports/, silently landed at the SAME path as the record it was republished from: the catalog kept naming the original record at that path while the bytes underneath it were now the new edition's. One question, two disagreeing answers, and nothing told the writer or Claude which was true. The mint-first fix makes every compile/republish mint its version — and therefore its filename — before compiling. 'Distinct by construction' is the whole-branch review's correction to that sentence and is now earned rather than asserted: the minted republish version is CHECKED against the catalog and re-drawn while taken (Republisher.uniqueRepublishVersion), because the four-character suffix is a 65,536-value pool every republish of one edition draws from — and if anything is nevertheless already at the destination path, the job fails loudly and leaves those bytes alone instead of deleting them. So every catalog record's outputPath is distinct, an existing record's bytes can never be touched by a later compile, and the catalog and the filesystem can no longer disagree.",
   "intent_expressed_when": "not at all — a republish request expresses intent to create a NEW edition, never to overwrite the one already sitting in Exports/",
-  "call_path": "MCP `republish` (RepublishTool, Maugham/MCP/Tools/PublicationTools.swift) -> Republisher.republish(snapshotID:format:label:) -> mint the version -> PDFCompiler/EPUBCompiler render into a filename carrying that version -> move staged output into Exports/ -> PublicationStore.append. CompileOrchestrator.compile shares the same mint-then-render ordering for the initial compile.",
+  "call_path": "MCP `republish` (RepublishTool, Maugham/MCP/Tools/PublicationTools.swift) -> Republisher.republish(snapshotID:format:label:) -> mint the version -> PDFCompiler/EPUBCompiler render into a filename carrying that version -> move staged output into Exports/ -> PublicationStore.append. PublishOrchestrator.compile shares the same mint-then-render ordering for the initial compile.",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "680f2ff1b0c819494b5949aa82e6a19cf73041e0",
@@ -23,7 +23,7 @@
   "clause_that_reaches_it": "either it validates first so a refusal leaves nothing behind, or its failure report names what it already did",
   "why_in_scope": "the refusal half takes RULING-52's first route: every guard runs before any durable mutation, the job terminates .failed with the cause, and a retry meets a clean project. Until 2026-08-12 there was one carve-out — the EMISSION.md refresh ran before the guards (filed separately, M7-PB-004) — retired when CI run 31584930789 showed the pre-guard refresh racing a concurrent winner's snapshot capture; the refresh now runs behind the mint-gate reservation, so the route is taken without exception",
   "intent_expressed_when": "contemporaneous — the guards' own messages name remedies",
-  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "call_path": "MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
   "violation_or_enhancement": "neither"
  },
  {
@@ -33,7 +33,7 @@
   "clause_that_reaches_it": "validates first — a refusal (or a question) leaves nothing behind",
   "why_in_scope": "dry_run is the pure question form: gates run, verdict returns, nothing durable moves, and the mint gate is neither charged nor released for it (M1's own exemption reasoning)",
   "intent_expressed_when": "contemporaneous — F2's design",
-  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile dry_run:true",
+  "call_path": "MCP `compile` (CompileTool) -> PublishOrchestrator.compile dry_run:true",
   "violation_or_enhancement": "neither"
  },
  {
@@ -48,13 +48,13 @@
   "clause_that_reaches_it": "a compile that dies is never reported as still compiling",
   "why_in_scope": "any error thrown after the first durable mutation now surfaces as .failed through the DurableProgress catch: the job is terminalised with the honest diagnostic, compile_status tells the truth, the pill stops",
   "intent_expressed_when": "not at all — no comment anywhere accepts a stranded job",
-  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile; every thrown exit after jobManager.register",
+  "call_path": "MCP `compile` (CompileTool) -> PublishOrchestrator.compile; every thrown exit after jobManager.register",
   "violation_or_enhancement": "violation — behaviour change owed (terminalise the job on the thrown path)",
   "fix": {
    "commit": "21f7682c",
    "date": "2026-08-09",
    "authorised_by": "RULING-7 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
-   "pinned_by": "PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal; CompileOrchestratorTests.test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob"
+   "pinned_by": "PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal; PublishOrchestratorTests.test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob"
   }
  },
  {
@@ -64,7 +64,7 @@
   "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did as well as what failed",
   "why_in_scope": "the DurableProgress ledger records each durable step as it lands; the failure diagnostic's context names the export, the snapshot and the catalog row that survive, and states that everything unlisted did not happen",
   "intent_expressed_when": "not at all",
-  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "call_path": "MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
   "violation_or_enhancement": "violation — the failure report must name what landed",
   "fix": {
    "commit": "21f7682c",
@@ -80,7 +80,7 @@
   "clause_that_reaches_it": "the report half of the TODO window",
   "why_in_scope": "the ordering (append before bump) and the TODO stand — the ruling demands the report, and the ledger now supplies it: a bump failure names the committed catalog row and says the counter did not advance",
   "intent_expressed_when": "the ordering: contemporaneous (the TODO). The silence: not at all",
-  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "call_path": "MCP `compile` (CompileTool) -> PublishOrchestrator.compile",
   "violation_or_enhancement": "violation — the report half only; the two-phase commit stays future work",
   "fix": {
    "commit": "21f7682c",
@@ -102,7 +102,7 @@
    "commit": "21f7682c",
    "date": "2026-08-09",
    "authorised_by": "RULING-8 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
-   "pinned_by": "PublicationsCharacterization.test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive; CompileOrchestratorTests.test_anOccupiedDestinationRefusesRatherThanReplacingAnEarlierRecordsBytes; PreviewCompilerTests.testPreview_overwritesItsOwnPriorOutput"
+   "pinned_by": "PublicationsCharacterization.test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive; PublishOrchestratorTests.test_anOccupiedDestinationRefusesRatherThanReplacingAnEarlierRecordsBytes; PreviewCompilerTests.testPreview_overwritesItsOwnPriorOutput"
   }
  },
  {
@@ -118,7 +118,7 @@
    "commit": "21f7682c",
    "date": "2026-08-09",
    "authorised_by": "RULING-22 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
-   "pinned_by": "PublicationsCharacterization.test_cancelStandsAndTheTokenHasItsPreCommitPollers; CompileOrchestratorTests.test_aCancelledCompileDoesNotPublish; CompileJobManagerTests.testCancel_survivesALateTerminalWrite"
+   "pinned_by": "PublicationsCharacterization.test_cancelStandsAndTheTokenHasItsPreCommitPollers; PublishOrchestratorTests.test_aCancelledCompileDoesNotPublish; CompileJobManagerTests.testCancel_survivesALateTerminalWrite"
   }
  },
  {

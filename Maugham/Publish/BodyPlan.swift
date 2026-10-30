@@ -29,7 +29,7 @@ public protocol LanguageRebindableSource: ProjectASTBuilder.Source {
 /// **Not `Sendable`, deliberately.** `ProjectASTBuilder.Source` is a
 /// non-`Sendable` existential whose production conformer is main-actor
 /// isolated; the codebase's own spelling for storing one is
-/// `CompileOrchestrator.astSource` — a plain stored property on a struct that
+/// `PublishOrchestrator.astSource` — a plain stored property on a struct that
 /// makes no `Sendable` claim. `@unchecked Sendable` here would be that claim
 /// made falsely, so the plan follows the orchestrator instead.
 ///

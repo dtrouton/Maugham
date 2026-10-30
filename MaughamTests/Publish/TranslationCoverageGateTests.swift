@@ -5,7 +5,7 @@ import MaughamCore
 /// Task 9: blocking translation coverage gate + Fountain element-drift warnings.
 ///
 /// Five scenarios, each pinning one behavior of `TranslationCoverage.check` and
-/// its `CompileOrchestrator` wiring:
+/// its `PublishOrchestrator` wiring:
 ///  1. A blocked EPUB compile (stale + missing paragraph, no allow_stale) fails
 ///     and the error lists the exact ¶ids.
 ///  2. The SAME gaps compile clean under allow_stale, with warnings itemizing
@@ -93,9 +93,9 @@ final class TranslationCoverageGateTests: XCTestCase {
     }
 
     private func orchestrator(_ fx: CompileFixture, language: String, allowStale: Bool)
-        -> CompileOrchestrator
+        -> PublishOrchestrator
     {
-        CompileOrchestrator(
+        PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: fx.store, language: language),
@@ -108,9 +108,9 @@ final class TranslationCoverageGateTests: XCTestCase {
     }
 
     private func orchestrator(_ fx: TwoDocFixture, language: String, allowStale: Bool)
-        -> CompileOrchestrator
+        -> PublishOrchestrator
     {
-        CompileOrchestrator(
+        PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: fx.store, language: language),
@@ -125,8 +125,8 @@ final class TranslationCoverageGateTests: XCTestCase {
     /// P2: a multi-language compile binds each body itself (`BodyPlan` asks the
     /// source for its own siblings), so the orchestrator is handed an UNBOUND
     /// source rather than one pre-bound to a single tongue.
-    private func multiOrchestrator(_ fx: CompileFixture) -> CompileOrchestrator {
-        CompileOrchestrator(
+    private func multiOrchestrator(_ fx: CompileFixture) -> PublishOrchestrator {
+        PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(projectStore: fx.store),
             configStore: fx.stores.configStore,
@@ -153,12 +153,12 @@ final class TranslationCoverageGateTests: XCTestCase {
         TranslationHash.hash(fx.doc.paragraphs[paragraphID] ?? "")
     }
 
-    private func errors(_ outcome: CompileOrchestrator.Outcome) -> [TectonicLogParser.Diagnostic] {
+    private func errors(_ outcome: PublishOrchestrator.Outcome) -> [TectonicLogParser.Diagnostic] {
         if case .failed(let errs, _) = outcome { return errs }
         return []
     }
 
-    private func warnings(_ outcome: CompileOrchestrator.Outcome) -> [TectonicLogParser.Diagnostic] {
+    private func warnings(_ outcome: PublishOrchestrator.Outcome) -> [TectonicLogParser.Diagnostic] {
         if case .completed(_, let warns) = outcome { return warns }
         return []
     }

@@ -75,7 +75,9 @@ final class HistoryPaneQuarantineNoticeTests: XCTestCase {
             .filter { SourceScan.namesInCode(".redundant", in: $0.source) }
             .map(\.name)
             .sorted()
-        XCTAssertEqual(readers, ["HistoryPane.swift"],
+        // Retry is `HistoryPaneVerbs.retryQuarantine` since the pane's split
+        // (#116 F11); it is still the pane's one reader.
+        XCTAssertEqual(readers, ["HistoryPaneVerbs.swift"],
                        "if this is ever empty, `redundant` is back to being a field "
                        + "nothing consumes. If it grows, the new reader is a deliberate "
                        + "edit here — and it says what it does with the flag.")
@@ -97,6 +99,18 @@ final class HistoryPaneQuarantineNoticeTests: XCTestCase {
                 SourceScan.namesInCode("RecoveredHistoryReport.aggregate(", in: $0.source)
             },
             "…and the corpus is being read: the aggregate has production callers")
+    }
+
+    // MARK: - The pane's surface list (#116 F11)
+
+    func test_thePaneSurfaceListIsEveryFileThePaneIsSplitInto() throws {
+        let problems = try PaneSurfaceClassification.problems(
+            prefix: "History", dir: HistoryPaneSource.viewsDir,
+            surface: HistoryPaneSource.surfaceFiles,
+            notThePane: HistoryPaneSource.notThePane)
+        XCTAssertEqual(problems, [],
+                       "every History*.swift must be classified, or each "
+                       + "census reading the pane's surface is blind to it")
     }
 
     /// Every `.swift` file under `Maugham/`, with its source. Walked here

@@ -766,7 +766,7 @@ final class DepartmentPaneTests: XCTestCase {
             contextLines: [], pieceID: "ch-1", paragraphID: "a1b2")
         let refused = DepartmentCompileState.settled(after: .failed(
             errors: [problem, problem, problem],
-            logExcerpt: CompileOrchestrator.publishProblemsLogExcerpt))
+            logExcerpt: PublishOrchestrator.publishProblemsLogExcerpt))
         let window = mount(languages: [], compileRun: refused)
         _ = try await scrollersSettling(in: window)
         XCTAssertEqual(
@@ -946,7 +946,7 @@ final class DepartmentPaneTests: XCTestCase {
     /// one** — and getting this wrong refuses a compile for a translation
     /// nobody wrote.
     ///
-    /// `CompileOrchestrator` builds its `LanguageSet` with `sourceTag:
+    /// `PublishOrchestrator` builds its `LanguageSet` with `sourceTag:
     /// config.metadata.language` off the config it has already RESOLVED, and
     /// says so in its own comment. So an imprint whose `metadata` fragment
     /// carries `"language": "es"` has `es` as its source tag: a sheet offering

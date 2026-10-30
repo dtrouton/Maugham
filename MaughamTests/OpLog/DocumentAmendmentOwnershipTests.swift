@@ -801,10 +801,10 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
         // The pane's Restore hands a refusal to `sayRefused`, never to `try?`.
         let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift"), encoding: .utf8)
-        let start = try XCTUnwrap(pane.range(of: "private func reopen(_ document: Document"))
+            .appendingPathComponent("Maugham/Views/AnnotationsPaneVerbs.swift"), encoding: .utf8)
+        let start = try XCTUnwrap(pane.range(of: "func reopen(_ document: Document"))
         let body = pane[start.lowerBound...].prefix(400)
-        XCTAssertTrue(body.contains("Self.sayRefused(error, in: document)"),
+        XCTAssertTrue(body.contains("AnnotationsPane.sayRefused(error, in: document)"),
                       "the pane says the refusal")
         XCTAssertFalse(body.contains("try? await document.reopenAnnotation"),
                        "and swallows nothing")

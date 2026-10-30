@@ -356,16 +356,20 @@ final class IntentStripTests: XCTestCase {
 
     // MARK: - Contract 4: the click
 
-    /// Pressed, not called. The affordance is what this contract is about, so
-    /// the control SwiftUI actually publishes is the thing under test
-    /// (`InspectorIntentAffordanceTests`' rule and its reason).
-    func test_clickingTheStripAsksForTheIntentPane() async throws {
+    /// The affordance is what this contract is about, so the control SwiftUI
+    /// actually publishes is found and asserted DRAWN, its action naming the
+    /// verb is `WiringCensusTests`' `type:IntentStrip` entry, and the verb is
+    /// called with nothing pressed (tripwire 33, #120 —
+    /// `InspectorIntentAffordanceTests`' shape).
+    func test_theStripAsksForTheIntentPane() async throws {
         let line = "A woman walks into the sea."
         let window = mount(AnyView(IntentStrip(line: line)))
 
-        let notes = await notesPosted(pressing: try button(labelled: line, in: window))
+        XCTAssertNoThrow(try button(labelled: line, in: window),
+                         "the strip is a button labelled with the writer's line")
+        let notes = notesPostedByTheStrip()
 
-        XCTAssertEqual(notes.count, 1, "the press should post exactly one segment request")
+        XCTAssertEqual(notes.count, 1, "the strip should post exactly one segment request")
         let note = try XCTUnwrap(notes.first)
         XCTAssertEqual(note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                        DetailSegment.intent.rawValue)
@@ -734,7 +738,7 @@ final class IntentStripTests: XCTestCase {
             throw XCTSkip(
                 "no assistive client could be attached to this process "
                 + "(AXUIElementCopyAttributeValue -> \(error.rawValue)), so SwiftUI "
-                + "never builds the tree this test presses through")
+                + "never builds the tree this test reads")
         }
         return axElements(under: try XCTUnwrap(window.contentView))
     }
@@ -753,16 +757,16 @@ final class IntentStripTests: XCTestCase {
             + "Buttons found: \(labels)")
     }
 
-    private func notesPosted(pressing button: NSObject) async -> [Notification] {
+    /// What the strip's verb posts — `MaughamEvent.postDetailSegment(.intent)`,
+    /// its button's whole action (`WiringCensusTests`). Synchronous: the post
+    /// is a plain `NotificationCenter` post on this thread.
+    private func notesPostedByTheStrip() -> [Notification] {
         var received: [Notification] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the strip posts
             forName: .maughamSetDetailSegment, object: nil, queue: nil
         ) { received.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(300))
-        pump(0.2)
+        MaughamEvent.postDetailSegment(.intent)
         return received
     }
 }

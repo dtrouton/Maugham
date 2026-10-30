@@ -9,7 +9,7 @@ import MaughamCore
 /// Denver's smoke: the queue's advisory nudge — "Structural still open on
 /// this piece" — named a problem with no verb attached. Closing the earlier
 /// pass meant leaving the queue for the Inspector's ladder or the board's
-/// chip context menu. `PassOrderNudgeRow` (`AnnotationsPane.swift`) now draws
+/// chip context menu. `PassOrderNudgeRow` (`AnnotationsPaneStrips.swift`) now draws
 /// two small trailing buttons, Mark done and Skip, that write the NAMED
 /// earlier pass's state through `AnnotationsPane.onSetPassState` — the same
 /// closure-threading shape `onSetActivePass` already uses, landing at the

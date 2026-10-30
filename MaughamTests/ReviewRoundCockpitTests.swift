@@ -555,7 +555,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// for a piece no stage reads, which is exactly the sentence the nil arm
     /// exists to avoid.
     func test_theEmptyStateReadsThePiecesStageAndItsNilableArm() throws {
-        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let pane = try AnnotationsPaneSource.surfaceSource()
         XCTAssertFalse(pane.contains("cockpitReader"),
                        "the check loop's resolution has no business in Review's "
                        + "queue \u{2014} a round is run by the piece's stage")
@@ -1173,7 +1173,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// it those would make "resolved" permanently zero under the default
     /// `[.open]` filter and would skew every count under any other.
     func test_theStripIsFedTheUnfilteredQueueAndNotTheVisibleRows() throws {
-        let source = try Self.source(of: "Views/AnnotationsPane.swift")
+        let source = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
         let read = try XCTUnwrap(
             Self.declaration(named: "private var cockpitAnnotations:", in: source),
             "the strip's annotation read must be a readable declaration")
@@ -1214,7 +1214,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "the window must hand the right column its ONE writer, "
             + "`recordActivePass(forPiece:passId:)`")
 
-        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let pane = try AnnotationsPaneSource.surfaceSource()
         XCTAssertFalse(pane.contains("activePassMemory.record("),
                        "the queue advises about passes; it never rules on one "
                        + "\u{2014} the write belongs to the window")
@@ -1227,7 +1227,18 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// on the floor — nothing a mounted test can see, since the cockpit's own
     /// gear menu draws whatever it was constructed with either way.
     func test_theAnnotationsPaneThreadsItsOwnCompilerModelToTheCockpit() throws {
-        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        // Two hops since #116 F11: the pane hands its pair to
+        // `AnnotationsRoundCockpit`, which hands it to the strip.
+        let root = try Self.source(of: "Views/AnnotationsPane.swift")
+        let hop = try XCTUnwrap(
+            Self.mountArguments(of: "AnnotationsRoundCockpit(", in: root),
+            "the pane must still mount its cockpit child")
+        XCTAssertTrue(hop.contains("compilerModel: compilerModel"),
+                      "the pane's own `compilerModel` must reach its cockpit "
+                      + "child \u{2014} got:\n\(hop)")
+        XCTAssertTrue(hop.contains("onCompilerModelChange: onCompilerModelChange"),
+                      "\u{2026}and its own closure \u{2014} got:\n\(hop)")
+        let pane = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
         // **Balanced parens, never a character budget** (`mountArguments`'
         // own reasoning): this scan took a fixed 1600-character prefix until
         // the run's clock arrived on two arguments of its own and pushed
@@ -1352,7 +1363,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "premise: the shared spelling exists and answers")
 
         for path in Self.oneSpellingSurfaces {
-            let violations = Self.oneSpellingViolations(in: try Self.source(of: path))
+            // Author's report draws its dead run from `DiagnosticsPaneCopy`,
+            // but a restated arm anywhere in that pane is the same second
+            // account, so its entry reads the whole pane (#116 F11).
+            let source = path == "Views/DiagnosticsPaneCopy.swift"
+                ? try DiagnosticsPaneSource.surfaceSource()
+                : try Self.source(of: path)
+            let violations = Self.oneSpellingViolations(in: source)
             XCTAssertEqual(
                 violations, [],
                 "\(path) \(violations.joined(separator: "; ")) \u{2014} a second "
@@ -1365,7 +1382,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// drawing one; nothing enforces the converse, which is why the list sits
     /// beside the rule rather than in prose somewhere else.
     static let oneSpellingSurfaces = [
-        "Views/DiagnosticsPane.swift",
+        "Views/DiagnosticsPaneCopy.swift",
         "Views/Review/ReviewRoundCockpit.swift",
         "Views/Publish/DepartmentRunState.swift",
         "Views/Publish/DepartmentDesignRow.swift",
@@ -1464,7 +1481,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// that refuses to run one — the two loops disagreeing inside one strip,
     /// which is exactly what this task took apart.
     func test_theProductionMountNeverReachesForTheSeat() throws {
-        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let pane = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
         let whole = try XCTUnwrap(
             Self.declaration(named: "private var roundCockpit: some View {", in: pane),
             "the strip's mount must still be a readable declaration")
@@ -1773,7 +1790,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// clause. Falsification: put `cockpitActivePass?.effectiveEditorName`
     /// back on any one of them and the last assertion fails.
     func test_everyLetterVerbTakesItsVoiceFromTheStandingRound() throws {
-        let source = try readSource("Maugham/Views/AnnotationsPane.swift")
+        let source = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
         XCTAssertEqual(
             source.components(separatedBy: "voice: letterVoice(run)").count - 1, 3,
             "the signature, the ledger handlers and the turn clause each take the "
@@ -1781,7 +1798,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertTrue(source.contains("editorName: letterVoice(run)"),
                       "and so does Keep, whose parameter is spelled differently")
         XCTAssertFalse(
-            source.contains(
+            try AnnotationsPaneSource.surfaceSource().contains(
                 "cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName"),
             "a letter verb is reading the writer's current selection again \u{2014} "
             + "a chip click would re-sign a standing letter. (The empty state's "
@@ -1793,7 +1810,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// the one static above and builds the disclosure from the same
     /// `LetterSection` Author draws, rather than a second view of its own.
     func test_thePaneDerivesTheLineAndDisclosesTheSharedSection() throws {
-        let source = try readSource("Maugham/Views/AnnotationsPane.swift")
+        let source = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
         let cockpit = try XCTUnwrap(
             Self.mountArguments(of: "ReviewRoundCockpit(", in: source),
             "the cockpit's mount is where the two inputs are fed")
@@ -1844,9 +1861,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// second answer to where a letter goes — the defect `TurnClauseOffer`
     /// already exists to prevent for the offer beside it.
     func test_bothHostsKeepThroughTheOneVerb() throws {
-        for file in ["Maugham/Views/AnnotationsPane.swift",
-                     "Maugham/Views/DiagnosticsPane.swift"] {
-            let source = try readSource(file)
+        // Each side is its whole pane: the press lives in one file, and a note
+        // filed anywhere else in the pane is still a second answer (#116 F11).
+        let hosts = [
+            ("the AnnotationsPane files", try AnnotationsPaneSource.surfaceSource()),
+            ("the DiagnosticsPane files", try DiagnosticsPaneSource.surfaceSource()),
+        ]
+        for (file, source) in hosts {
             XCTAssertTrue(source.contains("onKeep: LetterKeep.handler("),
                           "\(file) must press the shared verb")
             XCTAssertTrue(source.contains("LetterKeep.confirmation(for:"),

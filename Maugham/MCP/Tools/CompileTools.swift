@@ -34,7 +34,7 @@ enum CompileResponseEncoder {
         ], options: [.sortedKeys])
     }
 
-    static func encodeOutcome(_ outcome: CompileOrchestrator.Outcome) throws -> Data {
+    static func encodeOutcome(_ outcome: PublishOrchestrator.Outcome) throws -> Data {
         switch outcome {
         case .completed(let pub, let warnings):
             return try encodeCompleted(pub, warnings: warnings)
@@ -149,7 +149,7 @@ public enum CompileTool: MCPTool {
         let astSource = ProjectStoreASTSource(
             projectStore: store,
             language: params.language)
-        let orch = CompileOrchestrator(
+        let orch = PublishOrchestrator(
             projectURL: projectURL,
             astSource: astSource,
             configStore: stores.configStore,

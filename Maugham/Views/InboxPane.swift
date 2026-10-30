@@ -61,7 +61,7 @@ struct InboxPane: View {
     /// What was NOT applied from the inbox's manifests: rows something other
     /// than Maugham wrote into a capture stream. They are kept as forensics and
     /// there is nothing to bring back, so this notice carries no Retry — the
-    /// same contract, and the same words, as `HistoryPane.setAsideLinesNotice`
+    /// same contract, and the same words, as `HistoryPane.setAsideChangesNotice`
     /// gives a document.
     ///
     /// **Reason-aware since P3b Task 8** (carry C1). It used to say *written to

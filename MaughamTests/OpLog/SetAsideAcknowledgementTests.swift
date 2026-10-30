@@ -302,19 +302,25 @@ final class SetAsideAcknowledgementUIStateTests: XCTestCase {
 final class SetAsideAcknowledgementPaneTests: XCTestCase {
 
     func test_theHistoryPanesSentenceCarriesAnAcknowledgeButton() throws {
-        let source = try Self.source(of: "Views/HistoryPane.swift")
-        let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
+        // The notices are `HistoryNotices` since the pane's split (#116 F11),
+        // and the press is the pane's own verb, handed in under its name.
+        let source = try HistoryPaneSource.surfaceSource()
+        let body = try XCTUnwrap(Self.declaration(
+            named: "struct HistoryNotices: View {", in: source))
 
         XCTAssertTrue(
-            body.contains("Self.setAsideChangesNotice(byReason: setAsideChangesByReason)"),
+            body.contains("HistoryPane.setAsideChangesNotice(byReason: setAsideChangesByReason)"),
                       "premise: the sentence is still drawn. Got:\n\(body)")
         XCTAssertTrue(body.contains("Button(\"Acknowledge\", action: acknowledgeSetAside)"),
                       "\u{2026}and the writer can put it down. Got:\n\(body)")
+        XCTAssertTrue(source.contains("acknowledgeSetAside: verbs.acknowledgeSetAside,"),
+                      "\u{2026}through the pane's verb")
     }
 
     func test_theHistoryPaneListsEveryRecordWhetherAcknowledgedOrNot() throws {
-        let source = try Self.source(of: "Views/HistoryPane.swift")
-        let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
+        let source = try HistoryPaneSource.surfaceSource()
+        let body = try XCTUnwrap(Self.declaration(
+            named: "struct HistoryNotices: View {", in: source))
 
         XCTAssertTrue(
             body.contains("SetAsideRecordsDisclosure("),
@@ -371,7 +377,7 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
     /// and a wait for a decision that is one argument.
     func test_eachPaneCountsAgainstWhatItsStreamIsCarrying() throws {
         XCTAssertTrue(
-            try Self.code(of: "Views/HistoryPane.swift")
+            try HistoryPaneSource.surfaceCode()
                 .contains("applied: Set(ops.map(\\.opId))"),
             "History counts against the document's own ops \u{2014} the list it "
             + "has already loaded, so no body pass reads disk for it")
@@ -387,9 +393,12 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
     /// handed to the predicate. A pane spelling `acknowledged.contains(…)` for
     /// itself would be a second answer to one question.
     func test_theTwoPanesCountThroughTheOnePredicateAndNeitherRestatesIt() throws {
+        // History is every file of its split (#116 F11), read as one.
         let panes = ["Views/HistoryPane.swift", "Views/InboxPane.swift"]
         for pane in panes {
-            let code = try Self.code(of: pane)
+            let code = pane == "Views/HistoryPane.swift"
+                ? try HistoryPaneSource.surfaceCode()
+                : try Self.code(of: pane)
             XCTAssertTrue(code.contains("SetAsideAcknowledgement.unacknowledged("),
                           "\(pane) must ask the one predicate")
             XCTAssertEqual(
@@ -403,7 +412,7 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
         XCTAssertEqual(
             owners,
             ["Stores/DocumentStore.swift", "Stores/UIState.swift",
-             "Views/HistoryPane.swift", "Views/InboxPane.swift"],
+             "Views/HistoryPaneVerbs.swift", "Views/InboxPane.swift"],
             "the field, its one write door, and the two readers that hand it "
             + "to the predicate \u{2014} nobody else. Got: \(owners)")
     }

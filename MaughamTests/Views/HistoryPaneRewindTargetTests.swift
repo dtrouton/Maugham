@@ -55,6 +55,43 @@ final class HistoryPaneRewindTargetTests: XCTestCase {
         }
     }
 
+    /// The op index rows resolve a lifecycle op's creation op through: every
+    /// op by its id, and a duplicated id answered by the LATER op — what the
+    /// per-lookup map it replaced answered (tripwire 4 fix).
+    func test_opsIndex_keysEveryOpByItsId_andALaterDuplicateWins() async throws {
+        let ops = try await makeThreeParagraphOps()
+        XCTAssertGreaterThanOrEqual(ops.count, 3, "premise: three distinct ops")
+        let index = HistoryPane.opsIndex(ops)
+        XCTAssertEqual(index.count, ops.count)
+        for op in ops { XCTAssertEqual(index[op.opId], op) }
+
+        // The last op re-stamped with the first op's id.
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try enc.encode(ops[ops.count - 1])) as? [String: Any])
+        let idKey = try XCTUnwrap(json.first { ($0.value as? String) == ops[ops.count - 1].opId }?.key)
+        json[idKey] = ops[0].opId
+        let later = try dec.decode(Op.self, from: try JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(later.opId, ops[0].opId)
+        XCTAssertNotEqual(later, ops[0], "premise: same id, different op")
+        XCTAssertEqual(HistoryPane.opsIndex(ops + [later])[ops[0].opId], later)
+        XCTAssertEqual(HistoryPane.opsIndex([later] + ops)[ops[0].opId], ops[0])
+    }
+
+    /// The timeline builds its rows and op index once per body pass; nothing
+    /// rebuilds the index per lookup, and `entries` is read in one place.
+    func test_theTimelineFiltersAndIndexesOncePerPass() throws {
+        let code = SourceScan.codeLines(
+            of: try HistoryPaneSource.source(of: "HistoryPaneTimeline.swift"))
+            .joined(separator: "\n")
+        XCTAssertFalse(HistoryPaneSource.surfaceFiles.contains {
+            (try? HistoryPaneSource.source(of: $0))?.contains("opsByOpId") ?? true
+        }, "the per-lookup index is gone from every file of the pane")
+        XCTAssertEqual(code.components(separatedBy: "entries").count - 1, 2,
+                       "`entries` is declared once and read once (`let rows = entries`)")
+    }
+
     func test_rewindBeforeThis_excludesTheTargetOpsOwnEffect() async throws {
         let ops = try await makeThreeParagraphOps()
         let index = HistoryPane.predecessorIndex(ops: ops)

@@ -56,7 +56,7 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 35 | 60% | 21 / 0 | `24-rewind-reconciliation.md` |
 | `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 61 | 41% | 25 / 0 | `28-annotations-reconciliation.md` |
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
-| `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
+| `Publish/Republisher` (+`PublishOrchestrator`) | 11 | 91% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
 | `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 17 | 100% | 17 / 0 | — |
 

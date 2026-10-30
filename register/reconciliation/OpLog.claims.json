@@ -129,12 +129,12 @@
  },
  {
   "claim_id": "M9-OL-009",
-  "scope": "PublicationStore.load + CompileOrchestrator pre-flight — unreadable catalog file",
+  "scope": "PublicationStore.load + PublishOrchestrator pre-flight — unreadable catalog file",
   "kind": "POSTCONDITION",
-  "statement": "an UNREADABLE-yet-present publications device file THROWS PublicationStore.ReadError.unreadableFile naming the file — a REFUSAL, unlike checkpoints' notice, because every substantive consumer is write-adjacent: the compile's occupied-destination refusal, republish's prior-edition lookup, and the starter's version high-water mark each read this list before writing, so a silently shorter catalog armed a version collision or an overwrite of a shipped edition. CompileOrchestrator refuses PRE-FLIGHT (terminal job, .failed, nothing landed — no export, no snapshot, no bump), the same shape as its no-config refusal; PublishStarter's try? … ?? [] is gone (fix commit 9772aea2). The two RULING-52 failure-after-mutation pins moved their fault injection to a read-only catalog file because the old directory squat now refuses before anything mutates — the strictly better failure",
+  "statement": "an UNREADABLE-yet-present publications device file THROWS PublicationStore.ReadError.unreadableFile naming the file — a REFUSAL, unlike checkpoints' notice, because every substantive consumer is write-adjacent: the compile's occupied-destination refusal, republish's prior-edition lookup, and the starter's version high-water mark each read this list before writing, so a silently shorter catalog armed a version collision or an overwrite of a shipped edition. PublishOrchestrator refuses PRE-FLIGHT (terminal job, .failed, nothing landed — no export, no snapshot, no bump), the same shape as its no-config refusal; PublishStarter's try? … ?? [] is gone (fix commit 9772aea2). The two RULING-52 failure-after-mutation pins moved their fault injection to a read-only catalog file because the old directory squat now refuses before anything mutates — the strictly better failure",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "PublicationStoreTests.testLoad_unreadableDeviceFile_throwsNamingTheFile; CompileOrchestratorTests.test_anUnreadableCatalogRefusesBeforeAnythingLands; PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal (re-injected)"
+   "ref": "PublicationStoreTests.testLoad_unreadableDeviceFile_throwsNamingTheFile; PublishOrchestratorTests.test_anUnreadableCatalogRefusesBeforeAnythingLands; PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal (re-injected)"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — the fix",
