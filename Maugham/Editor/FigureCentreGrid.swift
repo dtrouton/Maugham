@@ -93,9 +93,10 @@ final class FigureCentreMount {
             shareIsReadOnly: { [weak self] in self?.shareIsReadOnly ?? true },
             takesTheKeysAtMount: false, offersDone: false, listensForTheLine: false,
             armsTheMenuOnlyWithTheKeys: true)
-        // Send to Research from the grid: the centre lets the figure go first (R7d-7).
+        // Send to Research from the grid: the centre lets the figure go first
+        // (R7d-7), and takes it again if the send is refused (`sendWasRefused`).
         grid.open(figureId: figureId, store: store, projectStore: projectStore, windows: windows,
-                  frame: frame, close: { [weak self] in self?.leave() })
+                  frame: frame, close: { [weak self] in self?.leaveForASend() })
     }
 
     /// **The project's grids changed** (a figure window opened or closed, a
@@ -145,9 +146,8 @@ final class FigureCentreMount {
         windows.focus(figureId)
     }
 
-    /// **The centre leaves the figure** — the subject moved on, the window
-    /// closed, the grid sent it to Research, or a send from outside folds it
-    /// (`FigureWindows.foldGrids`). Once only.
+    /// **The centre leaves the figure** — the subject moved on or the window
+    /// closed. Once only.
     func leave() {
         leftForASend = false
         guard !hasLeft else { return }
@@ -156,10 +156,10 @@ final class FigureCentreMount {
         release()
     }
 
-    /// **The centre's grid folds for a send** (`FigureWindows.foldGrids`, a
-    /// row's or the inspector's Send to Research; and the project's close,
-    /// `closeAll`): it leaves as `leave` does, but a refused send brings it
-    /// back (`sendWasRefused`).
+    /// **The centre's grid folds for a send** (its own Send to Research;
+    /// `FigureWindows.foldGrids`, a row's or the inspector's; and the
+    /// project's close, `closeAll`): it leaves as `leave` does, but a refused
+    /// send brings it back (`sendWasRefused`).
     func leaveForASend() {
         guard !hasLeft else { return }
         leave()

@@ -110,6 +110,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// Send to Research was chosen: the frame folds the grid (forced) before
     /// the send is asked (R7d-7).
     var onSendToResearch: (() -> Void)?
+    /// That send was refused (after `onSendToResearch` folded the grid): the
+    /// frame that let the figure go may take it again.
+    var onSendRefused: (() -> Void)?
     /// Esc with nothing to cancel folds the grid — in place. A figure
     /// window sets this false: there Esc does nothing (Done or ⌘W closes it).
     var foldsOnEscape = true
@@ -622,7 +625,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// first — forced, so an open edit that reads is committed and one that
     /// will not is said — then the park is asked in turn behind every write
     /// before it, so what the writer typed goes with the figure. Not
-    /// undoable (ruling P-8; the fold registers no step); a refusal is said.
+    /// undoable (ruling P-8; the fold registers no step); a refusal is said
+    /// and told (`onSendRefused`).
     private func sendFigureToResearch(_ destination: FigureResearchDestination) {
         let scope: ResearchScope
         switch destination {
@@ -633,9 +637,12 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             scope = .shared
         }
         onSendToResearch?()
-        enqueue { [projectStore, figureId] in
+        enqueue { [weak self, projectStore, figureId] in
             guard let projectStore else { return }
-            _ = try await projectStore.sendToResearch(figureId: figureId, scope: scope)
+            do { _ = try await projectStore.sendToResearch(figureId: figureId, scope: scope) } catch {
+                self?.onSendRefused?()   // the figure stays: the frame may take it again
+                throw error
+            }
         }
     }
 
