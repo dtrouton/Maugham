@@ -994,6 +994,11 @@ final class BinderTreeSectionsState {
     /// Every label the book defines, read when *Move into Figures* is
     /// pressed (`FigureListingModel.definedLabels`, set by the wiring).
     @ObservationIgnored var definedFigureLabels: () -> Set<ManuscriptLabel> = { [] }
+    /// **The figure a line's refused Move made**, by legacy row id: what Move
+    /// again on that line reuses. Memory only — after a relaunch an
+    /// unlabelled line's retry makes a new figure (the first stays, unused,
+    /// in the section); a labelled one still finds its figure by name.
+    @ObservationIgnored var figuresMadeByRefusedMoves: [String: String] = [:]
     /// **The piece the section is filtered to**, by document id; nil shows
     /// every figure. Set by a piece row's count, cleared by the header's chip.
     var pieceFilter: String?

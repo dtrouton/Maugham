@@ -365,4 +365,24 @@ final class LegacyFigureMoveTests: XCTestCase {
         XCTAssertNil(state.pendingError)
         XCTAssertNotEqual(try XCTUnwrap(store.manifest.figures?.first).name, "q3")
     }
+
+    /// **A figure made deliberately with Use in Document is never taken**:
+    /// made first from the same file and not placed, then Move on an
+    /// unlabelled line into that file makes a NEW figure, and the deliberate
+    /// one stays unused and untouched.
+    func test_aFigureMadeWithUseInDocumentIsNotTakenByMove() async throws {
+        let (store, item) = try await openBook("![Revenue](../research/q3.csv)\n")
+        let deliberate = try await store.useInDocument(researchItemId: item.id, piece: nil).record
+        let state = try await tree(store, text: try await chapterText())
+
+        await verbs(store, state).moveIntoFigures(try XCTUnwrap(state.legacyFigureRows.first).id)?.value
+
+        XCTAssertNil(state.pendingError)
+        let figures = try XCTUnwrap(store.manifest.figures)
+        XCTAssertEqual(figures.count, 2, "a new figure")
+        let moved = try XCTUnwrap(figures.first { $0.id != deliberate.id })
+        XCTAssertEqual(figures.first { $0.id == deliberate.id }?.name, deliberate.name, "untouched")
+        let text = try await chapterText()
+        XCTAssertEqual(text, "![Revenue](../figures/\(moved.name).csv){#tbl:\(moved.name)}")
+    }
 }

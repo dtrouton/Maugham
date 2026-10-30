@@ -437,6 +437,8 @@ struct FigureSectionVerbs {
             line,
             isUsed: { id in state.figureListingRows.first { $0.figureId == id }.map { !$0.isUnused } ?? false },
             definedLabels: state.definedFigureLabels,
+            refusedMove: state.figuresMadeByRefusedMoves[rowId],
+            lineRefused: { state.figuresMadeByRefusedMoves[rowId] = $0 },
             reveal: { state.revealFigureWhenDrawn($0) })
     }
 

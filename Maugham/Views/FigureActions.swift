@@ -332,8 +332,10 @@ struct FigureActions {
     ///    line is labelled otherwise. A label is never changed under the
     ///    cross-references that point at it.
     /// 2. **The figure** — an unused, unparked figure already made from this
-    ///    item (a Move whose line was refused, retried; `isUsed` answers from
-    ///    the listing) whose name the line can carry is taken as it is;
+    ///    item that this line's own refused Move made (`refusedMove`) — or,
+    ///    for a labelled line, named exactly its label — and whose name the
+    ///    line can carry is taken as it is (`isUsed` answers from the
+    ///    listing); a figure made with *Use in Document* is never taken;
     ///    otherwise `useInDocument` makes one, named by the line's label, or —
     ///    for an unlabelled line — by the item's title, vacant among the
     ///    figures AND the labels the book defines (`definedLabels`, plus the
@@ -347,12 +349,16 @@ struct FigureActions {
     ///    figure did not get its name (a race) is left as it is.
     ///
     /// A refused third step leaves the figure made and unused, and says so
-    /// with whatever the read had to say (`LineNotMoved`); Move again reuses
-    /// it. The figure's id goes to `reveal`.
+    /// with whatever the read had to say (`LineNotMoved`); its id goes to
+    /// `lineRefused`, which the caller hands back as `refusedMove` so Move
+    /// again reuses it (nil once the line moved). The figure's id goes to
+    /// `reveal`.
     @discardableResult
     func moveIntoFigures(_ line: FigureListing.LegacyRow,
                          isUsed: @escaping @MainActor (String) -> Bool = { _ in false },
                          definedLabels: @escaping @MainActor () -> Set<ManuscriptLabel> = { [] },
+                         refusedMove: String? = nil,
+                         lineRefused: @escaping @MainActor (String?) -> Void = { _ in },
                          reveal: @escaping @MainActor (String) -> Void) -> Task<Void, Never>? {
         guard let itemId = line.researchItemId,
               let item = TreeWalk.find(id: itemId, in: store.manifest.research) else {
@@ -385,11 +391,14 @@ struct FigureActions {
             }
             @MainActor func record(_ id: String) -> FigureRecord? { store.manifest.figures?.first { $0.id == id } }
 
-            // A retry: the unused figure an earlier Move made from this item.
+            // A retry: the unused figure this line's own refused Move made
+            // (`refusedMove`), or — a labelled line — the unused figure from
+            // this item named exactly its label. Never any other figure made
+            // from the item: one made with Use in Document is the writer's.
             let made = await documentStore.figuresMade(fromResearchItem: item.id).filter { !isUsed($0) }
             let reused = made.compactMap(record).first { candidate in
                 if let label = line.label { return candidate.name == label.name }
-                return !isDefined(candidate.name)
+                return candidate.id == refusedMove && !isDefined(candidate.name)
             }
             let figure: FigureRecord
             var readNotice: String?
@@ -435,6 +444,7 @@ struct FigureActions {
             if let label = line.label, figure.name != label.name {
                 // Another figure took the name between the check and the make:
                 // the line's label stays under its cross-references.
+                lineRefused(figure.id)
                 throw LineNotMoved(name: figure.name, reason: LineNotMoved.labelNotTheName(label.name),
                                    notice: readNotice)
             }
@@ -444,8 +454,10 @@ struct FigureActions {
                     piece: line.docId, lineIndex: line.lineIndex, oldPath: line.path, newPath: newPath,
                     label: ManuscriptLabel(reference: "\(newKind.rawValue):\(figure.name)"))
             } catch {
+                lineRefused(figure.id)
                 throw LineNotMoved(name: figure.name, reason: error.localizedDescription, notice: readNotice)
             }
+            lineRefused(nil)
             if let readNotice { say(readNotice) }
         }
     }
