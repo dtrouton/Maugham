@@ -156,6 +156,58 @@ struct FigureRow: View {
     }
 }
 
+/// What a line-into-Research row's menu offers and does
+/// (`FigureSectionVerbs.legacyActions`): a value, so a test calls the action
+/// a menu item would.
+struct LegacyFigureRowActions {
+    /// Whether *Move into Figures* is offered — asked by the menu's builder.
+    let mayMove: () -> Bool
+    let move: () -> Void
+    let showInText: () -> Void
+}
+
+/// **A figure line that points into Research** (report plan 8b Task 9, spec
+/// §4.4): its number, caption and the tag "in Research", drawn from the cached
+/// `LegacyFigureTreeRow` (tripwire 4). It carries no `.tag` — selecting it
+/// selects nothing — and no gesture (tripwire 9); its menu offers *Move into
+/// Figures* (or says the file isn't in Research) and *Show in Text*.
+struct LegacyFigureRow: View {
+    let row: LegacyFigureTreeRow
+    let actions: LegacyFigureRowActions
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: row.kind == .table ? "tablecells" : "photo")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+            Text(row.number)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+            Text(row.title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Text(LegacyFigureTreeRow.tag)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+                .background(.quaternary, in: Capsule())
+                .fixedSize()
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            if !row.movable {
+                Text(LegacyFigureTreeRow.notInResearch)
+            } else if actions.mayMove() {
+                Button("Move into Figures", action: actions.move)
+            }
+            Button("Show in Text", action: actions.showInText)
+        }
+    }
+}
+
 /// **A piece row's figure count** (D8-1): small secondary text that filters
 /// the Figures section to the piece. A `Button(.plain)` — it selects nothing
 /// (tripwire 9), so the row's own click still selects the piece.

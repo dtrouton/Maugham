@@ -109,4 +109,81 @@ enum FigureListing {
         }
         return rows
     }
+
+    // MARK: - Lines that point into Research (report plan 8b Task 9, spec §4.4)
+
+    /// **A figure line written before figures had their own folder** (plans
+    /// 3a–3b: `../research/x.png`): its path is local but inside a research
+    /// folder (`FigureLineResolution.Status.outsideFigures`). It keeps
+    /// working; the section lists it tagged "in Research" with *Move into
+    /// Figures*. Only the pieces the index reads are listed — publishable
+    /// ones, so a reference piece's line is not.
+    struct LegacyRow: Equatable, Sendable, Identifiable {
+        /// Stable while text above the line moves it: the piece, the path and
+        /// which of that piece's lines on that path it is.
+        let id: String
+        let docId: String
+        /// The line it starts on in its piece, from 0 — what the retarget
+        /// finds it by, re-checked against `path` as it writes.
+        let lineIndex: Int
+        /// As written on the line.
+        let path: String
+        let caption: String
+        let kind: ReferenceIndex.NumberedLine.Kind
+        /// "Table 2" or "Figure 1": the line publishes numbered.
+        let number: String
+        /// The label the line registered, nil when it carries none (or one
+        /// another line registered first).
+        let label: ManuscriptLabel?
+        /// The Research table, picture or PDF the path names; nil when it
+        /// names none — then nothing can move ("The file isn't in Research").
+        let researchItemId: String?
+    }
+
+    /// Every legacy line, in reading order, matched to its Research item.
+    static func legacyRows(index: ReferenceIndex, research: [ResearchItem],
+                           documentPathOf: (String) -> String?) -> [LegacyRow] {
+        let files = ResearchFiles(research)
+        var rows: [LegacyRow] = []
+        var seen: [String: Int] = [:]
+        for line in index.numberedLines {
+            guard let linePath = line.path, let documentPath = documentPathOf(line.docId),
+                  case .inside(let target, let root) = FigurePathRule.lexical(linePath, piecePath: documentPath),
+                  root != ["figures"] else { continue }
+            let key = "\(line.docId)\n\(linePath)"
+            let occurrence = seen[key, default: 0]
+            seen[key] = occurrence + 1
+            let word = line.kind == .table ? index.words.table : index.words.figure
+            rows.append(LegacyRow(id: "\(key)\n\(occurrence)", docId: line.docId, lineIndex: line.line,
+                                  path: linePath, caption: line.caption, kind: line.kind,
+                                  number: "\(word) \(line.ordinal)", label: line.targetLabel,
+                                  researchItemId: files.itemId(atTarget: target)))
+        }
+        return rows
+    }
+
+    /// **The Research items a figure can be made from, by path** — the pure
+    /// match of a line's standardised target (`FigurePathRule.lexical`) to
+    /// `ResearchItem.path`, ignoring case as `FigureLineResolution` does.
+    struct ResearchFiles {
+        private let byPath: [String: String]
+
+        init(_ research: [ResearchItem]) {
+            var byPath: [String: String] = [:]
+            for item in TreeWalk.collect(in: research, where: FigureActions.makesAFigure) {
+                // A manifest path is project-relative and clean: only empty
+                // and `.` segments to drop.
+                guard let path = item.path else { continue }
+                let key = path.split(separator: "/").filter { $0 != "." }
+                    .joined(separator: "/").lowercased()
+                if byPath[key] == nil { byPath[key] = item.id }
+            }
+            self.byPath = byPath
+        }
+
+        /// The item at a standardised, project-relative target, if any.
+        func itemId(atTarget target: [String]) -> String? {
+            byPath[target.joined(separator: "/").lowercased()]
+        }
+    }
 }

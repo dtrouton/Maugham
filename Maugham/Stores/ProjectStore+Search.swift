@@ -335,13 +335,17 @@ extension ProjectStore {
         case removeLine(ManuscriptLabel)
         /// The figure line starting on line `lineIndex` (from 0) of `piece`'s
         /// text whose path is written `oldPath`: its path becomes `newPath`,
-        /// its caption and label kept. Only that piece is held.
-        case retargetLine(piece: String, lineIndex: Int, oldPath: String, newPath: String)
+        /// its caption kept. Its label becomes `label` — set where it had
+        /// none, replaced where it had another — or, nil, is kept (report
+        /// plan 8b Task 9: the line of a figure moved in takes the record's
+        /// name, so Send and Rename find it). Only that piece is held.
+        case retargetLine(piece: String, lineIndex: Int, oldPath: String, newPath: String,
+                          label: ManuscriptLabel? = nil)
 
         /// The one piece (structure item id) the change is made in, or nil
         /// for every manuscript whose text holds a site.
         var piece: String? {
-            if case .retargetLine(let piece, _, _, _) = self { return piece }
+            if case .retargetLine(let piece, _, _, _, _) = self { return piece }
             return nil
         }
 
@@ -542,27 +546,38 @@ extension ProjectStore {
         switch change {
         case .relabel(let relabel): return figureRelabelEdits(in: text, relabel)
         case .removeLine(let label): return figureLineRemovalEdits(in: text, label)
-        case .retargetLine(_, let lineIndex, let oldPath, let newPath):
-            return figureLineRetargetEdits(in: text, lineIndex: lineIndex, oldPath: oldPath, newPath: newPath)
+        case .retargetLine(_, let lineIndex, let oldPath, let newPath, let label):
+            return figureLineRetargetEdits(in: text, lineIndex: lineIndex, oldPath: oldPath,
+                                           newPath: newPath, label: label)
         }
     }
 
     /// **The path of the figure line starting on `lineIndex`, retargeted**:
     /// one edit, when a figure line (outside a code fence) starts there and
     /// its path is written exactly `oldPath`; none otherwise — a line that
-    /// moved or was edited since it was found is not guessed at.
+    /// moved or was edited since it was found is not guessed at. With a
+    /// `label` the line does not carry, the edit runs from the path to the
+    /// line's end: the path, `)` and `{#label}`, in place of whatever label
+    /// (and trailing space) it had — nothing else can follow a figure line's
+    /// `)` (`ManuscriptBlocks`).
     nonisolated static func figureLineRetargetEdits(
-        in text: String, lineIndex: Int, oldPath: String, newPath: String
+        in text: String, lineIndex: Int, oldPath: String, newPath: String,
+        label: ManuscriptLabel? = nil
     ) -> [(range: NSRange, replacement: String)] {
         let lines = text.components(separatedBy: "\n")
         guard lines.indices.contains(lineIndex) else { return [] }
         for (block, range) in ManuscriptBlocks.parse(text) where range.lowerBound == lineIndex {
-            guard case .figure(_, let path, _) = block, path == oldPath else { return [] }
+            guard case .figure(_, let path, let current) = block, path == oldPath else { return [] }
             let start = lines[..<lineIndex].reduce(0) { $0 + ($1 as NSString).length + 1 }
             let line = lines[lineIndex] as NSString
             let target = line.range(of: "](\(oldPath))", options: .backwards)
             guard target.location != NSNotFound else { return [] }
-            return [(NSRange(location: start + target.location + 2, length: (oldPath as NSString).length), newPath)]
+            let pathStart = start + target.location + 2
+            guard let label, label != current else {
+                return [(NSRange(location: pathStart, length: (oldPath as NSString).length), newPath)]
+            }
+            return [(NSRange(location: pathStart, length: line.length - target.location - 2),
+                     "\(newPath)){#\(label.reference)}")]
         }
         return []
     }

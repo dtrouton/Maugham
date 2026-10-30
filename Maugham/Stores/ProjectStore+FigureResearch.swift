@@ -686,6 +686,25 @@ extension ProjectStore {
         if let text = String(data: data, encoding: .utf8) { return text }
         return String(data: data, encoding: .windowsCP1252)
     }
+
+    // MARK: - Move into Figures' line (report plan 8b Task 9, spec §4.4)
+
+    /// **Point one figure line in `piece` at a figure's file** — *Move into
+    /// Figures*' second step, after `useInDocument` made the figure: the
+    /// line starting on `lineIndex` whose path is written `oldPath` takes
+    /// `newPath` and, when given, `label` (`FigureTextChange.retargetLine`),
+    /// through the one-piece, door-checked hold. All or nothing; throws
+    /// `FigureLineRetargetRefused` with the text as it was.
+    func retargetFigureLine(piece: String, lineIndex: Int, oldPath: String, newPath: String,
+                            label: ManuscriptLabel?) async throws {
+        let held = try await holdManuscriptsForFigureText(
+            .retargetLine(piece: piece, lineIndex: lineIndex, oldPath: oldPath, newPath: newPath, label: label))
+        do { _ = try held.write() } catch {
+            await held.release()
+            throw error
+        }
+        await held.release()
+    }
 }
 
 /// **A Research item *Use in document* cannot make a figure from** (report

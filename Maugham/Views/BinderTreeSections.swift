@@ -981,8 +981,16 @@ final class BinderTreeSectionsState {
     /// left out. Written only by `rebuildFigureRows` — on a listing change
     /// and on a card fill — never built in a body.
     var figureRows: [FigureTreeRow] = []
-    /// Each piece's figure count, from `figureRows`, rebuilt with them.
+    /// Each piece's figure count, from `figureRows` and
+    /// `legacyFigureRows`, rebuilt with them.
     var figureCounts: [String: FigureCount] = [:]
+    /// **Lines that point into Research, as drawn** (report plan 8b Task 9,
+    /// spec §4.4), cached like `figureRows`; written only by
+    /// `refreshLegacyFigureRows`, and only when what a row draws moved.
+    var legacyFigureRows: [LegacyFigureTreeRow] = []
+    /// Those lines as last listed, by row id, line indexes current: what a
+    /// row's *Move into Figures* and *Show in Text* act on when pressed.
+    @ObservationIgnored var legacyFigureLines: [String: FigureListing.LegacyRow] = [:]
     /// **The piece the section is filtered to**, by document id; nil shows
     /// every figure. Set by a piece row's count, cleared by the header's chip.
     var pieceFilter: String?

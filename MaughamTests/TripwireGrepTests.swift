@@ -12671,7 +12671,7 @@ final class TripwireGrepTests: XCTestCase {
         "setImage(", "renameImageFile(", "createFigure(", "createImageFigure(", "renameFigure(",
         "useInDocument(", "parkInResearch(", "sendToResearch(",
         "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
-        "setCells(", "sortRows(", "applyChanges(",
+        "setCells(", "sortRows(", "applyChanges(", "retargetFigureLine(",
         figureOpMintSpelling,
     ]
 
@@ -13199,7 +13199,15 @@ final class TripwireGrepTests: XCTestCase {
         // `bringBack(` hits are NOT calls: `ResearchVerb`'s case declaration
         // and its construction (`.bringBack(figureId:)`); the return reaches
         // the store's `bringBack` only through `useInDocument`'s routing.
-        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1, "useInDocument(": 1, "bringBack(": 2],
+        // *Move into Figures* (report plan 8b Task 9) is its second
+        // `useInDocument(` — the new figure's door, the store's — and its
+        // `retargetFigureLine(`, the line's piece held through
+        // `holdManuscriptsForFigureText` (`openManuscriptForWriting`'s
+        // `.writeText` door, and the Document's own stamp); both offered only
+        // where `mayMove` asked the piece's posture and the window's refusal,
+        // and asked again as the verb runs.
+        "FigureActions.swift": ["sendToResearch(": 1, "renameFigure(": 1, "useInDocument(": 2, "bringBack(": 2,
+                                "retargetFigureLine(": 1],
         "FigureSection.swift": ["sendToResearch(": 2, "useInDocument(": 2],
         // NOT calls: `TreeDropIntent.Intent.useInDocument(researchId:)`'s
         // declaration and construction, and its match in the performer, which
@@ -13514,6 +13522,7 @@ final class TripwireGrepTests: XCTestCase {
         let parked = try await store.sendToResearch(figureId: f, scope: .shared)
         try await host.resumeFromResearch(changes: c, picture: nil, expecting: s)
         let back = try await store.bringBack(researchItemId: i, piece: p)
+        try await store.retargetFigureLine(piece: p, lineIndex: 2, oldPath: o, newPath: n, label: l)
         try await reader.refreshPins(undoManager: um)
         let outcome = try await host.restoreToCheckpoint(checkpoint.id, target: then)
         try await host.setCells(edits, actionName: "Clear", undoManager: um)

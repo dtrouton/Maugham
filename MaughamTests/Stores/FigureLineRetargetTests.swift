@@ -113,6 +113,22 @@ final class FigureLineRetargetTests: XCTestCase {
                        "the same path on another line is left alone")
     }
 
+    /// **With a label** (report plan 8b Task 9): a line without one takes it,
+    /// a line with another has it replaced (trailing space with it), and a
+    /// line that already carries it changes only its path.
+    func test_theEditSetsOrReplacesTheLabel() {
+        let label = ManuscriptLabel(reference: "tbl:q3")
+        func moved(_ text: String) -> String? {
+            ProjectStore.edited(text, .retargetLine(piece: "doc-a", lineIndex: 0, oldPath: Self.legacy,
+                                                    newPath: Self.moved, label: label))
+        }
+        XCTAssertEqual(moved("![R](../research/q3.csv)\n\nNext."), "![R](../figures/q3.csv){#tbl:q3}\n\nNext.")
+        XCTAssertEqual(moved("![R](../research/q3.csv) {#tbl:old}  \n\nNext."),
+                       "![R](../figures/q3.csv){#tbl:q3}\n\nNext.")
+        XCTAssertEqual(moved("![R](../research/q3.csv) {#tbl:q3}\n\nNext."),
+                       "![R](../figures/q3.csv) {#tbl:q3}\n\nNext.")
+    }
+
     // MARK: - Through the door
 
     /// **A closed piece**: loaded for the write, retargeted in its op log.

@@ -309,6 +309,136 @@ struct FigureActions {
         }
     }
 
+    // MARK: Lines into Research (report plan 8b Task 9, spec §4.4)
+
+    /// Whether *Move into Figures* is offered on `line`: its path names a
+    /// Research item, the window does not refuse figure writes, and the
+    /// posture lets this Mac write the line's piece (`.writeText`). The new
+    /// figure's own door is the store's, asked as it makes it.
+    func mayMove(_ line: FigureListing.LegacyRow) -> Bool {
+        guard line.researchItemId != nil, !windowRefusesWrites() else { return false }
+        return store.documentStore?.posture(forDocId: line.docId).allows(.writeText) ?? false
+    }
+
+    /// **Move into Figures** (spec §4.4): nothing moves until the writer asks.
+    ///
+    /// 1. **Refused before anything is made** — with the reason, through
+    ///    `report` — where the path names no Research item, the window refuses
+    ///    figure writes, this Mac may not write the line's piece, or the line's
+    ///    label could not be the figure's name: another figure already has
+    ///    that name, or the item is a parked figure's working copy (which
+    ///    comes back under its own name) and the line is labelled otherwise.
+    ///    A label is never changed under the cross-references that point at it.
+    /// 2. **The figure** — `useInDocument` with the line's label name, so the
+    ///    record takes it; homed as *Use in Document* homes one
+    ///    (`researchHomePiece`: a figure made from shared Research is the
+    ///    whole book's, Denver 2026-10-30). A parked copy is brought back.
+    /// 3. **The line** — `retargetFigureLine` on the line's piece: its path
+    ///    becomes the figure's, and it takes `{#tbl:name}`/`{#fig:name}` when
+    ///    it had no label, so Send and Rename find it.
+    ///
+    /// A refused second step leaves the figure made and unused, and says so
+    /// (`LineNotMoved`). The new figure's id goes to `reveal`.
+    @discardableResult
+    func moveIntoFigures(_ line: FigureListing.LegacyRow,
+                         reveal: @escaping @MainActor (String) -> Void) -> Task<Void, Never>? {
+        guard let itemId = line.researchItemId,
+              let item = TreeWalk.find(id: itemId, in: store.manifest.research) else {
+            report(MoveIntoFiguresRefused(reason: .notInResearch).localizedDescription)
+            return nil
+        }
+        guard !windowRefusesWrites() else {
+            report(MoveIntoFiguresRefused(reason: .windowRefuses).localizedDescription)
+            return nil
+        }
+        let store = store, say = notice ?? report
+        let piece = TreeWalk.find(id: line.docId, in: store.manifest.structure)
+        let title = piece?.title ?? line.docId
+        return run {
+            // The acting answer, settled — the menu asked the drawn one.
+            guard let piecePath = piece?.path, let documentStore = store.documentStore,
+                  await documentStore.settledPosture(forDocId: line.docId).allows(.writeText) else {
+                throw MoveIntoFiguresRefused(reason: .pieceNotWritable(title))
+            }
+            let returning = try? await store.figureToBringBack(fromResearchItemId: item.id)
+            if let label = line.label?.name {
+                if let returning {
+                    let name = store.manifest.figures?.first { $0.id == returning }?.name ?? returning
+                    guard name == label else {
+                        throw MoveIntoFiguresRefused(reason: .labelIsNotTheFigures(label: label, figure: name))
+                    }
+                } else {
+                    let kind: FigureKind = item.kind == .table ? .table : .image
+                    guard store.vacantFigureName(basedOn: label, kind: kind) == label else {
+                        throw MoveIntoFiguresRefused(reason: .nameTaken(label))
+                    }
+                }
+            }
+            let result: UseInDocumentResult
+            do {
+                result = try await store.useInDocument(researchItemId: item.id,
+                                                       piece: store.researchHomePiece(ofItemId: item.id),
+                                                       name: line.label?.name)
+            } catch is FigureEditRefused {
+                throw ResearchUseRefused(bringingBack: returning != nil)
+            }
+            reveal(result.record.id)
+            let newPath = FigureIngest.relativePath(fromDocument: piecePath, toResearch: result.record.path)
+            // A label the line has keeps its kind: one changed would leave
+            // its cross-references behind.
+            let kind = line.label?.kind ?? ManuscriptLabel.Kind.ofFigureLine(path: newPath, label: nil)
+            do {
+                try await store.retargetFigureLine(
+                    piece: line.docId, lineIndex: line.lineIndex, oldPath: line.path, newPath: newPath,
+                    label: ManuscriptLabel(reference: "\(kind.rawValue):\(result.record.name)"))
+            } catch {
+                throw LineNotMoved(name: result.record.name, reason: error.localizedDescription)
+            }
+            if let notice = Self.readNotice(result) { say(notice) }
+        }
+    }
+
+    /// *Move into Figures* refused before anything was made.
+    struct MoveIntoFiguresRefused: LocalizedError, Equatable {
+        enum Reason: Equatable {
+            case notInResearch
+            case windowRefuses
+            case pieceNotWritable(String)
+            /// Another figure has the line's label name.
+            case nameTaken(String)
+            /// The item is a parked figure's copy, named otherwise.
+            case labelIsNotTheFigures(label: String, figure: String)
+        }
+        let reason: Reason
+
+        var errorDescription: String? {
+            switch reason {
+            case .notInResearch:
+                return "The file isn\u{2019}t in Research, so it can\u{2019}t move into Figures."
+            case .windowRefuses:
+                return FigureSectionVerbs.windowMakesNoFigures
+            case .pieceNotWritable(let title):
+                return "This Mac may not change the text of \(title), so nothing was made."
+            case .nameTaken(let name):
+                return "Another figure is already called \u{201C}\(name)\u{201D}, and this line\u{2019}s label "
+                    + "can\u{2019}t change under its cross-references. Rename that figure first; nothing was made."
+            case .labelIsNotTheFigures(let label, let figure):
+                return "This file is \u{201C}\(figure)\u{201D}, a figure sent to Research, but this line is labelled "
+                    + "\u{201C}\(label)\u{201D}. Bring it back from Research and place it with "
+                    + "Insert \u{25B8} Existing Figure\u{2026}; nothing was made."
+            }
+        }
+    }
+
+    /// The figure was made but its line was left pointing into Research.
+    struct LineNotMoved: LocalizedError, Equatable {
+        let name: String, reason: String
+        var errorDescription: String? {
+            "\u{201C}\(name)\u{201D} is in Figures, unused, but its line still points into Research: "
+                + "\(reason) Place it with Insert \u{25B8} Existing Figure\u{2026}."
+        }
+    }
+
     /// `BinderTreeVerbs.perform`'s shape — a failure reaches `report` —
     /// answering its task.
     private func run(_ work: @escaping @MainActor () async throws -> Void) -> Task<Void, Never> {
