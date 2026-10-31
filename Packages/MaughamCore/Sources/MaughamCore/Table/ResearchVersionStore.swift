@@ -211,6 +211,11 @@ public struct ResearchVersionStore: Sendable {
         try SafeRelativePath.resolveFile(named: name, in: Self.itemFolder(itemId), under: projectURL)
     }
 
+    /// Where `itemId`'s versions folder is (or would be) in this project —
+    /// the one spelling a lifecycle move uses (promotion carries the whole
+    /// folder), checked for change like every synced path (tripwire 58).
+    public func folderURL(forItem itemId: String) throws -> URL { try itemFolderURL(itemId) }
+
     private func itemFolderURL(_ itemId: String) throws -> URL {
         try SafeRelativePath.resolveFile(
             named: SafeRelativePath.requireDocId(itemId), in: Self.folder, under: projectURL)

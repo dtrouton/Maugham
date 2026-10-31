@@ -256,6 +256,44 @@ extension ProjectStore {
         return keys
     }
 
+    // MARK: - Research versions follow the item
+
+    /// **Every Research item id that still has a claim on its versions**: the
+    /// manifest's, and every one in the Trash (a restore brings its versions
+    /// back; they live by id, so the Trash keeps them). `nil` when an entry
+    /// that should name a Research item cannot be read: the sweep then waits
+    /// rather than guess (an id it cannot see is an id it must not orphan).
+    func liveResearchItemIds() async -> Set<String>? {
+        var ids = Set(TreeWalk.collectIds(in: manifest.research))
+        for entry in (try? await trashStore.list()) ?? [] {
+            switch try? restoreRoute(for: entry) {
+            case .research(let item)?:
+                ids.formUnion(TreeWalk.collectIds(in: [item]))
+            case nil where entry.subject == nil || entry.subject == .researchItem:
+                return nil
+            default:
+                break
+            }
+        }
+        return ids
+    }
+
+    /// **The orphan sweep for Research versions**: this device's files for
+    /// every item that is neither in Research nor in the Trash (deleted for
+    /// good: let-go, Empty Trash, the 30-day expiry). It runs after a
+    /// permanent delete, after Empty Trash, and at project open (stragglers,
+    /// and the expiry that happened while the app was closed). Another
+    /// device's files are never touched (tripwire 17): each device sweeps its
+    /// own, so a file that device wrote stays until it opens the project.
+    /// Derived files, not user content, so the removal is not the typed
+    /// mover's (tripwire 14).
+    func sweepResearchVersions() async {
+        guard let live = await liveResearchItemIds() else { return }
+        let versions = ResearchVersionStore(projectURL: url)
+        let device = DeviceIdentity.author.slug
+        await Task.detached { versions.sweepOrphans(liveItemIds: live, device: device) }.value
+    }
+
     // MARK: - Per-tree restore
 
     private func restoreStructureItem(
@@ -542,6 +580,7 @@ extension ProjectStore {
     public func permanentlyDeleteTrashEntry(id: String) async throws {
         try await trashStore.permanentlyDelete(trashId: id)
         trashEntries = (try? await trashStore.list()) ?? trashEntries
+        await sweepResearchVersions()
     }
 
     /// Permanently delete everything in this project's trash.
@@ -569,6 +608,7 @@ extension ProjectStore {
             }
         }
         trashEntries = (try? await trashStore.list()) ?? []
+        await sweepResearchVersions()
         guard undestroyed == 0 else {
             throw ProjectStoreError.trashNotEmptied(undestroyed: undestroyed, total: ids.count)
         }

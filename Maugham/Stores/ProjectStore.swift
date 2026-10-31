@@ -659,6 +659,9 @@ public final class ProjectStore {
         // wired yet, so the stamp's manifest save uses the direct-write path
         // (same as the project-id backfill above).
         await store.healPaletteRolesEagerly()
+        // Research versions of items deleted for good (the Trash's 30-day
+        // expiry above included) leave with them.
+        await store.sweepResearchVersions()
         // M1A: adopt legacy craft-intent research notes into the intent
         // `Statement`, once, gated on the on-disk schema version. Runs AFTER the
         // role heal above (which is what makes the role-first detection see a
