@@ -8,8 +8,9 @@ import MaughamCore
 /// holder (computed values and cached strings), the `FigureGridView` and its
 /// `FigureGridBars`.
 ///
-/// - **The only grid file that calls a figure mutator** (tripwire 52 counts
-///   this file's calls in `manuscriptWriterCallSites`): a cell through
+/// - **The only grid file that calls a figure mutator**, with its strip
+///   extension (`FigureGridController+Strip.swift`, a suggestion's Accept)
+///   — tripwire 52 counts each file's calls in `manuscriptWriterCallSites`: a cell through
 ///   `setCell`, a range (⌫, a format, decimals, align, Σ) through `setCells`
 ///   — one ⌘Z and one render however many cells — the structure verbs, and
 ///   a batch planned against the host (a delete of several rows or columns,
@@ -81,19 +82,23 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     let strip = FigureGridStripView()
     var figureId: String { host.figureId }
 
-    private let values: FigureGridValues
+    let values: FigureGridValues
     private(set) var model: FigureGridModel
     /// **The host's open notes on live cells, as last caught up with**: the
     /// dots and the strip read this, a dictionary lookup per cell — never
     /// the host's projection per draw or per selection.
     private(set) var cellNotes: FigureCellNotes
     /// What the strip shows for the active cell, as last refreshed.
-    private(set) var stripPlan = FigureGridStrip.Plan.empty
+    var stripPlan = FigureGridStrip.Plan.empty
     /// The strip's page among the active cell's notes; back to the first
     /// when the active cell changes.
-    private(set) var stripPage = 0
+    var stripPage = 0
     /// The active cell the strip's page belongs to.
-    private var stripCell: CellKey?
+    var stripCell: CellKey?
+    /// The plan and page the strip view last showed (`refreshStrip` skips an unchanged one).
+    var stripShown: (plan: FigureGridStrip.Plan, page: Int)?
+    /// The changed-since question being asked, outside the write chain (a test awaits it).
+    var stripQuestion: Task<Void, Never>?
     /// **The figure's posture allows `.acceptOrReject`** — the strip's
     /// buttons — kept from the window's door, which the controller observes
     /// (`observeTheDoor`); never asked per selection.
@@ -110,7 +115,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     var askRejectReason: @MainActor (FigureGridStrip.RejectQuestion) async -> FigureGridStrip.RejectAnswer
     private weak var store: DocumentStore?
     private weak var projectStore: ProjectStore?
-    private var names: FormulaNames
+    private(set) var names: FormulaNames
     private(set) var line: Line
     private(set) var name: String
     /// **The grid's private undo stack** (plan 7d Task 6, ADR 0023's
@@ -169,7 +174,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private var writes: Task<Void, Never>?
     /// Writes asked for and not yet landed (an undo or redo among them).
     private(set) var writesInFlight = 0
-    private var isClosed = false
+    private(set) var isClosed = false
 
     /// The pasteboard cut, copy and paste use: the general one; a test sets
     /// a private one (never the general pasteboard in a test).
@@ -534,7 +539,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     }
 
     /// The reason line, said again.
-    private func answer(_ reason: FigureGridGate.Reason) {
+    func answer(_ reason: FigureGridGate.Reason) {
         bars.showReason(reason.sentence)
     }
 
@@ -753,7 +758,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// An open edit committed, as a fold would (without folding): false — and
     /// the edit reopened with its error — when it will not read.
-    private func commitOpenEdit() -> Bool {
+    func commitOpenEdit() -> Bool {
         guard case .idle = model.edit else {
             execute(model.fold(commit: true).filter { $0 != .fold })
             if case .idle = model.edit { return true }
@@ -1412,7 +1417,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     // MARK: The host
 
     /// Writes run in the order asked, each after the one before; a refusal is said.
-    private func enqueue(_ act: @escaping @MainActor () async throws -> Void) {
+    func enqueue(_ act: @escaping @MainActor () async throws -> Void) {
         let previous = writes
         writesInFlight += 1
         writes = Task { @MainActor [weak self] in
@@ -1503,7 +1508,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     }
 
     /// **Catch up with the host**: its state, then its open cell notes.
-    private func syncFromHost() {
+    func syncFromHost() {
         guard !isClosed else { return }
         let stateMoved = syncStateFromHost()
         let notesMoved = syncNotesFromHost()
@@ -1578,130 +1583,5 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let cell = table[selection.anchor]
         bars.showFormat(cell?.format.number ?? .general, alignment: cell?.alignment ?? .automatic,
                         header: table.headerRows > 0, total: table.hasTotalRow)
-    }
-
-    // MARK: The strip (report plan 9c-2 Tasks 5–6)
-
-    /// **The strip follows the active cell**: its notes looked up in the
-    /// cached `cellNotes` (a filter over the figure's few open live notes —
-    /// never the host's projection), its buttons from the gate's mode and
-    /// the kept posture. The page goes back to the first on another cell.
-    private func refreshStrip() {
-        let active = model.selection?.anchor
-        if active != stripCell {
-            stripCell = active
-            stripPage = 0
-        }
-        stripPlan = FigureGridStrip.Plan.make(
-            notes: cellNotes, active: active, table: values.table, names: names, locale: values.locale,
-            mayAccept: notesMayBeAnswered && mode.readOnlyReason == nil, mayReject: notesMayBeAnswered,
-            readOnly: mode.readOnlyReason)
-        stripPage = min(stripPage, max(0, stripPlan.entries.count - 1))
-        strip.show(stripPlan, page: stripPage)
-    }
-
-    /// The strip's ‹ or ›: the active cell's previous or next note.
-    func turnStripPage(by delta: Int) {
-        guard !stripPlan.entries.isEmpty else { return }
-        stripPage = min(max(stripPage + delta, 0), stripPlan.entries.count - 1)
-        strip.show(stripPlan, page: stripPage)
-    }
-
-    func stripView(_ view: FigureGridStripView, turnPage delta: Int) {
-        turnStripPage(by: delta)
-    }
-
-    func stripView(_ view: FigureGridStripView, perform verb: FigureGridStrip.Verb, noteId: String) {
-        switch verb {
-        case .accept: stripAccept(noteId)
-        case .gotIt: stripGotIt(noteId)
-        case .reject: askToReject(noteId)
-        }
-    }
-
-    /// **Accept a suggestion from the strip**: the open cell edit committed
-    /// first, then — in turn behind every write asked before — the host's
-    /// `acceptSuggestion` on `gridUndo` (one ⌘Z here; in place it joins the
-    /// visit, so the fold's one window step takes it back too). A cell
-    /// changed since the suggestion asks (`askChangedSince`); no writes
-    /// nothing. A read-only grid answers with its reason; the host's refusal
-    /// is said.
-    func stripAccept(_ noteId: String) {
-        guard beginStripAnswer() else { return }
-        enqueue { [weak self, host, gridUndo] in
-            var confirmed = false
-            while true {
-                do {
-                    try await host.acceptSuggestion(id: noteId, confirmChanged: confirmed, undoManager: gridUndo)
-                    return
-                } catch FigureNoteError.cellChangedSinceSuggestion where !confirmed {
-                    guard let self, let question = self.changedQuestion(for: noteId),
-                          await self.askChangedSince(question) else { return }
-                    confirmed = true
-                }
-            }
-        }
-    }
-
-    /// **Got it from the strip**: a comment's or query's status-only accept,
-    /// on `gridUndo`, after the open edit.
-    func stripGotIt(_ noteId: String) {
-        guard beginStripAnswer() else { return }
-        enqueue { [host, gridUndo] in
-            try await host.acceptNote(id: noteId, userResponse: nil, undoManager: gridUndo)
-        }
-    }
-
-    /// **Reject from the strip**, keeping `reason`, on `gridUndo` — undone
-    /// by ⌘Z while the grid is open; after an in-place fold by Reopen in the
-    /// queue (the visit records cell changes only, plan ruling).
-    func stripReject(_ noteId: String, reason: String?) {
-        guard beginStripAnswer() else { return }
-        enqueue { [host, gridUndo] in
-            try await host.rejectAnnotation(id: noteId, reason: reason, undoManager: gridUndo)
-        }
-    }
-
-    /// **The strip's Reject button**: the reason asked (`askRejectReason`),
-    /// then `stripReject`; a cancelled sheet rejects nothing. A read-only
-    /// grid answers with its reason before asking.
-    @discardableResult
-    func askToReject(_ noteId: String) -> Task<Void, Never> {
-        if let reason = mode.readOnlyReason {
-            answer(reason)
-            return Task {}
-        }
-        let question = FigureGridStrip.RejectQuestion(
-            heading: stripPlan.entries.first { $0.noteId == noteId }?.heading ?? "",
-            body: stripPlan.entries.first { $0.noteId == noteId }?.body ?? "")
-        return Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard case .reject(let reason) = await self.askRejectReason(question) else { return }
-            self.stripReject(noteId, reason: reason)
-        }
-    }
-
-    /// Before a strip answer: caught up, the grid still open and writable
-    /// (else its reason line), the open cell edit committed (one that will
-    /// not read stays open with its error, and nothing is answered).
-    private func beginStripAnswer() -> Bool {
-        syncFromHost()
-        guard !isClosed, !isFolded else { return false }
-        if let reason = mode.readOnlyReason {
-            answer(reason)
-            return false
-        }
-        return commitOpenEdit()
-    }
-
-    /// The changed-since question over the cell as it stands now.
-    private func changedQuestion(for noteId: String) -> FigureGridStrip.ChangedQuestion? {
-        syncFromHost()
-        guard let note = cellNotes.byAnchor.values.joined().first(where: { $0.id == noteId }),
-              let cells = SuggestionDisplay.figureCells(
-                for: note, table: values.table, names: names, locale: values.locale),
-              case .live(let address)? = note.figureAnchor?.resolve(in: values.table)
-        else { return nil }
-        return .init(address: address, now: cells.before ?? "", after: cells.after)
     }
 }

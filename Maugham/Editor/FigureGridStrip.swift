@@ -62,6 +62,9 @@ enum FigureGridStrip {
         /// Why the buttons are disabled when the figure's posture refuses
         /// `.acceptOrReject`.
         static let notPermitted = "This Mac may not answer notes on this figure."
+        /// Why Accept is disabled in the window's review mode, where Got it
+        /// and Reject (no cell moves) stay offered (fix round ruling I1).
+        static let reviewModeAccept = "Turn off review mode to accept \u{2014} it writes the cell."
 
         /// The entry on `page` (clamped) and its "1 of 2" (nil with one note).
         func page(_ page: Int) -> (entry: Entry, label: String?)? {
@@ -77,7 +80,8 @@ enum FigureGridStrip {
         /// - `mayReject`: a note may be answered without writing a cell
         ///   (Reject, Got it) — the posture allows `.acceptOrReject`.
         /// - `readOnly`: the grid's read-only reason; the buttons are hidden
-        ///   and the reason said.
+        ///   and the reason said — except review mode, which keeps Got it and
+        ///   Reject (the posture decides) and shows Accept disabled.
         static func make(
             notes: FigureCellNotes, active: CellKey?, table: FigureTable, names: FormulaNames,
             locale: TableLocale, mayAccept: Bool, mayReject: Bool, readOnly: FigureGridGate.Reason?
@@ -85,6 +89,8 @@ enum FigureGridStrip {
             guard let active else { return .empty }
             let found = notes.notes(containing: active)
             guard !found.isEmpty else { return .empty }
+            let reviewing = readOnly == .reviewMode
+            let hidden = readOnly != nil && !reviewing
             let entries = found.map { note -> Entry in
                 let address: String? = switch note.figureAnchor?.resolve(in: table) {
                 case .live(let a1)?: a1
@@ -94,18 +100,23 @@ enum FigureGridStrip {
                 let change = SuggestionDisplay.figureCells(for: note, table: table, names: names, locale: locale)
                     .map { "\(shownCell($0.before ?? "")) \u{2192} \(shownCell($0.after))" }
                 let actions: [Action]
-                if readOnly != nil {
+                if hidden {
                     actions = []
                 } else if note.kind == .suggestedChange {
-                    actions = [Action(verb: .accept, isEnabled: mayAccept), Action(verb: .reject, isEnabled: mayReject)]
+                    actions = [Action(verb: .accept, isEnabled: mayAccept && !reviewing),
+                               Action(verb: .reject, isEnabled: mayReject)]
                 } else {
                     actions = [Action(verb: .gotIt, isEnabled: mayReject), Action(verb: .reject, isEnabled: mayReject)]
                 }
                 return Entry(noteId: note.id, kind: note.kind, heading: heading, body: note.body,
                              change: change, actions: actions)
             }
-            let reason: String? = if let readOnly {
+            let reason: String? = if hidden, let readOnly {
                 readOnly.sentence
+            } else if !mayReject {
+                notPermitted
+            } else if reviewing, entries.contains(where: { $0.kind == .suggestedChange }) {
+                reviewModeAccept
             } else if entries.contains(where: { $0.actions.contains { !$0.isEnabled } }) {
                 notPermitted
             } else {
@@ -171,7 +182,9 @@ final class FigureGridStripView: NSStackView {
         reasonLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         pageLabel.textColor = .secondaryLabelColor
         previousButton.toolTip = "Previous Note"
+        previousButton.setAccessibilityLabel("Previous Note")
         nextButton.toolTip = "Next Note"
+        nextButton.setAccessibilityLabel("Next Note")
         for button in [previousButton, nextButton, acceptButton, gotItButton, rejectButton] {
             button.target = self
             button.action = #selector(acted(_:))

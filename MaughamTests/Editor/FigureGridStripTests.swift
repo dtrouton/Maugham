@@ -204,6 +204,8 @@ final class FigureGridStripTests: XCTestCase {
         c.askChangedSince = { asked.append($0); return false }
         c.stripAccept(id)
         await landed(c)
+        await c.stripQuestion?.value
+        await landed(c)
         XCTAssertEqual(asked.count, 1, "asked once")
         XCTAssertEqual(asked.first, FigureGridStrip.ChangedQuestion(address: "B2", now: "13", after: "14"))
         XCTAssertEqual(host.state.table[b2], number(13), "declining writes nothing")
@@ -212,6 +214,8 @@ final class FigureGridStripTests: XCTestCase {
 
         c.askChangedSince = { asked.append($0); return true }
         c.stripAccept(id)
+        await landed(c)
+        await c.stripQuestion?.value
         await landed(c)
         XCTAssertEqual(asked.count, 2)
         XCTAssertEqual(host.state.table[b2], number(14), "confirming accepts over the change")
@@ -237,7 +241,82 @@ final class FigureGridStripTests: XCTestCase {
         XCTAssertEqual(status(id, host), .accepted)
     }
 
+    /// **The changed-since question never holds the write chain** (fix
+    /// round I2): while it is pending the writes settle; the grid closing
+    /// under it and a "yes" afterwards writes nothing and says why.
+    func test_aPendingChangedSinceQuestionHoldsNoWrite_andAYesAfterTheCloseWritesNothing() async throws {
+        let (store, c, host) = try await openGrid()
+        let b2 = key(host, "B2")
+        try await host.setCell(number(12), at: b2)
+        let id = try await suggest(number(14), at: b2, store: store, host: host)
+        try await host.setCell(number(13), at: b2)
+        await landed(c)
+
+        var answer: CheckedContinuation<Bool, Never>?
+        c.askChangedSince = { _ in await withCheckedContinuation { answer = $0 } }
+        c.stripAccept(id)
+        await c.settleWrites()   // returns: the question is not in the chain
+        while answer == nil { await Task.yield() }
+
+        c.close()
+        let said = await notices {
+            answer?.resume(returning: true)
+            await c.stripQuestion?.value
+            await c.settleWrites()
+        }
+        XCTAssertEqual(host.state.table[b2], number(13), "nothing written after the close")
+        XCTAssertEqual(status(id, host), .open)
+        XCTAssertEqual(said, [FigureGridController.foldedBeforeTheAnswer(reason: nil)])
+    }
+
     // MARK: - Got it and Reject
+
+    /// **Review mode answers what moves no cell** (fix round ruling I1):
+    /// Got it and Reject act; Accept is shown disabled and, asked, writes
+    /// nothing and says why.
+    func test_inReviewModeGotItAndRejectAct_acceptSaysWhyNot() async throws {
+        let (store, c, host) = try await openGrid()
+        let b2 = key(host, "B2")
+        let suggestion = try await suggest(number(9), at: b2, store: store, host: host)
+        let note = try await comment(on: b2, store: store, host: host)
+        await landed(c)
+        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.handle(.click(b2, extend: false))
+        let actions = Dictionary(uniqueKeysWithValues: c.stripPlan.entries.map { ($0.noteId, $0.actions) })
+        XCTAssertEqual(actions, [
+            suggestion: [.init(verb: .accept, isEnabled: false), .init(verb: .reject, isEnabled: true)],
+            note: [.init(verb: .gotIt, isEnabled: true), .init(verb: .reject, isEnabled: true)],
+        ])
+        XCTAssertEqual(c.strip.reasonLabel.stringValue, FigureGridStrip.Plan.reviewModeAccept)
+
+        c.stripAccept(suggestion)
+        await landed(c)
+        XCTAssertNil(host.state.table[b2], "Accept writes nothing in review mode")
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridStrip.Plan.reviewModeAccept)
+
+        c.stripGotIt(note)
+        c.askRejectReason = { _ in .reject(reason: "Not now") }
+        await c.askToReject(suggestion).value
+        await landed(c)
+        XCTAssertEqual(status(note, host), .accepted)
+        XCTAssertEqual(status(suggestion, host), .rejected)
+        XCTAssertNil(host.state.table[b2])
+    }
+
+    /// **An answer after the fold is said, its typed reason with it** (fix round M4).
+    func test_anAnswerAfterTheFoldIsSaidWithItsReason() async throws {
+        let (store, c, host) = try await openGrid()
+        let id = try await comment(on: key(host, "A2"), store: store, host: host)
+        await landed(c)
+        c.didFold()
+        let said = await notices {
+            c.stripReject(id, reason: "Wrong year")
+            await landed(c)
+        }
+        XCTAssertEqual(said, [FigureGridController.foldedBeforeTheAnswer(reason: "Wrong year")])
+        XCTAssertTrue(said.first?.contains("Wrong year") == true, "the typed reason is never lost silently")
+        XCTAssertEqual(status(id, host), .open)
+    }
 
     /// **Got it resolves a comment** (status only, no cell); ⌘Z reopens it.
     func test_gotItResolvesAComment_andTheGridsUndoReopensIt() async throws {
@@ -436,5 +515,36 @@ final class FigureGridStripInPlaceTests: FigureGridMountedTestCase {
                        [.init(verb: .accept, isEnabled: true), .init(verb: .reject, isEnabled: true)],
                        "Edit Anyway brings the buttons back")
         XCTAssertNil(c.stripPlan.reason)
+    }
+
+    /// **An editable grid whose posture refuses `.acceptOrReject`** shows the
+    /// buttons disabled with the reason. With today's permit table this pair
+    /// does not arise from a posture alone (every refusal of the answer also
+    /// refuses the cell), so the grid's gate is set editable by hand over a
+    /// posture that refuses both.
+    func test_anEditableGridWhosePostureRefusesAnswersDisablesTheButtonsWithTheReason() async throws {
+        let m = try await mount(rows: 4)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let chapter = try XCTUnwrap(m.store.manifest.structure.first?.id)
+        let host = try await ds.openFigure(figureId: try XCTUnwrap(m.figure?.id))
+        let b2 = CellKey(row: host.state.table.rows[1], column: host.state.table.columns[1])
+        let id = try await suggest(Cell(content: .value(.number(42))), at: b2, on: m, host: host)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await ds.admit(device: sam.author.fingerprint, label: "Sam", ownName: "Sam\u{2019}s Mac",
+                               permit: .author(.pieces([chapter])))
+        await ds.postureSettled()
+        let c = try await expanded(m)
+        await c.hostSync?.value
+        XCTAssertFalse(c.notesMayBeAnswered, "premise: the posture refuses the answer")
+
+        c.setAccess(.editable, captionMayEdit: true)
+        c.handle(.click(b2, extend: false))
+        XCTAssertEqual(c.stripPlan.entries.map(\.noteId), [id])
+        XCTAssertEqual(c.stripPlan.entries.first?.actions,
+                       [.init(verb: .accept, isEnabled: false), .init(verb: .reject, isEnabled: false)])
+        XCTAssertEqual(c.stripPlan.reason, FigureGridStrip.Plan.notPermitted)
+        XCTAssertFalse(c.strip.acceptButton.isHidden)
+        XCTAssertFalse(c.strip.acceptButton.isEnabled)
+        XCTAssertEqual(c.strip.reasonLabel.stringValue, FigureGridStrip.Plan.notPermitted)
     }
 }

@@ -13170,17 +13170,19 @@ final class TripwireGrepTests: XCTestCase {
         // The figure inspector's Refresh (report plan 8a Task 7) is this
         // file's `refreshPinsFromResearch`: the grid open on the figure re-reads
         // its pins through the host's door, one step on its own `gridUndo`.
-        // The suggestion strip's Accept (report plan 9c-2 Task 6) is this
-        // file's `stripAccept`: one call, re-entered with `confirmChanged`
-        // after the changed-since question, behind the host's `.editFigure`
-        // and `.acceptOrReject` doors, on `gridUndo`. (Got it and Reject are
-        // dispositions, no cell moves: classified in `guardedDocumentMutators`.)
         "FigureGridController.swift": [
             "setCell(": 1, "setCells(": 1, "insertRow(": 1, "insertColumn(": 1,
             "setHeaderRows(": 1, "setTotalRow(": 1, "setColumnWidth(": 1, "renameFigure(": 1,
             "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1, "sendToResearch(": 1,
-            "refreshPins(": 1, "acceptSuggestion(": 1,
+            "refreshPins(": 1,
         ],
+        // The suggestion strip's Accept (report plan 9c-2 Task 6), the grid
+        // controller's strip extension: one call (`enqueueAccept`), asked
+        // again with `confirmChanged` after the changed-since question, behind
+        // the host's `.editFigure` and `.acceptOrReject` doors, on `gridUndo`.
+        // (Got it and Reject are dispositions, no cell moves: classified in
+        // `guardedDocumentMutators`.)
+        "FigureGridController+Strip.swift": ["acceptSuggestion(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
         // state, through an op it never appends; what it yields is appended
