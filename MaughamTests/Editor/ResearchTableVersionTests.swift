@@ -411,6 +411,185 @@ final class ResearchTableVersionTests: XCTestCase {
         await store.releaseResearchTable(host)
     }
 
+    // MARK: - Fix round 1
+
+    /// **M1 — a retry over the same bytes keeps no second version and no
+    /// second backup**, however long after (here past the run's ten minutes),
+    /// and the writer is told the outside version was kept only once the
+    /// save lands.
+    func test_aRetryOverTheSameOutsideBytesKeepsNoSecondVersionOrBackup() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let clock = Clock()
+        let host = try await open(item, store, clock: clock)
+        let outside = "Year,Revenue\n2025,40\n"
+        try Data(outside.utf8).write(to: file(try XCTUnwrap(item.path)))
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder)
+
+        try await writerSaves(12, host)
+        clock.advance(minutes: 11)
+        await host.flush()
+
+        func backups() throws -> [String] {
+            try FileManager.default.contentsOfDirectory(atPath: file(".maugham/conflicts").path)
+                .filter { $0.contains(item.id) }
+        }
+        XCTAssertEqual(versions(of: item).count, 1, "two failed saves over the same bytes keep one")
+        XCTAssertEqual(try backups().count, 1)
+        XCTAssertFalse(heard.notices.contains { $0.contains("yours was saved") }, "nothing claims a save: \(heard.notices)")
+
+        try unlock(folder)
+        await host.flush()
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "12"]])
+        let kept = versions(of: item)
+        XCTAssertEqual(kept.count, 1, "\(kept)")
+        XCTAssertEqual(try ResearchVersionStore(projectURL: projectURL).read(kept[0]).0, Data(outside.utf8))
+        XCTAssertEqual(try backups().count, 1)
+        let told = heard.notices.filter { $0.contains("yours was saved") }
+        XCTAssertEqual(told.count, 1, "\(heard.notices)")
+        XCTAssertTrue(told[0].contains(try XCTUnwrap(try backups().first)), "it names the backup")
+        await store.releaseResearchTable(host)
+    }
+
+    /// M1 — an assistant write retried after a failed save keeps one version.
+    func test_aRetriedAssistantWriteKeepsOneVersion() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let host = try await open(item, store, clock: Clock())
+        try lock(file(try XCTUnwrap(item.path)).deletingLastPathComponent())
+        for _ in 1...2 {
+            do {
+                try await host.assistantEdit { table in
+                    table.setCell(Cell(content: .value(.number(99))), at: CellKey(row: table.rows[1], column: table.columns[1]))
+                }
+                XCTFail("the write should not have been made")
+            } catch is ResearchTableHost.NotSaved {}
+        }
+        XCTAssertEqual(versions(of: item).count, 1)
+        await store.releaseResearchTable(host)
+    }
+
+    /// **M2 — a failed assistant write takes back only its own cells**: the
+    /// writer's typing meanwhile stays; an added row the writer left empty
+    /// goes, one the writer typed in stays without the assistant's cells.
+    func test_theAssistantsRevertTakesBackOnlyItsOwnCells() throws {
+        var prior = FigureTable(rows: 2, columns: 3)
+        let b2 = CellKey(row: prior.rows[1], column: prior.columns[1])
+        let c2 = CellKey(row: prior.rows[1], column: prior.columns[2])
+        let a2 = CellKey(row: prior.rows[1], column: prior.columns[0])
+        prior.setCell(number(10), at: b2)
+        prior.setCell(number(1), at: c2)
+
+        var next = prior
+        next.setCell(number(99), at: b2)                     // the assistant's cell
+        next.setCell(number(98), at: a2)                     // and another, overwritten below
+        let empty = next.insertRow(after: next.rows[1])      // a row left empty by the writer
+        next.setCell(number(5), at: CellKey(row: empty, column: next.columns[0]))
+        let typed = next.insertRow(after: empty)             // a row the writer types in
+        next.setCell(number(6), at: CellKey(row: typed, column: next.columns[0]))
+        next.headerRows = 1
+
+        XCTAssertEqual(ResearchAssistantRevert.reverted(next, prior: prior, next: next), prior,
+                       "nothing typed since: exactly as it was")
+
+        var current = next
+        current.setCell(number(2), at: c2)                                               // the writer elsewhere
+        current.setCell(number(7), at: a2)                                               // over the assistant's cell
+        current.setCell(number(8), at: CellKey(row: typed, column: current.columns[1]))  // in the added row
+        let back = try XCTUnwrap(ResearchAssistantRevert.reverted(current, prior: prior, next: next))
+
+        XCTAssertEqual(back[b2], number(10), "the assistant's cell goes back")
+        XCTAssertEqual(back[c2], number(2), "the writer's typing stays")
+        XCTAssertEqual(back[a2], number(7), "a cell the writer typed over stays the writer's")
+        XCTAssertNil(back.rowIndex(of: empty), "the empty added row goes")
+        XCTAssertNotNil(back.rowIndex(of: typed), "the row the writer typed in stays")
+        XCTAssertNil(back[CellKey(row: typed, column: back.columns[0])], "without the assistant's cell")
+        XCTAssertEqual(back[CellKey(row: typed, column: back.columns[1])], number(8))
+        XCTAssertEqual(back.headerRows, 0)
+
+        var moved = prior
+        moved.moveRow(prior.rows[1], after: nil)
+        XCTAssertNil(ResearchAssistantRevert.reverted(moved, prior: prior, next: moved), "a reorder is not taken back")
+        var deleted = prior
+        deleted.deleteRow(prior.rows[1])
+        XCTAssertNil(ResearchAssistantRevert.reverted(deleted, prior: prior, next: deleted), "nor a delete")
+    }
+
+    /// **M3 — a file that is there but will not read is not written over**:
+    /// its previous version cannot be kept, so the save refuses and says so.
+    func test_aFileThatWillNotReadIsNotSavedOver() async throws {
+        let (store, projectStore) = try await openBook()
+        let original = "Year,Revenue\n2025,10\n"
+        let item = try await researchTable(original, in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let path = file(try XCTUnwrap(item.path))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: path.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path) }
+
+        try await writerSaves(11, host)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path)
+        XCTAssertEqual(try bytes(of: item), Data(original.utf8), "not saved over")
+        XCTAssertTrue(host.isDirty)
+        XCTAssertEqual(versions(of: item).count, 0)
+        XCTAssertTrue(heard.notices.contains(
+            "Maugham couldn’t read “model” to keep its previous version, so your edits weren’t saved over it."),
+            "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **M4 — the writer's ⌘Z after an assistant write is declined**: a step
+    /// never takes back what it did not make.
+    func test_theWritersUndoAfterAnAssistantWriteIsDeclined() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let um = UndoManager()
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        try await host.setCell(number(11), at: key(host, 2, 2), undoManager: um)
+        um.endUndoGrouping()
+        await host.flush()
+        try await host.assistantEdit { table in
+            table.setCell(Cell(content: .value(.number(99))), at: CellKey(row: table.rows[1], column: table.columns[1]))
+        }
+
+        XCTAssertTrue(um.canUndo)
+        um.undo()
+        await host.flush()
+
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(99)), "the assistant's write stays")
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "99"]])
+        XCTAssertTrue(heard.notices.contains("Couldn’t undo “Edit Cell”: the table has changed since."), "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// M5 — a refused assistant save speaks of the assistant's change, not the writer's edits.
+    func test_aRefusedAssistantSaveSpeaksOfTheAssistantsChange() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        try FileManager.default.createDirectory(at: file(".maugham"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: file(ResearchVersionStore.folder))
+
+        do {
+            try await host.assistantEdit { table in
+                table.setCell(Cell(content: .value(.number(99))), at: CellKey(row: table.rows[1], column: table.columns[1]))
+            }
+            XCTFail("the write should not have been made")
+        } catch is ResearchTableHost.NotSaved {}
+
+        XCTAssertTrue(heard.notices.contains(
+            "“model”’s previous version couldn’t be kept, so the assistant’s change wasn’t saved over it."),
+            "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
     // MARK: - The rule
 
     func test_theRunRule() {

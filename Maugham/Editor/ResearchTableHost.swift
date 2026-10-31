@@ -366,8 +366,10 @@ final class ResearchTableHost: FigureGridHost {
     /// writer's own save, so the two never share one; then `body` changes the
     /// table and it is written at once — keeping the version before it. It
     /// registers no ⌘Z on the grid: its undo is the version list. Refuses as
-    /// every edit does; throws `NotSaved` when the save did not land, the
-    /// table put back as it was unless the writer has edited since.
+    /// every edit does. When the save does not land it throws `NotSaved`
+    /// with the assistant's cells put back and anything the writer typed
+    /// meanwhile kept, to be saved as the writer's (`ResearchAssistantRevert`);
+    /// a change that cannot be taken back cell by cell stays and says so.
     func assistantEdit(_ body: (inout FigureTable) throws -> Void) async throws {
         if isClosed { throw Refused(reason: .closed) }
         if let refusal { throw Refused(reason: refusal) }
@@ -396,15 +398,32 @@ final class ResearchTableHost: FigureGridHost {
         }
         saving = Task { _ = await write.value }
         guard await write.value else {
-            // Not made: put back, unless the writer has typed over it since
-            // (then it goes with the writer's next save).
-            if state.table == next {
-                state.table = prior
-                isDirty = false
+            guard let back = ResearchAssistantRevert.reverted(state.table, prior: prior, next: next) else {
+                throw NotSaved(message: "The table’s change couldn’t be saved. It is still in the table and "
+                    + "will be saved with the writer’s next edit, so don’t send it again.")
             }
+            // What is left is the writer's own typing (if any): its save is the writer's.
+            isDirty = state.table != next
+            state.table = back
             throw NotSaved(message: "The table’s change couldn’t be saved, so it wasn’t made.")
         }
     }
+
+    /// The words for whose change a refused save did not write.
+    private static func whose(_ writer: ResearchWriter) -> String {
+        switch writer {
+        case .writer: return "your edits weren’t"
+        case .assistant: return "the assistant’s change wasn’t"
+        }
+    }
+
+    /// An outside version kept as a conflict backup by a save that has not
+    /// landed yet: a retry over the same bytes keeps no second, and the
+    /// writer is told once the save lands.
+    @ObservationIgnored private var pendingOutsideBackup: (hash: String, file: URL)?
+    /// The hash of the bytes this host last kept as a version: a keep of the
+    /// same bytes again (a retry after a failed save) keeps nothing.
+    @ObservationIgnored private var lastKeptHash: String?
 
     /// **The one door: the version kept, the file, then its sidecar, then
     /// the cards** — what one save writes, `writer` its author. True when the
@@ -426,20 +445,30 @@ final class ResearchTableHost: FigureGridHost {
                 "“\(item.title)” isn’t there any more, so its edits weren’t saved.", projectURL: projectURL)
             return false
         }
-        let onDisk = await bytesOnDisk(at: path)
-        let overOwnBytes = onDisk.map { ContentHash.of($0) == diskHash } ?? true
-        if !overOwnBytes, let onDisk {
-            guard keepTheOutsideVersion(onDisk, of: item, at: path) else {
+        // A file that is there but will not read cannot be kept: nothing is written over it.
+        guard let onDisk = await bytesOnDisk(at: path) else {
+            isDirty = true
+            MaughamEvent.postNotice(
+                "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer)) saved over it.",
+                projectURL: projectURL)
+            return false
+        }
+        let onDiskHash = ContentHash.of(onDisk)
+        let overOwnBytes = onDiskHash == diskHash
+        if !overOwnBytes, pendingOutsideBackup?.hash != onDiskHash {
+            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer) else {
                 isDirty = true   // the next edit, or the close, tries again
                 return false
             }
+            pendingOutsideBackup = (onDiskHash, backup)
         }
         let at = now()
-        if let onDisk, run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes) {
-            guard await keepThePriorVersion(onDisk, of: item, at: at) else {
+        if run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
+            guard await keepThePriorVersion(onDisk, of: item, at: at, by: writer) else {
                 isDirty = true
                 return false
             }
+            lastKeptHash = onDiskHash
         }
         // Counted once the version is kept, saved or not: a retry after a
         // failed save is still the run whose start is kept.
@@ -459,6 +488,16 @@ final class ResearchTableHost: FigureGridHost {
             return false
         }
         diskHash = ContentHash.of(Data(text.utf8))
+        if let backup = pendingOutsideBackup {
+            pendingOutsideBackup = nil
+            let (when, saved) = writer == .writer
+                ? (" while you were editing it", "yours was saved")
+                : ("", "the assistant’s change was saved")
+            MaughamEvent.postNotice(
+                "“\(item.title)” changed outside Maugham\(when). That version is kept in "
+                    + ".maugham/conflicts/\(backup.file.lastPathComponent); \(saved).",
+                projectURL: projectURL)
+        }
         var next = ResearchTableSidecar(
             figureId: "", contentHash: diskHash, name: "",
             caption: sidecar?.caption, table: table, formulaNames: names.cited(by: table))
@@ -498,7 +537,8 @@ final class ResearchTableHost: FigureGridHost {
     /// author when that sidecar was written for these bytes; then this
     /// device's versions past the retention are pruned. False — write nothing
     /// — when the version could not be kept, and said.
-    private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date) async -> Bool {
+    private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date,
+                                     by writer: ResearchWriter) async -> Bool {
         let held = sidecar
         let itemId = itemId
         let versions = ResearchVersionStore(projectURL: projectURL)
@@ -520,32 +560,28 @@ final class ResearchTableHost: FigureGridHost {
         researchTableLog.error(
             "\(item.title, privacy: .public)'s previous version was not kept: \(kept.localizedDescription, privacy: .public)")
         MaughamEvent.postNotice(
-            "“\(item.title)”’s previous version couldn’t be kept, so your edits weren’t saved over it.",
+            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer)) saved over it.",
             projectURL: projectURL)
         return false
     }
 
     /// **The file changed outside since it was read or written here**: its
-    /// bytes are kept as a conflict backup and the writer told, before the
-    /// grid's version replaces them. False — write nothing — when they could
-    /// not be kept.
-    private func keepTheOutsideVersion(_ outside: Data, of item: ResearchItem, at path: String) -> Bool {
-        guard let file = try? store?.resolvedProjectPath(path) else { return true }
+    /// bytes are kept as a conflict backup before the save replaces them (the
+    /// writer is told once the save lands). Nil — write nothing — when they
+    /// could not be kept, and said.
+    private func keepTheOutsideVersion(_ outside: Data, of item: ResearchItem, at path: String,
+                                       by writer: ResearchWriter) -> URL? {
+        guard let file = try? store?.resolvedProjectPath(path) else { return nil }
         let text = ProjectStore.decodeResearchTable(outside) ?? String(decoding: outside, as: UTF8.self)
         do {
-            let backup = try Document.writeConflictBackup(forFileAt: file, docId: itemId, text: text, kind: "outside")
-            MaughamEvent.postNotice(
-                "“\(item.title)” changed outside Maugham while you were editing it. That version is kept in "
-                    + ".maugham/conflicts/\(backup.lastPathComponent); yours was saved.",
-                projectURL: projectURL)
-            return true
+            return try Document.writeConflictBackup(forFileAt: file, docId: itemId, text: text, kind: "outside")
         } catch {
             researchTableLog.error(
                 "\(path, privacy: .public)'s outside version was not kept: \(error.localizedDescription, privacy: .public)")
             MaughamEvent.postNotice(
-                "“\(item.title)” changed outside Maugham, and that version couldn’t be kept, so your edits weren’t saved over it.",
+                "“\(item.title)” changed outside Maugham, and that version couldn’t be kept, so \(Self.whose(writer)) saved over it.",
                 projectURL: projectURL)
-            return false
+            return nil
         }
     }
 
@@ -782,4 +818,49 @@ struct ResearchSaveRun: Equatable {
 
     /// What is on disk is no longer this run's (a reload).
     mutating func end() { lastWriterSave = nil }
+}
+
+/// **An assistant's change taken back cell by cell** when its save did not
+/// land (`ResearchTableHost.assistantEdit`): every cell, setting and width
+/// it changed from `prior` to `next` that `current` still holds as `next`
+/// left it goes back to `prior`'s, and a row or column it added goes unless
+/// the writer has typed in it since. What the writer changed meanwhile stays.
+/// Nil when the change deleted or reordered rows or columns — nothing here
+/// puts those back (the assistant's writes add, never delete or move).
+enum ResearchAssistantRevert {
+    static func reverted(_ current: FigureTable, prior: FigureTable, next: FigureTable) -> FigureTable? {
+        let priorRows = Set(prior.rows), priorColumns = Set(prior.columns)
+        guard priorRows.isSubset(of: Set(next.rows)), priorColumns.isSubset(of: Set(next.columns)),
+              next.rows.filter(priorRows.contains) == prior.rows,
+              next.columns.filter(priorColumns.contains) == prior.columns else { return nil }
+        if current == next { return prior }   // nothing typed since: exactly as it was
+        var table = current
+        let addedRows = next.rows.filter { !priorRows.contains($0) }
+        let addedColumns = next.columns.filter { !priorColumns.contains($0) }
+        // A cell the assistant set that the writer has not touched since goes back.
+        for row in next.rows {
+            for column in next.columns {
+                let key = CellKey(row: row, column: column)
+                guard next[key] != prior[key], table.rowIndex(of: row) != nil,
+                      table.columnIndex(of: column) != nil, table[key] == next[key] else { continue }
+                table.setCell(priorRows.contains(row) && priorColumns.contains(column) ? prior[key] : nil, at: key)
+            }
+        }
+        // An added row or column the writer left empty goes.
+        for row in addedRows where table.rowIndex(of: row) != nil
+            && table.columns.allSatisfy({ table[CellKey(row: row, column: $0)] == nil }) {
+            table.deleteRow(row)
+        }
+        for column in addedColumns where table.columnIndex(of: column) != nil
+            && table.rows.allSatisfy({ table[CellKey(row: $0, column: column)] == nil }) {
+            table.deleteColumn(column)
+        }
+        if table.headerRows == next.headerRows { table.headerRows = prior.headerRows }
+        if table.hasTotalRow == next.hasTotalRow { table.hasTotalRow = prior.hasTotalRow }
+        for column in Set(prior.columns).union(next.columns)
+            where table.columnIndex(of: column) != nil && table.columnWidths[column] == next.columnWidths[column] {
+            table.columnWidths[column] = prior.columnWidths[column]
+        }
+        return table
+    }
 }
