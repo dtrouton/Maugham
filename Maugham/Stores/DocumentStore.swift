@@ -2217,7 +2217,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot, .exports,
-             .researchTable, .unknownSidecar, .outsideProject:
+             .researchTable, .researchVersion, .unknownSidecar, .outsideProject:
             // No presenter routing today. Each case has a named owner in
             // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"
             // rather than "extend a string cascade".

@@ -118,6 +118,13 @@ internal enum MaughamSidecarPath: Equatable {
     /// `ResearchTableSidecar.folder` and never spelled here.
     case researchTable(relativePath: String)
 
+    /// A kept version of a Research table (`ResearchVersionStore`,
+    /// `.maugham/research-versions/<item id>/`, report plan 9d): the bytes a
+    /// save replaced, write-once per device. Routing intent: ignore — the
+    /// version list is read when the inspector shows it. The folder is asked
+    /// of `ResearchVersionStore.folder` and never spelled here.
+    case researchVersion(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
@@ -261,6 +268,10 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath.hasPrefix(ResearchTableSidecar.folder + "/") {
             return .researchTable(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(ResearchVersionStore.folder + "/") {
+            return .researchVersion(relativePath: relativePath)
         }
 
         if relativePath.hasPrefix(".maugham/inbox/") {
