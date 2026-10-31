@@ -51,8 +51,14 @@ translation stays an orphan and **Remove** is how it goes.
 
 A table's text cells (its row and column labels, anything you typed as words)
 translate per language like paragraphs do; numbers, dates and formulas are the
-same in every language. Claude writes them with the same tool, addressing each
-cell by its spreadsheet name (`B3`). The Translation pane lists the table under
+same in every language. Claude can write them over MCP with the same tool,
+addressing each cell by its spreadsheet name (`B3`), and the in-app translator
+does too: a round on a chapter also translates the missing or stale text labels
+of the tables that chapter uses (a table two chapters share is done once; a
+parked table is skipped; a round with only labels to do still runs). The round
+report and the desk's report line count the labels written and refused, and the
+run's word estimate includes them. A label you edit during the round lands out
+of date, and a row deleted during the round is reported. The Translation pane lists the table under
 the caret with each text cell's status, and an orphaned translation (its row or
 column was deleted, or the cell became a number) has a **Remove** button. In
 translation review the table's card shows the translated labels. The table's
