@@ -31,6 +31,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `DocumentTools.swift` — `read_document`, `search_text`; `ReadDocumentTool` is the model for a polymorphic image-or-text response with crop-on-demand, and is tripwire 54's one allow-listed tool (`read_document.mode`'s wire value); no other tool spells a `"fountain"` literal.
 - `ReferenceTools.swift` — `list_scenes`, `find_references`, `get_session_stats`.
 - `ListDocumentsByTagTool.swift` — `list_documents_by_tag`.
+- `FigureTools.swift` — `list_figures`.
 - `AddNoteTool.swift` — `add_note`. `ListResearchTool.swift` — `list_research`. `ResearchLinkTools.swift` — `link_research`, `unlink_research`. `ListAllLinksTool.swift` — `list_all_links`. `MoveResearchItemTool.swift` — `move_research_item`. `UpdateResearchCitationTool.swift` — `update_research_citation` and `ResearchCitationWire`.
 - `CraftIntentTools.swift`, `VisualLanguageTools.swift`, `EditionBriefTools.swift`, `LessonsTools.swift`, `FirstReaderTools.swift` — the five statement readers (`read_craft_intent`, `read_visual_language`, `read_edition_brief`, `read_lessons`, `read_first_reader`). Tripwire 20.
 - `StatementProposalTools.swift` — `propose_edition_brief`, `propose_visual_language`.
@@ -52,7 +53,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `Maugham/Help/SkillIndex.swift` — loads the bundled skills (mirrors `HelpTopicIndex`; lives in `Help/` because `get_help` also serves it).
 - `Maugham/Views/HelpClaudeDesktopSheet.swift` — the "Set up Claude Desktop…" flow and its Claude Code section; `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift` — the "Allow Claude to connect (MCP)" toggle.
 
-## Tool catalogue (61)
+## Tool catalogue (62)
 
 The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading against it. Contracts beyond one line are under Rules → Tool contracts.
 
@@ -72,6 +73,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - `search_text` — full-text search across a project's manuscript documents.
 - `find_references` — wiki-link back-references to a document, research item or statement.
 - `list_documents_by_tag` — binder documents by tag.
+- `list_figures` — the book's figures: number, caption, status (`used`/`unused`/`in_research`), used-in lines, pins and `changed`; read-only.
 
 **Research / links**
 - `add_note` — a new research note under `research/` (a write tool).
@@ -186,6 +188,9 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **`move_research_item` takes exactly one of `target: "shared"`, `target_group_id`, `target_document_id`**, and wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`; read its header before touching the validation).
 - **`update_research_citation` goes through `ProjectStore.updateCitation`, the research inspector's own door**: `citation` replaces the whole set, `null` removes it, an omitted `citation` is refused, `accessed` is a UTC `YYYY-MM-DD` day, and the door's refusals (`CitationEditError`) are `invalid_argument` in the writer's words.
 - **A cross-scope move leaves explicit links (`linkedResearchIds`) untouched**: association is containment-based. A manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out and no link is minted.
+
+**Figures**
+- **`list_figures` lists a figure parked in Research as `status: "in_research"`** (the tree hides it; the tool is not the tree): rows come from `FigureListingSource`, pins and `changed` from `ProjectStore.publishFigures()`, and `reads_research` is a non-empty `pinStatus`. `changed` is the card's rule (a `source_changed` pin, or the figure's own Research source moved). It writes nothing.
 
 **Statements and the palette**
 - **Every statement reader looks its statement up through `StatementLookup` and derives through `ProjectStore.statementText(of:)`** (the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache`), so no two readers disagree about which text is real. Absence is `exists: false` (with empty `markdown`), never an error, and a read mints nothing.
