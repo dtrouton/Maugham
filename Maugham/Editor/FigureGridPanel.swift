@@ -85,6 +85,9 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
 
     private let bars: FigureGridBars
     let gridView: FigureGridView
+    /// The strip's view (the controller's `strip`); nil for a grid that never
+    /// shows one (a Research table's).
+    private let stripView: NSView?
 
     /// **The strip's part is carved** (report plan 9c-2): in place it
     /// follows the expansion's strip flag, which moves only at a card-version
@@ -97,7 +100,8 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
     /// grid keeps its height across the change. Setting the flag against the
     /// old frame first would size the grid a strip too tall (or short) for a
     /// moment, and the grid clamps its scroll to whatever size it is given.
-    func place(frame newFrame: CGRect, showsStrip strip: Bool) {
+    func place(frame newFrame: CGRect, showsStrip wanted: Bool) {
+        let strip = wanted && stripView != nil
         let flagMoved = strip != showsStrip
         showsStrip = strip
         if frame.size != newFrame.size {
@@ -108,15 +112,16 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
         }
     }
 
-    init(bars: FigureGridBars, gridView: FigureGridView, strip: Bool) {
+    init(bars: FigureGridBars, gridView: FigureGridView, stripView: NSView? = nil, strip: Bool) {
         self.bars = bars
         self.gridView = gridView
-        self.showsStrip = strip
+        self.stripView = stripView
+        self.showsStrip = strip && stripView != nil
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 4
         layer?.borderWidth = 1
-        for view in [bars.toolbar, bars.formulaBar, gridView, bars.bottomBar] as [NSView] {
+        for view in [bars.toolbar, bars.formulaBar, stripView, gridView, bars.bottomBar].compactMap({ $0 }) as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
@@ -183,6 +188,8 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
         let parts = Self.parts(in: bounds.size, strip: showsStrip)
         bars.toolbar.frame = parts.toolbar
         bars.formulaBar.frame = parts.formulaBar
+        stripView?.frame = parts.strip ?? .zero
+        stripView?.isHidden = parts.strip == nil
         gridView.frame = parts.grid
         bars.bottomBar.frame = parts.bottomBar
     }

@@ -274,4 +274,38 @@ final class FigureGridCellNotesTests: XCTestCase {
         XCTAssertEqual(host.openCellNotesRebuildCount, rebuilds, "nothing re-derived the notes")
         XCTAssertTrue(c.figureGridIsMarked(key(host, "B2")))
     }
+
+    // MARK: - The strip's content (report plan 9c-2 Task 5)
+
+    /// **The strip follows the active cell from the cached notes**: a cell
+    /// with a note shows it with Got it and Reject, another cell the empty
+    /// line; the figure's first live note and its last answer are told to the
+    /// frame (a window's panel carves the strip's room on them).
+    func test_theStripShowsTheActiveCellsNotes_andItsPresenceIsTold() async throws {
+        let (store, c, host) = try await openGrid()
+        var told: [Bool] = []
+        c.onStripPresenceChange = { told.append($0) }
+        XCTAssertTrue(c.notesMayBeAnswered, "premise: the author may answer")
+        let note = try comment(on: key(host, "B2"), figureId: host.figureId)
+        try await store.addFigureAnnotation(note)
+        await caughtUp(c)
+        XCTAssertEqual(told, [true], "the first live note")
+
+        c.handle(.click(key(host, "B2"), extend: false))
+        XCTAssertEqual(c.stripPlan.entries.map(\.noteId), [note.opId])
+        XCTAssertEqual(c.strip.headingLabel.stringValue, "Comment \u{00B7} B2")
+        XCTAssertEqual(c.strip.bodyLabel.stringValue, "Check this")
+        XCTAssertFalse(c.strip.gotItButton.isHidden)
+        XCTAssertTrue(c.strip.gotItButton.isEnabled)
+        XCTAssertFalse(c.strip.rejectButton.isHidden)
+        XCTAssertTrue(c.strip.acceptButton.isHidden, "a comment has no Accept")
+
+        c.handle(.arrow(.down, extend: false))
+        XCTAssertEqual(c.stripPlan, .empty)
+        XCTAssertEqual(c.strip.bodyLabel.stringValue, FigureGridStrip.Plan.noNotes)
+
+        try await host.rejectAnnotation(id: note.opId)
+        await caughtUp(c)
+        XCTAssertEqual(told, [true, false], "the last answer gives the room back")
+    }
 }

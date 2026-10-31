@@ -604,7 +604,14 @@ final class FigureWindowGrid {
         }
         refreshAccess()
         watchTheBook()
-        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView, strip: false)
+        // The strip's room follows the visit's own notes (no text around it
+        // to re-lay out): carved while the figure has an open live cell note.
+        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView,
+                                    stripView: controller.strip, strip: controller.cellNotes.hasLive)
+        controller.onStripPresenceChange = { [weak panel] shows in
+            guard let panel else { return }
+            panel.place(frame: panel.frame, showsStrip: shows)
+        }
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()

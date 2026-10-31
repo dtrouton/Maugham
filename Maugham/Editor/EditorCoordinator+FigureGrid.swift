@@ -529,7 +529,7 @@ extension EditorCoordinator {
             relayoutFigureGridLine()
         }
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView,
-                                    strip: expansion.reservesStrip)
+                                    stripView: controller.strip, strip: expansion.reservesStrip)
         expansion.panel = panel
         textView.addSubview(panel, positioned: .above, relativeTo: expansion.dim)
         panel.skipTheTextInTheResponderChain()   // no text action reaches the text (I-N1)

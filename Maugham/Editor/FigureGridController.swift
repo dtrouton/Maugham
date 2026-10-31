@@ -60,7 +60,8 @@ import MaughamCore
 ///   (`FigureGridImport`, R7d-8) and writes it through `applyChanges` as one
 ///   ⌘Z. A read-only grid answers each with the reason line.
 @MainActor
-final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
+final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate,
+                                  FigureGridStripViewDelegate {
 
     /// What the bottom bar shows of the figure line, and how its caption is written.
     struct Line {
@@ -75,6 +76,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     let host: any FigureGridHost
     let gridView: FigureGridView
     let bars = FigureGridBars()
+    /// **The suggestion strip** (report plan 9c-2 Task 5): the open notes on
+    /// the active cell, refreshed with the bars from the cached `cellNotes`.
+    let strip = FigureGridStripView()
     var figureId: String { host.figureId }
 
     private let values: FigureGridValues
@@ -83,6 +87,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// dots and the strip read this, a dictionary lookup per cell — never
     /// the host's projection per draw or per selection.
     private(set) var cellNotes: FigureCellNotes
+    /// What the strip shows for the active cell, as last refreshed.
+    private(set) var stripPlan = FigureGridStrip.Plan.empty
+    /// The strip's page among the active cell's notes; back to the first
+    /// when the active cell changes.
+    private(set) var stripPage = 0
+    /// The active cell the strip's page belongs to.
+    private var stripCell: CellKey?
+    /// **The figure's posture allows `.acceptOrReject`** — the strip's
+    /// buttons — kept from the window's door, which the controller observes
+    /// (`observeTheDoor`); never asked per selection.
+    private(set) var notesMayBeAnswered: Bool
+    /// Told when the figure gains its first open live cell note or loses its
+    /// last (a window's or the centre's panel carves the strip's room; in
+    /// place the room follows the card instead).
+    var onStripPresenceChange: ((Bool) -> Void)?
     private weak var store: DocumentStore?
     private weak var projectStore: ProjectStore?
     private var names: FormulaNames
@@ -208,6 +227,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         self.name = name ?? recordName ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
         cellNotes = host.openCellNotes
+        notesMayBeAnswered = host.asksTheFigureDoor
+            && store.posture(forDocId: host.figureId).allows(.acceptOrReject)
         gridView = FigureGridView(typography: typography)
         // A placeholder first, so the real model's closure may capture `self`.
         model = FigureGridModel(table: host.state.table, editText: { _ in "" })
@@ -215,6 +236,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         gridView.dataSource = self
         gridView.delegate = self
         bars.delegate = self
+        strip.stripDelegate = self
         menuTarget.onCommand = { [weak self] in self?.performTableCommand($0) }
         bars.showLine(number: line.number, caption: line.caption, name: self.name)
         // The bottom bar's figure fields, only where the host offers them.
@@ -414,6 +436,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         bars.showReason(reason?.sentence)
         gridView.mayResizeColumns = reason == nil
         refreshMenuState()
+        refreshStrip()
     }
 
     /// A key on a read-only grid: one that only selects or scrolls is the
@@ -1415,18 +1438,29 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         guard !isClosed, host.asksTheFigureDoor, let store else { return }
         let figureId = figureId
         withObservationTracking {
-            _ = store.posture(forDocId: figureId).allows(.editFigure)
+            let posture = store.posture(forDocId: figureId)
+            _ = posture.allows(.editFigure)
+            _ = posture.allows(.acceptOrReject)   // the strip's buttons
         } onChange: { [weak self] in
             // The door is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
                 guard let self, !self.isClosed else { return }
                 self.postureChange = Task { @MainActor [weak self] in
                     guard let self, !self.isClosed else { return }
+                    self.askWhetherNotesMayBeAnswered()
                     self.onAccessMayHaveChanged?()
                     self.observeTheDoor()
                 }
             }
         }
+    }
+
+    /// The strip's buttons asked of the window's door again.
+    private func askWhetherNotesMayBeAnswered() {
+        let next = host.asksTheFigureDoor && (store?.posture(forDocId: figureId).allows(.acceptOrReject) ?? false)
+        guard next != notesMayBeAnswered else { return }
+        notesMayBeAnswered = next
+        refreshStrip()
     }
 
     /// A refusal as a notice; a sort's refusal says itself (`FigureSortRefused`).
@@ -1499,8 +1533,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let next = host.openCellNotes
         guard next != cellNotes else { return false }
         let changed = cellNotes.marked.symmetricDifference(next.marked)
+        let presenceMoved = next.hasLive != cellNotes.hasLive
         cellNotes = next
         gridView.repaint(.cells(changed))
+        if presenceMoved { onStripPresenceChange?(next.hasLive) }
         return true
     }
 
@@ -1515,6 +1551,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The bars follow the selection, the open edit and the table.
     private func refreshBars(force: Bool = false) {
         refreshMenuState()
+        refreshStrip()
         let table = values.table
         guard let selection = model.selection else {
             bars.showSelection(address: "", text: "")
@@ -1530,5 +1567,40 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let cell = table[selection.anchor]
         bars.showFormat(cell?.format.number ?? .general, alignment: cell?.alignment ?? .automatic,
                         header: table.headerRows > 0, total: table.hasTotalRow)
+    }
+
+    // MARK: The strip (report plan 9c-2 Tasks 5–6)
+
+    /// **The strip follows the active cell**: its notes looked up in the
+    /// cached `cellNotes` (a filter over the figure's few open live notes —
+    /// never the host's projection), its buttons from the gate's mode and
+    /// the kept posture. The page goes back to the first on another cell.
+    private func refreshStrip() {
+        let active = model.selection?.anchor
+        if active != stripCell {
+            stripCell = active
+            stripPage = 0
+        }
+        stripPlan = FigureGridStrip.Plan.make(
+            notes: cellNotes, active: active, table: values.table, names: names, locale: values.locale,
+            mayAccept: notesMayBeAnswered && mode.readOnlyReason == nil, mayReject: notesMayBeAnswered,
+            readOnly: mode.readOnlyReason)
+        stripPage = min(stripPage, max(0, stripPlan.entries.count - 1))
+        strip.show(stripPlan, page: stripPage)
+    }
+
+    /// The strip's ‹ or ›: the active cell's previous or next note.
+    func turnStripPage(by delta: Int) {
+        guard !stripPlan.entries.isEmpty else { return }
+        stripPage = min(max(stripPage + delta, 0), stripPlan.entries.count - 1)
+        strip.show(stripPlan, page: stripPage)
+    }
+
+    func stripView(_ view: FigureGridStripView, turnPage delta: Int) {
+        turnStripPage(by: delta)
+    }
+
+    func stripView(_ view: FigureGridStripView, perform verb: FigureGridStrip.Verb, noteId: String) {
+        // The strip's verbs (Task 6).
     }
 }

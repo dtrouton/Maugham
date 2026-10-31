@@ -107,6 +107,7 @@ final class ResearchTableMount {
         controller.onAccessMayHaveChanged = { [weak self] in self?.refreshAccess() }
         controller.onMenuStateChange = { [weak self] _ in self?.showPresence() }
         refreshAccess()
+        // A Research table carries no notes, so it never shows the strip.
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView, strip: false)
         self.panel = panel
         container.mount(panel)
