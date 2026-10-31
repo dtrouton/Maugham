@@ -729,6 +729,10 @@ final class AnnotationStetTests: XCTestCase {
             // spec §6 says a choice IS a stet plus a ruling, so no new
             // `Document` verb was minted for it.
             "QueueLedgerVerbs.swift",
+            // (report plan 9c-1 Task 5) `FigureDocument`'s own Stet on a
+            // FIGURE note — its definition and its ⇧⌘Z — behind
+            // `requireNoteDisposition(…, .dispose)`; not a caller of this verb.
+            "FigureDocument+Annotations.swift",
         ], "the stet caller census — update deliberately, never accidentally")
 
         XCTAssertEqual(callers(of: "triageAnnotation("), [

@@ -104,6 +104,10 @@ public struct FigureState: Equatable, Sendable {
 ///   bringing one figure back at once add its rows once. So is a resume
 ///   naming an earlier park than the current one (its `parkedItemId`): a
 ///   stale copy brought back after the figure was sent again folds nothing.
+/// - **An accepted suggestion writes its cell**: a `claudeAccept` carrying
+///   `Op.figure`, and the `claudeAcceptRevert` that undoes it, fold as the
+///   cell set their payload is (`FigureOpPayload.foldKind`), so the table
+///   and the note move in one op. A note's other lines fold as nothing.
 ///
 /// This is not the manuscript deriver, and never asks `Deriver.appliesToManuscript`
 /// (tripwire 44+1): a figure op is never manuscript text.
@@ -121,29 +125,32 @@ public enum FigureDeriver {
     /// Folds one op onto `state` — what `derive` does per op, for a host that
     /// applies its own appends without re-deriving.
     public static func fold(_ op: Op, into state: inout FigureState) {
-        guard FigureOpPayload.kinds.contains(op.kind) else {
+        // An accept (or its revert) carrying a cell folds as the cell set it
+        // writes (`FigureOpPayload.foldKind`); every other check below asks
+        // that kind.
+        guard let kind = FigureOpPayload.foldKind(op.kind, payload: op.figure) else {
             return state.diagnostics.append("\(op.opId): \(op.kind.rawValue) is not a figure op")
         }
-        guard let p = op.figure, FigureOpPayload.validate(kind: op.kind, payload: p) else {
+        guard let p = op.figure, FigureOpPayload.validate(kind: kind, payload: p) else {
             return state.diagnostics.append("\(op.opId): \(op.kind.rawValue) is missing what it needs")
         }
         func drop(_ why: String) { state.diagnostics.append("\(op.opId): \(why)") }
 
         // Parked folds nothing (ruling P-5) — asked before the wait for an
         // unseen id, so an op ordered while parked never waits to replay.
-        if state.parked != nil, isContent(op.kind) {
+        if state.parked != nil, isContent(kind) {
             return drop("\(op.kind.rawValue) while the figure is parked in Research, not applied")
         }
         if let resume = p.returnOf, state.abandonedReturns.contains(resume) {
             return drop("\(op.kind.rawValue) of a return whose resume was dropped, not applied")
         }
 
-        if namesAnUnseenID(op.kind, p, in: state.table) {
+        if namesAnUnseenID(kind, p, in: state.table) {
             state.held.append(op)
             return
         }
 
-        switch op.kind {
+        switch kind {
         case .figureCreate:
             guard state.kind == nil else {
                 return drop("a second figure_create, ignored")

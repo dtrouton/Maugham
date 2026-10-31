@@ -12672,6 +12672,7 @@ final class TripwireGrepTests: XCTestCase {
         "useInDocument(", "parkInResearch(", "sendToResearch(",
         "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
         "setCells(", "sortRows(", "applyChanges(", "retargetFigureLine(",
+        "acceptSuggestion(",
         figureOpMintSpelling,
     ]
 
@@ -12696,6 +12697,7 @@ final class TripwireGrepTests: XCTestCase {
         "setImage(", "renameImageFile(", "parkInResearch(", "resumeFromResearch(",
         "refreshPins(", "restoreToCheckpoint(",
         "setCells(", "sortRows(", "applyChanges(",
+        "acceptSuggestion(",
     ]
 
     /// `text` with every comment and string literal blanked to spaces, its
@@ -13180,9 +13182,18 @@ final class TripwireGrepTests: XCTestCase {
         // never folded as a cell write, and it reaches the stream through
         // `DocumentStore.addFigureAnnotation` (creation is the reviewer's row,
         // no figure door). `lifecycle`'s carries the cell an accept (or its
-        // revert) writes; that op is appended by the author's disposition
-        // verb on `FigureDocument`, behind the figure's door (Task 5).
+        // revert) writes; an accept is appended only by
+        // `FigureDocument.acceptSuggestion`, behind the figure's doors
+        // (`requireWritable`, then `requireNoteDisposition`), through
+        // `commitNoteOp` (Task 5).
         "FigureAnnotationOps.swift": [figureOpMintSpelling: 2],
+        // The author's answers to a figure note (report plan 9c-1 Task 5):
+        // an accept's redo re-enters `acceptSuggestion`, behind its own doors
+        // (`requireWritable`, then `requireNoteDisposition`), its drift guard
+        // asked first. The accept's line is `FigureAnnotationOps.accept`'s,
+        // appended through `FigureDocument.commitNoteOp`, and its ⌘Z is
+        // `appendCompensation`'s — neither is a new mint.
+        "FigureDocument+Annotations.swift": ["acceptSuggestion(": 1],
         // The figure actions the tree's row menu and the figure inspector
         // share (report plan 8a Tasks 4 and 7, `FigureActions`): Send to
         // Research and Rename are offered only where the posture allows
@@ -13285,7 +13296,15 @@ final class TripwireGrepTests: XCTestCase {
         "handleExternalLogChange": "a read — another device's lines, judged by the partition",
         "acceptAnnotation": "a disposition — requireDispositionPermitted, and a suggestion's text asks the host's yield-aware mayWrite (#79)",
         "revertAcceptedAnnotation": "a disposition — requireDispositionPermitted, and a suggestion's text asks the host's yield-aware mayWrite (#79)",
-        "reopenAnnotation": "undoing an archive, rejection or stet is a disposition — requireDispositionPermitted; undoing a withdrawal is the ownership rule's — requireRestoreHonoured (ruling P)",
+        "reopenAnnotation": "undoing an archive, rejection or stet is a disposition — requireDispositionPermitted; undoing a withdrawal is the ownership rule's — requireRestoreHonoured (ruling P). FigureDocument's (report plan 9c-1) reopens a rejected, archived or stetted figure note behind requireNoteDisposition (.dispose); no cell moves",
+        // A figure note's dispositions (report plan 9c-1): status-only lines
+        // on the figure's stream, each behind `FigureDocument`'s
+        // `requireNoteDisposition("…", verb)`, which asks the FIGURE's posture
+        // for the verb the disposition is (never `.editFigure`) and throws
+        // before any op. No cell moves, so none is a figure writer.
+        "rejectAnnotation": "a figure note's disposition — requireNoteDisposition (.acceptOrReject); no cell moves",
+        "stetAnnotation": "a figure note's disposition — requireNoteDisposition (.dispose); no cell moves",
+        "archiveAnnotation": "a figure note's disposition — requireNoteDisposition (.dispose); no cell moves",
         "reopenAcceptedTextlessAnnotation": "a disposition — requireDispositionPermitted",
         "appendTaskOpInternal": "a task op — the task door",
         "appendTaskRewindCloser": "reached only after the doored restoreToOp",
@@ -13310,6 +13329,10 @@ final class TripwireGrepTests: XCTestCase {
         // behind one door check, one render and one ⌘Z; `applyChanges`
         // (plan 7d Task 2) any planned table changes the same way.
         "setCells": "figure", "sortRows": "figure", "applyChanges": "figure",
+        // Accepting a figure suggestion writes its cell (report plan 9c-1):
+        // `requireWritable` (`.editFigure`) and then `requireNoteDisposition`
+        // (`.acceptOrReject`), one `claudeAccept` carrying the cell.
+        "acceptSuggestion": "figure",
     ]
 
     /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
@@ -13318,16 +13341,21 @@ final class TripwireGrepTests: XCTestCase {
     private func guardedDocumentMutatorNames(in root: URL) throws -> Set<String> {
         let hits = try grepSwift(
             in: root,
-            patterns: ["rejectMutationIfNotWritable(\"", "requireWritable(\""],
+            patterns: ["rejectMutationIfNotWritable(\"", "requireWritable(\"", "requireNoteDisposition(\""],
             allowed: [],
             excludeLine: Self.admissionExcludeLine)
         var names: Set<String> = []
         let regex = try NSRegularExpression(
-            pattern: #"(?:rejectMutationIfNotWritable|requireWritable)\("([A-Za-z]+)"\)"#)
+            pattern: #"(?:(?:rejectMutationIfNotWritable|requireWritable)\("([A-Za-z]+)"\)|requireNoteDisposition\("([A-Za-z]+)",)"#)
         for hit in hits {
             let range = NSRange(hit.startIndex..., in: hit)
             regex.enumerateMatches(in: hit, range: range) { m, _, _ in
-                if let m, let r = Range(m.range(at: 1), in: hit) { names.insert(String(hit[r])) }
+                guard let m else { return }
+                // Group 1: `requireWritable`/`rejectMutationIfNotWritable`;
+                // group 2: a figure note's `requireNoteDisposition("…", verb)`.
+                for group in 1...2 {
+                    if let r = Range(m.range(at: group), in: hit) { names.insert(String(hit[r])) }
+                }
             }
         }
         return names
@@ -13397,12 +13425,16 @@ final class TripwireGrepTests: XCTestCase {
         func appendSomewhereNew() throws {
             try requireWritable("appendSomewhereNew")
         }
+        // A comment may name requireNoteDisposition("commentedNote", .dispose) too.
+        func settleSomethingNew() async throws {
+            try await requireNoteDisposition("settleSomethingNew", .dispose)
+        }
         """.write(to: tmp.appendingPathComponent("AFifthDocumentMutator.swift"),
                   atomically: true, encoding: .utf8)
 
         let planted = try guardedDocumentMutatorNames(in: tmp)
-        XCTAssertEqual(planted, ["rewriteEverything", "appendSomewhereNew"],
-            "Self-check: both guard spellings are read, the comment is not")
+        XCTAssertEqual(planted, ["rewriteEverything", "appendSomewhereNew", "settleSomethingNew"],
+            "Self-check: every guard spelling is read, the comments are not")
         let production = try guardedDocumentMutatorNames(in: sourceDir)
         XCTAssertNotEqual(production.union(planted), Set(Self.guardedDocumentMutators.keys),
             "and a guarded mutator nobody classified fails the census")
@@ -13410,7 +13442,8 @@ final class TripwireGrepTests: XCTestCase {
             Self.guardedMutatorProblems(
                 names: production.union(planted), classified: Self.guardedDocumentMutators),
             ["appendSomewhereNew: guarded but unclassified",
-             "rewriteEverything: guarded but unclassified"],
+             "rewriteEverything: guarded but unclassified",
+             "settleSomethingNew: guarded but unclassified"],
             "and the census's own check names each one")
     }
 
@@ -13537,6 +13570,7 @@ final class TripwireGrepTests: XCTestCase {
         try await host.setCells(edits, actionName: "Clear", undoManager: um)
         try await host.sortRows(by: c, ascending: true, values: read, actionName: "Sort", undoManager: um)
         try await host.applyChanges(changes, expecting: s, actionName: "Paste", undoManager: um)
+        try await host.acceptSuggestion(id: note, confirmChanged: false, undoManager: um)
         let op = Op(opId: ULID.generate(), docId: figureId, at: Date(), device: device,
                     session: session, kind: kind, changes: [], figure: payload)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),

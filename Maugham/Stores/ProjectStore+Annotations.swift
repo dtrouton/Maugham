@@ -294,7 +294,7 @@ extension ProjectStore {
         // project's too — the phone's Annotations tab lists them, and the
         // queue files them under the registry's names
         // (`AnnotationScopeSections.build`'s `figures`). Read from disk even
-        // when a window holds the figure: `FigureDocument` projects no notes.
+        // when a window holds the figure, so every figure is read one way.
         // A figure has no paragraphs, so no sequence is recorded.
         for figure in manifest.figures ?? [] {
             guard let notes = Self.figureAnnotations(figure.id, in: url, trust: trust, facts: facts) else {

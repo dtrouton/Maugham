@@ -103,7 +103,11 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // builds its op via AnnotationInverse.reopenOp with
             // acceptSplicedManuscriptText: false — the gated arm the factory
             // grew for exactly this caller.
-            return .inverseCovered(mechanism: "Document.revertAcceptedAnnotation (appends claudeAcceptRevert) for a suggestion; Document.reopenAcceptedTextlessAnnotation via AnnotationInverse.reopenOp for a textless kind")
+            // A FIGURE suggestion's accept (report plan 9c-1) carries the cell
+            // it writes; its inverse is FigureInverse's claudeAcceptRevert,
+            // which puts the cell back and reopens the note, registered by
+            // registerFigureUndo (and taken back whole in a grid visit).
+            return .inverseCovered(mechanism: "Document.revertAcceptedAnnotation (appends claudeAcceptRevert) for a suggestion; Document.reopenAcceptedTextlessAnnotation via AnnotationInverse.reopenOp for a textless kind; a figure cell's accept from FigureDocument.acceptSuggestion via FigureInverse.inverse, registered by FigureDocument.registerFigureUndo")
 
         case .claudeAcceptRevert:
             // revertAcceptedAnnotation's own undo registration re-invokes
@@ -113,7 +117,7 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // that file's doc comment (accept's SUGGESTION arm carries extra
             // manuscript-text choreography — its textless arm does use the
             // registrar, which is the split that doc comment now spells out).
-            return .inverseCovered(mechanism: "Document.acceptAnnotation re-invoked by revertAcceptedAnnotation's undo registration")
+            return .inverseCovered(mechanism: "Document.acceptAnnotation re-invoked by revertAcceptedAnnotation's undo registration; a figure cell's revert is redone by FigureDocument.acceptSuggestion, or by FigureInverse.inverse in a grid visit")
 
         // MARK: - Task lifecycle (TaskInverse, Mac-only — task types have no phone surface)
 

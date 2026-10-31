@@ -10,8 +10,8 @@ import Foundation
 ///   `FigureDeriver`, so it stays a suggestion.
 /// - **Accept is one op**: a `claudeAccept` carrying the same payload (the cell
 ///   it writes) and `sourceAnnotationId`. Its undo is a `claudeAcceptRevert`
-///   carrying the inverse cell. The figure deriver folding either as a cell
-///   write is Task 5; these builders only make the lines.
+///   carrying the inverse cell. `FigureDeriver` folds either as the cell set
+///   its payload is (`FigureOpPayload.foldKind`).
 ///
 /// A builder makes the op and decides nothing about who may append it, whether
 /// the anchor is still live (RULING-5) or whether the note is withdrawn
@@ -119,15 +119,25 @@ public enum FigureAnnotationOps {
         lifecycle(.annotationReopen, annotationId, stamp)
     }
 
+    /// **What every lifecycle op on a figure note carries**: the note it
+    /// answers (`sourceAnnotationId`), a rejection's reason, and the stamp's
+    /// session and versions. Also what a host stamps on an accept or revert
+    /// it re-mints as a compensation (a grid visit's undo and redo).
+    public static func lifecycleProvenance(
+        annotationId: String, userResponse: String? = nil, stamp: Stamp
+    ) -> Op.Provenance {
+        Op.Provenance(
+            sessionId: stamp.session, sourceAnnotationId: annotationId,
+            userResponse: userResponse, appVersion: stamp.appVersion, osVersion: stamp.osVersion)
+    }
+
     private static func lifecycle(
         _ kind: OpKind, _ annotationId: String, _ stamp: Stamp,
         userResponse: String? = nil, figure: FigureOpPayload? = nil
     ) -> Op {
         Op(opId: ULID.generate(), docId: stamp.figureId, at: stamp.at,
            device: stamp.device, session: stamp.session, kind: kind, changes: [],
-           provenance: Op.Provenance(
-               sessionId: stamp.session, sourceAnnotationId: annotationId,
-               userResponse: userResponse, appVersion: stamp.appVersion, osVersion: stamp.osVersion),
+           provenance: lifecycleProvenance(annotationId: annotationId, userResponse: userResponse, stamp: stamp),
            figure: figure)
     }
 

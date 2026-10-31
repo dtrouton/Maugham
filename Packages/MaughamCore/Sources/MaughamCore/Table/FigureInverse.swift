@@ -28,6 +28,11 @@ public enum FigureInverse {
     ///   undone inside the grid (a pin set, then its clear) still collapses to
     ///   one undo. The set re-adds the pin after any other source's pins on
     ///   the cell, so their order may differ; the pins themselves are the same;
+    /// - a suggestion's accept writing a cell becomes its `claudeAcceptRevert`
+    ///   with the cell swapped back, and a revert becomes the accept again
+    ///   (report plan 9c-1): the note's id rides beside the payload
+    ///   (`FigureReturnDiff.Change.sourceAnnotationId`), so the undo reopens
+    ///   the note as it puts the cell back;
     /// - create, park, resume and a pin clear that names no pin (it cleared
     ///   every pin on the cell, which it does not carry) have none.
     public static func inverse(of payload: FigureOpPayload, kind: OpKind) -> (OpKind, FigureOpPayload)? {
@@ -80,6 +85,10 @@ public enum FigureInverse {
             guard let pin = payload.pin else { return nil }
             return (.figurePinSet, FigureOpPayload(cell: payload.cell, pin: pin))
 
+        case .claudeAccept, .claudeAcceptRevert:
+            let back: OpKind = kind == .claudeAccept ? .claudeAcceptRevert : .claudeAccept
+            return (back, FigureOpPayload(cell: payload.cell, next: payload.prior, prior: payload.next))
+
         default:
             return nil
         }
@@ -95,6 +104,21 @@ public enum FigureInverse {
         for (kind, payload) in visit.reversed() {
             guard let inv = inverse(of: payload, kind: kind) else { return [] }
             out.append(inv)
+        }
+        return out
+    }
+
+    /// `compensating(visit:)` over changes that may name a note: each inverse
+    /// keeps its change's `sourceAnnotationId`, so a visit holding an accept
+    /// takes back the cell and reopens the note in the same step (and its
+    /// redo accepts again). All or nothing, as the tuple form is.
+    public static func compensating(_ changes: [FigureReturnDiff.Change]) -> [FigureReturnDiff.Change] {
+        var out: [FigureReturnDiff.Change] = []
+        out.reserveCapacity(changes.count)
+        for change in changes.reversed() {
+            guard let inv = inverse(of: change.payload, kind: change.kind) else { return [] }
+            out.append(FigureReturnDiff.Change(
+                kind: inv.0, payload: inv.1, sourceAnnotationId: change.sourceAnnotationId))
         }
         return out
     }

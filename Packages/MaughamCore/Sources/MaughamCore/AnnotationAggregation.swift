@@ -53,11 +53,12 @@ public enum AnnotationAggregation {
 
     /// **The figure table a stream's figure ops fold to** (report plan 9c-1),
     /// for resolving its notes' cell anchors — nil when the stream holds no
-    /// figure op (a manuscript's, a research note's). Folds the figure kinds
-    /// only, as `FigureDocument` does, so the stream's annotation ops add no
-    /// diagnostics.
+    /// figure op (a manuscript's, a research note's). Folds what folds onto
+    /// the table only (`FigureOpPayload.folds`: the figure kinds and an
+    /// accept's cell), as `FigureDocument` does, so the stream's other
+    /// annotation ops add no diagnostics.
     public static func figureTable(in ops: [Op]) -> FigureTable? {
-        let figureOps = ops.filter { FigureOpPayload.kinds.contains($0.kind) }
+        let figureOps = ops.filter(FigureOpPayload.folds)
         guard !figureOps.isEmpty else { return nil }
         return FigureDeriver.derive(figureOps).table
     }

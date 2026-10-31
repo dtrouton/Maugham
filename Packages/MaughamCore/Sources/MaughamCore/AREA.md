@@ -184,7 +184,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `ResearchTableSidecar.swift` — what a Research table's CSV cannot hold, at `.maugham/research-tables/<item id>.json`: the parked figure it copies, its name, caption, header and total rows, and formats and widths by position; tolerant.
 - `FigureOp.swift` — a figure op's content on the shared envelope (`Op.figure`): the figure kind, cell, structure, settings, image and research-pin changes, and which fields each figure op kind needs.
 - `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
-- `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed.
+- `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed; an accept carrying a cell folds as that cell set (`FigureOpPayload.foldKind`).
 - `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed, each figure's research pins indexed for the workbook.
 - `BookLanguage.swift` — the publish config's path and its `metadata.language` as a tag, for both cards.
 - `FigureCardText.swift` — the words a table figure's card shows, shared by the Mac and phone cards.
@@ -206,7 +206,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureAnchorAddress.swift` — `tbl:x!C3:E3` text to a label and cells, and cells (current positions) to a `FigureCellAnchor` by ids.
 - `FigureAnnotationOps.swift` — the ops of a figure note, once for Mac, phone and MCP: creation, accept (one `claudeAccept` carrying the cell) and its revert, reject/stet/archive/reopen, and Claude's machine-form suggested value.
 - `FigureCellEntry.swift` — typed cell text as a `Cell` (prior format kept, a suggestion only over general, a formula error at its offset in the text), and the formula bar's text back.
-- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin set and a pin clear that names its pin), and a visit's inverses as one all-or-nothing undo.
+- `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin set, a pin clear that names its pin, and an accept ↔ its revert), and a visit's inverses as one all-or-nothing undo.
 - `FigureFill.swift` — Fill Down and Fill Right (R7d-1): the cells a fill writes, formulas translated from the head cell; a one-deep selection fills from the row above or column left.
 - `FigurePaste.swift` — a paste into the grid as ops (R7d-2): growth by row and column inserts, tiling into a whole-multiple selection, formulas of a same-table copy translated, refused past `figureCellLimit`.
 - `TableHTML.swift` — a table as the HTML Excel, Sheets, Numbers and web pages put on the pasteboard: a hand-written forgiving reader (spans, entities, `<br>`, nested tags) and a writer that reads back exactly.

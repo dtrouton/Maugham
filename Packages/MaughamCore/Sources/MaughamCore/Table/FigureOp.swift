@@ -174,9 +174,35 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         .figurePinSet, .figurePinClear,
     ]
 
+    /// **The figure kind an op folds as on its figure's table**, or nil when
+    /// it folds as none. A figure kind is itself. A suggestion's accept and
+    /// its undo (`claudeAccept` / `claudeAcceptRevert`) that carry a `cell`
+    /// write that cell, so each folds as the `figureCellSet` its payload is
+    /// (report plan 9c-1, one op for the cell and the note); the same kinds
+    /// on a manuscript carry no payload and fold as nothing. Decided by the
+    /// payload alone — never `Deriver.appliesToManuscript` (tripwire 44) —
+    /// and `kinds` stays the nine figure kinds the permit census reads.
+    public static func foldKind(_ kind: OpKind, payload: FigureOpPayload?) -> OpKind? {
+        if kinds.contains(kind) { return kind }
+        switch kind {
+        case .claudeAccept, .claudeAcceptRevert:
+            return payload?.cell != nil ? .figureCellSet : nil
+        default:
+            return nil
+        }
+    }
+
+    /// Does `op` fold onto its figure's table (`foldKind`)? What every
+    /// figure-only filter asks, so a note's lines add nothing to the table
+    /// and an accept's cell is never left out.
+    public static func folds(_ op: Op) -> Bool {
+        foldKind(op.kind, payload: op.figure) != nil
+    }
+
     /// **Does this payload carry what `kind` needs?** The table is the type's
-    /// doc comment. A kind that is not a figure kind never carries a payload,
-    /// so it answers false.
+    /// doc comment; an accept or its revert writing a cell needs the `cell`,
+    /// as a cell set does. Any other kind never carries a payload, so it
+    /// answers false.
     public static func validate(kind: OpKind, payload: FigureOpPayload) -> Bool {
         // A picture's file name is joined onto `figures/`: one that could
         // leave the folder makes the whole op invalid, whatever its kind.
@@ -204,6 +230,7 @@ public struct FigureOpPayload: Codable, Equatable, Sendable {
         case .figureImageSet: return payload.image != nil
         case .figurePinSet: return payload.cell != nil && payload.pin != nil
         case .figurePinClear: return payload.cell != nil
+        case .claudeAccept, .claudeAcceptRevert: return payload.cell != nil
         default: return false
         }
     }

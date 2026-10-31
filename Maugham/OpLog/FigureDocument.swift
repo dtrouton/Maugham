@@ -132,11 +132,14 @@ struct FigureVisit: Equatable {
     var isUndoable: Bool { !undo.isEmpty }
     var reason: String? { isUndoable ? nil : Self.noUndoSentence }
 
+    /// A suggestion accepted in the visit carries its note's id
+    /// (`Change.sourceAnnotationId`), and so do its inverses: the visit's undo
+    /// reopens the note as it puts the cell back, and its redo accepts again.
     init(ops: [FigureReturnDiff.Change]) {
-        let undo = FigureInverse.compensating(visit: ops.map { ($0.kind, $0.payload) })
+        let undo = FigureInverse.compensating(ops)
         self.ops = ops
-        self.undo = undo.map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
-        self.redo = FigureInverse.compensating(visit: undo).map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) }
+        self.undo = undo
+        self.redo = FigureInverse.compensating(undo)
     }
 }
 
@@ -225,6 +228,10 @@ public final class FigureDocument {
 
     /// Closed: abandoned by contract; every mutator refuses.
     public private(set) var isClosed = false
+
+    /// Whose amendment to a note stands (`Document.judgedAmendments`, the
+    /// load's): what `annotations()` judges the stream's notes by.
+    @ObservationIgnored private(set) var annotationAmendments: AnnotationAmendments = .honourEverything
 
     /// The device string this document's own ops are signed under — the
     /// loading actor's key, from the same `LocalIdentities` the store chains
@@ -337,11 +344,12 @@ public final class FigureDocument {
         documentStore: DocumentStore?
     ) async throws -> FigureDocument {
         let opStore = Document.makeLoadOpStore(projectURL: projectURL, presenter: presenter)
-        let (ops, streams, provenance) = try await readHistory(
+        let (ops, streams, provenance, amendments) = try await readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
         let doc = FigureDocument(
             figureId: figureId, projectURL: projectURL, actor: actor,
             session: session, opStore: opStore, ops: ops, streams: streams, provenance: provenance)
+        doc.annotationAmendments = amendments
         doc.documentStore = documentStore
         return doc
     }
@@ -364,7 +372,7 @@ public final class FigureDocument {
         reloadGeneration += 1
         let generation = reloadGeneration
         let inTheStreamBeforeTheRead = appendedLocalOpIds
-        let (ops, read, provenance) = try await Self.readHistory(
+        let (ops, read, provenance, amendments) = try await Self.readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
         if let hook = Self.afterReloadReadForTesting { await hook(self) }
         guard !isClosed, generation == reloadGeneration else { return }
@@ -378,14 +386,19 @@ public final class FigureDocument {
         self.streams = streams
         newestOpId = max(newestOpId ?? "", ops.map(\.opId).max() ?? "")
         self.provenance = provenance
+        annotationAmendments = amendments
         state = Self.derive(_ops)
     }
 
+    /// The read, and the amendment table its notes are judged by — the one
+    /// a manuscript load builds (`Document.judgedAmendments`), so a figure's
+    /// notes project here as the project walk projects them.
     private static func readHistory(
         figureId: String, projectURL: URL, opStore: OpLogStore
-    ) async throws -> ([Op], [String: [String]], OpLogProvenance) {
+    ) async throws -> ([Op], [String: [String]], OpLogProvenance, AnnotationAmendments) {
         try OpLogStore.verifyOpsDirectoryListable(in: projectURL)
-        let loaded = try await opStore.loadDiagnosedStreams(docId: figureId)
+        let permits = AmendmentPermits()
+        let loaded = try await opStore.loadDiagnosedStreams(docId: figureId, amendmentPermits: permits)
         if !loaded.diagnostics.skipped.isEmpty {
             // Forensics, never a gate: the figure still opens.
             let stamp = ISO8601DateFormatter.quarantineStamp(from: Date())
@@ -398,13 +411,16 @@ public final class FigureDocument {
                     "figure quarantine-record write failed for \(figureId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
-        return (loaded.ops, loaded.streams, loaded.provenance)
+        return (loaded.ops, loaded.streams, loaded.provenance,
+                Document.judgedAmendments(opStore: opStore, permits: permits, docId: figureId))
     }
 
     /// The figure's own ops only: a note anchored on a cell rides the same
-    /// stream and is the annotation layer's, not the table's.
+    /// stream and is the annotation layer's, not the table's — bar an
+    /// accepted suggestion, whose one op writes the cell too
+    /// (`FigureOpPayload.folds`).
     private static func derive(_ ops: [Op]) -> FigureState {
-        FigureDeriver.derive(ops.filter { FigureOpPayload.kinds.contains($0.kind) })
+        FigureDeriver.derive(ops.filter(FigureOpPayload.folds))
     }
 
     /// Seal this device's tail and refuse every later write.
@@ -433,6 +449,15 @@ public final class FigureDocument {
     /// `DocumentStore.settledPosture`, the acting accessor. With no window,
     /// Core's `PostureDoor` directly. A `.settling` answer refuses.
     func mayEditHere() async -> Bool {
+        await mayHere(.editFigure)
+    }
+
+    /// **May this device's own hand do `verb` here?** `mayEditHere`'s
+    /// question for any verb, by the same door: the window's settled
+    /// posture where a window holds the figure, else Core's. A note's
+    /// dispositions ask `.acceptOrReject` or `.dispose` through it
+    /// (`requireNoteDisposition`); a `.settling` answer refuses.
+    func mayHere(_ verb: Posture.Verb) async -> Bool {
         guard !isClosed else { return false }
         let posture: Posture
         if let documentStore {
@@ -442,7 +467,7 @@ public final class FigureDocument {
                 forDocId: figureId, in: projectURL, as: actor, using: opStore)
         }
         guard !isClosed, !posture.isSettling else { return false }
-        return posture.allows(.editFigure)
+        return posture.allows(verb)
     }
 
     /// The guard every mutator opens with — the spelling tripwire 52's
@@ -476,6 +501,29 @@ public final class FigureDocument {
         documentLog.error(
             "\(site, privacy: .public) refused on \(self.figureId, privacy: .public): the figure is parked in Research")
         throw FigureParkedRefused(site: "\(site)", kind: state.kind)
+    }
+
+    /// **The door a note's disposition opens with** (report plan 9c-1) —
+    /// `requireWritable`'s shape for the verb the disposition IS, never
+    /// `.editFigure`: Reject asks `.acceptOrReject`, Stet, Archive and Reopen
+    /// `.dispose`, and an accept asks `.acceptOrReject` after
+    /// `requireWritable` (it writes the cell too). Closed throws
+    /// `DocumentNotWritableError`, parked `FigureParkedRefused` (asked again
+    /// after the await), a refusing posture `FigureNoteError.notPermitted`.
+    /// A spelling tripwire 52's population is derived from.
+    func requireNoteDisposition(_ site: StaticString, _ verb: Posture.Verb) async throws {
+        if isClosed {
+            documentLog.error(
+                "\(site, privacy: .public) called on a closed FigureDocument \(self.figureId, privacy: .public); no-op")
+            throw DocumentNotWritableError(site: "\(site)")
+        }
+        try refuseIfParked(site)
+        guard await mayHere(verb) else {
+            documentLog.error(
+                "\(site, privacy: .public) refused on \(self.figureId, privacy: .public): this device may not answer this figure's notes")
+            throw FigureNoteError.notPermitted
+        }
+        try refuseIfParked(site)
     }
 
     // MARK: - Mutators
@@ -1688,7 +1736,7 @@ public final class FigureDocument {
         }
     }
 
-    private func decline(_ why: FigureUndoDecline) {
+    func decline(_ why: FigureUndoDecline) {
         documentLog.error("figure undo declined on \(self.figureId, privacy: .public): \(String(describing: why), privacy: .public)")
         MaughamEvent.postNotice(why.sentence, projectURL: projectURL)
     }
@@ -1696,9 +1744,11 @@ public final class FigureDocument {
     /// A redo re-enters the forward mutator; a refusal there is said as one,
     /// and an edit that no longer fits as that — only a failed write is
     /// "could not be saved".
-    private func redoing(_ body: () async throws -> Void) async {
+    func redoing(_ body: () async throws -> Void) async {
         do { try await body() } catch is FigureEditRefused {
             decline(.notPermitted)
+        } catch let note as FigureNoteError {
+            decline(note == .notPermitted ? .notPermitted : .cannotRedo(note.reason))
         } catch let parked as FigureParkedRefused {
             decline(.parked(parked.kind))
         } catch let invalid as FigureEditInvalid {
@@ -1735,13 +1785,19 @@ public final class FigureDocument {
         unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
-        let visit = ([forward] + alongside).compactMap { op in op.figure.map { (op.kind, $0) } }
+        // An accept carries its note's id beside the payload, so its inverse
+        // reopens the note as it puts the cell back (report plan 9c-1).
+        let visit = ([forward] + alongside).compactMap { op in
+            op.figure.map {
+                FigureReturnDiff.Change(kind: op.kind, payload: $0, sourceAnnotationId: op.provenance?.sourceAnnotationId)
+            }
+        }
         // A write handed the open visit's manager joins the visit — before
         // the guard, so one with no inverse is in it and says so at its end.
         if isVisitManager(undoManager) {
-            visitRecord?.append(contentsOf: visit.map { FigureReturnDiff.Change(kind: $0.0, payload: $0.1) })
+            visitRecord?.append(contentsOf: visit)
         }
-        let inverses = FigureInverse.compensating(visit: visit)
+        let inverses = FigureInverse.compensating(visit)
         guard visit.count == alongside.count + 1, !inverses.isEmpty else { return }
         OpUndoRegistrar.register(
             undoManager, actionName: actionName, target: self,
@@ -1761,7 +1817,7 @@ public final class FigureDocument {
     /// undo on the open visit's manager (`recordingFor`) joins the visit.
     @discardableResult
     private func appendCompensation(
-        _ ops: [(OpKind, FigureOpPayload)],
+        _ ops: [FigureReturnDiff.Change],
         stillAsWritten: @MainActor (FigureDocument) -> Bool,
         restoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
         unrestoring: (@MainActor (FigureDocument) async throws -> Void)? = nil,
@@ -1780,10 +1836,17 @@ public final class FigureDocument {
             return false
         }
         do {
-            // A visit renders once, after its last inverse.
-            for (i, (kind, inverse)) in ops.enumerated() {
-                try await commit(kind, inverse, render: i == ops.count - 1)
-                if isVisitManager(manager) { visitRecord?.append(FigureReturnDiff.Change(kind: kind, payload: inverse)) }
+            // A visit renders once, after its last inverse. An accept or its
+            // revert is stamped with the note it answers, and the notes are
+            // announced once after the run.
+            for (i, change) in ops.enumerated() {
+                try await commit(
+                    change.kind, change.payload, provenance: noteProvenance(change),
+                    render: i == ops.count - 1)
+                if isVisitManager(manager) { visitRecord?.append(change) }
+            }
+            if ops.contains(where: { $0.sourceAnnotationId != nil }) {
+                MaughamEvent.postAnnotationsChanged(docId: figureId, projectURL: projectURL)
             }
             return true
         } catch {
@@ -1855,8 +1918,11 @@ public final class FigureDocument {
     @discardableResult
     func undoVisit(_ visit: FigureVisit) async -> Bool {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
-        return await appendCompensation(visit.undo.map { ($0.kind, $0.payload) },
-                                 stillAsWritten: { FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil },
+        return await appendCompensation(visit.undo,
+                                 stillAsWritten: {
+                                     FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil
+                                         && $0.notesStillAnswer(visit.undo)
+                                 },
                                  drifted: .visitChanged(redo: false))
     }
 
@@ -1866,8 +1932,11 @@ public final class FigureDocument {
     @discardableResult
     func redoVisit(_ visit: FigureVisit) async -> Bool {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
-        return await appendCompensation(visit.redo.map { ($0.kind, $0.payload) },
-                                 stillAsWritten: { FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil },
+        return await appendCompensation(visit.redo,
+                                 stillAsWritten: {
+                                     FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil
+                                         && $0.notesStillAnswer(visit.redo)
+                                 },
                                  drifted: .visitChanged(redo: true))
     }
 
@@ -1887,9 +1956,13 @@ public final class FigureDocument {
     ///
     /// `provenance` rides the op (a return's reason, ruling P-7). With
     /// `render: false` the caller renders once itself, after a run of ops.
+    ///
+    /// `payload` is nil only for a note's status-only line (`commitNoteOp`):
+    /// what folds onto the table (`FigureOpPayload.folds`) is folded, and a
+    /// note's other lines ride the stream for the annotation layer.
     @discardableResult
     private func commit(
-        _ kind: OpKind, _ payload: FigureOpPayload, after floor: String? = nil,
+        _ kind: OpKind, _ payload: FigureOpPayload?, after floor: String? = nil,
         provenance: Op.Provenance? = nil, render: Bool = true
     ) async throws -> Op {
         guard !isClosed else { throw DocumentNotWritableError(site: "commit") }
@@ -1908,7 +1981,7 @@ public final class FigureDocument {
         streams[device, default: []].append(op.opId)
         newestOpId = op.opId
         unconfirmedLocalOpIds.insert(op.opId)
-        FigureDeriver.fold(op, into: &state)
+        if FigureOpPayload.folds(op) { FigureDeriver.fold(op, into: &state) }
         do {
             try Self.beforeCommitAppendForTesting?(op)
             try await opStore.append(op)
@@ -1929,15 +2002,75 @@ public final class FigureDocument {
         return op
     }
 
+    // MARK: - A note's lines (report plan 9c-1)
+
+    /// The lifecycle kinds a note's disposition appends to a figure's stream.
+    private static let noteLifecycleKinds: Set<OpKind> = [
+        .claudeAccept, .claudeAcceptRevert, .claudeReject, .claudeArchive,
+        .annotationStet, .annotationReopen,
+    ]
+
+    /// **Append a note's lifecycle line** as `FigureAnnotationOps` built it,
+    /// through `commit` — minted after the newest op folded here, folded
+    /// when it writes a cell (an accept), rolled back when the append fails.
+    /// Only a disposition verb behind `requireNoteDisposition` calls it; a
+    /// kind that is not a note's lifecycle is refused.
+    @discardableResult
+    func commitNoteOp(_ built: Op, render: Bool) async throws -> Op {
+        guard Self.noteLifecycleKinds.contains(built.kind), built.provenance?.sourceAnnotationId != nil else {
+            throw FigureEditInvalid(reason: "a \(built.kind.rawValue) line is not a note's disposition")
+        }
+        return try await commit(built.kind, built.figure, provenance: built.provenance, render: render)
+    }
+
+    /// Who is writing a note's line here: this host's device and session.
+    var noteStamp: FigureAnnotationOps.Stamp {
+        FigureAnnotationOps.Stamp(figureId: figureId, device: device, session: session)
+    }
+
+    /// The provenance a compensation re-minting an accept or its revert
+    /// carries: the note it answers. Nil for every figure kind.
+    private func noteProvenance(_ change: FigureReturnDiff.Change) -> Op.Provenance? {
+        change.sourceAnnotationId.map {
+            FigureAnnotationOps.lifecycleProvenance(annotationId: $0, stamp: noteStamp)
+        }
+    }
+
+    /// **Would each note `changes` answers move as they say?** Walked in
+    /// order over the notes as they stand: a revert needs its note accepted
+    /// (and leaves it open), an accept needs it open (and leaves it
+    /// accepted). A visit's undo or redo that would reopen a note someone
+    /// has rejected since — or accept one settled since — declines whole.
+    func notesStillAnswer(_ changes: [FigureReturnDiff.Change]) -> Bool {
+        let named = changes.filter { $0.sourceAnnotationId != nil }
+        guard !named.isEmpty else { return true }
+        var status = Dictionary(
+            annotations().map { ($0.id, $0.status) }, uniquingKeysWith: { a, _ in a })
+        for change in named {
+            guard let id = change.sourceAnnotationId else { continue }
+            switch change.kind {
+            case .claudeAcceptRevert:
+                guard status[id] == .accepted else { return false }
+                status[id] = .open
+            case .claudeAccept:
+                guard status[id] == .open else { return false }
+                status[id] = .accepted
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
     // MARK: - Reading the table
 
-    private func requireTable() throws {
+    func requireTable() throws {
         guard state.kind == .table else {
             throw FigureEditInvalid(reason: "this figure is not a table")
         }
     }
 
-    private func isLive(_ key: CellKey) -> Bool {
+    func isLive(_ key: CellKey) -> Bool {
         state.table.rowIndex(of: key.row) != nil && state.table.columnIndex(of: key.column) != nil
     }
 

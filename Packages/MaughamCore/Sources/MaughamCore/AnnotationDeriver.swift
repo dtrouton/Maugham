@@ -166,8 +166,8 @@ public enum AnnotationDeriver {
             let figureIsStale = (figureResolution == .orphaned)
             let isStale = paragraphStale || spanIsStale || figureIsStale
             // The cell a figure suggestion proposes rides as the creation
-            // op's `Op.figure` — never folded as a cell write (`FigureDeriver`
-            // folds figure kinds only), so it stays a suggestion until accepted.
+            // op's `Op.figure` — never folded as a cell write (only its
+            // accept is, `FigureOpPayload.foldKind`), so it stays a suggestion.
             let suggestedCell: Cell? = (kind == .suggestedChange) ? op.figure?.next : nil
 
             // Translation-pass language tag. `add_query` encodes its whole

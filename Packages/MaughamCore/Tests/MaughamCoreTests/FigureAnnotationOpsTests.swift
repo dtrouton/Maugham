@@ -192,4 +192,95 @@ final class FigureAnnotationOpsTests: XCTestCase {
             XCTAssertEqual(op.provenance?.appVersion, "1")
         }
     }
+
+    // MARK: - The accept's cell, folded (Task 5)
+
+    /// **An accept writes its cell; its revert puts it back** — folded as the
+    /// cell set each payload is, by the deriver, the annotation table and the
+    /// return base alike, with no diagnostic. The suggestion's own payload
+    /// still folds as nothing.
+    func test_anAcceptAndItsRevertFoldAsCellSets() throws {
+        let s = try suggestion()
+        let accept = FigureAnnotationOps.accept(
+            annotationId: s.opId, cell: c3Key, next: num(12), prior: nil, stamp: stamp())
+        let revert = FigureAnnotationOps.acceptRevert(
+            annotationId: s.opId, cell: c3Key, restoring: nil, replacing: num(12), stamp: stamp())
+
+        let accepted = FigureDeriver.derive(base() + [s, accept])
+        XCTAssertEqual(accepted.table[c3Key], num(12))
+        XCTAssertEqual(accepted.diagnostics.filter { !$0.contains(s.opId) }, [],
+                       "the accept folds cleanly (only the note's creation is not a figure op)")
+        XCTAssertEqual(AnnotationAggregation.figureTable(in: base() + [s, accept])?[c3Key], num(12))
+        XCTAssertNil(FigureDeriver.derive(base() + [s, accept, revert]).table[c3Key], "the revert puts it back")
+        XCTAssertNil(AnnotationAggregation.figureTable(in: base() + [s])?[c3Key], "a suggestion writes nothing")
+
+        let stream = base() + [s, accept]
+        let returned = FigureReturnDiff.base(
+            of: stream, streams: ["macA": stream.map(\.opId)], frontier: ["macA": accept.opId])
+        XCTAssertEqual(returned.table[c3Key], num(12), "a return's base counts the accept it had read")
+    }
+
+    /// **Which ops fold**: the nine figure kinds as themselves; an accept or
+    /// revert carrying a cell as a cell set; a manuscript's accept (no
+    /// payload), and every note's other line, as nothing — so `kinds`, which
+    /// the permit census reads, stays the nine.
+    func test_foldKindIsDecidedByThePayload() {
+        XCTAssertEqual(FigureOpPayload.foldKind(.figureCellSet, payload: nil), .figureCellSet)
+        XCTAssertEqual(FigureOpPayload.foldKind(.claudeAccept, payload: .init(cell: c3Key)), .figureCellSet)
+        XCTAssertEqual(FigureOpPayload.foldKind(.claudeAcceptRevert, payload: .init(cell: c3Key)), .figureCellSet)
+        XCTAssertNil(FigureOpPayload.foldKind(.claudeAccept, payload: nil), "a manuscript accept")
+        XCTAssertNil(FigureOpPayload.foldKind(.claudeAccept, payload: .init()), "no cell")
+        XCTAssertNil(FigureOpPayload.foldKind(.claudeSuggestion, payload: .init(cell: c3Key)), "a suggestion")
+        XCTAssertNil(FigureOpPayload.foldKind(.claudeReject, payload: .init(cell: c3Key)))
+        XCTAssertFalse(FigureOpPayload.kinds.contains(.claudeAccept))
+        let manuscriptAccept = Op(opId: "m1", docId: "doc", at: Date(), device: "macA", session: "s",
+                                  kind: .claudeAccept, changes: [])
+        XCTAssertFalse(FigureOpPayload.folds(manuscriptAccept))
+        var state = FigureDeriver.derive(base())
+        FigureDeriver.fold(manuscriptAccept, into: &state)
+        XCTAssertEqual(state.diagnostics, ["m1: claude_accept is not a figure op"])
+    }
+
+    /// **An accept on a parked figure folds nothing**, and one naming a row
+    /// no insert has shown waits for it, as a cell set does.
+    func test_anAcceptIsContent_parkedDropsIt_andAnUnseenRowHoldsIt() throws {
+        let s = try suggestion()
+        let parked = figureOp(.figureParked, .init(parkedPath: "research/t.csv", parkedHash: "h"))
+        let accept = FigureAnnotationOps.accept(
+            annotationId: s.opId, cell: c3Key, next: num(12), prior: nil, stamp: stamp())
+        XCTAssertNil(FigureDeriver.derive(base() + [parked, accept]).table[c3Key])
+
+        let r9 = RowID("r9zzzzzz")
+        let early = FigureAnnotationOps.accept(
+            annotationId: s.opId, cell: CellKey(row: r9, column: c1), next: num(9), prior: nil, stamp: stamp())
+        let insert = figureOp(.figureStructure, .init(structure: .insertRow(r9, after: r3)))
+        XCTAssertEqual(FigureDeriver.derive(base() + [early, insert]).table[CellKey(row: r9, column: c1)], num(9),
+                       "held, then replayed once its row exists")
+    }
+
+    /// **The accept's inverse is its revert, carrying the note's id**: the
+    /// tuple inverse swaps the kinds and the cell, and the change form keeps
+    /// `sourceAnnotationId` through undo and redo — what a grid visit takes back.
+    func test_theAcceptsInverseIsItsRevert_andTheNotesIdRidesAlong() {
+        let payload = FigureOpPayload(cell: c3Key, next: num(12), prior: num(11.5))
+        let inv = FigureInverse.inverse(of: payload, kind: .claudeAccept)
+        XCTAssertEqual(inv?.0, .claudeAcceptRevert)
+        XCTAssertEqual(inv?.1, FigureOpPayload(cell: c3Key, next: num(11.5), prior: num(12)))
+        XCTAssertEqual(FigureInverse.inverse(of: inv!.1, kind: .claudeAcceptRevert)?.0, .claudeAccept)
+
+        let visit = [
+            FigureReturnDiff.Change(kind: .figureCellSet, payload: .init(cell: CellKey(row: r1, column: c1), next: num(1))),
+            FigureReturnDiff.Change(kind: .claudeAccept, payload: payload, sourceAnnotationId: "note1"),
+        ]
+        let undo = FigureInverse.compensating(visit)
+        XCTAssertEqual(undo.map(\.kind), [.claudeAcceptRevert, .figureCellSet])
+        XCTAssertEqual(undo.map(\.sourceAnnotationId), ["note1", nil])
+        XCTAssertEqual(FigureInverse.compensating(undo), visit, "the redo is the visit again")
+
+        var state = FigureDeriver.derive(base())
+        state.table.setCell(num(11.5), at: c3Key)
+        XCTAssertNotNil(FigureReturnDiff.applied([visit[1]], onto: state), "an accept describes the cell it replaces")
+        state.table.setCell(num(3), at: c3Key)
+        XCTAssertNil(FigureReturnDiff.applied([visit[1]], onto: state), "and is refused when the cell moved")
+    }
 }
