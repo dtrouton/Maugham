@@ -40,6 +40,7 @@ Every source file in `MaughamPhone/` appears once.
 - `StatementLoading.swift` — the Craft Intent row's statement-first lookup (`intentRow(statements:research:)`).
 - `PhoneImageLoader.swift` — the eviction-safe image seam.
 - `PhoneFigureBook.swift` — a book's figure cards through Core (`FigureCache` → `FigureWorkbook` → `FigureCardBook`): streams and config downloaded first, trust resolved once per load, an unreadable or empty-reading figure left out, never shown empty. Cards load on open or Retry, like the reader's text, not when op logs arrive from another device. Tripwires 18, 19, 20, 58.
+- `FigureCardView.swift` — a figure line's read-only card (`FigureCardPlan`, the pure plan the reader computes once per load): table, `FigureCardText`'s words (*Not downloaded yet* with Retry for a figure whose files have not arrived), or picture through `PhoneImageLoader`; no number, no changed banner. Tripwire 4.
 - `ReadIcons.swift` — row icons (`paletteRowSymbol`).
 
 ### `Annotations/`

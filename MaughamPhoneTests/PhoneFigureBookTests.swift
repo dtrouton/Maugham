@@ -295,6 +295,24 @@ final class PhoneFigureBookTests: XCTestCase {
         XCTAssertEqual(book.trustResolutions, 0)
     }
 
+    /// A picture line in a book with no figure registry still draws its
+    /// picture (report plan 9b Task 5): the line rule answers `.image` and the
+    /// URL resolves, though no card was built; a `figures/` path naming
+    /// nothing reads as removed, as on the Mac.
+    func test_aBookWithNoRegistryStillAnswersAPictureLine() async throws {
+        let (root, manifest) = try await fixture()
+        var none = manifest
+        none.figures = nil
+        let book = loader()
+        XCTAssertNil(book.card(forLinePath: "../research/shot.jpg", documentPath: docPath),
+                     "no answer before a load")
+        await book.load(manifest: none, projectURL: root)
+        XCTAssertEqual(book.card(forLinePath: "../research/shot.jpg", documentPath: docPath)?.kind, .image)
+        XCTAssertEqual(book.imageURL(forLinePath: "../research/shot.jpg", documentPath: docPath)?
+            .pathComponents.suffix(2), ["research", "shot.jpg"])
+        XCTAssertEqual(book.card(forLinePath: "../figures/gone.csv", documentPath: docPath)?.kind, .removed)
+    }
+
     func test_imageURLResolvesInsideTheProjectOnly() async throws {
         let (root, manifest) = try await fixture(withImage: true)
         let book = loader()

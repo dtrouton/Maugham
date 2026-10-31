@@ -129,9 +129,14 @@ final class PhoneFigureBook {
     }
 
     /// The card under a figure line, by Core's line rule; nil before a load or
-    /// for a figure that was left out.
+    /// for a registered figure that was left out. A book with no registry (or
+    /// one whose trust would not resolve) still answers a line by the rule —
+    /// a picture `.image`, a `figures/` path naming nothing `.removed` — so a
+    /// picture line draws its picture in any piece.
     func card(forLinePath linePath: String, documentPath: String) -> FigureCardModel? {
-        book?.model(forLinePath: linePath, documentPath: documentPath, index: index)
+        guard projectURL != nil else { return nil }
+        return (book ?? FigureCardBook(models: [:]))
+            .model(forLinePath: linePath, documentPath: documentPath, index: index)
     }
 
     /// The picture a figure line shows: a registered image figure's file, or a

@@ -88,6 +88,6 @@ final class MarkdownBlocksTests: XCTestCase {
     func test_tableCaption_keepsRowsAndDropsLabel() {
         let md = "| a | b |\n|---|---|\n| 1 | 2 |\nTable: Totals {#tbl:totals}"
         XCTAssertEqual(MarkdownBlocks.parse(md),
-                       [.table(header: ["a", "b"], rows: [["1", "2"]]), .paragraph("Totals")])
+                       [.table(header: ["a", "b"], rows: [["1", "2"]]), .caption("Totals")])
     }
 }

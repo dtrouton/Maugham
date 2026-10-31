@@ -5,6 +5,9 @@ public enum FigureCardText {
     public static let ambiguous = "Two figures share this path"
     public static let parked = "In Research"
     public static let empty = "Empty table"
+    /// A registered figure whose files have not reached this device yet (the
+    /// phone): neutral, never `removed`, never data.
+    public static let notReady = "Not downloaded yet"
     /// The amber banner on a card whose pinned Research source has changed.
     public static let pinChanged = "Research has changed"
 
