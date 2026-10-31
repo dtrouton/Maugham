@@ -336,7 +336,7 @@ extension DocumentStore {
     // MARK: - Reading the book's figures
 
     /// The trust table figure reads judge lines by, resolved off the main actor.
-    private func figureTrust() async throws -> TrustTable {
+    func figureTrust() async throws -> TrustTable {
         figureTrustResolutions += 1
         let projectURL = self.projectURL
         let identities = Document.loadIdentities

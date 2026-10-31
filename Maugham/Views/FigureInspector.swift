@@ -105,9 +105,13 @@ enum FigureUseTravel {
     /// Where `use` takes the window: the piece's open `Document` answers the
     /// place when one is open (its live text, the text the index read), else
     /// the op log's derived state (tripwire 20).
+    ///
+    /// `language` reveals the line in that edition's translation review (the
+    /// inspector's Translations lines, report plan 9e-1 Task 8); nil, the
+    /// source.
     @MainActor
     static func destination(for use: FigureListing.Use, store: ProjectStore,
-                            documentStore: DocumentStore?) -> Destination {
+                            documentStore: DocumentStore?, language: String? = nil) -> Destination {
         let place: Place?
         if let open = documentStore?.document(forDocId: use.docId) {
             place = Self.place(atLine: use.lineIndex, paragraphs: open.paragraphs, sequence: open.sequence)
@@ -117,7 +121,7 @@ enum FigureUseTravel {
             place = nil
         }
         guard let place else { return .piece(.item(use.docId)) }
-        return .paragraph(TranslationReveal(docId: use.docId, language: nil, paragraphId: place.paragraphId,
+        return .paragraph(TranslationReveal(docId: use.docId, language: language, paragraphId: place.paragraphId,
                                             offset: place.offset == 0 ? nil : place.offset))
     }
 
@@ -165,6 +169,9 @@ final class FigureInspectorModel {
     /// Compare's rows, nil until read.
     private(set) var comparisons: [FigurePinComparisonRow]?
     private(set) var notes: [Annotation] = []
+    /// A table's cell-translation coverage, a line per language the book is
+    /// translated into (report plan 9e-1 Task 8); empty for anything else.
+    private(set) var translations: [TranslationCellRows.CoverageLine] = []
     /// A refusal or failure, said under the actions.
     var message: String?
     /// **The name last sent to the store**, so Return and then the focus
@@ -174,7 +181,7 @@ final class FigureInspectorModel {
     @ObservationIgnored private(set) var committedName: String?
 
     /// The loads, each numbered; only the latest may land.
-    enum Load { case pins, notes, comparisons }
+    enum Load { case pins, notes, comparisons, translations }
     @ObservationIgnored private var generations: [Load: Int] = [:]
     /// How many pin reads went to the figure's host (a test counts them).
     @ObservationIgnored private(set) var pinReads = 0
@@ -222,6 +229,23 @@ final class FigureInspectorModel {
         let read = await store.figureNotes(figureId)
         guard await lands(.notes, generation) else { return }
         notes = Self.ordered(read)
+    }
+
+    /// **The table's cell-translation coverage** (report plan 9e-1 Task 8):
+    /// one line per language the book has a layer in, derived over the
+    /// figure's state off the main actor. None for a removed figure (inert,
+    /// R4), a parked one, an image, or a translation file that will not read
+    /// (the Translation pane says why).
+    func loadTranslations(documentStore: DocumentStore) async {
+        let generation = begin(.translations)
+        let projectURL = documentStore.projectURL
+        guard let manifest = documentStore.projectStore?.manifest else { return }
+        let languages = await Task.detached {
+            DocumentStore.bookTranslationLanguages(in: projectURL, manifest: manifest)
+        }.value
+        let reads = try? await documentStore.figureCellTranslations(figureId: figureId, languages: languages)
+        guard await lands(.translations, generation) else { return }
+        translations = TranslationCellRows.coverage((reads ?? [:]).mapValues(\.derived))
     }
 
     /// Compare: each pinned cell a refresh would change, old beside new.
@@ -368,6 +392,10 @@ struct FigureInspector: View {
                     usedInSection(row)
                     Divider()
                     researchSection
+                    if !model.translations.isEmpty {
+                        Divider()
+                        translationsSection(row)
+                    }
                     Divider()
                     notesSection
                     Divider()
@@ -390,6 +418,13 @@ struct FigureInspector: View {
         // The notes: the figure's own stream, on appear and when an
         // annotation change names it — not on every figure write.
         .task(id: figureId) { await model.loadNotes(store: store) }
+        // A table's cell translations: with the cards (a source edit can turn
+        // one stale) and whenever one of this figure's lands.
+        .task(id: loadKey) { await model.loadTranslations(documentStore: documentStore) }
+        .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: window) { note in
+            guard note.userInfo?["figure_id"] as? String == figureId else { return }
+            Task { await model.loadTranslations(documentStore: documentStore) }
+        }
         .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
             guard FigureInspectorModel.names(figureId, note) else { return }
             Task { await model.loadNotes(store: store) }
@@ -451,6 +486,26 @@ struct FigureInspector: View {
     private func useLink(_ use: FigureListing.Use) -> some View {
         Button(Self.useTitle(use, structure: store.manifest.structure)) { travel(to: use) }
             .buttonStyle(.link)
+    }
+
+    /// A line per language: "es  12 of 14 cells", and Review, which opens
+    /// the table's first line in that edition's translation review.
+    private func translationsSection(_ row: FigureListing.Row) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Translations").font(.headline)
+            ForEach(model.translations) { line in
+                HStack {
+                    Text(line.language).font(.callout.monospaced())
+                    Text(line.text).foregroundStyle(.secondary)
+                    Spacer()
+                    if let use = row.usedIn.first {
+                        Button("Review") { review(use, in: line.language) }
+                            .buttonStyle(.link)
+                            .help("Show this table's line in the \(line.language) translation review")
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -591,6 +646,14 @@ struct FigureInspector: View {
             model.forgetTheCommittedName()
             revert(current() ?? name)
         }
+    }
+
+    private func review(_ use: FigureListing.Use, in language: String) {
+        FigureUseTravel.perform(
+            FigureUseTravel.destination(for: use, store: store, documentStore: documentStore,
+                                        language: language),
+            select: select,
+            post: { MaughamEvent.post($0, to: .keyWindow, payload: $1) })
     }
 
     private func travel(to use: FigureListing.Use) {
