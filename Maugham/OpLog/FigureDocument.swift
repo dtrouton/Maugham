@@ -109,6 +109,17 @@ public enum FigureRestoreOutcome: Equatable, Sendable {
     }
 }
 
+/// **What a figure restore did to its notes** (RULING-28): the accepted
+/// suggestions it reopened and those it archived, by note id.
+public struct FigureRestoreNotes: Equatable, Sendable {
+    public var reopened: [String] = []
+    public var archived: [String] = []
+    public init(reopened: [String] = [], archived: [String] = []) {
+        self.reopened = reopened; self.archived = archived
+    }
+    public var isEmpty: Bool { reopened.isEmpty && archived.isEmpty }
+}
+
 /// **One grid visit, as one undoable step** (report plan 7d Task 5): the
 /// ops the grid wrote between `beginVisit` and `endVisit` — through verbs
 /// handed the visit's undo manager, and that manager's own undos and redos —
@@ -1561,6 +1572,7 @@ public final class FigureDocument {
         let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
         let reason = Op.Provenance(sourceCheckpoint: checkpointId)
         let (restoreChanges, noteLines) = answeringStrandedAccepts(tableChanges, above: pointer, target: target)
+        lastRestoreNotes = FigureRestoreNotes()
         // Every change was worked out against this fold: a reload replaces it.
         let generation = reloadGeneration
         var appended = 0
@@ -1575,6 +1587,7 @@ public final class FigureDocument {
                 } ?? reason
                 try await commit(change.kind, change.payload, provenance: provenance, render: false)
                 appended += 1
+                if let id = change.sourceAnnotationId { lastRestoreNotes.reopened.append(id) }
             }
             // A stranded accept whose cell the restore did not write: the
             // note is reopened (its cell already stands as it did then) or
@@ -1584,6 +1597,11 @@ public final class FigureDocument {
                 try await commit(kind, nil, provenance: FigureAnnotationOps.lifecycleProvenance(
                     annotationId: id, sourceCheckpoint: checkpointId, stamp: noteStamp), render: false)
                 appended += 1
+                if kind == .claudeArchive {
+                    lastRestoreNotes.archived.append(id)
+                } else {
+                    lastRestoreNotes.reopened.append(id)
+                }
             }
             if stop == nil, restoresPicture, let picture {
                 if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
@@ -1631,8 +1649,16 @@ public final class FigureDocument {
             guard let id = op.provenance?.sourceAnnotationId, accepted.contains(id) else { continue }
             if latest[id].map({ op.opId > $0.opId }) ?? true { latest[id] = op }
         }
+        // Stranded = the latest lifecycle line is ANY accept — a status-only
+        // re-accept (a stet's or archive's ⌘Z) included, standing in for the
+        // cell-writing accept it put back — judged against the newest accept
+        // for that note that CARRIES a cell (Document+Rewind's rule).
         var stranded = latest.compactMap { id, op -> (id: String, cell: CellKey)? in
-            guard op.kind == .claudeAccept, op.opId > pointer, let cell = op.figure?.cell else { return nil }
+            guard op.kind == .claudeAccept,
+                  let written = _ops.filter({
+                      $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == id && $0.figure?.cell != nil
+                  }).max(by: { $0.opId < $1.opId }),
+                  written.opId > pointer, let cell = written.figure?.cell else { return nil }
             return (id, cell)
         }.sorted { $0.id < $1.id }
         let answered = changes.map { change -> FigureReturnDiff.Change in
@@ -1647,6 +1673,12 @@ public final class FigureDocument {
         }
         return (answered, lines)
     }
+
+    /// **The notes the last `restoreToCheckpoint` answered** (RULING-28's
+    /// AFTER half): the accepted suggestions it reopened (cell and note put
+    /// back together) and those it archived (their cell is gone then), by
+    /// id — what the restore sheet names beside its outcome.
+    @ObservationIgnored private(set) var lastRestoreNotes = FigureRestoreNotes()
 
     /// Test seam: runs in `restoreToCheckpoint` between one landed op and the
     /// next — where another device's reload is put. Nil in production.
@@ -1776,6 +1808,9 @@ public final class FigureDocument {
         /// figure window, an undo, a restore, or another device: neutral,
         /// because the visit's undo cannot tell which (final review I4).
         case visitChanged(redo: Bool)
+        /// A settling ⌘Z reopened the note, then could not put back the
+        /// answer it displaced: the note is back but open.
+        case notePutBack
 
         /// Why a drifted undo or redo declines — neutral, as the visit's is
         /// (final re-review N2): the change since may be this Mac's own (its
@@ -1800,6 +1835,8 @@ public final class FigureDocument {
                 FigureVisit.noUndoSentence
             case .visitChanged(let redo):
                 FigureVisit.changedSentence(redo: redo)
+            case .notePutBack:
+                "Couldn't put the note's earlier answer back — the note is back but open."
             }
         }
     }

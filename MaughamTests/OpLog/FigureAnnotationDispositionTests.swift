@@ -654,6 +654,99 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         await doc.close()
     }
 
+    /// **A status-only re-accept does not hide the accept from a restore**
+    /// (N1): accept, stet, ⌘Z (which puts the accept back status only), then
+    /// restore to before the accept — the cell goes back AND the note opens.
+    func test_aRestoreAfterAStetsUndoStillReopensTheAccept() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: id)
+        let um = UndoManager()
+        try await doc.stetAnnotation(id: id, undoManager: um)
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(note(id, in: doc)?.status, .accepted, "premise: re-accepted, status only")
+        XCTAssertEqual(try ops(of: record.id).last?.figure, nil, "premise: the latest accept carries no cell")
+
+        _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        XCTAssertEqual(note(id, in: doc)?.status, .open)
+        XCTAssertEqual(try ops(of: record.id).last?.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [id]))
+        await doc.close()
+    }
+
+    /// **The restore's two status-only branches** (N3): a cell already back
+    /// to its old value reopens the note by a status-only revert; a cell in
+    /// a row added after the checkpoint (gone then) archives it. Both named.
+    func test_aRestoreReopensWhereTheCellStands_andArchivesWhereItIsGone() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let standing = try await suggest(number(42), at: b2, on: doc)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: standing)
+        try await doc.setCell(text("old"), at: b2)
+        let row = try await doc.insertRow(after: nil)
+        let added = CellKey(row: row, column: doc.state.table.columns[0])
+        let gone = try await suggest(number(7), at: added, on: doc)
+        try await doc.acceptSuggestion(id: gone)
+        let before = try ops(of: record.id).count
+
+        _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        let written = try ops(of: record.id).dropFirst(before)
+        let reopen = try XCTUnwrap(written.first { $0.provenance?.sourceAnnotationId == standing })
+        XCTAssertEqual(reopen.kind, .claudeAcceptRevert)
+        XCTAssertNil(reopen.figure, "status only: the cell already stood as it did then")
+        XCTAssertEqual(note(standing, in: doc)?.status, .open)
+        let archive = try XCTUnwrap(written.first { $0.provenance?.sourceAnnotationId == gone })
+        XCTAssertEqual(archive.kind, .claudeArchive)
+        XCTAssertEqual(archive.provenance?.sourceCheckpoint, "cp-1")
+        XCTAssertEqual(note(gone, in: doc)?.status, .archived, "its cell is gone then")
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [standing], archived: [gone]))
+        await doc.close()
+    }
+
+    /// **A settling ⌘Z that reopens but cannot put the earlier answer back
+    /// says so** (N2): the note is back but open, in those words.
+    func test_aSettlingUndoWhosePutBackFailsSaysTheNoteIsBackButOpen() async throws {
+        let (_, doc, b2) = try await makeTable()
+        let note = try await comment(on: b2, doc: doc)
+        try await doc.archiveAnnotation(id: note)
+        let um = UndoManager()
+        try await doc.rejectAnnotation(id: note, reason: "No.", undoManager: um)
+        FigureDocument.beforeCommitAppendForTesting = { op in
+            if op.kind == .claudeArchive { throw FigureEditInvalid(reason: "disk full") }
+        }
+        defer { FigureDocument.beforeCommitAppendForTesting = nil }
+        var said: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { n in if let m = n.userInfo?[MaughamEvent.noticeMessageKey] as? String { said.append(m) } }
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        NotificationCenter.default.removeObserver(token)
+        XCTAssertEqual(said, ["Couldn't put the note's earlier answer back — the note is back but open."])
+        XCTAssertEqual(self.note(note, in: doc)?.status, .open)
+        await doc.close()
+    }
+
+    /// **The restore sheet names the notes** (N4, RULING-28's AFTER half).
+    func test_theRestoreSentenceNamesTheReopenedAndArchivedSuggestions() {
+        func r(_ name: String) -> FigureRecord {
+            FigureRecord(id: "fig-\(name)", name: name, kind: .table, piece: nil, path: "figures/\(name).csv")
+        }
+        XCTAssertEqual(PartialRestorePicker.figureSentence(for: [
+            (r("cash"), .outcome(.restored(opCount: 2), notes: FigureRestoreNotes(reopened: ["n1"]))),
+        ]), "Reopened 1 accepted suggestion on cash.")
+        XCTAssertEqual(PartialRestorePicker.figureSentence(for: [
+            (r("cash"), .outcome(.restored(opCount: 3), notes: FigureRestoreNotes(reopened: ["n1", "n2"], archived: ["n3"]))),
+            (r("plan"), .outcome(.unchanged)),
+        ]), "Reopened 2 accepted suggestions and archived 1 accepted suggestion whose cells are gone on cash.")
+        XCTAssertNil(PartialRestorePicker.figureSentence(for: [(r("cash"), .outcome(.restored(opCount: 1)))]))
+    }
+
     /// **An accepted formula reading Research takes its pins** (I1), as the
     /// same formula typed in the grid does: the render computes, never
     /// `#REF!`; ⌘Z takes back the cell and the pins and reopens the note.

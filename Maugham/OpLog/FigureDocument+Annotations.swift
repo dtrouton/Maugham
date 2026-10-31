@@ -256,9 +256,20 @@ extension FigureDocument {
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { d in
                 guard d.noteStatus(id) == settled else { return d.decline(.drifted) }
+                var reopened = false
                 await d.redoing {
                     try await d.reopenAnnotation(id: id)
-                    if prior != .open { try await d.settle(id, as: prior, reason: priorReason, undoManager: nil) }
+                    reopened = true
+                }
+                guard reopened, prior != .open else { return }
+                // The reopen landed: a put-back that fails now leaves the note
+                // open, and says THAT (the manuscript's `.stetRestore`), never
+                // a refusal it was not.
+                do {
+                    try await d.settle(id, as: prior, reason: priorReason, undoManager: nil)
+                } catch {
+                    documentLog.error("figure \(d.figureId, privacy: .public): note \(id, privacy: .public) reopened but its earlier answer was not put back: \(error.localizedDescription, privacy: .public)")
+                    d.decline(.notePutBack)
                 }
             },
             redo: { [weak undoManager] d in

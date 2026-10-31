@@ -302,8 +302,9 @@ struct PartialRestorePicker: View {
 
     /// What reverting one figure came to.
     enum FigureResult: Equatable {
-        /// Its host's answer (`FigureRestoreOutcome`).
-        case outcome(FigureRestoreOutcome)
+        /// Its host's answer (`FigureRestoreOutcome`), and the notes the
+        /// restore reopened or archived (`FigureDocument.lastRestoreNotes`).
+        case outcome(FigureRestoreOutcome, notes: FigureRestoreNotes = FigureRestoreNotes())
         /// The figure's door refused `.editFigure`: nothing was appended.
         case refused
         /// The restore threw before any op landed (the error's description).
@@ -359,10 +360,12 @@ struct PartialRestorePicker: View {
             }
             let result: FigureResult
             do {
-                result = .outcome(try await documentStore.withFigureHost(record.id) { host in
-                    try await host.restoreToCheckpoint(
+                let (outcome, notes) = try await documentStore.withFigureHost(record.id) { host in
+                    let outcome = try await host.restoreToCheckpoint(
                         checkpoint.checkpointId, through: pointer, pictureHashes: pictureHashes)
-                })
+                    return (outcome, host.lastRestoreNotes)
+                }
+                result = .outcome(outcome, notes: notes)
             } catch is FigureEditRefused {
                 result = .refused
             } catch {
@@ -384,15 +387,21 @@ struct PartialRestorePicker: View {
         var refused: [String] = [], parked: [String] = [], wentToResearch: [String] = []
         var pictures: [String] = []
         var partly: [String] = [], failed: [String] = []
+        var reopened = 0, archived = 0, answeredOn: [String] = []
         for (record, result) in results {
+            if case .outcome(_, let notes) = result, !notes.isEmpty {
+                reopened += notes.reopened.count
+                archived += notes.archived.count
+                answeredOn.append(record.name)
+            }
             switch result {
             case .refused: refused.append(record.name)
             case .failed(let why): failed.append("\(record.name) (\(why))")
-            case .outcome(.skippedParked): parked.append(record.name)
-            case .outcome(.skippedWentToResearch): wentToResearch.append(record.name)
-            case .outcome(.skippedPicture): pictures.append(record.name)
-            case .outcome(.partlyRestored): partly.append(record.name)
-            case .outcome(.restored), .outcome(.unchanged): break
+            case .outcome(.skippedParked, _): parked.append(record.name)
+            case .outcome(.skippedWentToResearch, _): wentToResearch.append(record.name)
+            case .outcome(.skippedPicture, _): pictures.append(record.name)
+            case .outcome(.partlyRestored, _): partly.append(record.name)
+            case .outcome(.restored, _), .outcome(.unchanged, _): break
             }
         }
         func list(_ names: [String]) -> String { names.joined(separator: ", ") }
@@ -415,6 +424,14 @@ struct PartialRestorePicker: View {
         }
         if !failed.isEmpty {
             sentences.append("Not restored: \(list(failed)).")
+        }
+        // RULING-28's AFTER half: what the restore changed beyond the cells.
+        if reopened + archived > 0 {
+            func suggestions(_ n: Int) -> String { n == 1 ? "1 accepted suggestion" : "\(n) accepted suggestions" }
+            let parts = [reopened > 0 ? "reopened \(suggestions(reopened))" : nil,
+                         archived > 0 ? "archived \(suggestions(archived)) whose cells are gone" : nil]
+                .compactMap { $0 }.joined(separator: " and ")
+            sentences.append(parts.prefix(1).uppercased() + parts.dropFirst() + " on \(list(answeredOn)).")
         }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
