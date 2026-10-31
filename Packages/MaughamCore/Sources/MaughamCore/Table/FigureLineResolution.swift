@@ -42,7 +42,7 @@ public enum FigureLineResolution {
     public static func status(linePath: String, documentPath: String, index: Index) -> Status {
         guard case .inside(let target, let root) = FigurePathRule.lexical(linePath, piecePath: documentPath)
         else { return .notLocal }
-        guard root == ["figures"] else { return .outsideFigures }
+        guard root == [FigurePathRule.figuresFolder] else { return .outsideFigures }
         switch FigureLineResolution.resolution(of: index.records(atTarget: target)) {
         case .none: return .missing
         case .figure(let r): return .figure(r)

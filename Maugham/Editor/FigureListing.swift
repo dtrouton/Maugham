@@ -149,7 +149,7 @@ enum FigureListing {
         for line in index.numberedLines {
             guard let linePath = line.path, let documentPath = documentPathOf(line.docId),
                   case .inside(let target, let root) = FigurePathRule.lexical(linePath, piecePath: documentPath),
-                  root != ["figures"] else { continue }
+                  root != [FigurePathRule.figuresFolder] else { continue }
             let key = "\(line.docId)\n\(linePath)"
             let occurrence = seen[key, default: 0]
             seen[key] = occurrence + 1

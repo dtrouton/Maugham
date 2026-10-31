@@ -66,6 +66,7 @@ struct BinderView: View {
                         StructureNode(
                             item: item,
                             projectRoot: project.url,
+                            manifest: project.manifest,
                             downloads: downloads,
                             recents: recents,
                             projectId: project.id)
@@ -78,6 +79,7 @@ struct BinderView: View {
                         ResearchRow(
                             item: item,
                             projectRoot: project.url,
+                            manifest: project.manifest,
                             downloads: downloads,
                             recents: recents,
                             projectId: project.id)
@@ -113,6 +115,9 @@ struct BinderView: View {
                                 docURL: intentURL,
                                 title: intent.title,
                                 projectId: project.id,
+                                projectURL: project.url,
+                                manifest: project.manifest,
+                                documentPath: intent.relativePath,
                                 downloads: downloads,
                                 recents: recents)
                         } label: {
@@ -133,6 +138,7 @@ struct BinderView: View {
 private struct StructureNode: View {
     let item: StructureItem
     let projectRoot: URL
+    let manifest: ProjectManifest
     let downloads: DownloadCoordinator
     let recents: RecentsTracker
     let projectId: ProjectId
@@ -145,6 +151,7 @@ private struct StructureNode: View {
                     StructureNode(
                         item: child,
                         projectRoot: projectRoot,
+                        manifest: manifest,
                         downloads: downloads,
                         recents: recents,
                         projectId: projectId)
@@ -153,12 +160,16 @@ private struct StructureNode: View {
                 rowLabel
             }
         case .document:
-            if let url = BinderRouting.documentURL(for: item, projectRoot: projectRoot) {
+            if let url = BinderRouting.documentURL(for: item, projectRoot: projectRoot),
+               let path = item.path {
                 NavigationLink {
                     DocumentReaderView(
                         docURL: url,
                         title: item.title,
                         projectId: projectId,
+                        projectURL: projectRoot,
+                        manifest: manifest,
+                        documentPath: path,
                         downloads: downloads,
                         recents: recents)
                 } label: {
@@ -183,6 +194,7 @@ private struct StructureNode: View {
 private struct ResearchRow: View {
     let item: ResearchItem
     let projectRoot: URL
+    let manifest: ProjectManifest
     let downloads: DownloadCoordinator
     let recents: RecentsTracker
     let projectId: ProjectId
@@ -195,6 +207,9 @@ private struct ResearchRow: View {
                     docURL: url,
                     title: item.title,
                     projectId: projectId,
+                    projectURL: projectRoot,
+                    manifest: manifest,
+                    documentPath: path,
                     downloads: downloads,
                     recents: recents)
             } label: {

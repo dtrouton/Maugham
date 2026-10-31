@@ -225,7 +225,12 @@ struct PaletteCardView: View {
         case .divider:
             Text("* * *").foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
-        case .code, .table, .quote:
+        case let .figure(caption, _, _) where !caption.isEmpty:
+            // Caption only: a palette card is not a piece of the book, so it
+            // has no figure cards, and its pictures draw in the image strip.
+            Text(Self.inlineEmphasis(caption)).font(.callout).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .figure, .caption, .code, .table, .quote:
             // Uncommon inside a card body; render the raw text plainly rather
             // than duplicate DocumentReaderView's full renderer.
             EmptyView()

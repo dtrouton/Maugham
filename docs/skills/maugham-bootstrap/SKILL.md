@@ -29,6 +29,10 @@ read her description and answer in her position, never as an editor. The
 lessons ledger is never briefed to her: she reads for what the reading
 was like, not for the writer's process, so a Claude playing her must not
 cite `read_lessons` or a habit from it.
+When a question turns on a table or picture in the book, call `list_figures`
+for the figures (number, caption, used, in Research, changed) and
+`read_figure` for one: a table's cells with value, formula and format, or
+the picture. Both are read-only; for a large table pass `range`.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

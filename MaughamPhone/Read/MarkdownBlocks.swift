@@ -1,8 +1,9 @@
 import Foundation
 import MaughamCore
 
-/// View-layer block currency for the reader, adapted from the shared
-/// `MarkdownBlockParser` (MaughamCore) so paragraph breaks, headings, lists,
+/// View-layer block currency for the reader, adapted from Core's
+/// `ManuscriptBlocks` (the report forms, over the shared
+/// `MarkdownBlockParser`) so paragraph breaks, headings, lists,
 /// fences, tables, blockquotes, and thematic breaks all survive.
 ///
 /// `AttributedString(markdown:)` alone is unsuitable for a reader: with
@@ -25,10 +26,34 @@ enum MarkdownBlocks {
         case table(header: [String], rows: [[String]])
         case quote([Block])
         case divider
+        /// A figure line (`![caption](path)`), recognised by Core's
+        /// `ManuscriptBlocks` with its `{#fig:…}`/`{#tbl:…}` label split off.
+        case figure(caption: String, path: String, label: ManuscriptLabel?)
+        /// A pipe table's `Table:` caption, under its table: styled as a
+        /// caption, like a figure's, with inline emphasis.
+        case caption(String)
     }
 
     static func parse(_ markdown: String) -> [Block] {
-        MarkdownBlockParser.parse(markdown).compactMap(adapt)
+        ManuscriptBlocks.parse(markdown).flatMap { adaptManuscript($0.block) }
+    }
+
+    /// The report layer's blocks (Core's `ManuscriptBlocks`, the recogniser
+    /// Publish and the Mac use): labels never reach the screen, a figure line
+    /// is a `.figure`, a table's `Table:` caption shows as a `.caption` under it.
+    private static func adaptManuscript(_ b: ManuscriptBlock) -> [Block] {
+        switch b {
+        case .heading(let level, let text, _): return [.heading(level: level, text: text)]
+        case .table(let header, _, let rows, let caption, _):
+            let table = Block.table(header: header, rows: rows)
+            if let caption, !caption.isEmpty { return [table, .caption(caption)] }
+            return [table]
+        case .figure(let caption, let path, let label):
+            return [.figure(caption: caption, path: path, label: label)]
+        case .footnoteDefinition(let label, let text):
+            return [.paragraph("[^\(label)]: \(text)")]
+        case .other(let block): return adapt(block).map { [$0] } ?? []
+        }
     }
 
     private static func adapt(_ b: MarkdownBlock) -> Block? {

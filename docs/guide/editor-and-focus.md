@@ -82,6 +82,8 @@ A dotted underline marks a marker with a problem: a citation key no source has, 
 
 Smart typography leaves table rows, labels and cross-references exactly as typed.
 
+On the iPhone, the Read tab draws a figure line as a read-only card: a table figure shows its caption, header and rows (the first twelve, then "+ more rows"; a wide table scrolls inside the card), a picture figure shows its picture. Numbers use the book's language. The card has no number and no "Research has changed" banner, and the phone does not edit it. A figure whose files have not finished syncing shows "Not downloaded yet" with a Retry button.
+
 ### Goals and word count
 
 The bottom-right of the editor shows a goal capsule: today's word count, document word count, reading time. If you set a word target on a document in the Inspector, the capsule shows progress.

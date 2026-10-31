@@ -15,6 +15,11 @@ struct DocumentReaderView: View {
     let docURL: URL
     let title: String
     let projectId: ProjectId
+    /// The project folder, its manifest and this file's project-relative path:
+    /// what a figure line needs to find its card (report plan 9b Task 4).
+    let projectURL: URL
+    let manifest: ProjectManifest
+    let documentPath: String
     let downloads: DownloadCoordinator
     var io: CoordinatedFileIO = .live
     let recents: RecentsTracker
@@ -33,8 +38,25 @@ struct DocumentReaderView: View {
 
     @State private var state: LoadState = .downloading(nil)
     @State private var searchQuery: String = ""
+    /// What each figure line draws, by its path: computed once per load when
+    /// the document has a figure line (tripwire 4: never per block); nil
+    /// while the cards load.
+    @State private var figurePlans: [String: FigureCardPlan]?
+    /// Each picture a plan draws, once tried: a nil value failed (placeholder).
+    @State private var pictures: [URL: UIImage?] = [:]
     /// Bumped to force `.task(id:)` to re-run on Retry.
     @State private var loadAttempt: Int = 0
+    /// Bumped each time the text is shown as Markdown: starts the cards' load.
+    @State private var textShown: Int = 0
+    /// Bumped by a figure card's Retry: reloads the cards, not the text.
+    @State private var figureReload: Int = 0
+
+    /// The cards' load is one `.task` keyed on both, so a Retry (or a new text
+    /// load) cancels a card load still running instead of racing it.
+    private struct FigureLoadID: Equatable {
+        var text: Int
+        var retry: Int
+    }
 
     var body: some View {
         content
@@ -45,6 +67,10 @@ struct DocumentReaderView: View {
             // AttributedString is fiddly and out of scope here.
             .searchable(text: $searchQuery, prompt: Text("Find in document"))
             .task(id: loadAttempt) { await load() }
+            .task(id: FigureLoadID(text: textShown, retry: figureReload)) {
+                guard case let .markdown(blocks) = state, Self.hasFigureLine(blocks) else { return }
+                await loadFigures(blocks)
+            }
     }
 
     @ViewBuilder
@@ -102,7 +128,7 @@ struct DocumentReaderView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                    Self.blockView(block)
+                    blockView(block)
                 }
             }
             .textSelection(.enabled)
@@ -111,17 +137,17 @@ struct DocumentReaderView: View {
     }
 
     @ViewBuilder
-    private static func blockView(_ block: MarkdownBlocks.Block) -> some View {
+    private func blockView(_ block: MarkdownBlocks.Block) -> some View {
         switch block {
         case let .heading(level, text):
             Text(text)
-                .font(headingFont(level)).bold()
+                .font(Self.headingFont(level)).bold()
                 .frame(maxWidth: .infinity, alignment: .leading)
         case let .paragraph(md):
-            Text(inlineEmphasis(md))
+            Text(Self.inlineEmphasis(md))
                 .frame(maxWidth: .infinity, alignment: .leading)
         case let .list(ordered, items):
-            listView(ordered: ordered, items: items)
+            Self.listView(ordered: ordered, items: items)
         case let .code(text):
             Text(text)
                 .font(.system(.footnote, design: .monospaced))
@@ -130,14 +156,27 @@ struct DocumentReaderView: View {
                 .background(Color(.secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         case let .table(header, rows):
-            tableView(header: header, rows: rows)
+            Self.tableView(header: header, rows: rows)
         case let .quote(inner):
             quoteView(inner)
+        case let .figure(caption, path, _):
+            figureView(caption: caption, path: path)
+        case let .caption(text):
+            FigureCaption(text: Self.inlineEmphasis(text))
         case .divider:
             Text("* * *")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
+    }
+
+    /// A figure line's card, looked up from the plans the load computed.
+    private func figureView(caption: String, path: String) -> some View {
+        let plan = figurePlans.map { $0[path] ?? .captionOnly } ?? .loading
+        return FigureCardView(
+            caption: Self.inlineEmphasis(caption), plan: plan,
+            picture: plan.pictureURL.flatMap { pictures[$0] },
+            onRetry: { figureReload += 1 })
     }
 
     private static func listView(ordered: Bool, items: [String]) -> some View {
@@ -178,7 +217,7 @@ struct DocumentReaderView: View {
     // `AnyView`-erased: `blockView` and `quoteView` are mutually recursive
     // (a quote can contain a quote), and opaque `some View` return types
     // can't be inferred through a recursive cycle.
-    private static func quoteView(_ inner: [MarkdownBlocks.Block]) -> some View {
+    private func quoteView(_ inner: [MarkdownBlocks.Block]) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Rectangle()
                 .fill(Color(.separator))
@@ -204,7 +243,7 @@ struct DocumentReaderView: View {
     /// Inline emphasis (`*italic*`, `**bold**`, links) for one paragraph, without
     /// block re-interpretation — `inlineOnlyPreservingWhitespace` keeps the
     /// paragraph's text intact. Falls back to plain text on a parse failure.
-    private static func inlineEmphasis(_ markdown: String) -> AttributedString {
+    static func inlineEmphasis(_ markdown: String) -> AttributedString {
         (try? AttributedString(
             markdown: markdown,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
@@ -293,13 +332,57 @@ struct DocumentReaderView: View {
             // Split into block elements so paragraph breaks + headings survive
             // (AttributedString(markdown:) alone collapses blocks into one run).
             // Inline emphasis is applied per-paragraph in the renderer.
-            state = .markdown(MarkdownBlocks.parse(MarkdownDisplayFilter.stripAnchors(text)))
+            let blocks = MarkdownBlocks.parse(MarkdownDisplayFilter.stripAnchors(text))
+            state = .markdown(blocks)
+            // The text shows first; the cards follow (the figure `.task`) once
+            // the figures' op logs have downloaded and computed.
+            textShown += 1
         case .fountain:
             state = .fountain(Self.parseFountain(text))
         case nil:
             // Render raw text plain — friendlier than a hard failure.
             state = .plain(text)
         }
+    }
+
+    /// The book's cards, then each figure line's plan, then its pictures: once
+    /// per load or Retry, never per block (tripwire 4).
+    @MainActor
+    private func loadFigures(_ blocks: [MarkdownBlocks.Block]) async {
+        figurePlans = nil
+        let figures = PhoneFigureBook(downloads: downloads, io: io)
+        // The manifest on disk now, so a figure registered since the project
+        // opened has its card on Retry.
+        await figures.loadCurrent(projectURL: projectURL, opened: manifest)
+        guard !Task.isCancelled else { return }
+        var plans: [String: FigureCardPlan] = [:]
+        for path in Self.figurePaths(blocks) {
+            plans[path] = FigureCardPlan.plan(
+                card: figures.card(forLinePath: path, documentPath: documentPath),
+                imageURL: figures.imageURL(forLinePath: path, documentPath: documentPath))
+        }
+        figurePlans = plans
+        pictures = [:]
+        for url in FigureCardPlan.picturesToLoad(plans) {
+            let image = try? await PhoneImageLoader.load(url, downloads: downloads, io: io)
+            guard !Task.isCancelled else { return }
+            pictures[url] = .some(image)
+        }
+    }
+
+    /// Every figure line's path, each once in order. Top-level blocks only: a
+    /// quoted figure line is text, as on the Mac and in Publish.
+    static func figurePaths(_ blocks: [MarkdownBlocks.Block]) -> [String] {
+        var seen: Set<String> = []
+        return blocks.compactMap { block in
+            guard case let .figure(_, path, _) = block, seen.insert(path).inserted else { return nil }
+            return path
+        }
+    }
+
+    /// Whether any top-level block is a figure line.
+    static func hasFigureLine(_ blocks: [MarkdownBlocks.Block]) -> Bool {
+        !figurePaths(blocks).isEmpty
     }
 
     private func describe(_ error: Error) -> String {

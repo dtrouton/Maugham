@@ -36,10 +36,7 @@ final class FigureListingModel {
     /// Rebuild from `index` and `store`'s registry; writes only a change, so a
     /// reader is not invalidated by a rebuild that moved nothing it shows.
     func refresh(index: ReferenceIndex, store: ProjectStore) {
-        var paths: [String: String] = [:]
-        for item in TreeWalk.collect(in: store.manifest.structure, where: { $0.path != nil }) {
-            paths[item.id] = item.path
-        }
+        let paths = Self.documentPaths(in: store)
         let next = FigureListing.build(index: index, records: store.manifest.figures ?? [],
                                        documentPathOf: { paths[$0] })
         set(next)
@@ -47,6 +44,17 @@ final class FigureListingModel {
                                               documentPathOf: { paths[$0] })
         if legacy != legacyRows { legacyRows = legacy }
         definedLabels = index.labelsDefined(excluding: "")
+    }
+
+    /// Each binder document's id to its project-relative path: what a figure
+    /// line's path is resolved against. The window's listing and the MCP
+    /// listing (`FigureListingSource`) both ask here.
+    static func documentPaths(in store: ProjectStore) -> [String: String] {
+        var paths: [String: String] = [:]
+        for item in TreeWalk.collect(in: store.manifest.structure, where: { $0.path != nil }) {
+            paths[item.id] = item.path
+        }
+        return paths
     }
 
     private func set(_ next: [FigureListing.Row]) {

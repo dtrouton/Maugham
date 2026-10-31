@@ -39,6 +39,8 @@ Every source file in `MaughamPhone/` appears once.
 - `PaletteLoading.swift`, `PaletteCardView.swift` — the read-only palette section.
 - `StatementLoading.swift` — the Craft Intent row's statement-first lookup (`intentRow(statements:research:)`).
 - `PhoneImageLoader.swift` — the eviction-safe image seam.
+- `PhoneFigureBook.swift` — a book's figure cards through Core (`FigureCache` → `FigureWorkbook` → `FigureCardBook`): streams and config downloaded first, trust resolved once per load, an unreadable or empty-reading figure left out, never shown empty. Cards load on open or Retry, like the reader's text, not when op logs arrive from another device. Tripwires 18, 19, 20, 58.
+- `FigureCardView.swift` — a figure line's read-only card (`FigureCardPlan`, the pure plan the reader computes once per load): table, `FigureCardText`'s words (*Not downloaded yet* with Retry for a figure whose files have not arrived), or picture through `PhoneImageLoader`; no number, no changed banner. Tripwire 4.
 - `ReadIcons.swift` — row icons (`paletteRowSymbol`).
 
 ### `Annotations/`
@@ -71,7 +73,7 @@ Every source file in `MaughamPhone/` appears once.
 - **51 (46 by way of Core's `PostureDoor`) — The phone asks its posture in one place**, `PhonePosture.swift`, through Core's `PostureDoor`: no other phone file names `PostureDoor.` or `Posture.settling` (`test_thePhoneAsksItsPostureInOnePlace`, `test_captureNeverAsksAPosture`; the Mac's `test_postureIsAskedOfThePermitInOnePlace` scans this target too).
 - **37 — The phone recognises no seal line**: `OpLogChain` is the one recogniser (`TripwirePhoneGrepTest.test_noSealLineRecogniserOnThePhone`).
 - **38 — No `device:` string at a `Document.load`**: the Mac census scans this target (`TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`).
-- **39, 40, 41 — The phone makes no trust decision and writes no registry record**; it reaches the writer only through `PhoneDeviceRecord` → `RegistryPresence` (`TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`, `test_thePhoneWritesNoRegistryRecord`).
+- **39, 40, 41 — The phone makes no trust decision and writes no registry record**; it reaches the writer only through `PhoneDeviceRecord` → `RegistryPresence` (`TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`, `test_thePhoneWritesNoRegistryRecord`). Calling Core's `TrustResolution` (Settings' standing, `PhoneFigureBook`) is not a trust decision: the phone only hands Core's table to Core's readers.
 - **53 — `PhonePersonKeyAccess.swift` is the phone's one `PersonKeyStore` construction**, and `PhoneDeviceRecord.findPersonKey` its one find (`PersonKeyCensusTests`, keyed `MaughamPhone/<file>`).
 - **54, 55 — No `"fountain"` literal and no kind/format equality**: ask `DocumentFormat`/`ProjectType`'s capabilities or switch exhaustively; the Mac censuses scan this target (`TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`, `test_projectKindAndFormatAreAskedByCapabilityNotByEquality`).
 
@@ -120,6 +122,7 @@ Every source file in `MaughamPhone/` appears once.
 - **Project scope only, both arms**: a document-scoped statement and a Collection piece's own note are somebody else's; per-piece intent display is deferred.
 - **The Research exclusion follows the ROW, not the note's existence**: an adopted project whose note survived keeps it visible in Research, because it is drawn nowhere else.
 - **The phone shows a statement and never edits one.**
+- **A figure line is a read-only card**: `PhoneFigureBook` computes through Core and `FigureCardView` draws it; the phone shows no number and no changed banner, and it formats numbers in the book's language (`BookLanguage`).
 
 ### Annotations
 - **`store.projects` holds ALL statuses**; mode filtering is a pure view step, and the leaf and middle views re-slice from the store by id, so mid-stack counts stay fresh after a resolve.

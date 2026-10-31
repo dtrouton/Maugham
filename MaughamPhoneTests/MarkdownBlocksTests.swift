@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import MaughamPhone
 
 final class MarkdownBlocksTests: XCTestCase {
@@ -71,5 +72,28 @@ final class MarkdownBlocksTests: XCTestCase {
 
     func test_thematicBreak_becomesDivider() {
         XCTAssertEqual(MarkdownBlocks.parse("***"), [.divider])
+    }
+
+    func test_figureLine_isAFigureWithItsLabel() {
+        XCTAssertEqual(MarkdownBlocks.parse("![Cash](figures/cash.csv){#tbl:cash}"),
+                       [.figure(caption: "Cash", path: "figures/cash.csv",
+                                label: ManuscriptLabel(reference: "tbl:cash"))])
+    }
+
+    func test_headingLabel_isDropped() {
+        XCTAssertEqual(MarkdownBlocks.parse("# Results {#sec:results}"),
+                       [.heading(level: 1, text: "Results")])
+    }
+
+    func test_tableCaption_keepsRowsAndDropsLabel() {
+        let md = "| a | b |\n|---|---|\n| 1 | 2 |\nTable: Totals {#tbl:totals}"
+        XCTAssertEqual(MarkdownBlocks.parse(md),
+                       [.table(header: ["a", "b"], rows: [["1", "2"]]), .caption("Totals")])
+    }
+
+    func test_footnoteDefinitions_areOneParagraphEach() {
+        let md = "[^1]: First note.\n[^2]: Second *note*."
+        XCTAssertEqual(MarkdownBlocks.parse(md),
+                       [.paragraph("[^1]: First note."), .paragraph("[^2]: Second *note*.")])
     }
 }
