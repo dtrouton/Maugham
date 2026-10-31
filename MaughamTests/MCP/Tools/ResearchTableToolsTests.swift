@@ -254,4 +254,129 @@ final class ResearchTableToolsTests: XCTestCase {
         XCTAssertEqual(try bytes(of: item), original, "nothing was written")
         XCTAssertTrue(versions(of: item).isEmpty, "nothing was kept")
     }
+    // MARK: - create_research_table / read_research_table
+
+    private func create(_ book: Book, _ rest: String) async throws -> CreateResearchTableTool.Result {
+        let data = try await CreateResearchTableTool.handle(
+            paramsJSON: Data("{\"project_id\":\"\(book.id)\",\(rest)}".utf8), registry: book.registry)
+        return try JSONDecoder().decode(CreateResearchTableTool.Result.self, from: data)
+    }
+
+    private func readJSON(_ book: Book, _ itemId: String, range: String? = nil) async throws -> [String: Any] {
+        let rangePart = range.map { ",\"range\":\"\($0)\"" } ?? ""
+        let data = try await ReadResearchTableTool.handle(
+            paramsJSON: Data("{\"project_id\":\"\(book.id)\",\"item_id\":\"\(itemId)\"\(rangePart)}".utf8),
+            registry: book.registry)
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func cell(_ read: [String: Any], _ a1: String) throws -> [String: Any] {
+        let cells = try XCTUnwrap(read["cells"] as? [[String: Any]])
+        return try XCTUnwrap(cells.first { $0["a1"] as? String == a1 }, "no \(a1)")
+    }
+
+    /// Created with cells (no blank first version), read back with the
+    /// formula computed and the format shown, in read_figure's cell shapes.
+    func test_createThenReadRoundTripsWithAComputedFormula() async throws {
+        let book = try await openBook()
+        let money = CellFormat(number: .number(decimals: 2, grouping: true))
+        let made = try await create(book, """
+            "title":"Budget","cells":[{"a1":"A1","value":"Item"},{"a1":"B1","value":"Amount"},\
+            {"a1":"A2","value":"Rent"},{"a1":"B2","value":"1234.5","format":\(try json(money))},\
+            {"a1":"A3","value":"Food"},{"a1":"B3","value":"100"},\
+            {"a1":"A4","value":"Total"},{"a1":"B4","value":"=SUM(B2:B3)"}]
+            """)
+        XCTAssertEqual(made.title, "Budget")
+        XCTAssertEqual(made.rows, 4)
+        XCTAssertEqual(made.columns, 2)
+        let item = try XCTUnwrap(book.store.findResearchItem(id: made.item_id, in: book.store.manifest.research))
+        XCTAssertEqual(item.kind, .table)
+        XCTAssertEqual(try rows(of: item), [["Item", "Amount"], ["Rent", "1234.5"], ["Food", "100"],
+                                            ["Total", "=SUM(B2:B3)"]])
+        XCTAssertTrue(versions(of: item).isEmpty, "made with its content: no blank first version")
+        XCTAssertEqual(try ResearchTableSidecar.read(forItem: item.id, in: projectURL)?.writtenBy, .assistant)
+
+        let read = try await readJSON(book, item.id)
+        XCTAssertEqual(read["name"] as? String, "Budget")
+        XCTAssertEqual(read["rows"] as? Int, 4)
+        XCTAssertEqual(read["header_rows"] as? Int, 1)
+        XCTAssertEqual(read["range"] as? String, "all")
+        XCTAssertTrue(read["note"] is NSNull, "note is a fact: null, never absent")
+        XCTAssertEqual(read["research_reads"] as? [String], [])
+        let b4 = try cell(read, "B4")
+        XCTAssertEqual(b4["formula"] as? String, "=SUM(B2:B3)")
+        XCTAssertEqual((b4["raw"] as? [String: Any])?["type"] as? String, "number")
+        XCTAssertEqual((b4["raw"] as? [String: Any])?["value"] as? Double, 1334.5)
+        XCTAssertEqual(try cell(read, "B2")["value"] as? String, "1,234.50")
+        let text = try XCTUnwrap(read["text"] as? String)
+        XCTAssertTrue(text.contains("1,234.50") && text.contains("| A "), text)
+
+        // The cells decode as read_figure's own shape.
+        let data = try JSONSerialization.data(withJSONObject: try XCTUnwrap(read["cells"]))
+        let typed = try JSONDecoder().decode([ReadFigureTool.Cell].self, from: data)
+        XCTAssertEqual(typed.first { $0.a1 == "B2" }?.format, money)
+
+        // The first write keeps the created table, marked as the assistant's.
+        try await write(book, item, #""cells":[{"a1":"B3","value":"200"}]"#)
+        XCTAssertEqual(versions(of: item).map(\.writtenBy), [.assistant])
+        let after = try await readJSON(book, item.id)
+        XCTAssertEqual((try cell(after, "B4")["raw"] as? [String: Any])?["value"] as? Double, 1434.5)
+    }
+
+    /// Plan Review Focus 5: a formula written past the edge grows the table
+    /// and computes in read_research_table.
+    func test_aSumWrittenPastTheEdgeComputes() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\nFood,20\n")
+        try await write(book, item, #""cells":[{"a1":"B4","value":"=SUM(B2:B3)"}]"#)
+        let read = try await readJSON(book, item.id)
+        XCTAssertEqual(read["rows"] as? Int, 4)
+        XCTAssertEqual((try cell(read, "B4")["raw"] as? [String: Any])?["value"] as? Double, 30)
+    }
+
+    /// No cells: New Table's blank shape; an unknown scope is refused.
+    func test_createWithNoCellsIsTheBlankTableAndAScopeMustBeADocument() async throws {
+        let book = try await openBook()
+        let made = try await create(book, #""title":"Blank","scope":"doc-a""#)
+        XCTAssertEqual([made.rows, made.columns], [4, 3])
+        let message = await refusal { _ = try await self.create(book, #""title":"X","scope":"doc-nope""#) }
+        XCTAssertTrue(message.contains("doc-nope"), message)
+    }
+
+    /// `range` limits the cells; one outside the table is a clear error.
+    func test_rangeLimitsTheCells() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\nFood,20\n")
+        let part = try await readJSON(book, item.id, range: "B3:A2")
+        XCTAssertEqual(part["range"] as? String, "A2:B3")
+        XCTAssertEqual((part["cells"] as? [[String: Any]])?.compactMap { $0["a1"] as? String }, ["A2", "B2", "A3", "B3"])
+        let message = await refusal { _ = try await self.readJSON(book, item.id, range: "A1:Z99") }
+        XCTAssertTrue(message.contains("range"), message)
+    }
+
+    /// A `research:` reference inside a Research table computes only through
+    /// pins, which it has none of: the read names the cell and says so.
+    func test_aResearchReferenceSaysItComputesOnlyThroughPins() async throws {
+        let book = try await openBook()
+        let model = try await researchTable(book, "Year,Revenue\n2025,10\n")
+        let made = try await create(book, """
+            "title":"Reader","cells":[{"a1":"A1","value":"From model"},{"a1":"B2","value":"=research:\(model.title)!B2*2"}]
+            """)
+        let read = try await readJSON(book, made.item_id)
+        XCTAssertEqual(read["research_reads"] as? [String], ["B2"])
+        let note = try XCTUnwrap(read["note"] as? String)
+        XCTAssertTrue(note.contains("B2") && note.contains("pins"), note)
+        let raw = try XCTUnwrap(try cell(read, "B2")["raw"] as? [String: Any])
+        XCTAssertNotEqual(raw["value"] as? Double, 20, "it does not compute live: \(raw)")
+    }
+
+    /// Read refuses an unknown item and an item that is not a table.
+    func test_readRefusesAnUnknownItemAndANote() async throws {
+        let book = try await openBook()
+        let note = try await book.store.addResearchTextNote(parentId: nil, title: "A note")
+        var message = await refusal { _ = try await self.readJSON(book, "res-nope") }
+        XCTAssertTrue(message.contains("res-nope"), message)
+        message = await refusal { _ = try await self.readJSON(book, note.id) }
+        XCTAssertTrue(message.contains("not a Research table"), message)
+    }
 }

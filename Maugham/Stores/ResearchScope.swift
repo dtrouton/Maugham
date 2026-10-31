@@ -125,15 +125,16 @@ extension ProjectStore {
             piece: { try await addPieceResearchNote(pieceId: $0, title: title) })
     }
 
-    /// **A blank Research table under `scope`** (D8b-2) — routed as a note
-    /// is: `addResearchTable` / `addPieceResearchTable`.
+    /// **A new Research table under `scope`** (D8b-2), blank or holding
+    /// `content` (report plan 9d Task 5) — routed as a note is:
+    /// `addResearchTable` / `addPieceResearchTable`.
     @discardableResult
     public func createResearchTable(
-        scope: ResearchScope, title: String = "Untitled Table"
+        scope: ResearchScope, title: String = "Untitled Table", content: ResearchTableContent? = nil
     ) async throws -> ResearchItem {
         try await route(scope,
-            shared: { try await addResearchTable(parentId: nil, title: title) },
-            piece: { try await addPieceResearchTable(pieceId: $0, title: title) })
+            shared: { try await addResearchTable(parentId: nil, title: title, content: content) },
+            piece: { try await addPieceResearchTable(pieceId: $0, title: title, content: content) })
     }
 
     @discardableResult

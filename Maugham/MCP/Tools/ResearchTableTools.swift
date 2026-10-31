@@ -96,6 +96,217 @@ public enum WriteResearchCellsTool: MCPTool {
     }
 }
 
+/// `create_research_table(project_id, title, scope?, cells?, header_rows?)` —
+/// a new Research table made holding the assistant's cells (report plan 9d
+/// Task 5). **A write tool** into Research. The table is made with its
+/// content (`ProjectStore.createResearchTable(scope:title:content:)`), so
+/// there is no blank first version; its sidecar says the assistant wrote it,
+/// so the version a later save keeps of it is marked so. Without cells it is
+/// New Table's blank four rows by three columns. The cells are checked as
+/// `write_research_cells` checks them, before anything is made.
+public enum CreateResearchTableTool: MCPTool {
+    public static let method = "create_research_table"
+    public static let description = """
+        Create a Research table (a CSV in the project's Research) titled \
+        `title` (deduplicated: "Budget 2" when "Budget" is taken), filled \
+        with `cells` ([{a1, value?, format?}] exactly as write_research_cells \
+        takes them: machine-form values, "=" formulas with A1 references, \
+        read_figure's format objects). The table is as large as the cells \
+        need; with no cells it is a blank 4 × 3 table. header_rows is 0 or 1 \
+        (default 1). scope is "shared" (default) or a manuscript document's \
+        id (the table goes where a new research note for that document \
+        would go). Returns the new item_id for write_research_cells and \
+        read_research_table.
+        """
+    public static let inputSchemaJSON = #"""
+        {"type":"object","properties":{"project_id":{"type":"string"},"title":{"type":"string"},"scope":{"type":"string","description":"\"shared\" (default) or a manuscript document id."},"cells":{"type":"array","items":{"type":"object","properties":{"a1":{"type":"string"},"value":{"type":"string"},"format":{"type":"object"}},"required":["a1"]}},"header_rows":{"type":"integer","enum":[0,1]}},"required":["project_id","title"]}
+        """#
+
+    public struct Params: Codable {
+        public let project_id: String
+        public let title: String
+        public let scope: String?
+        public let cells: [ResearchTableCellParam]?
+        public let header_rows: Int?
+    }
+
+    struct Result: Codable, Equatable {
+        let item_id: String
+        let title: String
+        let path: String
+        let rows: Int
+        let columns: Int
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        let params = try ResearchTableToolSupport.decode(Params.self, from: paramsJSON, method: method)
+        let entry = try resolveProject(params.project_id, in: registry)
+        let ds = try ResearchTableToolSupport.documentStore(of: entry)
+        let store = entry.store
+        let scope: ResearchScope
+        switch params.scope?.trimmingCharacters(in: .whitespaces) {
+        case nil, "", "shared": scope = .shared
+        case let id?:
+            guard store.isResearchScopeTarget(id) else {
+                throw MCPError.invalidArgument(
+                    "scope '\(id)' is neither \"shared\" nor a manuscript document that takes research (get_outline lists the ids).")
+            }
+            scope = .document(id)
+        }
+        if let header = params.header_rows, !(0...1).contains(header) {
+            throw MCPError.invalidArgument("header_rows must be 0 or 1.")
+        }
+        let edits = try ResearchTableToolSupport.edits(params.cells ?? [])
+        let names = try await ResearchTableToolSupport.formulaNames(ds)
+        var table: FigureTable
+        if edits.isEmpty {
+            table = FigureTable(rows: ProjectStore.blankResearchTableShape.rows,
+                                columns: ProjectStore.blankResearchTableShape.columns)
+        } else {
+            table = FigureTable(rows: 1, columns: 1)
+            try ResearchTableToolSupport.apply(edits, to: &table, names: names)
+        }
+        table.headerRows = params.header_rows ?? 1
+        let content = ProjectStore.ResearchTableContent(
+            table: table, locale: TableLocale(languageTag: await store.bookLanguageTag()), names: names,
+            writtenBy: .assistant)
+        let item: ResearchItem
+        do {
+            item = try await store.createResearchTable(scope: scope, title: params.title, content: content)
+        } catch {
+            throw ResearchTableToolSupport.mcpError(error)
+        }
+        return try JSONEncoder().encode(Result(
+            item_id: item.id, title: item.title, path: item.path ?? "",
+            rows: table.rows.count, columns: table.columns.count))
+    }
+}
+
+/// `read_research_table(project_id, item_id, range?)` — a Research table's
+/// cells with their computed values (report plan 9d Task 5). **Read-only.**
+///
+/// The table is the host's (`openResearchTable`: an open grid's unsaved
+/// edits included), let go at once; its values are computed as the grid
+/// computes them — the book assembled (`DocumentStore.assembledFigures()`)
+/// with the table laid over it under its item id (`FigureWorkbook.overlay`)
+/// — and rendered by `read_figure`'s own renderer (`ReadFigureTool.table`),
+/// so the two tools answer one cell shape. A `research:` reference inside a
+/// Research table reads through pins, and a Research table has none, so it
+/// reads empty or `#REF!` here (the plan's ruling): `research_reads` names
+/// those cells and `note` says why. Past the text budget it is refused with
+/// a hint naming `range`.
+public enum ReadResearchTableTool: MCPTool {
+    public static let method = "read_research_table"
+    public static let description = """
+        Read a Research table (by item_id from list_research) with computed \
+        values. Returns {item_id, name, kind, rows, columns, header_rows, \
+        total_row, range, cells, text, research_reads, note}: cells and text \
+        exactly as read_figure returns them (a1, value as displayed, raw \
+        typed value, formula, format). Pass `range` (A1, e.g. "A1:C10" or \
+        "B3") to read part of a large table; without it a table too large \
+        for one response is refused with a hint naming range. Formulas that \
+        read another Research table (research:name!B2) compute only through \
+        a figure's pins, and a Research table has none, so such cells read \
+        empty or #REF! here; research_reads lists them and note says so. \
+        Read-only.
+        """
+    public static let inputSchemaJSON = #"""
+        {"type":"object","properties":{"project_id":{"type":"string"},"item_id":{"type":"string","description":"The Research table's item id (list_research)."},"range":{"type":"string","description":"An A1 range such as A1:C10, or one cell such as B3."}},"required":["project_id","item_id"]}
+        """#
+
+    public struct Params: Codable {
+        public let project_id: String
+        public let item_id: String
+        public let range: String?
+    }
+
+    struct Result: Codable {
+        let item_id: String
+        let name: String
+        let kind: String
+        let rows: Int
+        let columns: Int
+        let header_rows: Int
+        let total_row: Bool
+        let range: String
+        let cells: [ReadFigureTool.Cell]
+        let text: String
+        let research_reads: [String]
+        let note: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case item_id, name, kind, rows, columns, header_rows, total_row, range, cells, text, research_reads, note
+        }
+
+        /// `note` is a fact: `null` when no cell reads Research, never absent.
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(item_id, forKey: .item_id)
+            try c.encode(name, forKey: .name)
+            try c.encode(kind, forKey: .kind)
+            try c.encode(rows, forKey: .rows)
+            try c.encode(columns, forKey: .columns)
+            try c.encode(header_rows, forKey: .header_rows)
+            try c.encode(total_row, forKey: .total_row)
+            try c.encode(range, forKey: .range)
+            try c.encode(cells, forKey: .cells)
+            try c.encode(text, forKey: .text)
+            try c.encode(research_reads, forKey: .research_reads)
+            try c.encode(note, forKey: .note)
+        }
+    }
+
+    /// What `note` says when cells read another Research table.
+    static func researchNote(_ cells: [String]) -> String {
+        "\(cells.joined(separator: ", ")) \(cells.count == 1 ? "reads" : "read") another Research table "
+            + "(research:…). Inside a Research table such a reference computes only through a figure's "
+            + "pins, and a Research table has none, so it reads empty or #REF! here. A figure whose "
+            + "formula reads the same cells computes them."
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        let params = try ResearchTableToolSupport.decode(Params.self, from: paramsJSON, method: method)
+        let entry = try resolveProject(params.project_id, in: registry)
+        let ds = try ResearchTableToolSupport.documentStore(of: entry)
+        let item = try ResearchTableToolSupport.tableItem(params.item_id, in: entry.store)
+        let host = try await ResearchTableToolSupport.open(item, in: ds)
+        let table = host.state.table
+        await ds.releaseResearchTable(host)
+
+        let names = try await ResearchTableToolSupport.formulaNames(ds)
+        var book: Workbook
+        if var assembled = try? await ds.assembledFigures() {
+            assembled.overlay(FigureState(kind: .table, table: table), id: item.id)
+            book = assembled.workbook
+        } else {
+            book = Workbook(pins: FigurePinIndex())
+            book.setTable(table, id: item.id)
+        }
+        let locale = TableLocale(languageTag: await entry.store.bookLanguageTag())
+        let rendered = try ReadFigureTool.table(
+            id: item.id, name: item.title, table: table, book: book, names: names,
+            range: params.range, locale: locale)
+        let reads = FigurePins.reads(of: table, parked: [:]).keys
+            .compactMap { key -> (Int, Int, String)? in
+                guard let r = table.rowIndex(of: key.row), let c = table.columnIndex(of: key.column) else { return nil }
+                return (r, c, A1.columnLetters(c) + String(r + 1))
+            }
+            .sorted { ($0.0, $0.1) < ($1.0, $1.1) }
+            .map(\.2)
+        let result = Result(
+            item_id: item.id, name: item.title, kind: "table", rows: rendered.rows, columns: rendered.columns,
+            header_rows: table.headerRows, total_row: table.hasTotalRow, range: rendered.range,
+            cells: rendered.cells, text: rendered.text, research_reads: reads,
+            note: reads.isEmpty ? nil : researchNote(reads))
+        return try MCPResponseBudget.enforce(
+            try JSONEncoder().encode(result),
+            hint: "The table is too large to return in one MCP response. "
+                + "Pass `range` (an A1 range such as \"A1:C50\") to read part of it at a time.")
+    }
+}
+
 /// One cell of `write_research_cells` / `create_research_table`: its A1
 /// address, a value in machine form, a `CellFormat` as `read_figure` emits.
 public struct ResearchTableCellParam: Codable {

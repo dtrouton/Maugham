@@ -339,16 +339,32 @@ public enum ReadFigureTool: MCPTool {
 
     // MARK: - A table
 
-    /// The cells of `range` (all of the table when nil) and their text table.
+    /// The cells of `range` (all of the table when nil) and their text table,
+    /// for a figure: its table laid into the publish snapshot's book.
     static func table(
         record: FigureRecord, state: FigureState, snapshot: PublishFigures, research: [ResearchItem],
         range: String?, locale: TableLocale
     ) throws -> TableResult {
-        let table = state.table
-        let rows = table.rows, columns = table.columns
         var book = snapshot.workbook ?? Workbook(pins: FigurePinIndex())
-        book.setTable(table, id: record.id)
-        let value: (CellKey) -> CellValue = { book.value(at: CellAddress(table: record.id, key: $0)) }
+        book.setTable(state.table, id: record.id)
+        let names = FormulaNames(
+            records: snapshot.records, tables: snapshot.states.mapValues(\.table), research: research)
+        return try table(id: record.id, name: record.name, table: state.table, book: book, names: names,
+                         range: range, locale: locale)
+    }
+
+    /// **The one renderer of a table's cells for MCP** — `read_figure`'s and
+    /// `read_research_table`'s: the cells of `range` (all of `table` when
+    /// nil) with each value as `book` computes it under `id` (the caller has
+    /// laid `table` into `book`), formulas rendered by `names`, and the pipe
+    /// table of the cells returned. Refuses a `range` that is not an A1 range
+    /// inside the table.
+    static func table(
+        id: String, name: String, table: FigureTable, book: Workbook, names: FormulaNames,
+        range: String?, locale: TableLocale
+    ) throws -> TableResult {
+        let rows = table.rows, columns = table.columns
+        let value: (CellKey) -> CellValue = { book.value(at: CellAddress(table: id, key: $0)) }
 
         var rowRange = 0..<rows.count, columnRange = 0..<columns.count
         var rangeText = "all"
@@ -371,8 +387,6 @@ public enum ReadFigureTool: MCPTool {
 
         let layout = FigureTableLayout.make(table: table, value: value, locale: locale)
         let display: [[String]] = (layout.header.map { [$0] } ?? []) + layout.body + (layout.total.map { [$0] } ?? [])
-        let names = FormulaNames(
-            records: snapshot.records, tables: snapshot.states.mapValues(\.table), research: research)
 
         var cells: [Cell] = []
         for r in rowRange {
@@ -400,7 +414,7 @@ public enum ReadFigureTool: MCPTool {
             header: columnRange.map { A1.columnLetters($0) }, alignments: alignments,
             rows: rowRange.map { r in columnRange.map { display[r][$0] } }).formatted()
         return TableResult(
-            name: record.name, kind: "table", rows: rows.count, columns: columns.count,
+            name: name, kind: "table", rows: rows.count, columns: columns.count,
             range: rangeText, cells: cells, text: text)
     }
 

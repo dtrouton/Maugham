@@ -48,6 +48,8 @@ public enum MCPToolCatalog {
         ListFiguresTool.self,
         ReadFigureTool.self,
         WriteResearchCellsTool.self,
+        CreateResearchTableTool.self,
+        ReadResearchTableTool.self,
         LinkResearchTool.self,
         UnlinkResearchTool.self,
         ListAllLinksTool.self,
