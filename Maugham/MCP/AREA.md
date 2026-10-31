@@ -19,6 +19,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `MCPResponseBudget.swift` — the text byte budget (`maxTextBytes` 900 KB, `enforce(_:hint:)`). Tripwire 10.
 - `ImageResponseBuilder.swift` — crop-on-demand JPEG responses under a 720 KB raw budget. Tripwire 10.
 - `ProjectRegistry.swift` — the open projects by id (`register`, `unregister`, `lookup`).
+- `FigureListingSource.swift` — the window's figure rows with no window (`rows(store:)`: a throwaway `ReferenceIndexHost` on `Project.window`, then `FigureListing.build`); `list_figures` reads it.
 - `ProjectIdentifier.swift` — a project's stable id, derived from its on-disk path.
 - `SkillsExtension.swift` — the SEP-2640 surface: `skills/list`, `skills/get`, `resources/read` for `skill://` URIs.
 - `ClaudeCodeSkillInstall.swift` — the Claude Code bootstrap-skill installer and the copyable `claude mcp add` command (variant-aware through `BuildVariant`).
