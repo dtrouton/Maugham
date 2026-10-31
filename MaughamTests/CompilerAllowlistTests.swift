@@ -35,6 +35,7 @@ final class CompilerAllowlistTests: XCTestCase {
             "promote_inbox_entry",
             "move_research_item",
             "update_research_citation",
+            "write_research_cells",
             "link_research",
             "unlink_research",
             "write_translation",
