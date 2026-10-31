@@ -86,7 +86,7 @@ public enum ListAnnotationsTool: MCPTool {
     public static let method = "list_annotations"
     public static let description =
         "List annotations on a document (or, with `figure` or a figure id as " +
-        "`document_id`, on a table figure). A document's list also carries the notes " +
+        "`document_id`, on a figure — a table or an image). A document's list also carries the notes " +
         "on the figures its text uses; a figure note has `figure_anchor` " +
         "(`tbl:x!C4` by current positions, or the label alone), `orphaned` " +
         "(its row or column was deleted) and, for a suggestion, `suggested_cell` " +
@@ -142,7 +142,7 @@ public enum ListAnnotationsTool: MCPTool {
                 hint: "Too many figure notes for one response; pass `kinds` or `statuses` to narrow.")
         }
         guard let documentId = params.document_id else {
-            throw MCPError.invalidArgument("Pass `document_id` (a document) or `figure` (a table).")
+            throw MCPError.invalidArgument("Pass `document_id` (a document) or `figure` (a figure).")
         }
 
         var items: [Item] = try await withAnnotationDocument(
@@ -245,9 +245,10 @@ public enum GetAnnotationTool: MCPTool {
     public static let method = "get_annotation"
     public static let description =
         "Return a full annotation record including its lifecycle history " +
-        "(creation + accept/reject/archive/stet ops). A note on a table figure " +
+        "(creation + accept/reject/archive/stet ops). A note on a figure " +
         "(pass `figure`, or the figure's id as `document_id`) also has " +
-        "`figure_anchor`, `orphaned` and, for a suggestion, `suggested_cell`. " +
+        "`figure_anchor`, `orphaned` and, for a suggestion, `suggested_cell`; " +
+        "a document's id also finds a note on a figure its text uses. " +
         "`review_pass_id` is the " +
         "review pass the note was written under; a null one belongs to EVERY " +
         "pass, not to none. `triage` (do/decline/discuss) and stetting are the " +
@@ -275,23 +276,28 @@ public enum GetAnnotationTool: MCPTool {
             return try enc.encode(Result(ann, figure: context, history: history(of: ann.id, in: ops)))
         }
         guard let documentId = params.document_id else {
-            throw MCPError.invalidArgument("Pass `document_id` (a document) or `figure` (a table).")
+            throw MCPError.invalidArgument("Pass `document_id` (a document) or `figure` (a figure).")
         }
-        let result: Result = try await withAnnotationDocument(
+        let result: Result? = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: documentId,
             registry: registry
         ) { doc in
             let all = doc.annotations(filter: .init(statuses: nil))
-            guard let ann = all.first(where: { $0.id == params.annotation_id })
-            else {
-                throw MCPError.invalidArgument(
-                    "annotation_id not found: \(params.annotation_id)")
-            }
+            guard let ann = all.first(where: { $0.id == params.annotation_id }) else { return nil }
             let ops = try await doc.opLog()
             return Result(ann, figure: nil, history: history(of: ann.id, in: ops))
         }
-        return try enc.encode(result)
+        if let result { return try enc.encode(result) }
+        // Not on the document's paragraphs: a note on a figure its text uses,
+        // which this document's `list_annotations` returned (same source).
+        for context in await FigureNoteReading.contexts(usedBy: documentId, entry: entry) {
+            let notes = await entry.store.figureNotes(context.record.id)
+            guard let ann = notes.first(where: { $0.id == params.annotation_id }) else { continue }
+            let ops = await entry.store.figureOps(context.record.id)
+            return try enc.encode(Result(ann, figure: context, history: history(of: ann.id, in: ops)))
+        }
+        throw MCPError.invalidArgument("annotation_id not found: \(params.annotation_id)")
     }
 
     private static func history(of annotationId: String, in ops: [Op]) -> [Result.HistoryEntry] {
@@ -347,7 +353,7 @@ extension ListAnnotationsTool.Item {
 
 // MARK: - Figure notes (report plan 9c-1 Task 6)
 
-/// How the two read tools show a note on a table figure: where it sits now
+/// How the two read tools show a note on a figure: where it sits now
 /// and what a suggestion proposes. The cell shapes are `read_figure`'s
 /// (`ReadFigureTool.Raw`, `CellDisplay`, `FormulaParser.render`), not a copy.
 enum FigureNoteReading {
@@ -421,10 +427,11 @@ enum FigureNoteReading {
             locale: TableLocale(languageTag: await entry.store.bookLanguageTag()))
     }
 
-    /// The table figure a call asks for: `figure` (name or label, found as
+    /// The figure a call asks for: `figure` (name or label, found as
     /// `read_figure` finds it) or a `document_id` that is exactly a figure's
-    /// id. Nil when the call is about a document. Throws when both are given
-    /// or the figure is an image (images take no notes).
+    /// id. Nil when the call is about a document. Throws when both are given.
+    /// An image takes whole-figure notes, so it reads as a table does with
+    /// no table: its anchor is the label alone and no note carries a cell.
     @MainActor
     static func figureTarget(
         figure: String?, documentId: String?, entry: ProjectRegistry.Entry
@@ -437,9 +444,6 @@ enum FigureNoteReading {
                 .trimmingCharacters(in: .whitespaces)
             let snapshot = await entry.store.publishFigures()
             let record = try ReadFigureTool.find(name, in: snapshot.records)
-            guard record.kind == .table else {
-                throw MCPError.invalidArgument("Figure '\(record.name)' is not a table: only a table takes notes.")
-            }
             return Target(context: await context(record, entry: entry, snapshot: snapshot))
         }
         guard let documentId,
@@ -449,13 +453,14 @@ enum FigureNoteReading {
         return Target(context: await context(record, entry: entry, snapshot: snapshot))
     }
 
-    /// The table figures whose lines `documentId` holds, in the listing's order.
+    /// The figures (tables and images) whose lines `documentId` holds, in
+    /// the listing's order.
     @MainActor
     static func contexts(usedBy documentId: String, entry: ProjectRegistry.Entry) async -> [Context] {
         guard !(entry.store.manifest.figures ?? []).isEmpty else { return [] }
         // Whole-book index, as `list_figures` builds: fine for an MCP read.
         let rows = await FigureListingSource.rows(store: entry.store)
-            .filter { $0.kind == .table && $0.usedIn.contains { $0.docId == documentId } }
+            .filter { $0.usedIn.contains { $0.docId == documentId } }
         guard !rows.isEmpty else { return [] }
         let snapshot = await entry.store.publishFigures()
         let byId = Dictionary(snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

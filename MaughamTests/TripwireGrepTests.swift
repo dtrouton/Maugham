@@ -13330,7 +13330,12 @@ final class TripwireGrepTests: XCTestCase {
         "parkInResearch": "figure", "resumeFromResearch": "figure",
         "refreshPins": "figure",
         // A checkpoint restore's figure ops (report plan 6c Task 2), behind
-        // the same guard; a parked figure is skipped, not written.
+        // the same guard; a parked figure is skipped, not written. Its note
+        // lines (report plan 9c-1: a stranded accept's `claudeAcceptRevert`,
+        // cell-carrying or status-only, and `claudeArchive`) ask their own
+        // verbs first through `mayHere`: `.acceptOrReject` for any revert
+        // (refused → the restore throws `FigureEditRefused` before any op),
+        // `.dispose` for an archive (refused → a status-only revert instead).
         "restoreToCheckpoint": "figure",
         // The batch verbs (report plan 7c Task 1): many cells or row moves
         // behind one door check, one render and one ⌘Z; `applyChanges`

@@ -377,12 +377,9 @@ extension FigureDocument {
         let note = try note(id)
         let prior = note.status, priorReason = note.userResponse
         let built: Op
-        switch prior {
-        case .rejected, .archived, .stetted:
-            built = FigureAnnotationOps.reopen(annotationId: id, stamp: noteStamp)
-        case .accepted where note.kind != .suggestedChange:
-            built = FigureAnnotationOps.statusOnlyRevert(annotationId: id, stamp: noteStamp)
-        case .accepted, .open:
+        do {
+            built = try FigureAnnotationOps.reopen(for: note, docId: figureId, stamp: noteStamp)
+        } catch {
             throw FigureNoteError.cannotReopen
         }
         try await commitNoteOp(built, render: false)

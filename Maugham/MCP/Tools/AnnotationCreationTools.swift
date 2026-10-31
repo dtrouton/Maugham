@@ -99,7 +99,8 @@ public enum AddSuggestedChangeTool: MCPTool {
         "text surrounding the quote. The user accepts (applies the change) or " +
         "rejects (with reasoning). To propose a value for ONE table cell (tables only), pass " +
         "`figure` (tbl:name!C3) and `suggested_value` instead of the paragraph " +
-        "fields: a number with `.` for the decimal and no grouping (1234.5), text, " +
+        "fields: a number with `.` for the decimal and no grouping (1234.5; a number " +
+        "with a comma such as 1,500 or 1,5 is refused), text, " +
         "or a formula starting `=` with A1 references by the cell positions " +
         "read_figure shows; empty proposes clearing the cell. The author accepts " +
         "it in the grid; the cell is never written for you."

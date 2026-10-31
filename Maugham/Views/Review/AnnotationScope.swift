@@ -195,7 +195,7 @@ struct FigureRowGate: Equatable {
             cells: annotation.kind == .suggestedChange ? cells : nil,
             acceptDisabledReason: inTheTable ? Self.acceptInTheTable : nil,
             revertDisabledReason: inTheTable ? Self.revertInTheTable : nil)
-        self.reopensAnAccept = !inTheTable && annotation.kind != .suggestedChange
+        self.reopensAnAccept = FigureAnnotationOps.reopensAnAccept(annotation, docId: figureId)
     }
 
     /// **The posture's verbs, narrowed to what a figure stream can write.**

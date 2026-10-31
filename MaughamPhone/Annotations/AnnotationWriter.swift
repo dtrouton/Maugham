@@ -289,15 +289,11 @@ struct AnnotationWriter: Sendable {
     /// An accepted figure suggestion is the Mac grid's (`acceptsInTheTable`).
     func makeReopen(for annotation: Annotation) throws -> Op {
         if let stamp = figureStamp {
-            switch annotation.status {
-            case .rejected, .archived, .stetted:
-                return FigureAnnotationOps.reopen(annotationId: annotation.id, stamp: stamp)
-            case .accepted:
-                if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
-                    throw WriteError.acceptsInTheTable(annotationId: annotation.id)
-                }
-                return FigureAnnotationOps.statusOnlyRevert(annotationId: annotation.id, stamp: stamp)
-            case .open:
+            do {
+                return try FigureAnnotationOps.reopen(for: annotation, docId: docId, stamp: stamp)
+            } catch FigureAnnotationOps.ReopenRefusal.acceptedInTheTable {
+                throw WriteError.acceptsInTheTable(annotationId: annotation.id)
+            } catch {
                 throw WriteError.notReopenable(annotationId: annotation.id)
             }
         }

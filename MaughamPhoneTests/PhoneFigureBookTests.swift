@@ -338,6 +338,39 @@ final class PhoneFigureBookTests: XCTestCase {
     /// `.image` and the URL resolves, though no card was built. A `figures/`
     /// path the registry does not name plans as not downloaded yet, never
     /// "Figure removed": the phone cannot tell removed from not yet synced.
+    /// **The Annotations tab reuses one book per project** (final review M7):
+    /// a second figure-suggestion detail reads the kept answer — no second
+    /// trust resolve, download or fold — until the tab reloads.
+    func test_annotationsReuseOneBookPerProjectUntilTheNextReload() async throws {
+        let (root, manifest) = try await fixture()
+        try ProjectManifest.makeEncoder().encode(manifest)
+            .write(to: root.appendingPathComponent(ProjectManifest.fileName))
+        let downloads = DownloadCoordinator(downloader: EvictingDownloader())
+        let browser = ProjectsBrowser(downloads: downloads)
+        await browser.refresh(root: root.deletingLastPathComponent())
+        let project = try XCTUnwrap(browser.projects.first { $0.url.standardizedFileURL == root.standardizedFileURL })
+        var made: [PhoneFigureBook] = []
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "annotations-books-\(UUID().uuidString)"))
+        let store = AnnotationsStore(
+            projectsBrowser: browser, downloads: downloads, recents: RecentsTracker(defaults: defaults),
+            makeFigureBook: { downloads in
+                let book = PhoneFigureBook(downloads: downloads, region: "US")
+                made.append(book)
+                return book
+            })
+
+        let first = await store.figureReading(projectURL: project.url)
+        XCTAssertNotNil(first)
+        _ = await store.figureReading(projectURL: project.url)
+        XCTAssertEqual(made.count, 1, "one book for the project")
+        XCTAssertEqual(made.first?.trustResolutions, 1, "the second detail reads the kept answer")
+
+        await store.reload()
+        _ = await store.figureReading(projectURL: project.url)
+        XCTAssertEqual(made.count, 1, "the book is kept across a reload")
+        XCTAssertEqual(made.first?.trustResolutions, 2, "a reload reads the book afresh")
+    }
+
     func test_aBookWithNoRegistryStillAnswersAPictureLine() async throws {
         let (root, manifest) = try await fixture()
         var none = manifest

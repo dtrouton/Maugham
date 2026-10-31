@@ -43,8 +43,8 @@ final class FigureAnnotationReadTests: XCTestCase {
     }
 
     /// A book with a 3x3 table `cash` (B2 = 100) and one image-less registry.
-    private func openBook() async throws -> Book {
-        try "Opening.\n\n![Cash flow](../figures/cash.csv){#tbl:cash}\n".write(
+    private func openBook(alsoInA: String = "") async throws -> Book {
+        try ("Opening.\n\n![Cash flow](../figures/cash.csv){#tbl:cash}\n" + alsoInA).write(
             to: projectURL.appendingPathComponent("manuscript/a.md"), atomically: true, encoding: .utf8)
         try "Elsewhere.\n".write(to: projectURL.appendingPathComponent("manuscript/b.md"),
                                  atomically: true, encoding: .utf8)
@@ -196,6 +196,57 @@ final class FigureAnnotationReadTests: XCTestCase {
         XCTAssertEqual(comments.count, 2)
     }
 
+    // MARK: - An image figure (final review I1)
+
+    /// An image takes whole-figure notes (`add_comment` with `fig:photo`), so
+    /// both read tools read them back: by `figure`, by the figure's id, and in
+    /// the list of a document whose text uses the picture. The anchor is the
+    /// label alone; there is no cell.
+    func test_aNoteOnAnImageReadsBackByFigureAndThroughTheDocumentUsingIt() async throws {
+        let book = try await openBook(alsoInA: "\n![Photo](../figures/photo){#fig:photo}\n")
+        let photo = try await book.store.createFigure(kind: .image, name: "photo", piece: nil)
+        let id = try await make(AddCommentTool.self, book, #""figure":"fig:photo","body":"Crop it""#)
+
+        let byFigure = try await list(book, #""figure":"fig:photo""#)
+        XCTAssertEqual(byFigure.compactMap { $0["body"] as? String }, ["Crop it"])
+        XCTAssertEqual(byFigure.first?["figure_anchor"] as? String, "fig:photo")
+        XCTAssertNil(byFigure.first?["suggested_cell"])
+        let byId = try await list(book, #""document_id":"\#(photo.id)""#)
+        XCTAssertEqual(byId.compactMap { $0["body"] as? String }, ["Crop it"])
+
+        let one = try await get(book, #""figure":"fig:photo","annotation_id":"\#(id)""#)
+        XCTAssertEqual(one["body"] as? String, "Crop it")
+        XCTAssertEqual(one["figure_anchor"] as? String, "fig:photo")
+
+        let inDocument = try await list(book, #""document_id":"doc-a""#)
+        XCTAssertTrue(inDocument.contains { $0["body"] as? String == "Crop it" },
+                      "a document using the picture lists its notes: \(inDocument)")
+    }
+
+    // MARK: - get_annotation by a document's id (final review M4)
+
+    /// A document's `list_annotations` carries the notes on the figures its
+    /// text uses; `get_annotation` with that document's id finds each of them.
+    func test_getByTheDocumentFindsAFigureNoteItsListReturned() async throws {
+        let book = try await openBook()
+        let id = try await make(AddSuggestedChangeTool.self, book,
+                                #""figure":"tbl:cash!C3","body":"Sum","suggested_value":"5""#)
+        let listed = try await list(book, #""document_id":"doc-a""#)
+        XCTAssertTrue(listed.contains { $0["id"] as? String == id }, "premise: the document's list returns it")
+
+        let one = try await get(book, #""document_id":"doc-a","annotation_id":"\#(id)""#)
+        XCTAssertEqual(one["figure_anchor"] as? String, "tbl:cash!C3")
+        XCTAssertNotNil(one["suggested_cell"])
+        XCTAssertFalse((one["history"] as? [Any] ?? []).isEmpty)
+
+        do {
+            _ = try await get(book, #""document_id":"doc-b","annotation_id":"\#(id)""#)
+            XCTFail("a document that does not use the figure does not find its note")
+        } catch {
+            XCTAssertTrue("\(error)".contains("annotation_id not found"), "\(error)")
+        }
+    }
+
     // MARK: - Errors and edges
 
     func test_getAnUnknownAnnotationOnAFigureIsRefused() async throws {
@@ -229,6 +280,6 @@ final class FigureAnnotationReadTests: XCTestCase {
         let both = await message(#""figure":"tbl:cash","document_id":"doc-a""#)
         XCTAssertTrue(both.contains("not both"), both)
         let neither = await message(#""kinds":["comment"]"#)
-        XCTAssertTrue(neither.contains("Pass `document_id` (a document) or `figure` (a table)"), neither)
+        XCTAssertTrue(neither.contains("Pass `document_id` (a document) or `figure` (a figure)"), neither)
     }
 }

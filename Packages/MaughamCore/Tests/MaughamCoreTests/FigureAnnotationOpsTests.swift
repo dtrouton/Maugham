@@ -68,6 +68,22 @@ final class FigureAnnotationOpsTests: XCTestCase {
         XCTAssertEqual(rowOnly, FigureCellAnchor(row: r2, column: c1, columnEnd: c3))
     }
 
+    /// **Reversed corners read as the range they name** (final review
+    /// triage): `C3:A2` is stored in the order given (storage order is
+    /// behaviour-neutral), reads back `A2:C3`, and orphans when either
+    /// corner's row or column goes.
+    func test_anchor_reversedCornersNormaliseAndOrphanOnEitherCorner() throws {
+        let anchor = try FigureAnchorAddress.anchor("C3:A2", in: table).get()
+        let note = try FigureAnnotationOps.creation(kind: .comment, anchor: anchor, body: "x", author: claude, stamp: stamp())
+        XCTAssertEqual(derive(base() + [note]).first?.figureAddress, "A2:C3")
+        for gone in [figureOp(.figureStructure, .init(structure: .deleteRow(r2))),
+                     figureOp(.figureStructure, .init(structure: .deleteColumn(c3)))] {
+            let read = try XCTUnwrap(derive(base() + [note, gone]).first)
+            XCTAssertTrue(read.figureOrphaned, "orphaned when a corner goes: \(gone.figure?.structure as Any)")
+            XCTAssertNil(read.figureAddress)
+        }
+    }
+
     func test_anchor_ofAnOutOfRangeCell_isAnError() {
         for bad in ["D1", "A4", "A1:D9", "nope", ""] {
             XCTAssertThrowsError(try FigureAnchorAddress.anchor(bad, in: table).get(), bad)
@@ -81,6 +97,27 @@ final class FigureAnnotationOpsTests: XCTestCase {
         XCTAssertEqual(try FigureAnnotationOps.suggestedCell(from: "1234.5", at: key, table: table, names: .empty).get(),
                        num(1234.5))
         XCTAssertNil(try FigureAnnotationOps.suggestedCell(from: "", at: key, table: table, names: .empty).get())
+    }
+
+    /// **A number never carries a comma** (controller ruling): `1,500`,
+    /// `1,234.5` and `1,5` are refused with the form named, never read as
+    /// 1500, 1234.5 (with a grouping format) or the text "1,5". Text with a
+    /// comma, a formula's argument commas, and a quoted `'1,5` stand.
+    func test_suggestedCell_aNumberWithACommaIsRefusedNamingTheForm() throws {
+        for bad in ["1,500", "1,234.5", "1,5", "-1,5", "1,5%"] {
+            switch FigureAnnotationOps.suggestedCell(from: bad, at: c3Key, table: table, names: .empty) {
+            case .success(let cell): XCTFail("\(bad) read as \(String(describing: cell))")
+            case .failure(let error):
+                XCTAssertEqual(error.message, FigureAnnotationOps.commaRefusal, bad)
+                XCTAssertTrue(error.message.contains("'.' for the decimal and no grouping"), bad)
+            }
+        }
+        XCTAssertEqual(try FigureAnnotationOps.suggestedCell(from: "Smith, J.", at: c3Key, table: table, names: .empty).get(),
+                       Cell(content: .value(.text("Smith, J."))))
+        XCTAssertEqual(try FigureAnnotationOps.suggestedCell(from: "'1,5", at: c3Key, table: table, names: .empty).get()?.content,
+                       .value(.text("1,5")))
+        let formula = try FigureAnnotationOps.suggestedCell(from: "=SUM(A1,B2)", at: c3Key, table: table, names: .empty).get()
+        guard case .formula = formula?.content else { return XCTFail("a formula's commas are its own") }
     }
 
     func test_suggestedCell_formulaIsStoredByIds() throws {
@@ -325,6 +362,40 @@ final class FigureAnnotationOpsTests: XCTestCase {
         notes = derive(base() + [query, reply, revert])
         XCTAssertEqual(notes.first?.status, .open)
         XCTAssertEqual(FigureDeriver.derive(base() + [query, reply, revert]).table, table)
+    }
+
+    /// **Which op reopens a figure note** (final review M5, the Mac's and the
+    /// phone's one answer): rejected/archived/stetted → `annotationReopen`;
+    /// an accepted note that wrote no cell → a status-only revert; an
+    /// accepted figure suggestion and an open note → refused.
+    func test_reopenForANote_byItsStatus() throws {
+        let comment = try FigureAnnotationOps.creation(kind: .comment, anchor: nil, body: "c", author: claude, stamp: stamp())
+        let suggestionOp = try suggestion()
+        func note(_ creation: Op, then: [Op]) throws -> Annotation {
+            try XCTUnwrap(derive(base() + [creation] + then).first { $0.id == creation.opId })
+        }
+        let open = try note(comment, then: [])
+        XCTAssertThrowsError(try FigureAnnotationOps.reopen(for: open, docId: figureId, stamp: stamp())) {
+            XCTAssertEqual($0 as? FigureAnnotationOps.ReopenRefusal, .alreadyOpen)
+        }
+        for settle in [FigureAnnotationOps.archive(annotationId: comment.opId, stamp: stamp()),
+                       FigureAnnotationOps.stet(annotationId: comment.opId, stamp: stamp()),
+                       FigureAnnotationOps.reject(annotationId: comment.opId, reason: "no", stamp: stamp())] {
+            let built = try FigureAnnotationOps.reopen(for: try note(comment, then: [settle]), docId: figureId, stamp: stamp())
+            XCTAssertEqual(built.kind, .annotationReopen)
+            XCTAssertEqual(built.provenance?.sourceAnnotationId, comment.opId)
+        }
+        let gotIt = try note(comment, then: [FigureAnnotationOps.statusOnlyAccept(annotationId: comment.opId, stamp: stamp())])
+        XCTAssertTrue(FigureAnnotationOps.reopensAnAccept(gotIt, docId: figureId))
+        let revert = try FigureAnnotationOps.reopen(for: gotIt, docId: figureId, stamp: stamp())
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertNil(revert.figure, "status only")
+        let accepted = try note(suggestionOp, then: [FigureAnnotationOps.accept(
+            annotationId: suggestionOp.opId, cell: c3Key, next: num(12), prior: num(11.5), stamp: stamp())])
+        XCTAssertFalse(FigureAnnotationOps.reopensAnAccept(accepted, docId: figureId))
+        XCTAssertThrowsError(try FigureAnnotationOps.reopen(for: accepted, docId: figureId, stamp: stamp())) {
+            XCTAssertEqual($0 as? FigureAnnotationOps.ReopenRefusal, .acceptedInTheTable)
+        }
     }
 
     /// Accepted only in the table: a suggestion on a figure's stream (by its

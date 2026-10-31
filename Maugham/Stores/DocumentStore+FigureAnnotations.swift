@@ -46,7 +46,7 @@ extension DocumentStore {
     ///   never thrown: the note is already on disk, and a retry would mint a
     ///   duplicate.
     /// - **Otherwise windowless**: a store built as a load's is
-    ///   (`Document.makeLoadOpStore`).
+    ///   (`Document.makeLoadOpStore`), sealed straight after the append.
     ///
     /// Then the figure's cached line and the window's cards are dropped, and
     /// `maughamAnnotationsChanged` names the figure once. No CSV render: a
@@ -77,7 +77,17 @@ extension DocumentStore {
             guard try await !figureIsParked(figureId) else {
                 throw FigureParkedRefused(site: "addFigureAnnotation", kind: record.kind)
             }
-            try await Document.makeLoadOpStore(projectURL: projectURL, presenter: presenter).append(op)
+            let store = Document.makeLoadOpStore(projectURL: projectURL, presenter: presenter)
+            try await store.append(op)
+            // Sealed now, as `ProjectStore`'s windowless figure write seals:
+            // this store dies with the call, so no cadence or close would
+            // ever sign the line. The counter seals exactly the file the
+            // append wrote; a failure is logged, never thrown (the note is
+            // on disk).
+            do { _ = try await store.sealChain(docId: figureId) } catch {
+                documentLog.error(
+                    "figure \(figureId, privacy: .public) note was not sealed: \(error.localizedDescription, privacy: .public)")
+            }
         }
         figureCache.invalidate(figureId: figureId)
         invalidateFigureCards()

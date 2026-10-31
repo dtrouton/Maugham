@@ -110,6 +110,20 @@ final class FigureAnnotationWriteTests: XCTestCase {
         XCTAssertEqual(notes.first?.figureAnchor?.row, table.rows[0])
     }
 
+    /// **A windowless note is sealed**: the store it was appended with dies
+    /// with the call, so the assistant's file must end on a seal line there
+    /// and then — no cadence or close would ever sign it (final review M1).
+    func test_aWindowlessNoteIsSealedInTheAssistantsFile() async throws {
+        let (store, projectStore, figure) = try await openBook()
+        let table = try await table(figure, store)
+        try await store.addFigureAnnotation(try assistantComment(on: figure, table: table, body: "Sealed?"))
+        withExtendedLifetime(projectStore) {}
+        let lines = try Data(contentsOf: try assistantStream(figure))
+            .split(separator: UInt8(0x0A), omittingEmptySubsequences: true)
+        let last = try XCTUnwrap(lines.last)
+        XCTAssertTrue(OpLogChain.isSealLine(Data(last)), "the assistant's file ends on a seal line")
+    }
+
     /// **Through the open host**: the host's streams and fold carry the note,
     /// its next edit is minted after it (the frontier advanced, even past a
     /// note whose id sorts in the future), and that edit drops nothing.

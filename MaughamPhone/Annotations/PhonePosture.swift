@@ -268,7 +268,7 @@ final class PhonePosture {
         case .rejected, .archived, .stetted:
             return offers(.reopen, under: posture) ? .reopen : nil
         case .accepted:
-            if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) { return nil }
+            guard FigureAnnotationOps.reopensAnAccept(annotation, docId: docId) else { return nil }
             return offers(.reopen, under: posture) ? .reopen : nil
         case .open:
             return nil

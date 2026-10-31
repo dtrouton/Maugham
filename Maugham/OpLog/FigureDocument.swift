@@ -297,6 +297,11 @@ public final class FigureDocument {
     /// a local commit racing the read is put. Nil in production.
     static var afterReloadReadForTesting: (@MainActor (FigureDocument) async -> Void)?
 
+    /// Test seam: the amendment table every read judges notes by, in place
+    /// of the registry's (a reopen the fold does not honour, without a
+    /// reviewer's whole registry). Nil in production.
+    static var amendmentsForTesting: AnnotationAmendments?
+
     /// Test seam: thrown from just before `commit`'s append, to prove what a
     /// failed append leaves behind. Nil in production.
     static var beforeCommitAppendForTesting: ((Op) throws -> Void)?
@@ -378,15 +383,27 @@ public final class FigureDocument {
     /// whose append returned before the read began is in the stream the read
     /// walked, so if the read held or refused it, `state` agrees with that
     /// verdict rather than keeping the op until close (residual N-1).
+    ///
+    /// **A reload overtaken by a later one waits for it** before returning
+    /// (it lands nothing of its own: the later read is newer). So `await
+    /// reload()` always means *the state is at least as current as when I
+    /// called* — what every caller assumes, `DocumentStore.addFigureAnnotation`
+    /// posting its change straight after, a test asserting what it appended.
+    /// A read that throws, or a close, releases its waiters.
     public func reload() async throws {
         guard !isClosed else { return }
         reloadGeneration += 1
         let generation = reloadGeneration
+        defer { reloadSettled(generation) }
         let inTheStreamBeforeTheRead = appendedLocalOpIds
         let (ops, read, provenance, amendments) = try await Self.readHistory(
             figureId: figureId, projectURL: projectURL, opStore: opStore)
         if let hook = Self.afterReloadReadForTesting { await hook(self) }
-        guard !isClosed, generation == reloadGeneration else { return }
+        guard !isClosed else { return }
+        guard generation == reloadGeneration else {
+            await reloadLanded(through: reloadGeneration)
+            return
+        }
         let seen = Set(ops.map(\.opId)).union(inTheStreamBeforeTheRead)
         unconfirmedLocalOpIds.subtract(seen)
         appendedLocalOpIds.subtract(seen)
@@ -399,6 +416,26 @@ public final class FigureDocument {
         self.provenance = provenance
         annotationAmendments = amendments
         state = Self.derive(_ops)
+    }
+
+    /// The newest reload generation that has finished (landed, thrown, or
+    /// itself waited out), and the overtaken reloads waiting on a later one.
+    @ObservationIgnored private var settledReloadGeneration = 0
+    @ObservationIgnored private var reloadWaiters: [(through: Int, resume: CheckedContinuation<Void, Never>)] = []
+
+    /// Returns once reload `generation` (or a later one) has finished, or
+    /// the document has closed.
+    private func reloadLanded(through generation: Int) async {
+        guard !isClosed, settledReloadGeneration < generation else { return }
+        await withCheckedContinuation { reloadWaiters.append((generation, $0)) }
+    }
+
+    /// Reload `generation` finished: release every waiter it satisfies.
+    private func reloadSettled(_ generation: Int) {
+        settledReloadGeneration = max(settledReloadGeneration, generation)
+        let ready = reloadWaiters.filter { $0.through <= settledReloadGeneration || isClosed }
+        reloadWaiters.removeAll { $0.through <= settledReloadGeneration || isClosed }
+        for waiter in ready { waiter.resume.resume() }
     }
 
     /// The read, and the amendment table its notes are judged by — the one
@@ -423,7 +460,8 @@ public final class FigureDocument {
             }
         }
         return (loaded.ops, loaded.streams, loaded.provenance,
-                Document.judgedAmendments(opStore: opStore, permits: permits, docId: figureId))
+                amendmentsForTesting
+                    ?? Document.judgedAmendments(opStore: opStore, permits: permits, docId: figureId))
     }
 
     /// The figure's own ops only: a note anchored on a cell rides the same
@@ -438,6 +476,7 @@ public final class FigureDocument {
     public func close() async {
         guard !isClosed else { return }
         isClosed = true
+        reloadSettled(reloadGeneration)
         if let imageUndoFolder { try? FileManager.default.removeItem(at: imageUndoFolder) }
         imageUndoFolder = nil
         do { _ = try await opStore.sealChain(docId: figureId) } catch {
@@ -1558,6 +1597,13 @@ public final class FigureDocument {
         let parks = try await currentParks(reading: first)
         let wanted = first.image.flatMap { $0.contentHash == state.image?.contentHash ? nil : $0 }
         let picture = await keptPicture(wanted, hashes: pictureHashes)
+        // The note lines a restore may write answer a note, so each asks the
+        // verb it IS (final review M2): a revert that reopens one asks
+        // `.acceptOrReject` (as `appendCompensation` does), an archive
+        // `.dispose`. Asked before the door's last await, so nothing lands
+        // between the answer and the writes.
+        let mayAnswerNotes = await mayHere(.acceptOrReject)
+        let mayDisposeNotes = await mayHere(.dispose)
         // The reads awaited: the door is asked again before anything is written.
         do { try await requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
         if FigureRestoreDiff.wentToResearch(since: pointer, in: _ops) { return .skippedWentToResearch }
@@ -1571,7 +1617,19 @@ public final class FigureDocument {
         let pictureChange = changes.first { $0.kind == .figureImageSet }?.payload.image
         let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
         let reason = Op.Provenance(sourceCheckpoint: checkpointId)
-        let (restoreChanges, noteLines) = answeringStrandedAccepts(tableChanges, above: pointer, target: target)
+        let (restoreChanges, stranded) = answeringStrandedAccepts(tableChanges, above: pointer, target: target)
+        // Where this hand may not dispose of a note, a stranded accept whose
+        // cell is gone is reopened instead of archived (status only): open
+        // over a deleted cell is honest, and the author can archive it.
+        let noteLines = stranded.map { kind, id in
+            (kind == .claudeArchive && !mayDisposeNotes ? .claudeAcceptRevert : kind, id)
+        }
+        if !mayAnswerNotes,
+           !noteLines.isEmpty || restoreChanges.contains(where: { $0.sourceAnnotationId != nil }) {
+            documentLog.error(
+                "restoreToCheckpoint refused on \(self.figureId, privacy: .public): it would answer a note this device may not answer")
+            throw FigureEditRefused(site: "restoreToCheckpoint")
+        }
         lastRestoreNotes = FigureRestoreNotes()
         // Every change was worked out against this fold: a reload replaces it.
         let generation = reloadGeneration
@@ -1645,7 +1703,11 @@ public final class FigureDocument {
     ) -> ([FigureReturnDiff.Change], [(OpKind, String)]) {
         let accepted = Set(annotations().filter { $0.status == .accepted }.map(\.id))
         var latest: [String: Op] = [:]
-        for op in _ops where Self.noteLifecycleKinds.contains(op.kind) {
+        // Honoured lines only (final review M3): a reopen the fold does not
+        // honour never happened as far as the note's status goes, so it must
+        // not stand as the latest line and hide the accept it follows.
+        for op in _ops where Self.noteLifecycleKinds.contains(op.kind)
+            && AnnotationDeriver.isHonouredLifecycleOp(op, amendments: annotationAmendments) {
             guard let id = op.provenance?.sourceAnnotationId, accepted.contains(id) else { continue }
             if latest[id].map({ op.opId > $0.opId }) ?? true { latest[id] = op }
         }

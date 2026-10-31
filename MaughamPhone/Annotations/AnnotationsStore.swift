@@ -27,10 +27,22 @@ final class AnnotationsStore {
     /// tripwire 5).
     private(set) var postures = PhonePosture.forANewLoad()
 
-    init(projectsBrowser: ProjectsBrowser, downloads: DownloadCoordinator, recents: RecentsTracker) {
+    /// **One figure book per project, reused by every figure-suggestion
+    /// detail** (final review M7): its `FigureCache` hits on unchanged files,
+    /// and the reading it answers is kept until the next `reload` — so a tap
+    /// on a suggestion does not download and fold the whole book again.
+    private let makeFigureBook: @MainActor (DownloadCoordinator) -> PhoneFigureBook
+    private var figureBooks: [URL: PhoneFigureBook] = [:]
+    private var figureReadings: [URL: PhoneFigureBook.SuggestionReading] = [:]
+
+    init(projectsBrowser: ProjectsBrowser, downloads: DownloadCoordinator, recents: RecentsTracker,
+         makeFigureBook: @escaping @MainActor (DownloadCoordinator) -> PhoneFigureBook = {
+             PhoneFigureBook(downloads: $0)
+         }) {
         self.projectsBrowser = projectsBrowser
         self.downloads = downloads
         self.recents = recents
+        self.makeFigureBook = makeFigureBook
     }
 
     /// Drop every posture this load asked, and every table behind them, so
@@ -46,10 +58,16 @@ final class AnnotationsStore {
     /// 9c-1 Task 7): the book's formula names and locale, through the figure
     /// cards' own reader (`PhoneFigureBook`, downloads first), so the detail
     /// reads `=other!A1` as the Mac does. Nil for a project not browsed.
+    /// Read once per load: the project's one book answers it, and the
+    /// answer stands until the next `reload` (a pull, a resolve's tick).
     func figureReading(projectURL: URL) async -> PhoneFigureBook.SuggestionReading? {
+        if let kept = figureReadings[projectURL] { return kept }
         guard let project = projectsBrowser.projects.first(where: { $0.url == projectURL }) else { return nil }
-        return await PhoneFigureBook(downloads: downloads)
-            .suggestionReading(projectURL: projectURL, opened: project.manifest)
+        let book = figureBooks[projectURL] ?? makeFigureBook(downloads)
+        figureBooks[projectURL] = book
+        let reading = await book.suggestionReading(projectURL: projectURL, opened: project.manifest)
+        figureReadings[projectURL] = reading
+        return reading
     }
 
     func loadIfNeeded() async {
@@ -64,6 +82,7 @@ final class AnnotationsStore {
         defer { isLoading = false; didLoad = true }
         // A reload is a new load: new stores, nothing remembered.
         postures = PhonePosture.forANewLoad()
+        figureReadings = [:]
 
         var results: [ProjectAnnotations] = []
         for project in projectsBrowser.projects {

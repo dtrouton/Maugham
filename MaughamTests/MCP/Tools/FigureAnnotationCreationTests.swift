@@ -169,6 +169,12 @@ final class FigureAnnotationCreationTests: XCTestCase {
         msg = await failure(AddSuggestedChangeTool.self, book,
                             #""figure":"tbl:cash!A1","body":"x","suggested_value":"=SUM(""#)
         XCTAssertTrue(msg.contains("does not parse"), msg)
+        for comma in ["1,500", "1,234.5", "1,5"] {
+            msg = await failure(AddSuggestedChangeTool.self, book,
+                                #""figure":"tbl:cash!A1","body":"x","suggested_value":"\#(comma)""#)
+            XCTAssertTrue(msg.contains("for the decimal and no grouping") && msg.contains("comma"),
+                          "a comma names the form: \(msg)")
+        }
         msg = await failure(AddSuggestedChangeTool.self, book,
                             #""figure":"tbl:cash!A1","body":"x","suggested_text":"1""#)
         XCTAssertTrue(msg.contains("suggested_value"), msg)

@@ -795,6 +795,64 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         await doc.close()
     }
 
+    /// **A restore asks `.dispose` before it archives** (final review M2): in
+    /// a piece she started that nobody has claimed she may edit the figure
+    /// but not dispose of its notes, so a stranded accept whose cell is gone
+    /// is reopened status only — never archived behind `.editFigure` alone.
+    func test_aRestoreThatMayNotDisposeReopensInsteadOfArchiving() async throws {
+        // Narrowed to piece A, she starts piece B and makes its figure: every
+        // line of it hers as the unclaimed piece's starter.
+        let root = try makeForeignRoot()
+        try narrow(identities.author.fingerprint, by: root, pieces: [Self.pieceA])
+        try recordStarter(identities.author.deviceId, of: Self.pieceB)
+        let (record, doc, _) = try await makeTable(piece: Self.pieceB)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        let row = try await doc.insertRow(after: nil)
+        let added = CellKey(row: row, column: doc.state.table.columns[0])
+        let gone = try await suggest(number(7), at: added, on: doc)
+        try await doc.acceptSuggestion(id: gone)
+        XCTAssertEqual(note(gone, in: doc)?.status, .accepted, "premise: accepted")
+        let mayEdit = await doc.mayHere(.editFigure)
+        let mayDispose = await doc.mayHere(.dispose)
+        XCTAssertTrue(mayEdit, "premise: her own started piece's figure is hers to edit")
+        XCTAssertFalse(mayDispose, "premise: disposing waits for the root to claim the piece")
+        let before = try ops(of: record.id).count
+
+        _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        let written = try ops(of: record.id).dropFirst(before)
+        XCTAssertFalse(written.contains { $0.kind == .claudeArchive }, "no archive behind a refused .dispose")
+        let line = try XCTUnwrap(written.first { $0.provenance?.sourceAnnotationId == gone })
+        XCTAssertEqual(line.kind, .claudeAcceptRevert)
+        XCTAssertNil(line.figure, "status only: its cell is gone then")
+        XCTAssertEqual(note(gone, in: doc)?.status, .open)
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [gone]))
+        await doc.close()
+    }
+
+    /// **A reopen the fold does not honour cannot hide an accept from a
+    /// restore** (final review M3): newest on an accepted note, a dishonoured
+    /// reopen leaves it accepted, so the restore still puts the cell back
+    /// with the note in one `claudeAcceptRevert` — never the cell alone.
+    func test_aDishonouredReopenDoesNotHideTheAcceptFromARestore() async throws {
+        FigureDocument.amendmentsForTesting = AnnotationAmendments(honours: { _, _ in true }, disposing: { _ in false })
+        defer { FigureDocument.amendmentsForTesting = nil }
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: id)
+        try await append(FigureAnnotationOps.reopen(annotationId: id, stamp: doc.noteStamp), reloading: doc)
+        XCTAssertEqual(note(id, in: doc)?.status, .accepted, "premise: the reopen is not honoured")
+        XCTAssertEqual(try ops(of: record.id).last?.kind, .annotationReopen, "premise: it is the newest line")
+
+        _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        XCTAssertEqual(note(id, in: doc)?.status, .open, "not stranded: accepted over the old value")
+        XCTAssertEqual(try ops(of: record.id).last?.kind, .claudeAcceptRevert)
+        await doc.close()
+    }
+
     /// **A settling ⌘Z that reopens but cannot put the earlier answer back
     /// says so** (N2): the note is back but open, in those words.
     func test_aSettlingUndoWhosePutBackFailsSaysTheNoteIsBackButOpen() async throws {
@@ -923,6 +981,23 @@ final class FigureAnnotationDispositionTests: XCTestCase {
                 pieces: pieces, mark: mark,
                 at: Date(timeIntervalSince1970: 3_000), by: root.fingerprint),
             signedBy: root, in: projectURL)
+    }
+
+    /// Record who started `docId` in the manifest on disk — what a creation
+    /// writes (`DocumentWaitingTests`' shape).
+    private func recordStarter(_ deviceId: String, of docId: String) throws {
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        var manifest = try dec.decode(ProjectManifest.self, from: Data(contentsOf: url))
+        manifest.structure = TreeWalk.mutate(id: docId, in: manifest.structure) {
+            var item = $0
+            item.startedBy = deviceId
+            return item
+        }
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: url)
     }
 
     private func appliedSoFar() throws -> [String: PermitMark.StreamMark] {

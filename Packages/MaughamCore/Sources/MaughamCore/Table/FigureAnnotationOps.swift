@@ -140,6 +140,42 @@ public enum FigureAnnotationOps {
         lifecycle(.annotationReopen, annotationId, stamp)
     }
 
+    // MARK: - Which op reopens a note (Mac and phone, tripwire 19)
+
+    /// Why `reopen(for:docId:stamp:)` builds nothing.
+    public enum ReopenRefusal: Error, Equatable, Sendable {
+        /// The note is open: there is nothing to reopen.
+        case alreadyOpen
+        /// An accepted figure suggestion: its accept wrote a cell, which only
+        /// the grid puts back (the accept's ⌘Z, or changing the cell).
+        case acceptedInTheTable
+    }
+
+    /// **Does an ACCEPTED note of this kind reopen by a status-only revert?**
+    /// True for a note whose accept wrote no cell (a comment's *Got it*, a
+    /// query's Reply, a craft note's Accept); false for a suggestion on a
+    /// figure, whose accept wrote its cell. The one answer the Mac's queue
+    /// row, the Mac's reopen, the phone's offer and the phone's writer share.
+    public static func reopensAnAccept(_ annotation: Annotation, docId: String) -> Bool {
+        annotation.kind != .suggestedChange && !acceptsOnlyInTheTable(annotation, docId: docId)
+    }
+
+    /// **The op that reopens a figure note**, by its status: a rejected,
+    /// archived or stetted note by `reopen`; an accepted one that wrote no
+    /// cell (`reopensAnAccept`) by a status-only revert. Throws a
+    /// `ReopenRefusal` for an open note and for an accepted figure suggestion.
+    public static func reopen(for annotation: Annotation, docId: String, stamp: Stamp) throws -> Op {
+        switch annotation.status {
+        case .rejected, .archived, .stetted:
+            return reopen(annotationId: annotation.id, stamp: stamp)
+        case .accepted:
+            guard reopensAnAccept(annotation, docId: docId) else { throw ReopenRefusal.acceptedInTheTable }
+            return statusOnlyRevert(annotationId: annotation.id, stamp: stamp)
+        case .open:
+            throw ReopenRefusal.alreadyOpen
+        }
+    }
+
     /// **What every lifecycle op on a figure note carries**: the note it
     /// answers (`sourceAnnotationId`), a rejection's reason, and the stamp's
     /// session and versions. Also what a host stamps on an accept or revert
@@ -173,8 +209,33 @@ public enum FigureAnnotationOps {
     /// the grid reads typed input under a fixed POSIX-style locale (never the
     /// book's), with A1 references turned into ids. The cell's existing format
     /// and alignment are kept. Empty text proposes clearing it (`.success(nil)`).
+    ///
+    /// **A number never carries a comma** (controller ruling, final review):
+    /// read under en-US, `1,500` would be fifteen hundred where a European
+    /// writer meant one and a half, `1,234.5` would take a grouping format,
+    /// and `1,5` would quietly become text. So a value that is not a formula
+    /// and would read as a number with its commas taken out is refused,
+    /// naming the form. Text with a comma (`Smith, J.`) and a formula's
+    /// argument commas are untouched; `'1,5` proposes the text `1,5`.
     public static func suggestedCell(from text: String, at key: CellKey, table: FigureTable,
                                      names: FormulaNames) -> Result<Cell?, FormulaParseError> {
-        FigureCellEntry.cell(from: text, prior: table[key], table: table, names: names, locale: machine)
+        if let comma = numberComma(in: text) {
+            return .failure(FormulaParseError(message: commaRefusal, offset: comma))
+        }
+        return FigureCellEntry.cell(from: text, prior: table[key], table: table, names: names, locale: machine)
+    }
+
+    /// What a refused comma says: the machine form, with an example.
+    public static let commaRefusal =
+        "a number in machine form takes '.' for the decimal and no grouping (1500, 1234.5); a comma is not part of it"
+
+    /// The offset of the first comma in `text` when it is not a formula and
+    /// reads as a number once its commas are taken out; nil otherwise.
+    private static func numberComma(in text: String) -> Int? {
+        guard let index = text.firstIndex(of: ",") else { return nil }
+        if case .formula = CellInput.parse(text, locale: machine) { return nil }
+        guard case .value(.number, _) = CellInput.parse(text.replacingOccurrences(of: ",", with: ""), locale: machine)
+        else { return nil }
+        return text.distance(from: text.startIndex, to: index)
     }
 }
