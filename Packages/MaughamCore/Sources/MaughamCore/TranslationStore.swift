@@ -84,6 +84,22 @@ public enum TranslationStore {
         return Array(langs)
     }
 
+    /// **Every doc's languages from one directory listing** (report plan 9e-1
+    /// Task 6): `languages(forDocId:in:)`'s rule — a file counts only with a
+    /// well-formed tag — for every docId at once, so a whole-book question
+    /// ("which languages have a translation layer here at all") pays one scan,
+    /// not one per chapter and table.
+    public static func languagesByDocId(in projectURL: URL) -> [String: Set<String>] {
+        let dir = directoryURL(in: projectURL)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        var out: [String: Set<String>] = [:]
+        for n in names {
+            guard let p = parseFileName(n), TranslationRecord.isValidLanguageTag(p.language) else { continue }
+            out[p.docId, default: []].insert(p.language)
+        }
+        return out
+    }
+
     /// One record, one write — a thin wrapper over `appendBatch` so there is a
     /// single coordinated-write body (and a single tombstone rule) to reason
     /// about. No production caller today; the tests and seeding helpers that
@@ -303,13 +319,18 @@ public enum TranslationStore {
             // person's device wrote and this one applies, so it answers to the
             // same ladder as an op: a reviewer may not translate at all, and an
             // author of some pieces may translate hers and no others. The class
-            // is CONSTRUCTED — this reader knows which piece it is reading —
-            // so no manifest is decoded on any book, and a book with no permit
-            // events short-circuits inside the partition before anything is
-            // hashed or judged.
+            // is CONSTRUCTED from the id — this reader knows which piece, or
+            // which figure, it is reading — so a piece's translation decodes no
+            // manifest on any book, a figure's reads the registry for its piece
+            // (report plan 9e-1, ruling R2), and a book with no permit events
+            // short-circuits inside the partition before anything is hashed or
+            // judged.
             let verification = PermitPartition.partition(
                 of: resolved, file: url,
-                judging: .translation(ofPiece: docId, trust: table))
+                judging: .translation(
+                    ofDocId: docId,
+                    facts: { OpLogStore.manifestFacts(in: projectURL) },
+                    trust: table))
             foreign.observe(url: url, verification: verification)
             do {
                 try JSONLAppendStore<TranslationRecord>.setAside(

@@ -12475,10 +12475,18 @@ final class TripwireGrepTests: XCTestCase {
     /// substring match reads as building one. A line is admitted only where
     /// removing every `settledPosture(` leaves no ask spelling behind, so a
     /// real offender on the same line is still caught.
+    ///
+    /// Report plan 9e-1's final fix wave adds the door's second drawing
+    /// accessor, `translationPosture(forDocId:as:)` — the translation class's
+    /// question, asked of the same door — on the same terms.
+    static let postureDoorAccessors = ["settledPosture(", "translationPosture("]
+
     static func postureAskExcludeLine(_ line: String) -> Bool {
         if admissionExcludeLine(line) { return true }
-        guard line.contains("settledPosture(") else { return false }
-        let rest = line.replacingOccurrences(of: "settledPosture(", with: "")
+        guard postureDoorAccessors.contains(where: { line.contains($0) }) else { return false }
+        let rest = postureDoorAccessors.reduce(line) {
+            $0.replacingOccurrences(of: $1, with: "")
+        }
         return !postureAskPatterns.contains(where: { rest.contains($0) })
     }
 
@@ -12549,6 +12557,8 @@ final class TripwireGrepTests: XCTestCase {
         let fine = posture.allows(.writeText)
         let acted = await store.settledPosture(forDocId: id)
         let smuggled = await store.settledPosture(forDocId: id) ?? Posture(permit)
+        let offered = store.translationPosture(forDocId: id).allows(.translate)
+        let smuggledToo = store.translationPosture(forDocId: id).yieldingTo ?? Posture(permit)
         """.write(to: tmp.appendingPathComponent("ASecondPostureTable.swift"),
                   atomically: true, encoding: .utf8)
 
@@ -12562,16 +12572,21 @@ final class TripwireGrepTests: XCTestCase {
         }
 
         let planted = try hits()
-        XCTAssertEqual(planted.ask.count, 10,
+        XCTAssertEqual(planted.ask.count, 11,
             "Self-check: each of the nine ask spellings is caught, plus a real "
-            + "one beside the door's acting accessor, and neither the comment, "
-            + "the posture's own `allows` nor `settledPosture(` alone. Caught:\n"
+            + "one beside each of the door's two accessors, and neither the comment, "
+            + "the posture's own `allows`, `settledPosture(` nor "
+            + "`translationPosture(` alone. Caught:\n"
             + planted.ask.joined(separator: "\n"))
         XCTAssertFalse(planted.ask.contains(where: { $0.contains("let fine") }))
         XCTAssertFalse(planted.ask.contains(where: { $0.contains("let acted") }),
             "the acting door is an ask (P3c Task 3)")
         XCTAssertTrue(planted.ask.contains(where: { $0.contains("let smuggled") }),
             "a Posture( built beside it is still caught")
+        XCTAssertFalse(planted.ask.contains(where: { $0.contains("let offered") }),
+            "the translation question is an ask of the same door (9e-1 I1)")
+        XCTAssertTrue(planted.ask.contains(where: { $0.contains("let smuggledToo") }),
+            "a Posture( built beside the translation accessor is still caught")
         XCTAssertEqual(planted.componentA.count, 4,
             "Self-check: each Component A spelling is caught. Caught:\n"
             + planted.componentA.joined(separator: "\n"))
@@ -12580,7 +12595,7 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("ASecondPostureTable.swift"),
                         to: tmp.appendingPathComponent("Document+Waiting.swift"))
         let asASite = try hits()
-        XCTAssertEqual(asASite.ask.count, 9,
+        XCTAssertEqual(asASite.ask.count, 10,
             "Self-check: Document+Waiting.swift is admitted `localWritePermit` "
             + "alone. Caught:\n" + asASite.ask.joined(separator: "\n"))
         XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
@@ -12591,7 +12606,7 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("Document+Waiting.swift"),
                         to: tmp.appendingPathComponent("TranslationWritePipeline.swift"))
         let asThePipeline = try hits()
-        XCTAssertEqual(asThePipeline.ask.count, 10,
+        XCTAssertEqual(asThePipeline.ask.count, 11,
             "Self-check: TranslationWritePipeline.swift is admitted no spelling. "
             + "Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
         XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let mine") }),
@@ -12603,7 +12618,7 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
                         to: tmp.appendingPathComponent("RulingPerformer.swift"))
         let asThePerformer = try hits()
-        XCTAssertEqual(asThePerformer.ask.count, 10,
+        XCTAssertEqual(asThePerformer.ask.count, 11,
             "Self-check: RulingPerformer.swift is admitted no spelling. Caught:\n"
             + asThePerformer.ask.joined(separator: "\n"))
 
@@ -12613,7 +12628,7 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("RulingPerformer.swift"),
                         to: tmp.appendingPathComponent("PhonePosture.swift"))
         let asThePhone = try hits()
-        XCTAssertEqual(asThePhone.ask.count, 9,
+        XCTAssertEqual(asThePhone.ask.count, 10,
             "Self-check: PhonePosture.swift is admitted `Posture.settling` "
             + "alone. Caught:\n" + asThePhone.ask.joined(separator: "\n"))
         XCTAssertFalse(asThePhone.ask.contains(where: { $0.contains("let undecided") }))

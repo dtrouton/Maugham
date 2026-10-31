@@ -305,16 +305,36 @@ public enum PublishProblemGate {
     static func resolve(bodies: [BodyPlan.Body],
                         imageAllowed: Set<String>,
                         macRegion: String? = Locale.current.region?.identifier) throws -> [Body] {
-        try bodies.map { body in
+        // One trust resolution for every translated body's table cells,
+        // taken only when one has a table translation to read.
+        var trust: TrustTable?
+        return try bodies.map { body in
             let pieces = try body.source.orderedPieces()
             let ast = ProjectASTBuilder.build(pieces: pieces)
+            // A translated body prints its tables' fresh cell translations
+            // (report plan 9e-1 Task 5), read here, for this body's language
+            // only — the snapshot every figure reader takes carries none.
+            var labels: [String: [CellKey: String]] = [:]
+            let context = body.source.resolutionScope.publishContext()
+            if let tag = body.tag, let projectURL = context.projectURL {
+                labels = try FigureUse.freshLabels(
+                    language: tag, figures: context.figures, projectURL: projectURL,
+                    trust: {
+                        if let trust { return trust }
+                        let resolved = try TrustResolution.resolve(
+                            projectURL: projectURL, identities: .current)
+                        trust = resolved
+                        return resolved
+                    })
+            }
             let resolution = try PublishResolution.forCompile(
                 source: body.source, built: ast,
                 bodyTag: bodies.count > 1 ? body.displayTag : nil,
                 imageAllowed: imageAllowed,
                 bodyLanguage: body.tag,
                 words: ElementWords.forBody(body.config.metadata),
-                tableLocale: tableLocale(for: body, macRegion: macRegion))
+                tableLocale: tableLocale(for: body, macRegion: macRegion),
+                cellLabels: labels)
             return Body(ast: ast, resolution: resolution, pieces: pieces)
         }
     }

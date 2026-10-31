@@ -356,7 +356,8 @@ public struct PreviewCompiler {
             let allIDs = Set(try source.orderedPieces().map(\.pieceID))
             let excludedFromGate = allIDs.subtracting(renderedIDs)
             switch try TranslationCoverage.gateEveryTongue(
-                projectStore: source.projectStore, tags: set.translatedTags,
+                projectStore: source.projectStore, figures: source.figures,
+                tags: set.translatedTags,
                 excludedSectionIDs: excludedFromGate, allowStale: allowStale
             ) {
             case .blocked(let errors, let logExcerpt):

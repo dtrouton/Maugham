@@ -46,8 +46,8 @@ public enum PostureDoor {
 
     /// The posture for `actor`'s key in a class the CALLER names — a reader
     /// that constructs its stream's class rather than resolving it (the
-    /// translation pipeline judges `.translation(piece:)`, as the partition
-    /// does). The closure is asked only where the permit needs it.
+    /// translation pipeline judges `DocumentClass.translationClass(ofDocId:facts:)`,
+    /// as the partition does). The closure is asked only where the permit needs it.
     @MainActor
     public static func posture(
         as actor: DeviceActor, using store: OpLogStore,

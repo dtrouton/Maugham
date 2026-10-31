@@ -847,6 +847,138 @@ final class PermitStreamLoadTests: XCTestCase {
                        "both lines of the span she may not write are refused")
     }
 
+    // MARK: - A figure's translations (report plan 9e-1, ruling R2)
+
+    /// Her piece's figure, a figure of the whole book, and the id of a figure
+    /// whose record has not arrived.
+    private let herFigure = "fig-0000000a"
+    private let booksFigure = "fig-0000000c"
+    private let unregisteredFigure = "fig-0000000d"
+
+    /// A manifest whose figure registry holds `figures`, so the reader has a
+    /// figure's piece to read.
+    private func writeManifest(figures: [FigureRecord]) throws {
+        let manifest = ProjectManifest(
+            type: .novel, title: "A book", author: "Denver",
+            created: Date(timeIntervalSince1970: 0),
+            modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [], figures: figures)
+        try ProjectManifest.makeEncoder().encode(manifest).write(
+            to: projectURL.appendingPathComponent(ProjectManifest.fileName),
+            options: .atomic)
+    }
+
+    private func figure(_ id: String, piece: String?) -> FigureRecord {
+        FigureRecord(id: id, name: id, kind: .table, piece: piece,
+                     path: "figures/\(id).csv")
+    }
+
+    private func samIsAnAuthorOfHerPiece() throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent(
+            "01", kind: .admitted, role: Permit.authorRole,
+            scope: Permit.piecesScope, pieces: [docId])
+    }
+
+    /// **A pieces-author's translator inside her own piece's figure is
+    /// applied, and in a figure of the whole book it is refused** (ruling
+    /// R2). Judged as nobody's piece — the class a figure id met before — her
+    /// own figure's translations would be set aside too.
+    func test_aScopedAuthorsTranslatorTranslatesHerPiecesFigureAndNotTheBooks() async throws {
+        try samIsAnAuthorOfHerPiece()
+        try writeManifest(figures: [
+            figure(herFigure, piece: docId), figure(booksFigure, piece: nil),
+        ])
+        try samsTranslation([record("mine")], by: sam.translator, forDocId: herFigure)
+        try samsTranslation([record("books")], by: sam.translator, forDocId: booksFigure)
+
+        XCTAssertEqual(try translations(forDocId: herFigure), ["mine"],
+                       "her piece's figure: applied")
+        XCTAssertEqual(try translations(forDocId: booksFigure), [],
+                       "a figure of the whole book is not hers")
+        XCTAssertTrue(try archivedLines().contains("traducción books"),
+                      "and the words she wrote there are kept in backup")
+    }
+
+    /// **A figure of the whole book follows the whole book's authors**: a book
+    /// author's translator writes it.
+    func test_aBookAuthorsTranslatorTranslatesAFigureOfTheWholeBook() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        try writeManifest(figures: [figure(booksFigure, piece: nil)])
+        try samsTranslation([record("books")], by: sam.translator, forDocId: booksFigure)
+
+        XCTAssertEqual(try translations(forDocId: booksFigure), ["books"])
+    }
+
+    /// **A reviewer translates no figure**, her piece's or anybody's.
+    func test_aReviewersTranslatorTranslatesNoFigure() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.reviewerRole)
+        try writeManifest(figures: [figure(herFigure, piece: docId)])
+        try samsTranslation([record("t1")], by: sam.translator, forDocId: herFigure)
+
+        XCTAssertEqual(try translations(forDocId: herFigure), [])
+        XCTAssertTrue(try archivedLines().contains("traducción t1"))
+    }
+
+    /// **A figure whose record has not arrived is HELD, not refused**: the
+    /// record could name her piece, so her lines wait — nothing applied,
+    /// nothing put in backup — and apply once the record lands.
+    func test_anUnregisteredFiguresTranslationIsHeldUntilItsRecordLands() async throws {
+        try samIsAnAuthorOfHerPiece()
+        try writeManifest(figures: [])
+        try samsTranslation([record("t1")], by: sam.translator, forDocId: unregisteredFigure)
+
+        XCTAssertEqual(try translations(forDocId: unregisteredFigure), [],
+                       "held while the record is missing")
+        XCTAssertFalse(try archivedLines().contains("traducción t1"),
+                       "held is not set aside")
+
+        try writeManifest(figures: [figure(unregisteredFigure, piece: docId)])
+        XCTAssertEqual(try translations(forDocId: unregisteredFigure), ["t1"],
+                       "re-judged, and applied, once the record names her piece")
+    }
+
+    /// **A piece's translation still reads no manifest**, in a narrowed book
+    /// where the class is asked; a figure's reads it, because its piece is
+    /// only there.
+    func test_aPiecesTranslationReadsNoManifestAndAFiguresDoes() async throws {
+        try samIsAnAuthorOfHerPiece()
+        try writeManifest(figures: [figure(herFigure, piece: docId)])
+        try samsTranslation([record("piece")], by: sam.translator)
+        try samsTranslation([record("fig")], by: sam.translator, forDocId: herFigure)
+
+        let reads = Counter()
+        OpLogStore.manifestReadObserverForTesting = { reads.tick() }
+        defer { OpLogStore.manifestReadObserverForTesting = nil }
+
+        XCTAssertEqual(try translations(), ["piece"])
+        XCTAssertEqual(reads.count, 0, "a piece's translation pays no manifest read")
+        XCTAssertEqual(try translations(forDocId: herFigure), ["fig"])
+        XCTAssertGreaterThan(reads.count, 0, "a figure's piece is read from the registry")
+    }
+
+    /// **The mark sweep judges a figure's translation as the load does**: her
+    /// translator's lines in her piece's figure are APPLIED positions. Judged
+    /// as nobody's piece, the sweep would see them refused and the applied
+    /// mark would not name her stream.
+    func test_theAppliedMarkNamesHerFiguresTranslationStream() async throws {
+        try samIsAnAuthorOfHerPiece()
+        try writeManifest(figures: [figure(herFigure, piece: docId)])
+        let url = try samsTranslation(
+            [record("mine")], by: sam.translator, forDocId: herFigure)
+
+        let applied = try OpLogStore.appliedPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try table()).streams
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        XCTAssertNotNil(applied[key], "her figure's translation stream was applied")
+    }
+
     // MARK: - The mark names the translation stream
 
     /// **What the positions extension buys.** A demotion's mark names Sam's

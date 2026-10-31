@@ -250,6 +250,24 @@ final class TranslationStoreTests: XCTestCase {
         XCTAssertEqual(TranslationStore.languages(forDocId: "doc1", in: projectURL).sorted(), ["es", "fr"])
     }
 
+    /// One listing answers every doc's languages, by `languages(forDocId:)`'s rule: dotted
+    /// docIds stay apart, a malformed tag is skipped.
+    func test_languagesByDocId_answersEveryDocFromOneScan() async throws {
+        for (docId, lang) in [("doc1", "es"), ("doc1", "fr"), ("doc.a", "en"), ("fig-0a1b2c3d", "es")] {
+            try await TranslationStore.append(
+                TranslationRecord(paragraphId: "aaaa", language: lang, text: "x", sourceHash: "h"),
+                forDocId: docId, identity: mine.translator, identities: mine,
+                state: myState, in: projectURL)
+        }
+        let dir = TranslationStore.directoryURL(in: projectURL)
+        try Data().write(to: dir.appendingPathComponent("doc1.EN_bad.maca-1111.jsonl"))
+        let all = TranslationStore.languagesByDocId(in: projectURL)
+        XCTAssertEqual(all, ["doc1": ["es", "fr"], "doc.a": ["en"], "fig-0a1b2c3d": ["es"]])
+        for docId in all.keys {
+            XCTAssertEqual(all[docId], Set(TranslationStore.languages(forDocId: docId, in: projectURL)))
+        }
+    }
+
     func test_languages_wellFormed_pinsCurrentBehavior() async throws {
         // Step 1 (RED phase): enumerate what should parse correctly today
         // and verify it still parses after the fix.

@@ -163,7 +163,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/PublishStatusPill.swift` — the compiling pill.
 
 ### Translation
-- `TranslationReviewPane.swift` — the translation pane (⌘⌥L): queries, spot-check (Gloss / Ask the Collator).
+- `TranslationReviewPane.swift`, `TranslationCellsSection.swift` — the translation pane (⌘⌥L): queries, spot-check (Gloss / Ask the Collator), a table's cells.
 - `TranslationReveal.swift` — a round-report row as a way back into the manuscript.
 - `TranslatorsNote.swift` — Translator's note… (⌘⌥C).
 
@@ -212,7 +212,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **No second caller of `EditorSurface.applyExternalText`** (tripwire 7): `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`.
 - **No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)`** (tripwire 9). A gesture attaches to a row's label leaf, never its container: a whole-row `.simultaneousGesture` ate drag initiation. `TripwireGrepTests.test_noTapGestureInASidebarListFile`, `TreeTravelGestureAttachmentTests.test_noTreeRowCarriesASwiftUITapGesture`.
 - **Move or delete user-editable content only through `DocumentStore`'s typed mover** (`relocate(plan:)`, `relocateUserContent(affectedPaths:perform:)`, `trash(relativePath:using:…)`), which closes and flushes before the FS call; never hand-roll it (tripwire 14): `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover`.
-- **A pane that may show a `ContentUnavailableView` chains `.frame(maxWidth: .infinity, maxHeight: .infinity)` on it, and its outer `VStack` takes `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`** (tripwire 15): otherwise the parent centres the pane and the toolbar floats. `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame`.
+- **A pane that may show a `ContentUnavailableView` chains `.frame(maxWidth: .infinity, maxHeight: .infinity)` on it, and its outer `VStack` takes `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`** (tripwire 15), or the toolbar floats. `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame`.
 - **A rename-capable row copies `BinderRow`'s shape verbatim**: a `claimFocus()` that sleeps 30ms before focusing, fired from both `.onAppear` and `.onChange(of: renamingItemId)` (tripwire 16). Prose only; `BinderRow.claimFocus()` is canonical.
 - **No raw `maugham.*` NotificationCenter traffic outside `MaughamEvent`; every post declares its scope** (tripwire 21): `TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`.
 - **Key a Document-binding reload on the doc's PATH, not its id** (tripwire 22): a renamed or restored file keeps its id. `EditorHostReloadPredicateTests` pins `EditorHost.needsReload`.

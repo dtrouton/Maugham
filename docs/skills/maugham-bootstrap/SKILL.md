@@ -157,6 +157,10 @@ gets settled once and recorded into the brief; check there before raising
 the same question again, load `translation-pass` for how queries and
 rulings work together.
 
+A table's text cells (its labels) are translated with the same tools: pass
+the table's id from `list_figures` as `document_id` and address each cell by
+`a1`; load `translation-pass` for the details.
+
 Absence is an answer: `exists: false` with empty `markdown` means nobody has
 declared doctrine for that language yet, not that you did something wrong.
 Translate by your own best judgment, and if a real choice comes up — a

@@ -16,8 +16,13 @@ public struct FigureTableLayout: Sendable, Equatable {
     /// A1 names (live position) of the cells showing a formula error, in reading order.
     public var errorCells: [String]
 
+    /// - Parameter label: a translated body's text for a cell (report plan 9e-1, spec §8),
+    ///   consulted for stored-literal text cells only (`FigureTextCells.isTextCell`): numbers,
+    ///   dates and formulas are shared across languages and always print as computed. A cell
+    ///   it answers nil for prints its source. Nil (the source body) asks nothing.
     public static func make(
-        table: FigureTable, value: (CellKey) -> CellValue, locale: TableLocale
+        table: FigureTable, value: (CellKey) -> CellValue, locale: TableLocale,
+        label: ((CellKey) -> String?)? = nil
     ) -> FigureTableLayout {
         let rows = table.rows, columns = table.columns
         let headerCount = min(table.headerRows, rows.count)
@@ -27,6 +32,7 @@ public struct FigureTableLayout: Sendable, Equatable {
         func line(_ i: Int) -> [String] {
             columns.enumerated().map { c, column in
                 let key = CellKey(row: rows[i], column: column)
+                if let label, FigureTextCells.isTextCell(table[key]), let text = label(key) { return text }
                 let v = value(key)
                 if case .error = v { errors.append(A1.columnLetters(c) + String(i + 1)) }
                 return CellDisplay.string(for: v, format: table[key]?.format ?? CellFormat(), locale: locale)

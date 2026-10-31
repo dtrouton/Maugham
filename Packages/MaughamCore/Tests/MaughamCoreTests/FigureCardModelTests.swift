@@ -112,13 +112,27 @@ final class FigureCardModelTests: XCTestCase {
         XCTAssertEqual(build(s).columnAlignments, [.right, .left, .center])
     }
 
-    func test_labelLookupAppliesToTextCellsOnly() {
-        let s = state(rows: 1) { _, c in c == 0 ? Cell(content: .value(.text("Cash"))) : Cell(content: .value(.number(5))) }
+    /// Only a stored literal text cell takes a label (R1, plan 9e-1 Task 7): a number does not,
+    /// and neither does a formula whose RESULT is text — formulas are shared and show as computed.
+    func test_labelLookupAppliesToTextCellsOnly() throws {
+        var s = state(rows: 1, columns: 3) { _, c in
+            c == 0 ? Cell(content: .value(.text("Cash"))) : Cell(content: .value(.number(5)))
+        }
+        let formulaKey = CellKey(row: s.table.rows[0], column: s.table.columns[2])
+        guard case .success(let f) = FormulaParser.parse("A1", in: s.table, names: FormulaNames(figures: [], research: []))
+        else { throw TestSetupError(message: "the test formula did not parse") }
+        s.table.setCell(Cell(content: .formula(f)), at: formulaKey)
         var seen: [String?] = []
-        let m = build(s, language: "es") { id, _, _, lang in seen.append(lang); return id == "f1" ? "Caja" : nil }
-        XCTAssertEqual(m.bodyRows, [["Caja", "5"]])
-        XCTAssertEqual(seen, ["es"])
-        XCTAssertEqual(build(s).bodyRows, [["Cash", "5"]])
+        let m = FigureCardModel.build(figureId: "f1", state: s, values: { key in
+            if key == formulaKey { return .text("Cash") }   // the formula's computed text
+            if case .value(let v)? = s.table[key]?.content { return v }
+            return .empty
+        }, locale: en, language: "es", labelLookup: { id, _, _, lang in
+            seen.append(lang); return id == "f1" ? "Caja" : nil
+        })
+        XCTAssertEqual(m.bodyRows, [["Caja", "5", "Cash"]], "the formula's text result is not relabelled")
+        XCTAssertEqual(seen, ["es"], "asked for the stored literal only")
+        XCTAssertEqual(build(s).bodyRows.first?.first, "Cash")
     }
 
     func test_nonTableKinds() {
@@ -180,3 +194,4 @@ final class FigureCardModelTests: XCTestCase {
         XCTAssertEqual(height(build(state(rows: 0))), 90)  // nothing to show: the placeholder
     }
 }
+private struct TestSetupError: Error { let message: String }

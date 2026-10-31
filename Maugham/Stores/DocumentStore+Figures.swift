@@ -336,7 +336,7 @@ extension DocumentStore {
     // MARK: - Reading the book's figures
 
     /// The trust table figure reads judge lines by, resolved off the main actor.
-    private func figureTrust() async throws -> TrustTable {
+    func figureTrust() async throws -> TrustTable {
         figureTrustResolutions += 1
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
@@ -543,7 +543,12 @@ extension DocumentStore {
     /// the registry will not read (logged); a figure whose stream will not
     /// read is left out. Costly (trust, an assembly, each pinned figure's
     /// sources): never per keystroke.
-    func figureCardInputs() async -> FigureCardInputs? {
+    ///
+    /// `language` is the window's translation review (report plan 9e-1 Task
+    /// 7): its fresh cell labels (`FigureUse.freshLabels`, what a body in
+    /// that language prints) are read off the main actor and carried, so the
+    /// cards show them. Nil — the source — reads no translation file.
+    func figureCardInputs(language: String? = nil) async -> FigureCardInputs? {
         guard presenter != nil, let projectStore else { return nil }
         guard !(projectStore.manifest.figures ?? []).isEmpty else {
             return FigureCardInputs(records: [], states: [:], workbook: nil, pinChanged: [],
@@ -582,10 +587,37 @@ extension DocumentStore {
             }
         }
         let sourceChanged = await snapshotSourcesChanged(states, research: manifest.research)
+        var labels: [String: [CellKey: String]] = [:]
+        if let language {
+            labels = await Self.reviewLabels(language: language, records: records, states: states,
+                                             projectURL: projectURL, trust: trust)
+        }
         guard presenter != nil else { return nil }
         return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
                                 pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale,
-                                openCellNotes: openCellNotes)
+                                openCellNotes: openCellNotes, language: language, labels: labels)
+    }
+
+    /// The review language's fresh cell labels for the cards, read off the
+    /// main actor. A table whose translation file will not read leaves its own
+    /// card on its source (`FigureUse.freshLabels`): the Translation pane says
+    /// why.
+    private static func reviewLabels(
+        language: String, records: [FigureRecord], states: [String: FigureState],
+        projectURL: URL, trust: TrustTable
+    ) async -> [String: [CellKey: String]] {
+        let figures = PublishFigures(records: records, states: states, workbook: nil,
+                                     pinStatus: [:], sourceChanged: [], parked: [])
+        return await Task.detached(priority: .userInitiated) {
+            do {
+                return try FigureUse.freshLabels(
+                    language: language, figures: figures, projectURL: projectURL, trust: { trust })
+            } catch {
+                documentLog.error(
+                    "figure cards show their source in \(language, privacy: .public): a cell translation would not read: \(error.localizedDescription, privacy: .public)")
+                return [:]
+            }
+        }.value
     }
 
     /// **Every registered figure's state, freshest first**: an open host's
@@ -677,6 +709,28 @@ extension DocumentStore {
         return PublishFigures(
             records: records, states: states, workbook: assembled.workbook,
             pinStatus: pinStatus, sourceChanged: sourceChanged, parked: parked)
+    }
+
+    /// **The book's tables as translation counts need them** (report plan
+    /// 9e-1): the registry and each figure's state (an open host's fold, else
+    /// the cache's read) and which are parked — `publishFigures()` without
+    /// its costs (no assembly, no pin sources, no Research hashing), for the
+    /// desk's rows and `translation_status`. `.none` with no figures or a
+    /// registry that will not read (logged).
+    func translationFigures() async -> PublishFigures {
+        guard let projectStore, !(projectStore.manifest.figures ?? []).isEmpty else { return .none }
+        let trust: TrustTable
+        do { trust = try await figureTrust() } catch {
+            documentLog.error(
+                "translation counts read no figure: the registry would not read: \(error.localizedDescription, privacy: .public)")
+            return .none
+        }
+        guard let manifest = self.projectStore?.manifest,
+              let records = manifest.figures, !records.isEmpty else { return .none }
+        let states = figureStates(manifest: manifest, trust: trust)
+        return PublishFigures(
+            records: records, states: states, workbook: nil, pinStatus: [:], sourceChanged: [],
+            parked: Set(states.compactMap { $0.value.parked == nil ? nil : $0.key }))
     }
 
     /// **The figures whose Research source has moved on** (report plan 8b
@@ -829,6 +883,12 @@ struct FigureCardInputs {
     /// strip's presence; a figure with none or whose stream will not read is
     /// absent.
     var openCellNotes: [String: FigureCellNotes] = [:]
+    /// The window's translation review language (report plan 9e-1 Task 7),
+    /// nil for the source.
+    var language: String? = nil
+    /// By figure id, each text cell's fresh translation in `language`; empty
+    /// for the source.
+    var labels: [String: [CellKey: String]] = [:]
 }
 
 /// **A snapshot source file's hash, as of its size and modification date**

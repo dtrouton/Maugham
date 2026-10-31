@@ -89,6 +89,9 @@ struct DepartmentPaneHost: View {
     /// the book. Derived in the same pass as `languages`, from the same value,
     /// so the two cannot describe different walks.
     @State private var unreadable: [EditionStatus.UnreadableDocument] = []
+    /// The table rows the last pass counted and the documents it counted
+    /// them over — folded in again while a round runs (`derive()`).
+    @State private var lastFigureCounts: (documentIds: [String], report: EditionStatus.FigureReport)?
     /// Every design round this project has staged, newest first — the Design
     /// row's second line and its badge (Task 4). Derived off the body path
     /// because it reads `.maugham/design/proposals/`.
@@ -1104,10 +1107,20 @@ struct DepartmentPaneHost: View {
                                                  in: config)
         bookDocumentIds = documentIds
 
+        // **The tables are recounted only while no round is running**
+        // (report plan 9e-1): a live round fires `maughamTranslationDidUpdate`
+        // per ingest, and each would otherwise re-read every used table in
+        // every language. Mid-round the last idle pass's table rows are folded
+        // in again — `refillsBudgets`' rule and its safety: the round's end
+        // re-derives. The same scope only; an imprint change recounts.
+        let reuse = Self.refillsBudgets(pipeline: pipeline?.status ?? .idle)
+            ? nil : lastFigureCounts.flatMap { $0.documentIds == documentIds ? $0.report : nil }
         let report = await EditionStatus.languageRows(
-            in: store, projectURL: projectURL, documentIds: documentIds)
+            in: store, projectURL: projectURL, documentIds: documentIds,
+            reusingFigures: reuse)
         languages = report.rows
         unreadable = report.unreadable
+        lastFigureCounts = (documentIds, report.figures)
 
         // **What each edition's rounds have amounted to, and what the next one
         // would cost** (spec §8). Per language rather than per pair: numbering

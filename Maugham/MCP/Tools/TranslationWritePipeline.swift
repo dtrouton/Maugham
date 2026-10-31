@@ -83,6 +83,178 @@ public enum TranslationWritePipeline {
         identities: LocalIdentities = .current,
         deviceState: OpLogDeviceState = .shared
     ) async throws -> [String] {
+        let known = Set(state.sequence)
+        return try await write(
+            Batch(
+                lines: entries.map {
+                    Line(id: $0.paragraphId, label: $0.paragraphId, text: $0.text,
+                         verbatim: $0.verbatim, delete: $0.delete)
+                },
+                singular: "paragraph", duplicates: "paragraph ids",
+                // 3. All-or-nothing: every id a `text` or `verbatim` entry names
+                // must be in the current sequence. A `delete` entry is exempt —
+                // an orphaned translation names a paragraph the document no
+                // longer has, which is exactly the one a writer needs to purge,
+                // and tombstoning an id that was never translated is an
+                // idempotent no-op. The exemption is per entry, not per batch: a
+                // text entry's unknown id still rejects the whole call, its
+                // delete siblings included.
+                refuseTargets: { writes in
+                    let unknown = writes.map(\.id).filter { !known.contains($0) }
+                    return unknown.isEmpty
+                        ? nil : "unknown paragraph ids: \(unknown.joined(separator: ", "))"
+                },
+                source: { state.paragraphs[$0.id] ?? "" },
+                advise: { line, source, translation in
+                    var warnings = ConstructSkeleton.warnings(
+                        source: source, translation: translation, paragraphId: line.id)
+                    // Both sides in display form, normalized through the same
+                    // stripper the freshness hash normalizes with: against the
+                    // raw source this comparison could never fire on an anchored
+                    // paragraph — a slugline or a numeral, the very lines the
+                    // advisory exists for.
+                    if MarkdownDisplayFilter.stripAnchors(translation)
+                        == MarkdownDisplayFilter.stripAnchors(source) {
+                        warnings.append(
+                            "¶\(line.id): translated text equals source — mark " +
+                            "verbatim: true if deliberate")
+                    }
+                    return warnings
+                }),
+            language: language, documentId: documentId, projectURL: state.projectURL,
+            actor: actor, identities: identities, deviceState: deviceState)
+    }
+
+    // MARK: - A table's text cells (report plan 9e-1 Task 3)
+
+    /// One text cell's instruction: `perform`'s three forms, addressed by the
+    /// cell's row and column ids (stored; ruling R8 — a caller that speaks A1
+    /// resolves it against the current table first, as `write_translation`
+    /// does).
+    public struct CellEntry: Equatable {
+        public let key: CellKey
+        public let text: String?
+        public let verbatim: Bool?
+        public let delete: Bool?
+
+        public init(key: CellKey, text: String? = nil,
+                    verbatim: Bool? = nil, delete: Bool? = nil) {
+            self.key = key
+            self.text = text
+            self.verbatim = verbatim
+            self.delete = delete
+        }
+    }
+
+    /// **Translate a table figure's text cells** — the same door, forms,
+    /// duplicate rule, server-stamped source hash and single append as
+    /// `perform`, over `table` (the figure's state as the op log folds it —
+    /// an open host or the figure cache, never the rendered `figures/<name>.csv`, tripwire 20).
+    ///
+    /// A `text`/`verbatim` entry must name a live TEXT cell
+    /// (`FigureTextCells.isTextCell`, ruling R1): an id the table no longer
+    /// holds is refused as unknown, and a number, date, formula or blank cell
+    /// as not text — those are shared across languages. A `delete` entry is
+    /// exempt from both, per entry, so a cell orphan (a deleted row or column,
+    /// a label turned into a number) can be purged.
+    ///
+    /// Posts `maughamTranslationDidUpdate` naming `figure_id` and `language`
+    /// once the batch is on disk, whoever wrote it, so a card or pane showing
+    /// the figure refreshes.
+    @discardableResult
+    public static func performCells(
+        entries: [CellEntry],
+        language: String,
+        figureId: String,
+        table: FigureTable,
+        projectURL: URL,
+        actor: DeviceActor,
+        identities: LocalIdentities = .current,
+        deviceState: OpLogDeviceState = .shared
+    ) async throws -> [String] {
+        func label(_ key: CellKey) -> String {
+            FigureGridAddress.string(for: key, in: table)
+                ?? FigureCellTranslationKey.paragraphId(for: key)
+        }
+        let keys = Dictionary(
+            entries.map { (FigureCellTranslationKey.paragraphId(for: $0.key), $0.key) },
+            uniquingKeysWith: { first, _ in first })
+        let warnings = try await write(
+            Batch(
+                lines: entries.map {
+                    Line(id: FigureCellTranslationKey.paragraphId(for: $0.key),
+                         label: label($0.key), text: $0.text,
+                         verbatim: $0.verbatim, delete: $0.delete)
+                },
+                singular: "cell", duplicates: "cells",
+                refuseTargets: { writes in
+                    let unknown = writes.filter {
+                        guard let key = keys[$0.id] else { return true }
+                        return table.rowIndex(of: key.row) == nil
+                            || table.columnIndex(of: key.column) == nil
+                    }
+                    if !unknown.isEmpty {
+                        return "unknown cells in this table: "
+                            + unknown.map(\.label).joined(separator: ", ")
+                    }
+                    let notText = writes.filter {
+                        !FigureTextCells.isTextCell(keys[$0.id].flatMap { table[$0] })
+                    }
+                    if !notText.isEmpty {
+                        return "not text cells: " + notText.map(\.label).joined(separator: ", ")
+                            + " — only a cell holding typed text translates; numbers, "
+                            + "dates and formulas are shared by every language"
+                    }
+                    return nil
+                },
+                source: { FigureTextCells.sourceText(keys[$0.id].flatMap { table[$0] }) ?? "" },
+                advise: { line, source, translation in
+                    translation == source
+                        ? ["\(line.label): translated text equals source — mark "
+                            + "verbatim: true if deliberate"]
+                        : []
+                }),
+            language: language, documentId: figureId, projectURL: projectURL,
+            actor: actor, identities: identities, deviceState: deviceState)
+        MaughamEvent.post(
+            .maughamTranslationDidUpdate,
+            to: .project(for: projectURL),
+            payload: ["figure_id": figureId, "language": language])
+        return warnings
+    }
+
+    // MARK: - The shared core
+
+    /// One entry as the core sees it: `id` is the record's key on disk,
+    /// `label` how a refusal names it to the writer.
+    private struct Line {
+        let id: String
+        let label: String
+        let text: String?
+        let verbatim: Bool?
+        let delete: Bool?
+    }
+
+    /// What differs between a paragraph batch and a cell batch: the words a
+    /// refusal uses, which targets a `text`/`verbatim` entry may name
+    /// (`refuseTargets` answers the refusal sentence, nil when every one is
+    /// known), the source a record is hashed against, and the advisories.
+    private struct Batch {
+        let lines: [Line]
+        let singular: String
+        let duplicates: String
+        let refuseTargets: ([Line]) -> String?
+        let source: (Line) -> String
+        let advise: (Line, _ source: String, _ translation: String) -> [String]
+    }
+
+    /// **The one body both kinds of batch run through**: the language gate,
+    /// the permit, exactly one form per entry, no repeated target, the target
+    /// rule, record building, and the single append.
+    private static func write(
+        _ batch: Batch, language: String, documentId: String, projectURL: URL,
+        actor: DeviceActor, identities: LocalIdentities, deviceState: OpLogDeviceState
+    ) async throws -> [String] {
         // 1. Valid language tag.
         try validate(language: language)
 
@@ -92,7 +264,7 @@ public enum TranslationWritePipeline {
         // aside is never signed in the first place.
         try refuseUnlessTranslatable(
             documentId: documentId, actor: actor, identities: identities,
-            deviceState: deviceState, projectURL: state.projectURL)
+            deviceState: deviceState, projectURL: projectURL)
 
         // 2. Each entry supplies exactly one of `text` / `verbatim: true` /
         // `delete: true`. A `text` that is empty or whitespace is read as
@@ -101,39 +273,32 @@ public enum TranslationWritePipeline {
         // applies — so it meets this same refusal rather than storing `""`,
         // which coverage and publishing would read as translated. An empty
         // source paragraph's right form is `verbatim: true`.
-        for e in entries {
+        for e in batch.lines {
             let hasText = ReportJSON.nonEmptyString(e.text) != nil
             let forms = [hasText, e.verbatim == true, e.delete == true]
             if forms.filter({ $0 }).count != 1 {
                 throw MCPError.invalidArgument(
-                    "entry for paragraph \(e.paragraphId) must supply exactly one of " +
+                    "entry for \(batch.singular) \(e.label) must supply exactly one of " +
                     "`text`, `verbatim: true` or `delete: true`")
             }
         }
 
-        // 2a. Reject intra-batch duplicate paragraph ids (a client bug).
-        let ids = entries.map(\.paragraphId)
-        let duplicates = Array(Set(ids.filter { id in ids.filter { $0 == id }.count > 1 })).sorted()
-        if !duplicates.isEmpty {
+        // 2a. Reject intra-batch duplicate targets (a client bug).
+        let ids = batch.lines.map(\.id)
+        let repeated = Set(ids.filter { id in ids.filter { $0 == id }.count > 1 })
+        if !repeated.isEmpty {
+            var named: [String] = []
+            for line in batch.lines where repeated.contains(line.id) && !named.contains(line.label) {
+                named.append(line.label)
+            }
             throw MCPError.invalidArgument(
-                "duplicate paragraph ids in batch: \(duplicates.joined(separator: ", "))")
+                "duplicate \(batch.duplicates) in batch: \(named.sorted().joined(separator: ", "))")
         }
 
-        // 3. All-or-nothing: every id a `text` or `verbatim` entry names must be
-        // in the current sequence. A `delete` entry is exempt — an orphaned
-        // translation names a paragraph the document no longer has, which is
-        // exactly the one a writer needs to purge, and tombstoning an id that
-        // was never translated is an idempotent no-op. The exemption is per
-        // entry, not per batch: a text entry's unknown id still rejects the
-        // whole call, its delete siblings included.
-        let known = Set(state.sequence)
-        let unknown = entries
-            .filter { $0.delete != true }
-            .map(\.paragraphId)
-            .filter { !known.contains($0) }
-        if !unknown.isEmpty {
-            throw MCPError.invalidArgument(
-                "unknown paragraph ids: \(unknown.joined(separator: ", "))")
+        // 3. The target rule, over the entries that write text (a `delete` is
+        // exempt per entry).
+        if let refusal = batch.refuseTargets(batch.lines.filter { $0.delete != true }) {
+            throw MCPError.invalidArgument(refusal)
         }
 
         // 4-6. Build every record first, then persist the whole batch in one
@@ -143,39 +308,27 @@ public enum TranslationWritePipeline {
         // parameter for and does not re-check per record.
         var warnings: [String] = []
         var records: [TranslationRecord] = []
-        for e in entries {
-            let source = state.paragraphs[e.paragraphId] ?? ""
+        for e in batch.lines {
+            let source = batch.source(e)
             let isVerbatim = e.verbatim == true
             let isDelete = e.delete == true
             // `text == nil` is the tombstone `TranslationStore.latestByParagraph`
             // already honors — the delete form is what finally mints one.
             let text: String? = isDelete ? nil : (isVerbatim ? source : (e.text ?? ""))
             records.append(TranslationRecord(
-                paragraphId: e.paragraphId,
+                paragraphId: e.id,
                 language: language,
                 text: text,
                 sourceHash: TranslationHash.hash(source),
                 verbatim: isVerbatim))
             if !isVerbatim, !isDelete, let translation = text {
-                warnings.append(contentsOf: ConstructSkeleton.warnings(
-                    source: source, translation: translation, paragraphId: e.paragraphId))
-                // Both sides in display form, normalized through the same
-                // stripper the freshness hash normalizes with: against the raw
-                // source this comparison could never fire on an anchored
-                // paragraph — a slugline or a numeral, the very lines the
-                // advisory exists for.
-                if MarkdownDisplayFilter.stripAnchors(translation)
-                    == MarkdownDisplayFilter.stripAnchors(source) {
-                    warnings.append(
-                        "¶\(e.paragraphId): translated text equals source — mark " +
-                        "verbatim: true if deliberate")
-                }
+                warnings.append(contentsOf: batch.advise(e, source, translation))
             }
         }
         try await TranslationStore.appendBatch(
             records, forDocId: documentId, language: language,
             identity: identities[actor], identities: identities,
-            state: deviceState, in: state.projectURL)
+            state: deviceState, in: projectURL)
 
         return warnings
     }
@@ -190,8 +343,10 @@ public enum TranslationWritePipeline {
     /// own hand: the actor is what the reader judges (`PermitJudge
     /// .translation`), so a refusal here is exactly a line the next read would
     /// have set aside. And in the class the reader CONSTRUCTS for a
-    /// translation stream — `.translation(piece:)`, whose id is the piece's
-    /// own — rather than one resolved from the manifest.
+    /// translation stream (`DocumentClass.translationClass(ofDocId:facts:)`) —
+    /// `.translation(piece:)` for a piece's id, which reads no manifest, and
+    /// a figure's id judged by the figure's piece (report plan 9e-1, ruling
+    /// R2) — rather than one resolved as a stream.
     ///
     /// **Built through Core's posture door, over the one builder**
     /// (`PostureDoor`, `OpLogStore.localWritePermit` — tripwire 46; controller
@@ -209,34 +364,84 @@ public enum TranslationWritePipeline {
             projectURL: projectURL, presenter: nil, identities: identities,
             state: deviceState, cache: Document.loadRegistryCache)
         let posture = PostureDoor.posture(as: actor, using: store) {
-            .translation(piece: documentId)
+            DocumentClass.translationClass(ofDocId: documentId) {
+                OpLogStore.manifestFacts(in: projectURL)
+            }
         }
         guard posture.allows(.translate) else {
-            let title = pieceTitle(documentId, in: projectURL)
+            let refused = refusedThing(documentId, in: projectURL)
             throw MCPError.toolError(payload: .init(
                 error: "translation_not_permitted",
-                message: notPermittedSentence(title: title),
-                hint: "This Mac's part in the book does not reach that piece. "
-                    + "Nothing was written; the piece's author can translate it.",
+                message: notPermittedSentence(refused),
+                hint: refused.hint,
                 fields: ["document_id": .string(documentId)]))
         }
     }
 
-    /// The sentence a refused translation is told in — the piece by its title
-    /// where the manifest names it, else by its id.
-    static func notPermittedSentence(title: String) -> String {
-        "This Mac may not translate \u{201C}\(title)\u{201D} \u{2014} your part in "
-            + "this book doesn\u{2019}t reach that piece, so nothing was written."
+    /// What a refused translation names, as the writer knows it.
+    enum RefusedThing: Equatable {
+        /// A piece, by its title where the manifest names it, else its id.
+        case piece(title: String)
+        /// A figure, by its kind and name ("Table: cash"), and the title of
+        /// the piece it belongs to — nil for a whole-book figure.
+        case figure(name: String, pieceTitle: String?)
+        /// A figure whose record has not reached this Mac.
+        case unknownFigure
+
+        var hint: String {
+            switch self {
+            case .piece:
+                return "This Mac's part in the book does not reach that piece. "
+                    + "Nothing was written; the piece's author can translate it."
+            case .figure:
+                return "This Mac's part in the book does not reach that table. "
+                    + "Nothing was written; an author whose part reaches it can translate it."
+            case .unknownFigure:
+                return "The figure's record has not arrived on this Mac yet. "
+                    + "Nothing was written; try again once the book has synced."
+            }
+        }
     }
 
-    /// The piece's title from the manifest on disk, or its id.
-    private static func pieceTitle(_ documentId: String, in projectURL: URL) -> String {
+    /// The sentence a refused translation is told in — never "that piece"
+    /// with a figure's id (report plan 9e-1).
+    static func notPermittedSentence(_ refused: RefusedThing) -> String {
+        switch refused {
+        case .piece(let title):
+            return "This Mac may not translate \u{201C}\(title)\u{201D} \u{2014} your part in "
+                + "this book doesn\u{2019}t reach that piece, so nothing was written."
+        case .figure(let name, let pieceTitle?):
+            return "This Mac may not translate \(name) \u{2014} it belongs to "
+                + "\u{201C}\(pieceTitle)\u{201D}, which your part in this book doesn\u{2019}t "
+                + "reach, so nothing was written."
+        case .figure(let name, nil):
+            return "This Mac may not translate \(name) \u{2014} it belongs to the whole book, "
+                + "which your part in this book doesn\u{2019}t reach, so nothing was written."
+        case .unknownFigure:
+            return "This Mac can\u{2019}t translate that figure yet \u{2014} its record "
+                + "hasn\u{2019}t reached this Mac, so nothing was written."
+        }
+    }
+
+    /// The piece or figure `documentId` names, read off the manifest on disk.
+    static func refusedThing(_ documentId: String, in projectURL: URL) -> RefusedThing {
         let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
-        guard let data = try? Data(contentsOf: url),  // adr-0018-ok: project manifest JSON read for a title, not manuscript
-              let manifest = try? ProjectManifest.makeDecoder().decode(
-                ProjectManifest.self, from: data),
-              let item = TreeWalk.find(id: documentId, in: manifest.structure)
-        else { return documentId }
-        return item.title
+        let manifest = (try? Data(contentsOf: url)).flatMap {  // adr-0018-ok: project manifest JSON read for a title, not manuscript
+            try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: $0)
+        }
+        if let record = manifest?.figures?.first(where: { $0.id == documentId }) {
+            let noun: String
+            switch record.kind {
+            case .table: noun = "Table"
+            case .image, .unknown: noun = "Figure"
+            }
+            let pieceTitle = record.piece.map { piece in
+                manifest.flatMap { TreeWalk.find(id: piece, in: $0.structure)?.title } ?? piece
+            }
+            return .figure(name: "\(noun): \(record.name)", pieceTitle: pieceTitle)
+        }
+        if DocumentClass.isFigureDocId(documentId) { return .unknownFigure }
+        let title = manifest.flatMap { TreeWalk.find(id: documentId, in: $0.structure)?.title }
+        return .piece(title: title ?? documentId)
     }
 }

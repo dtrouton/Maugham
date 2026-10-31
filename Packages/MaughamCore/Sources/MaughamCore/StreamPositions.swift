@@ -319,7 +319,8 @@ public enum StreamPositions {
                   let bytes = try OpLogStore.readCoordinated(url: url, presenter: nil)
             else { continue }
             let verification = verificationForPositions(
-                at: url, bytes: bytes, stream: stream, trust: trust)
+                at: url, bytes: bytes, stream: stream, trust: trust,
+                facts: { facts })
             note(stream.key) { entry in
                 if verification.head != nil { entry.answered = true }
                 if let head = expecting[stream.key]?.head,
@@ -557,7 +558,8 @@ public enum StreamPositions {
                   let bytes = try OpLogStore.readCoordinated(url: url, presenter: nil)
             else { continue }
             let verification = verificationForPositions(
-                at: url, bytes: bytes, stream: stream, trust: trust)
+                at: url, bytes: bytes, stream: stream, trust: trust,
+                facts: { OpLogStore.manifestFacts(in: projectURL) })
             note(stream.key) { entry in
                 if verification.head != nil { entry.answered = true }
                 if let head = expecting[stream.key]?.head,
@@ -695,8 +697,12 @@ public enum StreamPositions {
     /// make two Macs cut the same file in two places. `state: nil` throughout
     /// for the same reason and one more: this remembers nothing and writes
     /// nothing.
+    ///
+    /// `facts` is asked only for a figure's translation sidecar, and only
+    /// where a line's judgement turns on the class.
     private nonisolated static func verificationForPositions(
-        at url: URL, bytes: Data, stream: PermitMark.Stream, trust: TrustTable?
+        at url: URL, bytes: Data, stream: PermitMark.Stream, trust: TrustTable?,
+        facts: @escaping @Sendable () -> DocumentClass.Facts
     ) -> OpLogChain.Verification {
         // The load's own `OpLogClassifier.walk`, with no remembered head.
         // Arm 2 here too, so both sweeps judge a file the way the LOAD
@@ -717,7 +723,11 @@ public enum StreamPositions {
         guard let trust else { return resolved }
         let judge: PermitJudge
         switch stream.kind {
-        case .translation: judge = .translation(ofPiece: stream.docId, trust: trust)
+        // The load's own class for the sidecar, a figure's included (report
+        // plan 9e-1, ruling R2): a mark cut where the load did not judge
+        // would name a span the load refuses.
+        case .translation:
+            judge = .translation(ofDocId: stream.docId, facts: facts, trust: trust)
         case .inbox: judge = .inbox(trust: trust)
         case .ops: return resolved
         }

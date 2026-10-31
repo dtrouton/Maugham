@@ -19,7 +19,9 @@ import MaughamCore
 /// figure triggers through `DocumentStore.figureCardCaches` — an open host
 /// appending an op (`figureHostAppended`), the presenter's figure pass
 /// (`applyPendingFigureChanges`, which a registry adoption also feeds) and a
-/// trust change. Every trigger in one main-actor turn makes ONE fill, and a
+/// trust change — and, in translation review, the review language changing
+/// or a cell translation landing (`setReviewLanguage`, `translationsChanged`;
+/// report plan 9e-1 Task 7). Every trigger in one main-actor turn makes ONE fill, and a
 /// trigger during a fill makes one more after it. A fill reads through
 /// `Source.read` (production: `DocumentStore.figureCardInputs()`, the figure
 /// cache and the open hosts' folds — never `figures/<name>.csv`, tripwire 20, and
@@ -49,10 +51,21 @@ final class FigureCardCache {
     /// How the cache reads the book. `EditorHost` builds it over its
     /// `DocumentStore`; tests hand in a closure.
     struct Source {
-        /// One fill's inputs, off the typing path; nil when they did not read
-        /// (the window closing, the registry unreadable), which leaves the
-        /// cards as they were.
-        var read: () async -> FigureCardInputs?
+        /// One fill's inputs in the review language (nil: the source), off
+        /// the typing path; nil when they did not read (the window closing,
+        /// the registry unreadable), which leaves the cards as they were.
+        var read: (_ language: String?) async -> FigureCardInputs?
+
+        /// A source that has no translations: every fill reads the source.
+        init(read: @escaping () async -> FigureCardInputs?) {
+            self.read = { _ in await read() }
+        }
+
+        /// A source that reads the review language's labels too (the
+        /// editor's, report plan 9e-1 Task 7).
+        init(readInLanguage: @escaping (_ language: String?) async -> FigureCardInputs?) {
+            self.read = readInLanguage
+        }
     }
 
     /// Bumps once per fill that changed a card (and on the first fill).
@@ -82,6 +95,9 @@ final class FigureCardCache {
     /// card each had (`readopt(figureId:)`); at most `departedLimit`.
     private var departed: [(record: FigureRecord, model: FigureCardModel?)] = []
     static let departedLimit = 8
+    /// The window's translation review language, nil for the source
+    /// (`setReviewLanguage`); each fill reads its labels.
+    private(set) var reviewLanguage: String?
     private var hasFilled = false
     private var dirty = false
     private var filling: Task<Void, Never>?
@@ -119,6 +135,24 @@ final class FigureCardCache {
         guard filling == nil else { return }
         let generation = generation
         filling = Task { [weak self] in await self?.drain(generation) }
+    }
+
+    /// **The window entered, left or switched translation review** (report
+    /// plan 9e-1 Task 7): the cards refill in that language, showing each
+    /// text cell's fresh translation. A label never changes a card's height
+    /// (rows are one line each), so no figure line's room moves. Nothing
+    /// when the language is the one the cards already read.
+    func setReviewLanguage(_ language: String?) {
+        guard language != reviewLanguage else { return }
+        reviewLanguage = language
+        invalidate()
+    }
+
+    /// **A cell translation landed** (`.maughamTranslationDidUpdate` naming
+    /// a figure): in review the cards refill; on the source nothing moves.
+    func translationsChanged() {
+        guard reviewLanguage != nil else { return }
+        invalidate()
     }
 
     /// The card for figure `figureId`, or nil when no fill has built one
@@ -195,7 +229,7 @@ final class FigureCardCache {
     private func drain(_ generation: Int) async {
         while dirty, generation == self.generation, let source {
             dirty = false
-            let inputs = await source.read()
+            let inputs = await source.read(reviewLanguage)
             guard generation == self.generation else { return }
             if let inputs { apply(inputs) }
         }
@@ -207,7 +241,7 @@ final class FigureCardCache {
         let built = FigureCardBook.build(
             records: inputs.records, states: inputs.states, workbook: inputs.workbook,
             locale: inputs.locale, pinChanged: inputs.pinChanged, sourceChanged: inputs.sourceChanged,
-            openCellNotes: inputs.openCellNotes)
+            openCellNotes: inputs.openCellNotes, language: inputs.language, labels: inputs.labels)
         let next = built.models, readers = built.researchReaders
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

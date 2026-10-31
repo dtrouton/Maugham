@@ -45,6 +45,12 @@ public struct PublishFigures: Sendable {
         self.parked = parked
     }
 
+    /// Whether a figure is parked in Research — listed so, or its state says
+    /// so. Parked figures print nothing and are never gated.
+    public func isParked(_ id: String) -> Bool {
+        parked.contains(id) || states[id]?.parked != nil
+    }
+
     /// No figures: what a book without any, and a source with no project,
     /// answers.
     public static let none = PublishFigures(
@@ -68,5 +74,15 @@ extension ProjectStore {
             return .none
         }
         return await documentStore.publishFigures()
+    }
+}
+
+extension ProjectStore {
+    /// **The book's tables for translation counts** — the window's
+    /// `DocumentStore.translationFigures()` (states and parking, none of a
+    /// publish's costs); `.none` with no `DocumentStore`.
+    func translationFigures() async -> PublishFigures {
+        guard let documentStore else { return .none }
+        return await documentStore.translationFigures()
     }
 }

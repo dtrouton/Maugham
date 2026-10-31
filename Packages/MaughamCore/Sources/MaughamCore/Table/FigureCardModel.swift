@@ -72,7 +72,8 @@ public struct FigureCardModel: Equatable, Sendable {
 
     /// - `values`: the computed value at a cell of this figure (bind `Workbook.value(at:)` to its id).
     /// - `labelLookup`: `(figureId, row, column, language)`'s stored translation of a text cell, or nil;
-    ///   consulted only for text cells and only when non-nil. Always nil until plan 9 stores translations.
+    ///   consulted only for stored literal text cells (`FigureTextCells.isTextCell`) and only when
+    ///   non-nil — the Mac's translation review passes the language's fresh labels (plan 9e-1 Task 7).
     /// - `pinChanged`: the caller's answer from `PinStatus` (any `.sourceChanged`).
     /// - `sourceChanged`: the caller's answer from `FigureSource.hasChanged(currentHash:)` for
     ///   `state.source`; a picture's placeholder carries it too.
@@ -102,7 +103,10 @@ public struct FigureCardModel: Equatable, Sendable {
         func text(_ row: RowID, _ column: ColumnID) -> String {
             let key = CellKey(row: row, column: column)
             let value = values(key)
-            if case .text = value, let label = labelLookup?(figureId, row, column, language) { return label }
+            // A stored literal text cell only (R1): a formula whose result is text is
+            // shared across languages and shows as computed.
+            if FigureTextCells.isTextCell(table[key]),
+               let label = labelLookup?(figureId, row, column, language) { return label }
             return CellDisplay.string(for: value, format: table[key]?.format ?? CellFormat(), locale: locale)
         }
         func line(_ i: Int) -> [String] { columns.map { text(rows[i], $0) } }

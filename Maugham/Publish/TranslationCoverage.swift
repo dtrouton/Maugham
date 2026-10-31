@@ -26,8 +26,24 @@ enum TranslationCoverage {
             let missing: [String]
         }
 
+        /// A table figure used in the edition's pieces whose text cells lag
+        /// (report plan 9e-1 Task 6, R7): its cells by A1 address.
+        struct FigureGap: Equatable {
+            let figureId: String
+            let name: String
+            /// Cells whose translation is stale relative to the current label.
+            let stale: [String]
+            /// Text cells with no translation.
+            let missing: [String]
+        }
+
         /// Pieces with at least one stale or missing paragraph.
         let gaps: [PieceGap]
+
+        /// Used, unparked table figures with at least one stale or missing
+        /// text cell — each once, however many pieces use it, in first-use
+        /// order.
+        var figureGaps: [FigureGap] = []
 
         /// One human-readable warning per fountain piece whose substituted text
         /// tokenizes to a different screenplay-element sequence than its source.
@@ -39,19 +55,30 @@ enum TranslationCoverage {
         /// under `allow_stale`).
         let zeroLayerError: String?
 
-        var isBlocked: Bool { gaps.contains { !$0.stale.isEmpty || !$0.missing.isEmpty } }
+        var isBlocked: Bool {
+            gaps.contains { !$0.stale.isEmpty || !$0.missing.isEmpty }
+                || figureGaps.contains { !$0.stale.isEmpty || !$0.missing.isEmpty }
+        }
     }
 
+    /// - Parameter figures: the compile's figure snapshot (the source's
+    ///   `PublishFigures`, the one its bodies print from), so the cells the
+    ///   gate counts are laid against the very table the bodies draw. `.none`
+    ///   (a book with no figures, a test) gates paragraphs only.
     static func check(
         projectStore: ProjectStore,
         language: String,
-        excludedSectionIDs: Set<String> = []
+        excludedSectionIDs: Set<String> = [],
+        figures: PublishFigures = .none
     ) throws -> Report {
         let docs = ProjectStore.collectDocuments(in: projectStore.manifest.structure)
         var gaps: [Report.PieceGap] = []
         var driftWarnings: [String] = []
         var anyRecords = false
         var anyTranslatable = false
+        // Each included piece's source text, for the table figures it
+        // uses (R7: only figures used in the edition's pieces count).
+        var included: [FigureUse.Piece] = []
 
         // ONE trust resolution for the whole gate (whole-branch review, I1).
         // `TranslationStore.loadMerged` resolves its own when handed none, and
@@ -74,6 +101,7 @@ enum TranslationCoverage {
 
             let (sequence, paragraphs) = try sourceSplit(
                 projectStore: projectStore, docId: item.id, path: path)
+            included.append(FigureUse.Piece(path: path, sequence: sequence, paragraphs: paragraphs))
             // **The gate refuses the edition rather than deriving over a
             // partial read** (P2a D0): an unreadable actor file would make
             // every paragraph that file holds read as `missing`, and under
@@ -116,12 +144,34 @@ enum TranslationCoverage {
             }
         }
 
+        // The table figures the included pieces use, each once (a figure in
+        // two chapters is one table to translate), derived against the
+        // snapshot's table through the same reader as `translation_status`
+        // (`FigureUse.coverage`). An unreadable translation file refuses the
+        // edition, as a piece's does (P2a D0).
+        var figureGaps: [Report.FigureGap] = []
+        for use in FigureUse.tables(in: included, figures: figures).readable {
+            let (records, derived) = try FigureUse.coverage(
+                of: use, language: language, projectURL: projectStore.url, trust: trust)
+            if !records.isEmpty { anyRecords = true }
+            if !derived.entries.isEmpty { anyTranslatable = true }
+            let address = { (key: CellKey) in
+                FigureGridAddress.string(for: key, in: use.table) ?? FigureCellTranslationKey.paragraphId(for: key)
+            }
+            let stale = derived.entries.filter { $0.status == .stale }.map { address($0.key) }
+            let missing = derived.entries.filter { $0.status == .missing }.map { address($0.key) }
+            if !stale.isEmpty || !missing.isEmpty {
+                figureGaps.append(.init(figureId: use.record.id, name: use.record.name,
+                                        stale: stale, missing: missing))
+            }
+        }
+
         // Zero-layer guard fires only when there IS something to translate but no
         // records exist — an empty manuscript needs no translation layer.
         let zeroLayer = (!anyRecords && anyTranslatable)
             ? "no translation layer for '\(language)' — run write_translation first"
             : nil
-        return Report(gaps: gaps, fountainDriftWarnings: driftWarnings,
+        return Report(gaps: gaps, figureGaps: figureGaps, fountainDriftWarnings: driftWarnings,
                       zeroLayerError: zeroLayer)
     }
 
@@ -164,6 +214,15 @@ enum TranslationCoverage {
                         "Translate the listed paragraphs with write_translation, or",
                         "re-compile with allow_stale for a source-text fallback edition."
                     ])
+            } + report.figureGaps.map { gap in
+                TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: describe(gap),
+                    contextLines: [
+                        "Translate the listed cells with write_translation (the table's id as",
+                        "document_id, each cell by a1), or re-compile with allow_stale for a",
+                        "source-text fallback edition."
+                    ])
             }
             return .blocked(
                 errors: diags, logExcerpt: "translation_stale: \(language)")
@@ -174,6 +233,12 @@ enum TranslationCoverage {
         var warnings: [TectonicLogParser.Diagnostic] = []
         if allowStale {
             warnings += report.gaps.map { gap in
+                TectonicLogParser.Diagnostic(
+                    level: .warning, file: nil, line: nil,
+                    message: describe(gap) + Self.sourceTextFallbackSuffix,
+                    contextLines: [])
+            }
+            warnings += report.figureGaps.map { gap in
                 TectonicLogParser.Diagnostic(
                     level: .warning, file: nil, line: nil,
                     message: describe(gap) + Self.sourceTextFallbackSuffix,
@@ -208,9 +273,13 @@ enum TranslationCoverage {
     /// nothing was compiled for them to be about.
     ///
     /// An empty `tags` (a source-only compile) does no work and passes.
+    ///
+    /// `figures` is the compile's own snapshot (its `ProjectStoreASTSource`'s),
+    /// so the table cells gated are the ones its bodies print.
     @MainActor
     static func gateEveryTongue(
         projectStore: ProjectStore,
+        figures: PublishFigures,
         tags: [String],
         excludedSectionIDs: Set<String>,
         allowStale: Bool
@@ -221,7 +290,7 @@ enum TranslationCoverage {
         for tag in tags {
             let report = try check(
                 projectStore: projectStore, language: tag,
-                excludedSectionIDs: excludedSectionIDs)
+                excludedSectionIDs: excludedSectionIDs, figures: figures)
             switch applyGate(report: report, language: tag, allowStale: allowStale) {
             case .blocked(let errors, let logExcerpt):
                 blocked += errors.map { tagged($0, tag) }
@@ -261,7 +330,8 @@ enum TranslationCoverage {
         " — compiled with source-text fallback"
 
     /// Whether a diagnostic is one of `applyGate`'s source-text-fallback
-    /// warnings — one per PIECE that fell back, tagged with its tongue.
+    /// warnings — one per PIECE (or table figure) that fell back, tagged with
+    /// its tongue.
     nonisolated static func isSourceTextFallback(
         _ diagnostic: TectonicLogParser.Diagnostic
     ) -> Bool {
@@ -278,6 +348,16 @@ enum TranslationCoverage {
         }
         return "\(gap.title): \(gap.stale.count) stale\(idList(gap.stale)), "
             + "\(gap.missing.count) missing\(idList(gap.missing))"
+    }
+
+    /// `"Table cash: A2 stale; B3, C1 untranslated"` — the cells by A1
+    /// address, an empty list dropping its clause. Both the blocking error and
+    /// the allow_stale warning.
+    nonisolated static func describe(_ gap: Report.FigureGap) -> String {
+        var clauses: [String] = []
+        if !gap.stale.isEmpty { clauses.append(gap.stale.joined(separator: ", ") + " stale") }
+        if !gap.missing.isEmpty { clauses.append(gap.missing.joined(separator: ", ") + " untranslated") }
+        return "Table \(gap.name): " + clauses.joined(separator: "; ")
     }
 
     /// The SAME `(sequence, paragraphs)` split `ProjectStoreASTSource` uses: an

@@ -51,11 +51,51 @@ func currentParagraphState(
     return (state.sequence, state.paragraphs, projectURL)
 }
 
+// MARK: - Shared figure resolution
+
+/// **A table figure's current table, for its translation** — the figure the
+/// `document_id` names, folded from its op log through the publish snapshot
+/// (`ProjectStore.publishFigures()`: an open host's fold, else the figure
+/// cache; never the rendered `figures/<name>.csv`, tripwire 20), windowless. Its text cells are
+/// what a translation is validated and hashed against, and what A1 addresses
+/// resolve in. A removed figure is not in the registry, so it is unknown here.
+@MainActor
+func currentFigureTable(
+    projectId: String, figureId: String, registry: ProjectRegistry
+) async throws -> (record: FigureRecord, table: FigureTable, projectURL: URL) {
+    guard let entry = registry.lookup(id: projectId) else {
+        throw MCPError.unknownProjectID(projectId)
+    }
+    let snapshot = await entry.store.publishFigures()
+    guard let record = snapshot.records.first(where: { $0.id == figureId }) else {
+        throw MCPError.invalidArgument(
+            "document_id \(figureId) is not a figure in this book (list_figures gives each figure's id)")
+    }
+    switch record.kind {
+    case .table:
+        guard let table = snapshot.states[record.id]?.table else {
+            throw MCPError.invalidArgument(
+                "Figure '\(record.name)' could not be read (its op log would not fold).")
+        }
+        return (record, table, entry.url)
+    case .image, .unknown:
+        throw MCPError.invalidArgument(
+            "Figure '\(record.name)' is not a table; only a table's text cells translate.")
+    }
+}
+
 // MARK: - write_translation
 
 public enum WriteTranslationTool: MCPTool {
     public struct Entry: Codable {
-        public let paragraph_id: String
+        /// A document's paragraph.
+        public let paragraph_id: String?
+        /// A table figure's cell, by its address in the current table ("B3").
+        public let a1: String?
+        /// A table figure's cell by its stored key (`read_translation`'s
+        /// orphan `cell`), for `delete` only: an orphan's row or column may be
+        /// gone, so it has no address.
+        public let cell: String?
         public let text: String?
         public let verbatim: Bool?
         public let delete: Bool?
@@ -98,9 +138,16 @@ public enum WriteTranslationTool: MCPTool {
         "structural drift (a dropped **bold** run, changed block shape) and, if the " +
         "translated text is identical to the current source, a reminder to mark it " +
         "`verbatim: true` instead — these are advisory only and never block the write. " +
+        "A table figure translates too: pass its id (from list_figures) as " +
+        "`document_id` and address each entry by `a1` (\"B3\") in the current " +
+        "table instead of `paragraph_id`. Only a cell holding typed text " +
+        "translates — numbers, dates and formulas are shared by every language, " +
+        "so a `text`/`verbatim` entry on one, or on an address outside the " +
+        "table, rejects the batch. A `delete` may name a cell orphan by its " +
+        "`cell` key from read_translation instead. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"entries":{"type":"array","items":{"type":"object","properties":{"paragraph_id":{"type":"string"},"text":{"type":"string"},"verbatim":{"type":"boolean","description":"copy current source text as the translation (chrome idiom)"},"delete":{"type":"boolean","description":"remove this paragraph's translation; exempt from the unknown-id check, so an orphan can be purged"}},"required":["paragraph_id"]}}},"required":["project_id","document_id","language","entries"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string","description":"a manuscript document's id, or a table figure's id"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"entries":{"type":"array","items":{"type":"object","properties":{"paragraph_id":{"type":"string","description":"a document's paragraph"},"a1":{"type":"string","description":"a table figure's cell, e.g. B3"},"cell":{"type":"string","description":"a table figure's cell orphan key from read_translation; delete only"},"text":{"type":"string"},"verbatim":{"type":"boolean","description":"copy current source text as the translation (chrome idiom)"},"delete":{"type":"boolean","description":"remove this translation; exempt from the unknown-id check, so an orphan can be purged"}}}}},"required":["project_id","document_id","language","entries"]}"#
 
     @MainActor
     public static func handle(
@@ -112,6 +159,14 @@ public enum WriteTranslationTool: MCPTool {
         // malformed tag is refused before the registry is touched.
         try TranslationWritePipeline.validate(language: params.language)
 
+        if DocumentClass.isFigureDocId(params.document_id) {
+            return try await writeCells(params, registry: registry)
+        }
+        if params.entries.contains(where: { $0.a1 != nil || $0.cell != nil }) {
+            throw MCPError.invalidArgument(
+                "`a1` and `cell` address a table figure's cells; a document's entries use `paragraph_id`")
+        }
+
         let state = try currentParagraphState(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -121,9 +176,12 @@ public enum WriteTranslationTool: MCPTool {
         // the pipeline, which the coming ingest path shares (census:
         // TripwireGrepTests). The tool's job is the wire form on either side.
         let warnings = try await TranslationWritePipeline.perform(
-            entries: params.entries.map {
-                TranslationWritePipeline.Entry(
-                    paragraphId: $0.paragraph_id, text: $0.text,
+            entries: try params.entries.map {
+                guard let paragraphId = $0.paragraph_id else {
+                    throw MCPError.invalidArgument("every entry names its `paragraph_id`")
+                }
+                return TranslationWritePipeline.Entry(
+                    paragraphId: paragraphId, text: $0.text,
                     verbatim: $0.verbatim, delete: $0.delete)
             },
             language: params.language,
@@ -152,6 +210,61 @@ public enum WriteTranslationTool: MCPTool {
             language: params.language,
             warnings: warnings))
     }
+
+    /// A table figure's batch: each entry's `a1` resolved against the current
+    /// table (ruling R8: addresses on the wire, ids stored), then the
+    /// pipeline's cell route, which validates, appends once, and announces the
+    /// figure.
+    @MainActor
+    private static func writeCells(
+        _ params: Params, registry: ProjectRegistry
+    ) async throws -> Data {
+        let figure = try await currentFigureTable(
+            projectId: params.project_id, figureId: params.document_id, registry: registry)
+        let table = figure.table
+        var outside: [String] = []
+        var entries: [TranslationWritePipeline.CellEntry] = []
+        for e in params.entries {
+            if let paragraphId = e.paragraph_id {
+                throw MCPError.invalidArgument(
+                    "entry for paragraph \(paragraphId) names a paragraph, but '\(figure.record.name)' "
+                    + "is a table: address each cell by `a1`, e.g. \"B3\"")
+            }
+            let key: CellKey?
+            switch (e.a1, e.cell) {
+            case (let a1?, nil):
+                key = FigureGridAddress.cell(a1, in: table)
+                if key == nil { outside.append(a1) }
+            case (nil, let cell?):
+                guard e.delete == true else {
+                    throw MCPError.invalidArgument(
+                        "`cell` names an orphan to delete; address a cell to translate by `a1`")
+                }
+                guard let parsed = FigureCellTranslationKey.cellKey(fromParagraphId: cell) else {
+                    throw MCPError.invalidArgument("not a cell key: \(cell)")
+                }
+                key = parsed
+            default:
+                throw MCPError.invalidArgument(
+                    "every entry for a table names exactly one of `a1` or `cell`")
+            }
+            if let key {
+                entries.append(.init(key: key, text: e.text, verbatim: e.verbatim, delete: e.delete))
+            }
+        }
+        if !outside.isEmpty {
+            throw MCPError.invalidArgument(
+                "not cells inside '\(figure.record.name)' (\(table.rows.count) rows, "
+                + "\(table.columns.count) columns): \(outside.joined(separator: ", "))")
+        }
+        let warnings = try await TranslationWritePipeline.performCells(
+            entries: entries, language: params.language, figureId: figure.record.id,
+            table: table, projectURL: figure.projectURL,
+            // The translator's, as a paragraph batch is.
+            actor: .translator)
+        return try JSONEncoder().encode(Result(
+            written: params.entries.count, language: params.language, warnings: warnings))
+    }
 }
 
 // MARK: - read_translation
@@ -170,10 +283,31 @@ public enum ReadTranslationTool: MCPTool {
         public let language: String
         public let status: String?
     }
+    /// One text cell of a table figure, by its address in the current table.
+    public struct CellEntry: Codable, Equatable {
+        public let a1: String
+        public let source_text: String
+        public let translated_text: String?
+        public let status: String
+        public let verbatim: Bool
+    }
+    /// A translation no live text cell answers to: its row or column is
+    /// gone, or the cell no longer holds text. `cell` is its stored key
+    /// (`write_translation` deletes it by that); `a1` is where it sits when
+    /// the cell is still in the table.
+    public struct CellOrphan: Codable, Equatable {
+        public let cell: String
+        public let a1: String?
+        public let translated_text: String?
+    }
     public struct Result: Codable, Equatable {
         public let language: String
         public let entries: [Entry]
         public let orphan_count: Int
+        /// A table figure's text cells, row by row; omitted for a document.
+        public var cells: [CellEntry]? = nil
+        /// A table figure's cell orphans; omitted for a document.
+        public var orphans: [CellOrphan]? = nil
     }
 
     public static let method = "read_translation"
@@ -187,9 +321,16 @@ public enum ReadTranslationTool: MCPTool {
         "only matching entries — the usual way to find retranslation work is `status=stale` " +
         "plus `status=missing`. `orphan_count` reports translations whose paragraph no longer " +
         "exists in the source (dropped after an edit). " +
+        "Pass a table figure's id as `document_id` to read its text cells instead: " +
+        "`cells` lists each cell holding typed text, row by row, with its `a1`, " +
+        "source, translation and `status` (numbers, dates and formulas are shared " +
+        "by every language and never listed), and `orphans` lists translations no " +
+        "text cell answers to any more (a deleted row or column, or a cell that " +
+        "no longer holds text), each with the `cell` key write_translation " +
+        "deletes it by; `entries` is then empty. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"status":{"type":"string","description":"optional filter: fresh | stale | missing — omit for all paragraphs"}},"required":["project_id","document_id","language"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string","description":"a manuscript document's id, or a table figure's id"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"status":{"type":"string","description":"optional filter: fresh | stale | missing — omit for all paragraphs"}},"required":["project_id","document_id","language"]}"#
 
     @MainActor
     public static func handle(
@@ -206,6 +347,10 @@ public enum ReadTranslationTool: MCPTool {
             filter = s
         } else {
             filter = nil
+        }
+
+        if DocumentClass.isFigureDocId(params.document_id) {
+            return try await readCells(params, filter: filter, registry: registry)
         }
 
         let state = try currentParagraphState(
@@ -240,6 +385,42 @@ public enum ReadTranslationTool: MCPTool {
             language: params.language,
             entries: entries,
             orphan_count: derived.orphans.count))
+        return try MCPResponseBudget.enforce(
+            encoded, hint: "filter with status=stale or status=missing to reduce payload")
+    }
+
+    /// A table figure's text cells and orphans, derived from its current
+    /// table and its merged translation files (a present-but-unreadable file
+    /// fails the call, as for a document).
+    @MainActor
+    private static func readCells(
+        _ params: Params, filter: TranslationStatus?, registry: ProjectRegistry
+    ) async throws -> Data {
+        let figure = try await currentFigureTable(
+            projectId: params.project_id, figureId: params.document_id, registry: registry)
+        let records = try TranslationStore.loadMerged(
+            forDocId: figure.record.id, language: params.language, in: figure.projectURL)
+        let derived = FigureTranslationDeriver.derive(
+            records: records, table: figure.table, language: params.language)
+        let cells = derived.entries
+            .filter { filter == nil || $0.status == filter }
+            .map { e in
+                CellEntry(
+                    a1: FigureGridAddress.string(for: e.key, in: figure.table)
+                        ?? FigureCellTranslationKey.paragraphId(for: e.key),
+                    source_text: e.sourceText, translated_text: e.translatedText,
+                    status: e.status.rawValue, verbatim: e.verbatim)
+            }
+        let orphans = derived.orphans.map { record in
+            CellOrphan(
+                cell: record.paragraphId,
+                a1: FigureCellTranslationKey.cellKey(fromParagraphId: record.paragraphId)
+                    .flatMap { FigureGridAddress.string(for: $0, in: figure.table) },
+                translated_text: record.text)
+        }
+        let encoded = try JSONEncoder().encode(Result(
+            language: params.language, entries: [], orphan_count: orphans.count,
+            cells: cells, orphans: orphans))
         return try MCPResponseBudget.enforce(
             encoded, hint: "filter with status=stale or status=missing to reduce payload")
     }
@@ -302,8 +483,27 @@ public enum TranslationStatusTool: MCPTool {
         public let title: String
         public let reason: String
     }
+    /// One (table figure, language) pair: the figure's text-cell counts by
+    /// freshness (`EditionStatus.figureRows`). A figure with no translation
+    /// file in a language the book has a translation layer in reports its
+    /// cells as `missing`, not zero: its edition will not compile until they
+    /// are translated.
+    public struct FigureRow: Codable, Equatable {
+        public let figure_id: String
+        public let name: String
+        public let language: String
+        public let fresh: Int
+        public let stale: Int
+        public let missing: Int
+        public let verbatim: Int
+        public let orphans: Int
+    }
     public struct Result: Codable, Equatable {
         public let rows: [Row]
+        /// The table figures the reported documents use (parked figures
+        /// excluded), in reading order, one row per language the reported
+        /// documents or the figure itself has. Always present, `[]` when none.
+        public let figures: [FigureRow]
         /// Always present, `[]` when every document read cleanly — the
         /// always-present-array precedent `write_translation`'s and `compile`'s
         /// `warnings` set, so a reader never has to tell "absent" from "none".
@@ -321,8 +521,10 @@ public enum TranslationStatusTool: MCPTool {
         "questions raised against that language, whole-document ones included). A " +
         "language shows up here as soon as a " +
         "translator asks a query against it, even before any translation file exists for " +
-        "it — that row's coverage counts are all zero (nothing to derive yet) with " +
-        "`open_queries` real, distinct from a language that has files but nothing missing. " +
+        "it — while no document or table in the book has a translation in that language, " +
+        "its rows' coverage counts are all zero (not started) with `open_queries` real. " +
+        "Once the book has any translation in a language, a document with none of its own " +
+        "counts every paragraph `missing`, as the compile's coverage gate does. " +
         "`unreadable_documents` (always present, empty when the whole book read cleanly) " +
         "names every document this call could not open, with the reason — its rows are " +
         "missing from `rows` rather than zero, so read it before concluding a chapter is " +
@@ -332,6 +534,12 @@ public enum TranslationStatusTool: MCPTool {
         "document) carries the newest round's number, the two readers' verdicts, its " +
         "note/departure/declined counts, its summary, and `stopped_at` for a round that " +
         "failed or was cancelled. " +
+        "`figures` (always present) lists the table figures those documents use, one " +
+        "row per (figure, language) with text-cell counts — `fresh`, `stale`, `missing`, " +
+        "`verbatim`, `orphans`, by the same rule: a table with no translation of its own " +
+        "counts every text cell `missing` once the book has a translation in that language. " +
+        "These are the cells the coverage gate refuses an edition over. A figure whose translations would not read is " +
+        "named in `unreadable_documents` by its figure id. " +
         "Use it to see how much of a book is translated and where retranslation is due. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
@@ -361,6 +569,16 @@ public enum TranslationStatusTool: MCPTool {
         if let documentId = params.document_id {
             guard TreeWalk.find(id: documentId, in: entry.store.manifest.structure) != nil
             else {
+                // A table's id is a fair guess (`write_translation` and
+                // `read_translation` take one): point at where its coverage
+                // lives rather than calling it a missing document (report
+                // plan 9e-1 final fix wave, M3).
+                if DocumentClass.isFigureDocId(documentId) {
+                    throw MCPError.invalidArgument(
+                        "document_id \(documentId) is a figure, not a document: a table's "
+                        + "cell coverage is in this tool's `figures` section — call it "
+                        + "without document_id, or with the id of a chapter that uses the table")
+                }
                 throw MCPError.invalidArgument(
                     "document_id not found in project manifest: \(documentId)")
             }
@@ -383,9 +601,19 @@ public enum TranslationStatusTool: MCPTool {
         // translation status became one failed call. It now degrades to an
         // entry in `unreadable_documents`, which is the same fact the desk
         // draws — one derivation, one degrade.
+        // The edition is the whole book, whatever `document_id` narrows the
+        // report to — the layer rule's scope (`EditionStatus.layerLanguages`).
+        let book = EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
         let report = await EditionStatus.documentRows(
-            documentIds: docIds, store: entry.store, projectURL: entry.url)
+            documentIds: docIds, layerScope: book, store: entry.store, projectURL: entry.url)
         let rounds = TranslationRoundStore(projectURL: entry.url)
+
+        // The tables those documents use — `EditionStatus`'s, with the desk's
+        // layer rule and the coverage gate's reader (`FigureUse`), so a
+        // table's `missing` here is what the gate refuses over.
+        let figures = await EditionStatus.figureRows(
+            documentIds: docIds, languages: Set(report.rows.map(\.language)),
+            layer: report.layer, texts: report.texts, store: entry.store, projectURL: entry.url)
 
         return try JSONEncoder().encode(Result(rows: report.rows.map {
             Row(document_id: $0.documentId,
@@ -405,7 +633,11 @@ public enum TranslationStatusTool: MCPTool {
                               departures: $0.departures.count, declined: $0.declinedCount,
                               summary: $0.summary, stopped_at: $0.stoppedAt?.name)
                 })
-        }, unreadable_documents: report.unreadable.map {
+        }, figures: figures.rows.map {
+            FigureRow(figure_id: $0.figureId, name: $0.name, language: $0.language,
+                      fresh: $0.fresh, stale: $0.stale, missing: $0.missing,
+                      verbatim: $0.verbatim, orphans: $0.orphans)
+        }, unreadable_documents: (report.unreadable + figures.unreadable).map {
             UnreadableDocument(document_id: $0.documentId,
                                title: $0.title,
                                reason: $0.reason)

@@ -306,6 +306,9 @@ struct EditorHost: View {
                 .onProjectEvent(
                     .maughamTranslationDidUpdate, url: store.url, window: window
                 ) { note in
+                    // A table's cell translations (plan 9e-1 Task 7): the
+                    // cards refill in the review language.
+                    if note.userInfo?["figure_id"] is String { figureCards.translationsChanged() }
                     guard control.translationLanguage != nil,
                           note.userInfo?["document_id"] as? String == doc.docId
                     else { return }
@@ -320,8 +323,9 @@ struct EditorHost: View {
                 // (language becomes non-nil) derives the surface once; exiting
                 // (nil) drops it so `text` reverts to `doc.displayText` and the
                 // existing applyExternalText site swaps the source buffer back in.
-                .onChange(of: control.translationLanguage) { _, _ in
+                .onChange(of: control.translationLanguage) { _, language in
                     recomputeTranslatedSurface(doc: doc)
+                    figureCards.setReviewLanguage(language)
                 }
                 .onAppear {
                     control.reviewAnnotations = control.isReviewMode
@@ -330,6 +334,7 @@ struct EditorHost: View {
                     // A re-mount while a language is selected must restore the
                     // translated surface.
                     recomputeTranslatedSurface(doc: doc)
+                    figureCards.setReviewLanguage(control.translationLanguage)
                     // A document switch: the piece just left may have changed
                     // since its last settle, so every piece is asked again
                     // (cheaply: a closed one only when its op log moved).
@@ -750,7 +755,7 @@ struct EditorHost: View {
         figureCards.onVersionChange = { control.figureCardVersion = $0 }
         documentStore.attachFigureCardCache(figureCards)
         figureCards.attach(FigureCardCache.Source(
-            read: { [weak documentStore] in await documentStore?.figureCardInputs() }))
+            readInLanguage: { [weak documentStore] in await documentStore?.figureCardInputs(language: $0) }))
     }
 
     /// The host is going: no fill lands, and the store stops telling this

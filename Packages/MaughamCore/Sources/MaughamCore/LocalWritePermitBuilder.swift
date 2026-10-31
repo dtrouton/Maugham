@@ -21,8 +21,8 @@ public enum LocalWritePermitBuilder {
     /// book decodes its manifest once per ask rather than once per question,
     /// and a book that never needs either decodes nothing. Every caller that
     /// resolves both off a manifest comes here; a caller that CONSTRUCTS its
-    /// class (the translation pipeline's `.translation(piece:)`) keeps the
-    /// closure form below.
+    /// class (the translation pipeline's `DocumentClass.translationClass`)
+    /// keeps the closure form below.
     ///
     /// `table` is the door's resolved register (`OpLogStore.registerTable`).
     static func permit(

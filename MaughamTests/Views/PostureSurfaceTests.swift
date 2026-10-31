@@ -1702,6 +1702,104 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertGreaterThan(translationBytes("doc-b", h.projectURL), b0, "promotion: written")
     }
 
+    /// **The translation door judges a figure's translation by the FIGURE's
+    /// piece** (report plan 9e-1, ruling R2) — the class the reader will judge
+    /// the lines in, so a refusal here is exactly what the next read would set
+    /// aside. Her piece's figure: allowed. A figure of the whole book: the
+    /// book author's alone. A figure whose record has not arrived: held, so
+    /// not offered. A reviewer: nothing.
+    func test_theTranslationDoorJudgesAFigureByItsPiece() async throws {
+        let h = try await makeStatementHarness()
+        let hers = try await h.store.createFigure(kind: .table, name: "hers", piece: "doc-a")
+        let books = try await h.store.createFigure(kind: .table, name: "books", piece: nil)
+        let unregistered = "fig-0000dead"
+        func door(_ figureId: String) throws {
+            try TranslationWritePipeline.refuseUnlessTranslatable(
+                documentId: figureId, actor: .translator, identities: h.identities,
+                deviceState: try XCTUnwrap(Document.deviceStateForTesting),
+                projectURL: h.projectURL)
+        }
+        func assertRefused(_ label: String, _ figureId: String, saying sentence: String,
+                           line: UInt = #line) {
+            do {
+                try door(figureId)
+                XCTFail("\(label) was not refused", line: line)
+            } catch MCPError.toolError(let payload) {
+                XCTAssertEqual(payload.error, "translation_not_permitted", line: line)
+                XCTAssertEqual(payload.message, sentence,
+                               "the refusal names the figure as the writer knows it", line: line)
+                XCTAssertFalse(payload.message.contains(figureId), "never the fig- id", line: line)
+            } catch {
+                XCTFail("\(label) threw \(error)", line: line)
+            }
+        }
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        XCTAssertNoThrow(try door(hers.id), "her piece's figure: allowed")
+        assertRefused(
+            "a pieces-author's translation of a whole-book figure", books.id,
+            saying: "This Mac may not translate Table: books \u{2014} it belongs to the whole "
+                + "book, which your part in this book doesn\u{2019}t reach, so nothing was written.")
+        assertRefused(
+            "a figure whose record has not arrived", unregistered,
+            saying: "This Mac can\u{2019}t translate that figure yet \u{2014} its record "
+                + "hasn\u{2019}t reached this Mac, so nothing was written.")
+
+        try await become(.reviewer, h)
+        assertRefused(
+            "a reviewer's translation of her piece's figure", hers.id,
+            saying: "This Mac may not translate Table: hers \u{2014} it belongs to \u{201C}A\u{201D}, "
+                + "which your part in this book doesn\u{2019}t reach, so nothing was written.")
+
+        try await become(.bookAuthor, h)
+        XCTAssertNoThrow(try door(books.id), "the book author: a whole-book figure")
+    }
+
+    /// **Remove on a table's orphaned cells is offered from the FIGURE's
+    /// translation class, never the chapter's posture** (report plan 9e-1
+    /// final fix wave, I1). A pieces-author of A reviewing chapter A sees a
+    /// whole-book table's orphans with no Remove — the write door
+    /// (`performCells`) would refuse it — while her own piece's table offers
+    /// it; a book author is offered both.
+    ///
+    /// The disable experiment: give `TranslationCellsSection` back the
+    /// pane's answer (`posture(forDocId: document.docId)`, the chapter's) and
+    /// `section(books).mayPurge` is true for the pieces-author — the premise
+    /// line above is that answer.
+    func test_aTablesCellRemoveIsOfferedFromTheFiguresTranslationClass() async throws {
+        let h = try await makeStatementHarness()
+        h.documentStore.projectStore = h.store  // as the window's session wires it
+        let hers = try await h.store.createFigure(kind: .table, name: "hers", piece: "doc-a")
+        let books = try await h.store.createFigure(kind: .table, name: "books", piece: nil)
+
+        // The Cells list a chapter's Translation pane draws for the table
+        // under the caret: it asks its own question of the door.
+        func section(_ figure: FigureRecord) -> TranslationCellsSection {
+            TranslationCellsSection(figure: figure, language: "es", documentStore: h.documentStore,
+                                    projectURL: h.projectURL, cardVersion: 0)
+        }
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        XCTAssertTrue(h.documentStore.posture(forDocId: "doc-a").allows(.translate),
+                      "premise: the chapter's posture would offer Remove")
+        XCTAssertFalse(section(books).mayPurge,
+                       "a pieces-author: no Remove on a whole-book table's orphans")
+        XCTAssertFalse(
+            h.documentStore.translationPosture(forDocId: books.id).allows(.translate))
+        XCTAssertTrue(section(hers).mayPurge, "her own piece's table: Remove")
+        XCTAssertTrue(
+            h.documentStore.translationPosture(forDocId: "doc-a").allows(.translate),
+            "a piece's id is its piece's translation")
+        XCTAssertFalse(
+            h.documentStore.translationPosture(forDocId: "doc-b").allows(.translate),
+            "…and not somebody else's")
+
+        try await become(.bookAuthor, h)
+        XCTAssertTrue(section(books).mayPurge,
+                      "a book author: Remove on the whole-book table, with no reopen")
+        XCTAssertTrue(section(hers).mayPurge)
+    }
+
     /// **Removing an orphan is the author's own translation write** and asks
     /// the author's key the same door: refused, nothing appended.
     func test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate() async throws {

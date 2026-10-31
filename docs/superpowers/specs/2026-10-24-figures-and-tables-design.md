@@ -379,7 +379,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - The pop-out window.
    - Undo hand-off.
    - Insert Table / Convert, grid-sheet retirement.
-   - The card shows a body's text-cell translations once plan 9 stores them.
+   - The card shows a body's text-cell translations once plan 9 stores them — built in plan 9e-1.
 8. **The Figures area.**
    - Tree section and folds.
    - Centre editor and inspector.
@@ -390,7 +390,7 @@ Five plans, each capped at about 10 tasks. Following rule 11, build plan 5 befor
    - Publishing (PDF, EPUB, Word) from figures, with localised formats and problems.
    - MCP tools and figure anchors.
    - Cell suggestions (§6.5) end to end: the cell-anchor annotation model, MCP creation, dots on card and grid, the strip with Accept/Reject (Denver, 2026-10-25).
-   - Text-cell translations (§8): the store and derivation keyed by (figure, row id, column id, language), a figure-aware translation permit class carrying the figure's piece, who writes them (translator and `write_translation`), coverage-gate membership, a body's emission, and the orphaned translations a removed figure leaves.
+   - Text-cell translations (§8): the store and derivation keyed by (figure, row id, column id, language), a figure-aware translation permit class carrying the figure's piece, who writes them (translator and `write_translation`), coverage-gate membership, a body's emission, and the orphaned translations a removed figure leaves. Built in plan 9e-1 (store, permit class, `write_translation`, gate, bodies, orphans); the translator agent writing cells is plan 9e-2.
    - Research version history (§10.1) with the AI Research-table tools — every save is versioned (Denver, 2026-10-30, RULING-56); replaces the canvas Rewrite's Trash `.priorVersion` route.
    - Phone rendering.
    - Help and docs.

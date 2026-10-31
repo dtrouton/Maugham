@@ -280,6 +280,16 @@ struct TranslationReviewPane: View {
         documentStore?.posture(forDocId: document.docId).allows(.translate) ?? true
     }
 
+    /// The table figure the caret's paragraph is the line of, nil for any
+    /// other paragraph (`TranslationCellRows.tableFigure`, Publish's rule).
+    private var figureUnderCaret: FigureRecord? {
+        guard let selected, let text = document.paragraphs[selected.paragraphId],
+              let path = TreeWalk.find(id: document.docId, in: store.manifest.structure)?.path
+        else { return nil }
+        return TranslationCellRows.tableFigure(
+            inParagraph: text, documentPath: path, records: store.manifest.figures ?? [])
+    }
+
     private var orphanRows: [TranslationReviewPaneLogic.OrphanRow] {
         TranslationReviewPaneLogic.orphanRows(from: control.translationBadges.orphans)
     }
@@ -303,6 +313,15 @@ struct TranslationReviewPane: View {
                     VStack(alignment: .leading, spacing: 20) {
                         sourceSection
                         spotCheckSection
+                        // A table's line under the caret: its text cells in
+                        // this language (report plan 9e-1 Task 8).
+                        if let figure = figureUnderCaret, let language = control.translationLanguage,
+                           let documentStore {
+                            Divider()
+                            TranslationCellsSection(
+                                figure: figure, language: language, documentStore: documentStore,
+                                projectURL: store.url, cardVersion: control.figureCardVersion)
+                        }
                         Divider()
                         queriesSection
                         if !orphanRows.isEmpty {
@@ -862,7 +881,7 @@ private struct TranslationQueryRow: View {
 
 /// Freshness chip for the selected paragraph's translation (fresh / stale /
 /// missing). Terse capsule mirroring the annotation-pane badge idiom.
-private struct TranslationStatusChip: View {
+struct TranslationStatusChip: View {
     let status: TranslationStatus
 
     var body: some View {
