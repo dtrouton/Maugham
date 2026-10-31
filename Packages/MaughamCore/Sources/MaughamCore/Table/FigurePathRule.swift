@@ -14,6 +14,9 @@ import Foundation
 /// looked up.
 public enum FigurePathRule {
 
+    /// The folder every figure's render lives in, project-relative; spelled here once.
+    public static let figuresFolder = "figures"
+
     public enum Outcome: Equatable, Sendable {
         /// The project-relative target components, and the allowed folder
         /// (`["figures"]`, `["research"]`, `["pieces", x, "research"]`) it
@@ -72,7 +75,7 @@ public enum FigurePathRule {
     }
 
     private static func allowedRoot(of target: [String], piece: [String]) -> [String]? {
-        var roots: [[String]] = [["figures"], ["research"]]
+        var roots: [[String]] = [[figuresFolder], ["research"]]
         if piece.count == 3, piece[0] == "pieces" {
             roots.append(["pieces", piece[1], "research"])
         }

@@ -190,6 +190,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureCardText.swift` — the words a table figure's card shows, shared by the Mac and phone cards.
 - `FigureCardModel.swift` — a table figure card's rows and height.
 - `FigureTableLayout.swift` — a table figure's printed cells (header/body/total, resolved alignments, error cells); owns the shared alignment rule.
+- `FigureCardBook.swift` — the one figure-card loop Mac and phone share: a model per figure, the Research readers, the parked labels, and the line rule (what sits under a figure line).
 - `FigurePathRule.swift` — the lexical figure-path rule Publish shares.
 - `FigureLineResolution.swift` — a figure line's figure and `Status`.
 - `FigureTablePipe.swift` — a pipe table as a figure table.

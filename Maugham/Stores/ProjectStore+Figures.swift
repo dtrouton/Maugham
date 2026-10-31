@@ -11,7 +11,7 @@ import MaughamCore
 extension ProjectStore {
 
     /// The folder every figure's render lives in, project-relative.
-    static let figuresFolder = "figures"
+    static let figuresFolder = FigurePathRule.figuresFolder
 
     /// Test seam: thrown from before each of `createFigure`'s appends, to
     /// prove a failed append leaves no registry record. Nil in production.

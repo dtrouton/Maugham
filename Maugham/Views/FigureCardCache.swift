@@ -148,14 +148,7 @@ final class FigureCardCache {
     ///   - documentPath: the document's project-relative path.
     func model(forLinePath linePath: String, documentPath: String) -> FigureCardModel? {
         guard hasFilled else { return nil }
-        switch index.record(forLinePath: linePath, documentPath: documentPath) {
-        case .figure(let record): return models[record.id]
-        case .ambiguous: return .placeholder(.ambiguous)
-        case .none:
-            guard case .inside(_, let root) = FigurePathRule.lexical(linePath, piecePath: documentPath),
-                  root == [ProjectStore.figuresFolder] else { return .placeholder(.image) }
-            return .placeholder(.removed)
-        }
+        return FigureCardBook(models: models).model(forLinePath: linePath, documentPath: documentPath, index: index)
     }
 
     /// **What a figure line's path is** (the caption bar and diagnostics, report
@@ -211,33 +204,13 @@ final class FigureCardCache {
 
     private func apply(_ inputs: FigureCardInputs) {
         fills += 1
-        var next: [String: FigureCardModel] = [:]
-        var readers: Set<String> = []
-        let tables = inputs.workbook?.tables ?? [:]
-        let parked = inputs.states.reduce(into: [String: FigureTable]()) { out, entry in
-            if entry.value.parked != nil, let table = tables[entry.key] { out[entry.key] = table }
-        }
-        for record in inputs.records where next[record.id] == nil {
-            guard let state = inputs.states[record.id] else { continue }
-            let id = record.id, book = inputs.workbook
-            if state.parked == nil, state.kind == .table,
-               !FigurePins.reads(of: state.table, parked: parked, tables: tables).isEmpty {
-                readers.insert(id)
-            }
-            next[id] = FigureCardModel.build(
-                figureId: id, state: state,
-                values: { book?.value(at: CellAddress(table: id, key: $0)) ?? .empty },
-                locale: inputs.locale,
-                // The source language: plan 9 passes an edition's, with its labels.
-                language: nil, labelLookup: { _, _, _, _ in nil },
-                pinChanged: inputs.pinChanged.contains(id),
-                sourceChanged: inputs.sourceChanged.contains(id))
-        }
+        let built = FigureCardBook.build(
+            records: inputs.records, states: inputs.states, workbook: inputs.workbook,
+            locale: inputs.locale, pinChanged: inputs.pinChanged, sourceChanged: inputs.sourceChanged)
+        let next = built.models, readers = built.researchReaders
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let parkedNow = Set(inputs.records.compactMap { record in
-            inputs.states[record.id]?.parked != nil ? record.referenceLabel : nil
-        })
+        let parkedNow = built.parkedLabels
         let moved = next != models || after != before || readers != researchReaders
             || parkedNow != parkedLabels
         let first = !hasFilled
