@@ -32,10 +32,12 @@ enum FigureCardDrawing {
                width: markSize, height: markSize)
     }
 
-    /// Paint `marks` (dots) at `alpha`.
+    /// Paint `marks` (dots) at `alpha`, in the colour the text marks the
+    /// assistant's notes with (`ReviewPalette.claudeTerracotta`) — orange
+    /// already means "Research has changed" and a composing reference.
     static func drawMarks(_ marks: [CGRect], alpha: CGFloat) {
         guard !marks.isEmpty else { return }
-        NSColor.systemOrange.withAlphaComponent(alpha).setFill()
+        ReviewPalette.claudeTerracotta.withAlphaComponent(alpha).setFill()
         for mark in marks { NSBezierPath(ovalIn: mark).fill() }
     }
 

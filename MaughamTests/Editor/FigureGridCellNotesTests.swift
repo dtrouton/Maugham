@@ -191,6 +191,67 @@ final class FigureGridCellNotesTests: XCTestCase {
         XCTAssertEqual(host.openCellNotesRebuildCount - rebuilds, 1, "the compensation rebuilt it once")
     }
 
+    /// **A sort with an open note rebuilds once** — at the run's end, however
+    /// many rows it moves — and the dot follows its cell.
+    func test_aSortWithAnOpenNoteRebuildsOnce() async throws {
+        let (store, _, host) = try await openGrid()
+        let column = host.state.table.columns[0]
+        var edits: [CellKey: Cell?] = [:]
+        for (i, row) in host.state.table.rows.enumerated() {
+            edits[CellKey(row: row, column: column)] = Cell(content: .value(.number(Double(10 - i))))
+        }
+        try await host.setCells(edits, actionName: "Fill")
+        let b2 = key(host, "B2")
+        try await store.addFigureAnnotation(try comment(on: b2, figureId: host.figureId))
+        let rows = host.state.table.rows
+        let rebuilds = host.openCellNotesRebuildCount
+
+        try await host.sortRows(by: column, ascending: true, values: { key in
+            if case .value(let v)? = host.state.table[key]?.content { return v }
+            return .empty
+        }, actionName: "Sort")
+
+        XCTAssertNotEqual(host.state.table.rows, rows, "premise: the sort moved rows")
+        XCTAssertEqual(host.openCellNotesRebuildCount - rebuilds, 1, "one rebuild for the whole sort")
+        XCTAssertEqual(host.openCellNotes.marked, [b2], "the dot rides its cell")
+    }
+
+    /// **With no open note, a row insert rebuilds nothing**: a structure edit
+    /// can move a dot only when there is one.
+    func test_aRowInsertWithNoOpenNoteRebuildsNothing() async throws {
+        let (_, _, host) = try await openGrid()
+        let rebuilds = host.openCellNotesRebuildCount
+        _ = try await host.insertRow(after: host.state.table.rows[1])
+        _ = try await host.insertColumn(after: nil)
+        XCTAssertEqual(host.openCellNotesRebuildCount, rebuilds)
+    }
+
+    /// **A note answered inside a held run un-dots at once**: a reject landing
+    /// between a restore's ops rebuilds then, not at the restore's end.
+    func test_aNoteAnsweredMidRestoreUndotsAtOnce() async throws {
+        let (store, _, host) = try await openGrid()
+        let note = try comment(on: key(host, "B2"), figureId: host.figureId)
+        try await store.addFigureAnnotation(note)
+        let pointer = try XCTUnwrap(host._ops.map(\.opId).max())
+        try await host.setCell(Cell(content: .value(.number(1))), at: key(host, "A3"))
+        try await host.setCell(Cell(content: .value(.number(2))), at: key(host, "A4"))
+        XCTAssertEqual(host.openCellNotes.marked, [key(host, "B2")], "premise")
+
+        final class Seen { var midRestore: FigureCellNotes? }
+        let seen = Seen()
+        FigureDocument.betweenRestoreOpsForTesting = { doc in
+            FigureDocument.betweenRestoreOpsForTesting = nil
+            try? await doc.rejectAnnotation(id: note.opId)
+            seen.midRestore = doc.openCellNotes
+        }
+        defer { FigureDocument.betweenRestoreOpsForTesting = nil }
+        let outcome = try await host.restoreToCheckpoint("cp", through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 2), "premise: a run of two ops")
+        XCTAssertEqual(seen.midRestore, FigureCellNotes.none, "un-dotted mid-run")
+        XCTAssertEqual(host.openCellNotes, .none)
+    }
+
     /// **Never per draw, per selection or per cell edit**: arrow keys, plans
     /// and a typed value leave the projection as it was, not re-derived.
     func test_selectionDrawsAndCellEditsNeverRebuildTheProjection() async throws {

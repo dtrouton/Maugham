@@ -2234,13 +2234,17 @@ public final class FigureDocument {
     }
 
     /// **After `op` folded (or was taken back out)**: a note's line always
-    /// rebuilds; a structure edit only while an open note is anchored, and
-    /// only when the rows or columns moved (an insert, a delete, a move, a
-    /// sort's step) — a cell edit never does. Inside a run it waits for the
-    /// run's end.
+    /// rebuilds, at once — inside a run too, so an answer given during a long
+    /// restore or batch takes its dot away now (note lines are rare); a
+    /// structure edit only while an open note is anchored, and only when the
+    /// rows or columns moved (an insert, a delete, a move, a sort's step),
+    /// waiting inside a run for the run's end. A cell edit never rebuilds.
     private func openCellNotesMayHaveMoved(by op: Op, shapeBefore: TableShape) {
-        let noteLine = Self.noteLifecycleKinds.contains(op.kind)
-        guard noteLine || (hasOpenAnchoredNotes && TableShape(state.table) != shapeBefore) else { return }
+        if Self.noteLifecycleKinds.contains(op.kind) {
+            rebuildOpenCellNotes()
+            return
+        }
+        guard hasOpenAnchoredNotes, TableShape(state.table) != shapeBefore else { return }
         if openCellNotesHeld > 0 {
             openCellNotesOwed = true
         } else {
