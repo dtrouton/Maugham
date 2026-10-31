@@ -54,6 +54,7 @@ Every file in `Maugham/Compiler/` appears once.
 - `TranslatorBriefing.swift` — the pure translator briefing (`compose(inputs:)`, `FixNote`).
 - `TranslatorReport.swift` — one JSON object (`entries`, `queries`), all-or-nothing; `schemaDescription`.
 - `TranslatorEnvironment+Project.swift` — production wiring: `briefRound`/`BriefedRound`, `fixBriefing`, `ingest`, `midRunEdits`.
+- `TranslatorTableCells.swift` — `TableCellWork`, `tableCellWork`: the used tables' cells a round labels.
 - `DesignerOrchestrator.swift` — the third orchestrator: `runDesign`, `requestChanges`, warm per project, `hasOpenProposalRound`.
 - `DesignerBriefing.swift` — the pure designer briefing (a config summary, never the JSON).
 - `DesignerReport.swift` — a spec plus files; refuses config.json and path escapes at parse.
