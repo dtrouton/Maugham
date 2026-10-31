@@ -31,7 +31,10 @@ public enum WriteResearchCellsTool: MCPTool {
         (=SUM(B2:B4)), an empty string clears the cell; format is the format \
         object read_figure / read_research_table return for a cell. Each cell \
         needs a value or a format. A cell past the table's edge adds the rows \
-        and columns it needs; rows and columns are never deleted. \
+        and columns it needs; rows and columns are never deleted. A table \
+        that ends in a total row refuses to grow below it unless the same \
+        call passes total_row (set total_row: false to write below it, then \
+        true again). \
         header_rows (0 or 1) and total_row (true/false) set the table's \
         header and total row. The writer's unsaved edits are saved first, and \
         the version before your write is kept in the table's version history, \
@@ -40,13 +43,13 @@ public enum WriteResearchCellsTool: MCPTool {
         table, an invalid A1 address or a value that does not read.
         """
     public static let inputSchemaJSON = #"""
-        {"type":"object","properties":{"project_id":{"type":"string"},"item_id":{"type":"string","description":"The Research table's item id (list_research)."},"cells":{"type":"array","items":{"type":"object","properties":{"a1":{"type":"string","description":"The cell, e.g. B3."},"value":{"type":"string","description":"Machine form: 1234.5, text, 'text, =SUM(B2:B4); empty clears."},"format":{"type":"object","description":"A cell format as read_figure returns it."}},"required":["a1"]}},"header_rows":{"type":"integer","enum":[0,1]},"total_row":{"type":"boolean"}},"required":["project_id","item_id","cells"]}
+        {"type":"object","properties":{"project_id":{"type":"string"},"item_id":{"type":"string","description":"The Research table's item id (list_research)."},"cells":{"type":"array","items":{"type":"object","properties":{"a1":{"type":"string","description":"The cell, e.g. B3."},"value":{"type":"string","description":"Machine form: 1234.5, text, 'text, =SUM(B2:B4); empty clears."},"format":{"type":"object","description":"A cell format as read_figure returns it."}},"required":["a1"]}},"header_rows":{"type":"integer","enum":[0,1]},"total_row":{"type":"boolean"}},"required":["project_id","item_id"]}
         """#
 
     public struct Params: Codable {
         public let project_id: String
         public let item_id: String
-        public let cells: [ResearchTableCellParam]
+        public let cells: [ResearchTableCellParam]?
         public let header_rows: Int?
         public let total_row: Bool?
     }
@@ -65,9 +68,10 @@ public enum WriteResearchCellsTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try ResearchTableToolSupport.decode(Params.self, from: paramsJSON, method: method)
         let entry = try resolveProject(params.project_id, in: registry)
+        try ResearchTableToolSupport.refuseUnderAViewOnlyShare(entry)
         let ds = try ResearchTableToolSupport.documentStore(of: entry)
         let item = try ResearchTableToolSupport.tableItem(params.item_id, in: entry.store)
-        let edits = try ResearchTableToolSupport.edits(params.cells)
+        let edits = try ResearchTableToolSupport.edits(params.cells ?? [])
         if let header = params.header_rows, !(0...1).contains(header) {
             throw MCPError.invalidArgument("header_rows must be 0 or 1.")
         }
@@ -76,10 +80,13 @@ public enum WriteResearchCellsTool: MCPTool {
         }
         let names = try await ResearchTableToolSupport.formulaNames(ds)
         let host = try await ResearchTableToolSupport.open(item, in: ds)
-        let before = (rows: host.state.table.rows.count, columns: host.state.table.columns.count)
+        // Measured in the edit, after the writer's pending edits have landed.
+        var before = (rows: 0, columns: 0)
         do {
             try await host.assistantEdit { table in
-                try ResearchTableToolSupport.apply(edits, to: &table, names: names)
+                before = (table.rows.count, table.columns.count)
+                try ResearchTableToolSupport.apply(edits, to: &table, names: names,
+                                                   setsTotalRow: params.total_row != nil)
                 if let header = params.header_rows { table.headerRows = header }
                 if let total = params.total_row { table.hasTotalRow = total }
             }
@@ -142,6 +149,7 @@ public enum CreateResearchTableTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try ResearchTableToolSupport.decode(Params.self, from: paramsJSON, method: method)
         let entry = try resolveProject(params.project_id, in: registry)
+        try ResearchTableToolSupport.refuseUnderAViewOnlyShare(entry)
         let ds = try ResearchTableToolSupport.documentStore(of: entry)
         let store = entry.store
         let scope: ResearchScope
@@ -165,7 +173,7 @@ public enum CreateResearchTableTool: MCPTool {
                                 columns: ProjectStore.blankResearchTableShape.columns)
         } else {
             table = FigureTable(rows: 1, columns: 1)
-            try ResearchTableToolSupport.apply(edits, to: &table, names: names)
+            try ResearchTableToolSupport.apply(edits, to: &table, names: names, setsTotalRow: true)
         }
         table.headerRows = params.header_rows ?? 1
         let content = ProjectStore.ResearchTableContent(
@@ -208,7 +216,9 @@ public enum ReadResearchTableTool: MCPTool {
         for one response is refused with a hint naming range. Formulas that \
         read another Research table (research:name!B2) compute only through \
         a figure's pins, and a Research table has none, so such cells read \
-        empty or #REF! here; research_reads lists them and note says so. \
+        empty or #REF! here; research_reads lists them and note says so (note \
+        also says when the book's figures could not be read, so figure \
+        references read #REF!); null when there is nothing to say. \
         Read-only.
         """
     public static let inputSchemaJSON = #"""
@@ -233,6 +243,8 @@ public enum ReadResearchTableTool: MCPTool {
         let cells: [ReadFigureTool.Cell]
         let text: String
         let research_reads: [String]
+        /// Why some values here are not what the grid would show: cells that
+        /// read Research, or a book that would not assemble; `null` when none.
         let note: String?
 
         private enum CodingKeys: String, CodingKey {
@@ -257,6 +269,10 @@ public enum ReadResearchTableTool: MCPTool {
         }
     }
 
+    /// What `note` says when the book's figures would not assemble.
+    static let bookUnreadNote = "The book's figures could not be read just now, so a formula that names a "
+        + "figure (tbl:…) reads #REF! here though it may compute in the grid."
+
     /// What `note` says when cells read another Research table.
     static func researchNote(_ cells: [String]) -> String {
         "\(cells.joined(separator: ", ")) \(cells.count == 1 ? "reads" : "read") another Research table "
@@ -277,12 +293,14 @@ public enum ReadResearchTableTool: MCPTool {
 
         let names = try await ResearchTableToolSupport.formulaNames(ds)
         var book: Workbook
+        var notes: [String] = []
         if var assembled = try? await ds.assembledFigures() {
             assembled.overlay(FigureState(kind: .table, table: table), id: item.id)
             book = assembled.workbook
         } else {
             book = Workbook(pins: FigurePinIndex())
             book.setTable(table, id: item.id)
+            notes.append(bookUnreadNote)
         }
         let locale = TableLocale(languageTag: await entry.store.bookLanguageTag())
         let rendered = try ReadFigureTool.table(
@@ -299,7 +317,7 @@ public enum ReadResearchTableTool: MCPTool {
             item_id: item.id, name: item.title, kind: "table", rows: rendered.rows, columns: rendered.columns,
             header_rows: table.headerRows, total_row: table.hasTotalRow, range: rendered.range,
             cells: rendered.cells, text: rendered.text, research_reads: reads,
-            note: reads.isEmpty ? nil : researchNote(reads))
+            note: (notes + (reads.isEmpty ? [] : [researchNote(reads)])).joined(separator: " ").nilIfEmpty)
         return try MCPResponseBudget.enforce(
             try JSONEncoder().encode(result),
             hint: "The table is too large to return in one MCP response. "
@@ -326,6 +344,12 @@ enum ResearchTableToolSupport {
         let column: Int
         let value: String?
         let format: CellFormat?
+
+        /// Clears with nothing to keep: no value or an empty one, and no
+        /// format or the default.
+        var makesNothing: Bool {
+            (value ?? "").isEmpty && (format ?? CellFormat()) == CellFormat()
+        }
     }
 
     /// The params, or a refusal naming the field that would not read (a
@@ -353,6 +377,13 @@ enum ResearchTableToolSupport {
         } catch {
             throw MCPError.invalidArgument("malformed parameters for \(method)")
         }
+    }
+
+    /// A read-only iCloud share takes no Research table write, grid open or
+    /// not (the grid's own sentence).
+    @MainActor
+    static func refuseUnderAViewOnlyShare(_ entry: ProjectRegistry.Entry) throws {
+        try MCPShareLock.refuseUnderAViewOnlyShare(entry.url, sentence: FigureGridGate.Reason.viewOnlyShare.sentence)
     }
 
     @MainActor
@@ -434,9 +465,22 @@ enum ResearchTableToolSupport {
     /// so a formula may name a cell this call added — and each format laid
     /// on. Throws, changing nothing the caller keeps, on a value that does
     /// not read.
-    static func apply(_ edits: [Edit], to table: inout FigureTable, names: FormulaNames) throws {
-        let rows = max(table.rows.count, (edits.map(\.row).max() ?? -1) + 1)
-        let columns = max(table.columns.count, (edits.map(\.column).max() ?? -1) + 1)
+    ///
+    /// A cell that makes nothing (no value or an empty one, and no format or
+    /// the default) grows nothing: past the edge it is skipped. Rows grown
+    /// below a total row would make the new last row the total and push the
+    /// old total into the body, so that is refused unless the call sets the
+    /// total row itself (`setsTotalRow`).
+    static func apply(_ edits: [Edit], to table: inout FigureTable, names: FormulaNames,
+                      setsTotalRow: Bool) throws {
+        let growing = edits.filter { !$0.makesNothing }
+        let rows = max(table.rows.count, (growing.map(\.row).max() ?? -1) + 1)
+        let columns = max(table.columns.count, (growing.map(\.column).max() ?? -1) + 1)
+        if rows > table.rows.count, table.hasTotalRow, !setsTotalRow {
+            throw MCPError.invalidArgument(
+                "This table ends in a total row (row \(table.rows.count)) — set total_row: false to write below it, "
+                    + "then total_row: true again, or ask the writer to insert rows above the total.")
+        }
         if rows > table.rows.count || columns > table.columns.count, rows * columns > TableCSV.figureCellLimit {
             throw MCPError.invalidArgument(
                 "Writing there would grow the table to \(rows) rows × \(columns) columns, "
@@ -444,7 +488,7 @@ enum ResearchTableToolSupport {
         }
         while table.rows.count < rows { _ = table.insertRow(after: table.rows.last) }
         while table.columns.count < columns { _ = table.insertColumn(after: table.columns.last) }
-        for edit in edits {
+        for edit in edits where edit.row < table.rows.count && edit.column < table.columns.count {
             let key = CellKey(row: table.rows[edit.row], column: table.columns[edit.column])
             var cell = table[key]
             if let value = edit.value {
@@ -466,4 +510,8 @@ enum ResearchTableToolSupport {
             table.setCell(cell, at: key)
         }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

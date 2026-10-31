@@ -724,10 +724,10 @@ struct ProjectWindow: View {
     /// an OS-level lock that claims no role. Such a user cannot write into the
     /// folder at all, not even an annotation op, so the editor locks and
     /// `ViewOnlyShareNotice` asks for edit access rather than letting a comment
-    /// fail silently. Only an explicit `canWrite == false` locks: an unresolved
-    /// grant (`nil`) or an unshared project never does.
+    /// fail silently. `ShareMetadata.isReadOnly` is the one spelling: only an
+    /// explicit `canWrite == false` on a share locks.
     nonisolated static func shareIsReadOnly(_ snapshot: ShareMetadata?) -> Bool {
-        snapshot?.isShared == true && snapshot?.canWrite == false
+        ShareMetadata.isReadOnly(snapshot)
     }
 
     private var preferredColorScheme: ColorScheme? {

@@ -326,15 +326,10 @@ extension ProjectStore {
             id: Self.newId(prefix: "res"), title: resolvedTitle, type: .asset, kind: .table,
             path: relativePath, addedAt: Date())
         do {
-            var sidecar = ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1)
-            if let content {
-                sidecar = ResearchTableSidecar(
-                    figureId: "", contentHash: ContentHash.of(data), name: "", caption: nil,
-                    table: table, formulaNames: names.cited(by: table))
-                sidecar.figureId = nil
-                sidecar.name = nil
-                sidecar.writtenBy = content.writtenBy
-            }
+            let sidecar = content.map {
+                ResearchTableSidecar(researchTable: table, contentHash: ContentHash.of(data),
+                                     formulaNames: names.cited(by: table), writtenBy: $0.writtenBy)
+            } ?? ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1)
             try ResearchTableSidecar.write(sidecar, forItem: item.id, in: url)
             appendResearchItem(item, to: parentId)
             manifest.modified = Date()

@@ -28,6 +28,7 @@ final class ResearchTableToolsTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        MCPShareLock.readerForTesting = nil
         for store in stores { await store.close() }
         stores = []
         Document.localIdentitiesForTesting = nil
@@ -378,5 +379,114 @@ final class ResearchTableToolsTests: XCTestCase {
         XCTAssertTrue(message.contains("res-nope"), message)
         message = await refusal { _ = try await self.readJSON(book, note.id) }
         XCTAssertTrue(message.contains("not a Research table"), message)
+    }
+
+    // MARK: - Fix round 1
+
+    private struct FakeShare: ShareMetadataReading {
+        let canWrite: Bool?
+        func read(for url: URL) -> ShareMetadata? {
+            ShareMetadata(isShared: true, isOwner: false, canWrite: canWrite, ownerName: "Sam", currentUserName: "Ana")
+        }
+    }
+
+    /// I1 — a read-only share refuses both table writers and add_note with
+    /// no grid mounted; the read still answers; a writable share writes.
+    func test_aViewOnlyShareRefusesEveryResearchWriteWithNoGridOpen() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\n")
+        let original = try bytes(of: item)
+        let researchBefore = book.store.manifest.research.count
+        MCPShareLock.readerForTesting = FakeShare(canWrite: false)
+        let sentence = FigureGridGate.Reason.viewOnlyShare.sentence
+
+        var message = await refusal { try await self.write(book, item, #""cells":[{"a1":"B2","value":"11"}]"#) }
+        XCTAssertEqual(message, sentence)
+        message = await refusal { _ = try await self.create(book, #""title":"New""#) }
+        XCTAssertEqual(message, sentence)
+        message = await refusal {
+            _ = try await AddNoteTool.handle(
+                paramsJSON: Data("{\"project_id\":\"\(book.id)\",\"title\":\"N\",\"body\":\"B\"}".utf8),
+                registry: book.registry)
+        }
+        XCTAssertTrue(message.contains("view-only"), message)
+        XCTAssertEqual(try bytes(of: item), original)
+        XCTAssertTrue(versions(of: item).isEmpty)
+        XCTAssertEqual(book.store.manifest.research.count, researchBefore, "nothing was created")
+
+        let read = try await readJSON(book, item.id)
+        XCTAssertEqual(read["rows"] as? Int, 2, "reading is not writing")
+
+        MCPShareLock.readerForTesting = FakeShare(canWrite: true)
+        try await write(book, item, #""cells":[{"a1":"B2","value":"11"}]"#)
+        XCTAssertEqual(try rows(of: item)[1], ["Rent", "11"])
+    }
+
+    /// I2 — growing below a total row is refused unless the call sets the
+    /// total row itself.
+    func test_growingBelowATotalRowIsRefusedUnlessTheCallSetsTheTotalRow() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\nTotal,10\n")
+        try await write(book, item, #""total_row":true"#)
+        let original = try bytes(of: item)
+
+        let message = await refusal { try await self.write(book, item, #""cells":[{"a1":"A4","value":"Food"}]"#) }
+        XCTAssertTrue(message.contains("total row") && message.contains("total_row: false"), message)
+        XCTAssertEqual(try bytes(of: item), original, "nothing written")
+
+        // Writing inside the table is fine.
+        try await write(book, item, #""cells":[{"a1":"B2","value":"12"}]"#)
+        // The ruling's route: total_row false, write below, total_row true again.
+        try await write(book, item, #""cells":[{"a1":"A4","value":"Food"}],"total_row":false"#)
+        let result = try await write(book, item, #""cells":[{"a1":"A5","value":"Total"},{"a1":"B5","value":"=SUM(B2:B4)"}],"total_row":true"#)
+        XCTAssertEqual(result.rows, 5)
+        XCTAssertEqual(try ResearchTableSidecar.read(forItem: item.id, in: projectURL)?.totalRow, true)
+    }
+
+    /// Minor — rows_added counts the assistant's rows only, measured after the
+    /// writer's pending edits land.
+    func test_rowsAddedIsMeasuredAfterTheWritersPendingEdits() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\n")
+        let grid = try await book.ds.openResearchTable(itemId: item.id)
+        grid.saveDelay = .seconds(600)
+        _ = try await grid.insertRow(after: grid.state.table.rows.last, undoManager: nil)   // pending
+
+        let result = try await write(book, item, #""cells":[{"a1":"B2","value":"11"}]"#)
+        XCTAssertEqual(result.rows, 3)
+        XCTAssertEqual(result.rows_added, 0, "the writer's row is not the assistant's")
+        await book.ds.releaseResearchTable(grid)
+    }
+
+    /// Minor — a cell that makes nothing does not grow the table.
+    func test_aCellThatMakesNothingDoesNotGrowTheTable() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\n")
+        let result = try await write(book, item, """
+            "cells":[{"a1":"B2","value":"11"},{"a1":"Z99","value":""},{"a1":"E9","format":\(try json(CellFormat()))}]
+            """)
+        XCTAssertEqual([result.rows, result.columns, result.rows_added, result.columns_added], [2, 2, 0, 0])
+    }
+
+    /// Minor — a document-scoped create in a novel goes to shared Research
+    /// and links the table to the chapter.
+    func test_aDocumentScopedCreateLinksTheTableToTheChapter() async throws {
+        let book = try await openBook()
+        let made = try await create(book, #""title":"Chapter data","scope":"doc-a","cells":[{"a1":"A1","value":"x"}]"#)
+        let chapter = try XCTUnwrap(book.store.manifest.structure.first { $0.id == "doc-a" })
+        XCTAssertEqual(chapter.linkedResearchIds ?? [], [made.item_id])
+        XCTAssertNotNil(book.store.manifest.research.first { $0.id == made.item_id }, "in shared Research")
+    }
+
+    /// Minor — two writes at once queue through the one host: both land, each
+    /// keeps its version.
+    func test_twoConcurrentWritesQueue() async throws {
+        let book = try await openBook()
+        let item = try await researchTable(book, "Item,Amount\nRent,10\nFood,20\n")
+        async let first = write(book, item, #""cells":[{"a1":"B2","value":"11"}]"#)
+        async let second = write(book, item, #""cells":[{"a1":"B3","value":"21"}]"#)
+        _ = try await (first, second)
+        XCTAssertEqual(try rows(of: item), [["Item", "Amount"], ["Rent", "11"], ["Food", "21"]])
+        XCTAssertEqual(versions(of: item).count, 2)
     }
 }
