@@ -59,6 +59,10 @@ enum FigureCardDrawing {
         var banner: Text?
         /// The tinted Research corner (top-right triangle's bounding square).
         var corner: CGRect?
+        /// The dots of the shown cells that carry an open note
+        /// (`FigureCardModel.markedCells`), row by row; each in its cell's
+        /// top-right corner, moved left clear of the Research corner.
+        var marks: [CGRect] = []
         /// A labelled card's words (removed, ambiguous, parked, empty).
         var label: Text?
     }
@@ -124,10 +128,23 @@ enum FigureCardDrawing {
         let card = CGRect(x: columnX, y: top, width: cardWidth,
                           height: CGFloat(shownLines) * rowHeight)
         var plan = Plan(card: card)
+        if model.readsResearch || model.fromResearchSource {
+            plan.corner = CGRect(x: card.maxX - cornerSize, y: card.minY,
+                                 width: cornerSize, height: cornerSize)
+        }
         var y = top
-        func addRow(_ row: [String], bold: Bool) {
+        // `shown` is the row's index in `headerRows + bodyRows`, the
+        // positions `markedCells` names.
+        func addRow(_ row: [String], bold: Bool, shown: Int) {
             var x = columnX
             for i in 0..<columnCount {
+                if model.markedCells.contains(FigureCardModel.Position(row: shown, column: i)) {
+                    var mark = markRect(inCell: CGRect(x: x, y: y, width: widths[i], height: rowHeight))
+                    if let corner = plan.corner, mark.intersects(corner) {
+                        mark.origin.x = max(x, corner.minX - markInset - markSize)
+                    }
+                    plan.marks.append(mark)
+                }
                 let text = i < row.count ? row[i] : ""
                 let alignment = i < model.columnAlignments.count ? model.columnAlignments[i] : .left
                 plan.cells.append(Text(
@@ -139,9 +156,9 @@ enum FigureCardDrawing {
             }
             y += rowHeight
         }
-        model.headerRows.forEach { addRow($0, bold: true) }
+        for (i, row) in model.headerRows.enumerated() { addRow(row, bold: true, shown: i) }
         if !model.headerRows.isEmpty { plan.rules.append(y) }
-        body.forEach { addRow($0, bold: false) }
+        for (j, row) in body.enumerated() { addRow(row, bold: false, shown: model.headerRows.count + j) }
         if model.moreRows > 0 {
             plan.more = Text(string: FigureCardText.more(model.moreRows),
                              rect: CGRect(x: columnX + cellInset, y: y,
@@ -150,11 +167,7 @@ enum FigureCardDrawing {
         }
         if let total {
             plan.rules.append(y)
-            addRow(total, bold: false)
-        }
-        if model.readsResearch || model.fromResearchSource {
-            plan.corner = CGRect(x: card.maxX - cornerSize, y: card.minY,
-                                 width: cornerSize, height: cornerSize)
+            addRow(total, bold: false, shown: model.headerRows.count + model.bodyRows.count - 1)
         }
         if model.changed {
             plan.banner = Text(string: FigureCardText.pinChanged,
@@ -209,6 +222,7 @@ enum FigureCardDrawing {
         if let more = plan.more {
             drawText(more, font: font, color: .secondaryLabelColor, alpha: alpha)
         }
+        drawMarks(plan.marks, alpha: alpha)
         if let corner = plan.corner {
             let triangle = NSBezierPath()
             triangle.move(to: NSPoint(x: corner.minX, y: corner.minY))

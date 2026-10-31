@@ -539,6 +539,9 @@ final class FigureThumbnailOverlay: NSView {
     /// The cell strings of each card the last draw found, row-major (the
     /// mounted tests' reading of a content-only change).
     private(set) var lastCardStrings: [[String]] = []
+    /// The dots of each card the last draw found (report plan 9c-2: a
+    /// note's arrival repaints its card).
+    private(set) var lastCardMarks: [[CGRect]] = []
     /// How many cards the last draw found open in another grid — a figure
     /// window, or another project window's in-place grid — each drawn faint
     /// under where it is being edited (plan 7d Task 9, R7d-9; final review I1).
@@ -627,6 +630,7 @@ final class FigureThumbnailOverlay: NSView {
         lastVisibleFigureCount = 0
         lastDrawn = []
         lastCardStrings = []
+        lastCardMarks = []
         lastCardsInWindow = 0
         lastHeldLabels = []
         guard let textView = associatedTextView,
@@ -687,6 +691,7 @@ final class FigureThumbnailOverlay: NSView {
                                    font: cardFont, rowHeight: rowHeight) {
                 lastDrawn.append(.card(model.kind))
                 lastCardStrings.append(plan.cells.map(\.string))
+                lastCardMarks.append(plan.marks)
                 let held = model.kind == .table ? heldLabel(mark.path) : nil
                 let editedInWindow = held != nil
                 if let held {

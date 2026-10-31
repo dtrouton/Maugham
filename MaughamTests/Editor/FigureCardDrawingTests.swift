@@ -119,6 +119,57 @@ final class FigureCardDrawingTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(p.banner).string, "Research has changed")
     }
 
+    // MARK: - Dots (report plan 9c-2 Task 3)
+
+    /// **A marked shown cell gets a dot in its top-right corner**, inside its
+    /// column's box; an unmarked one none; the card's size never moves.
+    func test_aMarkedShownCellGetsADotInItsTopRightCorner() throws {
+        var model = table(rows: 2)
+        let bare = try XCTUnwrap(plan(model))
+        XCTAssertEqual(bare.marks, [], "no note, no dot")
+        model.markedCells = [.init(row: 1, column: 0), .init(row: 2, column: 1)]
+        model.hasOpenCellNotes = true
+        let p = try XCTUnwrap(plan(model))
+        let top = p.card.minY, inset = FigureCardDrawing.cellInset
+        let first = CGRect(x: 40, y: top + row, width: 40 + 2 * inset, height: row)
+        let second = CGRect(x: first.maxX, y: top + 2 * row, width: p.card.maxX - first.maxX, height: row)
+        XCTAssertEqual(p.marks, [FigureCardDrawing.markRect(inCell: first),
+                                 FigureCardDrawing.markRect(inCell: second)], "row by row")
+        XCTAssertEqual(p.marks[0].maxX, first.maxX - FigureCardDrawing.markInset, "at the cell's right")
+        XCTAssertEqual(p.marks[0].minY, first.minY + FigureCardDrawing.markInset, "at the cell's top")
+        XCTAssertEqual(p.card, bare.card, "a dot moves no height or width")
+        XCTAssertEqual(p.cells, bare.cells)
+    }
+
+    /// **A dot keeps clear of the Research corner**: the top-right cell of a
+    /// card that reads Research moves its dot left of the corner, in its row
+    /// and inside its own column.
+    func test_aDotKeepsClearOfTheResearchCorner() throws {
+        var model = table(rows: 2)
+        model.readsResearch = true
+        model.markedCells = [.init(row: 0, column: 1)]
+        let p = try XCTUnwrap(plan(model))
+        let corner = try XCTUnwrap(p.corner)
+        let mark = try XCTUnwrap(p.marks.first)
+        XCTAssertFalse(mark.intersects(corner), "clear of the corner")
+        XCTAssertEqual(mark.maxX, corner.minX - FigureCardDrawing.markInset)
+        XCTAssertEqual(mark.minY, p.card.minY + FigureCardDrawing.markInset, "still in the header row")
+        XCTAssertGreaterThanOrEqual(mark.minX, p.cells[1].rect.minX - FigureCardDrawing.cellInset,
+                                    "inside its own column")
+    }
+
+    /// **The kept total row of a cut table is marked where it is drawn**,
+    /// after the "+ N more rows" line: positions count the rows as shown.
+    func test_aCutTablesTotalRowIsMarkedWhereItIsDrawn() throws {
+        var model = table(rows: 11, more: 28, total: true)
+        model.markedCells = [.init(row: model.headerRows.count + model.bodyRows.count - 1, column: 0)]
+        let p = try XCTUnwrap(plan(model))
+        let totalCell = try XCTUnwrap(p.cells.dropLast().last)
+        let mark = try XCTUnwrap(p.marks.first)
+        XCTAssertEqual(mark.minY, totalCell.rect.minY + FigureCardDrawing.markInset, "the total row's line")
+        XCTAssertFalse(mark.intersects(try XCTUnwrap(p.more).rect), "not the more line")
+    }
+
     /// The card is painted inside the room the layout holds now: a card taller
     /// than that room (grown mid-burst) is clipped to it, and a trailing
     /// figure's room runs to the text view's bottom.

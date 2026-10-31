@@ -370,6 +370,48 @@ final class FigureGridStripRoomTests: FigureGridMountedTestCase {
         XCTAssertFalse(try XCTUnwrap(grid.panel).showsStrip)
     }
 
+    /// **A folded card's dots are the open host's notes, and arrive with no
+    /// re-layout** (report plan 9c-2 Task 3). With the figure held open, the
+    /// card fill reads the host's projection first, so a note line on disk
+    /// the host has not yet read marks nothing (the cache's read would); the
+    /// host's reload moves its projection, and that alone refills the cards —
+    /// the dot appears and the version moves. Folded, the card's height never
+    /// moves, so landing that version re-lays out no line.
+    func test_aFoldedCardsDotsAreTheOpenHostsNotes_andArriveWithNoReLayout() async throws {
+        let m = try await mount()
+        let figure = try XCTUnwrap(m.figure)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let host = try await ds.openFigure(figureId: figure.id)
+        await ds.settleFigureCards()
+        m.coordinator.setFigureCardVersion(m.cards.version)
+        XCTAssertNil(m.coordinator.figureGrid, "premise: the card is folded")
+        let refreshes = m.coordinator.figureRoomRefreshCount
+
+        let table = host.state.table
+        let key = CellKey(row: table.rows[1], column: table.columns[2])
+        let note = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Check this", author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: figure.id, device: Document.loadIdentities[.assistant].deviceId))
+        try await host.opStore.append(note)   // on disk; the host has not read it
+        ds.figureCache.invalidate(figureId: figure.id)
+        await ds.settleFigureCards()
+        XCTAssertEqual(m.cards.model(forFigureId: figure.id)?.markedCells, [],
+                       "the card shows what the open host shows")
+        XCTAssertEqual(m.cards.model(forFigureId: figure.id)?.hasOpenCellNotes, false)
+
+        let version = m.cards.version
+        try await host.reload()
+        await m.cards.idle()   // no settle asked: the host's projection refilled the cards
+        let card = try XCTUnwrap(m.cards.model(forFigureId: figure.id))
+        XCTAssertEqual(card.markedCells, [FigureCardModel.Position(row: 1, column: 2)])
+        XCTAssertTrue(card.hasOpenCellNotes)
+        XCTAssertGreaterThan(m.cards.version, version, "the dot moved the card's version")
+        m.coordinator.setFigureCardVersion(m.cards.version)
+        XCTAssertEqual(m.coordinator.figureRoomRefreshCount, refreshes,
+                       "folded: the card's height never moves, so no line re-lays out")
+    }
+
     // MARK: - Helpers
 
     private func arrow(_ m: Mounted, _ keyCode: UInt16) -> NSEvent {
