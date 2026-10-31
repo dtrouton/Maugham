@@ -26,6 +26,8 @@ public enum AddNoteTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(params.project_id, in: registry)
+        try MCPShareLock.refuseUnderAViewOnlyShare(
+            entry.url, sentence: "This share is view-only, so a research note can’t be added.")
         let store = entry.store
 
         // Validate parent group if supplied

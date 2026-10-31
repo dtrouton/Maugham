@@ -418,6 +418,10 @@ extension ProjectStore {
             try stagePromotedResearchTableSidecars(
                 staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
 
+            // 4c-2. Their versions folders, whole, beside the sidecars.
+            try stagePromotedResearchVersions(
+                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
+
             // 4d. The carried figures, re-created as this Mac's author in the
             // staged root, and their pictures copied. Written into the staging
             // tree only, so the rollback's removal of it takes them back.
@@ -685,6 +689,32 @@ extension ProjectStore {
             // these describe. (TripwireGrepTests exclusion)
             try FileManager.default.moveItem(at: source, to: destination) // internal-move: staging
             moves.append(PromotionStagedMove(original: source, staged: destination))
+        }
+    }
+
+    /// Step 4c-2: move each carried item's Research **versions folder**
+    /// (`.maugham/research-versions/<id>/`) into the staging tree — versions
+    /// follow the item's id, so the promoted table keeps its history. The
+    /// folder moves as it stands: every device's files that have reached this
+    /// Mac go with it. A file another device writes later lands in the
+    /// Collection (the id no longer lives there) and is not carried; it is
+    /// that device's to sweep. An item with no versions moves nothing.
+    /// Each move is recorded as it lands so a failure part way undoes it.
+    private func stagePromotedResearchVersions(
+        staging: URL, itemIds: Set<String>, recordingInto moves: inout [PromotionStagedMove]
+    ) throws {
+        let source = ResearchVersionStore(projectURL: url)
+        let target = ResearchVersionStore(projectURL: staging)
+        for itemId in itemIds.sorted() {
+            let from = try source.folderURL(forItem: itemId)
+            guard FileManager.default.fileExists(atPath: from.path) else { continue }
+            let to = try target.folderURL(forItem: itemId)
+            try FileManager.default.createDirectory(
+                at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // internal-move: into the promote-to-project `staging/` temp tree,
+            // on the same terms as the sidecar beside it. (TripwireGrepTests exclusion)
+            try FileManager.default.moveItem(at: from, to: to) // internal-move: staging
+            moves.append(PromotionStagedMove(original: from, staged: to))
         }
     }
 

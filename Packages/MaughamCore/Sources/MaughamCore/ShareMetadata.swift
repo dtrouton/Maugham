@@ -38,6 +38,15 @@ public struct ShareMetadata: Equatable, Sendable {
         self.ownerName = ownerName
         self.currentUserName = currentUserName
     }
+
+    /// **True when iCloud grants this user READ-ONLY access to the share** —
+    /// the one spelling of the lock (the Mac window's `shareIsReadOnly`, the
+    /// MCP tools that write Research). Only an explicit `canWrite == false`
+    /// on a share locks: an unresolved grant (`nil`), a still-resolving read
+    /// (`nil` snapshot) or an unshared project never does.
+    public static func isReadOnly(_ snapshot: ShareMetadata?) -> Bool {
+        snapshot?.isShared == true && snapshot?.canWrite == false
+    }
 }
 
 /// Reads platform share metadata for a given on-disk location.

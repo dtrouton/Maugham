@@ -230,6 +230,9 @@ public final class DocumentStore {
     /// plan 8b Task 7; `openResearchTable`): every grid on an item edits the
     /// same table. `flushPendingSave` settles each, so ⌘S, the typed mover's
     /// pre-move flush and the store's close reach it as they reach a note's.
+    /// Bumped when a Research table save keeps a version, and on every
+    /// restore: the inspector's version list reloads on it.
+    var researchVersionsRevision = 0
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
     @ObservationIgnored private var researchTableUses: [String: Int] = [:]
     @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
@@ -894,6 +897,27 @@ public final class DocumentStore {
     func settleResearchTable(itemId: String) async {
         await researchTables[itemId]?.settle(commitOpenEdits: true)
         await researchTableClosings[itemId]?.value
+    }
+
+    /// **Research item `itemId`'s table put back to a kept `version`** (report
+    /// plan 9d Task 3) through its host, whether or not a grid has it open:
+    /// an open grid shows the restored table at once; with none, the table is
+    /// opened for the restore and let go (its save landed). Refused under a
+    /// view-only share (`shareIsReadOnly`, the window's), as every grid edit
+    /// is. Throws what `ResearchTableHost.restore` throws.
+    @discardableResult
+    func restoreResearchTable(itemId: String, to version: ResearchVersion,
+                              shareIsReadOnly: Bool) async throws -> ResearchTableHost.Restored {
+        if shareIsReadOnly { throw ResearchTableHost.Refused(reason: .viewOnlyShare) }
+        let host = try await openResearchTable(itemId: itemId)
+        do {
+            let restored = try await host.restore(version)
+            await releaseResearchTable(host)
+            return restored
+        } catch {
+            await releaseResearchTable(host)
+            throw error
+        }
     }
 
     /// **A Research table open in a grid at or under `relativePath`, about to
@@ -2217,7 +2241,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot, .exports,
-             .researchTable, .unknownSidecar, .outsideProject:
+             .researchTable, .researchVersion, .unknownSidecar, .outsideProject:
             // No presenter routing today. Each case has a named owner in
             // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"
             // rather than "extend a string cascade".

@@ -32,6 +32,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `ReferenceTools.swift` — `list_scenes`, `find_references`, `get_session_stats`.
 - `ListDocumentsByTagTool.swift` — `list_documents_by_tag`.
 - `FigureTools.swift` — `list_figures`, `read_figure` (one file; the tools share the figure lookup vocabulary).
+- `ResearchTableTools.swift` — `write_research_cells`, `create_research_table`, `read_research_table`; the cell checks they share.
 - `AddNoteTool.swift` — `add_note`. `ListResearchTool.swift` — `list_research`. `ResearchLinkTools.swift` — `link_research`, `unlink_research`. `ListAllLinksTool.swift` — `list_all_links`. `MoveResearchItemTool.swift` — `move_research_item`. `UpdateResearchCitationTool.swift` — `update_research_citation` and `ResearchCitationWire`.
 - `CraftIntentTools.swift`, `VisualLanguageTools.swift`, `EditionBriefTools.swift`, `LessonsTools.swift`, `FirstReaderTools.swift` — the five statement readers (`read_craft_intent`, `read_visual_language`, `read_edition_brief`, `read_lessons`, `read_first_reader`). Tripwire 20.
 - `StatementProposalTools.swift` — `propose_edition_brief`, `propose_visual_language`.
@@ -53,7 +54,7 @@ Every source file in `Maugham/MCP/` appears once, by file or by family.
 - `Maugham/Help/SkillIndex.swift` — loads the bundled skills (mirrors `HelpTopicIndex`; lives in `Help/` because `get_help` also serves it).
 - `Maugham/Views/HelpClaudeDesktopSheet.swift` — the "Set up Claude Desktop…" flow and its Claude Code section; `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift` — the "Allow Claude to connect (MCP)" toggle.
 
-## Tool catalogue (63)
+## Tool catalogue (66)
 
 The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading against it. Contracts beyond one line are under Rules → Tool contracts.
 
@@ -83,6 +84,9 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - `list_all_links` — every research–manuscript link, `piece_research` edges included.
 - `move_research_item` — batch-move research items between shared research, a group and a piece's research folder.
 - `update_research_citation` — set or remove a research item's citation details (a write tool).
+- `write_research_cells` — cells, header and total row into a Research table, growing it past its edge (a write tool).
+- `create_research_table` — a new Research table made with its cells, so no blank first version (a write tool).
+- `read_research_table` — a Research table's cells with computed values, in `read_figure`'s shapes, optionally by `range`.
 
 **The spine (statements) and the palette**
 - `read_craft_intent` — a manuscript document's or the project's craft intent.
@@ -131,7 +135,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 ### The membrane
 - **MCP never writes manuscript text, full stop**: the manuscript is the writer's, and Claude reaches it only through the parallel annotation layer. Even a tool that "feels safe" does not soften this; violating it loses the writer's trust in the whole integration (ADR 0004).
-- **A write tool may touch no manuscript; the planning plane has three destinations**: `research/` (`add_note`; `update_research_citation` edits citation details in the manifest), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). Over the inbox MCP may read and promote only, never add or trash. What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). Beside them, the publishing tools (`write_publish_file`, `delete_publish_file`, `set_publish_config`, `set_piece_style`, `clear_piece_style`, `initialize_publish_template`, `compile`, `republish`) write the publish tree (`.maugham/publish/`, `.maugham/publications*`, `Exports/`), and the propose tools stage under `.maugham/statements/proposals/`; none is manuscript. A new destination needs its own ADR-level argument, not this list as precedent.
+- **A write tool may touch no manuscript; the planning plane has three destinations**: `research/` (`add_note`; `update_research_citation` edits manifest citations; the two Research table writers), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). Over the inbox MCP may read and promote only, never add or trash. What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). Beside them, the publishing tools (`write_publish_file`, `delete_publish_file`, `set_publish_config`, `set_piece_style`, `clear_piece_style`, `initialize_publish_template`, `compile`, `republish`) write the publish tree (`.maugham/publish/`, `.maugham/publications*`, `Exports/`), and the propose tools stage under `.maugham/statements/proposals/`; none is manuscript. A new destination needs its own ADR-level argument, not this list as precedent.
 - **Think about the membrane before adding a tool**: a read tool is low-risk; a write tool needs ADR-level justification; an annotation tool belongs to the annotation layer.
 - **No tool writes a statement.** The two propose tools stage a draft that only the writer's click at `StatementPane`'s gate turns into a statement (`StatementProposalGate.adopt`). `CompilerAllowlistTests.test_noStatementWritingToolExistsAnywhereClaudeCanReach` fails on a statement writer in the catalogue as well as the compiler's allowlist; its predicate passes the two propose tools by name and catches `write_edition_brief`, `propose_craft_intent` and the like.
 - **Claude never writes the lessons ledger, the first reader, craft intent or visual language**: the ledger moves only through the writer's own verbs in Maugham (Keep as lesson / These are all choices / retire).
@@ -193,6 +197,12 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 **Figures**
 - **`list_figures` lists a figure parked in Research as `status: "in_research"`** (the tree hides it; the tool is not the tree): rows come from `FigureListingSource`, pins and `changed` from `ProjectStore.publishFigures()`, and `reads_research` is asked of the figure's state (`FigurePins.reads`), so `pins_unread: true` marks a figure that reads Research whose sources would not read. `changed` is the card's rule (a `source_changed` pin, or the figure's own Research source moved). It writes nothing.
 - **`read_figure` reads the publish snapshot, never `figures/*.csv`** (tripwire 20): `value` is the display string in the book's language, `raw` the typed `CellValue`, always `{type, value}` (`type` is number|text|bool|date|error|empty; a date's `value` is the day serial and it also carries `iso`; an error's `value` is its code; empty has no `value`), `formula` is `=` plus the render by current names. An unknown name is an error listing the nearest names, and a `tbl:`/`fig:` label of the wrong kind is an error naming the right label; a table past the text budget is refused with a hint naming `range`; an image goes through `ImageResponseBuilder`.
+
+**Research tables**
+- **`write_research_cells` writes through the table's one door**: `DocumentStore.openResearchTable` (an open grid's own host), `ResearchTableHost.assistantEdit` (the writer's pending edits saved first as the writer's, the version before kept, the save stamped `.assistant` — a label, never a signature), then `releaseResearchTable`. A pinned figure goes "changed" as after any save. Values are `add_suggested_change`'s machine form (`FigureAnnotationOps.suggestedCell`), formats `read_figure`'s `CellFormat`; every cell is checked before anything is written. It grows the table, never deletes a row or column, and never grows below a total row unless the call sets `total_row`.
+- **A read-only iCloud share refuses every Research write, grid open or not**: both table writers and `add_note` ask `MCPShareLock` (`ShareMetadata.isReadOnly`, the window's own spelling).
+- **`create_research_table` makes the table with its content** (`ProjectStore.createResearchTable(scope:title:content:)`), its sidecar stamped `.assistant`, so the first version a later save keeps is marked the assistant's; `scope` is `"shared"` or a document id, routed as a note is.
+- **`read_research_table` reads the host's table** (an open grid's unsaved edits included) and computes it as the grid does (`assembledFigures()` + `FigureWorkbook.overlay` under the item id), rendered by `read_figure`'s own `ReadFigureTool.table(id:…)`. A `research:` ref inside a Research table reads pins it has none of, so it reads empty or `#REF!`: `research_reads` names those cells and `note` (`null` when none) says why. Budget with a `range` hint.
 
 **Statements and the palette**
 - **Every statement reader looks its statement up through `StatementLookup` and derives through `ProjectStore.statementText(of:)`** (the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache`), so no two readers disagree about which text is real. Absence is `exists: false` (with empty `markdown`), never an error, and a read mints nothing.

@@ -61,6 +61,12 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
     /// research item id (report plan 6b Task 8): a figure renamed while this
     /// one is parked still reads back as the formula it was.
     public var formulaNames: [String: String]
+    /// **Who wrote the bytes `contentHash` names** (report plan 9d): each
+    /// save stamps it, and the version store copies it into the version a
+    /// later save keeps, so the version list can say "written by assistant".
+    /// Nil for a sidecar from before 9d, or a value this build doesn't know.
+    /// A Research label, never a signature.
+    public var writtenBy: ResearchWriter?
 
     /// **`table` with this sidecar's settings laid on**: header rows, total row,
     /// and each style and width at its position (one off the grid is skipped).
@@ -91,6 +97,28 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
     /// by position (all nil when no column has one, written as none).
     public init(figureId: String, contentHash: String, name: String, caption: String?,
                 table: FigureTable, formulaNames: [String: String] = [:]) {
+        let (styles, widths) = Self.settings(of: table)
+        self.init(
+            figureId: figureId, contentHash: contentHash, name: name, caption: caption,
+            headerRows: table.headerRows, totalRow: table.hasTotalRow, formats: styles,
+            columnWidths: widths, formulaNames: formulaNames)
+    }
+
+    /// **What a new Research table writes beside its CSV** (report plan 9d,
+    /// `create_research_table`): no figure, name or caption — it was never a
+    /// figure — the CSV's `contentHash`, `table`'s header, total row, styles
+    /// and widths by position, the names its formulas cite, and who wrote it.
+    public init(researchTable table: FigureTable, contentHash: String,
+                formulaNames: [String: String] = [:], writtenBy: ResearchWriter?) {
+        let (styles, widths) = Self.settings(of: table)
+        self.init(
+            contentHash: contentHash, headerRows: table.headerRows, totalRow: table.hasTotalRow,
+            formats: styles, columnWidths: widths, formulaNames: formulaNames, writtenBy: writtenBy)
+    }
+
+    /// `table`'s non-default cell styles and its column widths by position
+    /// (none when no column has a width).
+    private static func settings(of table: FigureTable) -> (styles: [CellStyle], widths: [Double?]) {
         let rows = table.rows, columns = table.columns
         var styles: [CellStyle] = []
         for (r, row) in rows.enumerated() {
@@ -101,16 +129,14 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
             }
         }
         let widths = columns.map { table.columnWidths[$0] }
-        self.init(
-            figureId: figureId, contentHash: contentHash, name: name, caption: caption,
-            headerRows: table.headerRows, totalRow: table.hasTotalRow, formats: styles,
-            columnWidths: widths.contains { $0 != nil } ? widths : [], formulaNames: formulaNames)
+        return (styles, widths.contains { $0 != nil } ? widths : [])
     }
 
     public init(
         figureId: String? = nil, contentHash: String? = nil, name: String? = nil, caption: String? = nil,
         headerRows: Int = 0, totalRow: Bool = false,
-        formats: [CellStyle] = [], columnWidths: [Double?] = [], formulaNames: [String: String] = [:]
+        formats: [CellStyle] = [], columnWidths: [Double?] = [], formulaNames: [String: String] = [:],
+        writtenBy: ResearchWriter? = nil
     ) {
         self.figureId = figureId
         self.contentHash = contentHash
@@ -121,6 +147,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
         self.formats = formats
         self.columnWidths = columnWidths
         self.formulaNames = formulaNames
+        self.writtenBy = writtenBy
     }
 
     enum CodingKeys: String, CodingKey {
@@ -132,6 +159,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
         case formats
         case columnWidths = "column_widths"
         case formulaNames = "formula_names"
+        case writtenBy = "written_by"
     }
 
     public init(from decoder: Decoder) throws {
@@ -147,6 +175,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
             .compactMap(\.value) ?? []
         columnWidths = (try? c.decodeIfPresent([Double?].self, forKey: .columnWidths)) ?? []
         formulaNames = (try? c.decodeIfPresent([String: String].self, forKey: .formulaNames)) ?? [:]
+        writtenBy = (try? c.decodeIfPresent(ResearchWriter.self, forKey: .writtenBy)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -160,6 +189,7 @@ public struct ResearchTableSidecar: Codable, Equatable, Sendable {
         try c.encode(formats, forKey: .formats)
         try c.encode(columnWidths, forKey: .columnWidths)
         if !formulaNames.isEmpty { try c.encode(formulaNames, forKey: .formulaNames) }
+        try c.encodeIfPresent(writtenBy, forKey: .writtenBy)
     }
 
     /// An element that decodes to nil instead of failing its array.

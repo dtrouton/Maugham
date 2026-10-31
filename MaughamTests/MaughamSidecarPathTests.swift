@@ -149,4 +149,14 @@ final class MaughamSidecarPathTests: XCTestCase {
             .researchTable(relativePath: ".maugham/research-tables/res-1a2b3c4d.json")
         )
     }
+    /// A kept Research table version (report plan 9d Task 1) has a case of
+    /// its own, so it is never mistaken for an unknown sidecar.
+    func testClassifies_researchVersion() throws {
+        let url = projectURL.appendingPathComponent(
+            ".maugham/research-versions/res-1a2b3c4d/20270115-080000-mac-a.csv")
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .researchVersion(relativePath: ".maugham/research-versions/res-1a2b3c4d/20270115-080000-mac-a.csv")
+        )
+    }
 }

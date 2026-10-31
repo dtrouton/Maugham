@@ -1056,5 +1056,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M5-AN-067",
+  "scope": "Research table versions",
+  "kind": "POSTCONDITION",
+  "statement": "Every save of a Research table keeps the state before it under .maugham/research-versions/ (a writer's editing run keeps one, the state before the run; every assistant write and every Restore keeps one), the last 50 per table per device; the inspector lists them newest first, marks the state before each assistant write 'Before the assistant’s change' and a version holding the assistant's bytes 'Written by assistant', and Restore (listed but disabled, with its reason, on a view-only share and in Review) is itself versioned and keeps the figure link; versions follow the item through Trash, are swept for exactly the ids Permanently Delete or Empty Trash destroyed (the open-time sweep waits on an unlistable Trash, skips a shadow-restored manifest and takes only orphans older than the Trash's 30-day expiry), move with promote-to-project and are not copied by duplicate. The assistant writes through write_research_cells / create_research_table, which refuse a view-only share.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Editor/ResearchTableVersionTests.swift: test_aWritersRunKeepsOneVersion_andAnAssistantWriteKeepsOneMarkedByThePriorAuthor, test_aPauseOverTenMinutesBeginsANewRun; MaughamTests/Editor/ResearchTableRestoreTests.swift: test_restoreWithNoGridOpen_putsTheVersionBack_andKeepsWhatItReplaced, test_aViewOnlyShareRefusesARestore; MaughamTests/Stores/ResearchVersionLifecycleTests.swift: test_anItemInTheTrashKeepsItsVersions_andARestoreListsThemAgain, test_permanentDeleteSweepsOwnFiles_andLeavesAnotherDevicesAlone, test_permanentDeleteSweepsOnlyTheIdsItDestroyed, test_theOpenSweepWaitsWhenTheTrashWontList, test_theOpenSweepSkipsAManifestRestoredFromItsShadow, test_theOpenSweepKeepsAYoungOrphan_andSweepsAnOldOne, test_duplicatingAnItemCopiesNoVersions, test_promotingAPieceCarriesItsResearchTablesVersions; MaughamTests/MCP/Tools/ResearchTableToolsTests.swift: test_eachWriteKeepsAVersionAndTheAssistantsBytesAreMarkedSo, test_aViewOnlyShareRefusesEveryResearchWriteWithNoGridOpen; MaughamTests/Views/ResearchVersionsModelTests.swift: test_theStateBeforeAnAssistantsWriteIsMarkedSo, test_aViewOnlyShareListsButRestoresNothing, test_reviewListsButRestoresNothing; MaughamCore ResearchVersionStoreTests"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "Research table inspector; MCP write_research_cells",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

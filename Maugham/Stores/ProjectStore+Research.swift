@@ -223,25 +223,44 @@ extension ProjectStore {
 
     // MARK: - New Table (report plan 8b Task 8, D8b-2)
 
-    /// **A blank Research table in `parentId`'s group** (nil: the shared
-    /// root) — `createResearchTable(scope:)`'s shared arm, and the tree's
-    /// *New Table* inside a group. See `writeBlankResearchTable`.
+    /// **A new Research table in `parentId`'s group** (nil: the shared
+    /// root), blank or holding `content` — `createResearchTable(scope:)`'s
+    /// shared arm, and the tree's *New Table* inside a group. See
+    /// `writeBlankResearchTable`.
     @discardableResult
     public func addResearchTable(
-        parentId: String?, title: String = "Untitled Table"
+        parentId: String?, title: String = "Untitled Table", content: ResearchTableContent? = nil
     ) async throws -> ResearchItem {
         try await writeBlankResearchTable(
-            in: researchParentPath(parentId: parentId), parentId: parentId, title: title)
+            in: researchParentPath(parentId: parentId), parentId: parentId, title: title, content: content)
     }
 
-    /// A blank table in a Collection piece's own research folder —
+    /// A new table in a Collection piece's own research folder —
     /// `createResearchTable(scope:)`'s piece arm.
     @discardableResult
     public func addPieceResearchTable(
-        pieceId: String, title: String = "Untitled Table"
+        pieceId: String, title: String = "Untitled Table", content: ResearchTableContent? = nil
     ) async throws -> ResearchItem {
         let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
-        return try await writeBlankResearchTable(in: researchFolder, parentId: nil, title: title)
+        return try await writeBlankResearchTable(in: researchFolder, parentId: nil, title: title, content: content)
+    }
+
+    /// **What a new Research table is made holding** (report plan 9d Task 5,
+    /// `create_research_table`): its table, the language and formula names it
+    /// is rendered in (the book's, as the grid's save renders), and who wrote
+    /// it — the label its first kept version carries.
+    public struct ResearchTableContent {
+        public let table: FigureTable
+        public let locale: TableLocale
+        public let names: FormulaNames
+        public let writtenBy: ResearchWriter
+
+        public init(table: FigureTable, locale: TableLocale, names: FormulaNames, writtenBy: ResearchWriter) {
+            self.table = table
+            self.locale = locale
+            self.names = names
+            self.writtenBy = writtenBy
+        }
     }
 
     /// A new blank table's rows and columns: a header row and three body
@@ -251,12 +270,15 @@ extension ProjectStore {
     /// **The new table's file and sidecar.** Titled `title`, or `title 2`,
     /// `title 3`… — the first no other Research table (any folder, folded as
     /// a `research:` name folds) and no sibling answers to. Its CSV is three
-    /// empty columns by four empty rows (`TableCSV.renderResearch`), written
-    /// as a NEW file through the window's coordinated copy, which refuses an
-    /// existing file, at a path checked for change (tripwire 58); its sidecar
-    /// marks one header row for exactly those bytes.
+    /// empty columns by four empty rows (`TableCSV.renderResearch`) — or
+    /// `content`'s table, rendered in its language and names, so a table made
+    /// with cells (`create_research_table`) has no blank first version —
+    /// written as a NEW file through the window's coordinated copy, which
+    /// refuses an existing file, at a path checked for change (tripwire 58);
+    /// its sidecar marks one header row (or `content`'s header, total row and
+    /// formats, and who wrote it) for exactly those bytes.
     private func writeBlankResearchTable(
-        in folder: String, parentId: String?, title: String
+        in folder: String, parentId: String?, title: String, content: ResearchTableContent? = nil
     ) async throws -> ResearchItem {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let documentStore else {
@@ -280,8 +302,10 @@ extension ProjectStore {
         var blank = FigureTable(rows: Self.blankResearchTableShape.rows,
                                 columns: Self.blankResearchTableShape.columns)
         blank.headerRows = 1
+        let table = content?.table ?? blank
+        let names = content?.names ?? .empty
         let data = Data(TableCSV.renderResearch(
-            blank, locale: TableLocale(languageTag: nil), names: .empty).utf8)
+            table, locale: content?.locale ?? TableLocale(languageTag: nil), names: names).utf8)
 
         let folderURL = try resolvedProjectPathToChange(folder, isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
@@ -302,9 +326,11 @@ extension ProjectStore {
             id: Self.newId(prefix: "res"), title: resolvedTitle, type: .asset, kind: .table,
             path: relativePath, addedAt: Date())
         do {
-            try ResearchTableSidecar.write(
-                ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1),
-                forItem: item.id, in: url)
+            let sidecar = content.map {
+                ResearchTableSidecar(researchTable: table, contentHash: ContentHash.of(data),
+                                     formulaNames: names.cited(by: table), writtenBy: $0.writtenBy)
+            } ?? ResearchTableSidecar(contentHash: ContentHash.of(data), headerRows: 1)
+            try ResearchTableSidecar.write(sidecar, forItem: item.id, in: url)
             appendResearchItem(item, to: parentId)
             manifest.modified = Date()
             try await saveManifest()

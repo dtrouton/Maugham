@@ -146,4 +146,20 @@ final class ResearchTableSidecarTests: XCTestCase {
         let none = String(data: try JSONEncoder().encode(ResearchTableSidecar(figureId: "fig-a")), encoding: .utf8)!
         XCTAssertFalse(none.contains("formula_names"))
     }
+    /// Report plan 9d: who wrote the bytes, tolerant — missing or unknown is
+    /// nil, and nil writes no key.
+    func test_writtenBy_isTolerantAndOptional() throws {
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(ResearchTableSidecar.self,
+                                          from: Data(#"{"written_by":"assistant"}"#.utf8)).writtenBy, .assistant)
+        XCTAssertEqual(try decoder.decode(ResearchTableSidecar.self,
+                                          from: Data(#"{"written_by":"writer"}"#.utf8)).writtenBy, .writer)
+        XCTAssertNil(try decoder.decode(ResearchTableSidecar.self,
+                                        from: Data(#"{"written_by":"martian","total_row":true}"#.utf8)).writtenBy)
+        XCTAssertNil(try decoder.decode(ResearchTableSidecar.self, from: Data("{}".utf8)).writtenBy)
+        let json = try XCTUnwrap(String(data: try JSONEncoder().encode(ResearchTableSidecar()), encoding: .utf8))
+        XCTAssertFalse(json.contains("written_by"))
+        let stamped = ResearchTableSidecar(writtenBy: .assistant)
+        XCTAssertEqual(try decoder.decode(ResearchTableSidecar.self, from: try JSONEncoder().encode(stamped)), stamped)
+    }
 }

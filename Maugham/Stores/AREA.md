@@ -1,6 +1,6 @@
 # Stores — area guide
 
-The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores (recents, sessions, trash, debounce, staging); and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
+The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores; and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
 
 ## Map
 
@@ -25,7 +25,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Structure.swift` — structure CRUD, `moveStructureItem`, `tidyFilenames`, `duplicateStructureItem`, `mintOpenings(of:)`, `propagateWikiLinkRename`. Tripwires 14, 52.
 - `ProjectStore+Trash.swift` — delete/restore, ⌘⌥Z (`armDeletion`, `TrashDeletion`), `emptyTrash`.
 - `ProjectStore+Metadata.swift` — inspector metadata, pass states, targets, review passes, typography.
-- `ProjectStore+Research.swift` — research CRUD, `createResearchTable` (blank CSV, *New Table*), `deleteResearchItems(ids:)`, `trashResearchItemCore`, `renameResearchPath`. Tripwire 14.
+- `ProjectStore+Research.swift` — research CRUD, `createResearchTable` (blank, or holding cells), `deleteResearchItems(ids:)`, `trashResearchItemCore`, `renameResearchPath`. Tripwire 14.
 - `ProjectStore+Citation.swift` — `updateCitation(researchId:_:)`, the one door citation details are written through (inspector and MCP), and `suggestedCitationKey`.
 - `ProjectStore+Profile.swift` — `setProfile`/`setSwitch`, the one door the Report profile and its switches are written through; a profile the kind cannot carry throws `profileNotOffered`; turning a Report's profile off writes the project's title over an "Untitled" publish config.
 - `ProjectStore+ResearchMove.swift` — `moveResearchItems(ids:to:atIndex:)`, `ResearchMoveTarget`, `researchDedupedNotePair`. Tripwire 14.
@@ -94,10 +94,11 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/devices/`, `.maugham/people/` (`claims/`, `events/`) | `RegistryWriter` (Core) | the book's register (tripwire 40) |
 | `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | spec.md, `files/<path>`, proposal.json, then `scratch/` and `backup/` |
 | `.maugham/statements/proposals/<key>.json` | `StatementProposalStore` | one pending proposal per key |
-| `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent: export.docx and sent.json; the id is `draft<N>-yyyyMMdd-HHmmss-<slug>`, chosen before packaging and carried in the file; backed up (R-S9) |
+| `.maugham/exports/<book>/<export-id>/` | `SentCopyStore` | a Word export as sent (export.docx, sent.json), id `draft<N>-yyyyMMdd-HHmmss-<slug>` (in the file); backed up (R-S9) |
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
 | `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold; a parked picture's copy gets one too, naming its figure |
+| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table save's prior bytes and sidecar, write-once, per device |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
@@ -164,7 +165,7 @@ Two things deliberately live elsewhere:
 
 ### Manifest adoption and structural verbs
 - **A manifest another device wrote is adopted, never merged.** `handleManifestChanged` passes the `ManifestEcho` guard, decodes through `decodeGuardingSchema` (a later build's manifest is archived, never adopted), and calls `ProjectStore.adoptExternalManifest`. Last writer wins.
-- **The copy an adoption replaces is archived** to `.maugham/conflicts/manifest-<ts>.json` (nothing when the two agree), including an unsaved change of the window's own, which is logged.
+- **The copy an adoption replaces is archived** to `.maugham/conflicts/manifest-<ts>.json` (nothing when the two agree), a window's unsaved change included, logged.
 - **A function that awaits before saving the manifest is a structural verb**: `beginStructuralVerb()`/`endStructuralVerb()`. A manifest arriving during one is HELD, not adopted. `StructuralVerbCensusTests` requires it of every production function that awaits before `saveManifest()`, a direct `writeManifest(`, or an unsaved mutation of `manifest`; exceptions are by file and function with a reason, a stale exception fails, and every caller of an allowed helper must itself be a verb.
 - **The settle runs on the NEXT main-actor turn** (`scheduleStructuralSettle`), so a verb's rollback in its `catch` lands before any adoption. `DocumentStore.structuralVerbsSettled` then archives the held manifest if the verb saved after it, else adopts it.
 - **`readManifest()` waits for verbs and held manifests to settle** (`waitForStructuralVerbs`) and takes on unannounced bytes before returning. Never call it from inside a verb.

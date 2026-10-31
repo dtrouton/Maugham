@@ -41,6 +41,18 @@ cell or range (tables only). `add_suggested_change` takes one cell and a
 grouping (a comma is refused), or a formula starting `=` with A1 references. Nothing is written to
 the table; the writer answers. `list_annotations`/`get_annotation` show
 `figure_anchor`, `orphaned` and `suggested_cell`.
+A Research table (an item in `list_research`) is written with `create_research_table`
+and `write_research_cells` and read with `read_research_table`. Values are in
+machine form, as for `add_suggested_change`; formats are `read_figure`'s
+shapes. A write may grow the table but never deletes rows or columns, and past
+a total row it is refused unless `total_row` is passed (`total_row: true` on a
+growing write makes the new last row the total). Every write keeps the state
+before it as a version, marked "Before the assistant’s change": the writer's
+Restore previous version right after your write undoes it. A version holding
+values you wrote is marked "Written by assistant".
+`research:` references inside a Research table compute only through pins, and
+`read_research_table` says so. A view-only share refuses `create_research_table`,
+`write_research_cells` and `add_note`; `read_research_table` still reads.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

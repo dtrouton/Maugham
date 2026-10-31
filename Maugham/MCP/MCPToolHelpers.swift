@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Shared boilerplate for `MCPTool` conformers. Every tool that takes typed
 /// params decodes them the same way, and every tool that operates on a project
@@ -46,5 +47,26 @@ enum MCPFormatEnum {
     /// the preview refuses (`PreviewCompiler.previewRefusal`).
     static var previewed: String {
         json(PublishConfig.Format.allCases.filter { PreviewCompiler.previewRefusal($0) == nil })
+    }
+}
+
+/// **The view-only share lock, asked by MCP's Research writers** (report plan
+/// 9d fix round 1): a project iCloud shares read-only with this user takes no
+/// Research write, whether or not a grid is open on it. The lock's one
+/// spelling is `ShareMetadata.isReadOnly`, the window's own
+/// (`ProjectWindow.shareIsReadOnly`); the read is the shared
+/// `FileURLShareMetadataReader`.
+@MainActor
+enum MCPShareLock {
+    /// Test seam: the reader asked (a fake share in a test).
+    static var readerForTesting: (any ShareMetadataReading)?
+
+    /// Throws `invalidArgument(sentence)` when the project at `url` is a
+    /// read-only share.
+    static func refuseUnderAViewOnlyShare(_ url: URL, sentence: String) throws {
+        let reader = readerForTesting ?? FileURLShareMetadataReader()
+        if ShareMetadata.isReadOnly(reader.read(for: url)) {
+            throw MCPError.invalidArgument(sentence)
+        }
     }
 }
