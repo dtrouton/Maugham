@@ -47,6 +47,21 @@ the same identity, and its translation is a translation again. Retyping the
 paragraph doesn't do that: to the manuscript it's a new paragraph, so the old
 translation stays an orphan and **Remove** is how it goes.
 
+### Table labels
+
+A table's text cells (its row and column labels, anything you typed as words)
+translate per language like paragraphs do; numbers, dates and formulas are the
+same in every language. Claude writes them with the same tool, addressing each
+cell by its spreadsheet name (`B3`). The Translation pane lists the table under
+the caret with each text cell's status, and an orphaned translation (its row or
+column was deleted, or the cell became a number) has a **Remove** button. In
+translation review the table's card shows the translated labels. The table's
+inspector shows coverage per language. A table sent back to Research keeps its
+translations out of the count, and they return if you bring it back; renaming a
+table leaves them alone, and moving a piece to its own project carries none.
+Only the table's piece author's translator, or a whole-book author, may write
+them.
+
 ### The Translation pane (⌘⌥L)
 
 While reviewing a translation, the right pane's Translation mode shows the
@@ -99,6 +114,6 @@ translating those and recompiling is the normal way to finish a pass. If you
 want a partial edition anyway (a preview to share before translation is
 complete), ask for it with the stale/missing paragraphs allowed through —
 those spots fall back to your original-language text and are flagged in the
-compile warnings. A translated edition can carry its own template and
+compile warnings. Tables count too: a table used in the edition whose text cells are untranslated or stale blocks the edition the same way (the failure names the table and its cells, e.g. "Table cashflow: B3, C1 untranslated"), and with the gap allowed through those cells print the original text. A translated edition can carry its own template and
 styling if the language calls for it; ask Claude if you want the look to
 differ from the original-language edition.
