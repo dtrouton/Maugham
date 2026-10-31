@@ -32,18 +32,24 @@ enum FigureCardHit {
     }
 }
 
-/// **The expanded grid's box**: the toolbar, the formula bar, the grid and
-/// the bottom bar stacked in the line's room (spec §6.2). It holds the
+/// **The expanded grid's box**: the toolbar, the formula bar, the strip (when
+/// shown), the grid and the bottom bar stacked in the line's room (spec §6.2). It holds the
 /// controller's views and lays them out; it writes nothing.
 final class FigureGridPanel: NSView, NSUserInterfaceValidations {
     /// The space above and below the panel inside the room.
     static let gap: CGFloat = 6
 
+    /// **The suggestion strip's height** (report plan 9c-2): two bars' worth,
+    /// between the formula bar and the grid, while the figure has an open
+    /// live cell note.
+    static let stripHeight: CGFloat = 2 * FigureGridBars.barHeight
+
     /// **The room an expanded table holds** (R7c-2): the three bars, the
-    /// letter band and min(rows, 15) rows, with a gap above and below.
+    /// letter band and min(rows, 15) rows, with a gap above and below, plus
+    /// the strip when `strip` (the figure has an open live cell note).
     /// Constant from 15 rows up.
-    static func room(rows: Int, typography: TypographySettings) -> CGFloat {
-        2 * gap + FigureGridBars.totalHeight
+    static func room(rows: Int, strip: Bool, typography: TypographySettings) -> CGFloat {
+        2 * gap + FigureGridBars.totalHeight + (strip ? stripHeight : 0)
             + FigureGridLayout.viewportHeight(rows: rows, rowHeight: FigureCardMetrics.rowHeight(for: typography))
     }
 
@@ -58,26 +64,39 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
     struct Parts: Equatable {
         let toolbar: CGRect
         let formulaBar: CGRect
+        /// The suggestion strip, under the formula bar; nil without one.
+        let strip: CGRect?
         let grid: CGRect
         let bottomBar: CGRect
     }
 
-    static func parts(in size: CGSize) -> Parts {
+    static func parts(in size: CGSize, strip: Bool) -> Parts {
         let bar = FigureGridBars.barHeight
-        let gridHeight = max(0, size.height - 3 * bar)
+        let stripHeight = strip ? Self.stripHeight : 0
+        let gridTop = 2 * bar + stripHeight
+        let gridHeight = max(0, size.height - 3 * bar - stripHeight)
         return Parts(
             toolbar: CGRect(x: 0, y: 0, width: size.width, height: bar),
             formulaBar: CGRect(x: 0, y: bar, width: size.width, height: bar),
-            grid: CGRect(x: 0, y: 2 * bar, width: size.width, height: gridHeight),
-            bottomBar: CGRect(x: 0, y: 2 * bar + gridHeight, width: size.width, height: bar))
+            strip: strip ? CGRect(x: 0, y: 2 * bar, width: size.width, height: stripHeight) : nil,
+            grid: CGRect(x: 0, y: gridTop, width: size.width, height: gridHeight),
+            bottomBar: CGRect(x: 0, y: gridTop + gridHeight, width: size.width, height: bar))
     }
 
     private let bars: FigureGridBars
     let gridView: FigureGridView
 
-    init(bars: FigureGridBars, gridView: FigureGridView) {
+    /// **The strip's part is carved** (report plan 9c-2): in place it
+    /// follows the expansion's strip flag, which moves only at a card-version
+    /// edge; the room around it is the line's. Re-lays out the parts only.
+    var showsStrip: Bool {
+        didSet { if showsStrip != oldValue { layoutParts() } }
+    }
+
+    init(bars: FigureGridBars, gridView: FigureGridView, strip: Bool) {
         self.bars = bars
         self.gridView = gridView
+        self.showsStrip = strip
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 4
@@ -142,7 +161,11 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        let parts = Self.parts(in: newSize)
+        layoutParts()
+    }
+
+    private func layoutParts() {
+        let parts = Self.parts(in: bounds.size, strip: showsStrip)
         bars.toolbar.frame = parts.toolbar
         bars.formulaBar.frame = parts.formulaBar
         gridView.frame = parts.grid

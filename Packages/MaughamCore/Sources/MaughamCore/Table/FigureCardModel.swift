@@ -28,6 +28,11 @@ public struct FigureCardModel: Equatable, Sendable {
     /// The Research item the figure was made from has changed since (or is gone):
     /// `FigureSource.hasChanged(currentHash:)` (report plan 8b Task 1, spec §4.1).
     public var sourceChanged: Bool
+    /// **The figure has an open note anchored to a live cell** (report plan 9c-2): the
+    /// in-place grid reserves its suggestion strip's room while this holds. It moves the
+    /// card's version (so the room changes at that edge, never per selection) and never
+    /// its height. Default false.
+    public var hasOpenCellNotes: Bool
 
     /// **Research has changed under this figure** — a pin's source or the snapshot's
     /// own: what the card's banner and the tree's "changed" tag say (spec §4.4).
@@ -37,12 +42,13 @@ public struct FigureCardModel: Equatable, Sendable {
         kind: Kind, headerRows: [[String]] = [], bodyRows: [[String]] = [], moreRows: Int = 0,
         hasTotalRow: Bool = false, columnAlignments: [CellAlignment] = [],
         readsResearch: Bool = false, pinChanged: Bool = false, fromResearchSource: Bool = false,
-        sourceChanged: Bool = false
+        sourceChanged: Bool = false, hasOpenCellNotes: Bool = false
     ) {
         self.kind = kind; self.headerRows = headerRows; self.bodyRows = bodyRows; self.moreRows = moreRows
         self.hasTotalRow = hasTotalRow; self.columnAlignments = columnAlignments
         self.readsResearch = readsResearch; self.pinChanged = pinChanged; self.fromResearchSource = fromResearchSource
         self.sourceChanged = sourceChanged
+        self.hasOpenCellNotes = hasOpenCellNotes
     }
 
     /// A card with no table: removed, ambiguous, parked or image (drawn labelled at the placeholder height).

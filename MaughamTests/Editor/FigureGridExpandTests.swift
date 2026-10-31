@@ -40,18 +40,19 @@ final class FigureGridExpandTests: FigureGridMountedTestCase {
     /// rows up. The panel stacks the bars and the grid inside it, top to bottom.
     func test_theRoomIsTheBarsAndUpToFifteenRows_andThePanelStacksInsideIt() {
         let row = FigureCardMetrics.rowHeight(for: .defaults)
-        let three = FigureGridPanel.room(rows: 3, typography: .defaults)
+        let three = FigureGridPanel.room(rows: 3, strip: false, typography: .defaults)
         XCTAssertEqual(three, 2 * FigureGridPanel.gap + FigureGridBars.totalHeight + 4 * row)
-        XCTAssertEqual(FigureGridPanel.room(rows: 15, typography: .defaults) - three, 12 * row)
-        XCTAssertEqual(FigureGridPanel.room(rows: 40, typography: .defaults),
-                       FigureGridPanel.room(rows: 15, typography: .defaults), "constant from 15 rows up")
+        XCTAssertEqual(FigureGridPanel.room(rows: 15, strip: false, typography: .defaults) - three, 12 * row)
+        XCTAssertEqual(FigureGridPanel.room(rows: 40, strip: false, typography: .defaults),
+                       FigureGridPanel.room(rows: 15, strip: false, typography: .defaults), "constant from 15 rows up")
 
         let frame = FigureGridPanel.frame(lineBottom: 100, room: three, columnX: 30, columnWidth: 600)
         XCTAssertEqual(frame, CGRect(x: 30, y: 100 + FigureGridPanel.gap, width: 600,
                                      height: three - 2 * FigureGridPanel.gap))
-        let parts = FigureGridPanel.parts(in: frame.size)
+        let parts = FigureGridPanel.parts(in: frame.size, strip: false)
         XCTAssertEqual(parts.toolbar.minY, 0)
         XCTAssertEqual(parts.formulaBar.minY, parts.toolbar.maxY)
+        XCTAssertNil(parts.strip, "no open cell note: no strip part")
         XCTAssertEqual(parts.grid.minY, parts.formulaBar.maxY)
         XCTAssertEqual(parts.grid.height, FigureGridLayout.viewportHeight(rows: 3, rowHeight: row),
                        "the grid gets exactly its viewport")
@@ -108,7 +109,7 @@ final class FigureGridExpandTests: FigureGridMountedTestCase {
         park(m, caret: caret, showing: line)
         let origin = scrollOrigin(m)
         let refreshes = m.coordinator.figureRoomRefreshCount
-        let room = FigureGridPanel.room(rows: 3, typography: .defaults)
+        let room = FigureGridPanel.room(rows: 3, strip: false, typography: .defaults)
 
         XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: line + 4))
 
@@ -176,7 +177,7 @@ final class FigureGridExpandTests: FigureGridMountedTestCase {
         XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: second))
         XCTAssertEqual(m.coordinator.figureGrid?.lineLocation, second)
         XCTAssertEqual(spacing(m, at: first) - body, cardRoom(m), "the first folded back to its card")
-        XCTAssertEqual(spacing(m, at: second) - body, FigureGridPanel.room(rows: 3, typography: .defaults))
+        XCTAssertEqual(spacing(m, at: second) - body, FigureGridPanel.room(rows: 3, strip: false, typography: .defaults))
     }
 
     // MARK: - Gestures
@@ -431,7 +432,7 @@ final class FigureGridExpandTests: FigureGridMountedTestCase {
 
         m.coordinator.setFigureCardVersion(m.cards.version)
 
-        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 4, typography: .defaults))
+        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 4, strip: false, typography: .defaults))
         XCTAssertEqual(spacing(m, at: line) - body, grid.room)
         XCTAssertEqual(m.coordinator.figureRoomRefreshCount - refreshes, 1, "that line only")
         XCTAssertEqual(grid.panel?.frame.height ?? 0, grid.room - 2 * FigureGridPanel.gap, accuracy: 0.5)

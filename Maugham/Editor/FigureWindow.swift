@@ -604,7 +604,7 @@ final class FigureWindowGrid {
         }
         refreshAccess()
         watchTheBook()
-        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
+        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView, strip: false)
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()

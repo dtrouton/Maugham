@@ -242,9 +242,9 @@ final class FigureGridFinalWaveTests: FigureGridMountedTestCase {
         m.cards.attach(nil)   // no card yet
         XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
         let grid = try XCTUnwrap(m.coordinator.figureGrid)
-        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: FigureGridExpansion.defaultRows, typography: .defaults))
+        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: FigureGridExpansion.defaultRows, strip: false, typography: .defaults))
         _ = try await opened(m)
-        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 20, typography: .defaults))
+        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 20, strip: false, typography: .defaults))
     }
 
     /// **A table line whose card is not cached yet takes a double-click**

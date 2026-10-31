@@ -192,7 +192,7 @@ final class FigureGridViewTests: XCTestCase {
         text.string = "Prose around the figure."
         text.setSelectedRange(NSRange(location: 9, length: 0))
         let bars = FigureGridBars()
-        let panel = FigureGridPanel(bars: bars, gridView: FigureGridView(typography: .defaults))
+        let panel = FigureGridPanel(bars: bars, gridView: FigureGridView(typography: .defaults), strip: false)
         panel.frame = CGRect(x: 0, y: 40, width: 500, height: 300)
         text.addSubview(panel)
         let window: KeyTestWindow = TestWindow.make(KeyTestWindow.self, contentRect: text.frame, contentView: text)
