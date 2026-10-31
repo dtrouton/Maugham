@@ -203,4 +203,40 @@ final class FigureAnnotationCreationTests: XCTestCase {
             XCTAssertTrue(json.contains(#""required":["project_id","body"]"#), json)
         }
     }
+
+    // MARK: - Fix round 1
+
+    func test_wholeFigureNotesWorkOnAnImageButCellsAndSuggestionsDoNot() async throws {
+        let book = try await openBook()
+        let photo = try await book.store.createFigure(kind: .image, name: "photo", piece: nil)
+        _ = try await call(AddCommentTool.self, book, #""figure":"fig:photo","body":"Crop it""#)
+        _ = try await call(AddQueryTool.self, book, #""figure":"photo","body":"Source?""#)
+        _ = try await call(AddCraftNoteTool.self, book, #""figure":"fig:photo","body":"Warm tones""#)
+        let found = await book.store.figureNotes(photo.id)
+        XCTAssertEqual(Set(found.map(\.kind)), [.comment, .query, .craftNote])
+        XCTAssertTrue(found.allSatisfy { $0.figureAnchor == nil })
+        var msg = await failure(AddCommentTool.self, book, #""figure":"fig:photo!A1","body":"x""#)
+        XCTAssertTrue(msg.contains("not a table"), msg)
+        msg = await failure(AddSuggestedChangeTool.self, book,
+                            #""figure":"fig:photo","body":"x","suggested_value":"1""#)
+        XCTAssertTrue(msg.contains("not a table"), msg)
+        let still = await book.store.figureNotes(photo.id)
+        XCTAssertEqual(still.count, 3)
+    }
+
+    func test_aBareNameIsAcceptedAsReadFigureAcceptsIt() async throws {
+        let book = try await openBook()
+        _ = try await call(AddCommentTool.self, book, #""figure":"cash","body":"whole""#)
+        _ = try await call(AddCommentTool.self, book, #""figure":"cash!B2","body":"cell""#)
+        let found = await notes(book)
+        XCTAssertNil(found.first { $0.body == "whole" }?.figureAnchor)
+        XCTAssertNotNil(found.first { $0.body == "cell" }?.figureAnchor)
+    }
+
+    func test_aFigureQueryStoresItsLanguage() async throws {
+        let book = try await openBook()
+        _ = try await call(AddQueryTool.self, book, #""figure":"tbl:cash!A1","body":"?","language":"es""#)
+        let found = await notes(book)
+        XCTAssertEqual(found.first?.language, "es")
+    }
 }

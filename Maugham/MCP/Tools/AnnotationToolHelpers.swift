@@ -169,6 +169,8 @@ func resolveSpanAnchor(
 /// two absent). One spelling of the either/or, so the four tools agree.
 enum AnnotationTarget {
     case paragraph(documentId: String, paragraphId: String)
+    /// `add_craft_note`'s document scope: a document, no paragraph.
+    case document(String)
     case figure(String)
 
     /// Throws `invalidArgument` unless exactly one anchor form is given.
@@ -193,7 +195,7 @@ enum AnnotationTarget {
             if needsParagraph {
                 throw MCPError.invalidArgument("`paragraph_id` is required with `document_id`.")
             }
-            return .paragraph(documentId: documentId, paragraphId: "")
+            return .document(documentId)
         }
         return .paragraph(documentId: documentId, paragraphId: paragraphId)
     }
@@ -219,25 +221,40 @@ func addFigureNote(
     guard let ds = entry.store.documentStore else {
         throw MCPError.invalidArgument("The project's window is not ready for a figure note.")
     }
-    guard let parsed = FigureAnchorAddress.parse(figure) else {
-        throw MCPError.invalidArgument(
-            "`figure` '\(figure)' is not a figure address: use tbl:name, tbl:name!C3 or tbl:name!C3:E3.")
+    // A label (`tbl:x`, `fig:x`) or a bare registry name, as read_figure takes
+    // either; `ReadFigureTool.find` decides which figure and checks the kind.
+    let parsed: (label: String, cells: String?)
+    if let p = FigureAnchorAddress.parse(figure) {
+        parsed = p
+    } else {
+        let parts = figure.split(separator: "!", maxSplits: 1, omittingEmptySubsequences: false)
+        let head = parts[0].trimmingCharacters(in: .whitespaces)
+        let cells = parts.count == 2 ? parts[1].trimmingCharacters(in: .whitespaces) : nil
+        guard !head.isEmpty, cells?.isEmpty != true else {
+            throw MCPError.invalidArgument(
+                "`figure` '\(figure)' is not a figure address: use a figure name or label, with an optional !C3 or !C3:E3.")
+        }
+        parsed = (head, cells)
     }
     let snapshot = await entry.store.publishFigures()
     let record = try ReadFigureTool.find(parsed.label, in: snapshot.records)
-    guard record.kind == .table else {
+    // Cells and suggestions are a table's; a whole-figure note is any figure's.
+    if record.kind != .table, parsed.cells != nil || kind == .suggestedChange {
         throw MCPError.invalidArgument(
-            "Figure '\(record.name)' is an image: notes anchor to a table's cells; "
-            + "this build cannot anchor a note to an image.")
+            "Figure '\(record.name)' is not a table: a cell anchor or a suggested change needs a table. "
+            + "Comment, query or craft-note on the whole figure instead (pass `figure` without a cell).")
     }
     guard !snapshot.parked.contains(record.id) else {
         throw MCPError.invalidArgument(
             "Figure '\(record.name)' is parked in Research; bring it back into the book before annotating it.")
     }
-    guard let state = snapshot.states[record.id], state.kind == .table else {
-        throw MCPError.invalidArgument("Figure '\(record.name)' could not be read (its op log would not fold).")
+    var table = FigureTable(rows: 0, columns: 0)
+    if record.kind == .table {
+        guard let state = snapshot.states[record.id], state.kind == .table else {
+            throw MCPError.invalidArgument("Figure '\(record.name)' could not be read (its op log would not fold).")
+        }
+        table = state.table
     }
-    let table = state.table
 
     var anchor: FigureCellAnchor?
     if let cells = parsed.cells {

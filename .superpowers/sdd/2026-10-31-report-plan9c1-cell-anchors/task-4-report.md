@@ -6,3 +6,11 @@ Implemented `figure` on add_comment / add_query / add_suggested_change / add_cra
 - Bare figure names are not accepted by `figure` (needs tbl:/fig: label per FigureAnchorAddress.parse).
 - Tests: MaughamTests/MCP/Tools/FigureAnnotationCreationTests.swift (7). Focused run + TripwireGrepTests green. `./scripts/test.sh`: only UpdateInstallerTests crossVolume (known) failed after fixing a `/*` in a doc comment that tripped test_noScannedFileIsTruncatedByAnUnclosedBlockComment.
 - DocBudget: Maugham/MCP/AREA.md 6327 -> 6406 (numbers only; AREA gained one catalogue clause and one rule).
+
+## Fix round 1
+- Whole-figure comment/query/craft note now work on image figures; cell anchors and suggestions on a non-table refuse ("not a table"). Image path needs no table state.
+- Bare names accepted (`cash`, `cash!B2`): fallback split in addFigureNote, `ReadFigureTool.find` resolves name/kind.
+- `AnnotationTarget.document(String)` replaces the empty-paragraphId sentinel.
+- Descriptions/schema/AREA reworded (figure, tables-only cells). DocBudget MCP/AREA.md 6406 -> 6414.
+- Tests added: image whole-figure notes + refusals, bare name, language stored on a figure query.
+- Ran: `./scripts/test.sh only FigureAnnotationCreationTests AnnotationCreationToolsTests TripwireGrepTests` (SUCCEEDED); `./scripts/test.sh` -> only known UpdateInstallerTests crossVolume failed.

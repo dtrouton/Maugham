@@ -24,11 +24,11 @@ public enum AddCommentTool: MCPTool {
         "the comment to a sub-paragraph span; omit it to anchor the whole paragraph. " +
         "Running an editing pass? Call get_help with topic \"editing-pass\" first — " +
         "it covers craft intent and annotation conventions. " +
-        "To comment on a table figure instead, pass `figure` (tbl:name for the whole " +
+        "To comment on a figure instead, pass `figure` (tbl:name for the whole " +
         "figure, tbl:name!C3 for a cell, tbl:name!C3:E3 for a range) and omit " +
         "`document_id`, `paragraph_id` and `quote`."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a table figure instead of a paragraph: tbl:name, tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"quote":{"type":"string"}},"required":["project_id","body"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a figure instead of a paragraph: tbl:name or fig:name (a name works too); cells only on a table: tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"quote":{"type":"string"}},"required":["project_id","body"]}"#
 
     @MainActor
     public static func handle(
@@ -97,14 +97,14 @@ public enum AddSuggestedChangeTool: MCPTool {
         "`suggested_text` replaces ONLY that quoted span, so it must contain " +
         "just the span's replacement — never the whole paragraph and never the " +
         "text surrounding the quote. The user accepts (applies the change) or " +
-        "rejects (with reasoning). To propose a value for ONE table cell, pass " +
+        "rejects (with reasoning). To propose a value for ONE table cell (tables only), pass " +
         "`figure` (tbl:name!C3) and `suggested_value` instead of the paragraph " +
         "fields: a number with `.` for the decimal and no grouping (1234.5), text, " +
         "or a formula starting `=` with A1 references by the cell positions " +
         "read_figure shows; empty proposes clearing the cell. The author accepts " +
         "it in the grid; the cell is never written for you."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a table figure instead of a paragraph: tbl:name, tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"suggested_text":{"type":"string"},"suggested_value":{"type":"string","description":"with `figure`: the proposed cell, in machine form"},"quote":{"type":"string"}},"required":["project_id","body"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a figure instead of a paragraph: tbl:name or fig:name (a name works too); cells only on a table: tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"suggested_text":{"type":"string"},"suggested_value":{"type":"string","description":"with `figure`: the proposed cell, in machine form"},"quote":{"type":"string"}},"required":["project_id","body"]}"#
 
     @MainActor
     public static func handle(
@@ -177,11 +177,11 @@ public enum AddQueryTool: MCPTool {
         "sub-paragraph span; omit it to anchor the whole paragraph. During a " +
         "translation pass, pass `language` (the target tag, e.g. `es`) to mark " +
         "the query as a translator question about that language — " +
-        "translation_status counts these as `open_queries`. To ask about a table " +
-        "figure instead, pass `figure` (tbl:name, tbl:name!C3 or tbl:name!C3:E3) " +
+        "translation_status counts these as `open_queries`. To ask about a " +
+        "figure instead, pass `figure` (tbl:name or fig:name; cells on a table: tbl:name!C3 or tbl:name!C3:E3) " +
         "and omit `document_id`, `paragraph_id` and `quote`."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a table figure instead of a paragraph: tbl:name, tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"quote":{"type":"string"},"language":{"type":"string","description":"optional translation-pass target tag, e.g. es, pt-br"}},"required":["project_id","body"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a figure instead of a paragraph: tbl:name or fig:name (a name works too); cells only on a table: tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"quote":{"type":"string"},"language":{"type":"string","description":"optional translation-pass target tag, e.g. es, pt-br"}},"required":["project_id","body"]}"#
 
     @MainActor
     public static func handle(
@@ -243,10 +243,10 @@ public enum AddCraftNoteTool: MCPTool {
         "Record a document-scoped craft observation (e.g., character voice rule, " +
         "structural pattern). Doc-scoped; no paragraph anchor. Accepted craft " +
         "notes surface in `list_annotations(kind: craft_note, status: accepted)` " +
-        "for next-session reference. Pass `figure` (tbl:name, no cell) instead of " +
-        "`document_id` for a craft observation about a whole table figure."
+        "for next-session reference. Pass `figure` (tbl:name or fig:name, no cell) instead of " +
+        "`document_id` for a craft observation about a whole figure."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"figure":{"type":"string","description":"a table figure instead of a document, whole figure only: tbl:name"},"body":{"type":"string"}},"required":["project_id","body"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"figure":{"type":"string","description":"a figure instead of a document, whole figure only: tbl:name or fig:name"},"body":{"type":"string"}},"required":["project_id","body"]}"#
 
     @MainActor
     public static func handle(
@@ -256,7 +256,7 @@ public enum AddCraftNoteTool: MCPTool {
         let target = try AnnotationTarget.resolve(
             figure: params.figure, documentId: params.document_id, paragraphId: nil,
             needsParagraph: false)
-        guard case .paragraph(let documentId, _) = target else {
+        guard case .document(let documentId) = target else {
             let id = try await addFigureNote(
                 kind: .craftNote, projectId: params.project_id, figure: params.figure ?? "",
                 body: params.body, registry: registry)
