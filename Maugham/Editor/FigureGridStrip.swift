@@ -92,7 +92,7 @@ enum FigureGridStrip {
                 }
                 let heading = [note.kind.displayName, address].compactMap { $0 }.joined(separator: " \u{00B7} ")
                 let change = SuggestionDisplay.figureCells(for: note, table: table, names: names, locale: locale)
-                    .map { "\(shown($0.before ?? "")) \u{2192} \(shown($0.after))" }
+                    .map { "\(shownCell($0.before ?? "")) \u{2192} \(shownCell($0.after))" }
                 let actions: [Action]
                 if readOnly != nil {
                     actions = []
@@ -115,7 +115,7 @@ enum FigureGridStrip {
         }
 
         /// A cell's text in the change line; an empty cell reads as the queue's.
-        private static func shown(_ text: String) -> String {
+        static func shownCell(_ text: String) -> String {
             text.isEmpty ? AnnotationRow.emptyCell : text
         }
     }
@@ -241,6 +241,83 @@ final class FigureGridStripView: NSStackView {
             let verb: FigureGridStrip.Verb = sender === acceptButton ? .accept
                 : sender === gotItButton ? .gotIt : .reject
             stripDelegate?.stripView(self, perform: verb, noteId: noteId)
+        }
+    }
+}
+
+// MARK: - The strip's questions (report plan 9c-2 Task 6)
+
+extension FigureGridStrip {
+
+    /// **The cell changed since the suggestion was made** — asked before an
+    /// Accept that would replace what the writer put there since. A value,
+    /// so a test answers it (no alert in a test).
+    struct ChangedQuestion: Equatable {
+        /// "B2".
+        let address: String
+        /// The cell as it stands now.
+        let now: String
+        /// What the suggestion would put there.
+        let after: String
+
+        var message: String { FigureNoteError.cellChangedSinceSuggestion.errorDescription ?? "" }
+        var informative: String {
+            "\(address) now holds \(Plan.shownCell(now)). Accept anyway and put \(Plan.shownCell(after)) there?"
+        }
+        static let confirmTitle = "Accept Anyway"
+    }
+
+    /// **Why the note is rejected** — the optional reason kept as its reply.
+    struct RejectQuestion: Equatable {
+        /// The note's heading, as the strip shows it ("Comment · C1").
+        let heading: String
+        let body: String
+
+        static let message = "Reject this note?"
+        static let informative = "Say why, if you like \u{2014} the reason is kept with the note."
+        static let placeholder = "Reason (optional)"
+    }
+
+    /// The reject sheet's answer: reject (a blank reason is none), or cancel.
+    enum RejectAnswer: Equatable {
+        case reject(reason: String?)
+        case cancel
+    }
+
+    /// **The questions as AppKit sheets on the grid's window** (plan ruling:
+    /// the reject reason is a sheet on the grid's window, not the queue's
+    /// SwiftUI sheet). No window, no question: nothing is written.
+    @MainActor
+    enum Sheets {
+        static func ask(_ question: ChangedQuestion, in window: NSWindow?) async -> Bool {
+            guard let window else { return false }
+            let alert = NSAlert()
+            alert.messageText = question.message
+            alert.informativeText = question.informative
+            alert.addButton(withTitle: ChangedQuestion.confirmTitle)
+            alert.addButton(withTitle: "Cancel")
+            return await withCheckedContinuation { done in
+                alert.beginSheetModal(for: window) { done.resume(returning: $0 == .alertFirstButtonReturn) }
+            }
+        }
+
+        static func ask(_ question: RejectQuestion, in window: NSWindow?) async -> RejectAnswer {
+            guard let window else { return .cancel }
+            let alert = NSAlert()
+            alert.messageText = RejectQuestion.message
+            alert.informativeText = "\(question.heading): \(question.body)\n\n\(RejectQuestion.informative)"
+            let field = NSTextField(frame: CGRect(x: 0, y: 0, width: 280, height: 24))
+            field.placeholderString = RejectQuestion.placeholder
+            alert.accessoryView = field
+            alert.addButton(withTitle: Verb.reject.title)
+            alert.addButton(withTitle: "Cancel")
+            alert.window.initialFirstResponder = field
+            let pressed = await withCheckedContinuation { done in
+                alert.beginSheetModal(for: window) { done.resume(returning: $0) }
+            }
+            guard pressed == .alertFirstButtonReturn else { return .cancel }
+            let reason = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .reject(reason: reason.isEmpty ? nil : reason)
         }
     }
 }

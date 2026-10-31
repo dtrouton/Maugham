@@ -592,6 +592,18 @@ final class ResearchTableHost: FigureGridHost {
     /// A Research table keeps no pins (`offers.refreshPins` is false).
     func refreshPins(undoManager: UndoManager?) async throws {}
 
+    // A Research table carries no notes (`openCellNotes` is `.none`), so its
+    // strip is never shown and any note asked about is unknown here.
+    func acceptSuggestion(id: String, confirmChanged: Bool, undoManager: UndoManager?) async throws {
+        throw FigureNoteError.unknownNote
+    }
+    func acceptNote(id: String, userResponse: String?, undoManager: UndoManager?) async throws {
+        throw FigureNoteError.unknownNote
+    }
+    func rejectAnnotation(id: String, reason: String?, undoManager: UndoManager?) async throws {
+        throw FigureNoteError.unknownNote
+    }
+
     // MARK: Undo and the visit
 
     func awaitPendingUndoWork() async {

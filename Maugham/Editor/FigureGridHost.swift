@@ -69,6 +69,16 @@ protocol FigureGridHost: AnyObject {
     /// The research pins re-read (offered only where `offers.refreshPins`).
     func refreshPins(undoManager: UndoManager?) async throws
 
+    // MARK: The notes on its cells (report plan 9c-2 Task 6, the strip)
+
+    /// A suggestion to one cell accepted: the cell written and the note
+    /// resolved, one step (`FigureDocument.acceptSuggestion`).
+    func acceptSuggestion(id: String, confirmChanged: Bool, undoManager: UndoManager?) async throws
+    /// A note that writes no cell accepted — the strip's Got it.
+    func acceptNote(id: String, userResponse: String?, undoManager: UndoManager?) async throws
+    /// A note rejected, keeping `reason`.
+    func rejectAnnotation(id: String, reason: String?, undoManager: UndoManager?) async throws
+
     // MARK: The in-place visit (the coordinator's)
 
     /// Begins recording the grid's writes for one fold step; false when this
