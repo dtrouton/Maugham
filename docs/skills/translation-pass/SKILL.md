@@ -81,6 +81,16 @@ Two consequences for a session working from outside:
    unknown. The writer can also clear orphans by hand from the Translation
    Review pane, so don't assume every `orphans` count you see is yours to
    fix.
+   **A table's labels translate too.** `translation_status`'s `figures`
+   section lists each table a reported chapter uses, with its text cells
+   counted by freshness per language. Pass the table's id (from
+   `list_figures`) as `document_id`: `read_translation` lists its `cells` by
+   A1 address with source, translation and `status`, and `write_translation`
+   takes entries addressed by `a1` (`"B3"`) instead of `paragraph_id`. Only a
+   cell holding typed text translates; numbers, dates and formulas are shared
+   by every language and are refused. A cell orphan (its row or column
+   deleted, or its text turned into a number) is deleted by the `cell` key
+   `read_translation` gives it.
 4. **The compile gate is the real finish line.** `compile` with `language`
    set refuses to produce a translated edition while paragraphs are stale or
    missing (an untranslated book mislabeled as an edition is worse than no
@@ -138,7 +148,7 @@ Two consequences for a session working from outside:
 `translation_status` (coverage summary, per-doc or project-wide) →
 `read_translation` (source + translated text + freshness `status`, filterable)
 → `write_translation` (batched writes, one of `text`, `verbatim: true`, or
-`delete: true` per entry) → `compile` with `language` (produces the edition;
+`delete: true` per entry; a table's cells by `a1`) → `compile` with `language` (produces the edition;
 the failure report *is* the worklist) → `add_query` with `language`
 (voice/register decisions that aren't yours to make). `republish` reproduces
 a prior edition exactly, including its original `language` and gate mode —
