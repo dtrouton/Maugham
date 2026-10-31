@@ -34,11 +34,12 @@ public enum WriteResearchCellsTool: MCPTool {
         and columns it needs; rows and columns are never deleted. A table \
         that ends in a total row refuses to grow below it unless the same \
         call passes total_row (set total_row: false to write below it, then \
-        true again). \
+        true again). Passing total_row: true on a call that grows the table \
+        makes the new last row the total; the old total row joins the body. \
         header_rows (0 or 1) and total_row (true/false) set the table's \
         header and total row. The writer's unsaved edits are saved first, and \
-        the version before your write is kept in the table's version history, \
-        marked as written by the assistant, so the writer can restore it. \
+        the state before your write is kept in the table's version history, \
+        marked "Before the assistant’s change", so the writer can restore it. \
         Refused, writing nothing, for an unknown item, an item that is not a \
         table, an invalid A1 address or a value that does not read.
         """

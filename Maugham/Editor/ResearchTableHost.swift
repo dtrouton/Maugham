@@ -60,7 +60,8 @@ private let researchTableLog = Logger(
 ///   one version — the state before the run. Every assistant save
 ///   (`assistantEdit`) keeps one and ends the run; so does bytes on disk that
 ///   are not ours (an outside change, a reload). Every save stamps the
-///   sidecar's `writtenBy`, so the next version says whose bytes it holds.
+///   sidecar's `writtenBy`, so the next version says whose bytes it holds,
+///   and each version records whose save replaced it (`replacedBy`).
 /// - **`restore(_:)`** puts a kept version back as one writer's save through
 ///   the door, always keeping what it replaces; its undo is the version list
 ///   (`DocumentStore.restoreResearchTable` reaches it with or without a grid).
@@ -569,12 +570,16 @@ final class ResearchTableHost: FigureGridHost {
             pendingOutsideBackup = (onDiskHash, backup)
         }
         let at = now()
+        var kept = false
         if restoring || run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
             guard await keepThePriorVersion(onDisk, of: item, at: at, by: writer, restoring: restoring) else {
                 isDirty = true
                 return false
             }
             lastKeptHash = onDiskHash
+            kept = true
+            // The inspector's list reloads only when it has a version to show (M1).
+            store.researchVersionsRevision += 1
         }
         // Counted once the version is kept, saved or not: a retry after a
         // failed save is still the run whose start is kept. A restore ends it.
@@ -618,7 +623,7 @@ final class ResearchTableHost: FigureGridHost {
                 "\(path, privacy: .public)'s sidecar was not written: \(error.localizedDescription, privacy: .public)")
         }
         store.invalidateFigureCards()
-        store.researchVersionsRevision += 1
+        if restoring, !kept { store.researchVersionsRevision += 1 }
         Self.wroteForTesting?(text)
         return true
     }
@@ -640,8 +645,9 @@ final class ResearchTableHost: FigureGridHost {
     }
 
     /// **The bytes about to be replaced, kept as a version** with the sidecar
-    /// that described them (the one on disk, else the one held) and their
-    /// author when that sidecar was written for these bytes; then this
+    /// that described them (the one on disk, else the one held), their
+    /// author when that sidecar was written for these bytes, and `writer` as
+    /// whose save replaces them (`replaced_by`); then this
     /// device's versions past the retention are pruned. False — write nothing
     /// — when the version could not be kept, and said.
     private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date,
@@ -655,7 +661,7 @@ final class ResearchTableHost: FigureGridHost {
             let described = (try? ResearchTableSidecar.read(forItem: itemId, in: projectURL)) ?? held
             let author = described?.contentHash == ContentHash.of(prior) ? described?.writtenBy : nil
             do {
-                try versions.keep(priorBytes: prior, priorSidecar: described, writtenBy: author,
+                try versions.keep(priorBytes: prior, priorSidecar: described, writtenBy: author, replacedBy: writer,
                                   itemId: itemId, device: device, at: date)
             } catch {
                 return error

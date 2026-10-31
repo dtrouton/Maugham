@@ -9,6 +9,9 @@ final class ResearchVersionStoreTests: XCTestCase {
     private let mac = DeviceSlug.unsafeForTesting("mac-a")
     private let other = DeviceSlug.unsafeForTesting("mac-b")
     private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private let trashExpiry: TimeInterval = 30 * 86_400
+    /// Long past any file these tests write (their files are dated now).
+    private let monthsLater = Date().addingTimeInterval(90 * 86_400)
 
     private func folder(_ root: URL, _ itemId: String? = nil) -> URL {
         root.appendingPathComponent(".maugham/research-versions/\(itemId ?? item)")
@@ -150,7 +153,7 @@ final class ResearchVersionStoreTests: XCTestCase {
         try store.keep(priorBytes: Data("o".utf8), priorSidecar: nil, writtenBy: nil,
                        itemId: goneShared, device: other, at: t0)
 
-        store.sweepOrphans(liveItemIds: [live], device: mac)
+        store.sweepOrphans(liveItemIds: [live], device: mac, minimumAge: trashExpiry, now: monthsLater)
 
         XCTAssertEqual(store.versions(itemId: live).count, 1, "a live item (or one in the Trash) keeps its versions")
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder(root, gone).path),
@@ -242,8 +245,100 @@ final class ResearchVersionStoreTests: XCTestCase {
                        itemId: gone, device: mac, at: t0)
         try Data("{}".utf8).write(to: folder(root, gone).appendingPathComponent("20270115-090000-mac-a.json"))
 
-        store.sweepOrphans(liveItemIds: [], device: mac)
+        store.sweepOrphans(liveItemIds: [], device: mac, minimumAge: trashExpiry, now: monthsLater)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder(root, gone).path))
+    }
+
+    // MARK: - Final fix wave (I1, I2)
+
+    /// **Whose save replaced the bytes** rides in the meta: an assistant's
+    /// write keeps the state before it marked so, and the listing says it.
+    func test_replacedByRoundTrips_andAMetaWithoutItReadsNil() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let kept = try store.keep(priorBytes: Data("a\n".utf8), priorSidecar: nil, writtenBy: .writer,
+                                  replacedBy: .assistant, itemId: item, device: mac, at: t0)
+        XCTAssertEqual(kept.replacedBy, .assistant)
+        XCTAssertEqual(store.versions(itemId: item).map(\.replacedBy), [.assistant])
+        let meta = try String(contentsOf: folder(root).appendingPathComponent(kept.name + ".json"), encoding: .utf8)
+        XCTAssertTrue(meta.contains("\"replaced_by\" : \"assistant\""), meta)
+
+        // A meta from before the field (or a value this build doesn't know) reads nil.
+        try Data(#"{"saved_at":"2027-01-15T09:00:00.000Z","written_by":"writer","replaced_by":"robot"}"#.utf8)
+            .write(to: folder(root).appendingPathComponent("20270115-090000-mac-a.json"))
+        try Data("b\n".utf8).write(to: folder(root).appendingPathComponent("20270115-090000-mac-a.csv"))
+        let listed = store.versions(itemId: item)
+        XCTAssertEqual(listed.count, 2)
+        XCTAssertEqual(listed.first { $0.name == "20270115-090000-mac-a" }?.replacedBy, nil)
+        XCTAssertEqual(listed.first { $0.name == "20270115-090000-mac-a" }?.writtenBy, .writer,
+                       "an unknown replaced_by hides nothing else")
+    }
+
+    /// **A young orphan stays; an old one goes**: an item missing from the
+    /// manifest whose newest file of this device's is younger than the
+    /// Trash's expiry may have a trash entry on its way from another Mac.
+    /// Disable experiment: drop the age guard in `sweepOrphans` and the young
+    /// folder is swept.
+    func test_sweepOrphans_keepsAFolderWhoseNewestOwnFileIsYoungerThanTheExpiry() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let young = "res-youn0000", old = "res-old00000"
+        for id in [young, old] {
+            try store.keep(priorBytes: Data(id.utf8), priorSidecar: nil, writtenBy: nil,
+                           itemId: id, device: mac, at: t0)
+        }
+        // The old folder's files were last touched 31 days ago; the young one's just now.
+        let longAgo = Date().addingTimeInterval(-31 * 86_400)
+        for name in try names(root, old) {
+            try FileManager.default.setAttributes([.modificationDate: longAgo],
+                                                  ofItemAtPath: folder(root, old).appendingPathComponent(name).path)
+        }
+
+        store.sweepOrphans(liveItemIds: [], device: mac, minimumAge: trashExpiry)
+
+        XCTAssertEqual(store.versions(itemId: young).count, 1, "a young orphan is kept")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder(root, old).path),
+                       "an orphan older than the expiry is swept, its folder with it")
+    }
+
+    /// One fresh file of this device's keeps the whole folder: the newest decides.
+    func test_sweepOrphans_theNewestOwnFileDecides() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let id = "res-mixd0000"
+        let first = try store.keep(priorBytes: Data("1".utf8), priorSidecar: nil, writtenBy: nil,
+                                   itemId: id, device: mac, at: t0)
+        try store.keep(priorBytes: Data("2".utf8), priorSidecar: nil, writtenBy: nil,
+                       itemId: id, device: mac, at: t0.addingTimeInterval(60))
+        let longAgo = Date().addingTimeInterval(-31 * 86_400)
+        for ext in ["csv", "json"] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: longAgo],
+                ofItemAtPath: folder(root, id).appendingPathComponent("\(first.name).\(ext)").path)
+        }
+        store.sweepOrphans(liveItemIds: [], device: mac, minimumAge: trashExpiry)
+        XCTAssertEqual(store.versions(itemId: id).count, 2, "a fresh file keeps every version of the item")
+    }
+
+    /// **The destroyed ids, and only those**: Permanently Delete's sweep
+    /// takes this device's versions of the items it destroyed, never another
+    /// item's, never another device's.
+    func test_removeVersions_takesOnlyTheNamedItemsAndOnlyThisDevicesFiles() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let destroyed = "res-dest0000", untouched = "res-untc0000"
+        for id in [destroyed, untouched] {
+            try store.keep(priorBytes: Data(id.utf8), priorSidecar: nil, writtenBy: nil,
+                           itemId: id, device: mac, at: t0)
+        }
+        try store.keep(priorBytes: Data("o".utf8), priorSidecar: nil, writtenBy: nil,
+                       itemId: destroyed, device: other, at: t0)
+
+        store.removeVersions(ofItems: [destroyed], device: mac)
+
+        XCTAssertEqual(store.versions(itemId: destroyed).map { $0.isKept(by: other) }, [true],
+                       "another device's versions are its own to remove")
+        XCTAssertEqual(store.versions(itemId: untouched).count, 1, "an item not destroyed keeps its versions")
     }
 }

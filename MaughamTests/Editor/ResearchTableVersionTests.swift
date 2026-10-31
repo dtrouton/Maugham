@@ -172,6 +172,7 @@ final class ResearchTableVersionTests: XCTestCase {
         XCTAssertEqual(kept.count, 1, "a run keeps one version, the state before it: \(kept)")
         XCTAssertEqual(try versionRows(kept[0]), [["Year", "Revenue"], ["2025", "10"]])
         XCTAssertNil(kept[0].writtenBy, "the imported file's sidecar names no author")
+        XCTAssertEqual(kept[0].replacedBy, .writer, "the writer's save replaced it")
 
         clock.advance(minutes: 1)
         try await host.assistantEdit { table in
@@ -181,6 +182,7 @@ final class ResearchTableVersionTests: XCTestCase {
         kept = versions(of: item)
         XCTAssertEqual(kept.count, 2, "the assistant's write keeps one: \(kept)")
         XCTAssertEqual(kept[0].writtenBy, .writer, "the version before the assistant's write is the writer's bytes")
+        XCTAssertEqual(kept[0].replacedBy, .assistant, "and it is marked as the state before the assistant's change")
         XCTAssertEqual(try versionRows(kept[0]), [["Year", "Revenue"], ["2025", "20"]])
         let (_, keptSidecar) = try ResearchVersionStore(projectURL: projectURL).read(kept[0])
         XCTAssertEqual(keptSidecar?.writtenBy, .writer, "the sidecar that described those bytes is kept with them")
@@ -192,8 +194,38 @@ final class ResearchTableVersionTests: XCTestCase {
         kept = versions(of: item)
         XCTAssertEqual(kept.count, 3, "the assistant's write ended the run: \(kept)")
         XCTAssertEqual(kept[0].writtenBy, .assistant)
+        XCTAssertEqual(kept[0].replacedBy, .writer)
         XCTAssertEqual(try versionRows(kept[0]), [["Year", "Revenue"], ["2025", "99"]])
         XCTAssertEqual(try ResearchTableSidecar.read(forItem: item.id, in: projectURL)?.writtenBy, .writer)
+        await store.releaseResearchTable(host)
+    }
+
+    /// **The inspector's list reloads only when a version is kept** (final
+    /// review M1): a writer's run of saves keeps one, so it bumps
+    /// `researchVersionsRevision` once, not once per autosave; an assistant
+    /// write and a restore each bump it. Disable experiment: bump on every
+    /// landed save, and the run bumps it twenty times.
+    func test_theVersionsRevisionMovesOnlyWhenAVersionIsKept() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let clock = Clock()
+        let host = try await open(item, store, clock: clock)
+        let start = store.researchVersionsRevision
+
+        for minute in 1...20 {
+            clock.advance(minutes: 1)
+            try await writerSaves(Double(minute), host)
+        }
+        XCTAssertEqual(store.researchVersionsRevision - start, 1, "a run keeps one version and reloads the list once")
+
+        clock.advance(minutes: 1)
+        try await host.assistantEdit { table in
+            table.setCell(Cell(content: .value(.number(99))), at: CellKey(row: table.rows[1], column: table.columns[1]))
+        }
+        XCTAssertEqual(store.researchVersionsRevision - start, 2, "an assistant write keeps one")
+
+        try await host.restore(try XCTUnwrap(versions(of: item).last))
+        XCTAssertEqual(store.researchVersionsRevision - start, 3, "a restore keeps one")
         await store.releaseResearchTable(host)
     }
 

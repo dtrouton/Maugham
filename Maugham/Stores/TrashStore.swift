@@ -162,7 +162,10 @@ public struct TrashStore {
             .map(\.lastPathComponent)
     }
 
-    /// Remove entries older than 30 days. Called from ProjectStore.load.
+    /// How long an entry stays before `sweep` removes it: 30 days.
+    static let expiry: TimeInterval = 30 * 86_400
+
+    /// Remove entries older than `expiry`. Called from ProjectStore.load.
     ///
     /// **Walks the trash directory, not `list()`** (RULING-39). An entry whose
     /// `meta.json` never landed — an interrupted `moveToTrash`, whose file is
@@ -174,7 +177,7 @@ public struct TrashStore {
     public func sweep() async throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: trashRoot.path) else { return }
-        let cutoff = Date().addingTimeInterval(-30 * 86_400)
+        let cutoff = Date().addingTimeInterval(-Self.expiry)
         let folders = (try? fm.contentsOfDirectory(
             at: trashRoot,
             includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],

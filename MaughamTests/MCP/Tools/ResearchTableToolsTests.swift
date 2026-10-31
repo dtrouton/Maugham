@@ -168,6 +168,7 @@ final class ResearchTableToolsTests: XCTestCase {
         XCTAssertEqual(kept.count, 1)
         XCTAssertEqual(try ResearchVersionStore(projectURL: projectURL).read(try XCTUnwrap(kept.first)).0, original,
                        "the version before the write holds the bytes it replaced")
+        XCTAssertEqual(kept.first?.replacedBy, .assistant, "marked as the state before the assistant's change")
 
         try await write(book, item, #""cells":[{"a1":"B2","value":"12"}]"#)
         kept = versions(of: item)

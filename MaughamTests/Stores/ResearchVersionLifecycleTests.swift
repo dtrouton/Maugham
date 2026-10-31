@@ -12,6 +12,7 @@ final class ResearchVersionLifecycleTests: XCTestCase {
     private var root: URL!
     private let here = DeviceIdentity.author.slug
     private let elsewhere = DeviceSlug.unsafeForTesting("mac-elsewhere")
+    private var lockedFolders: [URL] = []
 
     override func setUp() async throws {
         root = TestTemp.root.appendingPathComponent("rvlifecycle-\(UUID().uuidString)")
@@ -29,6 +30,10 @@ final class ResearchVersionLifecycleTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        for folder in lockedFolders {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        }
+        lockedFolders = []
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -55,6 +60,16 @@ final class ResearchVersionLifecycleTests: XCTestCase {
                           itemId: itemId, device: here, at: date)
         try versions.keep(priorBytes: Data("c,d\n".utf8), priorSidecar: nil, writtenBy: .assistant,
                           itemId: itemId, device: elsewhere, at: date)
+    }
+
+    /// Dates every file in `itemId`'s versions folder 31 days back: past the Trash's expiry.
+    private func ageVersions(_ itemId: String, in url: URL) throws {
+        let folder = try ResearchVersionStore(projectURL: url).folderURL(forItem: itemId)
+        let longAgo = Date().addingTimeInterval(-TrashStore.expiry - 86_400)
+        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path) {
+            try FileManager.default.setAttributes([.modificationDate: longAgo],
+                                                  ofItemAtPath: folder.appendingPathComponent(name).path)
+        }
     }
 
     private func counts(_ itemId: String, in url: URL) -> (own: Int, other: Int) {
@@ -108,11 +123,112 @@ final class ResearchVersionLifecycleTests: XCTestCase {
         XCTAssertEqual(counts(item.id, in: projectStore.url).own, 0)
         XCTAssertEqual(counts(item.id, in: projectStore.url).other, 1)
 
-        // A straggler: versions of an id nothing names, found at open.
+        // A straggler: versions of an id nothing names, found at open, older than the Trash's expiry.
         try keepVersions("res-straggler", in: projectStore.url)
+        try ageVersions("res-straggler", in: projectStore.url)
         let reopened = try await ProjectStore.load(from: projectStore.url)
         XCTAssertEqual(counts("res-straggler", in: reopened.url).own, 0)
         XCTAssertEqual(counts("res-straggler", in: reopened.url).other, 1)
+    }
+
+    // MARK: - Final fix wave I2: nothing sweeps a table whose trash entry it can't see
+
+    /// **Permanently Delete takes only the ids it destroyed.** Table B was
+    /// trashed on another Mac: its manifest (no B) is here, its trash entry
+    /// not yet. Deleting table A for good leaves B's history alone, however
+    /// old. Disable experiment: sweep with the global diff
+    /// (`sweepResearchVersions`) instead of the destroyed ids, and B's
+    /// versions go.
+    func test_permanentDeleteSweepsOnlyTheIdsItDestroyed() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let a = try await projectStore.addResearchTable(parentId: nil, title: "A")
+        try keepVersions(a.id, in: projectStore.url)
+        let inFlight = "res-inflight"   // in no manifest and no trash entry this Mac can see
+        try keepVersions(inFlight, in: projectStore.url)
+        try ageVersions(inFlight, in: projectStore.url)
+
+        try await projectStore.deleteResearchItems(ids: [a.id])
+        try await projectStore.permanentlyDeleteTrashEntry(id: try XCTUnwrap(projectStore.trashEntries.first?.id))
+
+        XCTAssertEqual(counts(a.id, in: projectStore.url).own, 0, "the destroyed table's own versions go")
+        XCTAssertEqual(counts(inFlight, in: projectStore.url).own, 1, "a table it didn't destroy keeps its history")
+    }
+
+    /// Empty Trash, the same: only what it destroyed.
+    func test_emptyTrashSweepsOnlyTheIdsItDestroyed() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let a = try await projectStore.addResearchTable(parentId: nil, title: "A")
+        try keepVersions(a.id, in: projectStore.url)
+        let inFlight = "res-inflight"
+        try keepVersions(inFlight, in: projectStore.url)
+        try ageVersions(inFlight, in: projectStore.url)
+
+        try await projectStore.deleteResearchItems(ids: [a.id])
+        try await projectStore.emptyTrash()
+
+        XCTAssertEqual(counts(a.id, in: projectStore.url).own, 0)
+        XCTAssertEqual(counts(inFlight, in: projectStore.url).own, 1)
+    }
+
+    /// **A Trash that won't list is not an empty Trash**: the open sweep
+    /// waits, so a trashed table's history stays. Disable experiment: drop
+    /// the `entryFolderIds` guard in `liveResearchItemIds`, and the listing
+    /// reads the locked folder as empty and the versions go.
+    func test_theOpenSweepWaitsWhenTheTrashWontList() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let item = try await projectStore.addResearchTable(parentId: nil, title: "Budget")
+        try keepVersions(item.id, in: projectStore.url)
+        try ageVersions(item.id, in: projectStore.url)
+        try await projectStore.deleteResearchItems(ids: [item.id])
+        let trash = projectStore.url.appendingPathComponent(".trash")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: trash.path)
+        lockedFolders.append(trash)
+
+        let live = await projectStore.liveResearchItemIds()
+        XCTAssertNil(live, "an unlistable Trash names nothing")
+        await projectStore.sweepResearchVersions()
+
+        XCTAssertEqual(counts(item.id, in: projectStore.url).own, 1, "the trashed table keeps its versions")
+    }
+
+    /// **A manifest restored from its shadow is not trusted to sweep**: it
+    /// can lag the latest save. Disable experiment: sweep at open whatever
+    /// the manifest's source, and the old table's versions go.
+    func test_theOpenSweepSkipsAManifestRestoredFromItsShadow() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        _ = try await projectStore.addResearchTable(parentId: nil, title: "Saved")   // writes the manifest and its shadow
+        let unnamed = "res-unnamed"
+        try keepVersions(unnamed, in: projectStore.url)
+        try ageVersions(unnamed, in: projectStore.url)
+        XCTAssertNotNil(ManifestShadow.recover(in: projectStore.url), "precondition: a shadow")
+        try FileManager.default.removeItem(at: projectStore.url.appendingPathComponent(ProjectManifest.fileName))
+
+        let reopened = try await ProjectStore.load(from: projectStore.url)
+
+        XCTAssertNotNil(reopened.manifestRestoredNotice, "precondition: the manifest came from the shadow")
+        XCTAssertEqual(counts(unnamed, in: reopened.url).own, 1, "nothing swept against a shadow manifest")
+    }
+
+    /// **A young orphan stays at open; an old one goes**: one younger than
+    /// the Trash's expiry may have a trash entry still on its way.
+    /// Disable experiment: drop the age guard and the young one is swept.
+    func test_theOpenSweepKeepsAYoungOrphan_andSweepsAnOldOne() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let young = "res-young", old = "res-old"
+        try keepVersions(young, in: projectStore.url)
+        try keepVersions(old, in: projectStore.url)
+        try ageVersions(old, in: projectStore.url)
+
+        let reopened = try await ProjectStore.load(from: projectStore.url)
+
+        XCTAssertEqual(counts(young, in: reopened.url).own, 1, "a young orphan is kept")
+        XCTAssertEqual(counts(old, in: reopened.url).own, 0, "an orphan past the expiry is swept")
+        XCTAssertEqual(counts(old, in: reopened.url).other, 1, "another device's file is its own")
     }
 
     // MARK: - Duplicate copies none

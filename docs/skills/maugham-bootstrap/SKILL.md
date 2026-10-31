@@ -45,10 +45,14 @@ A Research table (an item in `list_research`) is written with `create_research_t
 and `write_research_cells` and read with `read_research_table`. Values are in
 machine form, as for `add_suggested_change`; formats are `read_figure`'s
 shapes. A write may grow the table but never deletes rows or columns, and past
-a total row it is refused unless `total_row` is passed. Every write keeps the
-writer's earlier version, marked as yours; they restore it from the inspector.
+a total row it is refused unless `total_row` is passed (`total_row: true` on a
+growing write makes the new last row the total). Every write keeps the state
+before it as a version, marked "Before the assistant’s change": the writer's
+Restore previous version right after your write undoes it. A version holding
+values you wrote is marked "Written by assistant".
 `research:` references inside a Research table compute only through pins, and
-`read_research_table` says so. A view-only share refuses all three, and `add_note`.
+`read_research_table` says so. A view-only share refuses `create_research_table`,
+`write_research_cells` and `add_note`; `read_research_table` still reads.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

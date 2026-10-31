@@ -230,8 +230,8 @@ public final class DocumentStore {
     /// plan 8b Task 7; `openResearchTable`): every grid on an item edits the
     /// same table. `flushPendingSave` settles each, so ⌘S, the typed mover's
     /// pre-move flush and the store's close reach it as they reach a note's.
-    /// Bumped after every Research table save lands (the writer's, the
-    /// assistant's, a restore): the inspector's version list reloads on it.
+    /// Bumped when a Research table save keeps a version, and on every
+    /// restore: the inspector's version list reloads on it.
     var researchVersionsRevision = 0
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
     @ObservationIgnored private var researchTableUses: [String: Int] = [:]

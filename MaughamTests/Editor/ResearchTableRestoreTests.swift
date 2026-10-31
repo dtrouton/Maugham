@@ -178,7 +178,7 @@ final class ResearchTableRestoreTests: XCTestCase {
         await store.releaseResearchTable(host)
         XCTAssertGreaterThan(store.researchVersionsRevision, start, "a save that lands moves the revision")
         let listed = await ResearchVersionsModel.load(projectURL: projectURL, itemId: item.id)
-        let rows = ResearchVersionsModel.rows(from: listed, viewOnly: false)
+        let rows = ResearchVersionsModel.rows(from: listed, refusal: nil)
         XCTAssertEqual(rows.count, 1)
 
         let afterSave = store.researchVersionsRevision

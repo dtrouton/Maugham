@@ -596,6 +596,7 @@ public final class ProjectStore {
         }
 
         var manifest: ProjectManifest
+        var recoveredFromShadow = false  // a corrupt manifest's, below
         do {
             let data = try Data(contentsOf: manifestURL) // adr-0018-ok: project manifest JSON read, not manuscript
             // Schema-version gate (ADR 0015): refuse a project written by a
@@ -616,6 +617,7 @@ public final class ProjectStore {
                 throw ProjectStoreError.manifestUnreadable(error.localizedDescription)
             }
             manifest = recovered
+            recoveredFromShadow = true
             try? shadow.write(to: manifestURL, options: [.atomic])
             projectStoreLog.error(
                 "Recovered project manifest from shadow for \(url.path, privacy: .public)")
@@ -660,8 +662,9 @@ public final class ProjectStore {
         // (same as the project-id backfill above).
         await store.healPaletteRolesEagerly()
         // Research versions of items deleted for good (the Trash's 30-day
-        // expiry above included) leave with them.
-        await store.sweepResearchVersions()
+        // expiry above included) leave with them — never over a manifest
+        // restored from its shadow, which can lag the latest save.
+        if !restoredFromShadow, !recoveredFromShadow { await store.sweepResearchVersions() }
         // M1A: adopt legacy craft-intent research notes into the intent
         // `Statement`, once, gated on the on-disk schema version. Runs AFTER the
         // role heal above (which is what makes the role-first detection see a

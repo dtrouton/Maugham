@@ -17,17 +17,22 @@ public enum ResearchWriter: String, Codable, Equatable, Sendable {
 ///   stamp's (to the second) when the meta's date doesn't read.
 /// - `writtenBy` is whose bytes they were, nil when no one said (a sidecar
 ///   from before 9d, or a value this build doesn't know).
+/// - `replacedBy` is whose save replaced them — `.assistant` for the state
+///   before an assistant's write — nil when the meta doesn't say.
 public struct ResearchVersion: Equatable, Hashable, Sendable {
     public let itemId: String
     public let name: String
     public let savedAt: Date
     public let writtenBy: ResearchWriter?
+    public let replacedBy: ResearchWriter?
 
-    public init(itemId: String, name: String, savedAt: Date, writtenBy: ResearchWriter?) {
+    public init(itemId: String, name: String, savedAt: Date, writtenBy: ResearchWriter?,
+                replacedBy: ResearchWriter? = nil) {
         self.itemId = itemId
         self.name = name
         self.savedAt = savedAt
         self.writtenBy = writtenBy
+        self.replacedBy = replacedBy
     }
 
     /// True when `device` kept this version: its name is the stamp, then
@@ -109,24 +114,29 @@ public struct ResearchVersionStore: Sendable {
     // MARK: - The meta
 
     /// A version's `.json`: when it was superseded, whose bytes they were,
-    /// their `ContentHash`, and the sidecar that described them, whole (so a
-    /// restore brings back the formats). Tolerant (ADR 0015).
+    /// whose save replaced them, their `ContentHash`, and the sidecar that
+    /// described them, whole (so a restore brings back the formats). Tolerant
+    /// (ADR 0015): a meta from before `replaced_by` reads it as nil.
     struct Meta: Codable, Equatable {
         var savedAt: Date?
         var writtenBy: ResearchWriter?
+        var replacedBy: ResearchWriter?
         var contentHash: String?
         var sidecar: ResearchTableSidecar?
 
         enum CodingKeys: String, CodingKey {
             case savedAt = "saved_at"
             case writtenBy = "written_by"
+            case replacedBy = "replaced_by"
             case contentHash = "content_hash"
             case sidecar
         }
 
-        init(savedAt: Date?, writtenBy: ResearchWriter?, contentHash: String?, sidecar: ResearchTableSidecar?) {
+        init(savedAt: Date?, writtenBy: ResearchWriter?, replacedBy: ResearchWriter? = nil,
+             contentHash: String?, sidecar: ResearchTableSidecar?) {
             self.savedAt = savedAt
             self.writtenBy = writtenBy
+            self.replacedBy = replacedBy
             self.contentHash = contentHash
             self.sidecar = sidecar
         }
@@ -135,6 +145,7 @@ public struct ResearchVersionStore: Sendable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             savedAt = (try? c.decodeIfPresent(Date.self, forKey: .savedAt)) ?? nil
             writtenBy = (try? c.decodeIfPresent(ResearchWriter.self, forKey: .writtenBy)) ?? nil
+            replacedBy = (try? c.decodeIfPresent(ResearchWriter.self, forKey: .replacedBy)) ?? nil
             contentHash = (try? c.decodeIfPresent(String.self, forKey: .contentHash)) ?? nil
             sidecar = (try? c.decodeIfPresent(ResearchTableSidecar.self, forKey: .sidecar)) ?? nil
         }
@@ -248,21 +259,22 @@ public struct ResearchVersionStore: Sendable {
     // MARK: - Keeping
 
     /// **Keeps `priorBytes`** — what was on disk before a save — with
-    /// `priorSidecar`, the sidecar that described them, and `writtenBy`, whose
-    /// bytes they were, as one new version of `itemId` named for `device` and
+    /// `priorSidecar`, the sidecar that described them, `writtenBy`, whose
+    /// bytes they were, and `replacedBy`, whose save replaces them, as one new version of `itemId` named for `device` and
     /// `at`. Written once: the `.json` then the `.csv`, each staged and moved
     /// into place, under the first free `-n`. Throws for an id that cannot
     /// name a file (`SafeRelativePath.PathError.notADocId`) before anything is
     /// written.
     @discardableResult
     public func keep(priorBytes: Data, priorSidecar: ResearchTableSidecar?, writtenBy: ResearchWriter?,
+                     replacedBy: ResearchWriter? = nil,
                      itemId: String, device: DeviceSlug, at date: Date) throws -> ResearchVersion {
         let fm = FileManager.default
         let folderURL = try itemFolderURL(itemId)
         try fm.createDirectory(at: folderURL, withIntermediateDirectories: true)
         sweepLeftovers(itemId: itemId, device: device)
 
-        let meta = Meta(savedAt: date, writtenBy: writtenBy,
+        let meta = Meta(savedAt: date, writtenBy: writtenBy, replacedBy: replacedBy,
                         contentHash: ContentHash.of(priorBytes), sidecar: priorSidecar)
         let metaStaging = folderURL.appendingPathComponent(".staging-\(UUID().uuidString).json") // local-path: a staging name minted here
         let csvStaging = folderURL.appendingPathComponent(".staging-\(UUID().uuidString).csv") // local-path: a staging name minted here
@@ -297,7 +309,8 @@ public struct ResearchVersionStore: Sendable {
                 }
                 throw error
             }
-            return ResearchVersion(itemId: itemId, name: name, savedAt: savedAt, writtenBy: writtenBy)
+            return ResearchVersion(itemId: itemId, name: name, savedAt: savedAt, writtenBy: writtenBy,
+                                   replacedBy: replacedBy)
         }
         throw KeepError.noFreeName(base)
     }
@@ -320,7 +333,8 @@ public struct ResearchVersionStore: Sendable {
             guard let parsed = Self.parse(name), let stamped = Self.stampDate(parsed.stamp),
                   let meta = try? readMeta(name, itemId: itemId) else { return nil }
             return (ResearchVersion(itemId: itemId, name: name,
-                                    savedAt: meta.savedAt ?? stamped, writtenBy: meta.writtenBy), parsed)
+                                    savedAt: meta.savedAt ?? stamped, writtenBy: meta.writtenBy,
+                                    replacedBy: meta.replacedBy), parsed)
         }
         .sorted { a, b in
             (a.0.savedAt, a.1.stamp, a.1.suffix, a.0.name) > (b.0.savedAt, b.1.stamp, b.1.suffix, b.0.name)
@@ -378,10 +392,15 @@ public struct ResearchVersionStore: Sendable {
     }
 
     /// **Removes `device`'s files of every item not in `liveItemIds`** — one
-    /// deleted for good; an item in the Trash is live — a `.json` whose
-    /// `.csv` never landed included, and the item's folder once nothing is
-    /// left in it. Another device's files are never touched (tripwire 17).
-    public func sweepOrphans(liveItemIds: Set<String>, device: DeviceSlug) {
+    /// deleted for good; an item in the Trash is live — but only from a
+    /// folder whose newest `device` file is older than `minimumAge` (the
+    /// Trash's expiry, passed by the caller): a younger one may belong to an
+    /// item whose trash entry is still on its way from another device. A
+    /// `.json` whose `.csv` never landed included, and the item's folder once
+    /// nothing is left in it. Another device's files are never touched
+    /// (tripwire 17).
+    public func sweepOrphans(liveItemIds: Set<String>, device: DeviceSlug,
+                             minimumAge: TimeInterval, now: Date = Date()) {
         guard let root = try? SafeRelativePath.resolve(Self.folder, under: projectURL),
               let entries = try? FileManager.default.contentsOfDirectory(
                 at: root, includingPropertiesForKeys: nil, options: [])
@@ -389,13 +408,42 @@ public struct ResearchVersionStore: Sendable {
         for entry in entries where !DotfileScan.isDotfile(entry) {
             let itemId = entry.lastPathComponent
             guard !liveItemIds.contains(itemId) else { continue }
-            let (csv, json) = contents(itemId: itemId)
-            for name in csv.union(json.keys) where Self.parse(name)?.isFrom(device) == true {
-                remove(name, itemId: itemId)
-            }
-            sweepLeftovers(itemId: itemId, device: device)
-            removeFolderIfEmpty(itemId: itemId)
+            guard let newest = newestFile(of: itemId, device: device),
+                  now.timeIntervalSince(newest) > minimumAge else { continue }
+            removeAll(of: itemId, device: device)
         }
+    }
+
+    /// **Removes `device`'s files of each item in `itemIds`** — items the
+    /// caller has just destroyed for good (Permanently Delete, Empty Trash) —
+    /// and each item's folder once nothing is left in it. Another device's
+    /// files are never touched (tripwire 17).
+    public func removeVersions(ofItems itemIds: Set<String>, device: DeviceSlug) {
+        for itemId in itemIds { removeAll(of: itemId, device: device) }
+    }
+
+    private func removeAll(of itemId: String, device: DeviceSlug) {
+        let (csv, json) = contents(itemId: itemId)
+        for name in csv.union(json.keys) where Self.parse(name)?.isFrom(device) == true {
+            remove(name, itemId: itemId)
+        }
+        sweepLeftovers(itemId: itemId, device: device)
+        removeFolderIfEmpty(itemId: itemId)
+    }
+
+    /// The newest modification date of `device`'s files in `itemId`'s
+    /// folder; nil when it has none.
+    private func newestFile(of itemId: String, device: DeviceSlug) -> Date? {
+        guard let folderURL = try? itemFolderURL(itemId),
+              let entries = try? FileManager.default.contentsOfDirectory(
+                at: folderURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [])
+        else { return nil }
+        return entries
+            .filter { !DotfileScan.isDotfile($0)
+                && Self.parse($0.deletingPathExtension().lastPathComponent)?.isFrom(device) == true }
+            .map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                ?? .distantFuture }
+            .max()
     }
 
     /// **What a crash mid-`keep` left in `itemId`'s folder**, once older than

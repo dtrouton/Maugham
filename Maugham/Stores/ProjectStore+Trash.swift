@@ -260,12 +260,16 @@ extension ProjectStore {
 
     /// **Every Research item id that still has a claim on its versions**: the
     /// manifest's, and every one in the Trash (a restore brings its versions
-    /// back; they live by id, so the Trash keeps them). `nil` when an entry
-    /// that should name a Research item cannot be read: the sweep then waits
-    /// rather than guess (an id it cannot see is an id it must not orphan).
+    /// back; they live by id, so the Trash keeps them). `nil` when `.trash/`
+    /// is there but won't list, or an entry that should name a Research item
+    /// cannot be read: the sweep then waits rather than guess (an id it
+    /// cannot see is an id it must not orphan).
     func liveResearchItemIds() async -> Set<String>? {
         var ids = Set(TreeWalk.collectIds(in: manifest.research))
-        for entry in (try? await trashStore.list()) ?? [] {
+        // The listing below reads an unlistable folder as empty; this one throws.
+        guard (try? await trashStore.entryFolderIds()) != nil,
+              let entries = try? await trashStore.list() else { return nil }
+        for entry in entries {
             switch try? restoreRoute(for: entry) {
             case .research(let item)?:
                 ids.formUnion(TreeWalk.collectIds(in: [item]))
@@ -278,20 +282,44 @@ extension ProjectStore {
         return ids
     }
 
-    /// **The orphan sweep for Research versions**: this device's files for
-    /// every item that is neither in Research nor in the Trash (deleted for
-    /// good: let-go, Empty Trash, the 30-day expiry). It runs after a
-    /// permanent delete, after Empty Trash, and at project open (stragglers,
-    /// and the expiry that happened while the app was closed). Another
-    /// device's files are never touched (tripwire 17): each device sweeps its
-    /// own, so a file that device wrote stays until it opens the project.
-    /// Derived files, not user content, so the removal is not the typed
-    /// mover's (tripwire 14).
-    func sweepResearchVersions() async {
+    /// **The open-time orphan sweep for Research versions**: this device's
+    /// files for every item that is neither in Research nor in the Trash
+    /// (stragglers, and the 30-day expiry that ran at this open) — but only a
+    /// folder whose newest own file is older than the Trash's expiry
+    /// (`TrashStore.expiry`): anything younger may have a trash entry still on
+    /// its way from another Mac. It waits when the Trash won't list
+    /// (`liveResearchItemIds`), and `ProjectStore.load` skips it over a
+    /// manifest restored from its shadow (which can lag). Another device's
+    /// files are never touched (tripwire 17). Derived files, not user
+    /// content, so the removal is not the typed mover's (tripwire 14).
+    func sweepResearchVersions(now: Date = Date()) async {
         guard let live = await liveResearchItemIds() else { return }
         let versions = ResearchVersionStore(projectURL: url)
         let device = DeviceIdentity.author.slug
-        await Task.detached { versions.sweepOrphans(liveItemIds: live, device: device) }.value
+        await Task.detached {
+            versions.sweepOrphans(liveItemIds: live, device: device, minimumAge: TrashStore.expiry, now: now)
+        }.value
+    }
+
+    /// The Research item ids trash entry `id` holds, read through its
+    /// restore route before a permanent delete destroys it; empty for an
+    /// entry that holds none or won't read.
+    private func researchItemIds(inTrashEntry id: String) async -> Set<String> {
+        guard let entry = try? await trashStore.entriesIncludingInternal().first(where: { $0.id == id }),
+              case .research(let item)? = try? restoreRoute(for: entry) else { return [] }
+        return Set(TreeWalk.collectIds(in: [item]))
+    }
+
+    /// **The versions of the Research items a permanent delete destroyed**,
+    /// this device's — only those ids, never a global diff (a trashed table
+    /// whose entry this Mac can't see yet keeps its history), and never an id
+    /// back in the manifest.
+    private func removeResearchVersions(ofDestroyed ids: Set<String>) async {
+        let gone = ids.subtracting(TreeWalk.collectIds(in: manifest.research))
+        guard !gone.isEmpty else { return }
+        let versions = ResearchVersionStore(projectURL: url)
+        let device = DeviceIdentity.author.slug
+        await Task.detached { versions.removeVersions(ofItems: gone, device: device) }.value
     }
 
     // MARK: - Per-tree restore
@@ -578,9 +606,10 @@ extension ProjectStore {
     /// reason rather than a silent nothing (RULING-40) — `restoreLastDeletion`
     /// finds the entry gone and refuses, saying so.
     public func permanentlyDeleteTrashEntry(id: String) async throws {
+        let researchIds = await researchItemIds(inTrashEntry: id)
         try await trashStore.permanentlyDelete(trashId: id)
         trashEntries = (try? await trashStore.list()) ?? trashEntries
-        await sweepResearchVersions()
+        await removeResearchVersions(ofDestroyed: researchIds)
     }
 
     /// Permanently delete everything in this project's trash.
@@ -600,15 +629,18 @@ extension ProjectStore {
     public func emptyTrash() async throws {
         let ids = try await trashStore.entryFolderIds()
         var undestroyed = 0
+        var destroyedResearchIds = Set<String>()
         for id in ids {
+            let researchIds = await researchItemIds(inTrashEntry: id)
             do {
                 try await trashStore.permanentlyDelete(trashId: id)
+                destroyedResearchIds.formUnion(researchIds)
             } catch {
                 undestroyed += 1
             }
         }
         trashEntries = (try? await trashStore.list()) ?? []
-        await sweepResearchVersions()
+        await removeResearchVersions(ofDestroyed: destroyedResearchIds)
         guard undestroyed == 0 else {
             throw ProjectStoreError.trashNotEmptied(undestroyed: undestroyed, total: ids.count)
         }
