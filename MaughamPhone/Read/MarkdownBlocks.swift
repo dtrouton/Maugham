@@ -1,8 +1,9 @@
 import Foundation
 import MaughamCore
 
-/// View-layer block currency for the reader, adapted from the shared
-/// `MarkdownBlockParser` (MaughamCore) so paragraph breaks, headings, lists,
+/// View-layer block currency for the reader, adapted from Core's
+/// `ManuscriptBlocks` (the report forms, over the shared
+/// `MarkdownBlockParser`) so paragraph breaks, headings, lists,
 /// fences, tables, blockquotes, and thematic breaks all survive.
 ///
 /// `AttributedString(markdown:)` alone is unsuitable for a reader: with

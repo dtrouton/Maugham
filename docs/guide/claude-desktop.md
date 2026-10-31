@@ -29,6 +29,7 @@ Read:
 - Read documents (live in-memory — Claude sees text you haven't saved yet)
 - Search across manuscript
 - Discover research items by enumeration or title
+- List the book's figures (number, caption, whether each is used, in Research, or changed) and read one: a table's cells with their values, formulas and formats, or a picture, cropped on request. Claude reads figures and never changes them
 - List the reference graph (wiki links + linked research backrefs, including a collection piece's own research)
 - Read your planning canvas — every card, region and line, and what each has already produced
 - Read your session stats ("how much have I written this week?")

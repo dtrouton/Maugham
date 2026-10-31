@@ -90,4 +90,10 @@ final class MarkdownBlocksTests: XCTestCase {
         XCTAssertEqual(MarkdownBlocks.parse(md),
                        [.table(header: ["a", "b"], rows: [["1", "2"]]), .caption("Totals")])
     }
+
+    func test_footnoteDefinitions_areOneParagraphEach() {
+        let md = "[^1]: First note.\n[^2]: Second *note*."
+        XCTAssertEqual(MarkdownBlocks.parse(md),
+                       [.paragraph("[^1]: First note."), .paragraph("[^2]: Second *note*.")])
+    }
 }

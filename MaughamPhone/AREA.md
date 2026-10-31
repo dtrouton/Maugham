@@ -122,6 +122,7 @@ Every source file in `MaughamPhone/` appears once.
 - **Project scope only, both arms**: a document-scoped statement and a Collection piece's own note are somebody else's; per-piece intent display is deferred.
 - **The Research exclusion follows the ROW, not the note's existence**: an adopted project whose note survived keeps it visible in Research, because it is drawn nowhere else.
 - **The phone shows a statement and never edits one.**
+- **A figure line is a read-only card**: `PhoneFigureBook` computes through Core and `FigureCardView` draws it; the phone shows no number and no changed banner, and it formats numbers in the book's language (`BookLanguage`).
 
 ### Annotations
 - **`store.projects` holds ALL statuses**; mode filtering is a pure view step, and the leaf and middle views re-slice from the store by id, so mid-stack counts stay fresh after a resolve.
