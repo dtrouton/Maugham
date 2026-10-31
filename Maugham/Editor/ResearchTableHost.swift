@@ -618,6 +618,7 @@ final class ResearchTableHost: FigureGridHost {
                 "\(path, privacy: .public)'s sidecar was not written: \(error.localizedDescription, privacy: .public)")
         }
         store.invalidateFigureCards()
+        store.researchVersionsRevision += 1
         Self.wroteForTesting?(text)
         return true
     }

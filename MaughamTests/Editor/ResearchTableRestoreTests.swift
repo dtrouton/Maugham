@@ -163,6 +163,38 @@ final class ResearchTableRestoreTests: XCTestCase {
             itemId: item.id, device: DeviceIdentity.author.slug, at: date)
     }
 
+    // MARK: - The inspector's list refreshes
+
+    /// **The inspector's version list reloads after a save and a restore**: the
+    /// store's `researchVersionsRevision` (what the section's `.task` keys on)
+    /// moves with each save that lands, and the listing it triggers is the
+    /// model's rows, newest first. A view-only share refuses the restore.
+    func test_theVersionListRefreshesAfterASaveAndARestore_andAViewOnlyShareRefuses() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let host = try await open(item, store, clock: Clock())
+        let start = store.researchVersionsRevision
+        try await writerSaves(20, host)
+        await store.releaseResearchTable(host)
+        XCTAssertGreaterThan(store.researchVersionsRevision, start, "a save that lands moves the revision")
+        let listed = await ResearchVersionsModel.load(projectURL: projectURL, itemId: item.id)
+        let rows = ResearchVersionsModel.rows(from: listed, viewOnly: false)
+        XCTAssertEqual(rows.count, 1)
+
+        let afterSave = store.researchVersionsRevision
+        do {
+            try await store.restoreResearchTable(itemId: item.id, to: rows[0].version, shareIsReadOnly: true)
+            XCTFail("a view-only share refuses the restore")
+        } catch {
+            XCTAssertEqual(error as? ResearchTableHost.Refused, ResearchTableHost.Refused(reason: .viewOnlyShare))
+        }
+        XCTAssertEqual(store.researchVersionsRevision, afterSave, "a refusal writes nothing")
+        try await store.restoreResearchTable(itemId: item.id, to: rows[0].version, shareIsReadOnly: false)
+        XCTAssertGreaterThan(store.researchVersionsRevision, afterSave, "a restore is a save: the list reloads")
+        let reloaded = await ResearchVersionsModel.load(projectURL: projectURL, itemId: item.id)
+        XCTAssertEqual(reloaded.count, 2)
+    }
+
     // MARK: - With no grid open
 
     /// **Restore with no grid open**: the store opens the table for the

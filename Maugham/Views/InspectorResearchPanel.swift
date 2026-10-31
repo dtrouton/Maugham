@@ -11,6 +11,10 @@ struct InspectorResearchPanel: View {
     var figureTree: BinderTreeSectionsState? = nil
     /// The window refuses figure writes (`FigureActions.windowRefusesWrites`).
     var figureWritesRefused: Bool = false
+    /// The window's store and share lock, for a Research table's version list
+    /// (nil store, or a view-only share, shows no list).
+    var documentStore: DocumentStore? = nil
+    var shareIsReadOnly: Bool = false
 
     /// What the verb toward Figures last said (a refusal, the cells kept as
     /// text); cleared when the item changes or the verb flips.
@@ -72,6 +76,11 @@ struct InspectorResearchPanel: View {
                             .foregroundStyle(figureMessage.isRefusal ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+                if item.kind == .table, item.type == .asset, let documentStore, !shareIsReadOnly {
+                    Divider()
+                    ResearchVersionsSection(store: documentStore, itemId: item.id, shareIsReadOnly: shareIsReadOnly)
+                        .id(item.id)
                 }
                 if item.type != .group {
                     Divider()
